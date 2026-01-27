@@ -1,16 +1,19 @@
-import bcrypt from 'bcryptjs';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { supabase } from '../supabase/config';
+import bcrypt from 'bcryptjs';
 
 function Login() {
+  console.log('🔐 Login component rendering...');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  
+  console.log('Supabase config:', { url: import.meta.env.VITE_SUPABASE_URL ? 'Set' : 'Missing', key: import.meta.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'Missing' });
 
   const handleLogin = async (e) => {
     e.preventDefault();

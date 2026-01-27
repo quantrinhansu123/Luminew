@@ -57,6 +57,7 @@ import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
+  console.log('📱 App component rendering...');
   return (
     <Router>
       <ScrollToTop />

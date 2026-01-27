@@ -697,30 +697,6 @@ function BaoCaoChiTiet() {
                             <Settings className="w-4 h-4" />
                             Cài đặt cột
                         </button>
-
-                        {/* Export Button */}
-                        <button
-                            onClick={handleExportExcel}
-                            style={{ background: '#20744a' }} // Excel Green
-                            className="px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2 hover:opacity-90"
-                        >
-                            <Download className="w-4 h-4" />
-                            Xuất Excel
-                        </button>
-
-                        <label
-                            style={{ background: '#2b579a' }} // Import Blue
-                            className="px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2 hover:opacity-90 cursor-pointer"
-                        >
-                            <Upload className="w-4 h-4" />
-                            Nhập Excel
-                            <input
-                                type="file"
-                                onChange={handleImportExcel}
-                                accept=".xlsx, .xls"
-                                style={{ display: 'none' }}
-                            />
-                        </label>
                     </div>
                 </div>
 
