@@ -1,3 +1,5 @@
+// Columns to always hide
+const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 
 import { ArcElement, BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Title, Tooltip } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -902,6 +904,21 @@ export default function BaoCaoVanDon() {
                             const regionData = filteredDetailData.filter(r => (r["Team"] || "").toLowerCase().includes(regionLabel.toLowerCase() === 'hcm' ? 'hcm' : 'hà nội'));
                             if (regionData.length === 0) return null;
 
+                            // Define columns for detail table, filter out hidden columns
+                            const detailColumns = [
+                                { key: "Mã đơn hàng", label: "Mã đơn" },
+                                { key: "Ngày lên đơn", label: "Ngày lên đơn" },
+                                { key: "Name*", label: "Tên khách hàng" },
+                                { key: "Phone*", label: "SĐT" },
+                                { key: "Mặt hàng", label: "Mặt hàng" },
+                                { key: "Tổng tiền VNĐ", label: "Tổng tiền VNĐ" },
+                                { key: "NV Vận đơn", label: "NV Vận đơn" },
+                                { key: "Đơn vị vận chuyển", label: "Đơn vị vận chuyển" },
+                                { key: "Trạng thái giao hàng NB", label: "Trạng thái giao hàng NB" },
+                                { key: "Trạng thái thu tiền", label: "Trạng thái thu tiền" },
+                                { key: "Kết quả check", label: "Kết quả check" }
+                            ].filter(col => !HIDDEN_COLUMNS.includes(col.label));
+
                             return (
                                 <div className="bcvd-region-container" key={regionLabel}>
                                     <h3 className="bcvd-region-header">{regionLabel === 'HCM' ? 'Hồ Chí Minh' : 'Hà Nội'}</h3>
@@ -909,33 +926,21 @@ export default function BaoCaoVanDon() {
                                         <table className="bcvd-data-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Mã đơn</th>
-                                                    <th>Ngày lên đơn</th>
-                                                    <th>Tên khách hàng</th>
-                                                    <th>SĐT</th>
-                                                    <th>Mặt hàng</th>
-                                                    <th>Tổng tiền VNĐ</th>
-                                                    <th>NV Vận đơn</th>
-                                                    <th>Đơn vị vận chuyển</th>
-                                                    <th>Trạng thái giao hàng NB</th>
-                                                    <th>Trạng thái thu tiền</th>
-                                                    <th>Kết quả check</th>
+                                                    {detailColumns.map(col => (
+                                                        <th key={col.key}>{col.label}</th>
+                                                    ))}
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {regionData.map((row, idx) => (
                                                     <tr key={idx}>
-                                                        <td>{row["Mã đơn hàng"]}</td>
-                                                        <td>{row["Ngày lên đơn"] || row["Thời gian lên đơn"]}</td>
-                                                        <td>{row["Name*"]}</td>
-                                                        <td>{row["Phone*"]}</td>
-                                                        <td>{row["Mặt hàng"]}</td>
-                                                        <td>{formatCurrency(row["Tổng tiền VNĐ"])}</td>
-                                                        <td>{row["NV Vận đơn"] || row["NV_Vận_đơn"]}</td>
-                                                        <td>{row["Đơn vị vận chuyển"] || row["Đơn_vị_vận_chuyển"]}</td>
-                                                        <td>{row["Trạng thái giao hàng NB"]}</td>
-                                                        <td>{row["Trạng thái thu tiền"]}</td>
-                                                        <td>{row["Kết quả check"]}</td>
+                                                        {detailColumns.map(col => (
+                                                            <td key={col.key}>
+                                                                {col.key === "Tổng tiền VNĐ"
+                                                                    ? formatCurrency(row[col.key])
+                                                                    : row[col.key] || (col.key === "Ngày lên đơn" ? row["Thời gian lên đơn"] : "-")}
+                                                            </td>
+                                                        ))}
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -996,18 +1001,31 @@ export default function BaoCaoVanDon() {
                                         const isCancel = status.includes("huỷ") || status.includes("hủy") || status.includes("cancel");
                                         const statusColor = isCancel ? '#8e44ad' : '#e74c3c';
 
+                                        // Define columns for refund table, filter out hidden columns
+                                        const refundColumns = [
+                                            { key: "Mã đơn hàng", label: "Mã đơn" },
+                                            { key: "Ngày lên đơn", label: "Ngày lên đơn" },
+                                            { key: "Name*", label: "Tên khách hàng" },
+                                            { key: "Phone*", label: "SĐT" },
+                                            { key: "Mặt hàng", label: "Mặt hàng" },
+                                            { key: "Tổng tiền VNĐ", label: "Tổng tiền VNĐ" },
+                                            { key: "NV Vận đơn", label: "NV Vận đơn" },
+                                            { key: "Đơn vị vận chuyển", label: "Đơn vị vận chuyển" },
+                                            { key: "Trạng thái giao hàng NB", label: "Trạng thái giao hàng NB" },
+                                            { key: "Lý do", label: "Lý do / Ghi chú" }
+                                        ].filter(col => !HIDDEN_COLUMNS.includes(col.label));
+
                                         return (
                                             <tr key={idx}>
-                                                <td>{row["Mã đơn hàng"]}</td>
-                                                <td>{row["Ngày lên đơn"] || row["Thời gian lên đơn"]}</td>
-                                                <td>{row["Name*"]}</td>
-                                                <td>{row["Phone*"]}</td>
-                                                <td>{row["Mặt hàng"]}</td>
-                                                <td>{formatCurrency(row["Tổng tiền VNĐ"])}</td>
-                                                <td>{row["NV Vận đơn"] || row["NV_Vận_đơn"]}</td>
-                                                <td>{row["Đơn vị vận chuyển"] || row["Đơn_vị_vận_chuyển"]}</td>
-                                                <td style={{ color: statusColor, fontWeight: 'bold' }}>{row["Trạng thái giao hàng NB"]}</td>
-                                                <td>{row["Lý do"] || row["Ghi chú"] || "-"}</td>
+                                                {refundColumns.map(col => (
+                                                    <td key={col.key} style={col.key === "Trạng thái giao hàng NB" ? { color: statusColor, fontWeight: 'bold' } : {}}>
+                                                        {col.key === "Tổng tiền VNĐ"
+                                                            ? formatCurrency(row[col.key])
+                                                            : col.key === "Lý do"
+                                                                ? (row["Lý do"] || row["Ghi chú"] || "-")
+                                                                : row[col.key] || (col.key === "Ngày lên đơn" ? row["Thời gian lên đơn"] : "-")}
+                                                    </td>
+                                                ))}
                                             </tr>
                                         );
                                     })}

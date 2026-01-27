@@ -60,23 +60,30 @@ function ColumnSettingsModal({
               Chọn các cột để hiển thị trong bảng ({Object.values(visibleColumns).filter(v => v === true).length} / {allColumns.length} đã chọn):
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {allColumns.map((column) => (
-                <label
-                  key={column}
-                  className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-200"
-                >
-                  <input
-                    type="checkbox"
-                    checked={visibleColumns[column] === true}
-                    onChange={() => onToggleColumn(column)}
-                    className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021] focus:ring-2"
-                  />
-                  <span className="text-sm text-gray-700 flex-1">{column}</span>
-                  {defaultColumns.includes(column) && (
-                    <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Mặc định</span>
-                  )}
-                </label>
-              ))}
+              {allColumns
+                .filter(
+                  (column) =>
+                    column !== 'Thuê TK' &&
+                    column !== 'Thời gian cutoff' &&
+                    column !== 'Tiền Hàng'
+                )
+                .map((column) => (
+                  <label
+                    key={column}
+                    className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-200"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns[column] === true}
+                      onChange={() => onToggleColumn(column)}
+                      className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021] focus:ring-2"
+                    />
+                    <span className="text-sm text-gray-700 flex-1">{column}</span>
+                    {defaultColumns.includes(column) && (
+                      <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Mặc định</span>
+                    )}
+                  </label>
+                ))}
             </div>
           </div>
         </div>

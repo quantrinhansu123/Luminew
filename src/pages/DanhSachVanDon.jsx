@@ -1,3 +1,5 @@
+// Columns to always hide
+const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 import { Calendar, Edit, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
@@ -361,30 +363,44 @@ export default function DanhSachVanDon() {
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
                                 <tr>
-                                    <th className="px-4 py-3 whitespace-nowrap">ID</th>
-                                    <th className="px-4 py-3 whitespace-nowrap min-w-[200px]">Họ và tên</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">Trạng thái chia</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">Chi nhánh</th>
-                                    <th className="px-4 py-3 whitespace-nowrap">Người sửa hộ</th>
-                                    <th className="px-4 py-3 whitespace-nowrap text-right">Số đơn</th>
+                                    {/* Only render columns not in HIDDEN_COLUMNS */}
+                                    {!HIDDEN_COLUMNS.includes("ID") && <th className="px-4 py-3 whitespace-nowrap">ID</th>}
+                                    {!HIDDEN_COLUMNS.includes("Họ và tên") && <th className="px-4 py-3 whitespace-nowrap min-w-[200px]">Họ và tên</th>}
+                                    {!HIDDEN_COLUMNS.includes("Trạng thái chia") && <th className="px-4 py-3 whitespace-nowrap">Trạng thái chia</th>}
+                                    {!HIDDEN_COLUMNS.includes("Chi nhánh") && <th className="px-4 py-3 whitespace-nowrap">Chi nhánh</th>}
+                                    {!HIDDEN_COLUMNS.includes("Người sửa hộ") && <th className="px-4 py-3 whitespace-nowrap">Người sửa hộ</th>}
+                                    {!HIDDEN_COLUMNS.includes("Số đơn") && <th className="px-4 py-3 whitespace-nowrap text-right">Số đơn</th>}
                                     <th className="px-4 py-3 whitespace-nowrap text-center">Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredData.map((item) => (
                                     <tr key={item.id} className="hover:bg-gray-50">
-                                        <td className="px-4 py-3 text-gray-500 font-mono text-xs">
-                                            {item.id.substring(0, 8)}...
-                                        </td>
-                                        <td className="px-4 py-3 font-medium">{item.ho_va_ten || '-'}</td>
-                                        <td className="px-4 py-3">{item.trang_thai_chia || '-'}</td>
-                                        <td className="px-4 py-3">{item.chi_nhanh || '-'}</td>
-                                        <td className="px-4 py-3">
-                                            {item.nguoi_sua_ho_parsed && item.nguoi_sua_ho_parsed.length > 0 
-                                                ? item.nguoi_sua_ho_parsed.join(', ') 
-                                                : '-'}
-                                        </td>
-                                        <td className="px-4 py-3 text-right font-medium">{item.so_don || 0}</td>
+                                        {/* Only render columns not in HIDDEN_COLUMNS */}
+                                        {!HIDDEN_COLUMNS.includes("ID") && (
+                                            <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                                                {item.id.substring(0, 8)}...
+                                            </td>
+                                        )}
+                                        {!HIDDEN_COLUMNS.includes("Họ và tên") && (
+                                            <td className="px-4 py-3 font-medium">{item.ho_va_ten || '-'}</td>
+                                        )}
+                                        {!HIDDEN_COLUMNS.includes("Trạng thái chia") && (
+                                            <td className="px-4 py-3">{item.trang_thai_chia || '-'}</td>
+                                        )}
+                                        {!HIDDEN_COLUMNS.includes("Chi nhánh") && (
+                                            <td className="px-4 py-3">{item.chi_nhanh || '-'}</td>
+                                        )}
+                                        {!HIDDEN_COLUMNS.includes("Người sửa hộ") && (
+                                            <td className="px-4 py-3">
+                                                {item.nguoi_sua_ho_parsed && item.nguoi_sua_ho_parsed.length > 0
+                                                    ? item.nguoi_sua_ho_parsed.join(', ')
+                                                    : '-'}
+                                            </td>
+                                        )}
+                                        {!HIDDEN_COLUMNS.includes("Số đơn") && (
+                                            <td className="px-4 py-3 text-right font-medium">{item.so_don || 0}</td>
+                                        )}
                                         <td className="px-4 py-3">
                                             <div className="flex items-center justify-center gap-2">
                                                 <button

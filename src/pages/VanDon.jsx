@@ -7,6 +7,7 @@ import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
 import * as rbacService from '../services/rbacService';
 import '../styles/selection.css';
+
 import {
   BILL_LADING_COLUMNS, COLUMN_MAPPING,
   DEFAULT_BILL_LADING_COLUMNS,
@@ -17,6 +18,9 @@ import {
   PRIMARY_KEY_COLUMN,
   TEAM_COLUMN_NAME
 } from '../types';
+
+// Columns to always hide (both in table and column settings)
+const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 
 // Lazy load heavy components
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
@@ -460,7 +464,11 @@ function VanDon() {
   }, [copiedSelection]);
 
   // --- Filtering Logic ---
-  const allColumns = viewMode === 'ORDER_MANAGEMENT' ? ORDER_MGMT_COLUMNS : BILL_LADING_COLUMNS;
+  // Filter out hidden columns from allColumns
+  const allColumns = useMemo(() => {
+    const base = viewMode === 'ORDER_MANAGEMENT' ? ORDER_MGMT_COLUMNS : BILL_LADING_COLUMNS;
+    return base.filter(col => !HIDDEN_COLUMNS.includes(col));
+  }, [viewMode]);
   const currentColumns = useMemo(() => {
     return allColumns.filter(col => visibleColumns[col] === true);
   }, [allColumns, visibleColumns]);
@@ -1717,11 +1725,11 @@ function VanDon() {
         }}
         onResetDefault={() => {
           const defaultCols = {};
-          const defaults = viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS;
+          const defaults = viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS.filter(col => !HIDDEN_COLUMNS.includes(col));
           defaults.forEach(col => { defaultCols[col] = true; });
           setVisibleColumns(defaultCols);
         }}
-        defaultColumns={viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS}
+        defaultColumns={viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS.filter(col => !HIDDEN_COLUMNS.includes(col))}
       />
     </div>
   );
