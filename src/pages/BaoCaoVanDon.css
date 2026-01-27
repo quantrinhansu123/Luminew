@@ -1,0 +1,630 @@
+/* --- CÀI ĐẶT CHUNG --- */
+:root {
+    --primary-color: #2d7c2d;
+    /* Màu xanh lá cây đậm chủ đạo */
+    --primary-light: #4CAF50;
+    /* Màu xanh lá cây sáng hơn */
+    --primary-dark: #1b4b1b;
+    --secondary-color: #FFC107;
+    --text-dark: #333;
+    --text-medium: #555;
+    --bg-light: #f4f4f4;
+    --border-color: #e0e0e0;
+    --font-main: 'Roboto', Arial, sans-serif;
+}
+
+.bcvd-container {
+    font-family: var(--font-main);
+    padding: 20px;
+    background-color: var(--bg-light);
+    color: var(--text-dark);
+    line-height: 1.6;
+}
+
+/* --- TABS --- */
+.bcvd-tab-container {
+    display: flex;
+    background-color: #fff;
+    border-radius: 8px 8px 0 0;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+    border-bottom: 3px solid var(--primary-color);
+}
+
+.bcvd-tab-btn {
+    padding: 15px 25px;
+    cursor: pointer;
+    border: none;
+    background-color: transparent;
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--text-medium);
+    transition: all 0.3s ease;
+    position: relative;
+    outline: none;
+}
+
+.bcvd-tab-btn::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 3px;
+    background-color: var(--primary-dark);
+    transition: width 0.3s ease;
+}
+
+.bcvd-tab-btn.active {
+    color: var(--primary-dark);
+}
+
+.bcvd-tab-btn.active::after {
+    width: 80%;
+}
+
+
+.bcvd-tab-content {
+    /* display: none; Managed by React state */
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    border-top: none;
+    animation: fadeIn 0.5s;
+    background-color: #fff;
+    border-radius: 0 0 8px 8px;
+}
+
+/* .tab-content.active {
+    display: block;
+} */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* --- STYLES CHUNG CHO BẢNG & CĂN LỀ --- */
+.bcvd-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    margin-top: 20px;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.bcvd-table th,
+.bcvd-table td {
+    border: 1px solid var(--border-color);
+    padding: 12px 15px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.bcvd-table th {
+    text-align: center !important;
+    font-weight: 500;
+}
+
+.text-left {
+    text-align: left !important;
+}
+
+.bcvd-total-row {
+    background-color: #fff176 !important;
+    color: #1a237e !important;
+    font-size: 1.2em !important;
+    font-weight: 900 !important;
+    border-top: 3px solid var(--primary-color) !important;
+    border-bottom: none;
+}
+
+/* === TAB VẬN ĐƠN === */
+/* #VanDonReport {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f5f5f5;
+    color: #333;
+} */
+
+.bcvd-h2 {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #2c3e50;
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+.bcvd-controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    align-items: center;
+    background: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    /* Adjusted z-index */
+    flex-wrap: wrap;
+    gap: 15px;
+    transition: box-shadow 0.3s ease;
+}
+
+.bcvd-controls .left-controls,
+.bcvd-controls .right-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.bcvd-controls .date-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bcvd-btn {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    font-size: 14px;
+    /* Adjusted font size */
+    color: white;
+    background-color: #27ae60;
+    transition: all 0.2s ease-in-out;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+}
+
+.bcvd-btn:hover {
+    background-color: #229954;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.bcvd-clear-filter-btn {
+    background-color: #f39c12 !important;
+}
+
+.bcvd-clear-filter-btn:hover {
+    background-color: #e67e22 !important;
+}
+
+.bcvd-controls .filter-select,
+.bcvd-controls input[type="date"],
+.bcvd-controls input[type="text"],
+.bcvd-controls select {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 14px;
+    background-color: white;
+}
+
+.bcvd-table-wrapper {
+    position: relative;
+    overflow: auto;
+    max-height: 75vh;
+    background: white;
+    border-radius: 5px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    margin-top: 20px;
+}
+
+.bcvd-data-table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 1200px;
+    /* Reduced min-width */
+    font-size: 12px;
+    /* Adjusted font size */
+    font-weight: 500;
+    box-shadow: none;
+}
+
+.bcvd-data-table th,
+.bcvd-data-table td {
+    border: 1px solid #e0e0e0;
+    padding: 8px 10px;
+    white-space: nowrap;
+    background-color: white;
+    text-align: left !important;
+}
+
+.bcvd-data-table th {
+    background-color: #2c3e50;
+    color: white;
+    font-weight: 600;
+    vertical-align: middle;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    text-align: center !important;
+}
+
+.bcvd-no-data {
+    text-align: center;
+    padding: 20px;
+    color: #7f8c8d;
+    font-style: italic;
+    font-size: 16px;
+}
+
+.bcvd-charts-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.bcvd-chart-wrapper {
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    height: 350px;
+    /* Fixed height for charts */
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    /* Ensure header and chart stack vertically */
+}
+
+/* FIX OVERFLOW: Container for the chart canvas taking remaining space */
+.bcvd-chart-content {
+    flex: 1;
+    min-height: 0;
+    /* Crucial for flex child scroll/overflow handling */
+    position: relative;
+    /* Chart.js needs relative parent */
+    width: 100%;
+}
+
+.bcvd-chart-wrapper h3 {
+    text-align: center;
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #34495e;
+    font-size: 16px;
+    font-weight: bold;
+    flex-shrink: 0;
+    /* Prevent header from shrinking */
+}
+
+.bcvd-summary-table {
+    width: 100%;
+    margin-bottom: 20px;
+    background: white;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    font-size: 13px;
+}
+
+.bcvd-summary-table th {
+    background-color: #2c3e50;
+    position: sticky;
+    top: 0;
+    color: white;
+    padding: 8px;
+    z-index: 20;
+}
+
+.bcvd-summary-table td {
+    text-align: center !important;
+    padding: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.bcvd-text-positive {
+    color: #27ae60;
+    font-weight: bold;
+}
+
+.bcvd-text-negative {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+.bcvd-summary-staff-header td {
+    background-color: #ecf0f1 !important;
+    font-weight: bold;
+    text-align: left !important;
+    color: #2c3e50;
+}
+
+.bcvd-summary-staff-total {
+    background-color: #fff9c4 !important;
+    font-size: 1.1em !important;
+    font-weight: 700 !important;
+}
+
+.bcvd-summary-grand-total {
+    font-size: 1.25em !important;
+    background-color: #fff176 !important;
+    color: #1a237e !important;
+    font-weight: 900 !important;
+}
+
+/* Custom Scrollbar */
+.bcvd-table-wrapper::-webkit-scrollbar {
+    -webkit-appearance: none;
+    height: 12px;
+    width: 12px;
+}
+
+.bcvd-table-wrapper::-webkit-scrollbar-thumb {
+    border-radius: 5px;
+    background-color: #27ae60;
+    border: 2px solid #f5f5f5;
+}
+
+.bcvd-table-wrapper::-webkit-scrollbar-thumb:hover {
+    background-color: #229954;
+}
+
+/* Multi Select */
+.bcvd-multi-select-container {
+    position: relative;
+    display: inline-block;
+}
+
+.bcvd-multi-select-btn {
+    background-color: white;
+    color: #333;
+    border: 1px solid #ccc;
+    font-size: 14px;
+    padding: 8px 12px;
+    text-align: left;
+    width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.bcvd-checkbox-dropdown {
+    display: none;
+    position: absolute;
+    background-color: #f9f9f9;
+    min-width: 200px;
+    box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+    z-index: 101;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.bcvd-checkbox-dropdown.show {
+    display: block;
+}
+
+.bcvd-checkbox-dropdown label {
+    display: block;
+    padding: 5px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+}
+
+.bcvd-checkbox-dropdown label:hover {
+    background-color: #f1f1f1;
+}
+
+.bcvd-checkbox-dropdown label input {
+    margin-right: 10px;
+}
+
+.bcvd-sortable-header {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 20px !important;
+}
+
+.bcvd-sortable-header::after {
+    content: ' ↕';
+    /* Using simple char equivalent to fontawesome */
+    opacity: 0.5;
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 10px;
+}
+
+.bcvd-sortable-header.sorted-desc::after {
+    content: ' ▼';
+    opacity: 1;
+    color: white;
+}
+
+.bcvd-sortable-header.sorted-asc::after {
+    content: ' ▲';
+    opacity: 1;
+    color: white;
+}
+
+/* Loading Overlay - handled by React state, but keeping style for internal component loading */
+.bcvd-loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 50;
+    backdrop-filter: blur(2px);
+}
+
+.bcvd-loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* --- TAB CHI TIẾT ---*/
+.bcvd-summary-bar {
+    background-color: #e8f5e9;
+    padding: 15px;
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    margin-top: 20px;
+    border-left: 5px solid var(--primary-color);
+}
+
+.bcvd-summary-item {
+    text-align: center;
+}
+
+.bcvd-summary-item .label {
+    font-size: 16px;
+    color: var(--text-medium);
+}
+
+.bcvd-summary-item .value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--primary-dark);
+}
+
+.bcvd-region-container {
+    margin-top: 25px;
+}
+
+
+.bcvd-region-header {
+    font-size: 22px;
+    color: var(--primary-dark);
+    margin-bottom: 10px;
+    border-bottom: 2px solid var(--primary-light);
+    padding-bottom: 5px;
+}
+
+/* --- MODAL --- */
+.bcvd-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.bcvd-modal-container {
+    background-color: white;
+    width: 90%;
+    max-width: 1200px;
+    height: 85vh;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.bcvd-modal-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--primary-color);
+    color: white;
+    border-radius: 8px 8px 0 0;
+}
+
+.bcvd-modal-title {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.bcvd-modal-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.bcvd-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.bcvd-refund-section {
+    background-color: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+    border-left: 5px solid #e74c3c;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.bcvd-refund-info {
+    font-size: 16px;
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+.bcvd-refund-btn {
+    background-color: #e74c3c;
+    color: white;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.bcvd-refund-btn:hover {
+    background-color: #c0392b;
+}

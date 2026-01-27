@@ -1,0 +1,200 @@
+/* Selection styling - Google Sheets style */
+
+/* Performance optimizations */
+table {
+  /* Prevent text selection lag during mouse drag */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  
+  /* Enable GPU acceleration for smoother rendering */
+  transform: translateZ(0);
+  will-change: auto;
+}
+
+/* Allow text selection in input fields */
+table input,
+table select,
+table textarea {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* Optimize cell rendering */
+td, th {
+  /* Use contain for better rendering performance */
+  contain: layout style paint;
+  
+  /* Prevent layout shifts */
+  box-sizing: border-box;
+}
+
+/* Selection border classes */
+.selection-border-top {
+  box-shadow: inset 0 2px 0 0 #1a73e8;
+}
+
+.selection-border-bottom {
+  box-shadow: inset 0 -2px 0 0 #1a73e8;
+}
+
+.selection-border-left {
+  box-shadow: inset 2px 0 0 0 #1a73e8;
+}
+
+.selection-border-right {
+  box-shadow: inset -2px 0 0 0 #1a73e8;
+}
+
+/* Combined borders using multiple box-shadows */
+.selection-border-top.selection-border-left {
+  box-shadow: inset 0 2px 0 0 #1a73e8, inset 2px 0 0 0 #1a73e8;
+}
+
+.selection-border-top.selection-border-right {
+  box-shadow: inset 0 2px 0 0 #1a73e8, inset -2px 0 0 0 #1a73e8;
+}
+
+.selection-border-bottom.selection-border-left {
+  box-shadow: inset 0 -2px 0 0 #1a73e8, inset 2px 0 0 0 #1a73e8;
+}
+
+.selection-border-bottom.selection-border-right {
+  box-shadow: inset 0 -2px 0 0 #1a73e8, inset -2px 0 0 0 #1a73e8;
+}
+
+.selection-border-top.selection-border-bottom {
+  box-shadow: inset 0 2px 0 0 #1a73e8, inset 0 -2px 0 0 #1a73e8;
+}
+
+.selection-border-left.selection-border-right {
+  box-shadow: inset 2px 0 0 0 #1a73e8, inset -2px 0 0 0 #1a73e8;
+}
+
+.selection-border-top.selection-border-left.selection-border-right {
+  box-shadow: inset 0 2px 0 0 #1a73e8, inset 2px 0 0 0 #1a73e8, inset -2px 0 0 0 #1a73e8;
+}
+
+.selection-border-bottom.selection-border-left.selection-border-right {
+  box-shadow: inset 0 -2px 0 0 #1a73e8, inset 2px 0 0 0 #1a73e8, inset -2px 0 0 0 #1a73e8;
+}
+
+.selection-border-top.selection-border-bottom.selection-border-left {
+  box-shadow: inset 0 2px 0 0 #1a73e8, inset 0 -2px 0 0 #1a73e8, inset 2px 0 0 0 #1a73e8;
+}
+
+.selection-border-top.selection-border-bottom.selection-border-right {
+  box-shadow: inset 0 2px 0 0 #1a73e8, inset 0 -2px 0 0 #1a73e8, inset -2px 0 0 0 #1a73e8;
+}
+
+.selection-border-top.selection-border-bottom.selection-border-left.selection-border-right {
+  box-shadow: inset 0 2px 0 0 #1a73e8, inset 0 -2px 0 0 #1a73e8, inset 2px 0 0 0 #1a73e8, inset -2px 0 0 0 #1a73e8;
+}
+
+/* Copied region - simple dashed border for performance */
+.copied-border-top {
+  border-top: 2px dashed #1a73e8 !important;
+}
+
+.copied-border-bottom {
+  border-bottom: 2px dashed #1a73e8 !important;
+}
+
+.copied-border-left {
+  border-left: 2px dashed #1a73e8 !important;
+}
+
+.copied-border-right {
+  border-right: 2px dashed #1a73e8 !important;
+}
+
+/* Selection summary bar */
+.selection-summary-bar {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(26, 115, 232, 0.4);
+  font-size: 13px;
+  z-index: 1000;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  animation: slide-up 0.2s ease-out;
+}
+
+.selection-summary-bar .summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.selection-summary-bar .summary-label {
+  font-size: 10px;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.selection-summary-bar .summary-value {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.selection-summary-bar .divider {
+  width: 1px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Keyboard shortcuts hint */
+.shortcuts-hint {
+  position: fixed;
+  bottom: 140px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  z-index: 999;
+  display: flex;
+  gap: 12px;
+}
+
+.shortcuts-hint kbd {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+/* Cell hover effect during selection */
+td:hover {
+  cursor: cell;
+}
+
+/* Active cell indicator */
+.cell-active {
+  outline: 2px solid #1a73e8 !important;
+  outline-offset: -2px;
+  z-index: 5;
+}

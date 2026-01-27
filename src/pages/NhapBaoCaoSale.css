@@ -1,0 +1,258 @@
+/* Styles for Báo Cáo Sales Form */
+.bao-cao-container {
+    width: 100%;
+    min-height: 100vh;
+    background: #f5f5f5;
+    padding-bottom: 40px;
+}
+
+.header {
+    background: white;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    border-bottom: 2px solid #e0e0e0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.header .logo {
+    width: 60px;
+    height: 60px;
+    object-fit: contain;
+}
+
+.header h1 {
+    font-size: 24px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+}
+
+.status-bar {
+    background: #f0f0f0;
+    padding: 10px 20px;
+    font-size: 14px;
+    color: #666;
+    border-bottom: 1px solid #ddd;
+}
+
+.add-row-section {
+    padding: 20px;
+    background: white;
+    margin: 20px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.btn-add-row {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    font-size: 16px;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.btn-add-row:hover:not(:disabled) {
+    background: #45a049;
+}
+
+.btn-add-row:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.table-container {
+    margin: 0 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow-x: auto;
+}
+
+.report-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 1400px;
+}
+
+.report-table thead {
+    background: #1976D2;
+    color: white;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.report-table th {
+    padding: 12px 8px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    border-right: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.report-table th:last-child {
+    border-right: none;
+}
+
+.report-table td {
+    padding: 8px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.report-table tbody tr:hover {
+    background: #f5f5f5;
+}
+
+/* Input styles */
+.report-table input[type="text"],
+.report-table input[type="date"],
+.report-table input[type="number"],
+.report-table select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.input-readonly {
+    background: #f9f9f9;
+    color: #666;
+}
+
+.input-date {
+    min-width: 140px;
+}
+
+.input-select {
+    min-width: 120px;
+    cursor: pointer;
+}
+
+.input-text {
+    min-width: 150px;
+}
+
+.input-number {
+    min-width: 120px;
+}
+
+.report-table input:focus,
+.report-table select:focus {
+    outline: none;
+    border-color: #1976D2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+}
+
+/* Action buttons */
+.action-buttons {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+}
+
+.btn-clone,
+.btn-delete {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.btn-clone {
+    color: #1976D2;
+    font-weight: bold;
+    font-size: 20px;
+}
+
+.btn-clone:hover {
+    background: #1976D2;
+    color: white;
+    border-color: #1976D2;
+}
+
+.btn-delete:hover {
+    background: #f44336;
+    color: white;
+    border-color: #f44336;
+}
+
+/* Submit section */
+.submit-section {
+    padding: 20px;
+    text-align: center;
+}
+
+.btn-submit {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 16px 48px;
+    font-size: 18px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.3s;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 4px 6px rgba(244, 67, 54, 0.3);
+}
+
+.btn-submit:hover:not(:disabled) {
+    background: #d32f2f;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 8px rgba(244, 67, 54, 0.4);
+}
+
+.btn-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .header h1 {
+        font-size: 18px;
+    }
+
+    .table-container {
+        margin: 0 10px;
+    }
+
+    .add-row-section {
+        margin: 10px;
+        padding: 15px;
+    }
+}

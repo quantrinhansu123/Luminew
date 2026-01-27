@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convert JSON to CSV - Firebase Reports</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2d7c2d;
+            margin-bottom: 20px;
+        }
+        .step {
+            background: #f0f9ff;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        input[type="file"] {
+            margin: 20px 0;
+            padding: 10px;
+            border: 2px dashed #ccc;
+            border-radius: 5px;
+            width: 100%;
+            cursor: pointer;
+        }
+        button {
+            background: #2d7c2d;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #236323;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            color: #059669;
+            font-weight: bold;
+        }
+        .error {
+            color: #dc2626;
+            font-weight: bold;
+        }
+        .info {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Convert JSON to CSV</h1>
+        <p>Chuyển đổi file JSON từ Firebase thành CSV để import vào Google Sheets</p>
+
+        <div class="step">
+            <h3>📋 Hướng dẫn:</h3>
+            <ol>
+                <li>Chọn file JSON đã export từ Firebase (reports_*.json)</li>
+                <li>Click "Convert to CSV"</li>
+                <li>File CSV sẽ tự động tải xuống</li>
+                <li>Mở Google Sheets → File → Import → Upload → chọn file CSV</li>
+            </ol>
+        </div>
+
+        <input type="file" id="fileInput" accept=".json" />
+        
+        <button id="convertBtn" disabled>🔄 Convert to CSV</button>
+        <button id="previewBtn" disabled>👁️ Preview Data</button>
+
+        <div id="output" class="output" style="display: none;"></div>
+
+        <div class="info">
+            💡 <strong>Tip:</strong> File CSV sẽ có đầy đủ các cột: Tên, Email, Ngày, Ca, Sản phẩm, Thị trường, TKQC, CPQC, Số Mess/Cmt, Số đơn, Doanh số, Timestamp
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const convertBtn = document.getElementById('convertBtn');
+        const previewBtn = document.getElementById('previewBtn');
+        const output = document.getElementById('output');
+        let jsonData = null;
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    jsonData = JSON.parse(event.target.result);
+                    convertBtn.disabled = false;
+                    previewBtn.disabled = false;
+                    output.style.display = 'block';
+                    output.innerHTML = '<span class="success">✅ File JSON đã được load thành công!</span><br>Số lượng báo cáo: ' + Object.keys(jsonData).length;
+                } catch (error) {
+                    output.style.display = 'block';
+                    output.innerHTML = '<span class="error">❌ Lỗi: File JSON không hợp lệ</span><br>' + error.message;
+                    convertBtn.disabled = true;
+                    previewBtn.disabled = true;
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        previewBtn.addEventListener('click', function() {
+            if (!jsonData) return;
+
+            let html = '<h3>Preview dữ liệu:</h3><table border="1" cellpadding="5" style="border-collapse: collapse; width: 100%; font-size: 12px;">';
+            html += '<tr style="background: #2d7c2d; color: white;"><th>Tên</th><th>Email</th><th>Ngày</th><th>Ca</th><th>Sản phẩm</th><th>Số đơn</th><th>Doanh số</th></tr>';
+            
+            let count = 0;
+            for (const [key, report] of Object.entries(jsonData)) {
+                if (count >= 5) break; // Show only first 5 rows
+                html += '<tr>';
+                html += '<td>' + (report.name || '') + '</td>';
+                html += '<td>' + (report.email || '') + '</td>';
+                html += '<td>' + (report.date || '') + '</td>';
+                html += '<td>' + (report.shift || '') + '</td>';
+                html += '<td>' + (report.product || '') + '</td>';
+                html += '<td>' + (report.orders || '') + '</td>';
+                html += '<td>' + (report.revenue || '') + '</td>';
+                html += '</tr>';
+                count++;
+            }
+            html += '</table>';
+            html += '<p style="margin-top: 10px;"><em>Hiển thị ' + Math.min(5, Object.keys(jsonData).length) + ' dòng đầu tiên...</em></p>';
+            
+            output.innerHTML = html;
+        });
+
+        convertBtn.addEventListener('click', function() {
+            if (!jsonData) return;
+
+            try {
+                // CSV header
+                const headers = ['Tên', 'Email', 'Ngày', 'Ca', 'Sản phẩm', 'Thị trường', 'TKQC', 'CPQC', 'Số Mess/Cmt', 'Số đơn', 'Doanh số', 'Timestamp'];
+                let csv = headers.join(',') + '\n';
+
+                // CSV rows
+                for (const [key, report] of Object.entries(jsonData)) {
+                    const row = [
+                        escapeCSV(report.name || ''),
+                        escapeCSV(report.email || ''),
+                        escapeCSV(report.date || ''),
+                        escapeCSV(report.shift || ''),
+                        escapeCSV(report.product || ''),
+                        escapeCSV(report.market || ''),
+                        escapeCSV(report.tkqc || ''),
+                        report.cpqc || 0,
+                        report.mess_cmt || 0,
+                        report.orders || 0,
+                        report.revenue || 0,
+                        escapeCSV(report.timestamp || '')
+                    ];
+                    csv += row.join(',') + '\n';
+                }
+
+                // Download CSV
+                const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'reports_' + new Date().toISOString().split('T')[0] + '.csv';
+                link.click();
+                URL.revokeObjectURL(url);
+
+                output.innerHTML = '<span class="success">✅ Convert thành công!</span><br>File CSV đã được tải xuống.<br><br>📊 <strong>Bước tiếp theo:</strong><br>1. Mở Google Sheets<br>2. File → Import → Upload<br>3. Chọn file CSV vừa tải<br>4. Import type: Replace spreadsheet';
+                
+            } catch (error) {
+                output.innerHTML = '<span class="error">❌ Lỗi khi convert:</span><br>' + error.message;
+            }
+        });
+
+        function escapeCSV(value) {
+            if (value === null || value === undefined) return '';
+            const str = String(value);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        }
+    </script>
+</body>
+</html>

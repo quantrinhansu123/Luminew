@@ -1,0 +1,201 @@
+/* --- CÀI ĐẶT CHUNG & TABS --- */
+.report-view-container {
+    font-family: 'Roboto', Arial, sans-serif;
+    padding: 20px;
+    background-color: #f4f4f4;
+    color: #333;
+    font-size: 14px;
+    min-height: 100vh;
+}
+
+.report-header-section {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tab-container {
+    overflow: hidden;
+    border-bottom: 2px solid #ccc;
+    margin-bottom: 20px;
+}
+
+.tablinks {
+    background-color: #f1f1f1;
+    float: left;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 14px 20px;
+    transition: 0.3s;
+    font-size: 16px;
+    font-weight: 500;
+    border-radius: 8px 8px 0 0;
+    margin-right: 5px;
+}
+
+.tablinks:hover {
+    background-color: #ddd;
+}
+
+.tablinks.active {
+    background-color: #2d7c2d;
+    color: white;
+}
+
+.report-header-section h2 {
+    margin: 0;
+    color: #2d7c2d;
+    font-weight: 700;
+    font-size: 24px;
+}
+
+/* --- FILTERS --- */
+.filter-sidebar {
+    background: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    margin-bottom: 20px;
+}
+
+.filter-row {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.filter-group label {
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.filter-group input,
+.filter-group select {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+/* --- TABLE STYLES --- */
+.table-responsive-container {
+    overflow-x: auto;
+    margin-bottom: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+table.report-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+}
+
+.report-table th,
+.report-table td {
+    border: 1px solid #e0e0e0;
+    padding: 10px 12px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.report-table th {
+    text-align: center;
+    font-size: 14px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.report-table td {
+    text-align: right;
+    font-size: 14px;
+}
+
+.report-table td.text-left {
+    text-align: left;
+}
+
+.report-table td.text-center {
+    text-align: center;
+}
+
+/* Header Colors */
+th.green-header {
+    background: #4CAF50;
+    color: white;
+    font-weight: 700;
+}
+
+th.blue-header {
+    background: #2196F3;
+    /* Adjusted to distinct blue */
+    color: white;
+    font-weight: 700;
+}
+
+th.yellow-header {
+    background: #FFC107;
+    color: #424242;
+    font-weight: 700;
+}
+
+/* Rows */
+.report-table tbody tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+.report-table tbody tr:hover {
+    background-color: #eff5fb;
+}
+
+tr.total-row {
+    background: #2d7c2d;
+    color: white;
+    font-weight: 700;
+    font-size: 1.1em;
+}
+
+tr.total-row td {
+    border-top: 2px solid #FFC107;
+}
+
+.back-button {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 15px;
+    text-decoration: none;
+    color: #2d7c2d;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Conditional Cell Colors */
+.bg-green {
+    background-color: #c8e6c9 !important;
+    /* Light Green */
+    color: #1b5e20;
+}
+
+.bg-yellow {
+    background-color: #fff9c4 !important;
+    /* Light Yellow */
+    color: #f57f17;
+}
+
+.bg-lightred {
+    background-color: #ffcdd2 !important;
+    /* Light Red */
+    color: #b71c1c;
+}
