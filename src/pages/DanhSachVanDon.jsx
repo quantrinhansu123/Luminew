@@ -1,7 +1,7 @@
 // Columns to always hide
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 import { Calendar, Edit, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import { supabase } from '../supabase/config';
 
@@ -33,6 +33,12 @@ export default function DanhSachVanDon() {
     });
     const [isAdding, setIsAdding] = useState(false);
     const [showModal, setShowModal] = useState(false);
+    
+    // Search state for dropdowns
+    const [hoVaTenSearch, setHoVaTenSearch] = useState('');
+    const [nguoiSuaHoSearch, setNguoiSuaHoSearch] = useState('');
+    const [showHoVaTenDropdown, setShowHoVaTenDropdown] = useState(false);
+    const [showNguoiSuaHoDropdown, setShowNguoiSuaHoDropdown] = useState(false);
 
     // Load staff from users with department = "Vận Đơn"
     const loadVanDonStaff = async () => {
@@ -146,6 +152,21 @@ export default function DanhSachVanDon() {
         loadData();
     }, [startDate, endDate]);
 
+    // Tính toán danh sách nhân sự có sẵn cho "Họ và tên" (loại trừ những người đã có trong danh sách khi thêm mới)
+    const availableHoVaTenOptions = useMemo(() => {
+        if (!isAdding) return vanDonStaff;
+        // Lấy danh sách ho_va_ten đã có trong data
+        const existingNames = new Set(data.map(item => item.ho_va_ten).filter(Boolean));
+        // Loại trừ những người đã có
+        return vanDonStaff.filter(name => !existingNames.has(name));
+    }, [vanDonStaff, data, isAdding]);
+
+    // Tính toán danh sách nhân sự cho "Người sửa hộ" (loại trừ người đang được chọn trong ho_va_ten)
+    const availableNguoiSuaHoOptions = useMemo(() => {
+        // Loại trừ người đang được chọn trong ho_va_ten
+        return vanDonStaff.filter(name => name !== editForm.ho_va_ten);
+    }, [vanDonStaff, editForm.ho_va_ten]);
+
     // Filter Data
     useEffect(() => {
         if (!searchText.trim()) {
@@ -172,6 +193,10 @@ export default function DanhSachVanDon() {
         
         setIsAdding(true);
         setEditingId(null);
+        setHoVaTenSearch('');
+        setNguoiSuaHoSearch('');
+        setShowHoVaTenDropdown(false);
+        setShowNguoiSuaHoDropdown(false);
         setEditForm({
             ho_va_ten: '',
             trang_thai_chia: '',
@@ -449,23 +474,72 @@ export default function DanhSachVanDon() {
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
                                         Họ và tên <span className="text-red-500">*</span>
                                     </label>
-                                    <select
-                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        value={editForm.ho_va_ten}
-                                        onChange={(e) => setEditForm({ ...editForm, ho_va_ten: e.target.value })}
-                                        required
-                                    >
-                                        <option value="">-- Chọn nhân sự --</option>
-                                        {vanDonStaff.length === 0 ? (
-                                            <option value="" disabled>Đang tải danh sách...</option>
-                                        ) : (
-                                            vanDonStaff.map((name) => (
-                                                <option key={name} value={name}>
-                                                    {name}
-                                                </option>
-                                            ))
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Gõ tên để tìm kiếm..."
+                                            value={isAdding ? hoVaTenSearch : editForm.ho_va_ten}
+                                            onChange={(e) => {
+                                                const searchValue = e.target.value;
+                                                if (isAdding) {
+                                                    setHoVaTenSearch(searchValue);
+                                                    setShowHoVaTenDropdown(true);
+                                                    // Auto-select nếu tìm thấy exact match
+                                                    const exactMatch = availableHoVaTenOptions.find(name => 
+                                                        name.toLowerCase() === searchValue.toLowerCase()
+                                                    );
+                                                    if (exactMatch) {
+                                                        setEditForm({ ...editForm, ho_va_ten: exactMatch });
+                                                        setHoVaTenSearch(exactMatch);
+                                                        setShowHoVaTenDropdown(false);
+                                                    } else {
+                                                        setEditForm({ ...editForm, ho_va_ten: searchValue });
+                                                    }
+                                                } else {
+                                                    setEditForm({ ...editForm, ho_va_ten: searchValue });
+                                                }
+                                            }}
+                                            onFocus={() => {
+                                                if (isAdding) setShowHoVaTenDropdown(true);
+                                            }}
+                                            onBlur={() => setTimeout(() => setShowHoVaTenDropdown(false), 200)}
+                                            required
+                                        />
+                                        {isAdding && showHoVaTenDropdown && availableHoVaTenOptions.length > 0 && (
+                                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                                {availableHoVaTenOptions
+                                                    .filter(name => 
+                                                        !hoVaTenSearch || name.toLowerCase().includes(hoVaTenSearch.toLowerCase())
+                                                    )
+                                                    .map((name) => (
+                                                        <div
+                                                            key={name}
+                                                            className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm"
+                                                            onClick={() => {
+                                                                setEditForm({ ...editForm, ho_va_ten: name });
+                                                                setHoVaTenSearch(name);
+                                                                setShowHoVaTenDropdown(false);
+                                                            }}
+                                                        >
+                                                            {name}
+                                                        </div>
+                                                    ))}
+                                                {availableHoVaTenOptions.filter(name => 
+                                                    !hoVaTenSearch || name.toLowerCase().includes(hoVaTenSearch.toLowerCase())
+                                                ).length === 0 && (
+                                                    <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                                                        Không tìm thấy kết quả
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
-                                    </select>
+                                    </div>
+                                    {isAdding && (
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            {availableHoVaTenOptions.length} nhân sự có sẵn (đã loại trừ những người đã có trong danh sách)
+                                        </p>
+                                    )}
                                     {vanDonStaff.length === 0 && (
                                         <p className="text-xs text-gray-500 mt-1">
                                             Không có nhân sự nào có department = "Vận đơn". Vui lòng kiểm tra lại.
@@ -507,32 +581,51 @@ export default function DanhSachVanDon() {
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
                                         Người sửa hộ (có thể chọn nhiều)
                                     </label>
+                                    <div className="mb-2">
+                                        <input
+                                            type="text"
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Gõ tên để tìm kiếm..."
+                                            value={nguoiSuaHoSearch}
+                                            onChange={(e) => setNguoiSuaHoSearch(e.target.value)}
+                                            onFocus={() => setShowNguoiSuaHoDropdown(true)}
+                                        />
+                                    </div>
                                     <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
                                         {vanDonStaff.length === 0 ? (
                                             <p className="text-sm text-gray-500">Đang tải danh sách...</p>
                                         ) : (
                                             <div className="space-y-2">
-                                                {vanDonStaff.map((name) => (
-                                                    <label
-                                                        key={name}
-                                                        className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                                            checked={editForm.nguoi_sua_ho?.includes(name) || false}
-                                                            onChange={(e) => {
-                                                                const current = editForm.nguoi_sua_ho || [];
-                                                                if (e.target.checked) {
-                                                                    setEditForm({ ...editForm, nguoi_sua_ho: [...current, name] });
-                                                                } else {
-                                                                    setEditForm({ ...editForm, nguoi_sua_ho: current.filter(n => n !== name) });
-                                                                }
-                                                            }}
-                                                        />
-                                                        <span className="ml-2 text-sm text-gray-700">{name}</span>
-                                                    </label>
-                                                ))}
+                                                {availableNguoiSuaHoOptions
+                                                    .filter(name => 
+                                                        !nguoiSuaHoSearch || name.toLowerCase().includes(nguoiSuaHoSearch.toLowerCase())
+                                                    )
+                                                    .map((name) => (
+                                                        <label
+                                                            key={name}
+                                                            className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                                                checked={editForm.nguoi_sua_ho?.includes(name) || false}
+                                                                onChange={(e) => {
+                                                                    const current = editForm.nguoi_sua_ho || [];
+                                                                    if (e.target.checked) {
+                                                                        setEditForm({ ...editForm, nguoi_sua_ho: [...current, name] });
+                                                                    } else {
+                                                                        setEditForm({ ...editForm, nguoi_sua_ho: current.filter(n => n !== name) });
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <span className="ml-2 text-sm text-gray-700">{name}</span>
+                                                        </label>
+                                                    ))}
+                                                {availableNguoiSuaHoOptions.filter(name => 
+                                                    !nguoiSuaHoSearch || name.toLowerCase().includes(nguoiSuaHoSearch.toLowerCase())
+                                                ).length === 0 && (
+                                                    <p className="text-sm text-gray-500 text-center py-2">Không tìm thấy kết quả</p>
+                                                )}
                                             </div>
                                         )}
                                     </div>

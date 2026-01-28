@@ -607,14 +607,7 @@ export default function NhapDonMoi({ isEdit = false }) {
     // -------------------------------------------------------------------------
     const handleInputChange = (e) => {
         const { id, value } = e.target;
-        if (id === 'phone') {
-            // Only allow numbers
-            const regex = /^[0-9]*$/;
-            if (regex.test(value)) {
-                setFormData(prev => ({ ...prev, [id]: value }));
-            }
-            return;
-        }
+        // Cho phép phone nhập text (có thể có ký tự đặc biệt như +, -, dấu cách, dấu ngoặc đơn, v.v.)
         setFormData(prev => ({ ...prev, [id]: value }));
     };
 
