@@ -190,7 +190,7 @@ function ReportFormCSKH() {
             const payload = reports.map(report => ({
                 name: report.name,
                 email: report.email,
-                report_date: report.date,
+                date: report.date, // sales_reports uses 'date' not 'report_date'
                 shift: report.shift,
                 product: report.product,
                 market: report.market,
@@ -203,7 +203,7 @@ function ReportFormCSKH() {
             }));
 
             const { error } = await supabase
-                .from('cskh_reports')
+                .from('sales_reports')
                 .insert(payload);
 
             if (error) throw error;

@@ -95,7 +95,7 @@ function DanhSachDon() {
     return () => clearTimeout(timer);
   }, [searchText]);
 
-  // Get all available columns from data
+  // Get all available columns from data (excluding hidden columns and technical columns)
   const allAvailableColumns = useMemo(() => {
     if (allData.length === 0) return [];
 
@@ -103,7 +103,10 @@ function DanhSachDon() {
     const allKeys = new Set();
     allData.forEach(row => {
       Object.keys(row).forEach(key => {
-        if (key !== PRIMARY_KEY_COLUMN) {
+        // Exclude PRIMARY_KEY_COLUMN, HIDDEN_COLUMNS, and technical columns starting with _
+        if (key !== PRIMARY_KEY_COLUMN && 
+            !HIDDEN_COLUMNS.includes(key) &&
+            !key.startsWith('_')) {
           allKeys.add(key);
         }
       });
@@ -137,23 +140,32 @@ function DanhSachDon() {
     
     if (saved) {
       try {
-        initial = JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // Remove any columns that are no longer available
+        Object.keys(parsed).forEach(col => {
+          // Only keep columns that are not in HIDDEN_COLUMNS
+          if (!HIDDEN_COLUMNS.includes(col)) {
+            initial[col] = parsed[col];
+          }
+        });
       } catch (e) {
         console.error('Error parsing saved columns:', e);
       }
     }
     
-    // Initialize with default columns
+    // Initialize with default columns if empty
     if (Object.keys(initial).length === 0) {
       defaultColumns.forEach(col => {
         initial[col] = true;
       });
+    } else {
+      // Ensure default columns are present
+      defaultColumns.forEach(col => {
+        if (initial[col] === undefined) {
+          initial[col] = true;
+        }
+      });
     }
-    
-    // Đảm bảo các cột cần ẩn luôn bị ẩn
-    HIDDEN_COLUMNS.forEach(col => {
-      initial[col] = false;
-    });
     
     return initial;
   });
@@ -163,15 +175,24 @@ function DanhSachDon() {
     return allAvailableColumns.filter(col => visibleColumns[col] === true);
   }, [allAvailableColumns, visibleColumns]);
 
-  // Đảm bảo các cột cần ẩn luôn bị ẩn
+  // Clean up hidden columns from visibleColumns on mount
   useEffect(() => {
     setVisibleColumns(prev => {
       let updated = { ...prev };
       let changed = false;
       
+      // Remove any hidden columns
       HIDDEN_COLUMNS.forEach(col => {
-        if (updated[col] !== false) {
-          updated[col] = false;
+        if (updated[col] !== undefined) {
+          delete updated[col];
+          changed = true;
+        }
+      });
+      
+      // Ensure default columns are present
+      defaultColumns.forEach(col => {
+        if (updated[col] === undefined) {
+          updated[col] = true;
           changed = true;
         }
       });
@@ -180,13 +201,15 @@ function DanhSachDon() {
     });
   }, []); // Chỉ chạy một lần khi component mount
 
-  // Save to localStorage when visibleColumns changes
+  // Save to localStorage when visibleColumns changes (excluding hidden columns)
   useEffect(() => {
     if (Object.keys(visibleColumns).length > 0) {
-      // Đảm bảo các cột cần ẩn không được lưu là true
-      const toSave = { ...visibleColumns };
-      HIDDEN_COLUMNS.forEach(col => {
-        toSave[col] = false;
+      // Clean up: remove any columns that are no longer available
+      const toSave = {};
+      Object.keys(visibleColumns).forEach(col => {
+        if (!HIDDEN_COLUMNS.includes(col)) {
+          toSave[col] = visibleColumns[col];
+        }
       });
       localStorage.setItem('danhSachDon_visibleColumns', JSON.stringify(toSave));
     }
@@ -222,9 +245,8 @@ function DanhSachDon() {
     "Trạng thái thu tiền": item.payment_status_detail,
     "Lý do": item.reason,
     "Page": item.page_name, // Map Page Name
-    "Ca": item.shift, // Map shift to Ca
-    "_id": item.id,
-    "_source": 'supabase'
+    "Ca": item.shift // Map shift to Ca
+    // Note: _id and _source are excluded from mapSupabaseToUI to prevent them from appearing in column settings
   });
 
   // Modified loadData to use date filters on server side
