@@ -141,7 +141,7 @@ function BaoCaoChiTietRnD() {
         "Kế toán xác nhận thu tiền về": item.accountant_confirm,
         "Trạng thái thu tiền": item.payment_status_detail,
         "Lý do": item.reason,
-        "Page": item.page_name,
+        "Page": item.page_name, // Map Page Name
         "_id": item.id,
         "_source": 'supabase'
     });

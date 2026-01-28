@@ -502,6 +502,7 @@ export default function DonChiaCSKH() {
         'Nhân_viên_Sale': item.created_by,
         'Thời gian cutoff': item.delivery_status, // Using delivery_status as status
         'Thời_gian_cutoff': item.delivery_status,
+        'Page': item.page_name, // Map Page Name
       }));
 
       setAllData(normalized);

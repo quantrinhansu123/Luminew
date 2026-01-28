@@ -58,6 +58,88 @@ function QuanLyCSKH() {
     'Tổng tiền VNĐ',
   ];
 
+  // Mapping từ tên cột DB sang tên hiển thị thân thiện
+  const COLUMN_DISPLAY_NAMES = {
+    // Các cột đã được map
+    'order_code': 'Mã đơn hàng',
+    'order_date': 'Ngày lên đơn',
+    'customer_name': 'Tên khách hàng',
+    'customer_phone': 'Số điện thoại',
+    'customer_address': 'Địa chỉ',
+    'city': 'Thành phố',
+    'state': 'Bang/Tỉnh',
+    'country': 'Khu vực',
+    'area': 'Khu vực',
+    'zipcode': 'Mã bưu điện',
+    'product': 'Mặt hàng',
+    'product_main': 'Mặt hàng chính',
+    'product_name_1': 'Tên mặt hàng 1',
+    'payment_type': 'Loại tiền',
+    'payment_method': 'Hình thức thanh toán',
+    'payment_method_text': 'Hình thức thanh toán',
+    'tracking_code': 'Mã Tracking',
+    'delivery_status': 'Trạng thái giao hàng',
+    'total_amount_vnd': 'Tổng tiền VNĐ',
+    'cskh': 'CSKH',
+    'team': 'Team',
+    'sale_staff': 'Nhân viên Sale',
+    'marketing_staff': 'Nhân viên Marketing',
+    'delivery_staff': 'Nhân viên Vận đơn',
+    'note': 'Ghi chú',
+    'reason': 'Lý do',
+    'payment_status': 'Trạng thái thanh toán',
+    'payment_status_detail': 'Trạng thái thu tiền',
+    'check_result': 'Kết quả Check',
+    'vandon_note': 'Ghi chú vận đơn',
+    'shipping_fee': 'Phí ship',
+    'shipping_unit': 'Đơn vị vận chuyển',
+    'shipping_carrier': 'Đơn vị vận chuyển',
+    'goods_amount': 'Giá bán',
+    'sale_price': 'Giá bán',
+    'general_fee': 'Phí chung',
+    'flight_fee': 'Phí bay',
+    'account_rental_fee': 'Thuê TK',
+    'warehouse_fee': 'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+    'estimated_delivery_date': 'Thời gian giao dự kiến',
+    'cutoff_time': 'Thời gian cutoff',
+    'reconciled_vnd': 'Tiền Việt đã đối soát',
+    'reconciled_amount': 'Tiền Việt đã đối soát',
+    'accountant_confirm': 'Kế toán xác nhận thu tiền về',
+    'page_name': 'Page',
+    'shift': 'Ca',
+    'created_at': 'Ngày tạo',
+    'updated_at': 'Ngày cập nhật',
+    'id': 'ID',
+  };
+
+  // Hàm chuyển đổi tên cột DB sang tên hiển thị thân thiện
+  const getDisplayColumnName = (columnName) => {
+    // Nếu đã có trong mapping, trả về tên thân thiện
+    if (COLUMN_DISPLAY_NAMES[columnName]) {
+      return COLUMN_DISPLAY_NAMES[columnName];
+    }
+    
+    // Nếu là tên thân thiện đã được map (không có trong COLUMN_DISPLAY_NAMES), giữ nguyên
+    // Kiểm tra xem có phải là tên DB (snake_case hoặc camelCase) không
+    if (columnName.includes('_') || (columnName.match(/[a-z][A-Z]/))) {
+      // Chuyển snake_case hoặc camelCase sang Title Case
+      return columnName
+        .replace(/_/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+    }
+    
+    // Nếu không phải tên DB, giữ nguyên (đã là tên thân thiện)
+    return columnName;
+  };
+
+  // Helper function để kiểm tra Admin
+  const isAdmin = () => {
+    return role === 'ADMIN' || role === 'SUPER_ADMIN';
+  };
+
   // Debounce search text for better performance
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -67,15 +149,33 @@ function QuanLyCSKH() {
     return () => clearTimeout(timer);
   }, [searchText]);
 
-  // Get all available columns from data
+  // Helper function để kiểm tra xem tên cột có phải là tiếng Anh không (cột DB gốc)
+  const isEnglishColumn = (columnName) => {
+    // Giữ lại các cột đặc biệt đã được sử dụng trong hệ thống
+    const specialColumns = ['Name*', 'Phone*', 'Add', 'City', 'State', 'Zipcode', 'Team', 'CSKH'];
+    if (specialColumns.includes(columnName)) return false;
+    
+    // Kiểm tra snake_case (có dấu gạch dưới) - đây là tên cột DB
+    if (columnName.includes('_')) return true;
+    // Kiểm tra camelCase (có chữ thường tiếp theo chữ hoa) - đây là tên cột DB
+    if (columnName.match(/[a-z][A-Z]/)) return true;
+    // Kiểm tra toàn bộ là chữ cái tiếng Anh và số, không có ký tự đặc biệt (trừ *)
+    // và không có dấu tiếng Việt - đây là tên cột DB
+    if (columnName.match(/^[a-zA-Z0-9]+$/) && !columnName.match(/[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđĐ]/)) {
+      return true;
+    }
+    return false;
+  };
+
+  // Get all available columns from data - chỉ lấy cột tiếng Việt
   const allAvailableColumns = useMemo(() => {
     if (allData.length === 0) return [];
 
-    // Get all potential keys from data
+    // Get all potential keys from data - chỉ lấy cột tiếng Việt
     const allKeys = new Set();
     allData.forEach(row => {
       Object.keys(row).forEach(key => {
-        if (key !== PRIMARY_KEY_COLUMN) {
+        if (key !== PRIMARY_KEY_COLUMN && !isEnglishColumn(key)) {
           allKeys.add(key);
         }
       });
@@ -261,23 +361,39 @@ function QuanLyCSKH() {
 
       if (error) throw error;
 
-      const mappedData = (data || []).map(item => ({
-        "Mã đơn hàng": item.order_code,
-        "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
-        "Name*": item.customer_name,
-        "Phone*": item.customer_phone,
-        "Khu vực": item.country || item.area,
-        "Loại tiền": item.payment_type,
-        "Hình thức thanh toán": item.payment_method_text || item.payment_method,
-        "Mặt hàng": item.product_main || item.product,
-        "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
-        "Mã Tracking": item.tracking_code,
-        "Trạng thái giao hàng": item.delivery_status,
-        "Tổng tiền VNĐ": item.total_amount_vnd,
-        "CSKH": item.cskh,
-        "Team": item.team,
-        ...item
-      }));
+      // Tự động lấy danh sách các cột DB đã được map sang tên thân thiện (để loại bỏ trùng lặp)
+      const mappedDbColumns = new Set([
+        ...Object.keys(COLUMN_DISPLAY_NAMES), // Tất cả các keys từ COLUMN_DISPLAY_NAMES
+        'created_at', // Thêm các cột khác có thể được dùng nhưng không có trong mapping
+        'updated_at',
+        'id'
+      ]);
+
+      const mappedData = (data || []).map(item => {
+        // Tạo object với các cột friendly name
+        const friendlyData = {
+          "Mã đơn hàng": item.order_code,
+          "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
+          "Name*": item.customer_name,
+          "Phone*": item.customer_phone,
+          "Khu vực": item.country || item.area,
+          "Loại tiền": item.payment_type,
+          "Hình thức thanh toán": item.payment_method_text || item.payment_method,
+          "Mặt hàng": item.product_main || item.product,
+          "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
+          "Mã Tracking": item.tracking_code,
+          "Trạng thái giao hàng": item.delivery_status,
+          "Tổng tiền VNĐ": item.total_amount_vnd,
+          "CSKH": item.cskh,
+          "Team": item.team,
+          "Page": item.page_name,
+        };
+
+        // Loại bỏ tất cả các cột tiếng Anh (snake_case, camelCase) - chỉ giữ cột tiếng Việt
+        // Không thêm bất kỳ cột nào từ DB nếu chưa được map sang tiếng Việt
+        
+        return friendlyData;
+      });
 
       setAllData(mappedData);
       console.log(`✅ [CSKH] Loaded ${mappedData.length} orders`);
@@ -652,10 +768,10 @@ function QuanLyCSKH() {
     setVisibleColumns(defaultCols);
   };
 
-  // Open Edit modal
+  // Open Edit modal - Chỉ Admin mới được phép
   const openEditModal = (order) => {
-    if (!canEdit('CSKH_LIST')) {
-      toast.error("Bạn không có quyền sửa đơn hàng này!");
+    if (!isAdmin()) {
+      toast.error("Chỉ Admin mới có quyền sửa đơn hàng!");
       return;
     }
     setEditingOrder({ ...order });
@@ -676,10 +792,12 @@ function QuanLyCSKH() {
     setEditingOrder(prev => ({ ...prev, [name]: value }));
   };
 
-  // Save Updates
+  // Save Updates - Chỉ Admin mới được phép
   const handleUpdateOrder = async () => {
     if (!editingOrder) return;
-    if (!canEdit('CSKH_LIST')) return toast.error("Không có quyền sửa!");
+    if (!isAdmin()) {
+      return toast.error("Chỉ Admin mới có quyền sửa!");
+    }
 
     setIsUpdating(true);
     try {
@@ -720,10 +838,10 @@ function QuanLyCSKH() {
   };
 
 
-  // Handle Delete
+  // Handle Delete - Chỉ Admin mới được phép
   const handleDelete = async (id) => {
-    if (!canDelete('CSKH_LIST')) {
-      toast.error("Bạn không có quyền xóa đơn hàng này!");
+    if (!isAdmin()) {
+      toast.error("Chỉ Admin mới có quyền xóa đơn hàng!");
       return;
     }
     if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác!")) return;
@@ -931,7 +1049,7 @@ function QuanLyCSKH() {
                       onClick={() => handleSort(col)}
                     >
                       <div className="flex items-center gap-2">
-                        {col}
+                        {getDisplayColumnName(col)}
                         {sortColumn === col && (
                           <span className="text-[#F37021]">
                             {sortDirection === 'asc' ? '↑' : '↓'}
@@ -1015,8 +1133,8 @@ function QuanLyCSKH() {
                             <Eye className="w-4 h-4" />
                           </button>
 
-                          {/* Edit - Open Modal */}
-                          {canEdit('CSKH_LIST') && (
+                          {/* Edit - Chỉ Admin mới thấy */}
+                          {isAdmin() && (
                             <button
                               onClick={() => openEditModal(row)}
                               className="p-1.5 text-orange-600 hover:bg-orange-50 rounded transition-colors"
@@ -1026,8 +1144,8 @@ function QuanLyCSKH() {
                             </button>
                           )}
 
-                          {/* Delete */}
-                          {canDelete('CSKH_LIST') && (
+                          {/* Delete - Chỉ Admin mới thấy */}
+                          {isAdmin() && (
                             <button
                               onClick={() => handleDelete(row.id)}
                               className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
@@ -1147,7 +1265,7 @@ function QuanLyCSKH() {
                         onChange={() => toggleColumn(column)}
                         className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021] focus:ring-2"
                       />
-                      <span className="text-sm text-gray-700 flex-1">{column}</span>
+                      <span className="text-sm text-gray-700 flex-1">{getDisplayColumnName(column)}</span>
                       {defaultColumns.includes(column) && (
                         <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Mặc định</span>
                       )}
