@@ -31,6 +31,7 @@ const BULK_THRESHOLD = 1;
 
 function VanDon() {
   const { canView, role } = usePermissions();
+  const isAdmin = ['admin', 'super_admin'].includes((role || '').toLowerCase());
 
 
 
@@ -68,9 +69,22 @@ function VanDon() {
     return () => clearTimeout(timeoutId);
   }, [localFilterValues]);
 
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [enableDateFilter, setEnableDateFilter] = useState(false);
+  // Calculate 3 days ago (today, yesterday, day before yesterday)
+  const getThreeDaysAgo = () => {
+    const today = new Date();
+    const threeDaysAgo = new Date(today);
+    threeDaysAgo.setDate(today.getDate() - 2); // 2 days ago (including today = 3 days)
+    return threeDaysAgo.toISOString().split('T')[0];
+  };
+
+  const getToday = () => {
+    return new Date().toISOString().split('T')[0];
+  };
+
+  // Admin xem tất cả dữ liệu, User thường chỉ xem 3 ngày gần nhất
+  const [dateFrom, setDateFrom] = useState(isAdmin ? '' : getThreeDaysAgo());
+  const [dateTo, setDateTo] = useState(isAdmin ? '' : getToday());
+  const [enableDateFilter, setEnableDateFilter] = useState(!isAdmin);
   const [quickFilter, setQuickFilter] = useState('');
   const [fixedColumns, setFixedColumns] = useState(2);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -214,13 +228,16 @@ function VanDon() {
 
       if (useBackendPagination) {
         // Use backend with pagination
-        const activeTeam = bolActiveTab === 'hcm' ? 'HCM' : (bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined));
+        const activeTeam = bolActiveTab === 'hcm' ? 'HCM' : (omActiveTeam !== 'all' ? omActiveTeam : undefined);
         const activeStatus = enableDateFilter ? undefined : (filterValues.status || undefined);
         const isJapanTab = bolActiveTab === 'japan';
         
         // Tab "Đơn Nhật": filter theo country ở API level
         const marketFilter = isJapanTab ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market;
 
+        // Admin xem tất cả dữ liệu, User thường chỉ xem 3 ngày gần nhất
+        const shouldApplyDateFilter = enableDateFilter && !isAdmin;
+        
         const result = await API.fetchVanDon({
           page: currentPage,
           limit: rowsPerPage,
@@ -228,8 +245,8 @@ function VanDon() {
           status: activeStatus,
           market: marketFilter,
           product: filterValues.product,
-          dateFrom: enableDateFilter ? dateFrom : undefined,
-          dateTo: enableDateFilter ? dateTo : undefined
+          dateFrom: shouldApplyDateFilter ? dateFrom : undefined,
+          dateTo: shouldApplyDateFilter ? dateTo : undefined
         });
 
         // Filter by selectedPersonnelNames if not manager
@@ -414,18 +431,12 @@ function VanDon() {
   }, []);
 
   // Reload data when filters or pagination change (if using backend)
-  // Skip initial mount to avoid double loading
-  const isInitialMount = useRef(true);
+  // Don't skip initial mount - let it load on mount
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-
     if (useBackendPagination) {
       const timeoutId = setTimeout(() => {
         loadData();
-      }, 300); // Debounce filter changes
+      }, 100); // Small delay to ensure state is ready
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -638,8 +649,6 @@ function VanDon() {
         });
       } else if (bolActiveTab === 'hcm') {
         data = data.filter(row => (row['Team'] === 'HCM' && !row['Đơn vị vận chuyển'] && row['Kết quả Check'] === 'OK'));
-      } else if (bolActiveTab === 'hanoi') {
-        data = data.filter(row => (row['Team'] === 'Hà Nội' && !row['Đơn vị vận chuyển'] && row['Kết quả Check'] === 'OK'));
       }
 
       // Sort by Date Desc - optimized with cached date parsing
@@ -1206,10 +1215,22 @@ function VanDon() {
 
   // Simplified cell class
   const getCellClass = (row, col, val, rIdx, cIdx) => {
-    let classes = "px-3 py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap ";
+    const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
+    const isStatusCol = (col === "Trạng thái giao hàng");
+
+    // Default cell sizing
+    // NOTE: For select-based columns, avoid vertical padding so the select can fill the cell height cleanly.
+    let classes = `${(isCheckCol || isStatusCol) ? "py-0" : "py-2"} border border-gray-200 text-sm h-[38px] whitespace-nowrap `;
+    
+    // Padding adjustment for specific columns
+    if (isCheckCol) {
+      classes += "pl-2 pr-3 ";
+    } else {
+      classes += "px-3 ";
+    }
 
     // Status
-    if (col === "Kết quả Check" || col === "Kết quả check") {
+    if (isCheckCol) {
       const v = String(val).toLowerCase();
       if (v === 'ok') classes += "bg-green-100 text-green-800 font-bold ";
       else if (v.includes('huỷ')) classes += "bg-red-100 text-red-800 font-bold ";
@@ -1281,8 +1302,7 @@ function VanDon() {
               {[
                 { id: 'all', label: 'Dữ liệu đơn hàng', icon: '📋' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
-                { id: 'hcm', label: 'FFM đẩy vận hành', icon: '🚚' },
-                { id: 'hanoi', label: 'FFM Hà Nội', icon: '🏢' }
+                { id: 'hcm', label: 'FFM đẩy vận hành', icon: '🚚' }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -1322,76 +1342,8 @@ function VanDon() {
       {/* Main Content Area - Scrollable but compact */}
       <div className="flex-1 flex flex-col p-2 space-y-2 overflow-hidden bg-[#f4f7fa]">
 
-        {/* Combined Filter & Toolbar Row 1 */}
+        {/* Toolbar Actions Row */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2 flex flex-wrap items-center gap-3">
-          {/* Quick Date Group */}
-          <div className="flex items-center gap-2 border-r border-gray-200 pr-3">
-            <select
-              value={bolDateType}
-              onChange={e => setBolDateType(e.target.value)}
-              className="text-xs border-none font-bold text-gray-600 focus:ring-0 cursor-pointer bg-gray-100 rounded px-1.5 py-1"
-            >
-              <option value="Ngày lên đơn">Ngày lên đơn</option>
-              <option value="Ngày đóng hàng">Ngày đóng hàng</option>
-            </select>
-            <select
-              className="text-xs border text-gray-700 rounded bg-white px-2 py-1 outline-none focus:border-[#F37021] min-w-[100px]"
-              value={quickFilter || ''}
-              onChange={(e) => handleQuickFilter(e.target.value)}
-            >
-              <option value="">- Chọn nhanh -</option>
-              <option value="today">Hôm nay</option>
-              <option value="yesterday">Hôm qua</option>
-              <option value="this-week">Tuần này</option>
-              <option value="this-month">Tháng này</option>
-            </select>
-            <div className="flex items-center gap-1">
-              <input
-                type="date"
-                className="text-xs border rounded px-1.5 py-1 focus:ring-1 focus:ring-[#F37021] outline-none w-[115px]"
-                value={dateFrom}
-                onChange={e => { setDateFrom(e.target.value); setEnableDateFilter(true); }}
-              />
-              <span className="text-gray-400">-</span>
-              <input
-                type="date"
-                className="text-xs border rounded px-1.5 py-1 focus:ring-1 focus:ring-[#F37021] outline-none w-[115px]"
-                value={dateTo}
-                onChange={e => { setDateTo(e.target.value); setEnableDateFilter(true); }}
-              />
-            </div>
-          </div>
-
-          {/* MultiSelect Group */}
-          <div className="flex items-center gap-2 border-r border-gray-200 pr-3 flex-shrink-0">
-            <div className="w-[120px] relative">
-              <MultiSelect
-                label="Sản phẩm"
-                mainFilter={true}
-                options={getUniqueValues("Mặt hàng")}
-                selected={filterValues.product}
-                onChange={(vals) => setFilterValues(prev => ({ ...prev, product: vals }))}
-              />
-            </div>
-            <div className="w-[120px] relative">
-              <MultiSelect
-                label="Khu vực"
-                mainFilter={true}
-                options={getUniqueValues("Khu vực")}
-                selected={filterValues.market}
-                onChange={(vals) => setFilterValues(prev => ({ ...prev, market: vals }))}
-              />
-            </div>
-            <button
-              onClick={refreshData}
-              className="p-1 px-2 hover:bg-red-50 text-red-600 rounded text-xs transition-colors flex items-center gap-1 group flex-shrink-0"
-              title="Xóa tất cả bộ lọc"
-            >
-              <span className="group-hover:rotate-90 transition-transform text-[10px]">✕</span>
-
-            </button>
-          </div>
-
           {/* Toolbar Actions Group */}
           <div className="flex items-center gap-2">
             <button
@@ -1422,8 +1374,6 @@ function VanDon() {
               ⚙️ Cài đặt cột
             </button>
 
-
-
             <div className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100">
               Cố định:
               <input
@@ -1446,49 +1396,51 @@ function VanDon() {
 
         {/* Table Area - Optimized for Height */}
         <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col">
-          <div className="overflow-auto relative select-none flex-1">
-            <table className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight">
-              <thead className="sticky top-0 z-30 shadow-sm">
+          <div className="overflow-auto relative select-none flex-1" style={{ overflowX: 'auto', overflowY: 'auto' }}>
+            <table className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
+              <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
 
-                <tr className="bg-gray-100 h-12">
+                <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
                   {currentColumns.map((col, idx) => {
                     const key = COLUMN_MAPPING[col] || col;
                     const filterKey = col;
                     const stickyStyle = idx < fixedColumns ?
-                      { position: 'sticky', left: idx * 100, zIndex: 40, background: '#f8f9fa' } : {};
+                      { position: 'sticky', left: idx * 100, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
 
                     return (
-                      <th key={`filter-${col}`} className="p-1.5 border-b-2 border-r border-gray-300 min-w-[120px] align-top bg-[#f8f9fa]" style={stickyStyle}>
-                        <div className="font-semibold mb-1 text-gray-700">{col}</div>
+                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'pl-2 pr-3' : 'px-4'}`} style={{ ...stickyStyle, position: 'relative', minWidth: 'fit-content', width: 'auto' }}>
+                        <div className={`font-semibold mb-2 text-gray-700 text-sm whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'text-left' : ''}`}>{col}</div>
                         {/* Render Filters based on View Mode and Column Type */}
                         {col === "STT" ? (
                           <div className="text-xs text-gray-400">-</div>
                         ) : col === "Mã Tracking" ? (
-                          <div className="flex flex-col gap-1">
+                          <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
                             <input
-                              className="w-full text-xs px-1 py-0.5 border rounded" placeholder="Bao gồm..."
+                              className="w-full text-sm px-2 py-1.5 border rounded" style={{ zIndex: 1002 }} placeholder="Bao gồm..."
                               value={localFilterValues.tracking_include} onChange={e => setLocalFilterValues(p => ({ ...p, tracking_include: e.target.value }))}
                             />
                             <input
-                              className="w-full text-xs px-1 py-0.5 border rounded" placeholder="Loại trừ..."
+                              className="w-full text-sm px-2 py-1.5 border rounded" style={{ zIndex: 1002 }} placeholder="Loại trừ..."
                               value={localFilterValues.tracking_exclude} onChange={e => setLocalFilterValues(p => ({ ...p, tracking_exclude: e.target.value }))}
                             />
                           </div>
                         ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(col) ? (
-                          <MultiSelect
-                            label={`Lọc...`}
-                            options={getMultiSelectOptions(col)}
-                            selected={filterValues[filterKey] || []}
-                            onChange={vals => setFilterValues(p => ({ ...p, [filterKey]: vals }))}
-                          />
+                          <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
+                            <MultiSelect
+                              label={`Lọc...`}
+                              options={getMultiSelectOptions(col)}
+                              selected={filterValues[filterKey] || []}
+                              onChange={vals => setFilterValues(p => ({ ...p, [filterKey]: vals }))}
+                            />
+                          </div>
                         ) : ["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(col) ? (
                           <input
-                            type="date" className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+                            type="date" className="w-full text-sm px-2 py-1.5 border rounded shadow-sm" style={{ zIndex: 1002 }}
                             value={filterValues[filterKey] || ''} onChange={e => setFilterValues(p => ({ ...p, [filterKey]: e.target.value }))}
                           />
                         ) : (
                           <input
-                            type="text" className="w-full text-xs px-1 py-1 border rounded shadow-sm" placeholder="..."
+                            type="text" className="w-full text-sm px-2 py-1.5 border rounded shadow-sm" style={{ zIndex: 1002 }} placeholder="..."
                             value={localFilterValues[filterKey] || ''} onChange={e => setLocalFilterValues(p => ({ ...p, [filterKey]: e.target.value }))}
                           />
                         )}
@@ -1497,7 +1449,7 @@ function VanDon() {
                   })}
                 </tr>
               </thead>
-              <tbody>
+              <tbody style={{ position: 'relative', zIndex: 1 }}>
                 {loading ? (
                   <tr><td colSpan={currentColumns.length} className="text-center p-10 text-gray-500">Đang tải dữ liệu...</td></tr>
                 ) : paginatedData.length === 0 ? (
@@ -1529,15 +1481,16 @@ function VanDon() {
                               {col === "STT" ? (row['rowIndex'] || ((currentPage - 1) * rowsPerPage + rIdx + 1)) :
                                 DROPDOWN_OPTIONS[col] ? (
                                   <select
-                                    className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
+                                    className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
                                     value={String(val)}
                                     onChange={(e) => handleCellChange(orderId, key, e.target.value)}
                                   >
                                     {DROPDOWN_OPTIONS[col].map(o => <option key={o} value={o}>{o}</option>)}
                                   </select>
-                                ) : (viewMode === 'ORDER_MANAGEMENT' && (col === "Kết quả Check" || col === "Trạng thái giao hàng")) ? (
+                                ) : (col === "Kết quả Check" || col === "Trạng thái giao hàng") ? (
                                   <select
-                                    className="w-full bg-transparent border-none outline-none text-sm p-0 m-0"
+                                    className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
+                                    style={{ padding: 0, margin: 0, lineHeight: '38px' }}
                                     value={String(val)}
                                     onChange={(e) => handleCellChange(orderId, key, e.target.value)}
                                   >

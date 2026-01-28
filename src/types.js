@@ -29,8 +29,8 @@ export const BILL_LADING_COLUMNS = [
 
 // --- DEFAULT COLUMNS (Bill of Lading) ---
 export const DEFAULT_BILL_LADING_COLUMNS = [
-    "Mã đơn hàng", "Ngày lên đơn", "Name*", "Phone*", "Add", "City", "State",
-    "Mặt hàng", "Tổng tiền VNĐ", "Kết quả Check", "Trạng thái giao hàng NB",
+    "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Name*", "Phone*", "Add", "City", "State",
+    "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
     "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền"
 ];
 

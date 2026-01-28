@@ -805,7 +805,7 @@ export default function NhapDonMoi({ isEdit = false }) {
 
                 // Defaults / System
                 delivery_status: isEdit ? undefined : "Chờ xử lý", // Don't overwrite status on edit
-                check_result: isEdit ? undefined : "OK", // Default to OK for new orders to show in VanDon
+                check_result: isEdit ? undefined : "Vận đơn XL", // Default to "Vận đơn XL" for new orders
                 // User Info
                 cskh: userName,
                 // Don't overwrite created_by on edit ideally, but here we just send it if new

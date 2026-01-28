@@ -30,6 +30,7 @@ function DanhSachDon() {
 
   // Permission Logic
   const { canView, canEdit, canDelete, role } = usePermissions();
+  const isAdmin = ['admin', 'super_admin'].includes((role || '').toLowerCase());
   // Determine relevant page code based on team switch
   // If team=RD, we are in R&D context -> RND_ORDERS
   // Else (default), we are in Sale context -> SALE_ORDERS
@@ -1129,22 +1130,24 @@ function DanhSachDon() {
                   {filteredData.length} / {allData.length} đơn hàng
                 </span>
               </div>
-              <button
-                onClick={handleDeleteAll}
-                disabled={syncing || loading || deleting}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-              >
-                {deleting ? (
-                  <>
-                    <span className="animate-spin">⏳</span>
-                    Đang xóa...
-                  </>
-                ) : (
-                  <>
-                    🗑️ Xóa toàn bộ dữ liệu
-                  </>
-                )}
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={handleDeleteAll}
+                  disabled={syncing || loading || deleting}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                >
+                  {deleting ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      Đang xóa...
+                    </>
+                  ) : (
+                    <>
+                      🗑️ Xóa toàn bộ dữ liệu
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 onClick={loadData}
                 disabled={loading}
@@ -1264,14 +1267,16 @@ function DanhSachDon() {
               />
             </div>
 
-            {/* Settings Button */}
-            <button
-              onClick={() => setShowColumnSettings(true)}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
-            >
-              <Settings className="w-4 h-4" />
-              Cài đặt cột
-            </button>
+            {/* Settings Button - Only for Admin */}
+            {isAdmin && (
+              <button
+                onClick={() => setShowColumnSettings(true)}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Cài đặt cột
+              </button>
+            )}
 
 
           </div>
@@ -1358,7 +1363,7 @@ function DanhSachDon() {
                         );
                       })}
                       <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap text-center">
-                        {canDelete(permissionCode) && (
+                        {isAdmin && canDelete(permissionCode) && (
                           <button
                             onClick={() => handleDelete(row['Mã đơn hàng'], row._id)}
                             className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-colors"

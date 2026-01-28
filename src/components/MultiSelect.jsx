@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 const MultiSelect = ({
     label,
@@ -10,18 +11,32 @@ const MultiSelect = ({
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
+    const buttonRef = useRef(null);
+    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
 
     const ALL_OPTION = 'Tất cả';
 
     useEffect(() => {
         const handleClickOutside = (event) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target) && 
+                buttonRef.current && !buttonRef.current.contains(event.target)) {
                 setIsOpen(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    useEffect(() => {
+        if (isOpen && buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            setDropdownPosition({
+                top: rect.bottom + window.scrollY,
+                left: rect.left + window.scrollX,
+                width: rect.width
+            });
+        }
+    }, [isOpen]);
 
     const handleToggle = () => setIsOpen(!isOpen);
 
@@ -54,18 +69,31 @@ const MultiSelect = ({
     }
 
     return (
-        <div className={`relative ${mainFilter ? 'w-full' : 'w-full'}`} ref={dropdownRef}>
-            <button
-                onClick={handleToggle}
-                className={`w-full text-left px-2 py-1.5 border rounded text-sm bg-white overflow-hidden text-ellipsis whitespace-nowrap ${mainFilter ? 'border-gray-300 min-w-[180px] text-gray-700' : 'border-gray-300 text-gray-500 text-xs py-1'
-                    }`}
-                title={displayText}
-            >
-                {displayText}
-            </button>
+        <>
+            <div className="relative w-full" ref={dropdownRef} style={{ margin: 0, padding: 0 }}>
+                <button
+                    ref={buttonRef}
+                    onClick={handleToggle}
+                    className={`w-full text-left px-2 py-1.5 border rounded text-sm bg-white overflow-hidden text-ellipsis whitespace-nowrap shadow-sm ${mainFilter ? 'border-gray-300 min-w-[180px] text-gray-700' : 'border-gray-300 text-gray-500'
+                        }`}
+                    title={displayText}
+                    style={{ width: '100%', margin: 0, textAlign: 'left' }}
+                >
+                    {displayText}
+                </button>
+            </div>
 
-            {isOpen && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded shadow-lg z-[100] w-64 max-h-72 overflow-y-auto">
+            {isOpen && createPortal(
+                <div 
+                    ref={dropdownRef}
+                    className="fixed bg-white border border-gray-300 rounded shadow-lg w-64 max-h-72 overflow-y-auto"
+                    style={{ 
+                        zIndex: 10000,
+                        top: `${dropdownPosition.top}px`,
+                        left: `${dropdownPosition.left}px`,
+                        width: `${dropdownPosition.width || 256}px`
+                    }}
+                >
                     <div
                         className="px-3 py-2 cursor-pointer hover:bg-gray-100 flex items-center border-b border-gray-100 text-sm"
                         onClick={() => handleOptionChange(ALL_OPTION)}
@@ -93,9 +121,10 @@ const MultiSelect = ({
                             <span className="text-gray-700">{option}</span>
                         </div>
                     ))}
-                </div>
+                </div>,
+                document.body
             )}
-        </div>
+        </>
     );
 };
 

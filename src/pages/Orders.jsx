@@ -17,7 +17,8 @@ export default function Orders() {
         product: "",
         total_amount_vnd: 0,
         delivery_status: "Mới",
-        team: ""
+        team: "",
+        check_result: "Vận đơn XL" // Tự động điền "Vận đơn XL" cho tất cả đơn mới
     });
 
     useEffect(() => {
@@ -68,7 +69,8 @@ export default function Orders() {
                 product: "",
                 total_amount_vnd: 0,
                 delivery_status: "Mới",
-                team: ""
+                team: "",
+                check_result: "Vận đơn XL" // Tự động điền "Vận đơn XL" cho tất cả đơn mới
             });
             fetchOrders(); // Refresh list
         } catch (error) {
