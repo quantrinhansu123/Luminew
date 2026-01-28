@@ -2,6 +2,7 @@ import { ChevronLeft, RefreshCw, Search, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
+import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 
 export default function DanhSachPage() {
@@ -10,16 +11,15 @@ export default function DanhSachPage() {
     const teamFilter = searchParams.get('team'); // 'RD' or null
 
     // Permission Logic
-    const { canView } = usePermissions();
+    const { canView, role } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_PAGES' : 'MKT_PAGES';
-
-
 
     const [data, setData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchText, setSearchText] = useState('');
     const fileInputRef = useRef(null);
+    const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
 
     // Filters
     const [filterMarket, setFilterMarket] = useState('');
@@ -49,6 +49,37 @@ export default function DanhSachPage() {
         }
     };
 
+    // Load selected personnel names for current user
+    useEffect(() => {
+        const loadSelectedPersonnel = async () => {
+            try {
+                const userEmail = localStorage.getItem("userEmail") || "";
+                
+                if (!userEmail) {
+                    setSelectedPersonnelNames([]);
+                    return;
+                }
+
+                const userEmailLower = userEmail.toLowerCase().trim();
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+                const personnelNames = personnelMap[userEmailLower] || [];
+
+                const validNames = personnelNames.filter(name => {
+                    const nameStr = String(name).trim();
+                    return nameStr.length > 0 && !nameStr.includes('@');
+                });
+                
+                console.log('📝 [DanhSachPage] Valid personnel names:', validNames);
+                setSelectedPersonnelNames(validNames);
+            } catch (error) {
+                console.error('❌ [DanhSachPage] Error loading selected personnel:', error);
+                setSelectedPersonnelNames([]);
+            }
+        };
+
+        loadSelectedPersonnel();
+    }, []);
+
     useEffect(() => {
         loadData();
     }, []);
@@ -56,6 +87,33 @@ export default function DanhSachPage() {
     // Filter Data
     useEffect(() => {
         let result = [...data];
+
+        // Filter by selected personnel names (if not manager/admin)
+        const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
+        const userName = localStorage.getItem("username") || "";
+        
+        if (!isManager) {
+            if (selectedPersonnelNames.length > 0) {
+                // Filter theo selectedPersonnelNames + userName
+                const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
+                console.log('🔍 [DanhSachPage] Filtering by selected personnel names:', allNames);
+                
+                result = result.filter(item => {
+                    const mktStaff = (item.mkt_staff || '').toLowerCase();
+                    return allNames.some(name => {
+                        const nameLower = name.toLowerCase();
+                        return mktStaff.includes(nameLower);
+                    });
+                });
+            } else if (userName) {
+                // Nếu không có selectedPersonnelNames, filter theo user hiện tại
+                const userNameLower = userName.toLowerCase();
+                result = result.filter(item => {
+                    const mktStaff = (item.mkt_staff || '').toLowerCase();
+                    return mktStaff.includes(userNameLower);
+                });
+            }
+        }
 
         // Search
         if (searchText) {
@@ -83,7 +141,7 @@ export default function DanhSachPage() {
         }
 
         setFilteredData(result);
-    }, [data, searchText, filterMarket, filterStaff, filterProduct]);
+    }, [data, searchText, filterMarket, filterStaff, filterProduct, selectedPersonnelNames, role]);
 
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
@@ -161,8 +219,8 @@ export default function DanhSachPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 p-6">
-            <div className="max-w-7xl mx-auto">
+        <div className="min-h-screen bg-gray-50">
+            <div className="w-full p-6">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-4">

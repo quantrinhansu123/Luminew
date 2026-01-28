@@ -17,8 +17,12 @@ export default function XemBaoCaoMKT() {
   const teamFilter = searchParams.get('team'); // 'RD' or null
 
   // Permission Logic
-  const { canView } = usePermissions();
+  const { canView, role, team: userTeam } = usePermissions();
   const permissionCode = teamFilter === 'RD' ? 'RND_VIEW' : 'MKT_VIEW';
+  
+  // Get user email and name for filtering
+  const userEmail = localStorage.getItem('userEmail') || '';
+  const userName = localStorage.getItem('username') || '';
 
 
 
@@ -27,7 +31,7 @@ export default function XemBaoCaoMKT() {
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 3); // Last 3 Days default
+    d.setDate(d.getDate() - 30); // Last 30 Days default (expanded from 3)
     return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState(() => {
@@ -132,25 +136,59 @@ export default function XemBaoCaoMKT() {
       }
       // --------------------------
 
-      let query = supabase
-        .from('detail_reports')
-        .select('*');
+      // Fetch via backend API (bypasses RLS) - Required because RLS policy needs permissions
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      
+      const response = await fetch(`/api/fetch-detail-reports?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
-      if (startDate && endDate) {
-        query = query
-          .gte('Ngày', startDate)
-          .lte('Ngày', endDate);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const { data: reports, error } = await query;
+      const result = await response.json();
 
-      if (error) throw error;
+      if (!result.success) {
+        throw new Error(result.error || 'Lỗi không xác định');
+      }
 
-      const allReports = reports || [];
-      // Client-side fallback just in case, though server-side should handle it
-      const filteredReports = allReports.filter(r => isDateInRange(r['Ngày'], startDate, endDate));
-
-      setData(filteredReports);
+      const allReports = result.data || [];
+      
+      // Filter by date first
+      let dateFilteredReports = allReports.filter(r => isDateInRange(r['Ngày'], startDate, endDate));
+      
+      // Then filter by hierarchical permissions
+      // Admin/Director/Manager: see all data
+      const isAdminOrLeadership = ['admin', 'director', 'manager', 'super_admin', 'ADMIN', 'DIRECTOR', 'MANAGER'].includes((role || '').toUpperCase());
+      
+      if (!isAdminOrLeadership) {
+        // Leader: see team data only
+        if (role?.toUpperCase() === 'LEADER' && userTeam) {
+          dateFilteredReports = dateFilteredReports.filter(item => 
+            item['Team'] && item['Team'].toLowerCase() === userTeam.toLowerCase()
+          );
+        } else {
+          // Staff: see own data only (by name or email)
+          dateFilteredReports = dateFilteredReports.filter(item => {
+            const itemName = (item['Tên'] || '').toLowerCase().trim();
+            const itemEmail = (item['Email'] || '').toLowerCase().trim();
+            const currentUserName = userName.toLowerCase().trim();
+            const currentUserEmail = userEmail.toLowerCase().trim();
+            
+            return (itemName === currentUserName && currentUserName !== '') ||
+                   (itemEmail === currentUserEmail && currentUserEmail !== '');
+          });
+        }
+      }
+      
+      console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam})`);
+      setData(dateFilteredReports);
 
       // Extract unique teams
       const uniqueTeams = [...new Set(reports.map(r => r.Team).filter(Boolean))].sort();
@@ -163,7 +201,9 @@ export default function XemBaoCaoMKT() {
       setMarkets(uniqueMarkets);
 
     } catch (err) {
-      console.error('Error fetching data:', err);
+      console.error('❌ Error fetching data:', err);
+      alert(`Lỗi khi tải dữ liệu: ${err.message || String(err)}`);
+      setData([]);
     } finally {
       setLoading(false);
     }

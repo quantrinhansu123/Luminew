@@ -50,6 +50,10 @@ export default function BaoCaoMarketing() {
   const [status, setStatus] = useState('Đang khởi tạo ứng dụng...');
   const [responseMsg, setResponseMsg] = useState({ text: '', isSuccess: true, visible: false });
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [realValuesMap, setRealValuesMap] = useState({}); // Map row ID to real values
+  const [calculatingRealValues, setCalculatingRealValues] = useState({}); // Track which rows are calculating
   const employeeDatalistRef = useRef(null);
 
 
@@ -84,6 +88,8 @@ export default function BaoCaoMarketing() {
     'Báo cáo theo Page',
     'Trạng thái',
     'Cảnh báo',
+    'Số đơn thực tế',
+    'Doanh số thực tế',
   ];
 
   useEffect(() => {
@@ -96,6 +102,19 @@ export default function BaoCaoMarketing() {
 
     initializeApp(email, hoten);
   }, []);
+
+  // Auto-calculate real values when rows change or when relevant fields are filled
+  useEffect(() => {
+    tableRows.forEach((row, index) => {
+      const rowData = row.data;
+      const hasRequiredFields = rowData['Ngày'] && rowData['Tên'];
+      
+      if (hasRequiredFields && !realValuesMap[row.id]) {
+        // Calculate if not already calculated
+        calculateRealValuesForRow(index, rowData);
+      }
+    });
+  }, [tableRows.length]); // Recalculate when rows are added/removed
 
 
 
@@ -272,24 +291,289 @@ export default function BaoCaoMarketing() {
       alert('Bạn không thể xóa dòng cuối cùng.');
       return;
     }
+    
+    // Confirm before deleting
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa dòng ${index + 1}?\n\nDữ liệu trong dòng này sẽ bị mất.`)) {
+      return;
+    }
+    
+    const rowId = tableRows[index]?.id;
+    
+    // Remove from table
     setTableRows(tableRows.filter((_, i) => i !== index));
+    
+    // Clean up real values map
+    if (rowId) {
+      setRealValuesMap(prev => {
+        const newMap = { ...prev };
+        delete newMap[rowId];
+        return newMap;
+      });
+      setCalculatingRealValues(prev => {
+        const newMap = { ...prev };
+        delete newMap[rowId];
+        return newMap;
+      });
+    }
+    
+    updateStatus(`Đã xóa dòng ${index + 1}.`);
   };
 
-  const handleRowChange = (index, field, value) => {
+  // Calculate real values from orders table for a single report row
+  const calculateRealValues = async (rowData, rowId) => {
+    try {
+      let reportDate = rowData['Ngày'];
+      const reportName = rowData['Tên'];
+      const reportCa = rowData['ca'];
+      const reportProduct = rowData['Sản_phẩm'];
+      const reportMarket = rowData['Thị_trường'];
+
+      if (!reportName) {
+        return {
+          so_don_thuc_te: 0,
+          doanh_so_thuc_te: 0
+        };
+      }
+
+      // Nếu không có ngày, không tính toán
+      if (!reportDate) {
+        return {
+          so_don_thuc_te: 0,
+          doanh_so_thuc_te: 0
+        };
+      }
+
+      // Normalize date format to YYYY-MM-DD for Supabase DATE comparison
+      if (reportDate instanceof Date) {
+        reportDate = reportDate.toISOString().split('T')[0];
+      } else if (typeof reportDate === 'string') {
+        // Handle different date formats
+        // If format is DD/MM/YYYY, convert to YYYY-MM-DD
+        if (reportDate.includes('/')) {
+          const parts = reportDate.split('/');
+          if (parts.length === 3) {
+            // Assume DD/MM/YYYY
+            reportDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+          }
+        }
+        // Remove time part if present (YYYY-MM-DDTHH:mm:ss)
+        reportDate = reportDate.split('T')[0];
+      }
+
+      console.log('📅 Date normalization:', {
+        original: rowData['Ngày'],
+        normalized: reportDate,
+        type: typeof reportDate
+      });
+
+      // Build query
+      let query = supabase
+        .from('orders')
+        .select('*')
+        .eq('order_date', reportDate);
+
+      // Filter by marketing_staff (name) - use ilike for flexible matching
+      if (reportName) {
+        // Simple ilike matching - Supabase will handle partial matches
+        query = query.ilike('marketing_staff', `%${reportName.trim()}%`);
+      }
+
+      // Filter by shift/ca
+      const caValue = String(reportCa || '').trim();
+      
+      if (caValue === 'Hết ca' || caValue.toLowerCase() === 'hết ca') {
+        // Hết ca: tính đơn có shift chứa "Hết ca"
+        query = query.ilike('shift', '%Hết ca%');
+      } else if (caValue === 'Giữa ca' || caValue.toLowerCase() === 'giữa ca') {
+        // Giữa ca: tính đơn có shift chứa "Giữa ca" hoặc "giữa ca"
+        query = query.or('shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
+      } else if (caValue) {
+        // Other ca: partial match
+        query = query.ilike('shift', `%${caValue}%`);
+      }
+
+      // Filter by product - use ilike for flexible matching
+      if (reportProduct) {
+        // Use ilike for partial matching (case-insensitive)
+        query = query.ilike('product', `%${reportProduct.trim()}%`);
+      }
+
+      // Filter by market (country or area)
+      if (reportMarket) {
+        // Use or() to match either country or area
+        query = query.or(`country.ilike.%${reportMarket}%,area.ilike.%${reportMarket}%`);
+      }
+
+      console.log('🔍 Query parameters:', {
+        reportDate,
+        reportName,
+        reportCa,
+        reportProduct,
+        reportMarket
+      });
+
+      // First, let's check if there are any orders on this date at all
+      const { data: ordersByDate, error: dateError } = await supabase
+        .from('orders')
+        .select('id, order_date, marketing_staff, product, country, area, shift')
+        .eq('order_date', reportDate)
+        .limit(10);
+
+      if (dateError) {
+        console.error('❌ Error checking orders by date:', dateError);
+      } else {
+        console.log(`📅 Found ${ordersByDate?.length || 0} orders on date ${reportDate}:`, ordersByDate?.slice(0, 3).map(o => ({
+          marketing_staff: o.marketing_staff,
+          product: o.product,
+          country: o.country,
+          area: o.area,
+          shift: o.shift
+        })));
+      }
+
+      const { data: orders, error } = await query;
+
+      if (error) {
+        console.error('❌ Error calculating real values:', error);
+        console.error('❌ Error details:', JSON.stringify(error, null, 2));
+        return {
+          so_don_thuc_te: 0,
+          doanh_thu_chot_thuc_te: 0,
+          doanh_so_hoan_huy_thuc_te: 0,
+          so_don_hoan_huy_thuc_te: 0,
+          doanh_so_sau_hoan_huy_thuc_te: 0,
+          doanh_so_di_thuc_te: 0
+        };
+      }
+
+      console.log(`📊 Found ${orders?.length || 0} orders matching all criteria:`, {
+        reportDate,
+        reportName,
+        reportCa,
+        reportProduct,
+        reportMarket
+      });
+
+      if (orders && orders.length > 0) {
+        console.log('📋 Sample order:', {
+          order_date: orders[0].order_date,
+          marketing_staff: orders[0].marketing_staff,
+          product: orders[0].product,
+          country: orders[0].country,
+          area: orders[0].area,
+          shift: orders[0].shift,
+          total_amount_vnd: orders[0].total_amount_vnd,
+          total_vnd: orders[0].total_vnd,
+          check_result: orders[0].check_result,
+          delivery_status: orders[0].delivery_status
+        });
+      } else {
+        // Debug: Try to find orders step by step
+        console.log('🔍 Debugging: Checking each filter step by step...');
+        
+        // Check orders by date only
+        const { data: ordersDateOnly } = await supabase
+          .from('orders')
+          .select('id, marketing_staff, product, country, area, shift')
+          .eq('order_date', reportDate)
+          .limit(5);
+        console.log(`  📅 Orders on date ${reportDate}: ${ordersDateOnly?.length || 0}`, ordersDateOnly);
+        
+        // Check orders by date + name
+        if (reportName) {
+          const { data: ordersDateName } = await supabase
+            .from('orders')
+            .select('id, marketing_staff, product, country, area, shift')
+            .eq('order_date', reportDate)
+            .ilike('marketing_staff', `%${reportName.trim()}%`)
+            .limit(5);
+          console.log(`  👤 Orders with name "${reportName}": ${ordersDateName?.length || 0}`, ordersDateName);
+        }
+        
+        // Check orders by date + name + product
+        if (reportName && reportProduct) {
+          const { data: ordersDateNameProduct } = await supabase
+            .from('orders')
+            .select('id, marketing_staff, product, country, area, shift')
+            .eq('order_date', reportDate)
+            .ilike('marketing_staff', `%${reportName.trim()}%`)
+            .eq('product', reportProduct)
+            .limit(5);
+          console.log(`  📦 Orders with name + product "${reportProduct}": ${ordersDateNameProduct?.length || 0}`, ordersDateNameProduct);
+        }
+      }
+
+      if (!orders || orders.length === 0) {
+        console.log('⚠️ No orders found matching all criteria');
+        return {
+          so_don_thuc_te: 0,
+          doanh_thu_chot_thuc_te: 0,
+          doanh_so_hoan_huy_thuc_te: 0,
+          so_don_hoan_huy_thuc_te: 0,
+          doanh_so_sau_hoan_huy_thuc_te: 0,
+          doanh_so_di_thuc_te: 0
+        };
+      }
+
+      // Calculate values
+      const totalOrders = orders.length;
+      
+      // Doanh số thực tế: tổng total_amount_vnd của tất cả đơn khớp điều kiện
+      const doanhSoThucTe = orders.reduce((sum, o) => {
+        const amount = o.total_amount_vnd || o.total_vnd || 0;
+        return sum + (Number(amount) || 0);
+      }, 0);
+
+      return {
+        so_don_thuc_te: totalOrders,
+        doanh_so_thuc_te: doanhSoThucTe
+      };
+    } catch (error) {
+      console.error('Error calculating real values:', error);
+      return {
+        so_don_thuc_te: 0,
+        doanh_so_thuc_te: 0
+      };
+    }
+  };
+
+  // Calculate real values when relevant fields change
+  const calculateRealValuesForRow = async (rowIndex, rowData) => {
+    const rowId = tableRows[rowIndex]?.id;
+    if (!rowId) return;
+
+    console.log('🔄 Calculating real values for row:', {
+      rowId,
+      rowData: {
+        Ngày: rowData['Ngày'],
+        Tên: rowData['Tên'],
+        ca: rowData['ca'],
+        Sản_phẩm: rowData['Sản_phẩm'],
+        Thị_trường: rowData['Thị_trường']
+      }
+    });
+
+    setCalculatingRealValues(prev => ({ ...prev, [rowId]: true }));
+    
+    try {
+      const realValues = await calculateRealValues(rowData, rowId);
+      console.log('✅ Calculated real values:', realValues);
+      setRealValuesMap(prev => ({ ...prev, [rowId]: realValues }));
+    } catch (error) {
+      console.error('❌ Error calculating real values for row:', error);
+    } finally {
+      setCalculatingRealValues(prev => {
+        const newState = { ...prev };
+        delete newState[rowId];
+        return newState;
+      });
+    }
+  };
+
+  const handleRowChange = async (index, field, value) => {
     // Prevent editing Email/Name if restricted
     const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
     if (!isManager && (field === 'Email' || field === 'Tên')) {
-      // Allow ONLY if it matches their own (or allow clearing? No, block change)
-      // Actually, just return early is safer if they try to change it.
-      // But value comes from input.
-      // If they try to type something else, block it.
-      // EXCEPT if it matches their email/name?
-      // Simpler: Just block.
-      // But wait, what if it's empty initially? createRowData likely filled it.
-      // If they clear it, we might want to let them, but createRowData will refill it on new row.
-      // Let's just Block "Change" events for Email/Tên.
-      // But we need to handle "auto-fill" or initial render?
-      // Initial render uses createRowData. This is onChange.
       return;
     }
 
@@ -317,6 +601,161 @@ export default function BaoCaoMarketing() {
     }
 
     setTableRows(newRows);
+
+    // Calculate real values if relevant fields changed
+    const fieldsToTriggerCalculation = ['Ngày', 'Tên', 'ca', 'Sản_phẩm', 'Thị_trường'];
+    if (fieldsToTriggerCalculation.includes(field)) {
+      // Debounce calculation
+      setTimeout(() => {
+        calculateRealValuesForRow(index, newRows[index].data);
+      }, 500);
+    }
+  };
+
+  // Delete all data from detail_reports
+  const handleDeleteAll = async () => {
+    const confirm1 = window.confirm(
+      "⚠️ CẢNH BÁO NGHIÊM TRỌNG!\n\n" +
+      "Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu trong bảng detail_reports?\n\n" +
+      "Hành động này KHÔNG THỂ HOÀN TÁC!\n\n" +
+      "Nhấn OK để tiếp tục, hoặc Cancel để hủy."
+    );
+
+    if (!confirm1) return;
+
+    const confirm2 = window.confirm(
+      "⚠️ XÁC NHẬN LẦN CUỐI!\n\n" +
+      "Bạn có THỰC SỰ muốn xóa TOÀN BỘ dữ liệu?\n\n" +
+      "Tất cả báo cáo MKT sẽ bị mất vĩnh viễn!\n\n" +
+      "Nhập 'XÓA' vào ô bên dưới để xác nhận."
+    );
+
+    if (!confirm2) return;
+
+    const userInput = window.prompt(
+      "Nhập 'XÓA' (chữ hoa) để xác nhận xóa toàn bộ dữ liệu:"
+    );
+
+    if (userInput !== 'XÓA') {
+      alert("Xác nhận không đúng. Hủy bỏ thao tác xóa.");
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      updateStatus('Đang xóa dữ liệu...');
+      
+      // Delete all records from detail_reports
+      const { error } = await supabase
+        .from('detail_reports')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all (hack for delete all)
+
+      if (error) {
+        // If the above doesn't work, try deleting by selecting all IDs first
+        const { data: allRecords, error: fetchError } = await supabase
+          .from('detail_reports')
+          .select('id')
+          .limit(10000);
+
+        if (fetchError) throw fetchError;
+
+        if (allRecords && allRecords.length > 0) {
+          const ids = allRecords.map(r => r.id);
+          // Delete in batches
+          const batchSize = 1000;
+          for (let i = 0; i < ids.length; i += batchSize) {
+            const batch = ids.slice(i, i + batchSize);
+            const { error: batchError } = await supabase
+              .from('detail_reports')
+              .delete()
+              .in('id', batch);
+            
+            if (batchError) {
+              console.error(`Batch ${i / batchSize + 1} error:`, batchError);
+              throw batchError;
+            }
+          }
+        }
+      }
+
+      alert("✅ Đã xóa toàn bộ dữ liệu thành công!");
+      updateStatus('Đã xóa toàn bộ dữ liệu thành công.');
+      setResponseMsg({
+        text: '✅ Đã xóa toàn bộ dữ liệu thành công!',
+        isSuccess: true,
+        visible: true,
+      });
+
+    } catch (error) {
+      console.error("Delete error:", error);
+      const errorMsg = error.message || String(error);
+      alert("Lỗi khi xóa dữ liệu: " + errorMsg);
+      updateStatus('Lỗi khi xóa dữ liệu: ' + errorMsg, true);
+      setResponseMsg({
+        text: `Lỗi khi xóa dữ liệu: ${errorMsg}`,
+        isSuccess: false,
+        visible: true,
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Sync data from Firebase Báo cáo MKT via backend API (bypasses RLS)
+  const handleSyncMKT = async () => {
+    if (!window.confirm("Bạn có chắc chắn muốn đồng bộ dữ liệu từ Firebase Báo cáo MKT về Supabase?\n\nLưu ý: Chỉ thêm dữ liệu MỚI (chưa có), KHÔNG ghi đè dữ liệu đã tồn tại.")) return;
+
+    try {
+      setSyncing(true);
+      updateStatus('Đang đồng bộ dữ liệu từ Firebase...');
+      
+      // Call backend API which uses service role key to bypass RLS
+      const response = await fetch('/api/sync-mkt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Lỗi không xác định');
+      }
+
+      const message = `Đồng bộ hoàn tất!\nThành công: ${result.successCount} bản ghi\nLỗi: ${result.errorCount} bản ghi`;
+      if (result.errorCount > 0 && result.error) {
+        alert(message + `\n\nLỗi: ${result.error}`);
+        updateStatus(`Đồng bộ hoàn tất: ${result.successCount} thành công, ${result.errorCount} lỗi.`, true);
+      } else {
+        alert(message);
+        updateStatus(`Đồng bộ hoàn tất: ${result.successCount} thành công.`);
+      }
+
+      setResponseMsg({
+        text: `Đồng bộ hoàn tất: ${result.successCount} thành công, ${result.errorCount} lỗi.`,
+        isSuccess: result.errorCount === 0,
+        visible: true,
+      });
+
+    } catch (error) {
+      console.error("Sync error:", error);
+      const errorMsg = error.message || String(error);
+      updateStatus('Lỗi đồng bộ: ' + errorMsg, true);
+      alert("Lỗi khi đồng bộ: " + errorMsg);
+      setResponseMsg({
+        text: `Lỗi khi đồng bộ: ${errorMsg}`,
+        isSuccess: false,
+        visible: true,
+      });
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -374,6 +813,11 @@ export default function BaoCaoMarketing() {
 
         // Auto-fields if missing
         if (!rowObject['Ngày']) rowObject['Ngày'] = getToday();
+
+        // Add real values from orders table (calculated dynamically)
+        const realValues = realValuesMap[row.id] || {};
+        rowObject['Số đơn thực tế'] = realValues.so_don_thuc_te || 0;
+        rowObject['Doanh số thực tế'] = realValues.doanh_so_thuc_te || 0;
 
         return rowObject;
       });
@@ -442,6 +886,7 @@ export default function BaoCaoMarketing() {
 
   const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số'];
   const hiddenFields = ['id', 'id phản hồi', 'id số mess', 'team', 'id_ns', 'trạng thái', 'chi nhánh', 'doanh số đi', 'số đơn hoàn huỷ', 'số đơn hoàn hủy', 'doanh số hoàn huỷ', 'số đơn thành công', 'doanh số thành công', 'khách mới', 'khách cũ', 'bán chéo', 'bán chéo team', 'ds chốt', 'ds sau hoàn hủy', 'số đơn sau hoàn hủy', 'doanh số sau ship', 'doanh số tc', 'kpis', 'cpqc theo tkqc', 'báo cáo theo page', 'cảnh báo'];
+  const realValueFields = ['Số đơn thực tế', 'Doanh số thực tế'];
 
   if (!canView(permissionCode)) {
     return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
@@ -451,7 +896,7 @@ export default function BaoCaoMarketing() {
     <div className="min-h-screen bg-gray-100 p-3">
       <div className="bg-white rounded-lg shadow-lg p-4">
         {/* Header */}
-        <div className="flex items-center mb-4 pb-3 border-b-2 border-blue-600">
+        <div className="flex items-center justify-between mb-4 pb-3 border-b-2 border-blue-600">
           <h1 className="text-2xl font-bold text-blue-600">Báo Cáo MKT</h1>
         </div>
 
@@ -469,8 +914,9 @@ export default function BaoCaoMarketing() {
 
         {/* Table */}
         <form onSubmit={handleSubmit}>
-          <div className="overflow-x-auto mb-4 border border-gray-300 rounded-lg">
-            <table className="w-full border-collapse bg-white text-xs">
+          <div className="overflow-x-auto mb-4 border border-gray-300 rounded-lg" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+            <div className="w-full align-middle">
+              <table className="w-full border-collapse bg-white text-xs table-fixed">
               <thead>
                 <tr className="bg-blue-600 text-white sticky top-0">
                   <th className="border px-2 py-1 text-left font-semibold whitespace-nowrap">Hành động</th>
@@ -508,52 +954,65 @@ export default function BaoCaoMarketing() {
                       (header) =>
                         !hiddenFields.includes(header.toLowerCase()) && (
                           <td key={`${row.id}-${header}`} className="border px-2 py-1">
-                            {header === 'Ngày' ? (
+                            {realValueFields.includes(header) ? (
+                              // Real value fields - readonly, calculated from orders
+                              <div 
+                                className="px-1 py-0.5 text-xs bg-blue-50 text-blue-700 font-semibold border border-blue-200 rounded cursor-not-allowed"
+                                title="Giá trị tự động tính từ bảng Orders (không thể chỉnh sửa)"
+                              >
+                                {calculatingRealValues[row.id] ? (
+                                  <span className="text-gray-500 italic">Đang tính...</span>
+                                ) : (
+                                  (() => {
+                                    const realValues = realValuesMap[row.id] || {};
+                                    const valueMap = {
+                                      'Số đơn thực tế': realValues.so_don_thuc_te || 0,
+                                      'Doanh số thực tế': realValues.doanh_so_thuc_te || 0
+                                    };
+                                    const value = valueMap[header] || 0;
+                                    if (value === 0 && (!row.data['Ngày'] || !row.data['Tên'])) {
+                                      return <span className="text-gray-400 italic">Nhập Ngày và Tên để tính</span>;
+                                    }
+                                    return header.includes('Doanh') || header.includes('DS') || header.includes('Doanh thu')
+                                      ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)
+                                      : new Intl.NumberFormat('vi-VN').format(value);
+                                  })()
+                                )}
+                              </div>
+                            ) : header === 'Ngày' ? (
                               <input
                                 type="date"
-                                value={row.data[header] || getToday()}
+                                value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
                                 className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                               />
                             ) : header === 'ca' ? (
-                              <select
+                              <input
+                                type="text"
+                                list={`ca-datalist-${row.id}`}
+                                placeholder="--"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
                                 className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              >
-                                <option value="">--</option>
-                                {appData.shiftList.map((shift) => (
-                                  <option key={shift} value={shift}>
-                                    {shift}
-                                  </option>
-                                ))}
-                              </select>
+                              />
                             ) : header === 'Sản_phẩm' ? (
-                              <select
+                              <input
+                                type="text"
+                                list={`product-datalist-${row.id}`}
+                                placeholder="--"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
                                 className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              >
-                                <option value="">--</option>
-                                {appData.productList.map((product) => (
-                                  <option key={product} value={product}>
-                                    {product}
-                                  </option>
-                                ))}
-                              </select>
+                              />
                             ) : header === 'Thị_trường' ? (
-                              <select
+                              <input
+                                type="text"
+                                list={`market-datalist-${row.id}`}
+                                placeholder="--"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
                                 className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              >
-                                <option value="">--</option>
-                                {appData.marketList.map((market) => (
-                                  <option key={market} value={market}>
-                                    {market}
-                                  </option>
-                                ))}
-                              </select>
+                              />
                             ) : header === 'Email' ? (
                               <input
                                 type="email"
@@ -596,6 +1055,7 @@ export default function BaoCaoMarketing() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Submit Button */}
@@ -635,6 +1095,33 @@ export default function BaoCaoMarketing() {
               <option key={emp.email} value={emp.email} />
             ))}
         </datalist>
+
+        {/* Ca Datalist - Dynamic for each row */}
+        {tableRows.map((row) => (
+          <datalist key={`ca-${row.id}`} id={`ca-datalist-${row.id}`}>
+            {appData.shiftList?.map((shift) => (
+              <option key={shift} value={shift} />
+            ))}
+          </datalist>
+        ))}
+
+        {/* Product Datalist - Dynamic for each row */}
+        {tableRows.map((row) => (
+          <datalist key={`product-${row.id}`} id={`product-datalist-${row.id}`}>
+            {appData.productList?.map((product) => (
+              <option key={product} value={product} />
+            ))}
+          </datalist>
+        ))}
+
+        {/* Market Datalist - Dynamic for each row */}
+        {tableRows.map((row) => (
+          <datalist key={`market-${row.id}`} id={`market-datalist-${row.id}`}>
+            {appData.marketList?.map((market) => (
+              <option key={market} value={market} />
+            ))}
+          </datalist>
+        ))}
       </div>
     </div>
   );

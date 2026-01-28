@@ -67,6 +67,7 @@ function DanhSachDon() {
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [syncing, setSyncing] = useState(false); // State for sync process
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
+  const [deleting, setDeleting] = useState(false); // State for delete all process
 
 
 
@@ -77,6 +78,7 @@ function DanhSachDon() {
     'Phone*',
     'Khu vực',
     'Mặt hàng',
+    'Ca',
     'Mã Tracking',
     'Trạng thái giao hàng',
     'Tổng tiền VNĐ',
@@ -225,6 +227,7 @@ function DanhSachDon() {
     "Trạng thái thu tiền": item.payment_status_detail,
     "Lý do": item.reason,
     "Page": item.page_name, // Map Page Name
+    "Ca": item.shift, // Map shift to Ca
     "_id": item.id,
     "_source": 'supabase'
   });
@@ -666,6 +669,101 @@ function DanhSachDon() {
     }
   };
 
+  // Handle Delete All
+  const handleDeleteAll = async () => {
+    const confirm1 = window.confirm(
+      "⚠️ CẢNH BÁO NGHIÊM TRỌNG!\n\n" +
+      "Bạn sắp XÓA TOÀN BỘ dữ liệu đơn hàng trong hệ thống!\n\n" +
+      "Hành động này KHÔNG THỂ HOÀN TÁC!\n\n" +
+      "Nhấn OK để tiếp tục, hoặc Cancel để hủy."
+    );
+
+    if (!confirm1) return;
+
+    const confirm2 = window.confirm(
+      "⚠️ XÁC NHẬN LẦN CUỐI!\n\n" +
+      "Bạn có chắc chắn muốn xóa TẤT CẢ đơn hàng?\n" +
+      "Tất cả dữ liệu sẽ bị mất vĩnh viễn!\n\n" +
+      "Nhập 'XÓA' vào ô bên dưới để xác nhận."
+    );
+
+    if (!confirm2) return;
+
+    const userInput = window.prompt(
+      "Nhập 'XÓA' để xác nhận xóa toàn bộ dữ liệu:"
+    );
+
+    if (userInput !== 'XÓA') {
+      alert("Xác nhận không đúng. Hủy bỏ thao tác xóa.");
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      console.log('🗑️ Starting delete all orders...');
+
+      // Try delete all first
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all (hack for delete all)
+
+      if (error) {
+        console.log('⚠️ First delete method failed, trying batch delete...', error);
+        
+        // If the above doesn't work, try deleting by selecting all IDs first
+        const { data: allRecords, error: fetchError } = await supabase
+          .from('orders')
+          .select('id')
+          .limit(100000); // Increase limit for orders table
+
+        if (fetchError) {
+          console.error('❌ Error fetching order IDs:', fetchError);
+          throw fetchError;
+        }
+
+        if (allRecords && allRecords.length > 0) {
+          console.log(`📋 Found ${allRecords.length} orders to delete. Deleting in batches...`);
+          const ids = allRecords.map(r => r.id);
+          
+          // Delete in batches
+          const batchSize = 1000;
+          let deletedCount = 0;
+          
+          for (let i = 0; i < ids.length; i += batchSize) {
+            const batch = ids.slice(i, i + batchSize);
+            const { error: batchError } = await supabase
+              .from('orders')
+              .delete()
+              .in('id', batch);
+            
+            if (batchError) {
+              console.error(`❌ Batch ${Math.floor(i / batchSize) + 1} error:`, batchError);
+              throw batchError;
+            }
+            
+            deletedCount += batch.length;
+            console.log(`✅ Deleted batch ${Math.floor(i / batchSize) + 1}: ${batch.length} orders (Total: ${deletedCount}/${ids.length})`);
+          }
+          
+          alert(`✅ Đã xóa toàn bộ ${deletedCount} đơn hàng thành công!`);
+        } else {
+          alert("ℹ️ Không có dữ liệu để xóa.");
+        }
+      } else {
+        alert("✅ Đã xóa toàn bộ dữ liệu đơn hàng thành công!");
+      }
+
+      setAllData([]); // Clear local state
+      loadData(); // Reload to refresh
+    } catch (error) {
+      console.error('❌ Delete all error:', error);
+      alert(`❌ Lỗi xóa toàn bộ dữ liệu: ${error.message || String(error)}\n\nVui lòng kiểm tra Console để xem chi tiết.`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // Handle Delete
   const handleDelete = async (orderCode, rowId) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác.")) return;
@@ -1032,16 +1130,20 @@ function DanhSachDon() {
                 </span>
               </div>
               <button
-                onClick={handleSyncF3}
-                disabled={syncing || loading}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                onClick={handleDeleteAll}
+                disabled={syncing || loading || deleting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
               >
-                {syncing ? (
-                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                {deleting ? (
+                  <>
+                    <span className="animate-spin">⏳</span>
+                    Đang xóa...
+                  </>
                 ) : (
-                  <span>🔄</span>
+                  <>
+                    🗑️ Xóa toàn bộ dữ liệu
+                  </>
                 )}
-                {syncing ? 'Đang đồng bộ...' : 'Đồng bộ F3'}
               </button>
               <button
                 onClick={loadData}

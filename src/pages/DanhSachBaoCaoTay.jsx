@@ -31,6 +31,7 @@ export default function DanhSachBaoCaoTay() {
         startDate: '',
         endDate: ''
     });
+    const [deleting, setDeleting] = useState(false);
 
     // Edit State
     const [editingReport, setEditingReport] = useState(null);
@@ -74,6 +75,83 @@ export default function DanhSachBaoCaoTay() {
     useEffect(() => {
         fetchData();
     }, [filters.startDate, filters.endDate]);
+
+    // Delete all data
+    const handleDeleteAll = async () => {
+        const confirm1 = window.confirm(
+            "⚠️ CẢNH BÁO NGHIÊM TRỌNG!\n\n" +
+            "Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu trong bảng sales_reports?\n\n" +
+            "Hành động này KHÔNG THỂ HOÀN TÁC!\n\n" +
+            "Nhấn OK để tiếp tục, hoặc Cancel để hủy."
+        );
+
+        if (!confirm1) return;
+
+        const confirm2 = window.confirm(
+            "⚠️ XÁC NHẬN LẦN CUỐI!\n\n" +
+            "Bạn có THỰC SỰ muốn xóa TOÀN BỘ dữ liệu?\n\n" +
+            "Tất cả báo cáo Sale sẽ bị mất vĩnh viễn!\n\n" +
+            "Nhập 'XÓA' vào ô bên dưới để xác nhận."
+        );
+
+        if (!confirm2) return;
+
+        const userInput = window.prompt(
+            "Nhập 'XÓA' (chữ hoa) để xác nhận xóa toàn bộ dữ liệu:"
+        );
+
+        if (userInput !== 'XÓA') {
+            alert("Xác nhận không đúng. Hủy bỏ thao tác xóa.");
+            return;
+        }
+
+        try {
+            setDeleting(true);
+            
+            // Delete all records from sales_reports
+            const { error } = await supabase
+                .from('sales_reports')
+                .delete()
+                .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all (hack for delete all)
+
+            if (error) {
+                // If the above doesn't work, try deleting by selecting all IDs first
+                const { data: allRecords, error: fetchError } = await supabase
+                    .from('sales_reports')
+                    .select('id')
+                    .limit(10000);
+
+                if (fetchError) throw fetchError;
+
+                if (allRecords && allRecords.length > 0) {
+                    const ids = allRecords.map(r => r.id);
+                    // Delete in batches
+                    const batchSize = 1000;
+                    for (let i = 0; i < ids.length; i += batchSize) {
+                        const batch = ids.slice(i, i + batchSize);
+                        const { error: batchError } = await supabase
+                            .from('sales_reports')
+                            .delete()
+                            .in('id', batch);
+                        
+                        if (batchError) {
+                            console.error(`Batch ${i / batchSize + 1} error:`, batchError);
+                            throw batchError;
+                        }
+                    }
+                }
+            }
+
+            alert("✅ Đã xóa toàn bộ dữ liệu thành công!");
+            fetchData(); // Refresh the table
+
+        } catch (error) {
+            console.error("Delete error:", error);
+            alert("Lỗi khi xóa dữ liệu: " + (error.message || String(error)));
+        } finally {
+            setDeleting(false);
+        }
+    };
 
     if (!canView(permissionCode)) {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
@@ -145,8 +223,24 @@ export default function DanhSachBaoCaoTay() {
                 </div>
 
                 <div className="main-detailed">
-                    <div className="header">
+                    <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY SALE</h2>
+                        <button
+                            onClick={handleDeleteAll}
+                            disabled={deleting || loading}
+                            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                        >
+                            {deleting ? (
+                                <>
+                                    <span className="animate-spin">⏳</span>
+                                    Đang xóa...
+                                </>
+                            ) : (
+                                <>
+                                    🗑️ Xóa toàn bộ dữ liệu
+                                </>
+                            )}
+                        </button>
                     </div>
 
                     <div className="table-responsive-container">
