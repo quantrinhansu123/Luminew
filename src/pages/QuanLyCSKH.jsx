@@ -47,6 +47,19 @@ function QuanLyCSKH() {
   const [isViewing, setIsViewing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // List of columns that should be hidden/removed (no longer needed)
+  const REMOVED_COLUMNS = [
+    'Phí ship',
+    'Tiền Hàng',
+    'Phí Chung',
+    'Phí bay',
+    'Thuê TK',
+    'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+    'Thời gian cutoff',
+    '_id',
+    '_source'
+  ];
+
   const defaultColumns = [
     'Mã đơn hàng',
     'Ngày lên đơn',
@@ -176,7 +189,11 @@ function QuanLyCSKH() {
     const allKeys = new Set();
     allData.forEach(row => {
       Object.keys(row).forEach(key => {
-        if (key !== PRIMARY_KEY_COLUMN && !isEnglishColumn(key)) {
+        // Exclude PRIMARY_KEY_COLUMN, English columns, removed columns, and technical columns
+        if (key !== PRIMARY_KEY_COLUMN && 
+            !isEnglishColumn(key) && 
+            !REMOVED_COLUMNS.includes(key) &&
+            !key.startsWith('_')) {
           allKeys.add(key);
         }
       });
@@ -207,18 +224,37 @@ function QuanLyCSKH() {
   // Load column visibility from localStorage or use defaults
   const [visibleColumns, setVisibleColumns] = useState(() => {
     const saved = localStorage.getItem('quanLyCSKH_visibleColumns');
+    let initial = {};
+    
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // Remove any columns that are no longer available
+        Object.keys(parsed).forEach(col => {
+          // Only keep columns that are not in REMOVED_COLUMNS
+          if (!REMOVED_COLUMNS.includes(col)) {
+            initial[col] = parsed[col];
+          }
+        });
       } catch (e) {
         console.error('Error parsing saved columns:', e);
       }
     }
-    // Initialize with default columns
-    const initial = {};
-    defaultColumns.forEach(col => {
-      initial[col] = true;
-    });
+    
+    // Initialize with default columns if empty
+    if (Object.keys(initial).length === 0) {
+      defaultColumns.forEach(col => {
+        initial[col] = true;
+      });
+    } else {
+      // Ensure default columns are present
+      defaultColumns.forEach(col => {
+        if (initial[col] === undefined) {
+          initial[col] = true;
+        }
+      });
+    }
+    
     return initial;
   });
 
@@ -227,10 +263,43 @@ function QuanLyCSKH() {
     return allAvailableColumns.filter(col => visibleColumns[col] === true);
   }, [allAvailableColumns, visibleColumns]);
 
-  // Save to localStorage when visibleColumns changes
+  // Clean up removed columns from visibleColumns on mount
+  useEffect(() => {
+    setVisibleColumns(prev => {
+      let updated = { ...prev };
+      let changed = false;
+      
+      // Remove any removed columns
+      REMOVED_COLUMNS.forEach(col => {
+        if (updated[col] !== undefined) {
+          delete updated[col];
+          changed = true;
+        }
+      });
+      
+      // Ensure default columns are present
+      defaultColumns.forEach(col => {
+        if (updated[col] === undefined) {
+          updated[col] = true;
+          changed = true;
+        }
+      });
+      
+      return changed ? updated : prev;
+    });
+  }, []); // Only run once on mount
+
+  // Save to localStorage when visibleColumns changes (excluding removed columns)
   useEffect(() => {
     if (Object.keys(visibleColumns).length > 0) {
-      localStorage.setItem('quanLyCSKH_visibleColumns', JSON.stringify(visibleColumns));
+      // Clean up: remove any columns that are no longer available
+      const cleaned = {};
+      Object.keys(visibleColumns).forEach(col => {
+        if (!REMOVED_COLUMNS.includes(col)) {
+          cleaned[col] = visibleColumns[col];
+        }
+      });
+      localStorage.setItem('quanLyCSKH_visibleColumns', JSON.stringify(cleaned));
     }
   }, [visibleColumns]);
 
@@ -371,22 +440,36 @@ function QuanLyCSKH() {
       ]);
 
       const mappedData = (data || []).map(item => {
-        // Tạo object với các cột friendly name
+        // Tạo object với các cột friendly name (đầy đủ như BaoCaoChiTiet)
         const friendlyData = {
           "Mã đơn hàng": item.order_code,
           "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
           "Name*": item.customer_name,
           "Phone*": item.customer_phone,
+          "Add": item.customer_address,
+          "City": item.city,
+          "State": item.state,
           "Khu vực": item.country || item.area,
-          "Loại tiền": item.payment_type,
-          "Hình thức thanh toán": item.payment_method_text || item.payment_method,
+          "Zipcode": item.zipcode,
           "Mặt hàng": item.product_main || item.product,
           "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
-          "Mã Tracking": item.tracking_code,
-          "Trạng thái giao hàng": item.delivery_status,
           "Tổng tiền VNĐ": item.total_amount_vnd,
-          "CSKH": item.cskh,
+          "Loại tiền": item.payment_type,
+          "Hình thức thanh toán": item.payment_method_text || item.payment_method,
+          "Mã Tracking": item.tracking_code,
+          "Nhân viên Marketing": item.marketing_staff,
+          "Nhân viên Sale": item.sale_staff,
           "Team": item.team,
+          "Trạng thái giao hàng": item.delivery_status,
+          "Kết quả Check": item.payment_status,
+          "Ghi chú": item.note,
+          "CSKH": item.cskh,
+          "NV Vận đơn": item.delivery_staff,
+          "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount,
+          "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier,
+          "Kế toán xác nhận thu tiền về": item.accountant_confirm,
+          "Trạng thái thu tiền": item.payment_status_detail,
+          "Lý do": item.reason,
           "Page": item.page_name,
         };
 

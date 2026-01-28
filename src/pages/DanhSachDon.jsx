@@ -208,7 +208,6 @@ function DanhSachDon() {
     "Tổng tiền VNĐ": item.total_amount_vnd,
     "Hình thức thanh toán": item.payment_method_text || item.payment_method, // payment_method_text is new
     "Mã Tracking": item.tracking_code,
-    "Phí ship": item.shipping_fee,
     "Nhân viên Marketing": item.marketing_staff || item.marketingStaff || '',
     "Nhân viên Sale": item.sale_staff || item.saleStaff || '',
     "Team": item.team,
@@ -217,13 +216,7 @@ function DanhSachDon() {
     "Ghi chú": item.note,
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
-    "Tiền Hàng": item.sale_price || item.goods_amount, // Map sale_price (foreign) or goods_amount
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
-    "Phí Chung": item.general_fee,
-    "Phí bay": item.flight_fee,
-    "Thuê TK": item.account_rental_fee,
-    "Phí xử lý đơn đóng hàng-Lưu kho(usd)": item.general_fee,
-    "Thời gian cutoff": item.cutoff_time,
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
     "Trạng thái thu tiền": item.payment_status_detail,

@@ -47,6 +47,19 @@ function BaoCaoChiTiet() {
     const [showColumnSettings, setShowColumnSettings] = useState(false);
     const [syncing, setSyncing] = useState(false); // State for sync process
 
+    // List of columns that should be hidden/removed (no longer in mapSupabaseToUI)
+    const REMOVED_COLUMNS = [
+        'Phí ship',
+        'Tiền Hàng',
+        'Phí Chung',
+        'Phí bay',
+        'Thuê TK',
+        'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+        'Thời gian cutoff',
+        '_id',
+        '_source'
+    ];
+
     const defaultColumns = [
         'Mã đơn hàng',
         'Ngày lên đơn',
@@ -69,7 +82,7 @@ function BaoCaoChiTiet() {
         return () => clearTimeout(timer);
     }, [searchText]);
 
-    // Get all available columns from data
+    // Get all available columns from data (excluding removed columns and technical columns)
     const allAvailableColumns = useMemo(() => {
         if (allData.length === 0) return [];
 
@@ -77,7 +90,10 @@ function BaoCaoChiTiet() {
         const allKeys = new Set();
         allData.forEach(row => {
             Object.keys(row).forEach(key => {
-                if (key !== PRIMARY_KEY_COLUMN) {
+                // Exclude PRIMARY_KEY_COLUMN, REMOVED_COLUMNS, and technical columns
+                if (key !== PRIMARY_KEY_COLUMN && 
+                    !REMOVED_COLUMNS.includes(key) &&
+                    !key.startsWith('_')) {
                     allKeys.add(key);
                 }
             });
@@ -100,30 +116,82 @@ function BaoCaoChiTiet() {
     // Load column visibility from localStorage or use defaults
     const [visibleColumns, setVisibleColumns] = useState(() => {
         const saved = localStorage.getItem('baoCaoChiTiet_visibleColumns');
+        let initial = {};
+        
         if (saved) {
             try {
-                return JSON.parse(saved);
+                const parsed = JSON.parse(saved);
+                // Remove any columns that are no longer available
+                Object.keys(parsed).forEach(col => {
+                    // Only keep columns that are not in REMOVED_COLUMNS
+                    if (!REMOVED_COLUMNS.includes(col)) {
+                        initial[col] = parsed[col];
+                    }
+                });
             } catch (e) {
                 console.error('Error parsing saved columns:', e);
             }
         }
-        // Initialize with default columns
-        const initial = {};
-        defaultColumns.forEach(col => {
-            initial[col] = true;
-        });
+        
+        // Initialize with default columns if empty
+        if (Object.keys(initial).length === 0) {
+            defaultColumns.forEach(col => {
+                initial[col] = true;
+            });
+        } else {
+            // Ensure default columns are present
+            defaultColumns.forEach(col => {
+                if (initial[col] === undefined) {
+                    initial[col] = true;
+                }
+            });
+        }
+        
         return initial;
     });
+
+    // Clean up removed columns from visibleColumns on mount
+    useEffect(() => {
+        setVisibleColumns(prev => {
+            let updated = { ...prev };
+            let changed = false;
+            
+            // Remove any removed columns
+            REMOVED_COLUMNS.forEach(col => {
+                if (updated[col] !== undefined) {
+                    delete updated[col];
+                    changed = true;
+                }
+            });
+            
+            // Ensure default columns are present
+            defaultColumns.forEach(col => {
+                if (updated[col] === undefined) {
+                    updated[col] = true;
+                    changed = true;
+                }
+            });
+            
+            return changed ? updated : prev;
+        });
+    }, []); // Only run once on mount
 
     // Update displayColumns based on visibleColumns
     const displayColumns = useMemo(() => {
         return allAvailableColumns.filter(col => visibleColumns[col] === true);
     }, [allAvailableColumns, visibleColumns]);
 
-    // Save to localStorage when visibleColumns changes
+    // Save to localStorage when visibleColumns changes (excluding removed columns)
     useEffect(() => {
         if (Object.keys(visibleColumns).length > 0) {
-            localStorage.setItem('baoCaoChiTiet_visibleColumns', JSON.stringify(visibleColumns));
+            // Clean up: remove any columns that are no longer available
+            const cleaned = {};
+            Object.keys(visibleColumns).forEach(col => {
+                if (!REMOVED_COLUMNS.includes(col)) {
+                    cleaned[col] = visibleColumns[col];
+                }
+            });
+            localStorage.setItem('baoCaoChiTiet_visibleColumns', JSON.stringify(cleaned));
         }
     }, [visibleColumns]);
 
@@ -143,7 +211,6 @@ function BaoCaoChiTiet() {
         "Tổng tiền VNĐ": item.total_amount_vnd,
         "Hình thức thanh toán": item.payment_method_text || item.payment_method, // payment_method_text is new
         "Mã Tracking": item.tracking_code,
-        "Phí ship": item.shipping_fee,
         "Nhân viên Marketing": item.marketing_staff,
         "Nhân viên Sale": item.sale_staff,
         "Team": item.team,
@@ -152,20 +219,13 @@ function BaoCaoChiTiet() {
         "Ghi chú": item.note,
         "CSKH": item.cskh,
         "NV Vận đơn": item.delivery_staff,
-        "Tiền Hàng": item.sale_price || item.goods_amount, // Map sale_price (foreign) or goods_amount
         "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
-        "Phí Chung": item.general_fee,
-        "Phí bay": item.flight_fee,
-        "Thuê TK": item.account_rental_fee,
-        "Phí xử lý đơn đóng hàng-Lưu kho(usd)": item.general_fee,
-        "Thời gian cutoff": item.cutoff_time,
         "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
         "Kế toán xác nhận thu tiền về": item.accountant_confirm,
         "Trạng thái thu tiền": item.payment_status_detail,
         "Lý do": item.reason,
-        "Page": item.page_name, // Map Page Name
-        "_id": item.id,
-        "_source": 'supabase'
+        "Page": item.page_name // Map Page Name
+        // Note: _id and _source are excluded from mapSupabaseToUI to prevent them from appearing in column settings
     });
 
     // Load data from Supabase only
