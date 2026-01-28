@@ -42,6 +42,32 @@ export default function BaoCaoMarketing() {
     marketList: ['Nhật Bản', 'Hàn Quốc', 'Canada', 'US', 'Úc', 'Anh', 'CĐ Nhật Bản'],
   });
 
+  // Load products from system_settings (type <> 'test')
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('system_settings')
+          .select('name')
+          .neq('type', 'test')
+          .order('name', { ascending: true });
+
+        if (!error && data && data.length > 0) {
+          const products = data.map(item => item.name).filter(Boolean);
+          setAppData(prev => ({
+            ...prev,
+            productList: products.length > 0 ? products : prev.productList
+          }));
+          console.log(`✅ Loaded ${products.length} products from system_settings (excluding test)`);
+        }
+      } catch (err) {
+        console.error('Error fetching products from system_settings:', err);
+      }
+    };
+
+    fetchProducts();
+  }, []);
+
   const [tableHeaders, setTableHeaders] = useState([]);
   const [tableRows, setTableRows] = useState([]);
   const [userEmail, setUserEmail] = useState('');
@@ -88,8 +114,6 @@ export default function BaoCaoMarketing() {
     'Báo cáo theo Page',
     'Trạng thái',
     'Cảnh báo',
-    'Số đơn thực tế',
-    'Doanh số thực tế',
   ];
 
   useEffect(() => {
@@ -104,17 +128,7 @@ export default function BaoCaoMarketing() {
   }, []);
 
   // Auto-calculate real values when rows change or when relevant fields are filled
-  useEffect(() => {
-    tableRows.forEach((row, index) => {
-      const rowData = row.data;
-      const hasRequiredFields = rowData['Ngày'] && rowData['Tên'];
-      
-      if (hasRequiredFields && !realValuesMap[row.id]) {
-        // Calculate if not already calculated
-        calculateRealValuesForRow(index, rowData);
-      }
-    });
-  }, [tableRows.length]); // Recalculate when rows are added/removed
+  // Note: Real values calculation removed - Số đơn thực tế và Doanh số thực tế không còn được tính/hiển thị
 
 
 
@@ -777,7 +791,15 @@ export default function BaoCaoMarketing() {
 
         // Map fields
         // Must match Supabase detail_reports columns exactly
+        // List of columns that DO NOT exist in detail_reports and should be excluded
+        const excludedColumns = ['Chi nhánh', 'chi nhánh', 'Chi_nhánh', 'chi_nhánh', 'branch'];
+        
         Object.keys(row.data).forEach((key) => {
+          // Skip excluded columns that don't exist in detail_reports schema
+          if (excludedColumns.includes(key)) {
+            return;
+          }
+          
           let value = row.data[key];
 
           // Process numeric fields
@@ -814,10 +836,8 @@ export default function BaoCaoMarketing() {
         // Auto-fields if missing
         if (!rowObject['Ngày']) rowObject['Ngày'] = getToday();
 
-        // Add real values from orders table (calculated dynamically)
-        const realValues = realValuesMap[row.id] || {};
-        rowObject['Số đơn thực tế'] = realValues.so_don_thuc_te || 0;
-        rowObject['Doanh số thực tế'] = realValues.doanh_so_thuc_te || 0;
+        // Note: Số đơn thực tế và Doanh số thực tế được tính tự động từ orders table sau khi insert
+        // Không truyền vào payload khi submit
 
         return rowObject;
       });
@@ -885,8 +905,7 @@ export default function BaoCaoMarketing() {
   };
 
   const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số'];
-  const hiddenFields = ['id', 'id phản hồi', 'id số mess', 'team', 'id_ns', 'trạng thái', 'chi nhánh', 'doanh số đi', 'số đơn hoàn huỷ', 'số đơn hoàn hủy', 'doanh số hoàn huỷ', 'số đơn thành công', 'doanh số thành công', 'khách mới', 'khách cũ', 'bán chéo', 'bán chéo team', 'ds chốt', 'ds sau hoàn hủy', 'số đơn sau hoàn hủy', 'doanh số sau ship', 'doanh số tc', 'kpis', 'cpqc theo tkqc', 'báo cáo theo page', 'cảnh báo'];
-  const realValueFields = ['Số đơn thực tế', 'Doanh số thực tế'];
+  const hiddenFields = ['id', 'id phản hồi', 'id số mess', 'team', 'id_ns', 'trạng thái', 'chi nhánh', 'doanh số đi', 'số đơn hoàn huỷ', 'số đơn hoàn hủy', 'doanh số hoàn huỷ', 'số đơn thành công', 'doanh số thành công', 'khách mới', 'khách cũ', 'bán chéo', 'bán chéo team', 'ds chốt', 'ds sau hoàn hủy', 'số đơn sau hoàn hủy', 'doanh số sau ship', 'doanh số tc', 'kpis', 'cpqc theo tkqc', 'báo cáo theo page', 'cảnh báo', 'số đơn thực tế', 'doanh số thực tế'];
 
   if (!canView(permissionCode)) {
     return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
@@ -953,38 +972,13 @@ export default function BaoCaoMarketing() {
                     {headerMkt.map(
                       (header) =>
                         !hiddenFields.includes(header.toLowerCase()) && (
-                          <td key={`${row.id}-${header}`} className="border px-2 py-1">
-                            {realValueFields.includes(header) ? (
-                              // Real value fields - readonly, calculated from orders
-                              <div 
-                                className="px-1 py-0.5 text-xs bg-blue-50 text-blue-700 font-semibold border border-blue-200 rounded cursor-not-allowed"
-                                title="Giá trị tự động tính từ bảng Orders (không thể chỉnh sửa)"
-                              >
-                                {calculatingRealValues[row.id] ? (
-                                  <span className="text-gray-500 italic">Đang tính...</span>
-                                ) : (
-                                  (() => {
-                                    const realValues = realValuesMap[row.id] || {};
-                                    const valueMap = {
-                                      'Số đơn thực tế': realValues.so_don_thuc_te || 0,
-                                      'Doanh số thực tế': realValues.doanh_so_thuc_te || 0
-                                    };
-                                    const value = valueMap[header] || 0;
-                                    if (value === 0 && (!row.data['Ngày'] || !row.data['Tên'])) {
-                                      return <span className="text-gray-400 italic">Nhập Ngày và Tên để tính</span>;
-                                    }
-                                    return header.includes('Doanh') || header.includes('DS') || header.includes('Doanh thu')
-                                      ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)
-                                      : new Intl.NumberFormat('vi-VN').format(value);
-                                  })()
-                                )}
-                              </div>
-                            ) : header === 'Ngày' ? (
+                          <td key={`${row.id}-${header}`} className="border px-2 py-2">
+                            {header === 'Ngày' ? (
                               <input
                                 type="date"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                               />
                             ) : header === 'ca' ? (
                               <input
@@ -993,7 +987,7 @@ export default function BaoCaoMarketing() {
                                 placeholder="--"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                               />
                             ) : header === 'Sản_phẩm' ? (
                               <input
@@ -1002,7 +996,7 @@ export default function BaoCaoMarketing() {
                                 placeholder="--"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                               />
                             ) : header === 'Thị_trường' ? (
                               <input
@@ -1011,7 +1005,7 @@ export default function BaoCaoMarketing() {
                                 placeholder="--"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                               />
                             ) : header === 'Email' ? (
                               <input
@@ -1029,7 +1023,7 @@ export default function BaoCaoMarketing() {
                                 placeholder="--"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                               />
                             ) : numberFields.includes(header) ? (
                               <input
@@ -1045,7 +1039,7 @@ export default function BaoCaoMarketing() {
                                 type="text"
                                 value={row.data[header] || ''}
                                 onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                               />
                             )}
                           </td>

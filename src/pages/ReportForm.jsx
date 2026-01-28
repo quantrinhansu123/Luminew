@@ -12,7 +12,8 @@ function ReportForm() {
     name: '',
     email: '',
     date: new Date().toISOString().split('T')[0],
-    shift: ''
+    shift: 'Hết ca', // Tự động điền "Hết ca"
+    branch: ''
   });
 
   // State for reports, initialized empty until user info loads
@@ -23,6 +24,7 @@ function ReportForm() {
   // State for dropdown options
   const [productOptions, setProductOptions] = useState([]);
   const [marketOptions, setMarketOptions] = useState([]);
+  const [branchOptions, setBranchOptions] = useState([]);
   const [dropdownLoading, setDropdownLoading] = useState(false);
 
   // Fetch dropdown data
@@ -31,31 +33,72 @@ function ReportForm() {
       try {
         setDropdownLoading(true);
 
-        const { data, error } = await supabase
-          .from('sales_reports')
-          .select('product, market')
-          .limit(1000)
-          .order('created_at', { ascending: false });
+        let productsSet = new Set();
+        let marketsSet = new Set();
 
-        if (error) throw error;
+        // Bước 1: Load sản phẩm từ bảng system_settings (type <> 'test')
+        try {
+          const { data: productsData, error: productsError } = await supabase
+            .from('system_settings')
+            .select('name')
+            .neq('type', 'test')
+            .order('name', { ascending: true });
 
-        const productsSet = new Set();
-        const marketsSet = new Set();
-
-        if (data) {
-          data.forEach(item => {
-            if (item.product?.trim()) productsSet.add(item.product.trim());
-            if (item.market?.trim()) marketsSet.add(item.market.trim());
-          });
+          if (!productsError && productsData && productsData.length > 0) {
+            productsData.forEach(item => {
+              if (item.name?.trim()) productsSet.add(item.name.trim());
+            });
+            console.log(`✅ Loaded ${productsData.length} products from system_settings (excluding test)`);
+          } else if (productsError) {
+            console.log('⚠️ Could not fetch products from system_settings:', productsError);
+          }
+        } catch (supabaseError) {
+          console.log('⚠️ Error fetching products from system_settings:', supabaseError);
         }
 
+        // Bước 2: Load thị trường từ sales_reports (hoặc orders)
+        try {
+          const { data, error } = await supabase
+            .from('sales_reports')
+            .select('market')
+            .limit(1000)
+            .order('created_at', { ascending: false });
+
+          if (!error && data) {
+            data.forEach(item => {
+              if (item.market?.trim()) marketsSet.add(item.market.trim());
+            });
+          }
+        } catch (dbError) {
+          console.error('Error fetching markets from sales_reports:', dbError);
+        }
+
+        // Bước 3: Fallback cuối cùng - giá trị mặc định
         if (productsSet.size === 0) {
           ['Lumi Eyes', 'Lumi Nano', 'Lumi Skin'].forEach(p => productsSet.add(p));
+          console.log('⚠️ Using default products');
         }
         if (marketsSet.size === 0) {
           ['Việt Nam', 'Thái Lan', 'Philippines', 'Malaysia'].forEach(m => marketsSet.add(m));
         }
 
+        // Bước 4: Load danh sách chi nhánh từ users
+        try {
+          const { data: branchData, error: branchError } = await supabase
+            .from('users')
+            .select('branch')
+            .not('branch', 'is', null);
+
+          if (!branchError && branchData) {
+            const uniqueBranches = [...new Set(branchData.map(u => u.branch).filter(Boolean))].sort();
+            setBranchOptions(uniqueBranches);
+            console.log(`✅ Loaded ${uniqueBranches.length} branches:`, uniqueBranches);
+          }
+        } catch (branchDbError) {
+          console.error('Error fetching branches from users:', branchDbError);
+        }
+
+        console.log(`📦 Loaded ${productsSet.size} products:`, Array.from(productsSet));
         setProductOptions(Array.from(productsSet).sort((a, b) => a.localeCompare(b, 'vi')));
         setMarketOptions(Array.from(marketsSet).sort((a, b) => a.localeCompare(b, 'vi')));
       } catch (err) {
@@ -68,34 +111,77 @@ function ReportForm() {
     };
 
     fetchDropdownData();
+
+    // Listen for storage changes (when settings are updated in AdminTools)
+    const handleStorageChange = () => {
+      fetchDropdownData();
+    };
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also listen for custom event dispatched from AdminTools
+    window.addEventListener('settingsUpdated', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('settingsUpdated', handleStorageChange);
+    };
   }, []);
 
-  // Load current user info
+  // Load current user info and branch
   useEffect(() => {
-    const name = localStorage.getItem('username') || '';
-    const email = localStorage.getItem('userEmail') || '';
-    const currentDate = new Date().toISOString().split('T')[0];
+    const loadUserInfo = async () => {
+      const name = localStorage.getItem('username') || '';
+      const email = localStorage.getItem('userEmail') || '';
+      const currentDate = new Date().toISOString().split('T')[0];
+      let userBranch = '';
 
-    setDefaultInfo(prev => ({
-      ...prev,
-      name,
-      email,
-      date: currentDate
-    }));
+      // Tự động lấy chi nhánh từ bảng users theo email
+      if (email) {
+        try {
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('branch')
+            .eq('email', email)
+            .single();
 
-    // Initialize first row
-    setReports([{
-      name: name,
-      email: email,
-      date: currentDate,
-      shift: '',
-      product: '',
-      market: '',
-      mess_cmt: '',
-      response: '',
-      orders: '',
-      revenue: ''
-    }]);
+          if (!userError && userData?.branch) {
+            userBranch = userData.branch.trim();
+            console.log(`✅ Tự động lấy chi nhánh từ users: ${userBranch} (email: ${email})`);
+          } else {
+            console.log(`⚠️ Không tìm thấy chi nhánh cho email: ${email}`);
+          }
+        } catch (err) {
+          console.error('❌ Lỗi khi lấy chi nhánh từ users:', err);
+        }
+      }
+
+      setDefaultInfo(prev => ({
+        ...prev,
+        name,
+        email,
+        date: currentDate,
+        shift: 'Hết ca', // Tự động điền "Hết ca"
+        branch: userBranch
+      }));
+
+      // Initialize first row
+      setReports([{
+        name: name,
+        email: email,
+        date: currentDate,
+        shift: 'Hết ca', // Tự động điền "Hết ca"
+        product: '',
+        market: '',
+        branch: userBranch, // Tự động điền chi nhánh từ users
+        mess_cmt: '',
+        response: '',
+        orders: '',
+        revenue: '',
+        revenue_cancel: ''
+      }]);
+    };
+
+    loadUserInfo();
   }, []);
 
   const formatNumberInput = (value) => {
@@ -141,10 +227,12 @@ function ReportForm() {
       shift: lastReport.shift,
       product: lastReport.product || '',
       market: lastReport.market || '',
+      branch: lastReport.branch || defaultInfo.branch || '',
       mess_cmt: '',
       response: '',
       orders: '',
-      revenue: ''
+      revenue: '',
+      revenue_cancel: lastReport.revenue_cancel || ''
     };
     setReports(prev => [...prev, newReport]);
   };
@@ -195,7 +283,9 @@ function ReportForm() {
         response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
         order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
         revenue_mess: Number(cleanNumberInput(String(report.revenue || ''))) || 0,
+        revenue_cancel: Number(cleanNumberInput(String(report.revenue_cancel || ''))) || 0, // Doanh số hủy
         team: localStorage.getItem('userTeam') || 'Sale',
+        branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
         created_at: new Date().toISOString(),
       }));
 
@@ -212,13 +302,15 @@ function ReportForm() {
         name: defaultInfo.name,
         email: defaultInfo.email,
         date: new Date().toISOString().split('T')[0],
-        shift: '',
+        shift: 'Hết ca', // Tự động điền "Hết ca"
         product: '',
         market: '',
+        branch: defaultInfo.branch || '', // Giữ chi nhánh
         mess_cmt: '',
         response: '',
         orders: '',
-        revenue: ''
+        revenue: '',
+        revenue_cancel: ''
       }]);
       setErrors({});
     } catch (err) {
@@ -243,7 +335,7 @@ function ReportForm() {
               />
               <div>
                 <h1 className="text-3xl font-bold bg-green-500 bg-clip-text text-transparent">
-                  Báo Cáo Marketing
+                  Báo Cáo Sale
                 </h1>
                 <p className="text-gray-500 mt-1">LumiGlobal Report System</p>
               </div>
@@ -257,7 +349,7 @@ function ReportForm() {
             <h4 className="font-semibold text-gray-700 flex items-center gap-2">
             </h4>
             <div className="text-sm text-gray-500 italic">
-              * Mẹo: Các dòng mới sẽ tự động sao chép Tên, Email, Ngày, Ca từ dòng trên.
+              * Mẹo: Các dòng mới sẽ tự động sao chép Tên, Email, Ngày, Ca, Chi nhánh từ dòng trên. Tất cả các trường đều có thể chỉnh sửa.
             </div>
           </div>
 
@@ -270,12 +362,14 @@ function ReportForm() {
                   <th className="p-3 min-w-[200px]">Email</th>
                   <th className="p-3 min-w-[140px]">Ngày <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[120px]">Ca <span className="text-red-500">*</span></th>
+                  <th className="p-3 min-w-[140px]">Chi nhánh</th>
                   <th className="p-3 min-w-[160px]">Sản phẩm <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[140px]">Thị trường <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[100px]">Số mess <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[100px]">Phản hồi <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[100px]">Số đơn <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[140px]">Doanh số <span className="text-red-500">*</span></th>
+                  <th className="p-3 min-w-[140px]">Doanh số hủy</th>
                   <th className="p-3 w-16 text-center">Xóa</th>
                 </tr>
               </thead>
@@ -290,8 +384,9 @@ function ReportForm() {
                         type="text"
                         name="name"
                         value={report.name}
-                        readOnly
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-500 cursor-not-allowed text-sm"
+                        onChange={(e) => handleReportChange(e, idx)}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-name`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                        placeholder="Nhập tên nhân viên"
                       />
                     </td>
                     <td className="p-3">
@@ -299,8 +394,9 @@ function ReportForm() {
                         type="email"
                         name="email"
                         value={report.email}
-                        readOnly
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-500 cursor-not-allowed text-sm"
+                        onChange={(e) => handleReportChange(e, idx)}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-email`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                        placeholder="Nhập email"
                       />
                     </td>
                     <td className="p-3">
@@ -322,6 +418,17 @@ function ReportForm() {
                         <option value="">Chọn ca</option>
                         <option value="Hết ca">Hết ca</option>
                         <option value="Giữa ca">Giữa ca</option>
+                      </select>
+                    </td>
+                    <td className="p-3">
+                      <select
+                        name="branch"
+                        value={report.branch || ''}
+                        onChange={(e) => handleReportChange(e, idx)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all"
+                      >
+                        <option value="">Chọn chi nhánh</option>
+                        {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
                     </td>
                     <td className="p-3">
@@ -390,16 +497,37 @@ function ReportForm() {
                         placeholder="0"
                       />
                     </td>
+                    <td className="p-3">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        name="revenue_cancel"
+                        value={report.revenue_cancel || ''}
+                        onChange={(e) => handleReportChange(e, idx)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all"
+                        placeholder="0"
+                        title="Tổng VNĐ các đơn Hủy"
+                      />
+                    </td>
                     <td className="p-3 text-center">
                       <button
-                        onClick={() => deleteReport(idx)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        onClick={() => {
+                          if (window.confirm(`Bạn có chắc chắn muốn xóa dòng ${idx + 1}?`)) {
+                            deleteReport(idx);
+                          }
+                        }}
+                        className={`flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                          reports.length <= 1
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
+                        }`}
                         title="Xóa dòng"
                         disabled={reports.length <= 1}
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
+                        <span>Xóa</span>
                       </button>
                     </td>
                   </tr>
@@ -408,7 +536,7 @@ function ReportForm() {
             </table>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-4 flex items-center gap-3">
             <button
               onClick={addReport}
               className="flex items-center gap-2 px-4 py-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg font-medium transition-colors"
@@ -417,6 +545,35 @@ function ReportForm() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Thêm dòng
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm('Bạn có chắc chắn muốn xóa tất cả các dòng báo cáo? Hành động này không thể hoàn tác.')) {
+                  setReports([{
+                    name: defaultInfo.name,
+                    email: defaultInfo.email,
+                    date: new Date().toISOString().split('T')[0],
+                    shift: 'Hết ca', // Tự động điền "Hết ca"
+                    product: '',
+                    market: '',
+                    branch: defaultInfo.branch || '',
+                    mess_cmt: '',
+                    response: '',
+                    orders: '',
+                    revenue: '',
+                    revenue_cancel: ''
+                  }]);
+                  setErrors({});
+                  toast.info('Đã xóa tất cả các dòng báo cáo', { position: 'top-right', autoClose: 2000 });
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg font-medium transition-colors"
+              disabled={reports.length <= 1}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Xóa tất cả
             </button>
           </div>
         </div>

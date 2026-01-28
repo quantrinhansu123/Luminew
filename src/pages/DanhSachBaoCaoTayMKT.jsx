@@ -24,7 +24,7 @@ export default function DanhSachBaoCaoTayMKT() {
     const teamFilter = searchParams.get('team'); // 'RD' or null
 
     // Permission Logic
-    const { canView, role, team: userTeam, permissions } = usePermissions();
+    const { canView, canDelete, role, team: userTeam, permissions } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_MANUAL' : 'MKT_MANUAL';
     
     // Get user email and name for filtering
@@ -49,6 +49,7 @@ export default function DanhSachBaoCaoTayMKT() {
     const [allReports, setAllReports] = useState([]); // Store all filtered reports for pagination
     const [realValuesMap, setRealValuesMap] = useState({}); // Map report ID to real values
     const [calculatingRealValues, setCalculatingRealValues] = useState(false);
+    const [deletingId, setDeletingId] = useState(null); // Track which report is being deleted
     const [filters, setFilters] = useState({
         startDate: '',
         endDate: ''
@@ -654,13 +655,17 @@ export default function DanhSachBaoCaoTayMKT() {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
     }
 
-    // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút đồng bộ và xóa)
+    // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút đồng bộ)
     const roleFromHook = (role || '').toUpperCase();
     const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
     const isAdmin = roleFromHook === 'ADMIN' || 
                    roleFromHook === 'SUPER_ADMIN' ||
                    roleFromStorage === 'admin' ||
                    roleFromStorage === 'super_admin';
+    
+    // Kiểm tra quyền xóa (Admin hoặc user có quyền delete cho permissionCode)
+    const canDeleteAll = isAdmin || canDelete(permissionCode);
+    const canDeleteSingle = isAdmin || canDelete(permissionCode); // Quyền xóa từng dòng
 
     // Edit Handlers
     const handleEditClick = (report) => {
@@ -700,18 +705,75 @@ export default function DanhSachBaoCaoTayMKT() {
         setEditForm(prev => ({ ...prev, [name]: value }));
     };
 
+    // Delete single report
+    const handleDeleteReport = async (reportId) => {
+        if (!reportId) {
+            alert('Không tìm thấy ID báo cáo để xóa!');
+            console.error('Report ID is missing:', reportId);
+            return;
+        }
+        
+        if (!window.confirm('Bạn có chắc chắn muốn xóa báo cáo này?')) return;
+        
+        setDeletingId(reportId);
+        try {
+            console.log('🗑️ Attempting to delete report with ID:', reportId);
+            console.log('🔍 Current user email:', userEmail);
+            console.log('🔍 Current user role:', role);
+            
+            // First, try to get the report to check permissions
+            const { data: reportData, error: fetchError } = await supabase
+                .from('detail_reports')
+                .select('id, "Tên", "Email", "Team", department')
+                .eq('id', reportId)
+                .single();
+            
+            if (fetchError) {
+                console.error('❌ Error fetching report:', fetchError);
+                throw new Error('Không tìm thấy báo cáo để xóa: ' + fetchError.message);
+            }
+            
+            console.log('📋 Report to delete:', reportData);
+            
+            // Now try to delete
+            const { data, error } = await supabase
+                .from('detail_reports')
+                .delete()
+                .eq('id', reportId)
+                .select();
+            
+            if (error) {
+                console.error('❌ Delete error:', error);
+                console.error('❌ Error code:', error.code);
+                console.error('❌ Error details:', error.details);
+                console.error('❌ Error hint:', error.hint);
+                
+                // Check if it's a permission error
+                if (error.code === '42501' || error.message?.includes('permission') || error.message?.includes('policy')) {
+                    throw new Error('Bạn không có quyền xóa báo cáo này. Vui lòng liên hệ Admin để được cấp quyền DELETE cho MKT_MANUAL.');
+                }
+                
+                throw error;
+            }
+            
+            console.log('✅ Delete successful:', data);
+            alert('Đã xóa báo cáo thành công!');
+            fetchData(); // Reload data after deletion
+        } catch (error) {
+            console.error('❌ Error deleting report:', error);
+            const errorMessage = error?.message || error?.details || String(error);
+            alert('Lỗi khi xóa báo cáo: ' + errorMessage + '\n\nVui lòng kiểm tra Console (F12) để xem chi tiết lỗi.');
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
     const handleSaveEdit = async () => {
         if (!editingReport) return;
         setSaving(true);
         try {
-            // Calculate real values from orders table
-            const realValues = await calculateRealValues({
-                'Ngày': editForm.ngay || editingReport['Ngày'],
-                'Tên': editForm.ten || editingReport['Tên'],
-                'ca': editForm.ca || editingReport['ca'],
-                'Sản_phẩm': editForm.san_pham || editingReport['Sản_phẩm'],
-                'Thị_trường': editForm.thi_truong || editingReport['Thị_trường']
-            });
+            // Note: Real values ("Số đơn thực tế", "Doanh số thực tế") được tính tự động từ orders table
+            // Không cần tính và update vào detail_reports vì các cột này không tồn tại trong schema
 
             const updateData = {
                 // Basic info
@@ -733,10 +795,9 @@ export default function DanhSachBaoCaoTayMKT() {
                 'CPQC theo TKQC': editForm.cpqc_theo_tkqc ? Number(editForm.cpqc_theo_tkqc) : 0,
                 'Báo cáo theo Page': editForm.bao_cao_theo_page || null,
                 'Trạng thái': editForm.trang_thai || null,
-                'Cảnh báo': editForm.canh_bao || null,
-                // Real values - calculated automatically from orders table
-                'Số đơn thực tế': realValues.so_don_thuc_te,
-                'Doanh số thực tế': realValues.doanh_so_thuc_te
+                'Cảnh báo': editForm.canh_bao || null
+                // Note: "Số đơn thực tế" và "Doanh số thực tế" được tính tự động từ orders table sau khi update
+                // Không cần truyền vào khi update
             };
 
             const { error } = await supabase
@@ -778,42 +839,43 @@ export default function DanhSachBaoCaoTayMKT() {
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY MARKETING</h2>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                            {/* Chỉ Admin mới thấy các nút này */}
+                            {/* Chỉ Admin mới thấy nút đồng bộ */}
                             {isAdmin && (
-                                <>
-                                    <button
-                                        onClick={handleSyncMKT}
-                                        disabled={syncing || loading || deleting}
-                                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                    >
-                                        {syncing ? (
-                                            <>
-                                                <span className="animate-spin">⏳</span>
-                                                Đang đồng bộ...
-                                            </>
-                                        ) : (
-                                            <>
-                                                🔄 Đồng bộ từ Firebase
-                                            </>
-                                        )}
-                                    </button>
-                                    <button
-                                        onClick={handleDeleteAll}
-                                        disabled={syncing || loading || deleting}
-                                        className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                    >
-                                        {deleting ? (
-                                            <>
-                                                <span className="animate-spin">⏳</span>
-                                                Đang xóa...
-                                            </>
-                                        ) : (
-                                            <>
-                                                🗑️ Xóa toàn bộ dữ liệu
-                                            </>
-                                        )}
-                                    </button>
-                                </>
+                                <button
+                                    onClick={handleSyncMKT}
+                                    disabled={syncing || loading || deleting}
+                                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                >
+                                    {syncing ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang đồng bộ...
+                                        </>
+                                    ) : (
+                                        <>
+                                            🔄 Đồng bộ từ Firebase
+                                        </>
+                                    )}
+                                </button>
+                            )}
+                            {/* Admin hoặc user có quyền delete mới thấy nút xóa toàn bộ */}
+                            {canDeleteAll && (
+                                <button
+                                    onClick={handleDeleteAll}
+                                    disabled={syncing || loading || deleting}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                >
+                                    {deleting ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang xóa...
+                                        </>
+                                    ) : (
+                                        <>
+                                            🗑️ Xóa toàn bộ dữ liệu
+                                        </>
+                                    )}
+                                </button>
                             )}
                         </div>
                     </div>
@@ -833,15 +895,13 @@ export default function DanhSachBaoCaoTayMKT() {
                                     <th>Số mess</th>
                                     <th>Số đơn</th>
                                     <th>Doanh số</th>
-                                    <th>Số đơn TT</th>
-                                    <th>Doanh số TT</th>
                                     <th>Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {manualReports.length === 0 ? (
                                     <tr>
-                                        <td colSpan="13" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td colSpan="11" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
                                     manualReports.map((item, index) => {
@@ -863,15 +923,27 @@ export default function DanhSachBaoCaoTayMKT() {
                                                 <td>{formatNumber(item['Số_Mess_Cmt'])}</td>
                                                 <td>{formatNumber(item['Số đơn'])}</td>
                                                 <td>{formatCurrency(item['Doanh số'])}</td>
-                                                <td className="text-center font-semibold text-blue-600">{formatNumber(realValues.so_don_thuc_te)}</td>
-                                                <td className="text-right font-semibold text-green-600">{formatCurrency(realValues.doanh_so_thuc_te)}</td>
                                                 <td className="text-center">
                                                     <button
-                                                        className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition"
+                                                        className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition mr-2"
                                                         onClick={() => handleEditClick(item)}
                                                     >
                                                         Sửa
                                                     </button>
+                                                    {canDeleteSingle && (
+                                                        <button
+                                                            onClick={() => {
+                                                                console.log('🔍 Delete button clicked, item:', item);
+                                                                console.log('🔍 Item ID:', item.id);
+                                                                handleDeleteReport(item.id);
+                                                            }}
+                                                            disabled={deletingId === item.id || !item.id}
+                                                            className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            title={!item.id ? 'Không có ID để xóa' : ''}
+                                                        >
+                                                            {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                        </button>
+                                                    )}
                                                 </td>
                                             </tr>
                                         );

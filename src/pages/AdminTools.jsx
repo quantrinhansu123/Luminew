@@ -51,11 +51,14 @@ const AdminTools = () => {
 
     // --- SETTINGS STATE ---
     const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-    const [productSuggestions, setProductSuggestions] = useState([]); // Suggested from DB history
+    const [productSuggestions, setProductSuggestions] = useState([]); // Suggested from DB history (loại bỏ các SP đã có trong DB)
     const [availableMarkets, setAvailableMarkets] = useState([]); // Managed + Suggested markets for autocomplete
     const [loadingData, setLoadingData] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [loadingSettings, setLoadingSettings] = useState(false);
+    
+    // State để lưu danh sách sản phẩm từ database (bảng system_settings với 2 cột)
+    const [dbProducts, setDbProducts] = useState([]); // [{id, name, type}, ...]
 
     // --- AUTO ASSIGN STATE ---
     const [autoAssignLoading, setAutoAssignLoading] = useState(false);
@@ -114,8 +117,14 @@ const AdminTools = () => {
     useEffect(() => {
         // Load settings on mount
         fetchSettingsFromSupabase();
-        fetchReferenceData();
     }, []);
+
+    // Reload reference data khi dbProducts thay đổi (để loại bỏ các SP đã có khỏi gợi ý)
+    useEffect(() => {
+        if (dbProducts.length >= 0) {
+            fetchReferenceData();
+        }
+    }, [dbProducts]);
 
     const AVAILABLE_TABLES = [
         // SALES
@@ -358,9 +367,40 @@ const AdminTools = () => {
         reader.readAsText(file);
     };
 
+    // Load danh sách sản phẩm từ database (bảng mới với 2 cột)
+    const fetchProductsFromDatabase = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('system_settings')
+                .select('id, name, type, updated_at, updated_by')
+                .order('name', { ascending: true });
+
+            if (error) {
+                // Nếu bảng chưa có hoặc lỗi, bỏ qua
+                console.log("Error loading products from database:", error);
+                setDbProducts([]);
+                return;
+            }
+
+            if (data && data.length > 0) {
+                setDbProducts(data);
+                console.log(`✅ Loaded ${data.length} products from database`);
+            } else {
+                setDbProducts([]);
+            }
+        } catch (err) {
+            console.error("Error fetching products from database:", err);
+            setDbProducts([]);
+        }
+    };
+
     const fetchSettingsFromSupabase = async () => {
         setLoadingSettings(true);
         try {
+            // Load products từ bảng mới (2 cột)
+            await fetchProductsFromDatabase();
+            
+            // Vẫn giữ logic cũ cho các settings khác (nếu có)
             const { data, error } = await supabase
                 .from('system_settings')
                 .select('*')
@@ -403,16 +443,84 @@ const AdminTools = () => {
                 ["Glutathione Collagen", "Bakuchiol Retinol", "Nám DR Hancy", "Kem Body", "Glutathione Collagen NEW", "DG", "Dragon Blood Cream"].forEach(p => products.add(p));
                 ["US", "Nhật Bản", "Hàn Quốc", "Canada", "Úc", "Anh"].forEach(m => markets.add(m));
 
-                setProductSuggestions(Array.from(products).sort());
+                // Loại bỏ các sản phẩm đã có trong database khỏi gợi ý
+                const existingProductNames = new Set(dbProducts.map(p => p.name.toLowerCase().trim()));
+                const filteredProducts = Array.from(products).filter(p => {
+                    const normalizedName = p.toLowerCase().trim();
+                    return !existingProductNames.has(normalizedName);
+                });
+
+                setProductSuggestions(filteredProducts.sort());
                 setAvailableMarkets(Array.from(markets).sort());
             }
         } catch (err) {
             console.error("Error fetching ref data", err);
             // Fallback
-            setProductSuggestions(["Glutathione Collagen", "Bakuchiol Retinol", "Nám DR Hancy", "Kem Body", "Glutathione Collagen NEW", "DG", "Dragon Blood Cream"]);
+            const existingProductNames = new Set(dbProducts.map(p => p.name.toLowerCase().trim()));
+            const defaultProducts = ["Glutathione Collagen", "Bakuchiol Retinol", "Nám DR Hancy", "Kem Body", "Glutathione Collagen NEW", "DG", "Dragon Blood Cream"];
+            const filteredProducts = defaultProducts.filter(p => !existingProductNames.has(p.toLowerCase().trim()));
+            setProductSuggestions(filteredProducts);
             setAvailableMarkets(["US", "Nhật Bản", "Hàn Quốc", "Canada", "Úc", "Anh"]);
         } finally {
             setLoadingData(false);
+        }
+    };
+
+    // Lưu sản phẩm vào database (bảng mới với 2 cột)
+    const saveProductToDatabase = async (productName, productType) => {
+        try {
+            const { error } = await supabase
+                .from('system_settings')
+                .upsert({
+                    name: productName.trim(),
+                    type: productType,
+                    updated_at: new Date().toISOString(),
+                    updated_by: userEmail
+                }, {
+                    onConflict: 'name'
+                });
+
+            if (error) throw error;
+            return true;
+        } catch (err) {
+            console.error("Error saving product to database:", err);
+            throw err;
+        }
+    };
+
+    // Xóa sản phẩm khỏi database
+    const deleteProductFromDatabase = async (productName) => {
+        try {
+            const { error } = await supabase
+                .from('system_settings')
+                .delete()
+                .eq('name', productName.trim());
+
+            if (error) throw error;
+            return true;
+        } catch (err) {
+            console.error("Error deleting product from database:", err);
+            throw err;
+        }
+    };
+
+    // Cập nhật loại sản phẩm trong database
+    const updateProductTypeInDatabase = async (productName, newType) => {
+        try {
+            const { error } = await supabase
+                .from('system_settings')
+                .update({
+                    type: newType,
+                    updated_at: new Date().toISOString(),
+                    updated_by: userEmail
+                })
+                .eq('name', productName.trim());
+
+            if (error) throw error;
+            return true;
+        } catch (err) {
+            console.error("Error updating product type in database:", err);
+            throw err;
         }
     };
 
@@ -422,24 +530,19 @@ const AdminTools = () => {
             // Save to LocalStorage as backup/cache
             localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 
-            // Save to Supabase
-            const { error } = await supabase
-                .from('system_settings')
-                .upsert({
-                    id: GLOBAL_SETTINGS_ID,
-                    settings: settings,
-                    updated_at: new Date().toISOString(),
-                    updated_by: userEmail
-                });
-
-            if (error) {
-                // If the table doesn't exist, we might get an error.
-                // We will inform the user.
-                throw error;
+            // Lưu tất cả sản phẩm từ dbProducts vào database
+            if (dbProducts.length > 0) {
+                const savePromises = dbProducts.map(product => 
+                    saveProductToDatabase(product.name, product.type)
+                );
+                await Promise.all(savePromises);
             }
 
-            toast.success("✅ Đã lưu cấu hình lên Server thành công!");
+            toast.success("✅ Đã lưu danh sách sản phẩm lên Server thành công!");
             window.dispatchEvent(new Event('storage'));
+            
+            // Reload để cập nhật lại danh sách
+            await fetchProductsFromDatabase();
         } catch (err) {
             console.error("Save error:", err);
             if (err.message && err.message.includes('relation "system_settings" does not exist')) {
@@ -1078,12 +1181,10 @@ const AdminTools = () => {
         }
     };
 
-    // Ensure products in settings are always visible in the list, even if not in history
-    const displayedProducts = Array.from(new Set([
-        ...(settings.normalProducts || []),
-        ...settings.rndProducts,
-        ...settings.keyProducts
-    ])).filter(p => p.toLowerCase().includes(searchQuery.toLowerCase())).sort();
+    // Lấy danh sách sản phẩm từ database để hiển thị
+    const displayedProducts = dbProducts
+        .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        .sort((a, b) => a.name.localeCompare(b.name));
 
     if (!canView('ADMIN_TOOLS')) {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (ADMIN_TOOLS).</div>;
@@ -1730,64 +1831,69 @@ const AdminTools = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100">
-                                                {displayedProducts.map((product, index) => {
-                                                    const isRnd = settings.rndProducts.includes(product);
-                                                    const isKey = settings.keyProducts.includes(product);
-                                                    let currentType = 'normal';
-                                                    if (isRnd) currentType = 'test';
-                                                    else if (isKey) currentType = 'key';
-
-                                                    return (
-                                                        <tr key={product} className="hover:bg-gray-50">
-                                                            <td className="px-4 py-2 text-center text-gray-500">{index + 1}</td>
-                                                            <td className="px-4 py-2 font-medium">{product}</td>
-                                                            <td className="px-4 py-2">
-                                                                <select
-                                                                    value={currentType}
-                                                                    onChange={(e) => {
-                                                                        const newType = e.target.value;
-                                                                        setSettings(prev => {
-                                                                            let newNormal = (prev.normalProducts || []).filter(p => p !== product);
-                                                                            let newRnd = prev.rndProducts.filter(p => p !== product);
-                                                                            let newKey = prev.keyProducts.filter(p => p !== product);
-
-                                                                            if (newType === 'normal') newNormal.push(product);
-                                                                            if (newType === 'test') newRnd.push(product);
-                                                                            if (newType === 'key') newKey.push(product);
-
-                                                                            return { ...prev, normalProducts: newNormal, rndProducts: newRnd, keyProducts: newKey };
-                                                                        });
-                                                                    }}
-                                                                    className={`w-full text-xs py-1 px-2 rounded border focus:outline-none focus:ring-2 
-                                                                    ${currentType === 'test' ? 'bg-purple-50 text-purple-700 border-purple-200 focus:ring-purple-500' :
-                                                                            currentType === 'key' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 focus:ring-indigo-500' :
-                                                                                'bg-white text-gray-700 border-gray-300 focus:ring-gray-500'}`}
-                                                                >
-                                                                    <option value="normal">SP thường</option>
-                                                                    <option value="test">SP Test (R&D)</option>
-                                                                    <option value="key">SP Trọng điểm</option>
-                                                                </select>
-                                                            </td>
-                                                            <td className="px-4 py-2 text-center">
-                                                                <button
-                                                                    onClick={() => {
-                                                                        if (window.confirm(`Bạn có chắc muốn xóa sản phẩm "${product}" khỏi danh sách?`)) {
-                                                                            setSettings(prev => ({
-                                                                                ...prev,
-                                                                                normalProducts: (prev.normalProducts || []).filter(p => p !== product),
-                                                                                rndProducts: prev.rndProducts.filter(p => p !== product),
-                                                                                keyProducts: prev.keyProducts.filter(p => p !== product)
-                                                                            }));
-                                                                        }
-                                                                    }}
-                                                                    className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                                                                >
-                                                                    <Trash2 size={16} />
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
+                                                {displayedProducts.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                                                            Chưa có sản phẩm nào. Hãy thêm sản phẩm mới ở bên dưới.
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    displayedProducts.map((product, index) => {
+                                                        return (
+                                                            <tr key={product.id || product.name} className="hover:bg-gray-50">
+                                                                <td className="px-4 py-2 text-center text-gray-500">{index + 1}</td>
+                                                                <td className="px-4 py-2 font-medium">{product.name}</td>
+                                                                <td className="px-4 py-2">
+                                                                    <select
+                                                                        value={product.type}
+                                                                        onChange={async (e) => {
+                                                                            const newType = e.target.value;
+                                                                            try {
+                                                                                await updateProductTypeInDatabase(product.name, newType);
+                                                                                // Cập nhật local state
+                                                                                setDbProducts(prev => prev.map(p => 
+                                                                                    p.name === product.name ? { ...p, type: newType } : p
+                                                                                ));
+                                                                                toast.success(`Đã cập nhật loại sản phẩm "${product.name}"`);
+                                                                            } catch (err) {
+                                                                                toast.error(`Lỗi cập nhật: ${err.message}`);
+                                                                            }
+                                                                        }}
+                                                                        className={`w-full text-xs py-1 px-2 rounded border focus:outline-none focus:ring-2 
+                                                                        ${product.type === 'test' ? 'bg-purple-50 text-purple-700 border-purple-200 focus:ring-purple-500' :
+                                                                                product.type === 'key' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 focus:ring-indigo-500' :
+                                                                                    'bg-white text-gray-700 border-gray-300 focus:ring-gray-500'}`}
+                                                                    >
+                                                                        <option value="normal">SP thường</option>
+                                                                        <option value="test">SP Test (R&D)</option>
+                                                                        <option value="key">SP Trọng điểm</option>
+                                                                    </select>
+                                                                </td>
+                                                                <td className="px-4 py-2 text-center">
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            if (window.confirm(`Bạn có chắc muốn xóa sản phẩm "${product.name}" khỏi danh sách?`)) {
+                                                                                try {
+                                                                                    await deleteProductFromDatabase(product.name);
+                                                                                    // Cập nhật local state
+                                                                                    setDbProducts(prev => prev.filter(p => p.name !== product.name));
+                                                                                    toast.success(`Đã xóa sản phẩm "${product.name}"`);
+                                                                                    // Reload reference data để cập nhật gợi ý
+                                                                                    await fetchReferenceData();
+                                                                                } catch (err) {
+                                                                                    toast.error(`Lỗi xóa: ${err.message}`);
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                        className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                                                                    >
+                                                                        <Trash2 size={16} />
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
@@ -1797,19 +1903,32 @@ const AdminTools = () => {
                                         <input
                                             type="text"
                                             list="product-suggestions"
-                                            placeholder="Nhập tên sản phẩm mới..."
+                                            placeholder="Nhập tên sản phẩm mới (có thể gõ tay)..."
                                             className="flex-1 text-sm border-gray-300 rounded px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                            onKeyDown={(e) => {
+                                            onKeyDown={async (e) => {
                                                 if (e.key === 'Enter') {
                                                     const val = e.target.value.trim();
-                                                    if (val && !displayedProducts.includes(val)) {
-                                                        setSettings(prev => ({
-                                                            ...prev,
-                                                            normalProducts: [...(prev.normalProducts || []), val].sort()
-                                                        }));
-                                                        e.target.value = '';
-                                                    } else if (displayedProducts.includes(val)) {
+                                                    if (!val) return;
+                                                    
+                                                    // Kiểm tra xem đã có trong database chưa
+                                                    const existsInDb = dbProducts.some(p => 
+                                                        p.name.toLowerCase().trim() === val.toLowerCase().trim()
+                                                    );
+                                                    
+                                                    if (existsInDb) {
                                                         toast.warning('Sản phẩm này đã có trong danh sách!');
+                                                        return;
+                                                    }
+                                                    
+                                                    try {
+                                                        // Lưu vào database với type mặc định là 'normal'
+                                                        await saveProductToDatabase(val, 'normal');
+                                                        // Reload danh sách từ database
+                                                        await fetchProductsFromDatabase();
+                                                        e.target.value = '';
+                                                        toast.success(`Đã thêm sản phẩm "${val}"`);
+                                                    } catch (err) {
+                                                        toast.error(`Lỗi thêm sản phẩm: ${err.message}`);
                                                     }
                                                 }
                                             }}
@@ -1819,18 +1938,33 @@ const AdminTools = () => {
                                             {productSuggestions.map(p => <option key={p} value={p} />)}
                                         </datalist>
                                         <button
-                                            onClick={() => {
+                                            onClick={async () => {
                                                 const input = document.getElementById('new-product-input');
                                                 const val = input.value.trim();
-                                                if (val && !displayedProducts.includes(val)) {
-                                                    setSettings(prev => ({
-                                                        ...prev,
-                                                        normalProducts: [...(prev.normalProducts || []), val].sort()
-                                                    }));
-                                                    input.value = '';
-                                                    toast.success('Đã thêm sản phẩm mới');
-                                                } else if (displayedProducts.includes(val)) {
+                                                if (!val) {
+                                                    toast.warning('Vui lòng nhập tên sản phẩm');
+                                                    return;
+                                                }
+                                                
+                                                // Kiểm tra xem đã có trong database chưa
+                                                const existsInDb = dbProducts.some(p => 
+                                                    p.name.toLowerCase().trim() === val.toLowerCase().trim()
+                                                );
+                                                
+                                                if (existsInDb) {
                                                     toast.warning('Sản phẩm này đã có trong danh sách!');
+                                                    return;
+                                                }
+                                                
+                                                try {
+                                                    // Lưu vào database với type mặc định là 'normal'
+                                                    await saveProductToDatabase(val, 'normal');
+                                                    // Reload danh sách từ database
+                                                    await fetchProductsFromDatabase();
+                                                    input.value = '';
+                                                    toast.success(`Đã thêm sản phẩm "${val}"`);
+                                                } catch (err) {
+                                                    toast.error(`Lỗi thêm sản phẩm: ${err.message}`);
                                                 }
                                             }}
                                             className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-blue-700"

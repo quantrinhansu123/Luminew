@@ -50,6 +50,7 @@ function DanhSachDon() {
   const [filterMarket, setFilterMarket] = useState([]);
   const [filterProduct, setFilterProduct] = useState([]);
   const [filterStatus, setFilterStatus] = useState([]);
+  const [filterCheckResult, setFilterCheckResult] = useState([]);
   // Initialize dates with "Last 3 Days"
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -59,7 +60,6 @@ function DanhSachDon() {
   const [endDate, setEndDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
-  const [searchDate, setSearchDate] = useState(''); // Keep existing if needed, or remove if redundant
 
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -235,7 +235,7 @@ function DanhSachDon() {
     "Nhân viên Sale": item.sale_staff || item.saleStaff || '',
     "Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
-    "Kết quả Check": item.payment_status,
+    "Kết quả Check": item.check_result || item.payment_status, // Ưu tiên check_result, fallback về payment_status
     "Ghi chú": item.note,
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
@@ -596,7 +596,8 @@ function DanhSachDon() {
             sale_staff: item["Nhân viên Sale"] || item["Nhân_viên_Sale"] || "",
             team: item["Team"] || "",
             delivery_status: item["Trạng thái giao hàng"] || item["Trạng_thái_giao_hàng_NB"] || item["Trạng_thái_giao_hàng"] || "",
-            payment_status: item["Kết quả Check"] || item["Kết_quả_Check"] || "",
+            check_result: item["Kết quả Check"] || item["Kết_quả_Check"] || "", // Map vào check_result thay vì payment_status
+            payment_status: item["Kết quả Check"] || item["Kết_quả_Check"] || "", // Giữ lại để backward compatibility
             note: item["Ghi chú"] || item["Ghi_chú"] || "",
 
             // New extended columns
@@ -837,6 +838,15 @@ function DanhSachDon() {
     return Array.from(statuses).sort();
   }, [allData]);
 
+  const uniqueCheckResults = useMemo(() => {
+    const checkResults = new Set();
+    allData.forEach(row => {
+      const checkResult = row["Kết quả Check"];
+      if (checkResult) checkResults.add(String(checkResult).trim());
+    });
+    return Array.from(checkResults).sort();
+  }, [allData]);
+
 
 
   // Filter and sort data
@@ -931,6 +941,14 @@ function DanhSachDon() {
       });
     }
 
+    // Check Result filter
+    if (filterCheckResult.length > 0) {
+      data = data.filter(row => {
+        const checkResult = row["Kết quả Check"];
+        return filterCheckResult.includes(String(checkResult).trim());
+      });
+    }
+
 
 
 
@@ -958,7 +976,7 @@ function DanhSachDon() {
     }
 
     return data;
-  }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, searchDate, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
+  }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterCheckResult, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
 
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
@@ -1146,6 +1164,19 @@ function DanhSachDon() {
                   {filteredData.length} / {allData.length} đơn hàng
                 </span>
               </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-lg border border-blue-200">
+                <span className="text-sm font-semibold text-blue-700">Số đơn:</span>
+                <span className="text-sm text-blue-600">{filteredData.length}</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg border border-green-200">
+                <span className="text-sm font-semibold text-green-700">Tổng tiền:</span>
+                <span className="text-sm text-green-600">
+                  {filteredData.reduce((sum, row) => {
+                    const amount = parseFloat(String(row["Tổng tiền VNĐ"] || 0).replace(/[^\d.-]/g, '')) || 0;
+                    return sum + amount;
+                  }, 0).toLocaleString('vi-VN')} ₫
+                </span>
+              </div>
               {isAdmin && (
                 <button
                   onClick={handleDeleteAll}
@@ -1268,20 +1299,25 @@ function DanhSachDon() {
               </select>
             </div>
 
-
-
-
-
-            {/* Date Search Filter */}
+            {/* Check Result Filter */}
             <div className="min-w-[150px]">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc theo ngày</label>
-              <input
-                type="date"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                value={searchDate}
-                onChange={(e) => setSearchDate(e.target.value)}
-              />
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Kết quả Check</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                value={filterCheckResult[0] || ''}
+                onChange={(e) => setFilterCheckResult(e.target.value ? [e.target.value] : [])}
+              >
+                <option value="">Tất cả</option>
+                {uniqueCheckResults.map(checkResult => (
+                  <option key={checkResult} value={checkResult}>{checkResult}</option>
+                ))}
+              </select>
             </div>
+
+
+
+
+
 
             {/* Settings Button - Tất cả người dùng đều có thể sử dụng */}
             <button

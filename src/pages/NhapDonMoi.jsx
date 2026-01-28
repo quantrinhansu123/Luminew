@@ -218,16 +218,16 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     // --- DATA LISTS ---
     const AREA_LIST = ["US", "Nhật Bản", "Hàn Quốc", "Canada", "Úc", "Anh", "CĐ Nhật Bản"];
-    const PRODUCT_LIST = [
+    
+    // Sản phẩm sẽ được load từ database system_settings (type <> 'test')
+    const [PRODUCT_LIST, setPRODUCT_LIST] = useState([
         "Glutathione Collagen", "Bakuchiol Retinol", "Nám DR Hancy", "Kem Body",
-        "Glutathione Collagen NEW", "DG", "Fitgum CAFE 20X", "Kẹo Táo", "ComboGold24k",
-        "Gel Xương Khớp", "Gel XK Thái", "Gel XK Phi", "Dán Kinoki", "Sữa tắm CUISHIFAN",
-        "Bonavita Coffee", "Gel Dạ Dày", "Gel Trĩ", "Dragon Blood Cream"
-    ];
+        "DG", "Fitgum CAFE 20X", "Kẹo Táo", "ComboGold24k",
+        "Gel Xương Khớp", "Dán Kinoki", "Sữa tắm CUISHIFAN",
+        "Bonavita Coffee", "Gel Dạ Dày", "Gel Trĩ"
+    ]);
 
-    // Các sản phẩm CHỈ dành cho nhân viên có quyền R&D
-    // Load from System Settings (Advanced) or use default
-    // Các sản phẩm CHỈ dành cho nhân viên có quyền R&D
+    // Các sản phẩm CHỈ dành cho nhân viên có quyền R&D (type = 'test')
     const [rdProducts, setRdProducts] = useState([
         "Glutathione Collagen NEW",
         "Dragon Blood Cream",
@@ -238,31 +238,39 @@ export default function NhapDonMoi({ isEdit = false }) {
     useEffect(() => {
         const fetchSystemSettings = async () => {
             try {
-                // Try fetching from Supabase first
-                const { data, error } = await supabase
+                // Load tất cả sản phẩm từ system_settings (type <> 'test')
+                const { data: productsData, error: productsError } = await supabase
                     .from('system_settings')
-                    .select('settings')
-                    .eq('id', 'global_config')
-                    .single();
+                    .select('name, type')
+                    .order('name', { ascending: true });
 
-                if (data && data.settings && Array.isArray(data.settings.rndProducts)) {
-                    setRdProducts(data.settings.rndProducts);
+                if (!productsError && productsData && productsData.length > 0) {
+                    const normalProducts = productsData
+                        .filter(item => item.type !== 'test')
+                        .map(item => item.name)
+                        .filter(Boolean);
+                    
+                    const testProducts = productsData
+                        .filter(item => item.type === 'test')
+                        .map(item => item.name)
+                        .filter(Boolean);
+
+                    if (normalProducts.length > 0) {
+                        setPRODUCT_LIST(normalProducts);
+                        console.log(`✅ Loaded ${normalProducts.length} products from system_settings (excluding test)`);
+                    }
+                    
+                    if (testProducts.length > 0) {
+                        setRdProducts(testProducts);
+                        console.log(`✅ Loaded ${testProducts.length} R&D products from system_settings`);
+                    }
                     return;
                 }
             } catch (err) {
-                // Silent fail/continue to local
+                console.error('Error fetching products from system_settings:', err);
             }
 
-            // Fallback to LocalStorage if Supabase fails or returns nothing
-            try {
-                const s = localStorage.getItem('system_settings');
-                if (s) {
-                    const parsed = JSON.parse(s);
-                    if (parsed.rndProducts && Array.isArray(parsed.rndProducts)) {
-                        setRdProducts(parsed.rndProducts);
-                    }
-                }
-            } catch (e) { }
+            // Fallback: giữ nguyên giá trị mặc định nếu không load được từ database
         };
 
         fetchSystemSettings();
@@ -1081,8 +1089,32 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                     placeholder="Chọn page..."
                                                                     value={selectedPage}
                                                                     onChange={(e) => {
-                                                                        setSelectedPage(e.target.value);
-                                                                        setIsPageOpen(true);
+                                                                        try {
+                                                                            const inputValue = e.target.value.trim();
+                                                                            setSelectedPage(inputValue);
+                                                                            setIsPageOpen(true);
+                                                                            
+                                                                            // Tự động điền MKT khi nhập/dán tên page đúng
+                                                                            if (inputValue && Array.isArray(pages) && pages.length > 0) {
+                                                                                // Tìm page có page_name khớp chính xác (case-insensitive)
+                                                                                const matchedPage = pages.find(p => {
+                                                                                    if (!p || typeof p !== 'object') return false;
+                                                                                    const pageName = (p.page_name || "").trim();
+                                                                                    return pageName.toLowerCase() === inputValue.toLowerCase();
+                                                                                });
+                                                                                
+                                                                                if (matchedPage) {
+                                                                                    const mktStaff = matchedPage.mkt_staff || matchedPage.Mkt_staff || "";
+                                                                                    if (mktStaff) {
+                                                                                        console.log("✅ Auto-fill MKT từ page:", mktStaff);
+                                                                                        setSelectedMkt(String(mktStaff).trim());
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        } catch (error) {
+                                                                            console.error("❌ Error in page onChange:", error);
+                                                                            // Không block user input nếu có lỗi
+                                                                        }
                                                                     }}
                                                                     onFocus={() => {
                                                                         if (pageRef.current) setPagePopoverWidth(pageRef.current.offsetWidth);

@@ -17,6 +17,32 @@ export default function BaoCaoRnD() {
         marketList: ['Nhật Bản', 'Hàn Quốc', 'Canada', 'US', 'Úc', 'Anh', 'CĐ Nhật Bản'],
     });
 
+    // Load R&D products from system_settings (type = 'test')
+    useEffect(() => {
+        const fetchProducts = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('system_settings')
+                    .select('name')
+                    .eq('type', 'test')
+                    .order('name', { ascending: true });
+
+                if (!error && data && data.length > 0) {
+                    const products = data.map(item => item.name).filter(Boolean);
+                    setAppData(prev => ({
+                        ...prev,
+                        productList: products.length > 0 ? products : prev.productList
+                    }));
+                    console.log(`✅ Loaded ${products.length} R&D products from system_settings`);
+                }
+            } catch (err) {
+                console.error('Error fetching R&D products from system_settings:', err);
+            }
+        };
+
+        fetchProducts();
+    }, []);
+
     const [tableHeaders, setTableHeaders] = useState([]);
     const [tableRows, setTableRows] = useState([]);
     const [userEmail, setUserEmail] = useState('');
@@ -263,7 +289,15 @@ export default function BaoCaoRnD() {
             const rowsData = tableRows.map((row) => {
                 const rowObject = {};
 
+                // List of columns that DO NOT exist in detail_reports and should be excluded
+                const excludedColumns = ['Chi nhánh', 'chi nhánh', 'Chi_nhánh', 'chi_nhánh', 'branch'];
+                
                 Object.keys(row.data).forEach((key) => {
+                    // Skip excluded columns that don't exist in detail_reports schema
+                    if (excludedColumns.includes(key)) {
+                        return;
+                    }
+                    
                     let value = row.data[key];
                     const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số'];
                     if (numberFields.includes(key)) {

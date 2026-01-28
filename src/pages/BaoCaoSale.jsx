@@ -1,4 +1,4 @@
-import { RefreshCw, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
@@ -6,6 +6,7 @@ import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import { isDateInRange } from '../utils/dateParsing';
 import './BaoCaoSale.css';
+import * as rbacService from '../services/rbacService';
 
 import { supabase } from '../services/supabaseClient';
 
@@ -32,7 +33,27 @@ export default function BaoCaoSale() {
     // Permission Logic
     const { canView, role } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_VIEW' : 'SALE_VIEW';
+    
+    // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút xóa)
+    const roleFromHook = (role || '').toUpperCase();
+    const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
+    const userJson = localStorage.getItem("user");
+    const userObj = userJson ? JSON.parse(userJson) : null;
+    const roleFromUserObj = (userObj?.role || '').toLowerCase();
 
+    const isAdmin = roleFromHook === 'ADMIN' ||
+                   roleFromHook === 'SUPER_ADMIN' ||
+                   roleFromStorage === 'admin' ||
+                   roleFromStorage === 'super_admin' ||
+                   roleFromUserObj === 'admin' ||
+                   roleFromUserObj === 'super_admin';
+
+    // Get user email for filtering
+    const userEmail = localStorage.getItem('userEmail') || '';
+    
+    // Selected personnel names (từ cột selected_personnel trong users table)
+    // null = chưa load, [] = đã load nhưng không có, [names] = đã load và có danh sách
+    const [selectedPersonnelNames, setSelectedPersonnelNames] = useState(null);
 
     // --- State ---
     const [loading, setLoading] = useState(true);
@@ -73,6 +94,10 @@ export default function BaoCaoSale() {
     const [activeTab, setActiveTab] = useState(() => {
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
+        // Nếu tab là kpi-sale hoặc van-don-sale (đã bị ẩn), fallback về 'sau-huy'
+        if (tab === 'kpi-sale' || tab === 'van-don-sale') {
+            return 'sau-huy';
+        }
         return tab || 'sau-huy';
     });
 
@@ -268,6 +293,813 @@ export default function BaoCaoSale() {
         }
     };
 
+    // --- Helper Functions ---
+
+    // Fetch số đơn hoàn hủy từ bảng orders theo filter:
+    // 1. check_result = "Hủy" hoặc "Huỷ"
+    // 2. sale_staff IN [danh sách tên Sale từ báo cáo] - theo bộ lọc
+    // 3. product IN filters.products - theo bộ lọc
+    // 4. country IN filters.markets - theo bộ lọc
+    // 5. order_date BETWEEN startDate AND endDate - theo bộ lọc
+    // Đếm trực tiếp khi match với từng record (không group trước)
+    // Match rules (Tên Sale + Ngày của báo cáo):
+    // - sale_staff (orders) = name (sales_reports)
+    // - order_date (orders) = date (sales_reports) - ngày khớp với ngày của báo cáo
+    // Lưu ý: Mỗi record trong báo cáo chỉ đếm đơn hủy của chính ngày đó
+    const enrichWithCancelOrdersFromOrders = async (transformedData, startDate, endDate, productsFilter, marketsFilter) => {
+        try {
+            // Helper function để normalize date format - Database lưu ở định dạng YYYY-MM-DD
+            const normalizeDate = (date) => {
+                if (!date) return '';
+                if (date instanceof Date) {
+                    return date.toISOString().split('T')[0];
+                }
+                if (typeof date === 'string') {
+                    const trimmed = date.trim();
+                    if (trimmed.includes('T')) {
+                        return trimmed.split('T')[0];
+                    }
+                    if (trimmed.includes(' ')) {
+                        return trimmed.split(' ')[0];
+                    }
+                    if (trimmed.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        return trimmed;
+                    }
+                    if (trimmed.includes('/')) {
+                        const parts = trimmed.split('/');
+                        if (parts.length === 3) {
+                            const p1 = parseInt(parts[0]);
+                            const p2 = parseInt(parts[1]);
+                            const p3 = parseInt(parts[2]);
+                            if (p2 > 12 && p1 <= 12) {
+                                return `${p3}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+                            } else if (p1 > 12 && p2 <= 12) {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            } else {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            }
+                        }
+                    }
+                    const parsed = new Date(trimmed);
+                    if (!isNaN(parsed.getTime())) {
+                        return parsed.toISOString().split('T')[0];
+                    }
+                    return trimmed;
+                }
+                return String(date);
+            };
+            
+            // Helper function để normalize string (trim và lowercase) - Định nghĩa trước khi sử dụng
+            const normalizeStr = (str) => {
+                if (!str) return '';
+                // Normalize: trim, lowercase, và loại bỏ dấu cách thừa
+                return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+            };
+            
+            // Normalize startDate và endDate để đảm bảo đúng định dạng YYYY-MM-DD (database format)
+            const normalizedStartDate = normalizeDate(startDate);
+            const normalizedEndDate = normalizeDate(endDate);
+            
+            console.log(`📅 Date filter: ${startDate} → ${normalizedStartDate}, ${endDate} → ${normalizedEndDate}`);
+            
+            // Lấy danh sách tên Sale từ báo cáo để filter ở query level
+            const saleNamesFromReports = [...new Set(transformedData
+                .map(item => item['Tên'])
+                .filter(name => name && name.trim().length > 0)
+            )];
+
+            console.log(`👥 Lấy ${saleNamesFromReports.length} tên Sale từ báo cáo để filter`);
+            
+            // Log chi tiết các tên Sale trong báo cáo để debug
+            const phamTuyetTrinhInReports = saleNamesFromReports.filter(name => {
+                const normalized = normalizeStr(name);
+                return normalized === 'phạm tuyết trinh' || normalized.includes('phạm tuyết trinh');
+            });
+            if (phamTuyetTrinhInReports.length > 0) {
+                console.log(`🔍 Tên "Phạm Tuyết Trinh" trong báo cáo (${phamTuyetTrinhInReports.length} biến thể):`, phamTuyetTrinhInReports);
+            }
+
+            // Build query với filter theo check_result, tên Sale, Sản phẩm và Thị trường từ bộ lọc
+            
+            let query = supabase
+                .from('orders')
+                .select('order_date, sale_staff, check_result, product, country, area', { count: 'exact' }) // Thêm product và country để match với báo cáo
+                .gte('order_date', normalizedStartDate)
+                .lte('order_date', normalizedEndDate)
+                .or('check_result.eq.Hủy,check_result.eq.Huỷ'); // Chỉ lấy chính xác "Hủy" hoặc "Huỷ"
+
+            // Filter theo tên Sale từ báo cáo (theo bộ lọc)
+            // Lưu ý: Cần match chính xác tên, không dùng ilike để tránh match sai
+            if (saleNamesFromReports.length > 0) {
+                // Sử dụng ilike với OR để match các tên Sale
+                // Nhưng cần normalize để match chính xác hơn
+                const saleConditions = saleNamesFromReports
+                    .map(name => {
+                        const trimmed = name.trim();
+                        // Match chính xác hoặc partial match (để xử lý các biến thể tên)
+                        return `sale_staff.ilike.%${trimmed}%`;
+                    })
+                    .join(',');
+                query = query.or(saleConditions);
+                
+                console.log(`🔍 Filter theo ${saleNamesFromReports.length} tên Sale:`, saleNamesFromReports.slice(0, 5));
+            }
+
+            // KHÔNG filter theo Sản phẩm và Thị trường ở query level
+            // Vì mỗi báo cáo có thể có sản phẩm/thị trường khác nhau
+            // Sẽ match theo product và market ở client side khi group
+            // if (productsFilter && productsFilter.length > 0) {
+            //     query = query.in('product', productsFilter);
+            // }
+            // if (marketsFilter && marketsFilter.length > 0) {
+            //     query = query.in('country', marketsFilter);
+            // }
+
+            // Thêm limit để tránh vượt quá giới hạn Supabase (mặc định 1000 records)
+            // Vì chỉ cần đếm số đơn hủy, không cần tất cả dữ liệu chi tiết
+            query = query.limit(10000); // Giới hạn 10,000 records (đủ cho hầu hết trường hợp)
+
+            const { data: cancelOrders, error, count } = await query;
+
+            if (error) {
+                console.error('❌ Error fetching cancel orders:', error);
+                return;
+            }
+
+            console.log(`📊 Tìm thấy ${cancelOrders?.length || 0} đơn hủy trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
+            
+            // Cảnh báo nếu số lượng vượt quá limit
+            if (count && count > 10000) {
+                console.warn(`⚠️ Cảnh báo: Có ${count} đơn hủy nhưng chỉ fetch được ${cancelOrders?.length || 0} records (giới hạn 10,000). Có thể cần tăng limit hoặc filter chặt hơn.`);
+            }
+
+            // Validate và filter cancel orders
+            const validCancelOrders = (cancelOrders || []).filter(order => {
+                const checkResult = String(order.check_result || '').trim();
+                return checkResult === 'Hủy' || checkResult === 'Huỷ';
+            });
+
+            console.log(`✅ Có ${validCancelOrders.length} đơn hủy hợp lệ sau khi filter`);
+
+            // Log sample để debug matching
+            if (validCancelOrders.length > 0) {
+                const sampleOrder = validCancelOrders[0];
+                console.log('🔍 Sample đơn hủy sau normalize:', {
+                    original_order_date: sampleOrder.order_date,
+                    normalized_order_date: normalizeDate(sampleOrder.order_date),
+                    sale_staff: sampleOrder.sale_staff,
+                    normalized_sale_staff: normalizeStr(sampleOrder.sale_staff)
+                });
+                
+                // Log các đơn hủy của "Phạm Tuyết Trinh" để debug (chỉ log tên này)
+                const phamTuyetTrinhOrders = validCancelOrders.filter(o => {
+                    const name = normalizeStr(o.sale_staff || '');
+                    return name === 'phạm tuyết trinh' || name.includes('phạm tuyết trinh');
+                });
+                if (phamTuyetTrinhOrders.length > 0) {
+                    console.log(`🔍 Tìm thấy ${phamTuyetTrinhOrders.length} đơn hủy của "Phạm Tuyết Trinh":`, phamTuyetTrinhOrders.slice(0, 50).map(o => ({
+                        sale_staff: o.sale_staff,
+                        normalized: normalizeStr(o.sale_staff),
+                        order_date: o.order_date,
+                        normalized_date: normalizeDate(o.order_date),
+                        check_result: o.check_result
+                    })));
+                    
+                    // Log unique dates và names để debug
+                    const uniqueDates = [...new Set(phamTuyetTrinhOrders.map(o => normalizeDate(o.order_date)))];
+                    const uniqueNames = [...new Set(phamTuyetTrinhOrders.map(o => normalizeStr(o.sale_staff)))];
+                    console.log(`📅 Các ngày của Phạm Tuyết Trinh trong orders (${uniqueDates.length} ngày):`, uniqueDates.sort());
+                    console.log(`👤 Tên đã normalize của Phạm Tuyết Trinh trong orders:`, uniqueNames);
+                    
+                    // Kiểm tra các ngày có đơn hủy nhưng không có báo cáo
+                    const reportDates = [...new Set(transformedData
+                        .filter(item => {
+                            const name = normalizeStr(item['Tên']);
+                            return name === 'phạm tuyết trinh' || name.includes('phạm tuyết trinh');
+                        })
+                        .map(item => normalizeDate(item['Ngày']))
+                    )];
+                    const orderDatesOnly = uniqueDates.filter(d => !reportDates.includes(d));
+                    if (orderDatesOnly.length > 0) {
+                        console.warn(`⚠️ Các ngày có đơn hủy nhưng KHÔNG có báo cáo của "Phạm Tuyết Trinh":`, orderDatesOnly.sort());
+                        console.warn(`   → Cần kiểm tra xem báo cáo đã được nhập vào sales_reports chưa`);
+                    }
+                } else {
+                    console.log('⚠️ Không tìm thấy đơn hủy nào của "Phạm Tuyết Trinh" trong danh sách đã fetch');
+                    console.log(`⚠️ Tổng số đơn hủy đã fetch: ${validCancelOrders.length}`);
+                    // Log một vài tên khác để xem có gì
+                    const sampleNames = [...new Set(validCancelOrders.slice(0, 10).map(o => normalizeStr(o.sale_staff)))];
+                    console.log(`📋 Một vài tên trong đơn hủy đã fetch:`, sampleNames);
+                }
+            }
+            
+            // Log tất cả các tên Sale trong báo cáo để so sánh
+            const uniqueReportNames = [...new Set(transformedData.map(item => ({
+                original: item['Tên'],
+                normalized: normalizeStr(item['Tên'])
+            })))];
+            const phamTuyetTrinhReports = uniqueReportNames.filter(n => 
+                normalizeStr(n.original) === 'phạm tuyết trinh' || 
+                normalizeStr(n.original).includes('phạm tuyết trinh')
+            );
+            if (phamTuyetTrinhReports.length > 0) {
+                console.log(`📋 Tên "Phạm Tuyết Trinh" trong báo cáo:`, phamTuyetTrinhReports);
+                
+                // Log các ngày của Phạm Tuyết Trinh trong báo cáo
+                const phamTuyetTrinhReportDates = transformedData
+                    .filter(item => {
+                        const name = normalizeStr(item['Tên']);
+                        return name === 'phạm tuyết trinh' || name.includes('phạm tuyết trinh');
+                    })
+                    .map(item => ({
+                        original_date: item['Ngày'],
+                        normalized_date: normalizeDate(item['Ngày']),
+                        name: item['Tên'],
+                        normalized_name: normalizeStr(item['Tên'])
+                    }));
+                const uniqueReportDates = [...new Set(phamTuyetTrinhReportDates.map(d => d.normalized_date))];
+                console.log(`📅 Các ngày của Phạm Tuyết Trinh trong báo cáo (${uniqueReportDates.length} ngày):`, uniqueReportDates.sort());
+                console.log(`📊 Chi tiết các báo cáo của Phạm Tuyết Trinh (${phamTuyetTrinhReportDates.length} báo cáo):`, phamTuyetTrinhReportDates.slice(0, 30));
+            } else {
+                console.log('⚠️ Không tìm thấy báo cáo nào của "Phạm Tuyết Trinh" trong transformedData');
+            }
+
+            // Group đơn hủy theo Tên Sale + Ngày + Sản phẩm + Thị trường để match chính xác với từng báo cáo
+            // Key: "saleName|date|product|market" -> orders[]
+            const cancelOrdersBySaleDateProductMarket = new Map();
+            
+            validCancelOrders.forEach(order => {
+                // Match theo:
+                // - Tên Sale: sale_staff (orders) = name (sales_reports)
+                // - Ngày: order_date (orders) = date (sales_reports)
+                // - Sản phẩm: product (orders) = product (sales_reports)
+                // - Thị trường: country hoặc area (orders) = market (sales_reports)
+                const orderSaleName = normalizeStr(order.sale_staff);
+                const orderDateStr = normalizeDate(order.order_date);
+                const orderProduct = normalizeStr(order.product || '');
+                // Thị trường: ưu tiên country, nếu không có thì dùng area
+                const orderMarket = normalizeStr(order.country || order.area || '');
+                const key = `${orderSaleName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
+                
+                if (!cancelOrdersBySaleDateProductMarket.has(key)) {
+                    cancelOrdersBySaleDateProductMarket.set(key, []);
+                }
+                cancelOrdersBySaleDateProductMarket.get(key).push(order);
+            });
+            
+            // Log cho Phạm Tuyết Trinh
+            const phamTuyetTrinhKeys = Array.from(cancelOrdersBySaleDateProductMarket.keys()).filter(key => {
+                const saleName = key.split('|')[0];
+                return saleName === 'phạm tuyết trinh' || saleName.includes('phạm tuyết trinh');
+            });
+            if (phamTuyetTrinhKeys.length > 0) {
+                console.log(`📊 Đơn hủy của Phạm Tuyết Trinh (đã group theo Tên + Ngày + Sản phẩm + Thị trường):`);
+                phamTuyetTrinhKeys.forEach(key => {
+                    const [saleName, date, product, market] = key.split('|');
+                    const orders = cancelOrdersBySaleDateProductMarket.get(key);
+                    console.log(`  - ${saleName} | ${date} | ${product} | ${market}: ${orders.length} đơn hủy`);
+                });
+            }
+            
+            // Cập nhật transformedData với số đơn hoàn hủy từ orders (đã group theo Tên Sale + Ngày)
+            let matchedCount = 0;
+            const debugLogs = [];
+
+            transformedData.forEach((item, idx) => {
+                // Match với sales_reports (Tên Sale + Ngày của báo cáo):
+                // - name (sales_reports) = sale_staff (orders)
+                // - date (sales_reports) = order_date (orders) - ngày khớp với ngày của báo cáo
+                // Lưu ý: 
+                // - Sản phẩm và Thị trường đã được filter ở query, không cần match
+                // - Mỗi record chỉ đếm đơn hủy của chính ngày đó
+                const saleName = normalizeStr(item['Tên']); // name từ sales_reports
+                const reportDateRaw = item['Ngày']; // date từ sales_reports - ngày của báo cáo
+                const reportDate = normalizeDate(reportDateRaw);
+
+                // Log cho "Phạm Tuyết Trinh" để debug (chỉ log tên này, không log các tên khác có chứa "trinh")
+                const isPhamTuyetTrinh = saleName === 'phạm tuyết trinh' || saleName.includes('phạm tuyết trinh');
+                if (isPhamTuyetTrinh) {
+                    console.log(`🔍 Debug Phạm Tuyết Trinh [${idx}]:`, {
+                        original_name: item['Tên'],
+                        normalized_name: saleName,
+                        original_date: reportDateRaw,
+                        normalized_date: reportDate,
+                        product: item['Sản phẩm'],
+                        market: item['Thị trường']
+                    });
+                }
+
+                if (!saleName || !reportDate) {
+                    item['Số đơn hoàn hủy thực tế'] = 0;
+                    item['Doanh số hoàn hủy thực tế'] = 0;
+                    if (isPhamTuyetTrinh) {
+                        debugLogs.push(`⚠️ Phạm Tuyết Trinh [${idx}]: Thiếu tên hoặc ngày - saleName: ${saleName}, reportDate: ${reportDate}`);
+                    }
+                    return;
+                }
+
+                // Lấy số đơn hủy từ Map (đã group theo Tên Sale + Ngày + Sản phẩm + Thị trường)
+                // Match theo:
+                // - Tên Sale: sale_staff (orders) = name (sales_reports) ✓
+                // - Ngày: order_date (orders) = date (sales_reports) ✓ (chỉ match chính ngày đó)
+                // - Sản phẩm: product (orders) = product (sales_reports) ✓
+                // - Thị trường: country hoặc area (orders) = market (sales_reports) ✓
+                // Lưu ý: Mỗi báo cáo chỉ đếm đơn hủy của chính ngày đó, không tổng các ngày khác
+                const reportProduct = normalizeStr(item['Sản phẩm'] || '');
+                const reportMarket = normalizeStr(item['Thị trường'] || '');
+                const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
+                const matchingOrders = cancelOrdersBySaleDateProductMarket.get(key) || [];
+                const count = matchingOrders.length;
+                
+                if (isPhamTuyetTrinh) {
+                    console.log(`📊 Phạm Tuyết Trinh [${idx}]: Key "${key}" → ${count} đơn hủy`);
+                    console.log(`   - Tên Sale: "${item['Tên']}" → normalized: "${saleName}"`);
+                    console.log(`   - Ngày: "${item['Ngày']}" → normalized: "${reportDate}"`);
+                    console.log(`   - Sản phẩm: "${item['Sản phẩm']}" → normalized: "${reportProduct}"`);
+                    console.log(`   - Thị trường: "${item['Thị trường']}" → normalized: "${reportMarket}"`);
+                    
+                    // Log các key có cùng Tên Sale + Ngày để debug
+                    const sameSaleDateKeys = Array.from(cancelOrdersBySaleDateProductMarket.keys()).filter(k => {
+                        const [kSaleName, kDate] = k.split('|');
+                        return kSaleName === saleName && kDate === reportDate;
+                    });
+                    if (sameSaleDateKeys.length > 0) {
+                        console.log(`   - Các key có cùng Tên Sale + Ngày (${sameSaleDateKeys.length} keys):`, sameSaleDateKeys);
+                    }
+                }
+
+                if (count > 0) {
+                    item['Số đơn hoàn hủy thực tế'] = count;
+                    item['Doanh số hoàn hủy thực tế'] = 0;
+                    matchedCount++;
+                    if (isPhamTuyetTrinh) {
+                        debugLogs.push(`✅ Phạm Tuyết Trinh [${idx}]: Match ${count} đơn hủy - ngày: ${reportDate}`);
+                    }
+                } else {
+                    item['Số đơn hoàn hủy thực tế'] = 0;
+                    item['Doanh số hoàn hủy thực tế'] = 0;
+                    if (isPhamTuyetTrinh) {
+                        debugLogs.push(`❌ Phạm Tuyết Trinh [${idx}]: Không match - ngày báo cáo: ${reportDate}, tên: ${saleName}`);
+                    }
+                }
+            });
+
+            console.log(`✅ Đã match ${matchedCount}/${transformedData.length} records với số đơn hủy từ orders`);
+            
+            // Log debug cho Phạm Tuyết Trinh
+            if (debugLogs.length > 0) {
+                console.log('🔍 Debug logs cho Phạm Tuyết Trinh:');
+                debugLogs.forEach(log => console.log(log));
+            }
+            
+            // Log sample đơn hủy để so sánh
+            if (validCancelOrders.length > 0) {
+                const sampleDates = validCancelOrders.slice(0, 5).map(o => ({
+                    raw: o.order_date,
+                    normalized: normalizeDate(o.order_date),
+                    sale: o.sale_staff
+                }));
+                console.log('📊 Sample đơn hủy (5 đầu tiên):', sampleDates);
+            }
+        } catch (err) {
+            console.error('❌ Error enriching with cancel orders:', err);
+        }
+    };
+
+    // Fetch số đơn tổng (tất cả các đơn, không filter theo check_result) từ bảng orders
+    const enrichWithTotalOrdersFromOrders = async (transformedData, startDate, endDate) => {
+        try {
+            // Helper function để normalize date format - Database lưu ở định dạng YYYY-MM-DD
+            const normalizeDate = (date) => {
+                if (!date) return '';
+                if (date instanceof Date) {
+                    return date.toISOString().split('T')[0];
+                }
+                if (typeof date === 'string') {
+                    const trimmed = date.trim();
+                    if (trimmed.includes('T')) {
+                        return trimmed.split('T')[0];
+                    }
+                    if (trimmed.includes(' ')) {
+                        return trimmed.split(' ')[0];
+                    }
+                    if (trimmed.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        return trimmed;
+                    }
+                    if (trimmed.includes('/')) {
+                        const parts = trimmed.split('/');
+                        if (parts.length === 3) {
+                            const p1 = parseInt(parts[0]);
+                            const p2 = parseInt(parts[1]);
+                            const p3 = parseInt(parts[2]);
+                            if (p2 > 12 && p1 <= 12) {
+                                return `${p3}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+                            } else if (p1 > 12 && p2 <= 12) {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            } else {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            }
+                        }
+                    }
+                    const parsed = new Date(trimmed);
+                    if (!isNaN(parsed.getTime())) {
+                        return parsed.toISOString().split('T')[0];
+                    }
+                    return trimmed;
+                }
+                return String(date);
+            };
+            
+            // Helper function để normalize string (trim và lowercase)
+            const normalizeStr = (str) => {
+                if (!str) return '';
+                return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+            };
+            
+            const normalizedStartDate = normalizeDate(startDate);
+            const normalizedEndDate = normalizeDate(endDate);
+            
+            // Lấy danh sách tên Sale từ báo cáo để filter ở query level
+            const saleNamesFromReports = [...new Set(transformedData
+                .map(item => item['Tên'])
+                .filter(name => name && name.trim().length > 0)
+            )];
+
+            // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
+            let query = supabase
+                .from('orders')
+                .select('order_date, sale_staff, product, country, area', { count: 'exact' })
+                .gte('order_date', normalizedStartDate)
+                .lte('order_date', normalizedEndDate);
+
+            // Filter theo tên Sale từ báo cáo
+            if (saleNamesFromReports.length > 0) {
+                const saleConditions = saleNamesFromReports
+                    .map(name => `sale_staff.ilike.%${name.trim()}%`)
+                    .join(',');
+                query = query.or(saleConditions);
+            }
+
+            query = query.limit(10000);
+
+            const { data: allOrders, error, count } = await query;
+
+            if (error) {
+                console.error('❌ Error fetching total orders:', error);
+                return;
+            }
+
+            console.log(`📊 Tìm thấy ${allOrders?.length || 0} đơn tổng trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
+
+            if (count && count > 10000) {
+                console.warn(`⚠️ Cảnh báo: Có ${count} đơn tổng nhưng chỉ fetch được ${allOrders?.length || 0} records (giới hạn 10,000).`);
+            }
+
+            // Group đơn theo Tên Sale + Ngày + Sản phẩm + Thị trường
+            const ordersBySaleDateProductMarket = new Map();
+            
+            (allOrders || []).forEach(order => {
+                const orderSaleName = normalizeStr(order.sale_staff);
+                const orderDateStr = normalizeDate(order.order_date);
+                const orderProduct = normalizeStr(order.product || '');
+                const orderMarket = normalizeStr(order.country || order.area || '');
+                const key = `${orderSaleName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
+                
+                if (!ordersBySaleDateProductMarket.has(key)) {
+                    ordersBySaleDateProductMarket.set(key, []);
+                }
+                ordersBySaleDateProductMarket.get(key).push(order);
+            });
+
+            // Cập nhật transformedData với số đơn tổng từ orders
+            transformedData.forEach((item) => {
+                const saleName = normalizeStr(item['Tên']);
+                const reportDateRaw = item['Ngày'];
+                const reportDate = normalizeDate(reportDateRaw);
+                const reportProduct = normalizeStr(item['Sản phẩm'] || '');
+                const reportMarket = normalizeStr(item['Thị trường'] || '');
+
+                if (!saleName || !reportDate) {
+                    item['Số đơn TT'] = 0;
+                    return;
+                }
+
+                const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
+                const matchingOrders = ordersBySaleDateProductMarket.get(key) || [];
+                item['Số đơn TT'] = matchingOrders.length;
+                
+                // Log chi tiết cho Phạm Tuyết Trinh ngày 27
+                const isPhamTuyetTrinh = saleName === 'phạm tuyết trinh' || saleName.includes('phạm tuyết trinh');
+                const isDate27 = reportDate === '2026-01-27' || reportDateRaw === '2026-01-27';
+                if (isPhamTuyetTrinh && isDate27) {
+                    console.log(`🔍 Debug Phạm Tuyết Trinh ngày 27:`);
+                    console.log(`  - Tên báo cáo: "${item['Tên']}" → normalize: "${saleName}"`);
+                    console.log(`  - Ngày báo cáo: "${reportDateRaw}" → normalize: "${reportDate}"`);
+                    console.log(`  - Sản phẩm báo cáo: "${item['Sản phẩm']}" → normalize: "${reportProduct}"`);
+                    console.log(`  - Thị trường báo cáo: "${item['Thị trường']}" → normalize: "${reportMarket}"`);
+                    console.log(`  - Key để match: "${key}"`);
+                    console.log(`  - Số đơn TT tìm thấy: ${matchingOrders.length}`);
+                    
+                    // Tìm các đơn của Phạm Tuyết Trinh ngày 27
+                    const phamTuyetTrinhOrders = (allOrders || []).filter(order => {
+                        const orderSaleName = normalizeStr(order.sale_staff);
+                        const orderDateStr = normalizeDate(order.order_date);
+                        return (orderSaleName === 'phạm tuyết trinh' || orderSaleName.includes('phạm tuyết trinh')) &&
+                               orderDateStr === '2026-01-27';
+                    });
+                    
+                    if (phamTuyetTrinhOrders.length > 0) {
+                        console.log(`  - Tìm thấy ${phamTuyetTrinhOrders.length} đơn của Phạm Tuyết Trinh ngày 27:`);
+                        phamTuyetTrinhOrders.forEach((order, idx) => {
+                            const orderProduct = normalizeStr(order.product || '');
+                            const orderMarket = normalizeStr(order.country || order.area || '');
+                            console.log(`    [${idx + 1}] Sản phẩm: "${order.product}" (normalize: "${orderProduct}"), Thị trường: "${order.country || order.area}" (normalize: "${orderMarket}")`);
+                        });
+                        
+                        // Kiểm tra match
+                        const matchingKeys = phamTuyetTrinhOrders.map(order => {
+                            const orderSaleName = normalizeStr(order.sale_staff);
+                            const orderDateStr = normalizeDate(order.order_date);
+                            const orderProduct = normalizeStr(order.product || '');
+                            const orderMarket = normalizeStr(order.country || order.area || '');
+                            return `${orderSaleName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
+                        });
+                        console.log(`  - Các key của đơn hàng:`, matchingKeys);
+                        console.log(`  - Key báo cáo: "${key}"`);
+                        console.log(`  - Match? ${matchingKeys.includes(key)}`);
+                    } else {
+                        console.log(`  - ⚠️ Không tìm thấy đơn nào của Phạm Tuyết Trinh ngày 27 trong orders`);
+                    }
+                }
+            });
+
+            console.log(`✅ Đã cập nhật số đơn TT cho ${transformedData.length} records`);
+        } catch (err) {
+            console.error('❌ Error enriching with total orders:', err);
+        }
+    };
+
+    // Hàm tính tổng doanh số (total_amount_vnd) từ bảng orders với cùng rule như Số đơn TT
+    const enrichWithTotalRevenueFromOrders = async (transformedData, startDate, endDate) => {
+        try {
+            // Helper function để normalize date format - Database lưu ở định dạng YYYY-MM-DD
+            const normalizeDate = (date) => {
+                if (!date) return '';
+                if (date instanceof Date) {
+                    return date.toISOString().split('T')[0];
+                }
+                if (typeof date === 'string') {
+                    const trimmed = date.trim();
+                    if (trimmed.includes('T')) {
+                        return trimmed.split('T')[0];
+                    }
+                    if (trimmed.includes(' ')) {
+                        return trimmed.split(' ')[0];
+                    }
+                    if (trimmed.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        return trimmed;
+                    }
+                    if (trimmed.includes('/')) {
+                        const parts = trimmed.split('/');
+                        if (parts.length === 3) {
+                            const p1 = parseInt(parts[0]);
+                            const p2 = parseInt(parts[1]);
+                            const p3 = parseInt(parts[2]);
+                            if (p2 > 12 && p1 <= 12) {
+                                return `${p3}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+                            } else if (p1 > 12 && p2 <= 12) {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            } else {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            }
+                        }
+                    }
+                    const parsed = new Date(trimmed);
+                    if (!isNaN(parsed.getTime())) {
+                        return parsed.toISOString().split('T')[0];
+                    }
+                    return trimmed;
+                }
+                return String(date);
+            };
+            
+            // Helper function để normalize string (trim và lowercase)
+            const normalizeStr = (str) => {
+                if (!str) return '';
+                return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+            };
+            
+            const normalizedStartDate = normalizeDate(startDate);
+            const normalizedEndDate = normalizeDate(endDate);
+            
+            // Lấy danh sách tên Sale từ báo cáo để filter ở query level
+            const saleNamesFromReports = [...new Set(transformedData
+                .map(item => item['Tên'])
+                .filter(name => name && name.trim().length > 0)
+            )];
+
+            // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
+            let query = supabase
+                .from('orders')
+                .select('order_date, sale_staff, product, country, area, total_amount_vnd', { count: 'exact' })
+                .gte('order_date', normalizedStartDate)
+                .lte('order_date', normalizedEndDate);
+
+            // Filter theo tên Sale từ báo cáo
+            if (saleNamesFromReports.length > 0) {
+                const saleConditions = saleNamesFromReports
+                    .map(name => `sale_staff.ilike.%${name.trim()}%`)
+                    .join(',');
+                query = query.or(saleConditions);
+            }
+
+            query = query.limit(10000);
+
+            const { data: allOrders, error, count } = await query;
+
+            if (error) {
+                console.error('❌ Error fetching total revenue:', error);
+                return;
+            }
+
+            console.log(`📊 Tìm thấy ${allOrders?.length || 0} đơn để tính doanh số trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
+
+            if (count && count > 10000) {
+                console.warn(`⚠️ Cảnh báo: Có ${count} đơn nhưng chỉ fetch được ${allOrders?.length || 0} records (giới hạn 10,000).`);
+            }
+
+            // Group đơn theo Tên Sale + Ngày + Sản phẩm + Thị trường và tính tổng total_amount_vnd
+            const revenueBySaleDateProductMarket = new Map();
+            
+            (allOrders || []).forEach(order => {
+                const orderSaleName = normalizeStr(order.sale_staff);
+                const orderDateStr = normalizeDate(order.order_date);
+                const orderProduct = normalizeStr(order.product || '');
+                const orderMarket = normalizeStr(order.country || order.area || '');
+                const key = `${orderSaleName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
+                
+                const revenue = Number(order.total_amount_vnd) || 0;
+                
+                if (!revenueBySaleDateProductMarket.has(key)) {
+                    revenueBySaleDateProductMarket.set(key, 0);
+                }
+                revenueBySaleDateProductMarket.set(key, revenueBySaleDateProductMarket.get(key) + revenue);
+            });
+
+            // Cập nhật transformedData với tổng doanh số từ orders
+            transformedData.forEach((item) => {
+                const saleName = normalizeStr(item['Tên']);
+                const reportDateRaw = item['Ngày'];
+                const reportDate = normalizeDate(reportDateRaw);
+                const reportProduct = normalizeStr(item['Sản phẩm'] || '');
+                const reportMarket = normalizeStr(item['Thị trường'] || '');
+
+                if (!saleName || !reportDate) {
+                    item['Doanh số'] = 0;
+                    return;
+                }
+
+                const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
+                const revenue = revenueBySaleDateProductMarket.get(key) || 0;
+                item['Doanh số'] = revenue;
+            });
+
+            console.log(`✅ Đã cập nhật doanh số cho ${transformedData.length} records`);
+        } catch (err) {
+            console.error('❌ Error enriching with total revenue:', err);
+        }
+    };
+
+    // Hàm tính doanh số sau hủy (tổng VNĐ của các đơn không phải Hủy)
+    // Match theo: Tên Sale, Ngày, Sản phẩm, Thị trường
+    const enrichWithRevenueAfterCancelFromOrders = async (transformedData, startDate, endDate) => {
+        try {
+            // Helper function để normalize date format
+            const normalizeDate = (date) => {
+                if (!date) return '';
+                if (date instanceof Date) {
+                    return date.toISOString().split('T')[0];
+                }
+                if (typeof date === 'string') {
+                    const trimmed = date.trim();
+                    if (trimmed.includes('T')) {
+                        return trimmed.split('T')[0];
+                    }
+                    if (trimmed.includes(' ')) {
+                        return trimmed.split(' ')[0];
+                    }
+                    if (trimmed.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        return trimmed;
+                    }
+                    if (trimmed.includes('/')) {
+                        const parts = trimmed.split('/');
+                        if (parts.length === 3) {
+                            const p1 = parseInt(parts[0]);
+                            const p2 = parseInt(parts[1]);
+                            const p3 = parseInt(parts[2]);
+                            if (p2 > 12 && p1 <= 12) {
+                                return `${p3}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+                            } else if (p1 > 12 && p2 <= 12) {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            }
+                        }
+                    }
+                    const parsed = new Date(trimmed);
+                    if (!isNaN(parsed.getTime())) {
+                        return parsed.toISOString().split('T')[0];
+                    }
+                    return trimmed;
+                }
+                return String(date);
+            };
+            
+            // Helper function để normalize string
+            const normalizeStr = (str) => {
+                if (!str) return '';
+                return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+            };
+            
+            const normalizedStartDate = normalizeDate(startDate);
+            const normalizedEndDate = normalizeDate(endDate);
+            
+            // Lấy danh sách tên Sale từ báo cáo
+            const saleNamesFromReports = [...new Set(transformedData
+                .map(item => item['Tên'])
+                .filter(name => name && name.trim().length > 0)
+            )];
+
+            // Build query - Lấy các đơn KHÔNG phải Hủy
+            let query = supabase
+                .from('orders')
+                .select('order_date, sale_staff, product, country, area, total_amount_vnd, check_result', { count: 'exact' })
+                .gte('order_date', normalizedStartDate)
+                .lte('order_date', normalizedEndDate)
+                .not('check_result', 'eq', 'Hủy')
+                .not('check_result', 'eq', 'Huỷ');
+
+            // Filter theo tên Sale từ báo cáo
+            if (saleNamesFromReports.length > 0) {
+                const saleConditions = saleNamesFromReports
+                    .map(name => `sale_staff.ilike.%${name.trim()}%`)
+                    .join(',');
+                query = query.or(saleConditions);
+            }
+
+            query = query.limit(10000);
+
+            const { data: nonCancelOrders, error, count } = await query;
+
+            if (error) {
+                console.error('❌ Error fetching revenue after cancel:', error);
+                return;
+            }
+
+            console.log(`📊 Tìm thấy ${nonCancelOrders?.length || 0} đơn không hủy để tính doanh số sau hủy trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
+
+            // Validate và filter orders (đảm bảo không phải Hủy)
+            const validNonCancelOrders = (nonCancelOrders || []).filter(order => {
+                const checkResult = String(order.check_result || '').trim();
+                return checkResult !== 'Hủy' && checkResult !== 'Huỷ';
+            });
+
+            console.log(`✅ Có ${validNonCancelOrders.length} đơn không hủy hợp lệ`);
+
+            // Group và match với từng record trong transformedData
+            transformedData.forEach((item) => {
+                const reportSaleName = normalizeStr(item['Tên']);
+                const reportDate = normalizeDate(item['Ngày']);
+                const reportProduct = normalizeStr(item['Sản phẩm'] || '');
+                const reportMarket = normalizeStr(item['Thị trường'] || '');
+
+                // Tìm các đơn match với báo cáo này
+                const matchingOrders = validNonCancelOrders.filter(order => {
+                    const orderSaleName = normalizeStr(order.sale_staff);
+                    const orderDateStr = normalizeDate(order.order_date);
+                    const orderProduct = normalizeStr(order.product || '');
+                    const orderMarket = normalizeStr(order.country || order.area || '');
+
+                    // Match: Tên Sale + Ngày + Sản phẩm + Thị trường
+                    return orderSaleName === reportSaleName &&
+                           orderDateStr === reportDate &&
+                           orderProduct === reportProduct &&
+                           orderMarket === reportMarket;
+                });
+
+                // Tính tổng doanh số sau hủy
+                const revenueAfterCancel = matchingOrders.reduce((sum, order) => {
+                    return sum + (Number(order.total_amount_vnd) || 0);
+                }, 0);
+
+                // Cập nhật vào transformedData
+                item['Doanh số sau hủy'] = revenueAfterCancel;
+            });
+
+            console.log(`✅ Đã cập nhật doanh số sau hủy cho ${transformedData.length} records`);
+        } catch (err) {
+            console.error('❌ Error enriching with revenue after cancel:', err);
+        }
+    };
+
     // --- Effects ---
 
     // 1. Initialize Dates
@@ -289,37 +1121,96 @@ export default function BaoCaoSale() {
     useEffect(() => {
         const fetchGlobalOptions = async () => {
             try {
-                // Fetch distinct values for products, markets, teams, shifts from historical data
-                // We'll fetch from the 'sales_reports' table
-                const { data, error } = await supabase
-                    .from('sales_reports')
-                    .select('product, market, team, shift');
+                let productsSet = new Set();
+                let marketsSet = new Set();
+                let teamsSet = new Set();
+                let shiftsSet = new Set();
+                let productsFromSystemSettings = 0;
 
-                if (error) throw error;
+                // Bước 1: Load sản phẩm từ system_settings (type <> 'test')
+                try {
+                    const { data: productsData, error: productsError } = await supabase
+                        .from('system_settings')
+                        .select('name')
+                        .neq('type', 'test')
+                        .order('name', { ascending: true });
 
-                const unique = (key) => [...new Set(data.map(d => d[key]).filter(Boolean))].sort();
+                    if (!productsError && productsData && productsData.length > 0) {
+                        productsData.forEach(item => {
+                            if (item.name?.trim()) productsSet.add(item.name.trim());
+                        });
+                        productsFromSystemSettings = productsData.length;
+                        console.log(`✅ Loaded ${productsData.length} products from system_settings (excluding test)`);
+                    }
+                } catch (supabaseError) {
+                    console.log('⚠️ Could not fetch products from system_settings:', supabaseError);
+                }
+
+                // Bước 2: Load từ sales_reports với pagination để lấy hết
+                let allData = [];
+                let page = 0;
+                const pageSize = 1000;
+                let hasMore = true;
+                let totalCount = null;
+
+                while (hasMore) {
+                    const from = page * pageSize;
+                    const to = from + pageSize - 1;
+
+                    const { data, error, count } = await supabase
+                        .from('sales_reports')
+                        .select('product, market, team, shift', { count: 'exact' })
+                        .range(from, to);
+
+                    if (error) throw error;
+
+                    if (count !== null && totalCount === null) {
+                        totalCount = count;
+                        console.log(`📊 Tổng số records trong sales_reports: ${totalCount}`);
+                    }
+
+                    if (data && data.length > 0) {
+                        allData = allData.concat(data);
+                        hasMore = data.length === pageSize && (totalCount === null || allData.length < totalCount);
+                        page++;
+                        console.log(`📄 Loaded page ${page}: ${data.length} records (total: ${allData.length}/${totalCount || 'unknown'})`);
+                    } else {
+                        hasMore = false;
+                    }
+                }
+
+                console.log(`✅ Đã load ${allData.length} records từ sales_reports`);
+
+                // Extract unique values
+                const unique = (key) => [...new Set(allData.map(d => d[key]).filter(Boolean))].sort();
 
                 const globalProducts = unique('product');
                 const globalMarkets = unique('market');
                 const globalTeams = unique('team');
                 const globalShifts = unique('shift');
 
+                // Merge sản phẩm từ sales_reports vào set
+                globalProducts.forEach(p => productsSet.add(p));
+
                 const newOptions = {
-                    products: globalProducts,
+                    products: Array.from(productsSet).sort(),
                     markets: globalMarkets,
                     teams: globalTeams,
                     shifts: globalShifts
                 };
+
+                console.log(`📦 Total products: ${productsSet.size} (${productsFromSystemSettings} from system_settings + ${globalProducts.length} from sales_reports)`);
+                console.log(`📦 Total markets: ${globalMarkets.length}, teams: ${globalTeams.length}, shifts: ${globalShifts.length}`);
 
                 setOptions(newOptions);
 
                 // Initialize filters with all options selected by default
                 setFilters(prev => ({
                     ...prev,
-                    products: globalProducts,
-                    markets: globalMarkets,
-                    teams: globalTeams,
-                    shifts: globalShifts
+                    products: newOptions.products,
+                    markets: newOptions.markets,
+                    teams: newOptions.teams,
+                    shifts: newOptions.shifts
                 }));
 
             } catch (err) {
@@ -328,6 +1219,36 @@ export default function BaoCaoSale() {
         };
         fetchGlobalOptions();
     }, []);
+
+    // Load selected personnel names for current user
+    useEffect(() => {
+        const loadSelectedPersonnel = async () => {
+            try {
+                if (!userEmail || isAdmin) {
+                    // Admin không cần filter, hoặc không có email thì không filter
+                    setSelectedPersonnelNames([]); // Empty array = không filter
+                    return;
+                }
+
+                const userEmailLower = userEmail.toLowerCase().trim();
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+                const personnelNames = personnelMap[userEmailLower] || [];
+
+                const validNames = personnelNames.filter(name => {
+                    const nameStr = String(name).trim();
+                    return nameStr.length > 0 && !nameStr.includes('@');
+                });
+                
+                console.log('📝 [BaoCaoSale] Valid personnel names:', validNames);
+                setSelectedPersonnelNames(validNames.length > 0 ? validNames : []); // Empty array nếu không có
+            } catch (error) {
+                console.error('❌ [BaoCaoSale] Error loading selected personnel:', error);
+                setSelectedPersonnelNames([]); // Empty array nếu có lỗi
+            }
+        };
+
+        loadSelectedPersonnel();
+    }, [userEmail, isAdmin]);
 
     // 3. Fetch Data
     useEffect(() => {
@@ -353,7 +1274,7 @@ export default function BaoCaoSale() {
                                 'Doanh số đi': 15000000, 'Số đơn Hoàn huỷ': 2, 'Doanh số hoàn huỷ': 3000000,
                                 'Số đơn thành công': 8, 'Doanh số thành công': 12000000,
                                 'Số đơn thực tế': 10, 'Doanh thu chốt thực tế': 15000000,
-                                'Số đơn hoàn hủy thực tế': 2, 'Doanh số hoàn hủy thực tế': 3000000, 'Doanh số sau hoàn hủy thực tế': 12000000
+                                'Số đơn hoàn hủy thực tế': 2, 'Doanh số hoàn hủy thực tế': 3000000
                             },
                             {
                                 'Chức vụ': 'Sale Member', 'Tên': 'Sale Member 1', 'Email': 'member1@test.com', 'Team': 'Team Test 1', 'Chi nhánh': 'Hà Nội',
@@ -362,7 +1283,7 @@ export default function BaoCaoSale() {
                                 'Doanh số đi': 5000000, 'Số đơn Hoàn huỷ': 0, 'Doanh số hoàn huỷ': 0,
                                 'Số đơn thành công': 5, 'Doanh số thành công': 5000000,
                                 'Số đơn thực tế': 5, 'Doanh thu chốt thực tế': 5000000,
-                                'Số đơn hoàn hủy thực tế': 0, 'Doanh số hoàn hủy thực tế': 0, 'Doanh số sau hoàn hủy thực tế': 5000000
+                                'Số đơn hoàn hủy thực tế': 0, 'Doanh số hoàn hủy thực tế': 0
                             },
                             {
                                 'Chức vụ': 'Sale Member', 'Tên': 'Sale Member 2', 'Email': 'member2@test.com', 'Team': 'Team Test 2', 'Chi nhánh': 'Hồ Chí Minh',
@@ -371,7 +1292,7 @@ export default function BaoCaoSale() {
                                 'Doanh số đi': 12000000, 'Số đơn Hoàn huỷ': 1, 'Doanh số hoàn huỷ': 1500000,
                                 'Số đơn thành công': 7, 'Doanh số thành công': 10500000,
                                 'Số đơn thực tế': 8, 'Doanh thu chốt thực tế': 12000000,
-                                'Số đơn hoàn hủy thực tế': 1, 'Doanh số hoàn hủy thực tế': 1500000, 'Doanh số sau hoàn hủy thực tế': 10500000
+                                'Số đơn hoàn hủy thực tế': 1, 'Doanh số hoàn hủy thực tế': 1500000
                             }
                         ];
 
@@ -392,10 +1313,149 @@ export default function BaoCaoSale() {
 
             try {
                 // Call Supabase RPC
-                const { data, error } = await supabase.rpc('get_sales_analytics', {
-                    p_start_date: filters.startDate,
-                    p_end_date: filters.endDate
-                });
+                console.log(`📅 Fetching data from RPC: startDate=${filters.startDate}, endDate=${filters.endDate}`);
+                
+                // Đảm bảo startDate và endDate ở định dạng YYYY-MM-DD
+                const normalizedStartDate = filters.startDate ? filters.startDate.split('T')[0] : filters.startDate;
+                const normalizedEndDate = filters.endDate ? filters.endDate.split('T')[0] : filters.endDate;
+                
+                console.log(`📅 Normalized dates: startDate=${normalizedStartDate}, endDate=${normalizedEndDate}`);
+                
+                // Fetch tất cả dữ liệu từ RPC function (không có giới hạn)
+                // Supabase RPC function không có limit mặc định, nhưng để đảm bảo fetch đủ, 
+                // chúng ta sẽ fetch trực tiếp từ bảng nếu RPC có vấn đề
+                let data, error;
+                
+                // Thử fetch từ RPC function trước, nếu không được thì fallback sang direct query
+                try {
+                    const result = await supabase.rpc('get_sales_analytics', {
+                        p_start_date: normalizedStartDate,
+                        p_end_date: normalizedEndDate
+                    });
+                    data = result.data;
+                    error = result.error;
+                    
+                    // Kiểm tra xem RPC có trả về đủ dữ liệu không
+                    if (data && data.length > 0) {
+                        const dates = [...new Set(data.map(item => {
+                            const dateVal = item['Ngày'];
+                            if (dateVal instanceof Date) {
+                                return dateVal.toISOString().split('T')[0];
+                            }
+                            return String(dateVal).split('T')[0];
+                        }))].sort();
+                        
+                        const firstDate = new Date(dates[0]);
+                        const lastDate = new Date(dates[dates.length - 1]);
+                        const startDate = new Date(normalizedStartDate);
+                        const endDate = new Date(normalizedEndDate);
+                        
+                        // Nếu RPC không trả về đủ dữ liệu (thiếu ngày đầu hoặc cuối), dùng fallback
+                        if (firstDate > startDate || lastDate < endDate) {
+                            console.warn(`⚠️ RPC function không trả về đủ dữ liệu. Sử dụng fallback direct query.`);
+                            throw new Error('RPC returned incomplete data');
+                        }
+                    }
+                } catch (rpcError) {
+                    console.warn('⚠️ RPC function error, trying direct query:', rpcError);
+                    // Fallback: Fetch trực tiếp từ bảng nếu RPC có vấn đề
+                    // Supabase client có giới hạn mặc định 1000 records, cần fetch tất cả bằng cách pagination
+                    let allData = [];
+                    let page = 0;
+                    const pageSize = 1000;
+                    let hasMore = true;
+                    
+                    while (hasMore) {
+                        const from = page * pageSize;
+                        const to = from + pageSize - 1;
+                        
+                        const directQuery = await supabase
+                            .from('sales_reports')
+                            .select('*', { count: 'exact' })
+                            .gte('date', normalizedStartDate)
+                            .lte('date', normalizedEndDate)
+                            .order('date', { ascending: false })
+                            .range(from, to);
+                        
+                        if (directQuery.error) {
+                            error = directQuery.error;
+                            hasMore = false;
+                        } else {
+                            allData = allData.concat(directQuery.data || []);
+                            hasMore = (directQuery.data?.length || 0) === pageSize;
+                            page++;
+                            
+                            if (directQuery.count && allData.length >= directQuery.count) {
+                                hasMore = false;
+                            }
+                        }
+                    }
+                    
+                    console.log(`📊 Fallback: Fetched ${allData.length} records directly from sales_reports table (${page} pages)`);
+                    
+                    if (allData.length > 0) {
+                        // Transform dữ liệu từ sales_reports sang format giống RPC function
+                        data = allData.map(sr => ({
+                            "Tên": sr.name,
+                            "Email": sr.email,
+                            "Team": sr.team || 'Unknown',
+                            "Chi nhánh": sr.branch || 'Unknown',
+                            "Ngày": sr.date,
+                            "Ca": sr.shift || '',
+                            "Sản phẩm": sr.product || '',
+                            "Thị trường": sr.market || '',
+                            "Chức vụ": sr.position || 'Sale Member',
+                            "Số Mess": sr.mess_count || 0,
+                            "Phản hồi": sr.response_count || 0,
+                            "Đơn Mess": sr.order_count || 0,
+                            "Doanh số Mess": sr.revenue_mess || 0,
+                            "Số đơn thực tế": sr.order_count_actual || 0,
+                            "Doanh thu chốt thực tế": sr.revenue_actual || 0,
+                            "Số đơn Hoàn huỷ": sr.order_cancel_count || 0,
+                            "Doanh số hoàn huỷ": sr.revenue_cancel || 0,
+                            "Số đơn thành công": sr.order_success_count || 0,
+                            "Doanh số thành công": sr.revenue_success || 0,
+                            "Doanh số đi": sr.revenue_go || 0,
+                            "Doanh số đi thực tế": sr.revenue_go_actual || 0,
+                            "Số đơn hoàn hủy thực tế": sr.order_cancel_count_actual || 0,
+                            "Doanh số hoàn hủy thực tế": sr.revenue_cancel_actual || 0
+                        }));
+                    } else {
+                        data = null;
+                    }
+                }
+                
+                if (data && data.length > 0) {
+                    const dates = [...new Set(data.map(item => {
+                        const dateVal = item['Ngày'];
+                        if (dateVal instanceof Date) {
+                            return dateVal.toISOString().split('T')[0];
+                        }
+                        return String(dateVal).split('T')[0];
+                    }))].sort();
+                    console.log(`📊 Fetched ${data.length} records from RPC, date range: ${dates[0]} to ${dates[dates.length - 1]} (${dates.length} unique dates)`);
+                    console.log(`📅 All dates in fetched data:`, dates);
+                    
+                    // Kiểm tra xem có thiếu ngày nào không
+                    if (dates.length > 0) {
+                        const firstDate = new Date(dates[0]);
+                        const lastDate = new Date(dates[dates.length - 1]);
+                        const startDate = new Date(normalizedStartDate);
+                        const endDate = new Date(normalizedEndDate);
+                        
+                        if (firstDate > startDate) {
+                            console.warn(`⚠️ First date in data (${dates[0]}) is after start date (${normalizedStartDate})`);
+                            console.warn(`   → Database may not have data from ${normalizedStartDate} to ${dates[0]}`);
+                        }
+                        if (lastDate < endDate) {
+                            console.warn(`⚠️ Last date in data (${dates[dates.length - 1]}) is before end date (${normalizedEndDate})`);
+                            console.warn(`   → Database may not have data from ${dates[dates.length - 1]} to ${normalizedEndDate}`);
+                        }
+                    }
+                } else {
+                    console.warn(`⚠️ No data returned from RPC for date range ${normalizedStartDate} to ${normalizedEndDate}`);
+                    console.warn(`   → Check if there is any data in sales_reports table for this date range`);
+                }
 
                 if (error) throw error;
 
@@ -427,8 +1487,8 @@ export default function BaoCaoSale() {
                     'Doanh số đi': item["Doanh số đi"],
                     'Doanh số đi thực tế': item["Doanh số đi thực tế"],
                     'Số đơn hoàn hủy thực tế': item["Số đơn hoàn hủy thực tế"],
-                    'Doanh số hoàn hủy thực tế': item["Doanh số hoàn hủy thực tế"],
-                    'Doanh số sau hoàn hủy thực tế': item["Doanh số sau hoàn hủy thực tế"]
+                    'Doanh số hoàn hủy thực tế': item["Doanh số hoàn hủy thực tế"]
+                    // Note: "Doanh số sau hoàn hủy thực tế" sẽ được tính toán từ orders table
                 }));
 
                 // Fetch employee list for permissions - reusing same fetch logic or simple supabase fetch
@@ -446,6 +1506,19 @@ export default function BaoCaoSale() {
                     'Chi nhánh': u['Chi nhánh'] || u['chi nhánh'],
                     'Vị trí': u['Chức vụ']
                 }));
+
+                // Fetch số đơn hoàn hủy từ bảng orders
+                // Truyền filters.products và filters.markets để filter theo bộ lọc
+                await enrichWithCancelOrdersFromOrders(transformedData, filters.startDate, filters.endDate, filters.products, filters.markets);
+                
+                // Fetch số đơn tổng (tất cả các đơn) từ bảng orders
+                await enrichWithTotalOrdersFromOrders(transformedData, filters.startDate, filters.endDate);
+                
+                // Fetch tổng doanh số (total_amount_vnd) từ bảng orders
+                await enrichWithTotalRevenueFromOrders(transformedData, filters.startDate, filters.endDate);
+                
+                // Fetch doanh số sau hủy (tổng VNĐ của các đơn không phải Hủy)
+                await enrichWithRevenueAfterCancelFromOrders(transformedData, filters.startDate, filters.endDate);
 
                 processFetchedData(transformedData, employeeData);
 
@@ -563,8 +1636,13 @@ export default function BaoCaoSale() {
             setPermissions(newPermissions);
 
             // --- Process Data ---
+            const totalRecordsBeforeFilter = (apiData || []).length;
             const processed = (apiData || [])
-                .filter(r => r['Tên'] && String(r['Tên']).trim() !== '' && r['Team'] && String(r['Team']).trim() !== '')
+                .filter(r => {
+                    const hasName = r['Tên'] && String(r['Tên']).trim() !== '';
+                    const hasTeam = r['Team'] && String(r['Team']).trim() !== '';
+                    return hasName && hasTeam;
+                })
                 .map(r => ({
                     chucVu: (r['Chức vụ'] || '').trim(),
                     ten: (r['Tên'] || '').trim(),
@@ -581,7 +1659,7 @@ export default function BaoCaoSale() {
                     phanHoi: Number(r['Phản hồi']) || 0,
                     doanhSoDi: Number(r['Doanh số đi']) || 0,
                     soDonHuy: Number(r['Số đơn Hoàn huỷ']) || 0,
-                    doanhSoHuy: Number(r['Doanh số hoàn huỷ']) || 0,
+                    doanhSoHuy: Number(r['Doanh số hoàn huỷ']) || 0, // Doanh số hủy từ form nhập (revenue_cancel)
                     soDonThanhCong: Number(r['Số đơn thành công']) || 0,
                     doanhSoThanhCong: Number(r['Doanh số thành công']) || 0,
                     soDonThucTe: Number(r['Số đơn thực tế']) || 0,
@@ -589,11 +1667,27 @@ export default function BaoCaoSale() {
                     doanhSoDiThucTe: Number(r['Doanh số đi thực tế']) || 0,
                     soDonHoanHuyThucTe: Number(r['Số đơn hoàn hủy thực tế']) || 0,
                     doanhSoHoanHuyThucTe: Number(r['Doanh số hoàn hủy thực tế']) || 0,
-                    doanhSoSauHoanHuyThucTe: Number(r['Doanh số sau hoàn hủy thực tế']) || 0,
+                    soDonTT: Number(r['Số đơn TT']) || 0, // Số đơn tổng từ bảng orders
+                    doanhSoTT: Number(r['Doanh số']) || 0, // Tổng doanh số từ bảng orders (total_amount_vnd)
+                    doanhSoSauHuy: Number(r['Doanh số sau hủy']) || 0, // Doanh số sau hủy (tổng VNĐ của các đơn không phải Hủy)
+                    // Tính "Doanh số sau hoàn hủy thực tế" = doanhThuChotThucTe - doanhSoHoanHuyThucTe (tính ở frontend)
                     originalRecord: r // Keep ref if needed
                 }));
+            
+            const totalRecordsAfterFilter = processed.length;
+            const filteredOutCount = totalRecordsBeforeFilter - totalRecordsAfterFilter;
+            if (filteredOutCount > 0) {
+                console.warn(`⚠️ Đã loại bỏ ${filteredOutCount} records không có Tên hoặc Team (tổng ${totalRecordsBeforeFilter} records)`);
+            }
+            
+            // Log tổng số Mess trước khi filter
+            const totalMessBeforeFilter = (apiData || []).reduce((sum, r) => sum + (Number(r['Số Mess']) || 0), 0);
+            const totalMessAfterFilter = processed.reduce((sum, r) => sum + r.soMessCmt, 0);
+            console.log(`📊 Tổng số Mess: Trước filter = ${totalMessBeforeFilter}, Sau filter = ${totalMessAfterFilter}, Bị loại = ${totalMessBeforeFilter - totalMessAfterFilter}`);
 
             let visibleData = processed;
+            
+            // Filter theo permissions hiện tại (nếu có restricted view)
             if (isRestrictedView || idFromUrl) {
                 visibleData = processed.filter(r => {
                     if (newPermissions.allowedBranch && r.chiNhanh.toLowerCase() !== newPermissions.allowedBranch.toLowerCase()) return false;
@@ -602,29 +1696,59 @@ export default function BaoCaoSale() {
                     return true;
                 });
             }
+            
+            // Filter theo selected_personnel (nếu không phải Admin và có selectedPersonnelNames)
+            if (!isAdmin && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+                const beforeFilterCount = visibleData.length;
+                visibleData = visibleData.filter(r => {
+                    // Kiểm tra xem tên có trong selectedPersonnelNames không (case-insensitive, partial match)
+                    const rName = String(r.ten || '').trim().toLowerCase();
+                    return selectedPersonnelNames.some(name => {
+                        const nameStr = String(name).trim().toLowerCase();
+                        return rName === nameStr || rName.includes(nameStr) || nameStr.includes(rName);
+                    });
+                });
+                console.log(`📋 [BaoCaoSale] Filtered by selected_personnel: ${beforeFilterCount} → ${visibleData.length} records`);
+            }
 
             setRawData(visibleData);
             setLoading(false);
         };
 
+        // Chỉ fetch khi đã load xong selectedPersonnelNames (null = chưa load)
+        if (!isAdmin && selectedPersonnelNames === null) {
+            return; // Đợi selectedPersonnelNames được load
+        }
+        
         fetchData();
-    }, [filters.startDate, filters.endDate]);
+    }, [filters.startDate, filters.endDate, selectedPersonnelNames, isAdmin]);
 
     // --- Filtering Logic ---
     const filteredData = useMemo(() => {
         if (loading) return [];
-        return rawData.filter(r => {
-            // Date Filter
-            if (!isDateInRange(r.ngay, filters.startDate, filters.endDate)) return false;
+        const filtered = rawData.filter(r => {
+            // Date Filter - Đảm bảo chỉ lọc theo ngày, không filter lại
+            if (!isDateInRange(r.ngay, filters.startDate, filters.endDate)) {
+                return false;
+            }
 
             // Checkboxes
             if (!filters.products.includes(r.sanPham)) return false;
             if (!filters.markets.includes(r.thiTruong)) return false;
-            if (!filters.shifts.includes(String(r.ca))) return false;
+            // Bỏ filter theo Ca vì tất cả đều tự động là "Hết ca"
+            // if (!filters.shifts.includes(String(r.ca))) return false;
             if (!filters.teams.includes(String(r.team))) return false;
 
             return true;
         });
+        
+        // Log để debug
+        if (filtered.length > 0) {
+            const dates = [...new Set(filtered.map(r => r.ngay))].sort();
+            console.log(`📊 Filtered data: ${filtered.length} records, date range: ${dates[0]} to ${dates[dates.length - 1]} (${dates.length} unique dates)`);
+        }
+        
+        return filtered;
     }, [rawData, filters, loading]);
 
     // --- Handlers ---
@@ -651,8 +1775,16 @@ export default function BaoCaoSale() {
             doanhSoDi: 0, soDonHuy: 0, doanhSoHuy: 0,
             soDonThanhCong: 0, doanhSoThanhCong: 0,
             soDonThucTe: 0, doanhThuChotThucTe: 0, doanhSoDiThucTe: 0,
-            soDonHoanHuyThucTe: 0, doanhSoHoanHuyThucTe: 0, doanhSoSauHoanHuyThucTe: 0
+            soDonHoanHuyThucTe: 0, doanhSoHoanHuyThucTe: 0, doanhSoSauHoanHuyThucTe: 0,
+            doanhSoHuy: 0, // Doanh số hủy từ form nhập (revenue_cancel)
+            soDonTT: 0, // Số đơn tổng từ bảng orders
+            doanhSoTT: 0, // Tổng doanh số từ bảng orders (total_amount_vnd)
+            doanhSoSauHuy: 0 // Doanh số sau hủy (tổng VNĐ của các đơn không phải Hủy)
         };
+
+        // Log tổng số Mess trước khi tổng hợp
+        const totalMessBeforeSummary = data.reduce((sum, r) => sum + (r.soMessCmt || 0), 0);
+        console.log(`📊 Tổng số Mess trước khi tổng hợp theo tên: ${totalMessBeforeSummary} (từ ${data.length} records)`);
 
         data.forEach(r => {
             if (!summary[r.ten]) {
@@ -669,6 +1801,10 @@ export default function BaoCaoSale() {
             s.doanhThuChotThucTe += r.doanhThuChotThucTe;
             s.soDonHoanHuyThucTe += r.soDonHoanHuyThucTe;
             s.doanhSoHoanHuyThucTe += r.doanhSoHoanHuyThucTe;
+            s.doanhSoHuy += r.doanhSoHuy; // Doanh số hủy từ form nhập
+            s.soDonTT += r.soDonTT; // Tổng số đơn TT
+            s.doanhSoTT += r.doanhSoTT; // Tổng doanh số TT
+            s.doanhSoSauHuy += r.doanhSoSauHuy; // Doanh số sau hủy
             s.doanhSoDi += r.doanhSoDi;
             s.soDonHuy += r.soDonHuy;
             s.doanhSoHuy += r.doanhSoHuy;
@@ -682,6 +1818,12 @@ export default function BaoCaoSale() {
             Object.keys(initial).forEach(k => acc[k] += item[k]);
             return acc;
         }, { ...initial });
+
+        // Log tổng số Mess sau khi tổng hợp
+        console.log(`📊 Tổng số Mess sau khi tổng hợp theo tên: ${total.mess} (từ ${flatList.length} người)`);
+        if (totalMessBeforeSummary !== total.mess) {
+            console.warn(`⚠️ CẢNH BÁO: Tổng số Mess không khớp! Trước = ${totalMessBeforeSummary}, Sau = ${total.mess}, Chênh lệch = ${totalMessBeforeSummary - total.mess}`);
+        }
 
         return { flatList, total };
     };
@@ -781,44 +1923,7 @@ export default function BaoCaoSale() {
                         </>
                     )}
 
-                    {/* Shift Filter */}
-                    <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        Ca
-                        <button
-                            onClick={() => setShowShiftFilter(!showShiftFilter)}
-                            style={{
-                                fontSize: '0.75em',
-                                padding: '2px 8px',
-                                background: showShiftFilter ? '#4A6E23' : '#f0f0f0',
-                                color: showShiftFilter ? '#fff' : '#666',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer',
-                                fontWeight: '500',
-                                transition: 'all 0.2s'
-                            }}
-                        >
-                            {showShiftFilter ? '▼' : '▶'}
-                        </button>
-                    </h3>
-                    {showShiftFilter && (
-                        <>
-                            <label>
-                                <input type="checkbox"
-                                    checked={filters.shifts.length === options.shifts.length}
-                                    onChange={(e) => handleSelectAll('shifts', e.target.checked)}
-                                /> Tất cả
-                            </label>
-                            <div className="indent">
-                                {options.shifts.map(opt => (
-                                    <label key={opt}>
-                                        <input type="checkbox" checked={filters.shifts.includes(opt)} onChange={(e) => handleFilterChange('shifts', opt, e.target.checked)} />
-                                        {opt}
-                                    </label>
-                                ))}
-                            </div>
-                        </>
-                    )}
+                    {/* Shift Filter - Đã bỏ vì tất cả đều tự động là "Hết ca" */}
 
                     {/* Team Filter */}
                     <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -912,49 +2017,34 @@ export default function BaoCaoSale() {
                             {/* <button className="btn-excel">
                                 <FileSpreadsheet size={16} /> Xuất Excel
                             </button> */}
-                            <button
-                                onClick={handleDeleteAll}
-                                disabled={deleting}
-                                className="btn-delete-all"
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '5px',
-                                    background: '#dc2626', color: 'white', border: 'none',
-                                    padding: '8px 12px', borderRadius: '4px', cursor: 'pointer',
-                                    opacity: deleting ? 0.7 : 1,
-                                    fontWeight: '500',
-                                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                }}
-                            >
-                                <Trash2 size={16} />
-                                {deleting ? "Đang xóa..." : "Xóa hết dữ liệu"}
-                            </button>
-
-                            <button
-                                onClick={handleSyncF3Report}
-                                disabled={syncing}
-                                className="btn-sync"
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '5px',
-                                    background: '#2563eb', color: 'white', border: 'none',
-                                    padding: '8px 12px', borderRadius: '4px', cursor: 'pointer',
-                                    opacity: syncing ? 0.7 : 1,
-                                    fontWeight: '500',
-                                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                }}
-                            >
-                                <RefreshCw size={16} style={syncing ? { animation: 'spin 1s linear infinite' } : {}} />
-                                {syncing ? "Đang đồng bộ..." : "Đồng bộ Sale"}
-                            </button>
-                            <style>{`
-                                @keyframes spin { 100% { transform: rotate(360deg); } }
-                             `}</style>
+                            {/* Chỉ Admin mới thấy nút xóa */}
+                            {isAdmin && (
+                                <button
+                                    onClick={handleDeleteAll}
+                                    disabled={deleting}
+                                    className="btn-delete-all"
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '5px',
+                                        background: '#dc2626', color: 'white', border: 'none',
+                                        padding: '8px 12px', borderRadius: '4px', cursor: 'pointer',
+                                        opacity: deleting ? 0.7 : 1,
+                                        fontWeight: '500',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                    }}
+                                >
+                                    <Trash2 size={16} />
+                                    {deleting ? "Đang xóa..." : "Xóa hết dữ liệu"}
+                                </button>
+                            )}
                         </div>
                     </div>
 
                     <div className="tabs-container">
-                        <button className={`tab-button ${activeTab === 'sau-huy' ? 'active' : ''}`} onClick={() => setActiveTab('sau-huy')}>Sale đã trừ hủy</button>
-                        <button className={`tab-button ${activeTab === 'kpi-sale' ? 'active' : ''}`} onClick={() => setActiveTab('kpi-sale')}>KPIs Sale</button>
-                        <button className={`tab-button ${activeTab === 'van-don-sale' ? 'active' : ''}`} onClick={() => setActiveTab('van-don-sale')}>Vận đơn Sale</button>
+                        <button className={`tab-button ${activeTab === 'sau-huy' ? 'active' : ''}`} onClick={() => setActiveTab('sau-huy')}>Dữ liệu báo cáo</button>
+                        <button className={`tab-button ${activeTab === 'du-lieu-tru-huy' ? 'active' : ''}`} onClick={() => setActiveTab('du-lieu-tru-huy')}>Dữ liệu trừ hủy</button>
+                        {/* Ẩn 2 tab này */}
+                        {/* <button className={`tab-button ${activeTab === 'kpi-sale' ? 'active' : ''}`} onClick={() => setActiveTab('kpi-sale')}>KPIs Sale</button> */}
+                        {/* <button className={`tab-button ${activeTab === 'van-don-sale' ? 'active' : ''}`} onClick={() => setActiveTab('van-don-sale')}>Vận đơn Sale</button> */}
                         {currentUserInfo && (
                             <button className={`tab-button ${activeTab === 'thu-cong' ? 'active' : ''}`} onClick={() => setActiveTab('thu-cong')}>Báo cáo thủ công</button>
                         )}
@@ -967,32 +2057,32 @@ export default function BaoCaoSale() {
                                 <thead>
                                     <tr>
                                         <th>STT</th><th>Chi nhánh</th><th>Team</th><th>Sale</th>
-                                        <th>Số Mess</th><th>Phản hồi</th><th>Số đơn sau huỷ</th>
-                                        <th>DS Sau Hủy TT</th><th>Tỉ lệ chốt</th>
+                                        <th>Số Mess</th><th>Phản hồi</th><th>Số đơn hủy</th><th>Số đơn TT</th><th>Doanh số</th><th>Số đơn sau huỷ</th>
+                                        <th>Tỉ lệ chốt</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {/* Total Row */}
                                     {(() => {
-                                        const totalSoDon = summaryTotal.soDonThucTe - summaryTotal.soDonHoanHuyThucTe;
-                                        const totalDS = summaryTotal.doanhThuChotThucTe - summaryTotal.doanhSoHoanHuyThucTe;
-                                        const totalRate = summaryTotal.mess ? totalSoDon / summaryTotal.mess : 0;
+                                        const totalSoDonSauHuy = summaryTotal.soDonTT - summaryTotal.soDonHoanHuyThucTe;
+                                        const totalRate = summaryTotal.mess ? totalSoDonSauHuy / summaryTotal.mess : 0;
                                         return (
                                             <tr className="total-row">
                                                 <td className="total-label" colSpan={4}>TỔNG CỘNG</td>
                                                 <td className="total-value">{formatNumber(summaryTotal.mess)}</td>
                                                 <td className="total-value">{formatNumber(summaryTotal.phanHoi)}</td>
-                                                <td className="total-value">{formatNumber(totalSoDon)}</td>
-                                                <td className="total-value">{formatCurrency(totalDS)}</td>
+                                                <td className="total-value text-red-600">{formatNumber(summaryTotal.soDonHoanHuyThucTe)}</td>
+                                                <td className="total-value">{formatNumber(summaryTotal.soDonTT)}</td>
+                                                <td className="total-value">{formatCurrency(summaryTotal.doanhSoTT)}</td>
+                                                <td className="total-value">{formatNumber(totalSoDonSauHuy)}</td>
                                                 <td className="total-value">{formatPercent(totalRate)}</td>
                                             </tr>
                                         )
                                     })()}
                                     {/* Rows */}
                                     {summaryList.map((item, index) => {
-                                        const soDon = item.soDonThucTe - item.soDonHoanHuyThucTe;
-                                        const ds = item.doanhThuChotThucTe - item.doanhSoHoanHuyThucTe;
-                                        const rate = item.mess ? soDon / item.mess : 0;
+                                        const soDonSauHuy = item.soDonTT - item.soDonHoanHuyThucTe;
+                                        const rate = item.mess ? soDonSauHuy / item.mess : 0;
                                         return (
                                             <tr key={index} style={{ '--row-index': index }}>
                                                 <td className="text-center">{index + 1}</td>
@@ -1001,8 +2091,10 @@ export default function BaoCaoSale() {
                                                 <td className="text-left">{item.name}</td>
                                                 <td>{formatNumber(item.mess)}</td>
                                                 <td>{formatNumber(item.phanHoi)}</td>
-                                                <td>{formatNumber(soDon)}</td>
-                                                <td>{formatCurrency(ds)}</td>
+                                                <td className="text-red-600">{formatNumber(item.soDonHoanHuyThucTe)}</td>
+                                                <td>{formatNumber(item.soDonTT)}</td>
+                                                <td>{formatCurrency(item.doanhSoTT)}</td>
+                                                <td>{formatNumber(soDonSauHuy)}</td>
                                                 <td className={getRateClass(rate)}>{formatPercent(rate)}</td>
                                             </tr>
                                         )
@@ -1015,9 +2107,8 @@ export default function BaoCaoSale() {
                         <div className="daily-breakdown">
                             {dailyBreakdown.map((dayItem) => {
                                 const { total, flatList } = dayItem.data;
-                                const totalSoDon = total.soDonThucTe - total.soDonHoanHuyThucTe;
-                                const totalDS = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
-                                const totalRate = total.mess ? totalSoDon / total.mess : 0;
+                                const totalSoDonSauHuy = total.soDonTT - total.soDonHoanHuyThucTe;
+                                const totalRate = total.mess ? totalSoDonSauHuy / total.mess : 0;
 
                                 return (
                                     <div key={dayItem.date}>
@@ -1027,8 +2118,8 @@ export default function BaoCaoSale() {
                                                 <thead>
                                                     <tr>
                                                         <th>STT</th><th>Chi nhánh</th><th>Team</th><th>Sale</th>
-                                                        <th>Số Mess</th><th>Phản hồi</th><th>Số đơn sau huỷ</th>
-                                                        <th>DS Sau Hủy TT</th><th>Tỉ lệ chốt</th>
+                                                        <th>Số Mess</th><th>Phản hồi</th><th>Số đơn hủy</th><th>Số đơn TT</th><th>Doanh số</th><th>Số đơn sau huỷ</th>
+                                                        <th>Tỉ lệ chốt</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -1036,14 +2127,15 @@ export default function BaoCaoSale() {
                                                         <td className="total-label" colSpan={4}>TỔNG NGÀY {dayItem.date}</td>
                                                         <td className="total-value">{formatNumber(total.mess)}</td>
                                                         <td className="total-value">{formatNumber(total.phanHoi)}</td>
-                                                        <td className="total-value">{formatNumber(totalSoDon)}</td>
-                                                        <td className="total-value">{formatCurrency(totalDS)}</td>
+                                                        <td className="total-value text-red-600">{formatNumber(total.soDonHoanHuyThucTe)}</td>
+                                                        <td className="total-value">{formatNumber(total.soDonTT)}</td>
+                                                        <td className="total-value">{formatCurrency(total.doanhSoTT)}</td>
+                                                        <td className="total-value">{formatNumber(totalSoDonSauHuy)}</td>
                                                         <td className="total-value">{formatPercent(totalRate)}</td>
                                                     </tr>
                                                     {flatList.map((item, index) => {
-                                                        const soDon = item.soDonThucTe - item.soDonHoanHuyThucTe;
-                                                        const ds = item.doanhThuChotThucTe - item.doanhSoHoanHuyThucTe;
-                                                        const rate = item.mess ? soDon / item.mess : 0;
+                                                        const soDonSauHuy = item.soDonTT - item.soDonHoanHuyThucTe;
+                                                        const rate = item.mess ? soDonSauHuy / item.mess : 0;
                                                         return (
                                                             <tr key={index}>
                                                                 <td className="text-center">{index + 1}</td>
@@ -1052,8 +2144,10 @@ export default function BaoCaoSale() {
                                                                 <td className="text-left">{item.name}</td>
                                                                 <td>{formatNumber(item.mess)}</td>
                                                                 <td>{formatNumber(item.phanHoi)}</td>
-                                                                <td>{formatNumber(soDon)}</td>
-                                                                <td>{formatCurrency(ds)}</td>
+                                                                <td className="text-red-600">{formatNumber(item.soDonHoanHuyThucTe)}</td>
+                                                                <td>{formatNumber(item.soDonTT)}</td>
+                                                                <td>{formatCurrency(item.doanhSoTT)}</td>
+                                                                <td>{formatNumber(soDonSauHuy)}</td>
                                                                 <td className={getRateClass(rate)}>{formatPercent(rate)}</td>
                                                             </tr>
                                                         )
@@ -1067,21 +2161,86 @@ export default function BaoCaoSale() {
                         </div>
                     </div>
 
+                    {/* Tab 2: Dữ liệu trừ hủy */}
+                    <div className={`tab-content ${activeTab === 'du-lieu-tru-huy' ? 'active' : ''}`}>
+                        <div className="table-responsive-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>STT</th>
+                                        <th>Chi nhánh</th>
+                                        <th>Team</th>
+                                        <th>Sale</th>
+                                        <th>Số đơn hủy</th>
+                                        <th>Số đơn TT</th>
+                                        <th>Số đơn sau hủy</th>
+                                        <th>Doanh số</th>
+                                        <th>Doanh số sau hủy</th>
+                                        <th>Tỉ lệ chốt</th>
+                                        <th>Tỉ lệ hủy</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {/* Total Row */}
+                                    {(() => {
+                                        const totalSoDonSauHuy = summaryTotal.soDonTT - summaryTotal.soDonHoanHuyThucTe;
+                                        const totalTiLeChot = summaryTotal.mess ? summaryTotal.soDonTT / summaryTotal.mess : 0;
+                                        const totalTiLeHuy = summaryTotal.soDonTT ? summaryTotal.soDonHoanHuyThucTe / summaryTotal.soDonTT : 0;
+                                        return (
+                                            <tr className="total-row">
+                                                <td className="total-label" colSpan={4}>TỔNG CỘNG</td>
+                                                <td className="total-value text-red-600">{formatNumber(summaryTotal.soDonHoanHuyThucTe)}</td>
+                                                <td className="total-value">{formatNumber(summaryTotal.soDonTT)}</td>
+                                                <td className="total-value">{formatNumber(totalSoDonSauHuy)}</td>
+                                                <td className="total-value">{formatCurrency(summaryTotal.doanhSoTT)}</td>
+                                                <td className="total-value">{formatCurrency(summaryTotal.doanhSoSauHuy)}</td>
+                                                <td className="total-value">{formatPercent(totalTiLeChot)}</td>
+                                                <td className="total-value">{formatPercent(totalTiLeHuy)}</td>
+                                            </tr>
+                                        )
+                                    })()}
+                                    {/* Rows */}
+                                    {summaryList.map((item, index) => {
+                                        const soDonSauHuy = item.soDonTT - item.soDonHoanHuyThucTe;
+                                        const tiLeChot = item.mess ? item.soDonTT / item.mess : 0;
+                                        const tiLeHuy = item.soDonTT ? item.soDonHoanHuyThucTe / item.soDonTT : 0;
+                                        return (
+                                            <tr key={index} style={{ '--row-index': index }}>
+                                                <td className="text-center">{index + 1}</td>
+                                                <td className="text-left">{item.chiNhanh}</td>
+                                                <td className="text-left">{item.team}</td>
+                                                <td className="text-left">{item.name}</td>
+                                                <td className="text-red-600">{formatNumber(item.soDonHoanHuyThucTe)}</td>
+                                                <td>{formatNumber(item.soDonTT)}</td>
+                                                <td>{formatNumber(soDonSauHuy)}</td>
+                                                <td>{formatCurrency(item.doanhSoTT)}</td>
+                                                <td>{formatCurrency(item.doanhSoSauHuy)}</td>
+                                                <td className={getRateClass(tiLeChot)}>{formatPercent(tiLeChot)}</td>
+                                                <td className={getRateClass(tiLeHuy)}>{formatPercent(tiLeHuy)}</td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Ẩn 2 tab này */}
                     {/* Tab 3: KPI Sale */}
-                    <div className={`tab-content ${activeTab === 'kpi-sale' ? 'active' : ''}`}>
+                    {/* <div className={`tab-content ${activeTab === 'kpi-sale' ? 'active' : ''}`}>
                         <iframe
                             src={`https://nguyenbatyads37.github.io/static-html-show-data/KPisale.html${window.location.search}`}
                             title="KPIs Sale"
                         />
-                    </div>
+                    </div> */}
 
                     {/* Tab 4: Van Don Sale */}
-                    <div className={`tab-content ${activeTab === 'van-don-sale' ? 'active' : ''}`}>
+                    {/* <div className={`tab-content ${activeTab === 'van-don-sale' ? 'active' : ''}`}>
                         <iframe
                             src={`https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html${window.location.search}`}
                             title="Vận đơn Sale"
                         />
-                    </div>
+                    </div> */}
 
                     {/* Tab 5: Thu Cong */}
                     {

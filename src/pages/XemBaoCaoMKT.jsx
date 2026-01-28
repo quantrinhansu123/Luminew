@@ -43,11 +43,27 @@ export default function XemBaoCaoMKT() {
   // Column Visibility State
   const [visibleColumns, setVisibleColumns] = useState(() => {
     const saved = localStorage.getItem('mktReport_visibleColumns');
-    return saved ? JSON.parse(saved) : {
-      stt: true, team: true, marketing: true, cpqc: true, mess: true, orders: true,
-      dsChot: true, tiLeChot: true, giaMess: true, cps: true, cp_ds: true, giaTBDon: true,
-      ordersTT: true, soDonHuy: true, dsChotTT: true, dsHuy: true, tiLeChotTT: true
+    const defaultColumns = {
+      stt: true, team: true, marketing: true, mess: true, cpqc: true, orders: true,
+      soDonTT: true, dsChot: true, dsChotTT: true, tiLeChot: true, tiLeChotTT: true,
+      giaMess: true, cps: true, cp_ds: true, giaTBDon: true,
+      soDonHuy: false, dsHuy: false // Ẩn các cột không có trong hình
     };
+    
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Đảm bảo soDonTT luôn là true
+        parsed.soDonTT = true;
+        console.log('📋 Loaded visibleColumns from localStorage:', parsed);
+        return parsed;
+      } catch (e) {
+        console.warn('⚠️ Error parsing visibleColumns from localStorage, using defaults');
+        return defaultColumns;
+      }
+    }
+    console.log('📋 Using default visibleColumns:', defaultColumns);
+    return defaultColumns;
   });
 
   useEffect(() => {
@@ -59,12 +75,32 @@ export default function XemBaoCaoMKT() {
   const [products, setProducts] = useState([]);
   const [selectedMarket, setSelectedMarket] = useState('ALL');
   const [markets, setMarkets] = useState([]);
+  
+  // Filters for Detailed Report Tab
+  const [quickSelect, setQuickSelect] = useState('');
+  const [selectedProducts, setSelectedProducts] = useState([]); // Array for multiple selection
+  const [selectedShifts, setSelectedShifts] = useState([]); // Array for Ca filter
+  const [selectedMarkets, setSelectedMarkets] = useState([]); // Array for Thị trường filter
+  const [shifts, setShifts] = useState([]); // Unique shifts from data
 
   useEffect(() => {
     if (activeTab === 'DetailedReport' || activeTab === 'KpiReport' || activeTab === 'MarketReport') {
       fetchData();
     }
   }, [startDate, endDate, activeTab]);
+
+  // Auto-select "Tất cả" when data is loaded and filters are empty
+  useEffect(() => {
+    if (activeTab === 'DetailedReport' && products.length > 0 && selectedProducts.length === 0) {
+      setSelectedProducts([...products]);
+    }
+    if (activeTab === 'DetailedReport' && shifts.length > 0 && selectedShifts.length === 0) {
+      setSelectedShifts([...shifts]);
+    }
+    if (activeTab === 'DetailedReport' && markets.length > 0 && selectedMarkets.length === 0) {
+      setSelectedMarkets([...markets]);
+    }
+  }, [products, shifts, markets, activeTab]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -141,15 +177,23 @@ export default function XemBaoCaoMKT() {
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       
-      const response = await fetch(`/api/fetch-detail-reports?${params.toString()}`, {
+      const apiUrl = `/api/fetch-detail-reports?${params.toString()}`;
+      console.log('📡 Fetching from:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
+      }).catch(err => {
+        console.error('❌ Network error when fetching detail reports:', err);
+        throw new Error(`Lỗi kết nối: ${err.message}. Vui lòng kiểm tra backend server có đang chạy trên port 3001 không.`);
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error('❌ HTTP error:', response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
       }
 
       const result = await response.json();
@@ -188,17 +232,26 @@ export default function XemBaoCaoMKT() {
       }
       
       console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam})`);
+      
+      // Enrich với số đơn TT từ bảng orders
+      await enrichWithTotalOrdersFromOrders(dateFilteredReports, startDate, endDate);
+      
       setData(dateFilteredReports);
 
-      // Extract unique teams
-      const uniqueTeams = [...new Set(reports.map(r => r.Team).filter(Boolean))].sort();
+      // Extract unique teams, products, markets from detail_reports
+      // Tất cả dữ liệu đều lấy từ bảng detail_reports
+      const uniqueTeams = [...new Set(dateFilteredReports.map(r => r['Team']).filter(Boolean))].sort();
       setTeams(uniqueTeams);
 
-      const uniqueProducts = [...new Set(reports.map(r => r['Sản_phẩm']).filter(Boolean))].sort();
+      const uniqueProducts = [...new Set(dateFilteredReports.map(r => r['Sản_phẩm']).filter(Boolean))].sort();
       setProducts(uniqueProducts);
 
-      const uniqueMarkets = [...new Set(reports.map(r => r['Thị_trường']).filter(Boolean))].sort();
+      const uniqueMarkets = [...new Set(dateFilteredReports.map(r => r['Thị_trường']).filter(Boolean))].sort();
       setMarkets(uniqueMarkets);
+      
+      // Extract unique shifts (Ca) from detail_reports
+      const uniqueShifts = [...new Set(dateFilteredReports.map(r => r['ca']).filter(Boolean))].sort();
+      setShifts(uniqueShifts);
 
     } catch (err) {
       console.error('❌ Error fetching data:', err);
@@ -217,17 +270,32 @@ export default function XemBaoCaoMKT() {
 
     data.forEach(row => {
       // Filter by Team if selected
-      if (selectedTeam !== 'ALL' && row.Team !== selectedTeam) return;
+      // Tất cả dữ liệu lấy từ bảng detail_reports:
+      // - Team: từ cột "Team" trong detail_reports
+      // - Tên MKT (Marketing): từ cột "Tên" trong detail_reports
+      // - CPQC: từ cột "CPQC" trong detail_reports
+      // - Số mess: từ cột "Số_Mess_Cmt" trong detail_reports
+      if (selectedTeam !== 'ALL' && row['Team'] !== selectedTeam) return;
+      
+      // Filter by Product (if any selected, must match; if none selected, show all)
+      if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return;
+      
+      // Filter by Shift (Ca) (if any selected, must match; if none selected, show all)
+      if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return;
+      
+      // Filter by Market (Thị trường) (if any selected, must match; if none selected, show all)
+      if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return;
 
-      const key = `${row.Team}_${row['Tên']}`;
+      const key = `${row['Team']}_${row['Tên']}`;
       if (!grouped[key]) {
         grouped[key] = {
-          team: row.Team,
-          name: row['Tên'],
+          team: row['Team'], // detail_reports."Team"
+          name: row['Tên'], // detail_reports."Tên" (Tên MKT/Marketing)
           mess: 0,
           cpqc: 0,
           orders: 0,
           ordersTT: 0, // Thực tế (mapped if available)
+          soDonTT: 0, // Số đơn TT từ bảng orders
           dsChot: 0,
           dsChotTT: 0, // Thực tế trước ship / doanh thu thuần
           soDonHuy: 0,
@@ -242,10 +310,18 @@ export default function XemBaoCaoMKT() {
         };
       }
 
-      grouped[key].mess += Number(row['Số_Mess_Cmt'] || 0);
-      grouped[key].cpqc += Number(row['CPQC'] || 0);
-      grouped[key].orders += Number(row['Số đơn'] || 0);
-      grouped[key].ordersTT += Number(row['Số đơn thực tế'] || 0);
+      // Lấy từ detail_reports:
+      grouped[key].mess += Number(row['Số_Mess_Cmt'] || 0); // detail_reports."Số_Mess_Cmt"
+      grouped[key].cpqc += Number(row['CPQC'] || 0); // detail_reports."CPQC"
+      grouped[key].orders += Number(row['Số đơn'] || 0); // detail_reports."Số đơn"
+      grouped[key].ordersTT += Number(row['Số đơn thực tế'] || 0); // detail_reports."Số đơn thực tế"
+      const soDonTTValue = Number(row['Số đơn TT'] || 0);
+      grouped[key].soDonTT += soDonTTValue; // Số đơn TT từ bảng orders
+      
+      // Debug logging cho 3 record đầu tiên
+      if (Object.keys(grouped).length <= 3 && soDonTTValue > 0) {
+        console.log(`🔍 processData: Key "${key}" - soDonTT += ${soDonTTValue} (từ row['Số đơn TT'] = ${row['Số đơn TT']})`);
+      }
 
       grouped[key].dsChot += Number(row['Doanh số'] || 0);
       grouped[key].dsChotTT += Number(row['Doanh thu chốt thực tế'] || 0);
@@ -291,6 +367,7 @@ export default function XemBaoCaoMKT() {
       cpqc: acc.cpqc + cur.cpqc,
       orders: acc.orders + cur.orders,
       ordersTT: acc.ordersTT + cur.ordersTT,
+      soDonTT: acc.soDonTT + cur.soDonTT,
       dsChot: acc.dsChot + cur.dsChot,
       dsChotTT: acc.dsChotTT + cur.dsChotTT,
       soDonHuy: acc.soDonHuy + cur.soDonHuy,
@@ -301,10 +378,14 @@ export default function XemBaoCaoMKT() {
       dsThanhCong: acc.dsThanhCong + cur.dsThanhCong,
       kpiValue: acc.kpiValue + cur.kpiValue,
     }), {
-      mess: 0, cpqc: 0, orders: 0, ordersTT: 0, dsChot: 0, dsChotTT: 0,
+      mess: 0, cpqc: 0, orders: 0, ordersTT: 0, soDonTT: 0, dsChot: 0, dsChotTT: 0,
       soDonHuy: 0, soDonHuyTT: 0, dsHuyTT: 0, dsSauShip: 0, dsThanhCongTT: 0, dsThanhCong: 0,
       kpiValue: 0
     });
+
+    // Debug: Log total soDonTT và visibleColumns
+    console.log(`🔍 processData total.soDonTT = ${total.soDonTT}`);
+    console.log(`🔍 visibleColumns.soDonTT = ${visibleColumns.soDonTT}`);
 
     // Calculate Total Rates
     const totalRates = {
@@ -322,8 +403,11 @@ export default function XemBaoCaoMKT() {
     const dailyGroups = {};
     if (activeTab === 'DetailedReport') {
       data.forEach(row => {
-        if (selectedTeam !== 'ALL' && row.Team !== selectedTeam) return;
-        if (!row['Ngày']) return;
+        // Tất cả dữ liệu lấy từ detail_reports
+        if (selectedTeam !== 'ALL' && row['Team'] !== selectedTeam) return;
+        if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return;
+        if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return;
+        if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return;
         if (!row['Ngày']) return;
 
         const dObj = parseSmartDate(row['Ngày']);
@@ -343,22 +427,23 @@ export default function XemBaoCaoMKT() {
       const dayGrouped = {};
 
       dayRows.forEach(row => {
-        const key = `${row.Team}_${row['Tên']}`;
+        // Tất cả dữ liệu lấy từ detail_reports
+        const key = `${row['Team']}_${row['Tên']}`;
         if (!dayGrouped[key]) {
           dayGrouped[key] = {
-            team: row.Team,
-            name: row['Tên'],
+            team: row['Team'], // detail_reports."Team"
+            name: row['Tên'], // detail_reports."Tên" (Tên MKT/Marketing)
             mess: 0, cpqc: 0, orders: 0, ordersTT: 0,
             dsChot: 0, dsChotTT: 0
           };
         }
         const g = dayGrouped[key];
-        g.mess += Number(row['Số_Mess_Cmt'] || 0);
-        g.cpqc += Number(row['CPQC'] || 0);
-        g.orders += Number(row['Số đơn'] || 0);
-        g.ordersTT += Number(row['Số đơn thực tế'] || 0);
-        g.dsChot += Number(row['Doanh số'] || 0);
-        g.dsChotTT += Number(row['Doanh thu chốt thực tế'] || 0);
+        g.mess += Number(row['Số_Mess_Cmt'] || 0); // detail_reports."Số_Mess_Cmt"
+        g.cpqc += Number(row['CPQC'] || 0); // detail_reports."CPQC"
+        g.orders += Number(row['Số đơn'] || 0); // detail_reports."Số đơn"
+        g.ordersTT += Number(row['Số đơn thực tế'] || 0); // detail_reports."Số đơn thực tế"
+        g.dsChot += Number(row['Doanh số'] || 0); // detail_reports."Doanh số"
+        g.dsChotTT += Number(row['Doanh thu chốt thực tế'] || 0); // detail_reports."Doanh thu chốt thực tế"
       });
 
       const currentDayRows = Object.values(dayGrouped).map(item => {
@@ -379,9 +464,10 @@ export default function XemBaoCaoMKT() {
         cpqc: acc.cpqc + cur.cpqc,
         orders: acc.orders + cur.orders,
         ordersTT: acc.ordersTT + cur.ordersTT,
+        soDonTT: acc.soDonTT + cur.soDonTT,
         dsChot: acc.dsChot + cur.dsChot,
         dsChotTT: acc.dsChotTT + cur.dsChotTT
-      }), { mess: 0, cpqc: 0, orders: 0, ordersTT: 0, dsChot: 0, dsChotTT: 0 });
+      }), { mess: 0, cpqc: 0, orders: 0, ordersTT: 0, soDonTT: 0, dsChot: 0, dsChotTT: 0 });
 
       const dTotalRates = {
         tiLeChot: dTotal.mess ? (dTotal.orders / dTotal.mess) * 100 : 0,
@@ -396,7 +482,7 @@ export default function XemBaoCaoMKT() {
     });
 
     return { rows, total: { ...total, ...totalRates }, dailyData };
-  }, [data, selectedTeam, activeTab]);
+  }, [data, selectedTeam, selectedProducts, selectedShifts, selectedMarkets, activeTab]);
 
   // Logic for Market Report (Tab 4)
   const processMarketData = useMemo(() => {
@@ -500,39 +586,285 @@ export default function XemBaoCaoMKT() {
 
 
 
+  // Quick date select handler
+  const handleQuickDateSelect = (value) => {
+    setQuickSelect(value);
+    if (!value) return;
+
+    const today = new Date();
+    let start = new Date();
+    let end = new Date();
+
+    switch (value) {
+      case 'today':
+        start = new Date(today);
+        end = new Date(today);
+        break;
+      case 'yesterday':
+        start = new Date(today);
+        start.setDate(today.getDate() - 1);
+        end = new Date(start);
+        break;
+      case 'thisWeek':
+        const dayOfWeek = today.getDay();
+        const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        start = new Date(today.getFullYear(), today.getMonth(), diff);
+        end = new Date(today);
+        break;
+      case 'lastWeek':
+        const lastWeekDay = today.getDay();
+        const lastWeekDiff = today.getDate() - lastWeekDay - 6 + (lastWeekDay === 0 ? -6 : 1);
+        start = new Date(today.getFullYear(), today.getMonth(), lastWeekDiff);
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        break;
+      case 'thisMonth':
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        end = new Date(today);
+        break;
+      case 'lastMonth':
+        start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        end = new Date(today.getFullYear(), today.getMonth(), 0);
+        break;
+      case 'last7Days':
+        start = new Date(today);
+        start.setDate(today.getDate() - 7);
+        end = new Date(today);
+        break;
+      case 'last30Days':
+        start = new Date(today);
+        start.setDate(today.getDate() - 30);
+        end = new Date(today);
+        break;
+      default:
+        return;
+    }
+
+    setStartDate(start.toISOString().split('T')[0]);
+    setEndDate(end.toISOString().split('T')[0]);
+  };
+
+  // Handle filter checkbox changes
+  const handleFilterChange = (filterType, value, isChecked) => {
+    if (filterType === 'product') {
+      if (value === 'ALL') {
+        setSelectedProducts(isChecked ? products : []);
+      } else {
+        setSelectedProducts(prev => 
+          isChecked ? [...prev, value] : prev.filter(p => p !== value)
+        );
+      }
+    } else if (filterType === 'shift') {
+      if (value === 'ALL') {
+        setSelectedShifts(isChecked ? shifts : []);
+      } else {
+        setSelectedShifts(prev => 
+          isChecked ? [...prev, value] : prev.filter(s => s !== value)
+        );
+      }
+    } else if (filterType === 'market') {
+      if (value === 'ALL') {
+        setSelectedMarkets(isChecked ? markets : []);
+      } else {
+        setSelectedMarkets(prev => 
+          isChecked ? [...prev, value] : prev.filter(m => m !== value)
+        );
+      }
+    }
+  };
+
+  // Fetch số đơn tổng (tất cả các đơn, không filter theo check_result) từ bảng orders cho MKT
+  const enrichWithTotalOrdersFromOrders = async (reports, startDate, endDate) => {
+    try {
+      // Helper function để normalize date format
+      const normalizeDate = (date) => {
+        if (!date) return '';
+        if (date instanceof Date) {
+          return date.toISOString().split('T')[0];
+        }
+        if (typeof date === 'string') {
+          const trimmed = date.trim();
+          if (trimmed.includes('T')) {
+            return trimmed.split('T')[0];
+          }
+          if (trimmed.includes(' ')) {
+            return trimmed.split(' ')[0];
+          }
+          // Nếu là format DD/MM/YYYY, convert sang YYYY-MM-DD
+          if (trimmed.includes('/')) {
+            const parts = trimmed.split('/');
+            if (parts.length === 3) {
+              return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            }
+          }
+          // Nếu đã là YYYY-MM-DD
+          if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+            return trimmed;
+          }
+          // Thử parse
+          const parsed = new Date(trimmed);
+          if (!isNaN(parsed.getTime())) {
+            return parsed.toISOString().split('T')[0];
+          }
+          return trimmed;
+        }
+        return String(date);
+      };
+      
+      // Helper function để normalize string
+      const normalizeStr = (str) => {
+        if (!str) return '';
+        return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+      };
+      
+      const normalizedStartDate = normalizeDate(startDate);
+      const normalizedEndDate = normalizeDate(endDate);
+      
+      // Lấy danh sách tên Marketing từ báo cáo để filter ở query level
+      const marketingNamesFromReports = [...new Set(reports
+        .map(item => item['Tên'])
+        .filter(name => name && name.trim().length > 0)
+      )];
+
+      // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
+      let query = supabase
+        .from('orders')
+        .select('order_date, marketing_staff, product, country, area', { count: 'exact' })
+        .gte('order_date', normalizedStartDate)
+        .lte('order_date', normalizedEndDate);
+
+      // Filter theo tên Marketing từ báo cáo
+      if (marketingNamesFromReports.length > 0) {
+        const marketingConditions = marketingNamesFromReports
+          .map(name => `marketing_staff.ilike.%${name.trim()}%`)
+          .join(',');
+        query = query.or(marketingConditions);
+      }
+
+      query = query.limit(10000);
+
+      const { data: allOrders, error, count } = await query;
+
+      if (error) {
+        console.error('❌ Error fetching total orders for MKT:', error);
+        return;
+      }
+
+      console.log(`📊 MKT: Tìm thấy ${allOrders?.length || 0} đơn tổng trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
+      console.log(`📊 MKT: Tên Marketing từ báo cáo:`, marketingNamesFromReports.slice(0, 5));
+      
+      if (allOrders && allOrders.length > 0) {
+        const sampleOrder = allOrders[0];
+        console.log(`📊 MKT: Sample order:`, {
+          marketing_staff: sampleOrder.marketing_staff,
+          order_date: sampleOrder.order_date,
+          product: sampleOrder.product,
+          country: sampleOrder.country,
+          area: sampleOrder.area
+        });
+      }
+
+      if (count && count > 10000) {
+        console.warn(`⚠️ Cảnh báo: Có ${count} đơn tổng nhưng chỉ fetch được ${allOrders?.length || 0} records (giới hạn 10,000).`);
+      }
+
+      // Group đơn theo Tên Marketing + Ngày + Sản phẩm + Thị trường
+      const ordersByMarketingDateProductMarket = new Map();
+      
+      (allOrders || []).forEach(order => {
+        const orderMarketingName = normalizeStr(order.marketing_staff);
+        const orderDateStr = normalizeDate(order.order_date);
+        const orderProduct = normalizeStr(order.product || '');
+        const orderMarket = normalizeStr(order.country || order.area || '');
+        const key = `${orderMarketingName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
+        
+        if (!ordersByMarketingDateProductMarket.has(key)) {
+          ordersByMarketingDateProductMarket.set(key, []);
+        }
+        ordersByMarketingDateProductMarket.get(key).push(order);
+      });
+      
+      console.log(`📊 MKT: Đã group ${ordersByMarketingDateProductMarket.size} keys từ ${allOrders?.length || 0} đơn`);
+      if (ordersByMarketingDateProductMarket.size > 0) {
+        const sampleKeys = Array.from(ordersByMarketingDateProductMarket.keys()).slice(0, 3);
+        console.log(`📊 MKT: Sample keys từ orders:`, sampleKeys);
+      }
+
+      // Cập nhật reports với số đơn tổng từ orders
+      let matchedCount = 0;
+      let unmatchedCount = 0;
+      
+      reports.forEach((item, index) => {
+        const marketingName = normalizeStr(item['Tên']);
+        const reportDateRaw = item['Ngày'];
+        const reportDate = normalizeDate(reportDateRaw);
+        const reportProduct = normalizeStr(item['Sản_phẩm'] || '');
+        const reportMarket = normalizeStr(item['Thị_trường'] || '');
+
+        if (!marketingName || !reportDate) {
+          item['Số đơn TT'] = 0;
+          if (index < 3) {
+            console.log(`⚠️ MKT [${index}]: Thiếu dữ liệu - Tên: "${item['Tên']}", Ngày: "${reportDateRaw}"`);
+          }
+          unmatchedCount++;
+          return;
+        }
+
+        const key = `${marketingName}|${reportDate}|${reportProduct}|${reportMarket}`;
+        const matchingOrders = ordersByMarketingDateProductMarket.get(key) || [];
+        item['Số đơn TT'] = matchingOrders.length;
+        
+        if (matchingOrders.length > 0) {
+          matchedCount++;
+          if (index < 3) {
+            console.log(`✅ MKT [${index}]: Match ${matchingOrders.length} đơn - Key: "${key}"`);
+          }
+        } else {
+          unmatchedCount++;
+          if (index < 3) {
+            console.log(`❌ MKT [${index}]: Không match - Key: "${key}"`);
+            console.log(`   - Tên báo cáo: "${item['Tên']}" → normalized: "${marketingName}"`);
+            console.log(`   - Ngày báo cáo: "${reportDateRaw}" → normalized: "${reportDate}"`);
+            console.log(`   - Sản phẩm: "${item['Sản_phẩm']}" → normalized: "${reportProduct}"`);
+            console.log(`   - Thị trường: "${item['Thị_trường']}" → normalized: "${reportMarket}"`);
+            // Log một vài keys có trong ordersByMarketingDateProductMarket để so sánh
+            const sampleKeys = Array.from(ordersByMarketingDateProductMarket.keys()).slice(0, 5);
+            console.log(`   - Sample keys trong orders:`, sampleKeys);
+          }
+        }
+      });
+
+      console.log(`✅ MKT: Đã cập nhật số đơn TT cho ${reports.length} báo cáo`);
+      console.log(`   - Match: ${matchedCount}, Không match: ${unmatchedCount}`);
+      console.log(`   - Tổng số keys trong orders map: ${ordersByMarketingDateProductMarket.size}`);
+      
+      // Debug: Kiểm tra một vài giá trị sau khi enrich
+      const sampleReports = reports.slice(0, 3);
+      sampleReports.forEach((item, idx) => {
+        console.log(`📋 Sample report [${idx}]: Tên="${item['Tên']}", Ngày="${item['Ngày']}", Số đơn TT=${item['Số đơn TT']}`);
+      });
+    } catch (err) {
+      console.error('❌ Error enriching with total orders for MKT:', err);
+    }
+  };
+
   // Format Helper
   const fmtNum = (n) => n ? Math.round(n).toLocaleString('vi-VN') : '0';
   const fmtCurrency = (n) => n ? Math.round(n).toLocaleString('vi-VN') + ' ₫' : '0 ₫';
   const fmtPct = (n) => n ? n.toFixed(2) + '%' : '0.00%';
 
   const getCpsCellStyle = (cps) => {
-    // Determine market context based on filter
-    const hasAsia = selectedMarket === 'ALL' || MARKET_GROUPS['Châu Á'].includes(selectedMarket);
-    const hasNonAsia = selectedMarket === 'ALL' || MARKET_GROUPS['Ngoài Châu Á'].includes(selectedMarket);
-
-    // Strict logic matching legacy
-    if (hasAsia && !hasNonAsia && selectedMarket !== 'ALL') {
-      if (cps > 1e6) return 'bg-lightred'; // > 1M
-      if (cps > 7e5) return 'bg-yellow';   // > 700k
-    } else {
-      if (cps > 1.5e6) return 'bg-lightred'; // > 1.5M
-      if (cps > 1e6) return 'bg-yellow'; // > 1M
-    }
-    return '';
+    // Match với hình: red cho >2M, yellow cho >1M
+    if (cps > 2000000) return 'bg-lightred'; // > 2M - Red
+    if (cps > 1000000) return 'bg-yellow';   // > 1M - Yellow
+    return ''; // < 1M - White/Default
   };
 
   const getRateClass = (rate) => {
-    // Input rate is percentage 0-100 in my processing logic? 
-    // Wait, processData uses (orders/mess)*100.
-    // Legacy uses raw ratio (orders/mess) then checks > 0.1 (10%).
-    // My processed data `tiLeChot` is typically 0-100 if multiplied by 100.
-    // Let's check processData: `const tiLeChot = item.mess ? (item.orders / item.mess) * 100 : 0;`
-    // So my values are 10.5, 5.2 etc.
-    // Legacy values are 0.105, 0.052.
-    // So I should check > 10 and > 5.
-    if (rate > 10) return 'bg-green';
-    if (rate > 5) return 'bg-yellow';
-    return '';
+    // Match với hình: green cho >10%, yellow cho 5-10%
+    if (rate > 10) return 'bg-green';  // > 10% - Green
+    if (rate > 5) return 'bg-yellow';   // 5-10% - Yellow
+    return ''; // < 5% - White/Default
   };
 
   const renderMarketTable = (rows, title) => {
@@ -575,7 +907,6 @@ export default function XemBaoCaoMKT() {
               <th className="green-header text-left">Thị trường</th>
               <th className="green-header">CPQC</th>
               <th className="green-header">Số Đơn</th>
-              <th className="green-header">Số Đơn (TT)</th>
               <th className="green-header">Số Mess</th>
               <th className="green-header">DS Chốt</th>
               <th className="green-header">DS Chốt (TT)</th>
@@ -636,7 +967,10 @@ export default function XemBaoCaoMKT() {
 
   return (
     <div className="report-view-container">
-
+      {/* Loading Overlay */}
+      <div id="loading-overlay" className={loading ? 'visible' : ''}>
+        Đang tải dữ liệu...
+      </div>
 
       <div className="tab-container">
         <button
@@ -649,12 +983,6 @@ export default function XemBaoCaoMKT() {
           className={`tablinks ${activeTab === 'KpiReport' ? 'active' : ''}`}
           onClick={() => setActiveTab('KpiReport')}
         >
-          Báo cáo KPI
-        </button>
-        <button
-          className={`tablinks ${activeTab === 'HieuSuatKPI' ? 'active' : ''}`}
-          onClick={() => setActiveTab('HieuSuatKPI')}
-        >
           Hiệu suất KPI
         </button>
         <button
@@ -663,78 +991,143 @@ export default function XemBaoCaoMKT() {
         >
           Hiệu quả MKT
         </button>
+        <button
+          className={`tablinks ${activeTab === 'HieuSuatKPI' ? 'active' : ''}`}
+          onClick={() => setActiveTab('HieuSuatKPI')}
+          style={{ display: 'none' }}
+        >
+          Hiệu suất KPI
+        </button>
       </div>
 
-      {/* FILTER BAR - Shared for Tab 1, 2, 4 */}
-      {(activeTab === 'DetailedReport' || activeTab === 'KpiReport' || activeTab === 'MarketReport') && (
-        <>
-          {activeTab !== 'DetailedReport' && (
-            <div className="report-header-section">
-              <h2>
-                {activeTab === 'KpiReport' ? 'BÁO CÁO HIỆU SUẤT KPI' :
-                  'HIỆU QUẢ MARKETING THEO SẢN PHẨM & THỊ TRƯỜNG'}
-              </h2>
-            </div>
-          )}
-          <div className="filter-sidebar">
-            <div className="filter-row">
-              <div className="filter-group">
-                <label>Từ ngày:</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-              </div>
-              <div className="filter-group">
-                <label>Đến ngày:</label>
-                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
-              </div>
-              <div className="filter-group">
-                <label>Team:</label>
-                <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>
-                  <option value="ALL">Tất cả</option>
-                  {teams.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-
-              {activeTab === 'MarketReport' && (
-                <>
-                  <div className="filter-group">
-                    <label>Sản phẩm:</label>
-                    <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)}>
-                      <option value="ALL">Tất cả</option>
-                      {products.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </div>
-                  <div className="filter-group">
-                    <label>Thị trường:</label>
-                    <select value={selectedMarket} onChange={e => setSelectedMarket(e.target.value)}>
-                      <option value="ALL">Tất cả</option>
-                      {markets.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                </>
-              )}
-
-              <button onClick={fetchData} style={{
-                padding: '8px 16px',
-                backgroundColor: '#2d7c2d',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                height: 'fit-content',
-                marginTop: '19px'
-              }}>Áp dụng</button>
-
-
-            </div>
-          </div>
-        </>
-      )
-      }
 
       {/* TAB 1: Detailed Report */}
       {
         activeTab === 'DetailedReport' && (
-          <div className="table-responsive-container">
+          <div id="DetailedReport" className={`tab-content ${activeTab === 'DetailedReport' ? 'active' : ''}`}>
+            <div className="report-container">
+              <div className="sidebar">
+                <h3>Bộ lọc</h3>
+                <label>Chọn nhanh:</label>
+                <select 
+                  value={quickSelect} 
+                  onChange={e => handleQuickDateSelect(e.target.value)}
+                >
+                  <option value="">-- Chọn nhanh --</option>
+                  <option value="today">Hôm nay</option>
+                  <option value="yesterday">Hôm qua</option>
+                  <option value="thisWeek">Tuần này</option>
+                  <option value="lastWeek">Tuần trước</option>
+                  <option value="thisMonth">Tháng này</option>
+                  <option value="lastMonth">Tháng trước</option>
+                  <option value="last7Days">7 ngày qua</option>
+                  <option value="last30Days">30 ngày qua</option>
+                </select>
+                <label>Từ ngày:</label>
+                <input 
+                  type="date" 
+                  value={startDate} 
+                  onChange={e => {
+                    setStartDate(e.target.value);
+                    setQuickSelect('');
+                  }} 
+                />
+                <label>Đến ngày:</label>
+                <input 
+                  type="date" 
+                  value={endDate} 
+                  onChange={e => {
+                    setEndDate(e.target.value);
+                    setQuickSelect('');
+                  }} 
+                />
+                
+                <h3>Sản phẩm</h3>
+                <div className="indent">
+                  <label style={{ cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedProducts.length === products.length && products.length > 0}
+                      onChange={e => handleFilterChange('product', 'ALL', e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Tất cả
+                  </label>
+                  {products.map(p => (
+                    <label key={p} style={{ cursor: 'pointer', display: 'block', marginLeft: '16px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedProducts.includes(p)}
+                        onChange={e => handleFilterChange('product', p, e.target.checked)}
+                        style={{ marginRight: '8px' }}
+                      />
+                      {p}
+                    </label>
+                  ))}
+                </div>
+                
+                <h3>Ca</h3>
+                <div className="indent">
+                  <label style={{ cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedShifts.length === shifts.length && shifts.length > 0}
+                      onChange={e => handleFilterChange('shift', 'ALL', e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Tất cả
+                  </label>
+                  {shifts.map(s => (
+                    <label key={s} style={{ cursor: 'pointer', display: 'block', marginLeft: '16px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedShifts.includes(s)}
+                        onChange={e => handleFilterChange('shift', s, e.target.checked)}
+                        style={{ marginRight: '8px' }}
+                      />
+                      {s}
+                    </label>
+                  ))}
+                </div>
+                
+                <h3>Team</h3>
+                <div className="indent">
+                  <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>
+                    <option value="ALL">Tất cả</option>
+                    {teams.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                
+                <h3>Thị trường</h3>
+                <div className="indent">
+                  <label style={{ cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedMarkets.length === markets.length && markets.length > 0}
+                      onChange={e => handleFilterChange('market', 'ALL', e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Tất cả
+                  </label>
+                  {markets.map(m => (
+                    <label key={m} style={{ cursor: 'pointer', display: 'block', marginLeft: '16px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedMarkets.includes(m)}
+                        onChange={e => handleFilterChange('market', m, e.target.checked)}
+                        style={{ marginRight: '8px' }}
+                      />
+                      {m}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="main-content-area">
+                <div className="header">
+                  <div style={{ width: 60, height: 60, borderRadius: '50%', backgroundColor: '#2d7c2d', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '24px', fontWeight: 'bold' }}>MKT</div>
+                  <h2 id="report-title-tab1">DỮ LIỆU CHI PHÍ ADS</h2>
+                </div>
+                <div className="table-responsive-container">
             {/* Column Toggles Panel */}
             <div className="bg-white p-4 mb-4 rounded-lg shadow-sm border border-gray-200">
               <h3 className="text-sm font-bold text-gray-700 mb-3">Cột hiển thị</h3>
@@ -746,17 +1139,17 @@ export default function XemBaoCaoMKT() {
                   { key: 'cpqc', label: 'CPQC' },
                   { key: 'mess', label: 'Số Mess' },
                   { key: 'orders', label: 'Số Đơn' },
+                  { key: 'soDonTT', label: 'Số Đơn TT' },
                   { key: 'dsChot', label: 'DS Chốt' },
+                  { key: 'dsChotTT', label: 'DS Chốt (TT)' },
                   { key: 'tiLeChot', label: 'Tỉ lệ chốt' },
+                  { key: 'tiLeChotTT', label: 'Tỉ lệ chốt (TT)' },
                   { key: 'giaMess', label: 'Giá Mess' },
                   { key: 'cps', label: 'CPS' },
                   { key: 'cp_ds', label: '%CP/DS' },
                   { key: 'giaTBDon', label: 'Giá TB Đơn' },
-                  { key: 'ordersTT', label: 'Số Đơn (TT)' },
                   { key: 'soDonHuy', label: 'Số đơn Huỷ' },
-                  { key: 'dsChotTT', label: 'DS Chốt (TT)' },
-                  { key: 'dsHuy', label: 'DS Huỷ' },
-                  { key: 'tiLeChotTT', label: 'Tỉ lệ chốt (TT)' }
+                  { key: 'dsHuy', label: 'DS Huỷ' }
                 ].map(col => (
                   <label key={col.key} className="flex items-center gap-2 text-sm cursor-pointer select-none">
                     <input
@@ -785,66 +1178,69 @@ export default function XemBaoCaoMKT() {
                   <thead>
                     <tr>
                       {visibleColumns.stt && <th className="green-header">STT</th>}
-                      {visibleColumns.team && <th className="green-header">TEAM</th>}
-                      {visibleColumns.marketing && <th className="green-header">MARKETING</th>}
-                      {visibleColumns.cpqc && <th className="green-header">CPQC<br /><span className="text-xs font-normal">(MKT)</span></th>}
-                      {visibleColumns.mess && <th className="green-header">SỐ MESS<br /><span className="text-xs font-normal">(MKT)</span></th>}
-                      {visibleColumns.orders && <th className="green-header">SỐ ĐƠN<br /><span className="text-xs font-normal">(MKT)</span></th>}
-                      {visibleColumns.dsChot && <th className="green-header">DS CHỐT<br /><span className="text-xs font-normal">(MKT)</span></th>}
-
-                      {visibleColumns.tiLeChot && <th className="yellow-header">TỈ LỆ CHỐT</th>}
-                      {visibleColumns.giaMess && <th className="yellow-header">GIÁ MESS</th>}
+                      {visibleColumns.team && <th className="green-header">Team</th>}
+                      {visibleColumns.marketing && <th className="green-header">Marketing</th>}
+                      {visibleColumns.mess && <th className="green-header">Số Mess</th>}
+                      {visibleColumns.cpqc && <th className="green-header">CPQC</th>}
+                      {visibleColumns.orders && <th className="green-header">Số Đơn</th>}
+                      <th className="green-header" style={{backgroundColor: '#4CAF50', color: 'white', fontWeight: 'bold'}}>Số Đơn TT</th>
+                      {visibleColumns.dsChot && <th className="green-header">DS Chốt</th>}
+                      {visibleColumns.dsChotTT && <th className="green-header">DS Chốt (TT)</th>}
+                      {visibleColumns.tiLeChot && <th className="yellow-header">Tỉ lệ chốt</th>}
+                      {visibleColumns.tiLeChotTT && <th className="yellow-header">Tỉ lệ chốt (TT)</th>}
+                      {visibleColumns.giaMess && <th className="yellow-header">Giá Mess</th>}
                       {visibleColumns.cps && <th className="yellow-header">CPS</th>}
                       {visibleColumns.cp_ds && <th className="yellow-header">%CP/DS</th>}
-                      {visibleColumns.giaTBDon && <th className="yellow-header">GIÁ TB ĐƠN</th>}
-
-                      {visibleColumns.ordersTT && <th className="blue-header">SỐ ĐƠN (TT)<br /><span className="text-xs font-normal">(F3)</span></th>}
-                      {visibleColumns.soDonHuy && <th className="blue-header">SỐ ĐƠN HỦY<br /><span className="text-xs font-normal">(F3)</span></th>}
-                      {visibleColumns.dsChotTT && <th className="blue-header">DS CHỐT (TT)<br /><span className="text-xs font-normal">(F3)</span></th>}
-                      {visibleColumns.dsHuy && <th className="blue-header">DS HỦY<br /><span className="text-xs font-normal">(F3)</span></th>}
-
-                      {visibleColumns.tiLeChotTT && <th className="yellow-header">TỈ LỆ CHỐT (TT)</th>}
+                      {visibleColumns.giaTBDon && <th className="yellow-header">Giá TB Đơn</th>}
                     </tr>
                   </thead>
                   <tbody>
                     <tr className="total-row">
                       {(visibleColumns.stt || visibleColumns.team || visibleColumns.marketing) && (
-                        <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center">TỔNG CỘNG</td>
+                        <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center total-label">TỔNG CỘNG</td>
                       )}
-                      {visibleColumns.cpqc && <td>{fmtCurrency(processData.total.cpqc)}</td>}
-                      {visibleColumns.mess && <td>{fmtNum(processData.total.mess)}</td>}
-                      {visibleColumns.orders && <td>{fmtNum(processData.total.orders)}</td>}
-                      {visibleColumns.dsChot && <td>{fmtCurrency(processData.total.dsChot)}</td>}
-                      {visibleColumns.tiLeChot && <td>{fmtPct(processData.total.tiLeChot)}</td>}
-                      {visibleColumns.giaMess && <td>{fmtCurrency(processData.total.giaMess)}</td>}
-                      {visibleColumns.cps && <td>{fmtCurrency(processData.total.cps)}</td>}
-                      {visibleColumns.cp_ds && <td>{fmtPct(processData.total.cp_ds)}</td>}
-                      {visibleColumns.giaTBDon && <td>{fmtCurrency(processData.total.giaTBDon)}</td>}
-                      {visibleColumns.ordersTT && <td>{fmtNum(processData.total.ordersTT)}</td>}
-                      {visibleColumns.soDonHuy && <td>{fmtNum(processData.total.soDonHuyTT)}</td>}
-                      {visibleColumns.dsChotTT && <td>{fmtCurrency(processData.total.dsChotTT)}</td>}
-                      {visibleColumns.dsHuy && <td>{fmtCurrency(processData.total.dsHuyTT)}</td>}
-                      {visibleColumns.tiLeChotTT && <td>{fmtPct(processData.total.tiLeChotTT)}</td>}
+                      {visibleColumns.mess && <td className="total-value">{fmtNum(processData.total.mess)}</td>}
+                      {visibleColumns.cpqc && <td className="total-value">{fmtCurrency(processData.total.cpqc)}</td>}
+                      {visibleColumns.orders && <td className="total-value">{fmtNum(processData.total.orders)}</td>}
+                      {visibleColumns.soDonTT ? (
+                        <td className="total-value" style={{backgroundColor: processData.total.soDonTT > 0 ? '#e8f5e9' : 'transparent'}}>
+                          {fmtNum(processData.total.soDonTT)}
+                        </td>
+                      ) : (
+                        <td className="total-value" style={{color: 'red'}}>HIDDEN</td>
+                      )}
+                      {visibleColumns.dsChot && <td className="total-value">{fmtCurrency(processData.total.dsChot)}</td>}
+                      {visibleColumns.dsChotTT && <td className="total-value">{fmtCurrency(processData.total.dsChotTT)}</td>}
+                      {visibleColumns.tiLeChot && <td className={`text-center total-value ${getRateClass(processData.total.tiLeChot)}`}>{fmtPct(processData.total.tiLeChot)}</td>}
+                      {visibleColumns.tiLeChotTT && <td className={`text-center total-value ${getRateClass(processData.total.tiLeChotTT)}`}>{fmtPct(processData.total.tiLeChotTT)}</td>}
+                      {visibleColumns.giaMess && <td className="total-value">{fmtCurrency(processData.total.giaMess)}</td>}
+                      {visibleColumns.cps && <td className="total-value">{fmtCurrency(processData.total.cps)}</td>}
+                      {visibleColumns.cp_ds && <td className="total-value">{fmtPct(processData.total.cp_ds)}</td>}
+                      {visibleColumns.giaTBDon && <td className="total-value">{fmtCurrency(processData.total.giaTBDon)}</td>}
                     </tr>
                     {processData.rows.map((row, index) => (
                       <tr key={index}>
                         {visibleColumns.stt && <td className="text-center">{index + 1}</td>}
-                        {visibleColumns.team && <td>{row.team}</td>}
-                        {visibleColumns.marketing && <td>{row.name}</td>}
-                        {visibleColumns.cpqc && <td>{fmtCurrency(row.cpqc)}</td>}
+                        {visibleColumns.team && <td className="text-left">{row.team}</td>}
+                        {visibleColumns.marketing && <td className="text-left">{row.name}</td>}
                         {visibleColumns.mess && <td>{fmtNum(row.mess)}</td>}
+                        {visibleColumns.cpqc && <td>{fmtCurrency(row.cpqc)}</td>}
                         {visibleColumns.orders && <td>{fmtNum(row.orders)}</td>}
+                        {visibleColumns.soDonTT ? (
+                          <td title={`soDonTT=${row.soDonTT}`} style={{backgroundColor: row.soDonTT > 0 ? '#e8f5e9' : 'transparent'}}>
+                            {fmtNum(row.soDonTT)}
+                          </td>
+                        ) : (
+                          <td style={{color: 'red'}}>HIDDEN</td>
+                        )}
                         {visibleColumns.dsChot && <td>{fmtCurrency(row.dsChot)}</td>}
+                        {visibleColumns.dsChotTT && <td>{fmtCurrency(row.dsChotTT)}</td>}
                         {visibleColumns.tiLeChot && <td className={`text-center ${getRateClass(row.tiLeChot)}`}>{fmtPct(row.tiLeChot)}</td>}
+                        {visibleColumns.tiLeChotTT && <td className={`text-center ${getRateClass(row.tiLeChotTT)}`}>{fmtPct(row.tiLeChotTT)}</td>}
                         {visibleColumns.giaMess && <td>{fmtCurrency(row.giaMess)}</td>}
                         {visibleColumns.cps && <td className={getCpsCellStyle(row.cps)}>{fmtCurrency(row.cps)}</td>}
                         {visibleColumns.cp_ds && <td className={`text-center ${row.cp_ds > 33 ? 'bg-yellow' : ''}`}>{fmtPct(row.cp_ds)}</td>}
                         {visibleColumns.giaTBDon && <td>{fmtCurrency(row.giaTBDon)}</td>}
-                        {visibleColumns.ordersTT && <td>{fmtNum(row.ordersTT)}</td>}
-                        {visibleColumns.soDonHuy && <td>{fmtNum(row.soDonHuyTT)}</td>}
-                        {visibleColumns.dsChotTT && <td>{fmtCurrency(row.dsChotTT)}</td>}
-                        {visibleColumns.dsHuy && <td>{fmtCurrency(row.dsHuyTT)}</td>}
-                        {visibleColumns.tiLeChotTT && <td className={`text-center ${getRateClass(row.tiLeChotTT)}`}>{fmtPct(row.tiLeChotTT)}</td>}
                       </tr>
                     ))}
                     {processData.rows.length === 0 && (
@@ -856,6 +1252,10 @@ export default function XemBaoCaoMKT() {
                     )}
                   </tbody>
                 </table>
+                {/* Date footer */}
+                <div style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
+                  {endDate ? new Date(endDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
+                </div>
 
                 {/* Daily Breakdown */}
                 {processData.dailyData && processData.dailyData.length > 0 && processData.dailyData.map((dayData, dIdx) => (
@@ -867,66 +1267,61 @@ export default function XemBaoCaoMKT() {
                       <thead>
                         <tr>
                           {visibleColumns.stt && <th className="green-header">STT</th>}
-                          {visibleColumns.team && <th className="green-header">TEAM</th>}
-                          {visibleColumns.marketing && <th className="green-header">MARKETING</th>}
-                          {visibleColumns.cpqc && <th className="green-header">CPQC<br /><span className="text-xs font-normal">(MKT)</span></th>}
-                          {visibleColumns.mess && <th className="green-header">SỐ MESS<br /><span className="text-xs font-normal">(MKT)</span></th>}
-                          {visibleColumns.orders && <th className="green-header">SỐ ĐƠN<br /><span className="text-xs font-normal">(MKT)</span></th>}
-                          {visibleColumns.dsChot && <th className="green-header">DS CHỐT<br /><span className="text-xs font-normal">(MKT)</span></th>}
-
-                          {visibleColumns.tiLeChot && <th className="yellow-header">TỈ LỆ CHỐT</th>}
-                          {visibleColumns.giaMess && <th className="yellow-header">GIÁ MESS</th>}
+                          {visibleColumns.team && <th className="green-header">Team</th>}
+                          {visibleColumns.marketing && <th className="green-header">Marketing</th>}
+                          {visibleColumns.mess && <th className="green-header">Số Mess</th>}
+                          {visibleColumns.cpqc && <th className="green-header">CPQC</th>}
+                          {visibleColumns.orders && <th className="green-header">Số Đơn</th>}
+                          <th className="green-header" style={{backgroundColor: '#4CAF50', color: 'white', fontWeight: 'bold'}}>Số Đơn TT</th>
+                          {visibleColumns.dsChot && <th className="green-header">DS Chốt</th>}
+                          {visibleColumns.dsChotTT && <th className="green-header">DS Chốt (TT)</th>}
+                          {visibleColumns.tiLeChot && <th className="yellow-header">Tỉ lệ chốt</th>}
+                          {visibleColumns.tiLeChotTT && <th className="yellow-header">Tỉ lệ chốt (TT)</th>}
+                          {visibleColumns.giaMess && <th className="yellow-header">Giá Mess</th>}
                           {visibleColumns.cps && <th className="yellow-header">CPS</th>}
                           {visibleColumns.cp_ds && <th className="yellow-header">%CP/DS</th>}
-                          {visibleColumns.giaTBDon && <th className="yellow-header">GIÁ TB ĐƠN</th>}
-
-                          {visibleColumns.ordersTT && <th className="blue-header">SỐ ĐƠN (TT)<br /><span className="text-xs font-normal">(F3)</span></th>}
-                          {visibleColumns.soDonHuy && <th className="blue-header">SỐ ĐƠN HỦY<br /><span className="text-xs font-normal">(F3)</span></th>}
-                          {visibleColumns.dsChotTT && <th className="blue-header">DS CHỐT (TT)<br /><span className="text-xs font-normal">(F3)</span></th>}
-                          {visibleColumns.dsHuy && <th className="blue-header">DS HỦY<br /><span className="text-xs font-normal">(F3)</span></th>}
-
-                          {visibleColumns.tiLeChotTT && <th className="yellow-header">TỈ LỆ CHỐT (TT)</th>}
+                          {visibleColumns.giaTBDon && <th className="yellow-header">Giá TB Đơn</th>}
                         </tr>
                       </thead>
                       <tbody>
                         <tr className="total-row">
                           {(visibleColumns.stt || visibleColumns.team || visibleColumns.marketing) && (
-                            <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center">TỔNG CỘNG</td>
+                            <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center total-label">TỔNG CỘNG</td>
                           )}
-                          {visibleColumns.cpqc && <td>{fmtCurrency(dayData.total.cpqc)}</td>}
-                          {visibleColumns.mess && <td>{fmtNum(dayData.total.mess)}</td>}
-                          {visibleColumns.orders && <td>{fmtNum(dayData.total.orders)}</td>}
-                          {visibleColumns.dsChot && <td>{fmtCurrency(dayData.total.dsChot)}</td>}
-                          {visibleColumns.tiLeChot && <td>{fmtPct(dayData.total.tiLeChot)}</td>}
-                          {visibleColumns.giaMess && <td>{fmtCurrency(dayData.total.giaMess)}</td>}
-                          {visibleColumns.cps && <td>{fmtCurrency(dayData.total.cps)}</td>}
-                          {visibleColumns.cp_ds && <td>{fmtPct(dayData.total.cp_ds)}</td>}
-                          {visibleColumns.giaTBDon && <td>{fmtCurrency(dayData.total.giaTBDon)}</td>}
-                          {visibleColumns.ordersTT && <td>{fmtNum(dayData.total.ordersTT)}</td>}
-                          {visibleColumns.soDonHuy && <td>{fmtNum(dayData.total.soDonHuyTT)}</td>}
-                          {visibleColumns.dsChotTT && <td>{fmtCurrency(dayData.total.dsChotTT)}</td>}
-                          {visibleColumns.dsHuy && <td>{fmtCurrency(dayData.total.dsHuyTT)}</td>}
-                          {visibleColumns.tiLeChotTT && <td>{fmtPct(dayData.total.tiLeChotTT)}</td>}
+                          {visibleColumns.mess && <td className="total-value">{fmtNum(dayData.total.mess)}</td>}
+                          {visibleColumns.cpqc && <td className="total-value">{fmtCurrency(dayData.total.cpqc)}</td>}
+                          {visibleColumns.orders && <td className="total-value">{fmtNum(dayData.total.orders)}</td>}
+                          <td className="total-value" style={{backgroundColor: dayData.total.soDonTT > 0 ? '#e8f5e9' : 'transparent', fontWeight: 'bold'}}>
+                            {fmtNum(dayData.total.soDonTT)}
+                          </td>
+                          {visibleColumns.dsChot && <td className="total-value">{fmtCurrency(dayData.total.dsChot)}</td>}
+                          {visibleColumns.dsChotTT && <td className="total-value">{fmtCurrency(dayData.total.dsChotTT)}</td>}
+                          {visibleColumns.tiLeChot && <td className={`text-center total-value ${getRateClass(dayData.total.tiLeChot)}`}>{fmtPct(dayData.total.tiLeChot)}</td>}
+                          {visibleColumns.tiLeChotTT && <td className={`text-center total-value ${getRateClass(dayData.total.tiLeChotTT)}`}>{fmtPct(dayData.total.tiLeChotTT)}</td>}
+                          {visibleColumns.giaMess && <td className="total-value">{fmtCurrency(dayData.total.giaMess)}</td>}
+                          {visibleColumns.cps && <td className="total-value">{fmtCurrency(dayData.total.cps)}</td>}
+                          {visibleColumns.cp_ds && <td className="total-value">{fmtPct(dayData.total.cp_ds)}</td>}
+                          {visibleColumns.giaTBDon && <td className="total-value">{fmtCurrency(dayData.total.giaTBDon)}</td>}
                         </tr>
                         {dayData.rows.map((row, rIdx) => (
                           <tr key={rIdx}>
                             {visibleColumns.stt && <td className="text-center">{rIdx + 1}</td>}
-                            {visibleColumns.team && <td>{row.team}</td>}
-                            {visibleColumns.marketing && <td>{row.name}</td>}
-                            {visibleColumns.cpqc && <td>{fmtCurrency(row.cpqc)}</td>}
+                            {visibleColumns.team && <td className="text-left">{row.team}</td>}
+                            {visibleColumns.marketing && <td className="text-left">{row.name}</td>}
                             {visibleColumns.mess && <td>{fmtNum(row.mess)}</td>}
+                            {visibleColumns.cpqc && <td>{fmtCurrency(row.cpqc)}</td>}
                             {visibleColumns.orders && <td>{fmtNum(row.orders)}</td>}
+                            <td style={{backgroundColor: row.soDonTT > 0 ? '#e8f5e9' : 'transparent'}}>
+                              {fmtNum(row.soDonTT)}
+                            </td>
                             {visibleColumns.dsChot && <td>{fmtCurrency(row.dsChot)}</td>}
+                            {visibleColumns.dsChotTT && <td>{fmtCurrency(row.dsChotTT)}</td>}
                             {visibleColumns.tiLeChot && <td className={`text-center ${getRateClass(row.tiLeChot)}`}>{fmtPct(row.tiLeChot)}</td>}
+                            {visibleColumns.tiLeChotTT && <td className={`text-center ${getRateClass(row.tiLeChotTT)}`}>{fmtPct(row.tiLeChotTT)}</td>}
                             {visibleColumns.giaMess && <td>{fmtCurrency(row.giaMess)}</td>}
                             {visibleColumns.cps && <td className={getCpsCellStyle(row.cps)}>{fmtCurrency(row.cps)}</td>}
                             {visibleColumns.cp_ds && <td className={`text-center ${row.cp_ds > 33 ? 'bg-yellow' : ''}`}>{fmtPct(row.cp_ds)}</td>}
                             {visibleColumns.giaTBDon && <td>{fmtCurrency(row.giaTBDon)}</td>}
-                            {visibleColumns.ordersTT && <td>{fmtNum(row.ordersTT)}</td>}
-                            {visibleColumns.soDonHuy && <td>{fmtNum(row.soDonHuyTT)}</td>}
-                            {visibleColumns.dsChotTT && <td>{fmtCurrency(row.dsChotTT)}</td>}
-                            {visibleColumns.dsHuy && <td>{fmtCurrency(row.dsHuyTT)}</td>}
-                            {visibleColumns.tiLeChotTT && <td className={`text-center ${getRateClass(row.tiLeChotTT)}`}>{fmtPct(row.tiLeChotTT)}</td>}
                           </tr>
                         ))}
                       </tbody>
@@ -935,6 +1330,9 @@ export default function XemBaoCaoMKT() {
                 ))}
               </>
             )}
+                </div>
+              </div>
+            </div>
           </div>
         )
       }
@@ -942,7 +1340,36 @@ export default function XemBaoCaoMKT() {
       {/* TAB 2: KPI Report */}
       {
         activeTab === 'KpiReport' && (
-          <div className="table-responsive-container">
+          <div id="KpiReport" className={`tab-content ${activeTab === 'KpiReport' ? 'active' : ''}`}>
+            <div className="report-container">
+              <div className="sidebar">
+                <h3>Bộ lọc</h3>
+                <label>Từ ngày:</label>
+                <input 
+                  type="date" 
+                  value={startDate} 
+                  onChange={e => setStartDate(e.target.value)} 
+                />
+                <label>Đến ngày:</label>
+                <input 
+                  type="date" 
+                  value={endDate} 
+                  onChange={e => setEndDate(e.target.value)} 
+                />
+                <h3>Team</h3>
+                <div className="indent">
+                  <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>
+                    <option value="ALL">Tất cả</option>
+                    {teams.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="main-content-area">
+                <div className="header">
+                  <div style={{ width: 60, height: 60, borderRadius: '50%', backgroundColor: '#2d7c2d', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '24px', fontWeight: 'bold' }}>MKT</div>
+                  <h2>BÁO CÁO HIỆU SUẤT KPI</h2>
+                </div>
+                <div className="table-responsive-container">
             {loading ? (
               <div style={{ padding: '20px', textAlign: 'center' }}>Đang tải dữ liệu...</div>
             ) : (
@@ -992,6 +1419,9 @@ export default function XemBaoCaoMKT() {
                 </tbody>
               </table>
             )}
+                </div>
+              </div>
+            </div>
           </div>
         )
       }
@@ -1012,11 +1442,68 @@ export default function XemBaoCaoMKT() {
       {/* TAB 4: Market Report */}
       {
         activeTab === 'MarketReport' && (
-          <>
-            {renderMarketTable(processMarketData.nonAsia, 'THỊ TRƯỜNG NGOÀI CHÂU Á')}
+          <div id="MarketReport" className={`tab-content ${activeTab === 'MarketReport' ? 'active' : ''}`}>
+            <div className="report-header">
+              <div className="report-title">THỐNG KÊ HIỆU QUẢ MARKETING THEO SẢN PHẨM & THỊ TRƯỜNG</div>
+            </div>
+            <div className="filter-container">
+              <div className="filter-group">
+                <label>Từ ngày:</label>
+                <input 
+                  type="date" 
+                  value={startDate} 
+                  onChange={e => setStartDate(e.target.value)} 
+                />
+              </div>
+              <div className="filter-group">
+                <label>Đến ngày:</label>
+                <input 
+                  type="date" 
+                  value={endDate} 
+                  onChange={e => setEndDate(e.target.value)} 
+                />
+              </div>
+              <div className="filter-group">
+                <label>Team:</label>
+                <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>
+                  <option value="ALL">Tất cả</option>
+                  {teams.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="filter-group">
+                <label>Sản phẩm:</label>
+                <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)}>
+                  <option value="ALL">Tất cả</option>
+                  {products.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="filter-group">
+                <label>Thị trường:</label>
+                <select value={selectedMarket} onChange={e => setSelectedMarket(e.target.value)}>
+                  <option value="ALL">Tất cả</option>
+                  {markets.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <button 
+                onClick={fetchData}
+                style={{
+                  background: '#2d7c2d',
+                  color: 'white',
+                  border: 'none',
+                  padding: '8px 15px',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Áp dụng
+              </button>
+            </div>
+
+            <div className="section-title">THỊ TRƯỜNG CHÂU Á</div>
             {renderMarketTable(processMarketData.asia, 'THỊ TRƯỜNG CHÂU Á')}
+            {renderMarketTable(processMarketData.nonAsia, 'THỊ TRƯỜNG NGOÀI CHÂU Á')}
             {renderMarketTable(processMarketData.summary, 'TỔNG HỢP')}
-          </>
+          </div>
         )
       }
     </div >
