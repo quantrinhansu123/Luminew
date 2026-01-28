@@ -1408,7 +1408,7 @@ function VanDon() {
                       { position: 'sticky', left: idx * 100, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
 
                     return (
-                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'pl-2 pr-3' : 'px-4'}`} style={{ ...stickyStyle, position: 'relative', minWidth: 'fit-content', width: 'auto' }}>
+                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'pl-2 pr-3' : 'px-4'}`} style={{ ...stickyStyle, position: 'relative', minWidth: (col === "Kết quả Check" || col === "Kết quả check") ? '140px' : 'fit-content', maxWidth: (col === "Kết quả Check" || col === "Kết quả check") ? '160px' : 'auto', width: (col === "Kết quả Check" || col === "Kết quả check") ? '150px' : 'auto' }}>
                         <div className={`font-semibold mb-2 text-gray-700 text-sm whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'text-left' : ''}`}>{col}</div>
                         {/* Render Filters based on View Mode and Column Type */}
                         {col === "STT" ? (
