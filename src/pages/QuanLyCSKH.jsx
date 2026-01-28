@@ -9,10 +9,9 @@ import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 
 function QuanLyCSKH() {
-  const navigate = useNavigate(); // Add hook for navigation if needed, or just use Link
+  // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
+  const navigate = useNavigate();
   const { canView, canEdit, canDelete, role } = usePermissions();
-
-
 
   const [allData, setAllData] = useState([]);
   const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
@@ -23,6 +22,7 @@ function QuanLyCSKH() {
   const [filterMarket, setFilterMarket] = useState([]);
   const [filterProduct, setFilterProduct] = useState([]);
   const [filterStatus, setFilterStatus] = useState([]);
+  const [filterPersonnel, setFilterPersonnel] = useState(''); // Filter by personnel name
 
   // Date state - default to last 3 days
   const [startDate, setStartDate] = useState(() => {
@@ -39,6 +39,12 @@ function QuanLyCSKH() {
   const [sortDirection, setSortDirection] = useState('asc');
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState(null);
+
+  // --- Edit Modal State (must be before early return) ---
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isViewing, setIsViewing] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const defaultColumns = [
     'Mã đơn hàng',
@@ -162,22 +168,93 @@ function QuanLyCSKH() {
       query = query.order('order_date', { ascending: false });
 
       // --- USER ISOLATION FILTER (CSKH) ---
-      // Nếu có selectedPersonnelNames, lấy đơn hàng của tất cả nhân sự trong danh sách
-      // Nếu không có, mới filter theo user hiện tại
-      if (!isManager && selectedPersonnelNames.length > 0) {
-        // Tạo danh sách tên để filter (bao gồm cả user hiện tại nếu chưa có trong danh sách)
-        const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-        console.log('🔍 [CSKH] Filtering by selected personnel names at DB level:', allNames);
-        
-        // Filter theo cột cskh với tất cả tên trong danh sách
-        const orConditions = allNames.map(name => `cskh.ilike.%${name}%`);
-        
-        if (orConditions.length > 0) {
-          query = query.or(orConditions.join(','));
+      // Khớp với các cột: Nhân viên Sale, Nhân viên MKT, Nhân viên Vận đơn
+      // => Dùng các field trong bảng orders: sale_staff, marketing_staff, delivery_staff
+      if (!isManager) {
+        // Nếu có filterPersonnel được chọn: chỉ lấy đơn mà người đó xuất hiện
+        if (filterPersonnel && filterPersonnel.trim().length > 0) {
+          const name = filterPersonnel.trim();
+          const pattern = `%${name}%`;
+          console.log('🔍 [CSKH] Filtering by selected personnel (Sale/MKT/Vận đơn):', name);
+
+          const orConditions = [
+            `sale_staff.ilike.${pattern}`,
+            `marketing_staff.ilike.${pattern}`,
+            `delivery_staff.ilike.${pattern}`
+          ];
+
+          try {
+            query = query.or(orConditions.join(','));
+            console.log('✅ [CSKH] Applied personnel OR filter:', orConditions.join(','));
+          } catch (orError) {
+            console.error('❌ [CSKH] Error applying personnel OR filter, falling back to single column:', orError);
+            // Fallback: dùng sale_staff
+            query = query.ilike('sale_staff', pattern);
+          }
+        } else if (selectedPersonnelNames.length > 0) {
+          // Có danh sách nhân sự được tích trong phân quyền:
+          // Lấy đơn mà bất kỳ người nào trong danh sách xuất hiện ở Sale/MKT/Vận đơn
+          console.log('🔍 [CSKH] Filtering by selected personnel list (Sale/MKT/Vận đơn):', selectedPersonnelNames);
+
+          const orConditions = [];
+          selectedPersonnelNames
+            .filter(name => name && name.trim().length > 0)
+            .forEach(name => {
+              const pattern = `%${name.trim()}%`;
+              orConditions.push(`sale_staff.ilike.${pattern}`);
+              orConditions.push(`marketing_staff.ilike.${pattern}`);
+              orConditions.push(`delivery_staff.ilike.${pattern}`);
+            });
+
+          if (orConditions.length > 0) {
+            try {
+              query = query.or(orConditions.join(','));
+              console.log('✅ [CSKH] Applied OR filter for selected personnel list:', orConditions.join(','));
+            } catch (orError) {
+              console.error('❌ [CSKH] Error applying OR filter for list, falling back to first name:', orError);
+              const first = selectedPersonnelNames[0]?.trim();
+              if (first) {
+                const pattern = `%${first}%`;
+                query = query.or([
+                  `sale_staff.ilike.${pattern}`,
+                  `marketing_staff.ilike.${pattern}`,
+                  `delivery_staff.ilike.${pattern}`
+                ].join(','));
+              }
+            }
+          } else {
+            // Không có tên hợp lệ -> không trả về đơn nào
+            console.warn('⚠️ [CSKH] No valid selected personnel names after trim, returning empty result');
+            query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+          }
+        } else {
+          // Không có nhân sự được tích trong phân quyền: không hiển thị đơn nào
+          console.warn('⚠️ [CSKH] No selected personnel found in permission table, returning empty result');
+          query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Return no results
         }
-      } else if (!isManager && userName) {
-        // Nếu không có selectedPersonnelNames, filter theo user hiện tại
-        query = query.ilike('cskh', `%${userName}%`);
+      } else {
+        // Admin/Manager: có thể filter theo nhân sự nếu được chọn
+        if (filterPersonnel && filterPersonnel.trim().length > 0) {
+          const name = filterPersonnel.trim();
+          const pattern = `%${name}%`;
+          console.log('🔍 [CSKH] Admin filtering by selected personnel (Sale/MKT/Vận đơn):', name);
+
+          const orConditions = [
+            `sale_staff.ilike.${pattern}`,
+            `marketing_staff.ilike.${pattern}`,
+            `delivery_staff.ilike.${pattern}`
+          ];
+
+          try {
+            query = query.or(orConditions.join(','));
+            console.log('✅ [CSKH] Admin applied personnel OR filter:', orConditions.join(','));
+          } catch (orError) {
+            console.error('❌ [CSKH] Admin error applying personnel OR filter, falling back to sale_staff:', orError);
+            query = query.ilike('sale_staff', pattern);
+          }
+        } else {
+          console.log('✅ [CSKH] Admin/Manager: viewing all orders (no personnel filter)');
+        }
       }
 
       const { data, error } = await query;
@@ -203,19 +280,73 @@ function QuanLyCSKH() {
       }));
 
       setAllData(mappedData);
+      console.log(`✅ [CSKH] Loaded ${mappedData.length} orders`);
 
     } catch (error) {
-      console.error('Load data error:', error);
-      alert(`❌ Lỗi tải dữ liệu: ${error.message}`);
+      console.error('❌ [CSKH] Load data error:', {
+        error,
+        message: error?.message,
+        code: error?.code,
+        details: error?.details,
+        hint: error?.hint,
+        startDate,
+        endDate,
+        isManager,
+        selectedPersonnelNames,
+        userName
+      });
+      
+      // User-friendly error message
+      const errorMessage = error?.message || 'Lỗi không xác định';
+      const isRLSError = errorMessage.includes('row-level security') || errorMessage.includes('RLS');
+      const isPermissionError = errorMessage.includes('permission') || errorMessage.includes('quyền');
+      
+      if (isRLSError || isPermissionError) {
+        alert(`❌ Lỗi phân quyền:\n\n${errorMessage}\n\nVui lòng kiểm tra quyền truy cập của bạn hoặc liên hệ Admin.`);
+      } else {
+        alert(`❌ Lỗi tải dữ liệu CSKH:\n\n${errorMessage}\n\nVui lòng thử lại hoặc liên hệ IT nếu lỗi tiếp tục xảy ra.`);
+      }
+      
       setAllData([]);
     } finally {
       setLoading(false);
     }
   };
 
+  // Load selected personnel names for current user
+  useEffect(() => {
+    const loadSelectedPersonnel = async () => {
+      try {
+        const userEmail = localStorage.getItem("userEmail") || "";
+        
+        if (!userEmail) {
+          setSelectedPersonnelNames([]);
+          return;
+        }
+
+        const userEmailLower = userEmail.toLowerCase().trim();
+        const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+        const personnelNames = personnelMap[userEmailLower] || [];
+
+        const validNames = personnelNames.filter(name => {
+          const nameStr = String(name).trim();
+          return nameStr.length > 0 && !nameStr.includes('@');
+        });
+        
+        console.log('📝 [QuanLyCSKH] Valid personnel names:', validNames);
+        setSelectedPersonnelNames(validNames);
+      } catch (error) {
+        console.error('❌ [QuanLyCSKH] Error loading selected personnel:', error);
+        setSelectedPersonnelNames([]);
+      }
+    };
+
+    loadSelectedPersonnel();
+  }, []);
+
   useEffect(() => {
     loadData();
-  }, [startDate, endDate, role]);
+  }, [startDate, endDate, role, selectedPersonnelNames]);
 
 
 
@@ -343,6 +474,17 @@ function QuanLyCSKH() {
       });
     }
 
+    // Personnel filter (client-side filter for additional filtering - full match)
+    if (filterPersonnel && filterPersonnel.trim().length > 0) {
+      data = data.filter(row => {
+        const cskh = String(row["CSKH"] || '').trim();
+        const filterName = filterPersonnel.trim();
+        // Match chính xác tên đầy đủ (case-insensitive)
+        return cskh.toLowerCase() === filterName.toLowerCase() || 
+               cskh.toLowerCase().includes(filterName.toLowerCase());
+      });
+    }
+
     // Date filter (already applied on server-side, but double check if needed or just skip)
     // Since allData is already filtered by date from server, we might not need strict filtering here 
     // BUT if the user changes local state `startDate` it triggers fetch. 
@@ -359,7 +501,7 @@ function QuanLyCSKH() {
     }
 
     return data;
-  }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, sortColumn, sortDirection]);
+  }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterPersonnel, sortColumn, sortDirection]);
 
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
@@ -509,14 +651,6 @@ function QuanLyCSKH() {
     });
     setVisibleColumns(defaultCols);
   };
-
-
-
-  // --- Edit Modal Logic ---
-  const [editingOrder, setEditingOrder] = useState(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isViewing, setIsViewing] = useState(false); // New state for View Only mode
-  const [isUpdating, setIsUpdating] = useState(false);
 
   // Open Edit modal
   const openEditModal = (order) => {
@@ -713,6 +847,23 @@ function QuanLyCSKH() {
                 ))}
               </select>
             </div>
+
+            {/* Personnel Filter - chỉ hiển thị nhân sự được tích trong phân quyền */}
+            {selectedPersonnelNames.length > 0 && (
+              <div className="min-w-[180px]">
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân sự CSKH</label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                  value={filterPersonnel}
+                  onChange={(e) => setFilterPersonnel(e.target.value)}
+                >
+                  <option value="">Tất cả nhân sự ({selectedPersonnelNames.length})</option>
+                  {selectedPersonnelNames.map(personnel => (
+                    <option key={personnel} value={personnel}>{personnel}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Quick Filter */}
             <div className="min-w-[180px]">

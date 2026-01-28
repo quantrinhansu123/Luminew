@@ -21,21 +21,18 @@ export const deleteRole = async (code) => {
 // --- USER ASSIGNMENT ---
 // --- USER ASSIGNMENT ---
 export const getUserRoles = async () => {
-    // Fetch directly from users table which is now the source of truth
+    // Fetch directly from users table - LẤY HẾT TẤT CẢ NHÂN SỰ
     const { data, error } = await supabase
         .from('users')
         .select('email, role, created_at')
-        .neq('role', 'user'); // Optional: only show non-default roles to keep list clean? 
-    // Or remove .neq to show everyone. Let's show everyone who has a role assigned.
-    // Actually, sync script assigns 'marketing', 'sale' etc. So we should probably show everyone 
-    // or at least everyone with a role that is not 'user' if 'user' is the default for unprivileged.
+        .order('email', { ascending: true });
 
     if (error) throw error;
 
     // Map to match the interface PermissionManager expects { email, role_code, assigned_at }
-    return data.map(u => ({
+    return (data || []).map(u => ({
         email: u.email,
-        role_code: u.role,
+        role_code: u.role || 'user', // Default to 'user' if null
         assigned_at: u.created_at
     }));
 };
@@ -134,22 +131,60 @@ export const getEmployeesByTeams = async (teams) => {
     if (!teams || teams.length === 0) return [];
     
     try {
-        const { data, error } = await supabase
-            .from('users')
-            .select('*')
-            .in('team', teams)
-            .order('name', { ascending: true });
+        // Lấy từ cả 2 bảng: users và human_resources để đảm bảo đầy đủ
+        const [usersData, hrData] = await Promise.all([
+            supabase.from('users').select('email, name, username, position, department, team').in('team', teams).order('name', { ascending: true }),
+            supabase.from('human_resources').select('"Họ Và Tên", email, "Bộ phận", "Vị trí", "Team"').in('"Team"', teams).order('"Họ Và Tên"', { ascending: true })
+        ]);
 
-        if (error) throw error;
-        if (!data) return [];
+        const { data: users, error: usersError } = usersData;
+        const { data: hr, error: hrError } = hrData;
 
-        return data.map(u => ({
-            email: u.email,
-            'Họ Và Tên': u.name || u.username || u.email,
-            position: u.position || 'Nhân viên',
-            department: u.department || 'Chưa phân loại',
-            team: u.team || ''
-        }));
+        if (usersError) console.error("Error fetching users by teams:", usersError);
+        if (hrError) console.error("Error fetching human_resources by teams:", hrError);
+
+        // Tạo map từ users (ưu tiên)
+        const employeesMap = new Map();
+        
+        // Thêm từ users trước
+        (users || []).forEach(u => {
+            if (u.email) {
+                employeesMap.set(u.email.toLowerCase(), {
+                    email: u.email,
+                    'Họ Và Tên': u.name || u.username || u.email,
+                    position: u.position || 'Nhân viên',
+                    department: u.department || 'Chưa phân loại',
+                    team: u.team || ''
+                });
+            }
+        });
+
+        // Thêm từ human_resources nếu chưa có trong users và team khớp
+        (hr || []).forEach(hrItem => {
+            const emailKey = (hrItem.email || '').toLowerCase();
+            const hrTeam = (hrItem['Team'] || '').trim();
+            const teamMatch = teams.some(t => 
+                hrTeam.toLowerCase() === t.toLowerCase() || 
+                hrTeam === t
+            );
+            
+            if (emailKey && teamMatch && !employeesMap.has(emailKey)) {
+                employeesMap.set(emailKey, {
+                    email: hrItem.email,
+                    'Họ Và Tên': hrItem['Họ Và Tên'] || hrItem.email,
+                    position: hrItem['Vị trí'] || 'Nhân viên',
+                    department: hrItem['Bộ phận'] || 'Chưa phân loại',
+                    team: hrItem['Team'] || ''
+                });
+            }
+        });
+
+        // Chuyển map thành array và sort theo tên
+        return Array.from(employeesMap.values()).sort((a, b) => {
+            const nameA = (a['Họ Và Tên'] || '').toLowerCase();
+            const nameB = (b['Họ Và Tên'] || '').toLowerCase();
+            return nameA.localeCompare(nameB);
+        });
     } catch (error) {
         console.error("Error fetching employees by teams:", error);
         return [];
@@ -329,25 +364,23 @@ export const removeUserRole = async (email) => {
 };
 
 // --- EMPLOYEES ---
-// --- EMPLOYEES ---
+// Hiển hết danh sách nhân sự từ bảng `users`
 export const getEmployees = async () => {
     try {
-        // Switch to Supabase 'users' table as requested
         const { data, error } = await supabase
             .from('users')
-            .select('*')
-            .order('name', { ascending: true }); // Assuming 'name' exists, falling back to 'email' if needed
+            .select('email, name, username, position, department, team')
+            .order('name', { ascending: true });
 
         if (error) throw error;
         if (!data) return [];
 
-        // Map Supabase users to expected UI format
         const employees = data.map(u => ({
             email: u.email,
-            'Họ Và Tên': u.name || u.username || u.email, // Fallback to email if name missing
+            'Họ Và Tên': u.name || u.username || u.email,
             position: u.position || 'Nhân viên',
             department: u.department || 'Chưa phân loại',
-            team: u.team || '' // Explicitly separate team from department
+            team: u.team || ''
         }));
 
         return employees;

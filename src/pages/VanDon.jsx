@@ -1467,8 +1467,10 @@ function VanDon() {
                             ? formatDate(val)
                             : (col === "Tổng tiền VNĐ" ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : val);
 
+                          const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
                           const cellStyle = cIdx < fixedColumns ?
-                            { position: 'sticky', left: cIdx * 100, zIndex: 10 } : {};
+                            { position: 'sticky', left: cIdx * 100, zIndex: 10, ...(isCheckCol ? { minWidth: '140px', maxWidth: '160px', width: '150px' } : {}) } : 
+                            (isCheckCol ? { minWidth: '140px', maxWidth: '160px', width: '150px' } : {});
 
                           return (
                             <td

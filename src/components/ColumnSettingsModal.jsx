@@ -10,7 +10,9 @@ function ColumnSettingsModal({
   onSelectAll, 
   onDeselectAll, 
   onResetDefault,
-  defaultColumns = []
+  defaultColumns = [],
+  // Map: database key -> nhãn tiếng Việt/nhãn hiển thị
+  columnLabelMap = {}
 }) {
   if (!isOpen) return null;
 
@@ -78,7 +80,9 @@ function ColumnSettingsModal({
                       onChange={() => onToggleColumn(column)}
                       className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021] focus:ring-2"
                     />
-                    <span className="text-sm text-gray-700 flex-1">{column}</span>
+                    <span className="text-sm text-gray-700 flex-1">
+                      {columnLabelMap[column] || column}
+                    </span>
                     {defaultColumns.includes(column) && (
                       <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Mặc định</span>
                     )}

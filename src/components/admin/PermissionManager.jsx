@@ -601,12 +601,18 @@ const EmployeesList = ({
             </div>
             {isExpanded && (
                 <div className="max-h-40 overflow-y-auto border rounded p-2 mt-1 space-y-1 bg-gray-50">
-                    {filteredEmployees.map(emp => (
-                        <div key={emp.email} className="text-xs text-gray-700 py-1 border-b last:border-0">
-                            <div className="font-medium">{emp['Họ Và Tên']}</div>
-                            <div className="text-gray-500">{emp.email} - {emp.team}</div>
-                        </div>
-                    ))}
+                    {filteredEmployees.map(emp => {
+                        const empEmail = emp.email || emp.Email || '';
+                        const empName = emp['Họ Và Tên'] || emp.name || empEmail;
+                        return (
+                            <div key={empEmail || empName} className="text-xs text-gray-700 py-1 border-b last:border-0">
+                                <div className="font-medium">{empName}</div>
+                                {empEmail && (
+                                    <div className="text-gray-500">{empEmail}{emp.team ? ` - ${emp.team}` : ''}</div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -728,6 +734,10 @@ const PermissionManager = ({ searchQuery = "" }) => {
 
     // Matrix State
     const [selectedRole, setSelectedRole] = useState(null);
+
+    // Filter State
+    const [filterDepartment, setFilterDepartment] = useState(''); // Filter by department
+    const [filterTeam, setFilterTeam] = useState(''); // Filter by team
 
     // Edit User State
     const [editingUser, setEditingUser] = useState(null); // { email, name, department, position, team, role_code }
@@ -1026,9 +1036,46 @@ const PermissionManager = ({ searchQuery = "" }) => {
         return role.name.toLowerCase().includes(q) || role.code.toLowerCase().includes(q);
     });
 
+    // Get unique departments from employees
+    const uniqueDepartments = [...new Set(
+        employees
+            .map(emp => departmentsMap[emp.email] || emp.department)
+            .filter(Boolean)
+    )].sort();
+
+    // Get unique teams from employees (including leader teams)
+    const uniqueTeams = [...new Set([
+        ...employees.map(emp => emp.team).filter(Boolean),
+        ...Object.values(leaderTeamsMap).flat()
+    ])].sort();
+
     const filteredUserRoles = userRoles.filter(ur => {
         const q = searchQuery.toLowerCase();
-        return ur.email.toLowerCase().includes(q) || ur.role_code.toLowerCase().includes(q);
+        const matchesSearch = ur.email.toLowerCase().includes(q) || ur.role_code.toLowerCase().includes(q);
+        
+        // Filter by department
+        if (filterDepartment) {
+            const emp = employees.find(e => e.email === ur.email);
+            const departmentFromHR = departmentsMap[ur.email] || emp?.department || '';
+            if (departmentFromHR !== filterDepartment) {
+                return false;
+            }
+        }
+        
+        // Filter by team
+        if (filterTeam) {
+            const emp = employees.find(e => e.email === ur.email);
+            const userTeam = emp?.team || '';
+            const leaderTeams = leaderTeamsMap[ur.email] || [];
+            
+            // Check if user's team or any of their leader teams matches
+            const matchesTeam = userTeam === filterTeam || leaderTeams.includes(filterTeam);
+            if (!matchesTeam) {
+                return false;
+            }
+        }
+        
+        return matchesSearch;
     });
 
     return (
@@ -1229,6 +1276,57 @@ const PermissionManager = ({ searchQuery = "" }) => {
                             <button onClick={handleAssignUser} className="bg-teal-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-teal-700 flex items-center justify-center gap-2 h-10 w-full md:w-auto">
                                 <Plus size={16} /> Gán Quyền
                             </button>
+                        </div>
+
+                        {/* Filter by Department and Team */}
+                        <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center gap-2">
+                                <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+                                    Lọc theo Bộ phận:
+                                </label>
+                                <select
+                                    value={filterDepartment}
+                                    onChange={(e) => setFilterDepartment(e.target.value)}
+                                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[200px]"
+                                >
+                                    <option value="">-- Tất cả Bộ phận --</option>
+                                    {uniqueDepartments.map(dept => (
+                                        <option key={dept} value={dept}>{dept}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                                <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+                                    Lọc theo Team:
+                                </label>
+                                <select
+                                    value={filterTeam}
+                                    onChange={(e) => setFilterTeam(e.target.value)}
+                                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[200px]"
+                                >
+                                    <option value="">-- Tất cả Team --</option>
+                                    {uniqueTeams.map(team => (
+                                        <option key={team} value={team}>{team}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            
+                            {(filterDepartment || filterTeam) && (
+                                <button
+                                    onClick={() => {
+                                        setFilterDepartment('');
+                                        setFilterTeam('');
+                                    }}
+                                    className="text-xs text-gray-500 hover:text-gray-700 underline whitespace-nowrap"
+                                >
+                                    Xóa tất cả bộ lọc
+                                </button>
+                            )}
+                            
+                            <div className="text-sm text-gray-600 ml-auto whitespace-nowrap">
+                                Hiển thị: <span className="font-semibold">{filteredUserRoles.length}</span> / {userRoles.length} nhân viên
+                            </div>
                         </div>
 
                         <div className="overflow-x-auto">

@@ -51,6 +51,42 @@ export default function DanhSachBaoCaoTayMKT() {
     const [editForm, setEditForm] = useState({});
     const [saving, setSaving] = useState(false);
 
+    // Map tên nhân sự -> email (lấy từ bảng nhân sự)
+    const [hrEmailMap, setHrEmailMap] = useState({});
+
+    // Load human_resources to map tên -> email
+    useEffect(() => {
+        const loadHrEmails = async () => {
+            try {
+                console.log('👥 Loading human_resources for email mapping...');
+                const { data, error } = await supabase
+                    .from('human_resources')
+                    .select('"Họ Và Tên", email');
+
+                if (error) {
+                    console.error('❌ Error loading human_resources:', error);
+                    return;
+                }
+
+                const map = {};
+                (data || []).forEach(row => {
+                    const nameKey = (row['Họ Và Tên'] || '').toLowerCase().trim();
+                    const emailVal = (row.email || '').toLowerCase().trim();
+                    if (nameKey && emailVal && !map[nameKey]) {
+                        map[nameKey] = emailVal;
+                    }
+                });
+
+                console.log(`✅ Loaded ${Object.keys(map).length} HR email mappings`);
+                setHrEmailMap(map);
+            } catch (err) {
+                console.error('❌ Unexpected error loading HR emails:', err);
+            }
+        };
+
+        loadHrEmails();
+    }, []);
+
     // Initialize Dates
     useEffect(() => {
         const today = new Date();
@@ -166,35 +202,25 @@ export default function DanhSachBaoCaoTayMKT() {
             }
 
             console.log(`✅ Fetched ${result.data?.length || 0} records`);
-            
-            // Filter data based on hierarchical permissions
-            let filteredData = result.data || [];
-            
-            // Admin/Director/Manager: see all data
-            const isAdminOrLeadership = ['admin', 'director', 'manager', 'super_admin', 'ADMIN', 'DIRECTOR', 'MANAGER'].includes((role || '').toUpperCase());
-            
-            if (!isAdminOrLeadership) {
-                // Leader: see team data only
-                if (role?.toUpperCase() === 'LEADER' && userTeam) {
-                    filteredData = filteredData.filter(item => 
-                        item['Team'] && item['Team'].toLowerCase() === userTeam.toLowerCase()
-                    );
-                } else {
-                    // Staff: see own data only (by name or email)
-                    filteredData = filteredData.filter(item => {
-                        const itemName = (item['Tên'] || '').toLowerCase().trim();
-                        const itemEmail = (item['Email'] || '').toLowerCase().trim();
-                        const currentUserName = userName.toLowerCase().trim();
-                        const currentUserEmail = userEmail.toLowerCase().trim();
-                        
-                        return (itemName === currentUserName && currentUserName !== '') ||
-                               (itemEmail === currentUserEmail && currentUserEmail !== '');
-                    });
+
+            // ✅ Hiển thị FULL dữ liệu (bỏ lọc theo phân quyền tại đây)
+            // Đồng thời bổ sung Email nhân viên từ bảng nhân sự (human_resources) nếu thiếu
+            const fullData = result.data || [];
+
+            const enrichedData = fullData.map(item => {
+                const currentEmail = (item['Email'] || '').trim();
+                const nameKey = (item['Tên'] || '').toLowerCase().trim();
+                const hrEmail = hrEmailMap[nameKey];
+
+                if (!currentEmail && hrEmail) {
+                    return { ...item, 'Email': hrEmail };
                 }
-            }
-            
-            console.log(`📊 Filtered to ${filteredData.length} records based on permissions (role: ${role}, team: ${userTeam})`);
-            setAllReports(filteredData); // Store all filtered data for pagination
+                return item;
+            });
+
+            console.log(`📊 Using FULL data set (no permission filter) - total: ${enrichedData.length} records | role: ${role}, team: ${userTeam}`);
+
+            setAllReports(enrichedData); // Store all data for pagination
             setCurrentPage(1); // Reset to first page when data changes
             
             // Calculate real values for all reports
@@ -204,8 +230,28 @@ export default function DanhSachBaoCaoTayMKT() {
                 console.warn('⚠️ No data found after filtering by permissions');
             }
         } catch (error) {
-            console.error('❌ Error fetching MKT reports:', error);
-            alert(`Lỗi khi tải dữ liệu: ${error.message || String(error)}`);
+            // Improved error logging & user-friendly message
+            console.error('❌ Error fetching MKT reports:', {
+                error,
+                message: error?.message,
+                filters,
+            });
+
+            const statusMatch = (error?.message || '').match(/status:\s*(\d{3})/i);
+            const statusText = statusMatch ? statusMatch[1] : '500';
+
+            const userMessage = [
+                'Không tải được dữ liệu \"Danh sách báo cáo tay MKT\".',
+                '',
+                `Mã lỗi server: ${statusText}`,
+                `Khoảng ngày đang lọc: ${filters.startDate} → ${filters.endDate}`,
+                '',
+                `Chi tiết kỹ thuật: ${error?.message || String(error)}`,
+                '',
+                'Nếu lỗi tiếp tục xảy ra, vui lòng chụp màn hình thông báo này và gửi cho bộ phận IT để kiểm tra API /api/fetch-detail-reports.'
+            ].join('\n');
+
+            alert(userMessage);
             setManualReports([]);
         } finally {
             setLoading(false);

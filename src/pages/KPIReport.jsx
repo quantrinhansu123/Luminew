@@ -288,6 +288,7 @@ export default function KPIReport() {
         isOpen={showColumnSettings}
         onClose={() => setShowColumnSettings(false)}
         allColumns={columnsConfig.map(c => c.key)}
+        columnLabelMap={Object.fromEntries(columnsConfig.map(c => [c.key, c.label || c.key]))}
         visibleColumns={visibleColumns}
         onToggleColumn={(key) => {
           const next = { ...visibleColumns };
