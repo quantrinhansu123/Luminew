@@ -12,9 +12,19 @@ function ColumnSettingsModal({
   onResetDefault,
   defaultColumns = [],
   // Map: database key -> nhãn tiếng Việt/nhãn hiển thị
-  columnLabelMap = {}
+  columnLabelMap = {},
+  // Danh sách các cột cần ẩn (không hiển thị trong modal)
+  hiddenColumns = [],
+  // Hàm để chuyển đổi tên cột sang tên hiển thị
+  getDisplayColumnName = null
 }) {
   if (!isOpen) return null;
+
+  // Lọc các cột để hiển thị trong modal (loại bỏ hiddenColumns)
+  const visibleColumnsInModal = allColumns.filter(col => !hiddenColumns.includes(col));
+  
+  // Đếm số cột đã chọn
+  const selectedCount = Object.values(visibleColumns).filter(v => v === true).length;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
@@ -59,17 +69,15 @@ function ColumnSettingsModal({
           {/* Column List */}
           <div className="space-y-2">
             <p className="text-sm font-semibold text-gray-700 mb-3">
-              Chọn các cột để hiển thị trong bảng ({Object.values(visibleColumns).filter(v => v === true).length} / {allColumns.length} đã chọn):
+              Chọn các cột để hiển thị trong bảng ({selectedCount} / {visibleColumnsInModal.length} đã chọn):
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {allColumns
-                .filter(
-                  (column) =>
-                    column !== 'Thuê TK' &&
-                    column !== 'Thời gian cutoff' &&
-                    column !== 'Tiền Hàng'
-                )
-                .map((column) => (
+              {visibleColumnsInModal.map((column) => {
+                const displayName = getDisplayColumnName 
+                  ? getDisplayColumnName(column)
+                  : (columnLabelMap[column] || column);
+                
+                return (
                   <label
                     key={column}
                     className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-200"
@@ -81,13 +89,14 @@ function ColumnSettingsModal({
                       className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021] focus:ring-2"
                     />
                     <span className="text-sm text-gray-700 flex-1">
-                      {columnLabelMap[column] || column}
+                      {displayName}
                     </span>
                     {defaultColumns.includes(column) && (
                       <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Mặc định</span>
                     )}
                   </label>
-                ))}
+                );
+              })}
             </div>
           </div>
         </div>

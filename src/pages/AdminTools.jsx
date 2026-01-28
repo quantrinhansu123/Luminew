@@ -1090,7 +1090,7 @@ const AdminTools = () => {
     }
 
     return (
-        <div className="p-6 max-w-6xl mx-auto min-h-screen bg-gray-50">
+        <div className="p-6 w-full mx-auto min-h-screen bg-gray-50">
             <h1 className="text-3xl font-bold mb-8 text-gray-800 flex items-center gap-3">
                 <Settings className="w-8 h-8 text-gray-600" />
                 Công cụ quản trị & Cấu hình

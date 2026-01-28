@@ -855,7 +855,17 @@ const PermissionManager = ({ searchQuery = "" }) => {
         if (!assignEmail || !assignRole) return toast.warning("Nhập email và chọn nhóm quyền");
         try {
             await rbacService.assignUserRole(assignEmail, assignRole);
-            toast.success(`Đã gán ${assignEmail} vào nhóm ${assignRole}`);
+            
+            // Tự động điền tên nhân sự vào cột "Nhân sự"
+            const selectedEmp = employees.find(e => e.email === assignEmail);
+            if (selectedEmp) {
+                const empName = selectedEmp['Họ Và Tên'] || selectedEmp.name || selectedEmp.email;
+                // Tự động thêm tên nhân sự vào selectedPersonnel
+                await rbacService.updateSelectedPersonnel(assignEmail, [empName]);
+                console.log(`✅ Đã tự động điền tên nhân sự: ${empName} cho ${assignEmail}`);
+            }
+            
+            toast.success(`Đã gán ${assignEmail} vào nhóm ${assignRole}${selectedEmp ? ` và tự động điền tên nhân sự` : ''}`);
             setAssignEmail('');
             loadData();
         } catch (error) {
@@ -1330,19 +1340,19 @@ const PermissionManager = ({ searchQuery = "" }) => {
                         </div>
 
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left border rounded-lg">
-                                <thead className="bg-gray-100 font-semibold text-gray-600">
+                            <table className="w-full text-base text-left border rounded-lg">
+                                <thead className="bg-gray-100 font-semibold text-gray-700">
                                     <tr>
-                                        <th className="p-3">Email</th>
-                                        <th className="p-3">Tên nhân viên</th>
-                                        <th className="p-3">Bộ phận</th>
-                                        <th className="p-3">Vị trí</th>
-                                        <th className="p-3">Team</th>
-                                        <th className="p-3">Vị trí Team</th>
-                                        <th className="p-3">Nhân sự</th>
-                                        <th className="p-3">Vai trò</th>
-                                        <th className="p-3">Updated At</th>
-                                        <th className="p-3 text-center">Hành động</th>
+                                        <th className="px-5 py-4 text-sm">Email</th>
+                                        <th className="px-5 py-4 text-sm">Tên nhân viên</th>
+                                        <th className="px-5 py-4 text-sm">Bộ phận</th>
+                                        <th className="px-5 py-4 text-sm">Vị trí</th>
+                                        <th className="px-5 py-4 text-sm">Team</th>
+                                        <th className="px-5 py-4 text-sm">Vị trí Team</th>
+                                        <th className="px-5 py-4 text-sm">Nhân sự</th>
+                                        <th className="px-5 py-4 text-sm">Vai trò</th>
+                                        <th className="px-5 py-4 text-sm">Updated At</th>
+                                        <th className="px-5 py-4 text-center whitespace-nowrap text-sm" style={{ minWidth: '140px' }}>Hành động</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y">
@@ -1360,11 +1370,11 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                         const selectedTeams = leaderTeamsMap[ur.email] || [];
                                         return (
                                             <tr key={ur.email} className="hover:bg-gray-50">
-                                                <td className="p-3 font-medium">{ur.email}</td>
-                                                <td className="p-3 text-gray-700">{emp ? emp['Họ Và Tên'] : '-'}</td>
-                                                <td className="p-3 text-gray-600">{departmentFromHR}</td>
-                                                <td className="p-3 text-gray-600">{emp ? emp.position : '-'}</td>
-                                                <td className="p-3">
+                                                <td className="px-5 py-4 font-medium text-sm">{ur.email}</td>
+                                                <td className="px-5 py-4 text-gray-700 text-sm">{emp ? emp['Họ Và Tên'] : '-'}</td>
+                                                <td className="px-5 py-4 text-gray-600 text-sm">{departmentFromHR}</td>
+                                                <td className="px-5 py-4 text-gray-600 text-sm">{emp ? emp.position : '-'}</td>
+                                                <td className="px-5 py-4">
                                                     <TeamEditor
                                                         email={ur.email}
                                                         currentTeam={emp ? emp.team : ''}
@@ -1380,7 +1390,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                         }}
                                                     />
                                                 </td>
-                                                <td className="p-3">
+                                                <td className="px-5 py-4">
                                                     <TeamMultiSelect
                                                         email={ur.email}
                                                         selectedTeams={selectedTeams}
@@ -1388,7 +1398,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                         onSave={(teams) => handleSaveLeaderTeams(ur.email, teams)}
                                                     />
                                                 </td>
-                                                <td className="p-3">
+                                                <td className="px-5 py-4">
                                                     <EmployeesList
                                                         teams={selectedTeams}
                                                         employees={employees}
@@ -1413,16 +1423,18 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                         }}
                                                     />
                                                 </td>
-                                                <td className="p-3">
-                                                    <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-semibold">
+                                                <td className="px-5 py-4">
+                                                    <span className="bg-blue-100 text-blue-800 px-3 py-1.5 rounded text-sm font-semibold">
                                                         {role ? role.name : ur.role_code}
                                                     </span>
                                                 </td>
-                                                <td className="p-3 text-gray-500 text-xs">{new Date(ur.assigned_at).toLocaleDateString()}</td>
-                                                <td className="p-3 text-center">
-                                                    <div className="flex items-center justify-center gap-2">
+                                                <td className="px-5 py-4 text-gray-500 text-sm">{new Date(ur.assigned_at).toLocaleDateString()}</td>
+                                                <td className="px-5 py-4 text-center whitespace-nowrap bg-white" style={{ minWidth: '140px', position: 'relative', zIndex: 10 }}>
+                                                    <div className="flex items-center justify-center gap-3">
                                                         <button
-                                                            onClick={() => {
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                e.preventDefault();
                                                                 const emp = employees.find(e => e.email === ur.email);
                                                                 setEditingUser({ 
                                                                     email: ur.email, 
@@ -1442,17 +1454,37 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                     selectedPersonnel: selectedPersonnelMap[ur.email] || []
                                                                 });
                                                             }}
-                                                            className="text-gray-400 hover:text-blue-600 p-1"
+                                                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2.5 rounded-md transition-all cursor-pointer border border-blue-200 hover:border-blue-400 shadow-sm"
                                                             title="Sửa thông tin"
+                                                            type="button"
+                                                            style={{ 
+                                                                display: 'inline-flex', 
+                                                                alignItems: 'center', 
+                                                                justifyContent: 'center',
+                                                                minWidth: '36px',
+                                                                minHeight: '36px'
+                                                            }}
                                                         >
-                                                            <Edit size={16} />
+                                                            <Edit size={18} strokeWidth={2} />
                                                         </button>
                                                         <button
-                                                            onClick={() => handleRemoveUser(ur.email)}
-                                                            className="text-gray-400 hover:text-red-600 p-1"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                e.preventDefault();
+                                                                handleRemoveUser(ur.email);
+                                                            }}
+                                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2.5 rounded-md transition-all cursor-pointer border border-red-200 hover:border-red-400 shadow-sm"
                                                             title="Xóa quyền"
+                                                            type="button"
+                                                            style={{ 
+                                                                display: 'inline-flex', 
+                                                                alignItems: 'center', 
+                                                                justifyContent: 'center',
+                                                                minWidth: '36px',
+                                                                minHeight: '36px'
+                                                            }}
                                                         >
-                                                            <Trash2 size={16} />
+                                                            <Trash2 size={18} strokeWidth={2} />
                                                         </button>
                                                     </div>
                                                 </td>
@@ -1461,7 +1493,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     })}
                                     {filteredUserRoles.length === 0 && (
                                         <tr>
-                                            <td colSpan={10} className="p-4 text-center text-gray-500">
+                                            <td colSpan={10} className="px-5 py-6 text-center text-gray-500 text-base">
                                                 Không tìm thấy kết quả
                                             </td>
                                         </tr>

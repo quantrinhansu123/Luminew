@@ -729,6 +729,28 @@ export default function NhapDonMoi({ isEdit = false }) {
         }
     };
 
+    // Hàm tính ca từ thời gian lên đơn
+    const calculateShiftFromTime = (dateTimeString) => {
+        if (!dateTimeString) return null;
+        
+        try {
+            const date = new Date(dateTimeString);
+            const hour = date.getHours();
+            
+            // Logic phân ca:
+            // Giữa ca: 8h - 17h59
+            // Hết ca: 18h trở đi hoặc trước 8h (ca đêm)
+            if (hour >= 8 && hour < 18) {
+                return "Giữa ca";
+            } else {
+                return "Hết ca";
+            }
+        } catch (error) {
+            console.error("Error calculating shift:", error);
+            return null;
+        }
+    };
+
     const handleSave = async () => {
         // Validation
         // Validation - Only strict for new orders
@@ -763,11 +785,24 @@ export default function NhapDonMoi({ isEdit = false }) {
                 return;
             }
 
+            // Tính ca từ thời gian lên đơn (sử dụng created_at hoặc thời gian hiện tại)
+            const orderDateTime = formData["created_at"] || new Date().toISOString();
+            const calculatedShift = calculateShiftFromTime(orderDateTime);
+
+            // Parse order_date từ created_at hoặc sử dụng thời gian hiện tại
+            let orderDateValue;
+            if (formData["created_at"]) {
+                // created_at là datetime-local format (YYYY-MM-DDTHH:mm)
+                const dateFromForm = new Date(formData["created_at"]);
+                orderDateValue = dateFromForm.toISOString();
+            } else {
+                orderDateValue = new Date().toISOString();
+            }
+
             // Prepare payload
             const orderPayload = {
                 order_code: orderCode,
-                order_date: new Date().toISOString(), // Use full ISO string or preserve original?
-                // For edit, maybe we want to keep original date unless user changed it
+                order_date: orderDateValue,
                 tracking_code: formData.tracking_code,
 
                 customer_name: formData["ten-kh"],
@@ -802,6 +837,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                 page_name: selectedPage,
                 marketing_staff: selectedMkt,
                 sale_staff: selectedSale,
+                
+                // Tự động điền ca từ thời gian lên đơn
+                shift: calculatedShift || (isEdit ? undefined : "Giữa ca"), // Chỉ điền khi tạo mới hoặc có thể tính được
 
                 // Defaults / System
                 delivery_status: isEdit ? undefined : "Chờ xử lý", // Don't overwrite status on edit

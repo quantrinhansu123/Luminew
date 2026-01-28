@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
+import * as rbacService from '../services/rbacService';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -23,12 +24,25 @@ export default function DanhSachBaoCaoTayMKT() {
     const teamFilter = searchParams.get('team'); // 'RD' or null
 
     // Permission Logic
-    const { canView, role, team: userTeam } = usePermissions();
+    const { canView, role, team: userTeam, permissions } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_MANUAL' : 'MKT_MANUAL';
     
     // Get user email and name for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
     const userName = localStorage.getItem('username') || '';
+    
+    // Debug: Log permissions
+    useEffect(() => {
+        console.log('🔐 User Permissions:', {
+            role,
+            permissionCode,
+            hasPermission: canView(permissionCode),
+            allPermissions: permissions,
+            userEmail,
+            userName,
+            userTeam
+        });
+    }, [role, permissionCode, permissions, userEmail, userName, userTeam]);
 
     const [loading, setLoading] = useState(true);
     const [manualReports, setManualReports] = useState([]);
@@ -53,6 +67,9 @@ export default function DanhSachBaoCaoTayMKT() {
 
     // Map tên nhân sự -> email (lấy từ bảng nhân sự)
     const [hrEmailMap, setHrEmailMap] = useState({});
+    
+    // Selected personnel names (từ cột selected_personnel trong users table)
+    const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
 
     // Load human_resources to map tên -> email
     useEffect(() => {
@@ -87,6 +104,35 @@ export default function DanhSachBaoCaoTayMKT() {
         loadHrEmails();
     }, []);
 
+    // Load selected personnel names for current user
+    useEffect(() => {
+        const loadSelectedPersonnel = async () => {
+            try {
+                if (!userEmail) {
+                    setSelectedPersonnelNames([]);
+                    return;
+                }
+
+                const userEmailLower = userEmail.toLowerCase().trim();
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+                const personnelNames = personnelMap[userEmailLower] || [];
+
+                const validNames = personnelNames.filter(name => {
+                    const nameStr = String(name).trim();
+                    return nameStr.length > 0 && !nameStr.includes('@');
+                });
+                
+                console.log('📝 [DanhSachBaoCaoTayMKT] Valid personnel names:', validNames);
+                setSelectedPersonnelNames(validNames);
+            } catch (error) {
+                console.error('❌ [DanhSachBaoCaoTayMKT] Error loading selected personnel:', error);
+                setSelectedPersonnelNames([]);
+            }
+        };
+
+        loadSelectedPersonnel();
+    }, [userEmail]);
+
     // Initialize Dates
     useEffect(() => {
         const today = new Date();
@@ -100,114 +146,308 @@ export default function DanhSachBaoCaoTayMKT() {
         });
     }, []);
 
-    // Fetch all data (no date filter) via backend API
+    // Calculate real values from orders table for a single report
+    const calculateRealValues = async (report) => {
+        try {
+            const reportDate = report['Ngày'];
+            const reportName = report['Tên'];
+            const reportCa = report['ca'];
+            const reportProduct = report['Sản_phẩm'];
+            const reportMarket = report['Thị_trường'];
+
+            if (!reportDate || !reportName) {
+                return {
+                    so_don_thuc_te: 0,
+                    doanh_so_thuc_te: 0
+                };
+            }
+
+            // Build query - chỉ select các cột cần thiết để tăng tốc
+            let query = supabase
+                .from('orders')
+                .select('total_amount_vnd, total_vnd') // Chỉ select cột cần thiết
+                .eq('order_date', reportDate)
+                .ilike('marketing_staff', `%${reportName}%`);
+
+            // Filter by shift/ca
+            const caValue = String(reportCa || '').trim();
+            
+            if (caValue === 'Hết ca' || caValue.toLowerCase() === 'hết ca') {
+                query = query.ilike('shift', '%Hết ca%');
+            } else if (caValue === 'Giữa ca' || caValue.toLowerCase() === 'giữa ca') {
+                query = query.or('shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
+            } else if (caValue) {
+                query = query.ilike('shift', `%${caValue}%`);
+            }
+
+            // Filter by product
+            if (reportProduct) {
+                query = query.eq('product', reportProduct);
+            }
+
+            // Filter by market (country or area)
+            if (reportMarket) {
+                query = query.or(`country.ilike.%${reportMarket}%,area.ilike.%${reportMarket}%`);
+            }
+
+            const { data: orders, error } = await query;
+
+            if (error) {
+                console.error('Error calculating real values:', error);
+                return {
+                    so_don_thuc_te: 0,
+                    doanh_so_thuc_te: 0
+                };
+            }
+
+            if (!orders || orders.length === 0) {
+                return {
+                    so_don_thuc_te: 0,
+                    doanh_so_thuc_te: 0
+                };
+            }
+
+            // Calculate values
+            const totalOrders = orders.length;
+            
+            // Doanh số thực tế: tổng total_amount_vnd của tất cả đơn khớp điều kiện
+            const doanhSoThucTe = orders.reduce((sum, o) => {
+                const amount = o.total_amount_vnd || o.total_vnd || 0;
+                return sum + (Number(amount) || 0);
+            }, 0);
+
+            return {
+                so_don_thuc_te: totalOrders,
+                doanh_so_thuc_te: doanhSoThucTe
+            };
+        } catch (error) {
+            console.error('Error calculating real values:', error);
+            return {
+                so_don_thuc_te: 0,
+                doanh_so_thuc_te: 0
+            };
+        }
+    };
+
+    // Calculate real values for all reports (PARALLEL - tối ưu tốc độ)
+    const calculateRealValuesForReports = async (reports) => {
+        if (!reports || reports.length === 0) return;
+        
+        setCalculatingRealValues(true);
+        
+        try {
+            // Chạy song song tất cả queries thay vì tuần tự
+            // Giới hạn batch size để tránh quá tải
+            const BATCH_SIZE = 10; // Chạy 10 queries cùng lúc
+            const valuesMap = {};
+            
+            for (let i = 0; i < reports.length; i += BATCH_SIZE) {
+                const batch = reports.slice(i, i + BATCH_SIZE);
+                
+                // Chạy song song trong batch này
+                const batchPromises = batch.map(report => 
+                    calculateRealValues(report).then(result => ({
+                        id: report.id,
+                        values: result
+                    }))
+                );
+                
+                const batchResults = await Promise.all(batchPromises);
+                
+                // Merge kết quả
+                batchResults.forEach(({ id, values }) => {
+                    valuesMap[id] = values;
+                });
+                
+                console.log(`⚡ Calculated batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(reports.length / BATCH_SIZE)}: ${batch.length} reports`);
+            }
+            
+            setRealValuesMap(valuesMap);
+            console.log(`✅ Calculated real values for ${reports.length} reports (parallel)`);
+        } catch (error) {
+            console.error('Error calculating real values for reports:', error);
+        } finally {
+            setCalculatingRealValues(false);
+        }
+    };
+
+    // Fetch all data (no date filter) trực tiếp từ bảng
     const fetchAllData = async () => {
         setLoading(true);
         try {
-            console.log('🔍 Fetching ALL data from backend API...');
+            console.log('🔍 Fetching ALL data from detail_reports...');
 
-            // Call backend API which uses service role key to bypass RLS
-            const response = await fetch('/api/fetch-detail-reports?limit=10000', {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
+            // Lấy trực tiếp từ bảng detail_reports (giới hạn 50 records)
+            let query = supabase
+                .from('detail_reports')
+                .select('*')
+                .limit(50);
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            // Filter theo department (MKT hoặc RD)
+            if (teamFilter === 'RD') {
+                query = query.eq('department', 'RD');
+                console.log('📋 Filter: department = RD');
+            } else {
+                // MKT: lấy tất cả các bản ghi có department = 'MKT' hoặc NULL hoặc không có cột department
+                query = query.or('department.is.null,department.eq.MKT,department.neq.RD');
+                console.log('📋 Filter: department IS NULL OR department = MKT OR department != RD');
             }
 
-            const result = await response.json();
+            // Bỏ qua permission filtering - hiển thị tất cả data
+            console.log('👤 Showing all data (no permission filter)');
 
-            if (!result.success) {
-                throw new Error(result.error || 'Lỗi không xác định');
-            }
-
-            console.log(`✅ Fetched ${result.data?.length || 0} records (all data)`);
-            
-            // Filter data based on hierarchical permissions
-            let filteredData = result.data || [];
-            
-            // Admin/Director/Manager: see all data
-            const isAdminOrLeadership = ['admin', 'director', 'manager', 'super_admin', 'ADMIN', 'DIRECTOR', 'MANAGER'].includes((role || '').toUpperCase());
-            
-            if (!isAdminOrLeadership) {
-                // Leader: see team data only
-                if (role?.toUpperCase() === 'LEADER' && userTeam) {
-                    filteredData = filteredData.filter(item => 
-                        item['Team'] && item['Team'].toLowerCase() === userTeam.toLowerCase()
-                    );
+            // Filter theo selected_personnel nếu có
+            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+                console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
+                // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
+                const orConditions = selectedPersonnelNames
+                    .filter(name => name && name.trim().length > 0)
+                    .map(name => `Tên.ilike.%${name.trim()}%`);
+                
+                if (orConditions.length > 0) {
+                    query = query.or(orConditions.join(','));
+                    console.log('✅ Applied filter for selected personnel:', orConditions.length, 'names');
                 } else {
-                    // Staff: see own data only (by name or email)
-                    filteredData = filteredData.filter(item => {
-                        const itemName = (item['Tên'] || '').toLowerCase().trim();
-                        const itemEmail = (item['Email'] || '').toLowerCase().trim();
-                        const currentUserName = userName.toLowerCase().trim();
-                        const currentUserEmail = userEmail.toLowerCase().trim();
-                        
-                        return (itemName === currentUserName && currentUserName !== '') ||
-                               (itemEmail === currentUserEmail && currentUserEmail !== '');
-                    });
+                    // Không có tên hợp lệ -> không trả về data nào
+                    console.warn('⚠️ No valid names in selectedPersonnelNames, returning empty result');
+                    query = query.eq('id', '00000000-0000-0000-0000-000000000000');
                 }
+            } else {
+                console.log('ℹ️ No selectedPersonnelNames, showing all data');
             }
+
+            const { data, error } = await query.order('Ngày', { ascending: false });
+
+            if (error) throw error;
+
+            console.log(`✅ Fetched ${data?.length || 0} records (all data)`);
             
-            setAllReports(filteredData); // Store all filtered data
+            // Bổ sung Email nhân viên từ bảng nhân sự nếu thiếu
+            const enrichedData = (data || []).map(item => {
+                const currentEmail = (item['Email'] || '').trim();
+                const nameKey = (item['Tên'] || '').toLowerCase().trim();
+                const hrEmail = hrEmailMap[nameKey];
+
+                if (!currentEmail && hrEmail) {
+                    return { ...item, 'Email': hrEmail };
+                }
+                return item;
+            });
+            
+            setAllReports(enrichedData); // Store all filtered data
             setCurrentPage(1); // Reset to first page
             
             // Calculate real values for all reports
-            await calculateRealValuesForReports(filteredData);
+            await calculateRealValuesForReports(enrichedData);
             
-            if (filteredData.length === 0) {
-                alert('⚠️ Không có dữ liệu nào sau khi lọc theo phân quyền.\n\nVui lòng kiểm tra quyền truy cập của bạn.');
+            if (enrichedData.length === 0) {
+                console.warn('⚠️ Không có dữ liệu nào trong bảng detail_reports');
+                console.warn('⚠️ Có thể do: 1) Bảng trống, 2) RLS policy chặn, hoặc 3) Không có data trong khoảng thời gian này');
             } else {
-                alert(`✅ Đã tải ${filteredData.length} bản ghi (đã lọc theo phân quyền)`);
+                console.log(`✅ Đã tải ${enrichedData.length} bản ghi`);
             }
         } catch (error) {
             console.error('❌ Error fetching all data:', error);
             alert(`Lỗi khi tải dữ liệu: ${error.message || String(error)}`);
             setManualReports([]);
+            setAllReports([]);
         } finally {
             setLoading(false);
         }
     };
 
-    // Fetch Data via backend API (bypasses RLS) - Required because RLS policy needs permissions
+    // Fetch Data trực tiếp từ bảng detail_reports
     const fetchData = async () => {
         if (!filters.startDate || !filters.endDate) return;
         setLoading(true);
         try {
-            console.log('🔍 Fetching data from backend API...', {
+            console.log('🔍 Fetching data from detail_reports...', {
                 startDate: filters.startDate,
-                endDate: filters.endDate
+                endDate: filters.endDate,
+                teamFilter,
+                role,
+                userTeam,
+                userName
             });
 
-            // Call backend API which uses service role key to bypass RLS
-            const response = await fetch(`/api/fetch-detail-reports?startDate=${filters.startDate}&endDate=${filters.endDate}`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
+            // Lấy trực tiếp từ bảng detail_reports (giới hạn 50 records)
+            let query = supabase
+                .from('detail_reports')
+                .select('*')
+                .limit(50);
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            // Filter theo ngày
+            if (filters.startDate && filters.endDate) {
+                query = query
+                    .gte('Ngày', filters.startDate)
+                    .lte('Ngày', filters.endDate);
             }
 
-            const result = await response.json();
-
-            if (!result.success) {
-                throw new Error(result.error || 'Lỗi không xác định');
+            // Filter theo department (MKT hoặc RD)
+            if (teamFilter === 'RD') {
+                query = query.eq('department', 'RD');
+                console.log('📋 Filter: department = RD');
+            } else {
+                // MKT: lấy tất cả các bản ghi có department = 'MKT' hoặc NULL hoặc không có cột department
+                // Sử dụng OR để bao gồm cả NULL và MKT
+                query = query.or('department.is.null,department.eq.MKT,department.neq.RD');
+                console.log('📋 Filter: department IS NULL OR department = MKT OR department != RD');
             }
 
-            console.log(`✅ Fetched ${result.data?.length || 0} records`);
+            // Bỏ qua permission filtering - hiển thị tất cả data
+            console.log('👤 Showing all data (no permission filter)');
 
-            // ✅ Hiển thị FULL dữ liệu (bỏ lọc theo phân quyền tại đây)
-            // Đồng thời bổ sung Email nhân viên từ bảng nhân sự (human_resources) nếu thiếu
-            const fullData = result.data || [];
+            // Filter theo selected_personnel nếu có
+            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+                console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
+                // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
+                const orConditions = selectedPersonnelNames
+                    .filter(name => name && name.trim().length > 0)
+                    .map(name => `Tên.ilike.%${name.trim()}%`);
+                
+                if (orConditions.length > 0) {
+                    query = query.or(orConditions.join(','));
+                    console.log('✅ Applied filter for selected personnel:', orConditions.length, 'names');
+                } else {
+                    // Không có tên hợp lệ -> không trả về data nào
+                    console.warn('⚠️ No valid names in selectedPersonnelNames, returning empty result');
+                    query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+                }
+            } else {
+                console.log('ℹ️ No selectedPersonnelNames, showing all data');
+            }
 
-            const enrichedData = fullData.map(item => {
+            console.log('🔍 Executing query...');
+            const { data, error } = await query.order('Ngày', { ascending: false });
+
+            if (error) {
+                console.error('❌ Query error:', error);
+                throw error;
+            }
+
+            console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
+            
+            // Debug: Log sample data if available
+            if (data && data.length > 0) {
+                console.log('📊 Sample record:', data[0]);
+                console.log('📊 Department values:', [...new Set(data.map(d => d.department))]);
+            } else {
+                console.warn('⚠️ No data returned from query');
+                
+                // Try to fetch without filters to see if data exists
+                const { data: allData, error: allError } = await supabase
+                    .from('detail_reports')
+                    .select('id, "Ngày", "Tên", department, "Team"')
+                    .limit(5);
+                
+                if (!allError && allData) {
+                    console.log('🔍 Sample data in table (first 5):', allData);
+                    console.log('🔍 Department values in table:', [...new Set(allData.map(d => d.department))]);
+                }
+            }
+
+            // Bổ sung Email nhân viên từ bảng nhân sự (human_resources) nếu thiếu
+            const enrichedData = (data || []).map(item => {
                 const currentEmail = (item['Email'] || '').trim();
                 const nameKey = (item['Tên'] || '').toLowerCase().trim();
                 const hrEmail = hrEmailMap[nameKey];
@@ -218,49 +458,65 @@ export default function DanhSachBaoCaoTayMKT() {
                 return item;
             });
 
-            console.log(`📊 Using FULL data set (no permission filter) - total: ${enrichedData.length} records | role: ${role}, team: ${userTeam}`);
+            console.log(`📊 Total records: ${enrichedData.length} | role: ${role}, team: ${userTeam}`);
 
             setAllReports(enrichedData); // Store all data for pagination
             setCurrentPage(1); // Reset to first page when data changes
             
             // Calculate real values for all reports
-            await calculateRealValuesForReports(filteredData);
+            await calculateRealValuesForReports(enrichedData);
             
-            if (filteredData.length === 0) {
-                console.warn('⚠️ No data found after filtering by permissions');
+            if (enrichedData.length === 0) {
+                console.warn('⚠️ No data found');
             }
         } catch (error) {
-            // Improved error logging & user-friendly message
             console.error('❌ Error fetching MKT reports:', {
                 error,
                 message: error?.message,
                 filters,
             });
 
-            const statusMatch = (error?.message || '').match(/status:\s*(\d{3})/i);
-            const statusText = statusMatch ? statusMatch[1] : '500';
-
-            const userMessage = [
-                'Không tải được dữ liệu \"Danh sách báo cáo tay MKT\".',
-                '',
-                `Mã lỗi server: ${statusText}`,
-                `Khoảng ngày đang lọc: ${filters.startDate} → ${filters.endDate}`,
-                '',
-                `Chi tiết kỹ thuật: ${error?.message || String(error)}`,
-                '',
-                'Nếu lỗi tiếp tục xảy ra, vui lòng chụp màn hình thông báo này và gửi cho bộ phận IT để kiểm tra API /api/fetch-detail-reports.'
-            ].join('\n');
-
-            alert(userMessage);
+            alert(`Lỗi khi tải dữ liệu: ${error?.message || String(error)}`);
             setManualReports([]);
+            setAllReports([]);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        fetchData();
-    }, [filters.startDate, filters.endDate]);
+        // Only fetch if we have date filters
+        if (filters.startDate && filters.endDate) {
+            fetchData();
+        }
+    }, [filters.startDate, filters.endDate, selectedPersonnelNames]);
+    
+    // Debug: Test if we can access the table at all
+    useEffect(() => {
+        const testAccess = async () => {
+            try {
+                // Try to get count without filters
+                const { count, error } = await supabase
+                    .from('detail_reports')
+                    .select('*', { count: 'exact', head: true });
+                
+                console.log('🔍 Table access test:', { count, error: error?.message });
+                
+                if (error) {
+                    console.error('❌ Cannot access detail_reports table:', error);
+                    console.error('❌ Error details:', {
+                        code: error.code,
+                        message: error.message,
+                        hint: error.hint
+                    });
+                }
+            } catch (err) {
+                console.error('❌ Test access error:', err);
+            }
+        };
+        
+        testAccess();
+    }, []);
 
     // Calculate pagination
     const totalPages = Math.ceil(allReports.length / itemsPerPage);
@@ -398,6 +654,14 @@ export default function DanhSachBaoCaoTayMKT() {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
     }
 
+    // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút đồng bộ và xóa)
+    const roleFromHook = (role || '').toUpperCase();
+    const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
+    const isAdmin = roleFromHook === 'ADMIN' || 
+                   roleFromHook === 'SUPER_ADMIN' ||
+                   roleFromStorage === 'admin' ||
+                   roleFromStorage === 'super_admin';
+
     // Edit Handlers
     const handleEditClick = (report) => {
         setEditingReport(report);
@@ -415,11 +679,6 @@ export default function DanhSachBaoCaoTayMKT() {
             mess_cmt: report['Số_Mess_Cmt'] || 0,
             orders: report['Số đơn'] || 0,
             revenue: report['Doanh số'] || 0,
-            ds_sau_hoan_huy: report['DS sau hoàn hủy'] || 0,
-            so_don_hoan_huy: report['Số đơn hoàn hủy'] || 0,
-            doanh_so_sau_ship: report['Doanh số sau ship'] || 0,
-            doanh_so_tc: report['Doanh số TC'] || 0,
-            kpis: report['KPIs'] || 0,
             // Additional fields
             tkqc: report['TKQC'] || '',
             id_ns: report['id_NS'] || '',
@@ -439,119 +698,6 @@ export default function DanhSachBaoCaoTayMKT() {
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         setEditForm(prev => ({ ...prev, [name]: value }));
-    };
-
-    // Calculate real values for all reports
-    const calculateRealValuesForReports = async (reports) => {
-        if (!reports || reports.length === 0) return;
-        
-        setCalculatingRealValues(true);
-        const valuesMap = {};
-        
-        try {
-            // Calculate for each report
-            for (const report of reports) {
-                const realValues = await calculateRealValues(report);
-                valuesMap[report.id] = realValues;
-            }
-            
-            setRealValuesMap(valuesMap);
-            console.log(`✅ Calculated real values for ${reports.length} reports`);
-        } catch (error) {
-            console.error('Error calculating real values for reports:', error);
-        } finally {
-            setCalculatingRealValues(false);
-        }
-    };
-
-    // Calculate real values from orders table for a single report
-    const calculateRealValues = async (report) => {
-        try {
-            const reportDate = report['Ngày'];
-            const reportName = report['Tên'];
-            const reportCa = report['ca'];
-            const reportProduct = report['Sản_phẩm'];
-            const reportMarket = report['Thị_trường'];
-
-            if (!reportDate || !reportName) {
-                return {
-                    so_don_thuc_te: 0,
-                    doanh_so_thuc_te: 0
-                };
-            }
-
-            // Build query
-            let query = supabase
-                .from('orders')
-                .select('*')
-                .eq('order_date', reportDate)
-                .ilike('marketing_staff', `%${reportName}%`);
-
-            // Filter by shift/ca
-            // Báo cáo chỉ có "Hết ca" HOẶC "Giữa ca" (không có cả 2 trong cùng 1 báo cáo)
-            // Nhưng đơn có thể có shift = "giữa ca, Hết ca" (chứa cả 2 ca)
-            const caValue = String(reportCa || '').trim();
-            
-            if (caValue === 'Hết ca' || caValue.toLowerCase() === 'hết ca') {
-                // Báo cáo "Hết ca": tính đơn có shift chứa "Hết ca" 
-                // (bao gồm: "Hết ca", "giữa ca, Hết ca", "Hết ca, Giữa ca", ...)
-                query = query.ilike('shift', '%Hết ca%');
-            } else if (caValue === 'Giữa ca' || caValue.toLowerCase() === 'giữa ca') {
-                // Báo cáo "Giữa ca": tính đơn có shift chứa "Giữa ca" hoặc "giữa ca"
-                // (bao gồm: "Giữa ca", "giữa ca", "giữa ca, Hết ca", "Hết ca, Giữa ca", ...)
-                query = query.or('shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
-            } else if (caValue) {
-                // Other ca: partial match (ilike để linh hoạt hơn)
-                query = query.ilike('shift', `%${caValue}%`);
-            }
-
-            // Filter by product
-            if (reportProduct) {
-                query = query.eq('product', reportProduct);
-            }
-
-            // Filter by market (country or area)
-            if (reportMarket) {
-                query = query.or(`country.ilike.%${reportMarket}%,area.ilike.%${reportMarket}%`);
-            }
-
-            const { data: orders, error } = await query;
-
-            if (error) {
-                console.error('Error calculating real values:', error);
-                return {
-                    so_don_thuc_te: 0,
-                    doanh_so_thuc_te: 0
-                };
-            }
-
-            if (!orders || orders.length === 0) {
-                return {
-                    so_don_thuc_te: 0,
-                    doanh_so_thuc_te: 0
-                };
-            }
-
-            // Calculate values
-            const totalOrders = orders.length;
-            
-            // Doanh số thực tế: tổng total_amount_vnd của tất cả đơn khớp điều kiện
-            const doanhSoThucTe = orders.reduce((sum, o) => {
-                const amount = o.total_amount_vnd || o.total_vnd || 0;
-                return sum + (Number(amount) || 0);
-            }, 0);
-
-            return {
-                so_don_thuc_te: totalOrders,
-                doanh_so_thuc_te: doanhSoThucTe
-            };
-        } catch (error) {
-            console.error('Error calculating real values:', error);
-            return {
-                so_don_thuc_te: 0,
-                doanh_so_thuc_te: 0
-            };
-        }
     };
 
     const handleSaveEdit = async () => {
@@ -581,11 +727,6 @@ export default function DanhSachBaoCaoTayMKT() {
                 'Số_Mess_Cmt': editForm.mess_cmt ? Number(editForm.mess_cmt) : 0,
                 'Số đơn': editForm.orders ? Number(editForm.orders) : 0,
                 'Doanh số': editForm.revenue ? Number(editForm.revenue) : 0,
-                'DS sau hoàn hủy': editForm.ds_sau_hoan_huy ? Number(editForm.ds_sau_hoan_huy) : 0,
-                'Số đơn hoàn hủy': editForm.so_don_hoan_huy ? Number(editForm.so_don_hoan_huy) : 0,
-                'Doanh số sau ship': editForm.doanh_so_sau_ship ? Number(editForm.doanh_so_sau_ship) : 0,
-                'Doanh số TC': editForm.doanh_so_tc ? Number(editForm.doanh_so_tc) : 0,
-                'KPIs': editForm.kpis ? Number(editForm.kpis) : 0,
                 // Additional fields
                 'TKQC': editForm.tkqc || null,
                 'id_NS': editForm.id_ns || null,
@@ -631,52 +772,49 @@ export default function DanhSachBaoCaoTayMKT() {
                         Đến ngày:
                         <input type="date" value={filters.endDate} onChange={e => setFilters(prev => ({ ...prev, endDate: e.target.value }))} />
                     </label>
-                    <button
-                        onClick={fetchAllData}
-                        disabled={loading || syncing || deleting}
-                        className="mt-2 px-3 py-1.5 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition w-full"
-                        title="Tải tất cả dữ liệu (không lọc theo ngày) để kiểm tra"
-                    >
-                        🔍 Tải tất cả dữ liệu
-                    </button>
                 </div>
 
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY MARKETING</h2>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                            <button
-                                onClick={handleSyncMKT}
-                                disabled={syncing || loading || deleting}
-                                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                            >
-                                {syncing ? (
-                                    <>
-                                        <span className="animate-spin">⏳</span>
-                                        Đang đồng bộ...
-                                    </>
-                                ) : (
-                                    <>
-                                        🔄 Đồng bộ từ Firebase
-                                    </>
-                                )}
-                            </button>
-                            <button
-                                onClick={handleDeleteAll}
-                                disabled={syncing || loading || deleting}
-                                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                            >
-                                {deleting ? (
-                                    <>
-                                        <span className="animate-spin">⏳</span>
-                                        Đang xóa...
-                                    </>
-                                ) : (
-                                    <>
-                                        🗑️ Xóa toàn bộ dữ liệu
-                                    </>
-                                )}
-                            </button>
+                            {/* Chỉ Admin mới thấy các nút này */}
+                            {isAdmin && (
+                                <>
+                                    <button
+                                        onClick={handleSyncMKT}
+                                        disabled={syncing || loading || deleting}
+                                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    >
+                                        {syncing ? (
+                                            <>
+                                                <span className="animate-spin">⏳</span>
+                                                Đang đồng bộ...
+                                            </>
+                                        ) : (
+                                            <>
+                                                🔄 Đồng bộ từ Firebase
+                                            </>
+                                        )}
+                                    </button>
+                                    <button
+                                        onClick={handleDeleteAll}
+                                        disabled={syncing || loading || deleting}
+                                        className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    >
+                                        {deleting ? (
+                                            <>
+                                                <span className="animate-spin">⏳</span>
+                                                Đang xóa...
+                                            </>
+                                        ) : (
+                                            <>
+                                                🗑️ Xóa toàn bộ dữ liệu
+                                            </>
+                                        )}
+                                    </button>
+                                </>
+                            )}
                         </div>
                     </div>
 
@@ -927,60 +1065,6 @@ export default function DanhSachBaoCaoTayMKT() {
                                         step="0.01"
                                         name="revenue"
                                         value={editForm.revenue}
-                                        onChange={handleInputChange}
-                                        className="w-full border rounded px-2 py-1"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">DS sau hoàn hủy:</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        name="ds_sau_hoan_huy"
-                                        value={editForm.ds_sau_hoan_huy}
-                                        onChange={handleInputChange}
-                                        className="w-full border rounded px-2 py-1"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Số đơn hoàn hủy:</label>
-                                    <input
-                                        type="number"
-                                        name="so_don_hoan_huy"
-                                        value={editForm.so_don_hoan_huy}
-                                        onChange={handleInputChange}
-                                        className="w-full border rounded px-2 py-1"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Doanh số sau ship:</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        name="doanh_so_sau_ship"
-                                        value={editForm.doanh_so_sau_ship}
-                                        onChange={handleInputChange}
-                                        className="w-full border rounded px-2 py-1"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Doanh số TC:</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        name="doanh_so_tc"
-                                        value={editForm.doanh_so_tc}
-                                        onChange={handleInputChange}
-                                        className="w-full border rounded px-2 py-1"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">KPIs:</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        name="kpis"
-                                        value={editForm.kpis}
                                         onChange={handleInputChange}
                                         className="w-full border rounded px-2 py-1"
                                     />

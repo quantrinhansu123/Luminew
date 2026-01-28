@@ -162,6 +162,7 @@ export const usePermissions = () => {
         role,
         team,
         loading,
+        permissions,
         canView,
         canEdit,
         canDelete,
