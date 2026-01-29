@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { Settings } from 'lucide-react';
 
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { isDateInRange, parseSmartDate } from '../utils/dateParsing';
+import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import './XemBaoCaoMKT.css';
 
 const MARKET_GROUPS = {
@@ -39,6 +41,9 @@ export default function XemBaoCaoMKT() {
   });
   const [selectedTeam, setSelectedTeam] = useState('ALL');
   const [teams, setTeams] = useState([]);
+
+  // Column Settings Modal State
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
 
   // Column Visibility State
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -324,7 +329,9 @@ export default function XemBaoCaoMKT() {
       }
 
       grouped[key].dsChot += Number(row['Doanh số'] || 0);
-      grouped[key].dsChotTT += Number(row['Doanh thu chốt thực tế'] || 0);
+      // Doanh số chốt TT lấy từ orders (total_amount_vnd), nếu không có thì fallback về "Doanh thu chốt thực tế"
+      const dsChotTTFromOrders = Number(row['Doanh số chốt TT'] || 0);
+      grouped[key].dsChotTT += dsChotTTFromOrders > 0 ? dsChotTTFromOrders : Number(row['Doanh thu chốt thực tế'] || 0);
 
       grouped[key].soDonHuy += Number(row['Số đơn hoàn hủy'] || 0);
       grouped[key].soDonHuyTT += Number(row['Số đơn hoàn hủy thực tế'] || 0);
@@ -341,7 +348,7 @@ export default function XemBaoCaoMKT() {
 
     const rows = Object.values(grouped).map(item => {
       const tiLeChot = item.mess ? (item.orders / item.mess) * 100 : 0;
-      const tiLeChotTT = item.mess ? (item.ordersTT / item.mess) * 100 : 0;
+      const tiLeChotTT = item.mess ? (item.soDonTT / item.mess) * 100 : 0; // Số đơn TT / Số Mess
       const giaMess = item.mess ? item.cpqc / item.mess : 0;
       const cps = item.orders ? item.cpqc / item.orders : 0;
       const cp_ds = item.dsChot ? (item.cpqc / item.dsChot) * 100 : 0;
@@ -390,7 +397,7 @@ export default function XemBaoCaoMKT() {
     // Calculate Total Rates
     const totalRates = {
       tiLeChot: total.mess ? (total.orders / total.mess) * 100 : 0,
-      tiLeChotTT: total.mess ? (total.ordersTT / total.mess) * 100 : 0,
+      tiLeChotTT: total.mess ? (total.soDonTT / total.mess) * 100 : 0, // Số đơn TT / Số Mess
       giaMess: total.mess ? total.cpqc / total.mess : 0,
       cps: total.orders ? total.cpqc / total.orders : 0,
       cp_ds: total.dsChot ? (total.cpqc / total.dsChot) * 100 : 0,
@@ -433,7 +440,7 @@ export default function XemBaoCaoMKT() {
           dayGrouped[key] = {
             team: row['Team'], // detail_reports."Team"
             name: row['Tên'], // detail_reports."Tên" (Tên MKT/Marketing)
-            mess: 0, cpqc: 0, orders: 0, ordersTT: 0,
+            mess: 0, cpqc: 0, orders: 0, ordersTT: 0, soDonTT: 0,
             dsChot: 0, dsChotTT: 0
           };
         }
@@ -442,13 +449,16 @@ export default function XemBaoCaoMKT() {
         g.cpqc += Number(row['CPQC'] || 0); // detail_reports."CPQC"
         g.orders += Number(row['Số đơn'] || 0); // detail_reports."Số đơn"
         g.ordersTT += Number(row['Số đơn thực tế'] || 0); // detail_reports."Số đơn thực tế"
+        g.soDonTT += Number(row['Số đơn TT'] || 0); // Số đơn TT từ bảng orders
         g.dsChot += Number(row['Doanh số'] || 0); // detail_reports."Doanh số"
-        g.dsChotTT += Number(row['Doanh thu chốt thực tế'] || 0); // detail_reports."Doanh thu chốt thực tế"
+        // Doanh số chốt TT lấy từ orders (total_amount_vnd), nếu không có thì fallback về "Doanh thu chốt thực tế"
+        const dsChotTTFromOrders = Number(row['Doanh số chốt TT'] || 0);
+        g.dsChotTT += dsChotTTFromOrders > 0 ? dsChotTTFromOrders : Number(row['Doanh thu chốt thực tế'] || 0);
       });
 
       const currentDayRows = Object.values(dayGrouped).map(item => {
         const tiLeChot = item.mess ? (item.orders / item.mess) * 100 : 0;
-        const tiLeChotTT = item.mess ? (item.ordersTT / item.mess) * 100 : 0;
+        const tiLeChotTT = item.mess ? (item.soDonTT / item.mess) * 100 : 0; // Số đơn TT / Số Mess
         const giaMess = item.mess ? item.cpqc / item.mess : 0;
         const cps = item.orders ? item.cpqc / item.orders : 0;
         const cp_ds = item.dsChot ? (item.cpqc / item.dsChot) * 100 : 0;
@@ -471,7 +481,7 @@ export default function XemBaoCaoMKT() {
 
       const dTotalRates = {
         tiLeChot: dTotal.mess ? (dTotal.orders / dTotal.mess) * 100 : 0,
-        tiLeChotTT: dTotal.mess ? (dTotal.ordersTT / dTotal.mess) * 100 : 0,
+        tiLeChotTT: dTotal.mess ? (dTotal.soDonTT / dTotal.mess) * 100 : 0, // Số đơn TT / Số Mess
         giaMess: dTotal.mess ? dTotal.cpqc / dTotal.mess : 0,
         cps: dTotal.orders ? dTotal.cpqc / dTotal.orders : 0,
         cp_ds: dTotal.dsChot ? (dTotal.cpqc / dTotal.dsChot) * 100 : 0,
@@ -729,7 +739,7 @@ export default function XemBaoCaoMKT() {
       // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
       let query = supabase
         .from('orders')
-        .select('order_date, marketing_staff, product, country, area', { count: 'exact' })
+        .select('order_date, marketing_staff, product, country, area, total_amount_vnd', { count: 'exact' })
         .gte('order_date', normalizedStartDate)
         .lte('order_date', normalizedEndDate);
 
@@ -760,7 +770,8 @@ export default function XemBaoCaoMKT() {
           order_date: sampleOrder.order_date,
           product: sampleOrder.product,
           country: sampleOrder.country,
-          area: sampleOrder.area
+          area: sampleOrder.area,
+          total_amount_vnd: sampleOrder.total_amount_vnd
         });
       }
 
@@ -769,6 +780,7 @@ export default function XemBaoCaoMKT() {
       }
 
       // Group đơn theo Tên Marketing + Ngày + Sản phẩm + Thị trường
+      // Lưu cả số đơn và tổng tiền VNĐ
       const ordersByMarketingDateProductMarket = new Map();
       
       (allOrders || []).forEach(order => {
@@ -779,9 +791,10 @@ export default function XemBaoCaoMKT() {
         const key = `${orderMarketingName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
         
         if (!ordersByMarketingDateProductMarket.has(key)) {
-          ordersByMarketingDateProductMarket.set(key, []);
+          ordersByMarketingDateProductMarket.set(key, { orders: [], totalAmount: 0 });
         }
-        ordersByMarketingDateProductMarket.get(key).push(order);
+        ordersByMarketingDateProductMarket.get(key).orders.push(order);
+        ordersByMarketingDateProductMarket.get(key).totalAmount += Number(order.total_amount_vnd || 0);
       });
       
       console.log(`📊 MKT: Đã group ${ordersByMarketingDateProductMarket.size} keys từ ${allOrders?.length || 0} đơn`);
@@ -803,6 +816,7 @@ export default function XemBaoCaoMKT() {
 
         if (!marketingName || !reportDate) {
           item['Số đơn TT'] = 0;
+          item['Doanh số chốt TT'] = 0;
           if (index < 3) {
             console.log(`⚠️ MKT [${index}]: Thiếu dữ liệu - Tên: "${item['Tên']}", Ngày: "${reportDateRaw}"`);
           }
@@ -811,13 +825,14 @@ export default function XemBaoCaoMKT() {
         }
 
         const key = `${marketingName}|${reportDate}|${reportProduct}|${reportMarket}`;
-        const matchingOrders = ordersByMarketingDateProductMarket.get(key) || [];
-        item['Số đơn TT'] = matchingOrders.length;
+        const matchingData = ordersByMarketingDateProductMarket.get(key) || { orders: [], totalAmount: 0 };
+        item['Số đơn TT'] = matchingData.orders.length;
+        item['Doanh số chốt TT'] = matchingData.totalAmount; // Tổng tiền VNĐ từ orders
         
-        if (matchingOrders.length > 0) {
+        if (matchingData.orders.length > 0) {
           matchedCount++;
           if (index < 3) {
-            console.log(`✅ MKT [${index}]: Match ${matchingOrders.length} đơn - Key: "${key}"`);
+            console.log(`✅ MKT [${index}]: Match ${matchingData.orders.length} đơn, Tổng tiền: ${matchingData.totalAmount.toLocaleString('vi-VN')} - Key: "${key}"`);
           }
         } else {
           unmatchedCount++;
@@ -841,7 +856,7 @@ export default function XemBaoCaoMKT() {
       // Debug: Kiểm tra một vài giá trị sau khi enrich
       const sampleReports = reports.slice(0, 3);
       sampleReports.forEach((item, idx) => {
-        console.log(`📋 Sample report [${idx}]: Tên="${item['Tên']}", Ngày="${item['Ngày']}", Số đơn TT=${item['Số đơn TT']}`);
+        console.log(`📋 Sample report [${idx}]: Tên="${item['Tên']}", Ngày="${item['Ngày']}", Số đơn TT=${item['Số đơn TT']}, Doanh số chốt TT=${item['Doanh số chốt TT']}`);
       });
     } catch (err) {
       console.error('❌ Error enriching with total orders for MKT:', err);
@@ -982,12 +997,14 @@ export default function XemBaoCaoMKT() {
         <button
           className={`tablinks ${activeTab === 'KpiReport' ? 'active' : ''}`}
           onClick={() => setActiveTab('KpiReport')}
+          style={{ display: 'none' }}
         >
           Hiệu suất KPI
         </button>
         <button
           className={`tablinks ${activeTab === 'MarketReport' ? 'active' : ''}`}
           onClick={() => setActiveTab('MarketReport')}
+          style={{ display: 'none' }}
         >
           Hiệu quả MKT
         </button>
@@ -1128,40 +1145,15 @@ export default function XemBaoCaoMKT() {
                   <h2 id="report-title-tab1">DỮ LIỆU CHI PHÍ ADS</h2>
                 </div>
                 <div className="table-responsive-container">
-            {/* Column Toggles Panel */}
-            <div className="bg-white p-4 mb-4 rounded-lg shadow-sm border border-gray-200">
-              <h3 className="text-sm font-bold text-gray-700 mb-3">Cột hiển thị</h3>
-              <div className="flex flex-wrap gap-3">
-                {[
-                  { key: 'stt', label: 'STT' },
-                  { key: 'team', label: 'Team' },
-                  { key: 'marketing', label: 'Marketing' },
-                  { key: 'cpqc', label: 'CPQC' },
-                  { key: 'mess', label: 'Số Mess' },
-                  { key: 'orders', label: 'Số Đơn' },
-                  { key: 'soDonTT', label: 'Số Đơn TT' },
-                  { key: 'dsChot', label: 'DS Chốt' },
-                  { key: 'dsChotTT', label: 'DS Chốt (TT)' },
-                  { key: 'tiLeChot', label: 'Tỉ lệ chốt' },
-                  { key: 'tiLeChotTT', label: 'Tỉ lệ chốt (TT)' },
-                  { key: 'giaMess', label: 'Giá Mess' },
-                  { key: 'cps', label: 'CPS' },
-                  { key: 'cp_ds', label: '%CP/DS' },
-                  { key: 'giaTBDon', label: 'Giá TB Đơn' },
-                  { key: 'soDonHuy', label: 'Số đơn Huỷ' },
-                  { key: 'dsHuy', label: 'DS Huỷ' }
-                ].map(col => (
-                  <label key={col.key} className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns[col.key]}
-                      onChange={() => setVisibleColumns(prev => ({ ...prev, [col.key]: !prev[col.key] }))}
-                      className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
-                    />
-                    {col.label}
-                  </label>
-                ))}
-              </div>
+            {/* Column Settings Button */}
+            <div className="mb-4">
+              <button
+                onClick={() => setShowColumnSettings(true)}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Cột hiển thị
+              </button>
             </div>
 
             {/* Banner Header */}
@@ -1506,6 +1498,78 @@ export default function XemBaoCaoMKT() {
           </div>
         )
       }
+
+      {/* Column Settings Modal */}
+      <ColumnSettingsModal
+        isOpen={showColumnSettings}
+        onClose={() => setShowColumnSettings(false)}
+        allColumns={[
+          'stt', 'team', 'marketing', 'cpqc', 'mess', 'orders', 'soDonTT',
+          'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
+          'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'
+        ]}
+        columnLabelMap={{
+          stt: 'STT',
+          team: 'Team',
+          marketing: 'Marketing',
+          cpqc: 'CPQC',
+          mess: 'Số Mess',
+          orders: 'Số Đơn',
+          soDonTT: 'Số Đơn TT',
+          dsChot: 'DS Chốt',
+          dsChotTT: 'DS Chốt (TT)',
+          tiLeChot: 'Tỉ lệ chốt',
+          tiLeChotTT: 'Tỉ lệ chốt (TT)',
+          giaMess: 'Giá Mess',
+          cps: 'CPS',
+          cp_ds: '%CP/DS',
+          giaTBDon: 'Giá TB Đơn',
+          soDonHuy: 'Số đơn Huỷ',
+          dsHuy: 'DS Huỷ'
+        }}
+        visibleColumns={visibleColumns}
+        onToggleColumn={(key) => {
+          // Đảm bảo soDonTT luôn là true
+          if (key === 'soDonTT') {
+            return; // Không cho phép tắt soDonTT
+          }
+          setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
+        }}
+        onSelectAll={() => {
+          const all = {};
+          ['stt', 'team', 'marketing', 'cpqc', 'mess', 'orders', 'soDonTT',
+           'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
+           'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'].forEach(key => {
+            all[key] = true;
+          });
+          // Đảm bảo soDonTT luôn là true
+          all.soDonTT = true;
+          setVisibleColumns(all);
+        }}
+        onDeselectAll={() => {
+          const none = {};
+          ['stt', 'team', 'marketing', 'cpqc', 'mess', 'orders', 'soDonTT',
+           'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
+           'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'].forEach(key => {
+            none[key] = false;
+          });
+          setVisibleColumns(none);
+        }}
+        onResetDefault={() => {
+          const defaultCols = {
+            stt: true, team: true, marketing: true, mess: true, cpqc: true, orders: true,
+            soDonTT: true, dsChot: true, dsChotTT: true, tiLeChot: true, tiLeChotTT: true,
+            giaMess: true, cps: true, cp_ds: true, giaTBDon: true,
+            soDonHuy: false, dsHuy: false
+          };
+          // Đảm bảo soDonTT luôn là true
+          defaultCols.soDonTT = true;
+          setVisibleColumns(defaultCols);
+        }}
+        defaultColumns={['stt', 'team', 'marketing', 'mess', 'cpqc', 'orders', 'soDonTT',
+                         'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
+                         'cp_ds', 'giaTBDon']}
+      />
     </div >
   );
 }
