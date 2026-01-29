@@ -1217,12 +1217,34 @@ function QuanLyCSKH() {
                             <Eye className="w-4 h-4" />
                           </button>
 
-                          {/* Edit - Chỉ Admin mới thấy */}
+                          {/* Edit - Chỉnh sửa đầy đủ trong form NhapDonMoi */}
+                          {(canEdit('CSKH_LIST') || canEdit('SALE_ORDERS') || isAdmin()) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const orderId = row['Mã đơn hàng'] || row.order_code;
+                                if (orderId) {
+                                  navigate(`/nhap-don-moi?orderId=${orderId}`);
+                                } else {
+                                  toast.error('Không tìm thấy mã đơn hàng');
+                                }
+                              }}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              title="Chỉnh sửa đầy đủ thông tin đơn hàng"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
+                          
+                          {/* Edit Quick - Chỉnh sửa nhanh CSKH (chỉ Admin) */}
                           {isAdmin() && (
                             <button
-                              onClick={() => openEditModal(row)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditModal(row);
+                              }}
                               className="p-1.5 text-orange-600 hover:bg-orange-50 rounded transition-colors"
-                              title="Chỉnh sửa nhanh"
+                              title="Chỉnh sửa nhanh CSKH"
                             >
                               <Edit className="w-4 h-4" />
                             </button>

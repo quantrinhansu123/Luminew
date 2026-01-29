@@ -1,6 +1,6 @@
-import { RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
+import { Edit, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
@@ -26,6 +26,7 @@ const HIDDEN_COLUMNS = [
 
 function DanhSachDon() {
   const location = useLocation();
+  const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const teamFilter = searchParams.get('team'); // e.g. 'RD'
 
@@ -1412,16 +1413,34 @@ function DanhSachDon() {
                           </td>
                         );
                       })}
-                      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap text-center">
-                        {isAdmin && canDelete(permissionCode) && (
-                          <button
-                            onClick={() => handleDelete(row['Mã đơn hàng'], row._id)}
-                            className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-colors"
-                            title="Xóa đơn hàng"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-2">
+                          {canEdit(permissionCode) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const orderId = row['Mã đơn hàng'];
+                                navigate(`/nhap-don-moi?orderId=${orderId}`);
+                              }}
+                              className="text-blue-500 hover:text-blue-700 p-1 rounded hover:bg-blue-50 transition-colors"
+                              title="Sửa đơn hàng"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
+                          {isAdmin && canDelete(permissionCode) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(row['Mã đơn hàng'], row._id);
+                              }}
+                              className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-colors"
+                              title="Xóa đơn hàng"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
 
                     </tr>
