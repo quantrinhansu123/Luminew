@@ -50,6 +50,10 @@ function VanDon() {
   const [legacyChanges, setLegacyChanges] = useState(new Map());
   const [pendingChanges, setPendingChanges] = useState(new Map());
   const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
+  
+  // --- Undo/Redo History ---
+  const [changeHistory, setChangeHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
 
   // --- Common Filter State ---
@@ -115,13 +119,21 @@ function VanDon() {
   const [omShowDuplicateTracking, setOmShowDuplicateTracking] = useState(false);
 
   // --- Bill of Lading Specific State ---
-  const [bolActiveTab, setBolActiveTab] = useState('all'); // all, japan, hcm, hanoi
+  const [bolActiveTab, setBolActiveTab] = useState('all'); // all, japan, hanoi
   const [bolDateType, setBolDateType] = useState('Ngày lên đơn');
   const [isLongTextExpanded, setIsLongTextExpanded] = useState(false);
 
   // --- Pagination ---
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [rowsPerPage, setRowsPerPage] = useState(() => {
+    const saved = localStorage.getItem('vanDon_rowsPerPage');
+    return saved ? Number(saved) : 50;
+  });
+  
+  // Save rowsPerPage to localStorage
+  useEffect(() => {
+    localStorage.setItem('vanDon_rowsPerPage', String(rowsPerPage));
+  }, [rowsPerPage]);
 
   // --- Selection & Clipboard ---
   const [selection, setSelection] = useState({
@@ -131,6 +143,11 @@ function VanDon() {
   const [copiedSelection, setCopiedSelection] = useState(null);
   const isSelecting = useRef(false);
   const tableRef = useRef(null);
+
+  // --- Row Selection for Hanoi Tab ---
+  const [selectedRows, setSelectedRows] = useState(new Set());
+  const [showPhanFFMDropdown, setShowPhanFFMDropdown] = useState(false);
+  const phanFFMRef = useRef(null);
 
   // --- MGT Noi Bo specific ---
   const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
@@ -228,7 +245,7 @@ function VanDon() {
 
       if (useBackendPagination) {
         // Use backend with pagination
-        const activeTeam = bolActiveTab === 'hcm' ? 'HCM' : (omActiveTeam !== 'all' ? omActiveTeam : undefined);
+        const activeTeam = bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined);
         const activeStatus = enableDateFilter ? undefined : (filterValues.status || undefined);
         const isJapanTab = bolActiveTab === 'japan';
         
@@ -267,18 +284,17 @@ function VanDon() {
           filteredTotal = result.total; // Total đã đúng từ API
         } else {
           // Các tab khác: filter theo selectedPersonnelNames nếu không phải manager
+          // CHỈ filter theo cột "NV vận đơn" (delivery_staff)
           if (!isManager && selectedPersonnelNames.length > 0) {
             const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-            console.log('🔍 [VanDon Backend] Filtering by selected personnel names:', allNames);
+            console.log('🔍 [VanDon Backend] Filtering by selected personnel names (NV vận đơn only):', allNames);
             
             filteredData = result.data.filter(row => {
-              const s = (row.sale_staff || row["Nhân viên Sale"] || '').toLowerCase();
               const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase();
-              const m = (row.marketing_staff || row["Nhân viên Marketing"] || '').toLowerCase();
               
               return allNames.some(name => {
                 const nameLower = name.toLowerCase();
-                return s.includes(nameLower) || d.includes(nameLower) || m.includes(nameLower);
+                return d.includes(nameLower);
               });
             });
             
@@ -286,12 +302,11 @@ function VanDon() {
             filteredTotal = filteredData.length;
           } else if (!isManager && userName) {
             // Nếu không có selectedPersonnelNames, filter theo user hiện tại
+            // CHỈ filter theo cột "NV vận đơn" (delivery_staff)
             filteredData = result.data.filter(row => {
-              const s = (row.sale_staff || row["Nhân viên Sale"] || '').toLowerCase();
               const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase();
-              const m = (row.marketing_staff || row["Nhân viên Marketing"] || '').toLowerCase();
               const u = userName.toLowerCase();
-              return s.includes(u) || d.includes(u) || m.includes(u);
+              return d.includes(u);
             });
             filteredTotal = filteredData.length;
           }
@@ -328,31 +343,28 @@ function VanDon() {
           });
         } else {
           // Các tab khác: filter theo selectedPersonnelNames nếu không phải manager
+          // CHỈ filter theo cột "NV vận đơn" (delivery_staff)
           if (!isManager && selectedPersonnelNames.length > 0) {
             // Tạo danh sách tên để filter (bao gồm cả user hiện tại nếu chưa có trong danh sách)
             const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-            console.log('🔍 [VanDon Fallback] Filtering by selected personnel names:', allNames);
+            console.log('🔍 [VanDon Fallback] Filtering by selected personnel names (NV vận đơn only):', allNames);
             
-            // Filter theo sale_staff, marketing_staff, hoặc delivery_staff
+            // CHỈ filter theo delivery_staff
             data = data.filter(row => {
-              const s = (row.sale_staff || '').toLowerCase();
-              const d = (row.delivery_staff || '').toLowerCase();
-              const m = (row.marketing_staff || '').toLowerCase();
+              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase();
               
               return allNames.some(name => {
                 const nameLower = name.toLowerCase();
-                return s.includes(nameLower) || d.includes(nameLower) || m.includes(nameLower);
+                return d.includes(nameLower);
               });
             });
           } else if (!isManager && userName) {
             // Nếu không có selectedPersonnelNames, filter theo user hiện tại
-            // Check ALL staff columns: sale_staff, delivery_staff, marketing_staff
+            // CHỈ filter theo cột "NV vận đơn" (delivery_staff)
             data = data.filter(row => {
-              const s = (row.sale_staff || '').toLowerCase();
-              const d = (row.delivery_staff || '').toLowerCase();
-              const m = (row.marketing_staff || '').toLowerCase();
+              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase();
               const u = userName.toLowerCase();
-              return s.includes(u) || d.includes(u) || m.includes(u);
+              return d.includes(u);
             });
           }
         }
@@ -393,11 +405,28 @@ function VanDon() {
     };
     setFilterValues(defaultFilters);
     setLocalFilterValues(defaultFilters);
-    setDateFrom('');
-    setDateTo('');
+    setDateFrom(isAdmin ? '' : getThreeDaysAgo());
+    setDateTo(isAdmin ? '' : getToday());
+    setEnableDateFilter(!isAdmin);
     setCurrentPage(1);
     await loadData();
   };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (phanFFMRef.current && !phanFFMRef.current.contains(event.target)) {
+        setShowPhanFFMDropdown(false);
+      }
+    };
+
+    if (showPhanFFMDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showPhanFFMDropdown]);
 
   // Load selected personnel names for current user
   useEffect(() => {
@@ -452,6 +481,131 @@ function VanDon() {
     localStorage.setItem('speegoPendingChanges', JSON.stringify(changesToSave));
   };
 
+  // Save snapshot to history for undo
+  const saveToHistory = (pending, legacy) => {
+    const snapshot = {
+      pending: new Map(pending),
+      legacy: new Map(legacy),
+      timestamp: Date.now()
+    };
+    
+    setChangeHistory(prev => {
+      // Remove any history after current index (when undoing then making new changes)
+      const newHistory = prev.slice(0, historyIndex + 1);
+      // Add new snapshot
+      newHistory.push(snapshot);
+      // Keep only last 50 snapshots to avoid memory issues
+      return newHistory.slice(-50);
+    });
+    setHistoryIndex(prev => Math.min(prev + 1, 49));
+  };
+
+  // Undo last change
+  const handleUndo = () => {
+    if (historyIndex < 0) {
+      addToast('Không có thay đổi nào để hoàn tác', 'info', 2000);
+      return;
+    }
+
+    const previousIndex = historyIndex - 1;
+    if (previousIndex < 0) {
+      // Undo to initial state (empty)
+      setPendingChanges(new Map());
+      setLegacyChanges(new Map());
+      savePendingToLocalStorage(new Map(), new Map());
+      setHistoryIndex(-1);
+      addToast('Đã hoàn tác tất cả thay đổi', 'success', 2000);
+      return;
+    }
+
+    const previousSnapshot = changeHistory[previousIndex];
+    setPendingChanges(new Map(previousSnapshot.pending));
+    setLegacyChanges(new Map(previousSnapshot.legacy));
+    savePendingToLocalStorage(previousSnapshot.pending, previousSnapshot.legacy);
+    setHistoryIndex(previousIndex);
+    addToast('Đã hoàn tác', 'success', 2000);
+  };
+
+  // Redo last undone change
+  const handleRedo = () => {
+    if (historyIndex >= changeHistory.length - 1) {
+      addToast('Không có thay đổi nào để làm lại', 'info', 2000);
+      return;
+    }
+
+    const nextIndex = historyIndex + 1;
+    const nextSnapshot = changeHistory[nextIndex];
+    setPendingChanges(new Map(nextSnapshot.pending));
+    setLegacyChanges(new Map(nextSnapshot.legacy));
+    savePendingToLocalStorage(nextSnapshot.pending, nextSnapshot.legacy);
+    setHistoryIndex(nextIndex);
+    addToast('Đã làm lại', 'success', 2000);
+  };
+
+  // Handle Phân FFM - Update "Đơn vị vận chuyển" and "Ngày Kế toán đối soát với FFM lần 2" for selected rows
+  const handlePhanFFM = async (carrierName) => {
+    if (selectedRows.size === 0) return;
+
+    const selectedCount = selectedRows.size;
+    // Use the UI column name "Đơn vị vận chuyển" directly, as it will be mapped correctly when saving
+    const carrierKey = 'Đơn vị vận chuyển';
+    const accountingDateKey = 'Ngày Kế toán đối soát với FFM lần 2';
+    
+    // Get current date/time in ISO format
+    const now = new Date().toISOString();
+    
+    // Update pending changes
+    const newPending = new Map(pendingChanges);
+    selectedRows.forEach(orderId => {
+      if (!newPending.has(orderId)) {
+        newPending.set(orderId, new Map());
+      }
+      // Update "Đơn vị vận chuyển" - use UI column name, it will be mapped to DB field when saving
+      const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
+      const originalCarrierValue = originalRow ? String(originalRow[carrierKey] || originalRow['shipping_unit'] || originalRow['Đơn vị vận chuyển'] || '') : '';
+      newPending.get(orderId).set(carrierKey, { newValue: carrierName, originalValue: originalCarrierValue });
+      
+      // Update "Ngày Kế toán đối soát với FFM lần 2" với thời gian hiện tại
+      const originalDateValue = originalRow ? String(originalRow[accountingDateKey] || originalRow['accounting_check_date'] || '') : '';
+      newPending.get(orderId).set(accountingDateKey, { newValue: now, originalValue: originalDateValue });
+    });
+
+    setPendingChanges(newPending);
+    savePendingToLocalStorage(newPending, legacyChanges);
+    
+    // Save to history for undo
+    saveToHistory(newPending, legacyChanges);
+    
+    // Clear selection
+    setSelectedRows(new Set());
+    
+    addToast(`✅ Đã phân ${carrierName} cho ${selectedCount} đơn hàng và cập nhật ngày đối soát`, 'success', 3000);
+  };
+
+  // Toggle row selection
+  const toggleRowSelection = (orderId) => {
+    setSelectedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  };
+
+  // Select all rows on current page
+  const selectAllRows = () => {
+    const allIds = new Set(paginatedData.map(row => row[PRIMARY_KEY_COLUMN]));
+    setSelectedRows(allIds);
+  };
+
+  // Deselect all rows
+  const deselectAllRows = () => {
+    setSelectedRows(new Set());
+  };
+
   const getSelectionBounds = useCallback(() => {
     if (selection.startRow === null || selection.startCol === null) return null;
     return {
@@ -481,8 +635,20 @@ function VanDon() {
     return base.filter(col => !HIDDEN_COLUMNS.includes(col));
   }, [viewMode]);
   const currentColumns = useMemo(() => {
-    return allColumns.filter(col => visibleColumns[col] === true);
-  }, [allColumns, visibleColumns]);
+    const filtered = allColumns.filter(col => visibleColumns[col] === true);
+    
+    // Trong tab "Hà Nội", đẩy cột "Đơn vị vận chuyển" lên đầu
+    if (bolActiveTab === 'hanoi') {
+      const carrierCol = 'Đơn vị vận chuyển';
+      const hasCarrier = filtered.includes(carrierCol);
+      if (hasCarrier) {
+        const withoutCarrier = filtered.filter(col => col !== carrierCol);
+        return [carrierCol, ...withoutCarrier];
+      }
+    }
+    
+    return filtered;
+  }, [allColumns, visibleColumns, bolActiveTab]);
 
   // Save column visibility to localStorage
   useEffect(() => {
@@ -647,8 +813,8 @@ function VanDon() {
           return country === 'Nhật Bản' || country === 'CĐ Nhật Bản' || 
                  country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
         });
-      } else if (bolActiveTab === 'hcm') {
-        data = data.filter(row => (row['Team'] === 'HCM' && !row['Đơn vị vận chuyển'] && row['Kết quả Check'] === 'OK'));
+      } else if (bolActiveTab === 'hanoi') {
+        data = data.filter(row => row['Team'] === 'Hà Nội');
       }
 
       // Sort by Date Desc - optimized with cached date parsing
@@ -974,6 +1140,27 @@ function VanDon() {
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, []);
 
+  // Save to history when pendingChanges or legacyChanges change (debounced)
+  const historyTimeoutRef = useRef(null);
+  useEffect(() => {
+    if (historyTimeoutRef.current) {
+      clearTimeout(historyTimeoutRef.current);
+    }
+    
+    historyTimeoutRef.current = setTimeout(() => {
+      // Only save if there are actual changes
+      if (pendingChanges.size > 0 || legacyChanges.size > 0) {
+        saveToHistory(pendingChanges, legacyChanges);
+      }
+    }, 1000); // Debounce 1 second
+    
+    return () => {
+      if (historyTimeoutRef.current) {
+        clearTimeout(historyTimeoutRef.current);
+      }
+    };
+  }, [pendingChanges, legacyChanges]);
+
   // --- Keyboard Navigation ---
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1044,11 +1231,31 @@ function VanDon() {
         });
         return;
       }
+
+      // Ctrl+Z - Undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Ctrl+Y or Ctrl+Shift+Z - Redo
+      if (((e.ctrlKey || e.metaKey) && e.key === 'y') || ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey)) {
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selection, paginatedData.length, currentColumns.length, getSelectionBounds, paginatedData, currentColumns]);
+  }, [selection, paginatedData.length, currentColumns.length, getSelectionBounds, paginatedData, currentColumns, handleUndo, handleRedo]);
 
   // --- Paste Logic ---
   useEffect(() => {
@@ -1302,7 +1509,7 @@ function VanDon() {
               {[
                 { id: 'all', label: 'Dữ liệu đơn hàng', icon: '📋' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
-                { id: 'hcm', label: 'FFM đẩy vận hành', icon: '🚚' }
+                { id: 'hanoi', label: 'Hà Nội', icon: '🏛️' }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -1310,7 +1517,14 @@ function VanDon() {
                     ? 'bg-white text-[#F37021] shadow-sm'
                     : 'text-gray-600 hover:bg-white/50 hover:text-[#F37021]'
                     }`}
-                  onClick={() => { setBolActiveTab(tab.id); setCurrentPage(1); }}
+                  onClick={() => { 
+                    setBolActiveTab(tab.id); 
+                    setCurrentPage(1);
+                    // Clear selection when switching tabs
+                    if (tab.id !== 'hanoi') {
+                      setSelectedRows(new Set());
+                    }
+                  }}
                 >
                   <span className="text-sm">{tab.icon}</span>
                   <span>{tab.label}</span>
@@ -1344,6 +1558,77 @@ function VanDon() {
 
         {/* Toolbar Actions Row */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2 flex flex-wrap items-center gap-3">
+          {/* Date Filter */}
+          <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📅 Lọc thời gian:</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dateFrom || ''}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Từ ngày"
+              />
+              <span className="text-xs text-gray-500 font-bold">→</span>
+              <input
+                type="date"
+                value={dateTo || ''}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Đến ngày"
+              />
+              <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enableDateFilter}
+                  onChange={(e) => {
+                    setEnableDateFilter(e.target.checked);
+                    setCurrentPage(1);
+                  }}
+                  className="w-3 h-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span>Áp dụng</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Market & Product Filters */}
+          <div className="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🌍 Thị trường:</label>
+            <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
+              <MultiSelect
+                label="Chọn thị trường..."
+                options={getMultiSelectOptions('Khu vực')}
+                selected={filterValues.market || []}
+                onChange={(vals) => {
+                  setFilterValues(prev => ({ ...prev, market: vals }));
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📦 Sản phẩm:</label>
+            <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
+              <MultiSelect
+                label="Chọn sản phẩm..."
+                options={getMultiSelectOptions('Mặt hàng')}
+                selected={filterValues.product || []}
+                onChange={(vals) => {
+                  setFilterValues(prev => ({ ...prev, product: vals }));
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
+          </div>
+
           {/* Toolbar Actions Group */}
           <div className="flex items-center gap-2">
             <button
@@ -1382,6 +1667,41 @@ function VanDon() {
                 value={fixedColumns} onChange={e => setFixedColumns(Number(e.target.value))}
               />
             </div>
+
+            {/* Phân FFM button - chỉ hiển thị trong tab Hà Nội */}
+            {bolActiveTab === 'hanoi' && (
+              <div className="relative" ref={phanFFMRef}>
+                <button
+                  onClick={() => setShowPhanFFMDropdown(!showPhanFFMDropdown)}
+                  disabled={selectedRows.size === 0}
+                  className="p-1 px-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm"
+                >
+                  📦 Phân FFM {selectedRows.size > 0 && `(${selectedRows.size})`}
+                </button>
+                {showPhanFFMDropdown && selectedRows.size > 0 && (
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50 min-w-[150px]">
+                    <button
+                      onClick={async () => {
+                        await handlePhanFFM('MGT');
+                        setShowPhanFFMDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 first:rounded-t-lg"
+                    >
+                      MGT
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await handlePhanFFM('T&T');
+                        setShowPhanFFMDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 last:rounded-b-lg"
+                    >
+                      T&T
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Stats on the far right */}
@@ -1401,14 +1721,34 @@ function VanDon() {
               <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
 
                 <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
+                  {/* Checkbox column header - chỉ hiển thị trong tab Hà Nội */}
+                  {bolActiveTab === 'hanoi' && (
+                    <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 1002, background: '#f8f9fa' }}>
+                      <div className="flex items-center justify-center">
+                        <input
+                          type="checkbox"
+                          checked={paginatedData.length > 0 && paginatedData.every(row => selectedRows.has(row[PRIMARY_KEY_COLUMN]))}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              selectAllRows();
+                            } else {
+                              deselectAllRows();
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                        />
+                      </div>
+                    </th>
+                  )}
                   {currentColumns.map((col, idx) => {
                     const key = COLUMN_MAPPING[col] || col;
                     const filterKey = col;
                     const stickyStyle = idx < fixedColumns ?
                       { position: 'sticky', left: idx * 100, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
+                    const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
 
                     return (
-                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'pl-2 pr-3' : 'px-4'}`} style={{ ...stickyStyle, position: 'relative', minWidth: (col === "Kết quả Check" || col === "Kết quả check") ? '140px' : 'fit-content', maxWidth: (col === "Kết quả Check" || col === "Kết quả check") ? '160px' : 'auto', width: (col === "Kết quả Check" || col === "Kết quả check") ? '150px' : 'auto' }}>
+                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap ${isCheckCol ? 'pl-2 pr-3' : 'px-4'}`} style={{ ...stickyStyle, minWidth: isCheckCol ? '140px' : 'fit-content', maxWidth: isCheckCol ? '160px' : 'auto', width: isCheckCol ? '150px' : 'auto' }}>
                         <div className={`font-semibold mb-2 text-gray-700 text-sm whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'text-left' : ''}`}>{col}</div>
                         {/* Render Filters based on View Mode and Column Type */}
                         {col === "STT" ? (
@@ -1451,14 +1791,28 @@ function VanDon() {
               </thead>
               <tbody style={{ position: 'relative', zIndex: 1 }}>
                 {loading ? (
-                  <tr><td colSpan={currentColumns.length} className="text-center p-10 text-gray-500">Đang tải dữ liệu...</td></tr>
+                  <tr><td colSpan={currentColumns.length + (bolActiveTab === 'hanoi' ? 1 : 0)} className="text-center p-10 text-gray-500">Đang tải dữ liệu...</td></tr>
                 ) : paginatedData.length === 0 ? (
-                  <tr><td colSpan={currentColumns.length} className="text-center p-10 text-gray-500 italic">Không có dữ liệu phù hợp</td></tr>
+                  <tr><td colSpan={currentColumns.length + (bolActiveTab === 'hanoi' ? 1 : 0)} className="text-center p-10 text-gray-500 italic">Không có dữ liệu phù hợp</td></tr>
                 ) : (
                   paginatedData.map((row, rIdx) => {
                     const orderId = row[PRIMARY_KEY_COLUMN];
                     return (
-                      <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
+                      <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
+                        {/* Checkbox column - chỉ hiển thị trong tab Hà Nội */}
+                        {bolActiveTab === 'hanoi' && (
+                          <td className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10" style={{ position: 'sticky', left: 0, zIndex: 10, backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb' }}>
+                            <div className="flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedRows.has(orderId)}
+                                onChange={() => toggleRowSelection(orderId)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                              />
+                            </div>
+                          </td>
+                        )}
                         {currentColumns.map((col, cIdx) => {
                           const key = COLUMN_MAPPING[col] || col;
                           const val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
@@ -1574,13 +1928,46 @@ function VanDon() {
                 <select
                   className="border-none bg-transparent text-xs font-black text-[#F37021] focus:ring-0 p-0 cursor-pointer"
                   value={rowsPerPage}
-                  onChange={e => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                  onChange={e => { 
+                    const value = Number(e.target.value);
+                    if (value > 0) {
+                      setRowsPerPage(value); 
+                      setCurrentPage(1);
+                    }
+                  }}
                 >
+                  <option value="25">25 dòng</option>
                   <option value="50">50 dòng</option>
                   <option value="100">100 dòng</option>
                   <option value="200">200 dòng</option>
                   <option value="500">500 dòng</option>
+                  <option value="1000">1000 dòng</option>
                 </select>
+                <span className="text-xs text-gray-400">|</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={rowsPerPage}
+                  onChange={e => {
+                    const value = Number(e.target.value);
+                    if (value > 0 && value <= 10000) {
+                      setRowsPerPage(value);
+                      setCurrentPage(1);
+                    }
+                  }}
+                  onBlur={e => {
+                    const value = Number(e.target.value);
+                    if (value < 1) {
+                      setRowsPerPage(50);
+                    } else if (value > 10000) {
+                      setRowsPerPage(10000);
+                    }
+                  }}
+                  className="w-16 text-xs font-bold text-[#F37021] border border-gray-300 rounded px-1 py-0.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Tùy chỉnh"
+                />
+                <span className="text-xs text-gray-400">dòng/trang</span>
               </div>
             </div>
           </div>
