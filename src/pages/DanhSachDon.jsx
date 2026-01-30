@@ -339,27 +339,32 @@ function DanhSachDon() {
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
 
-      const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
-
-      // Nếu có selectedPersonnelNames, lấy đơn hàng của tất cả nhân sự đó
-      if (!isManager && selectedPersonnelNames.length > 0) {
-        // Tạo danh sách tên để filter (bao gồm cả user hiện tại nếu chưa có trong danh sách)
-        const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-        console.log('🔍 Filtering by selected personnel names:', allNames);
-        
-        // Filter theo sale_staff, marketing_staff, hoặc delivery_staff
-        // Sử dụng .or() để match với bất kỳ tên nào trong danh sách
-        const orConditions = allNames.flatMap(name => [
-          `sale_staff.ilike.%${name}%`,
-          `marketing_staff.ilike.%${name}%`,
-          `delivery_staff.ilike.%${name}%`
-        ]);
-        
-        query = query.or(orConditions.join(','));
-      } else if (!isManager && userName) {
-        // Nếu không có selectedPersonnelNames, filter theo user hiện tại
-        // Filter by sale_staff, marketing_staff, hoặc delivery_staff
-        query = query.or(`sale_staff.ilike.%${userName}%,marketing_staff.ilike.%${userName}%,delivery_staff.ilike.%${userName}%`);
+      // Admin luôn xem tất cả đơn, không bị filter
+      // isAdmin đã được định nghĩa ở đầu component
+      if (!isAdmin) {
+        // Non-admin: Áp dụng filter theo nhân sự
+        if (selectedPersonnelNames.length > 0) {
+          // Tạo danh sách tên để filter (bao gồm cả user hiện tại nếu chưa có trong danh sách)
+          const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
+          console.log('🔍 Filtering by selected personnel names:', allNames);
+          
+          // Filter theo sale_staff, marketing_staff, hoặc delivery_staff
+          // Sử dụng .or() để match với bất kỳ tên nào trong danh sách
+          const orConditions = allNames.flatMap(name => [
+            `sale_staff.ilike.%${name}%`,
+            `marketing_staff.ilike.%${name}%`,
+            `delivery_staff.ilike.%${name}%`
+          ]);
+          
+          query = query.or(orConditions.join(','));
+        } else if (userName) {
+          // Nếu không có selectedPersonnelNames, filter theo user hiện tại
+          // Filter by sale_staff, marketing_staff, hoặc delivery_staff
+          query = query.or(`sale_staff.ilike.%${userName}%,marketing_staff.ilike.%${userName}%,delivery_staff.ilike.%${userName}%`);
+        }
+      } else {
+        // Admin: không filter, xem tất cả đơn
+        console.log('✅ Admin: Viewing all orders (no filter applied)');
       }
 
       if (startDate) {
@@ -854,9 +859,10 @@ function DanhSachDon() {
     let data = [...allData];
 
     // Filter by selected personnel (nếu có)
+    // Admin KHÔNG bị filter, luôn xem tất cả đơn
     // Giờ selectedPersonnelNames chứa TÊN trực tiếp từ DB
     // Match với các cột: "Nhân viên Marketing", "Nhân viên Sale", "NV Vận đơn"
-    if (selectedPersonnelNames.length > 0) {
+    if (!isAdmin && selectedPersonnelNames.length > 0) {
       const beforeFilter = data.length;
       let debugCount = 0;
       

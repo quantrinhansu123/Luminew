@@ -569,17 +569,63 @@ export default function NhapDonMoi({ isEdit = false }) {
         return saleEmployees.filter(e => (e['Họ_và_tên'] || e['Họ và tên'] || "").toLowerCase().includes(saleSearch.toLowerCase()));
     }, [saleEmployees, saleSearch]);
 
-    // --- Tự động điền team (chi nhánh) theo nhân viên sale ---
+    // --- Tự động điền team (chi nhánh) theo nhân viên sale từ bảng users ---
     useEffect(() => {
-        if (!selectedSale || !saleEmployees.length) return;
-        const emp = saleEmployees.find((e) => {
-            const n = (e['Họ_và_tên'] || e['Họ và tên'] || "").trim();
-            return n === selectedSale.trim();
-        });
-        if (!emp) return;
-        const branch = emp['chi nhánh'] ?? emp['Chi_nhánh'] ?? emp['Chi nhánh'] ?? emp['Team'] ?? emp['Bộ_phận'] ?? emp.branch ?? emp.team ?? "";
-        if (branch) setFormData((prev) => ({ ...prev, team: String(branch).trim() }));
-    }, [selectedSale, saleEmployees]);
+        if (!selectedSale) return;
+        
+        const fetchBranchFromUsers = async () => {
+            try {
+                const saleName = selectedSale.trim();
+                
+                // Query từ bảng users theo tên (name) để lấy branch
+                // Thử match chính xác trước, nếu không có thì thử ilike
+                let { data: userData, error } = await supabase
+                    .from('users')
+                    .select('branch, name')
+                    .eq('name', saleName)
+                    .limit(1);
+                
+                // Nếu không tìm thấy với match chính xác, thử ilike
+                if ((!userData || userData.length === 0) && error === null) {
+                    const { data: userDataLike, error: errorLike } = await supabase
+                        .from('users')
+                        .select('branch, name')
+                        .ilike('name', `%${saleName}%`)
+                        .limit(1);
+                    
+                    if (!errorLike && userDataLike && userDataLike.length > 0) {
+                        userData = userDataLike;
+                        error = null;
+                    }
+                }
+                
+                if (error) {
+                    console.error('❌ Lỗi khi lấy branch từ users:', error);
+                    return;
+                }
+                
+                if (userData && userData.length > 0) {
+                    const branch = userData[0].branch;
+                    if (branch) {
+                        setFormData((prev) => ({ ...prev, team: String(branch).trim() }));
+                        console.log(`✅ Tự động điền Chi nhánh: "${branch}" cho nhân viên "${selectedSale}"`);
+                    } else {
+                        console.log(`⚠️ Không tìm thấy branch cho nhân viên "${selectedSale}"`);
+                        // Reset team nếu không tìm thấy
+                        setFormData((prev) => ({ ...prev, team: "" }));
+                    }
+                } else {
+                    console.log(`⚠️ Không tìm thấy nhân viên "${selectedSale}" trong bảng users`);
+                    // Reset team nếu không tìm thấy
+                    setFormData((prev) => ({ ...prev, team: "" }));
+                }
+            } catch (err) {
+                console.error('❌ Lỗi khi fetch branch từ users:', err);
+            }
+        };
+        
+        fetchBranchFromUsers();
+    }, [selectedSale]);
 
     const filteredMktEmployees = useMemo(() => {
         if (!mktSearch) return mktEmployees;

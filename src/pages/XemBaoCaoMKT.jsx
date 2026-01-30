@@ -22,6 +22,20 @@ export default function XemBaoCaoMKT() {
   const { canView, role, team: userTeam } = usePermissions();
   const permissionCode = teamFilter === 'RD' ? 'RND_VIEW' : 'MKT_VIEW';
   
+  // Kiểm tra Admin
+  const roleFromHook = (role || '').toUpperCase();
+  const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
+  const userJson = localStorage.getItem("user");
+  const userObj = userJson ? JSON.parse(userJson) : null;
+  const roleFromUserObj = (userObj?.role || '').toLowerCase();
+  
+  const isAdmin = roleFromHook === 'ADMIN' ||
+                   roleFromHook === 'SUPER_ADMIN' ||
+                   roleFromStorage === 'admin' ||
+                   roleFromStorage === 'super_admin' ||
+                   roleFromUserObj === 'admin' ||
+                   roleFromUserObj === 'super_admin';
+  
   // Get user email and name for filtering
   const userEmail = localStorage.getItem('userEmail') || '';
   const userName = localStorage.getItem('username') || '';
@@ -196,9 +210,34 @@ export default function XemBaoCaoMKT() {
       });
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unknown error');
+        const contentType = response.headers.get('content-type');
+        let errorText = 'Unknown error';
+        
+        // Kiểm tra xem response có phải là JSON không
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            const errorJson = await response.json();
+            errorText = errorJson.error || errorJson.message || JSON.stringify(errorJson);
+          } catch (e) {
+            errorText = await response.text().catch(() => 'Unknown error');
+          }
+        } else {
+          // Nếu không phải JSON (có thể là HTML error page)
+          errorText = await response.text().catch(() => 'Unknown error');
+          console.error('❌ Server returned non-JSON response (possibly HTML error page):', errorText.substring(0, 200));
+          throw new Error(`Server error (${response.status}): Backend server có thể chưa chạy hoặc có lỗi. Vui lòng kiểm tra server trên port 3001.`);
+        }
+        
         console.error('❌ HTTP error:', response.status, errorText);
         throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+
+      // Kiểm tra content-type trước khi parse JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('❌ Server returned non-JSON response:', text.substring(0, 200));
+        throw new Error(`Server returned non-JSON response. Backend server có thể chưa chạy hoặc có lỗi.`);
       }
 
       const result = await response.json();
@@ -213,10 +252,9 @@ export default function XemBaoCaoMKT() {
       let dateFilteredReports = allReports.filter(r => isDateInRange(r['Ngày'], startDate, endDate));
       
       // Then filter by hierarchical permissions
-      // Admin/Director/Manager: see all data
-      const isAdminOrLeadership = ['admin', 'director', 'manager', 'super_admin', 'ADMIN', 'DIRECTOR', 'MANAGER'].includes((role || '').toUpperCase());
-      
-      if (!isAdminOrLeadership) {
+      // Admin: luôn xem tất cả dữ liệu, không bị filter
+      if (!isAdmin) {
+        // Non-admin: Áp dụng filter theo role
         // Leader: see team data only
         if (role?.toUpperCase() === 'LEADER' && userTeam) {
           dateFilteredReports = dateFilteredReports.filter(item => 
@@ -234,9 +272,12 @@ export default function XemBaoCaoMKT() {
                    (itemEmail === currentUserEmail && currentUserEmail !== '');
           });
         }
+      } else {
+        // Admin: xem tất cả, không filter
+        console.log('✅ Admin: Viewing all MKT reports (no filter applied)');
       }
       
-      console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam})`);
+      console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`);
       
       // Enrich với số đơn TT từ bảng orders
       await enrichWithTotalOrdersFromOrders(dateFilteredReports, startDate, endDate);
@@ -260,7 +301,19 @@ export default function XemBaoCaoMKT() {
 
     } catch (err) {
       console.error('❌ Error fetching data:', err);
-      alert(`Lỗi khi tải dữ liệu: ${err.message || String(err)}`);
+      console.error('❌ Error details:', {
+        message: err.message,
+        stack: err.stack,
+        name: err.name
+      });
+      
+      // Hiển thị thông báo lỗi rõ ràng hơn cho user
+      if (err.message && (err.message.includes('Backend server') || err.message.includes('non-JSON'))) {
+        alert(`⚠️ ${err.message}\n\nVui lòng đảm bảo backend server đang chạy:\nnpm run server`);
+      } else {
+        alert(`❌ Lỗi khi tải dữ liệu: ${err.message || 'Lỗi không xác định'}\n\nVui lòng kiểm tra console để xem chi tiết.`);
+      }
+      
       setData([]);
     } finally {
       setLoading(false);

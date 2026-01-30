@@ -1818,17 +1818,21 @@ export default function BaoCaoSale() {
                 }
             } else {
                 // NEW: Automatic Restriction based on logged-in user
-                const userJson = localStorage.getItem("user");
-                const user = userJson ? JSON.parse(userJson) : null;
-                const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
+                // Admin luôn xem full danh sách, không bị giới hạn
+                if (isAdmin) {
+                    setIsRestrictedView(false);
+                    newPermissions = {
+                        allowedBranch: null,
+                        allowedTeam: null,
+                        allowedNames: [],
+                        title: 'DỮ LIỆU TỔNG HỢP (ADMIN)'
+                    };
+                } else {
+                    // Non-admin: Áp dụng restriction
+                    const userJson = localStorage.getItem("user");
+                    const user = userJson ? JSON.parse(userJson) : null;
+                    const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
 
-                // Broader check: ANY role containing 'admin' or Manager/Director titles
-                const userRole = (role || '').toLowerCase();
-                const isManager = userRole.includes('admin') ||
-                    ['director', 'manager'].includes(userRole) ||
-                    String(userName || '').toLowerCase().includes('admin');
-
-                if (!isManager && userName) {
                     setIsRestrictedView(true);
                     // Determine if Leader or Staff based on role/info (simplified)
                     // If we have employeeData matching userName, use it.
@@ -1865,9 +1869,6 @@ export default function BaoCaoSale() {
                             title: `DỮ LIỆU CÁ NHÂN - ${userName}`
                         };
                     }
-                } else {
-                    setIsRestrictedView(false);
-                    newPermissions.title = 'DỮ LIỆU TỔNG HỢP';
                 }
             }
             setPermissions(newPermissions);
@@ -1925,7 +1926,8 @@ export default function BaoCaoSale() {
             let visibleData = processed;
             
             // Filter theo permissions hiện tại (nếu có restricted view)
-            if (isRestrictedView || idFromUrl) {
+            // Admin KHÔNG bị filter, luôn xem full danh sách
+            if (!isAdmin && (isRestrictedView || idFromUrl)) {
                 visibleData = processed.filter(r => {
                     if (newPermissions.allowedBranch && r.chiNhanh.toLowerCase() !== newPermissions.allowedBranch.toLowerCase()) return false;
                     if (newPermissions.allowedTeam && r.team !== newPermissions.allowedTeam) return false;
@@ -1935,6 +1937,7 @@ export default function BaoCaoSale() {
             }
             
             // Filter theo selected_personnel (nếu không phải Admin và có selectedPersonnelNames)
+            // Admin KHÔNG bị filter bởi selected_personnel
             if (!isAdmin && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                 const beforeFilterCount = visibleData.length;
                 visibleData = visibleData.filter(r => {

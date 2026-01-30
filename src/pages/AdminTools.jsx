@@ -1102,6 +1102,8 @@ const AdminTools = () => {
             // Lọc: delivery_staff trống, loại trừ "Nhật Bản" và "CĐ Nhật Bản"
             const ordersHCM = [];
             const ordersHaNoi = [];
+            const ordersWithoutTeam = []; // Đơn không có team
+            const ordersExcluded = []; // Đơn bị loại trừ (để debug)
 
             allOrders?.forEach(order => {
                 const deliveryStaff = order.delivery_staff?.toString().trim() || '';
@@ -1109,18 +1111,46 @@ const AdminTools = () => {
                 const team = order.team?.toString().trim() || '';
 
                 // Chỉ chia cho đơn có delivery_staff trống
-                if (deliveryStaff !== '') return;
+                if (deliveryStaff !== '') {
+                    ordersExcluded.push({ ...order, reason: 'delivery_staff đã có' });
+                    return;
+                }
 
                 // Loại trừ "Nhật Bản" và "CĐ Nhật Bản"
-                if (country === 'Nhật Bản' || country === 'CĐ Nhật Bản') return;
+                if (country === 'Nhật Bản' || country === 'CĐ Nhật Bản') {
+                    ordersExcluded.push({ ...order, reason: 'Nhật Bản' });
+                    return;
+                }
 
                 // Phân loại theo Team
                 if (team === 'HCM') {
                     ordersHCM.push(order);
                 } else if (team === 'Hà Nội') {
                     ordersHaNoi.push(order);
+                } else {
+                    // Đơn không có team hoặc team khác
+                    ordersWithoutTeam.push({ ...order, reason: `team="${team}" (không phải HCM/Hà Nội)` });
                 }
             });
+
+            // Log để debug
+            console.log(`📊 [Chia đơn vận đơn] Thống kê:`);
+            console.log(`  - Tổng đơn: ${allOrders?.length || 0}`);
+            console.log(`  - Đơn HCM: ${ordersHCM.length}`);
+            console.log(`  - Đơn Hà Nội: ${ordersHaNoi.length}`);
+            console.log(`  - Đơn không có team/team khác: ${ordersWithoutTeam.length}`);
+            console.log(`  - Đơn bị loại trừ: ${ordersExcluded.length}`);
+            
+            if (ordersWithoutTeam.length > 0) {
+                console.warn(`⚠️ [Chia đơn vận đơn] Có ${ordersWithoutTeam.length} đơn không có team hoặc team khác, không được chia:`, 
+                    ordersWithoutTeam.slice(0, 5).map(o => ({
+                        order_code: o.order_code,
+                        team: o.team,
+                        country: o.country,
+                        reason: o.reason
+                    }))
+                );
+            }
 
             // Bước 5: Chia đơn cho nhân viên
             const updates = [];
@@ -1177,8 +1207,9 @@ const AdminTools = () => {
                 `- Nhân viên Hà Nội (U1): ${nhanVienHaNoi.length} người\n` +
                 `- Đơn HCM đã chia: ${ordersHCM.length} đơn\n` +
                 `- Đơn Hà Nội đã chia: ${ordersHaNoi.length} đơn\n` +
-                `- Tổng đơn đã chia: ${updates.length} đơn\n\n` +
-                `- LastIndex HCM: ${currentIndexHCM}\n` +
+                `- Tổng đơn đã chia: ${updates.length} đơn\n` +
+                (ordersWithoutTeam.length > 0 ? `\n⚠️ Lưu ý: Có ${ordersWithoutTeam.length} đơn không có team hoặc team khác (không phải HCM/Hà Nội) nên không được chia.\n` : '') +
+                `\n- LastIndex HCM: ${currentIndexHCM}\n` +
                 `- LastIndex Hà Nội: ${currentIndexHaNoi}`;
 
             setAutoAssignResult({ success: true, message });
