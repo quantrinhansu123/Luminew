@@ -27,6 +27,20 @@ export default function DanhSachBaoCaoTayMKT() {
     const { canView, canDelete, role, team: userTeam, permissions } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_MANUAL' : 'MKT_MANUAL';
     
+    // Kiểm tra Admin
+    const roleFromHook = (role || '').toUpperCase();
+    const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
+    const userJson = localStorage.getItem("user");
+    const userObj = userJson ? JSON.parse(userJson) : null;
+    const roleFromUserObj = (userObj?.role || '').toLowerCase();
+    
+    const isAdmin = roleFromHook === 'ADMIN' ||
+                     roleFromHook === 'SUPER_ADMIN' ||
+                     roleFromStorage === 'admin' ||
+                     roleFromStorage === 'super_admin' ||
+                     roleFromUserObj === 'admin' ||
+                     roleFromUserObj === 'super_admin';
+    
     // Get user email and name for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
     const userName = localStorage.getItem('username') || '';
@@ -52,7 +66,8 @@ export default function DanhSachBaoCaoTayMKT() {
     const [deletingId, setDeletingId] = useState(null); // Track which report is being deleted
     const [filters, setFilters] = useState({
         startDate: '',
-        endDate: ''
+        endDate: '',
+        personnelName: '' // Filter theo tên nhân sự
     });
     const [syncing, setSyncing] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -294,27 +309,38 @@ export default function DanhSachBaoCaoTayMKT() {
                 console.log('📋 Filter: department IS NULL OR department = MKT OR department != RD');
             }
 
-            // Bỏ qua permission filtering - hiển thị tất cả data
-            console.log('👤 Showing all data (no permission filter)');
+            // Filter theo tên nhân sự nếu có (áp dụng cho cả Admin và non-Admin)
+            if (filters.personnelName && filters.personnelName.trim().length > 0) {
+                const searchName = filters.personnelName.trim();
+                query = query.ilike('Tên', `%${searchName}%`);
+                console.log('📋 Filter: Tên nhân sự chứa:', searchName);
+            }
 
-            // Filter theo selected_personnel nếu có
-            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
-                // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
-                const orConditions = selectedPersonnelNames
-                    .filter(name => name && name.trim().length > 0)
-                    .map(name => `Tên.ilike.%${name.trim()}%`);
-                
-                if (orConditions.length > 0) {
-                    query = query.or(orConditions.join(','));
-                    console.log('✅ Applied filter for selected personnel:', orConditions.length, 'names');
+            // Admin: xem tất cả data, không filter theo selected_personnel
+            // Người khác: chỉ xem data của mình dựa trên selected_personnel (chỉ khi không có filter theo tên)
+            if (!isAdmin && (!filters.personnelName || filters.personnelName.trim().length === 0)) {
+                // Filter theo selected_personnel nếu có
+                if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+                    console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
+                    // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
+                    const orConditions = selectedPersonnelNames
+                        .filter(name => name && name.trim().length > 0)
+                        .map(name => `Tên.ilike.%${name.trim()}%`);
+                    
+                    if (orConditions.length > 0) {
+                        query = query.or(orConditions.join(','));
+                        console.log('✅ Applied filter for selected personnel:', orConditions.length, 'names');
+                    } else {
+                        // Không có tên hợp lệ -> không trả về data nào
+                        console.warn('⚠️ No valid names in selectedPersonnelNames, returning empty result');
+                        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+                    }
                 } else {
-                    // Không có tên hợp lệ -> không trả về data nào
-                    console.warn('⚠️ No valid names in selectedPersonnelNames, returning empty result');
+                    console.log('ℹ️ No selectedPersonnelNames, returning empty result (non-admin)');
                     query = query.eq('id', '00000000-0000-0000-0000-000000000000');
                 }
-            } else {
-                console.log('ℹ️ No selectedPersonnelNames, showing all data');
+            } else if (isAdmin) {
+                console.log('✅ Admin: Viewing all data (no selected_personnel filter applied)');
             }
 
             const { data, error } = await query.order('Ngày', { ascending: false });
@@ -395,27 +421,38 @@ export default function DanhSachBaoCaoTayMKT() {
                 console.log('📋 Filter: department IS NULL OR department = MKT OR department != RD');
             }
 
-            // Bỏ qua permission filtering - hiển thị tất cả data
-            console.log('👤 Showing all data (no permission filter)');
+            // Filter theo tên nhân sự nếu có (áp dụng cho cả Admin và non-Admin)
+            if (filters.personnelName && filters.personnelName.trim().length > 0) {
+                const searchName = filters.personnelName.trim();
+                query = query.ilike('Tên', `%${searchName}%`);
+                console.log('📋 Filter: Tên nhân sự chứa:', searchName);
+            }
 
-            // Filter theo selected_personnel nếu có
-            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
-                // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
-                const orConditions = selectedPersonnelNames
-                    .filter(name => name && name.trim().length > 0)
-                    .map(name => `Tên.ilike.%${name.trim()}%`);
-                
-                if (orConditions.length > 0) {
-                    query = query.or(orConditions.join(','));
-                    console.log('✅ Applied filter for selected personnel:', orConditions.length, 'names');
+            // Admin: xem tất cả data, không filter theo selected_personnel
+            // Người khác: chỉ xem data của mình dựa trên selected_personnel (chỉ khi không có filter theo tên)
+            if (!isAdmin && (!filters.personnelName || filters.personnelName.trim().length === 0)) {
+                // Filter theo selected_personnel nếu có
+                if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+                    console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
+                    // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
+                    const orConditions = selectedPersonnelNames
+                        .filter(name => name && name.trim().length > 0)
+                        .map(name => `Tên.ilike.%${name.trim()}%`);
+                    
+                    if (orConditions.length > 0) {
+                        query = query.or(orConditions.join(','));
+                        console.log('✅ Applied filter for selected personnel:', orConditions.length, 'names');
+                    } else {
+                        // Không có tên hợp lệ -> không trả về data nào
+                        console.warn('⚠️ No valid names in selectedPersonnelNames, returning empty result');
+                        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+                    }
                 } else {
-                    // Không có tên hợp lệ -> không trả về data nào
-                    console.warn('⚠️ No valid names in selectedPersonnelNames, returning empty result');
+                    console.log('ℹ️ No selectedPersonnelNames, returning empty result (non-admin)');
                     query = query.eq('id', '00000000-0000-0000-0000-000000000000');
                 }
-            } else {
-                console.log('ℹ️ No selectedPersonnelNames, showing all data');
+            } else if (isAdmin) {
+                console.log('✅ Admin: Viewing all data (no selected_personnel filter applied)');
             }
 
             console.log('🔍 Executing query...');
@@ -490,7 +527,7 @@ export default function DanhSachBaoCaoTayMKT() {
         if (filters.startDate && filters.endDate) {
             fetchData();
         }
-    }, [filters.startDate, filters.endDate, selectedPersonnelNames]);
+    }, [filters.startDate, filters.endDate, filters.personnelName, selectedPersonnelNames]);
     
     // Debug: Test if we can access the table at all
     useEffect(() => {
@@ -655,13 +692,7 @@ export default function DanhSachBaoCaoTayMKT() {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
     }
 
-    // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút đồng bộ)
-    const roleFromHook = (role || '').toUpperCase();
-    const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
-    const isAdmin = roleFromHook === 'ADMIN' || 
-                   roleFromHook === 'SUPER_ADMIN' ||
-                   roleFromStorage === 'admin' ||
-                   roleFromStorage === 'super_admin';
+    // isAdmin đã được định nghĩa ở trên, không cần định nghĩa lại
     
     // Kiểm tra quyền xóa (Admin hoặc user có quyền delete cho permissionCode)
     const canDeleteAll = isAdmin || canDelete(permissionCode);
@@ -833,6 +864,24 @@ export default function DanhSachBaoCaoTayMKT() {
                         Đến ngày:
                         <input type="date" value={filters.endDate} onChange={e => setFilters(prev => ({ ...prev, endDate: e.target.value }))} />
                     </label>
+                    <label>
+                        Tên nhân sự:
+                        <input 
+                            type="text" 
+                            placeholder="Gõ tên để tìm kiếm..."
+                            value={filters.personnelName} 
+                            onChange={e => setFilters(prev => ({ ...prev, personnelName: e.target.value }))} 
+                            style={{ width: '100%', padding: '8px', marginTop: '4px', border: '1px solid #ccc', borderRadius: '4px' }}
+                        />
+                    </label>
+                    {filters.personnelName && (
+                        <button 
+                            onClick={() => setFilters(prev => ({ ...prev, personnelName: '' }))}
+                            style={{ marginTop: '8px', padding: '4px 8px', fontSize: '12px', background: '#f44336', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        >
+                            Xóa bộ lọc tên
+                        </button>
+                    )}
                 </div>
 
                 <div className="main-detailed">

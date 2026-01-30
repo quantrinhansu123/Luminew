@@ -6,6 +6,7 @@ import MultiSelect from '../components/MultiSelect';
 import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
 import * as rbacService from '../services/rbacService';
+import { supabase } from '../supabase/config';
 import '../styles/selection.css';
 
 import {
@@ -272,41 +273,137 @@ function VanDon() {
         const user = userJson ? JSON.parse(userJson) : null;
         const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
         const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
+        
+        // Load nguoi_sua_ho từ danh_sach_van_don cho non-manager
+        let allowedDeliveryStaffNames = [];
+        if (!isManager && userName) {
+          try {
+            const { data: vanDonRecords, error: vanDonError } = await supabase
+              .from('danh_sach_van_don')
+              .select('ho_va_ten, nguoi_sua_ho');
+            
+            if (!vanDonError && vanDonRecords) {
+              // Tìm các record có ho_va_ten = userName hoặc userName trong nguoi_sua_ho
+              const relevantRecords = vanDonRecords.filter(record => {
+                // Parse nguoi_sua_ho
+                let nguoiSuaHo = [];
+                if (record.nguoi_sua_ho) {
+                  if (Array.isArray(record.nguoi_sua_ho)) {
+                    nguoiSuaHo = record.nguoi_sua_ho;
+                  } else if (typeof record.nguoi_sua_ho === 'string') {
+                    try {
+                      const parsed = JSON.parse(record.nguoi_sua_ho);
+                      nguoiSuaHo = Array.isArray(parsed) ? parsed : [record.nguoi_sua_ho];
+                    } catch {
+                      nguoiSuaHo = record.nguoi_sua_ho.trim() ? [record.nguoi_sua_ho] : [];
+                    }
+                  }
+                }
+                
+                const isOwnRecord = record.ho_va_ten && record.ho_va_ten.toLowerCase().trim() === userName.toLowerCase().trim();
+                const isInNguoiSuaHo = nguoiSuaHo.some(name => 
+                  name && name.toLowerCase().trim() === userName.toLowerCase().trim()
+                );
+                
+                return isOwnRecord || isInNguoiSuaHo;
+              });
+              
+              // Lấy danh sách ho_va_ten từ các record liên quan
+              allowedDeliveryStaffNames = relevantRecords
+                .map(r => r.ho_va_ten)
+                .filter(Boolean);
+              
+              // Thêm userName vào danh sách
+              if (userName && !allowedDeliveryStaffNames.includes(userName)) {
+                allowedDeliveryStaffNames.push(userName);
+              }
+              
+              console.log('🔐 [VanDon] Loaded allowed delivery staff names from danh_sach_van_don:', allowedDeliveryStaffNames);
+            }
+          } catch (err) {
+            console.error('❌ [VanDon] Error loading nguoi_sua_ho:', err);
+            // Fallback: chỉ dùng userName
+            allowedDeliveryStaffNames = userName ? [userName] : [];
+          }
+        }
 
         let filteredData = result.data;
         let filteredTotal = result.total;
 
+        // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn có Kết quả Check="Ok", Mã Tracking trống/null và Đơn vị vận chuyển trống/null
+        if (bolActiveTab === 'hanoi') {
+          filteredData = result.data.filter(row => {
+            const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+            const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
+            const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+            
+            // Kết quả Check phải là "Ok" hoặc "OK"
+            const isCheckOk = checkResult.toLowerCase() === 'ok';
+            // Mã Tracking phải trống hoặc null
+            const isTrackingEmpty = !tracking || tracking === '' || tracking === 'null';
+            // Đơn vị vận chuyển phải trống hoặc null
+            const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
+            
+            return isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
+          });
+          filteredTotal = filteredData.length;
+          console.log('🏛️ [VanDon Backend] Tab Hà Nội - Filtered by Check="Ok", empty Tracking and empty Đơn vị vận chuyển:', filteredData.length, 'orders');
+          
+          // Sau khi filter theo Check và Tracking, tiếp tục filter theo nguoi_sua_ho/userName nếu không phải manager
+          if (!isManager && allowedDeliveryStaffNames.length > 0) {
+            console.log('🔍 [VanDon Backend] Tab Hà Nội - Further filtering by nguoi_sua_ho/userName (NV vận đơn only):', allowedDeliveryStaffNames);
+            
+            filteredData = filteredData.filter(row => {
+              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
+              
+              return allowedDeliveryStaffNames.some(name => {
+                const nameLower = name.toLowerCase().trim();
+                return d === nameLower || d.includes(nameLower);
+              });
+            });
+            
+            filteredTotal = filteredData.length;
+          } else if (!isManager && userName) {
+            // Fallback: Nếu không load được nguoi_sua_ho, chỉ filter theo userName
+            console.log('🔍 [VanDon Backend] Tab Hà Nội - Fallback: Filtering by userName only:', userName);
+            const userNameLower = userName.toLowerCase().trim();
+            filteredData = filteredData.filter(row => {
+              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
+              return d === userNameLower || d.includes(userNameLower);
+            });
+            filteredTotal = filteredData.length;
+          }
+        }
         // Tab "Đơn Nhật": không filter theo selectedPersonnelNames (đã filter ở API level)
-        if (isJapanTab) {
+        else if (isJapanTab) {
           // Tab "Đơn Nhật": đã filter theo country ở API level, chỉ cần bỏ filter nhân sự
           console.log('🇯🇵 [VanDon Backend] Japan tab - already filtered by country at API level, no personnel filter');
           filteredData = result.data; // Data đã được filter theo country ở API
           filteredTotal = result.total; // Total đã đúng từ API
         } else {
-          // Các tab khác: filter theo selectedPersonnelNames nếu không phải manager
+          // Các tab khác: filter theo nguoi_sua_ho hoặc userName nếu không phải manager
           // CHỈ filter theo cột "NV vận đơn" (delivery_staff)
-          if (!isManager && selectedPersonnelNames.length > 0) {
-            const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-            console.log('🔍 [VanDon Backend] Filtering by selected personnel names (NV vận đơn only):', allNames);
+          if (!isManager && allowedDeliveryStaffNames.length > 0) {
+            console.log('🔍 [VanDon Backend] Filtering by nguoi_sua_ho/userName (NV vận đơn only):', allowedDeliveryStaffNames);
             
             filteredData = result.data.filter(row => {
-              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase();
+              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
               
-              return allNames.some(name => {
-                const nameLower = name.toLowerCase();
-                return d.includes(nameLower);
+              return allowedDeliveryStaffNames.some(name => {
+                const nameLower = name.toLowerCase().trim();
+                return d === nameLower || d.includes(nameLower);
               });
             });
             
             // Cập nhật total (ước tính, vì không biết chính xác tổng số sau filter)
             filteredTotal = filteredData.length;
           } else if (!isManager && userName) {
-            // Nếu không có selectedPersonnelNames, filter theo user hiện tại
-            // CHỈ filter theo cột "NV vận đơn" (delivery_staff)
+            // Fallback: Nếu không load được nguoi_sua_ho, chỉ filter theo userName
+            console.log('🔍 [VanDon Backend] Fallback: Filtering by userName only:', userName);
             filteredData = result.data.filter(row => {
-              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase();
-              const u = userName.toLowerCase();
-              return d.includes(u);
+              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
+              const u = userName.toLowerCase().trim();
+              return d === u || d.includes(u);
             });
             filteredTotal = filteredData.length;
           }
@@ -330,6 +427,59 @@ function VanDon() {
         const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
         const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
 
+        // Load nguoi_sua_ho từ danh_sach_van_don cho non-manager (fallback mode)
+        let allowedDeliveryStaffNames = [];
+        if (!isManager && userName) {
+          try {
+            const { data: vanDonRecords, error: vanDonError } = await supabase
+              .from('danh_sach_van_don')
+              .select('ho_va_ten, nguoi_sua_ho');
+            
+            if (!vanDonError && vanDonRecords) {
+              // Tìm các record có ho_va_ten = userName hoặc userName trong nguoi_sua_ho
+              const relevantRecords = vanDonRecords.filter(record => {
+                // Parse nguoi_sua_ho
+                let nguoiSuaHo = [];
+                if (record.nguoi_sua_ho) {
+                  if (Array.isArray(record.nguoi_sua_ho)) {
+                    nguoiSuaHo = record.nguoi_sua_ho;
+                  } else if (typeof record.nguoi_sua_ho === 'string') {
+                    try {
+                      const parsed = JSON.parse(record.nguoi_sua_ho);
+                      nguoiSuaHo = Array.isArray(parsed) ? parsed : [record.nguoi_sua_ho];
+                    } catch {
+                      nguoiSuaHo = record.nguoi_sua_ho.trim() ? [record.nguoi_sua_ho] : [];
+                    }
+                  }
+                }
+                
+                const isOwnRecord = record.ho_va_ten && record.ho_va_ten.toLowerCase().trim() === userName.toLowerCase().trim();
+                const isInNguoiSuaHo = nguoiSuaHo.some(name => 
+                  name && name.toLowerCase().trim() === userName.toLowerCase().trim()
+                );
+                
+                return isOwnRecord || isInNguoiSuaHo;
+              });
+              
+              // Lấy danh sách ho_va_ten từ các record liên quan
+              allowedDeliveryStaffNames = relevantRecords
+                .map(r => r.ho_va_ten)
+                .filter(Boolean);
+              
+              // Thêm userName vào danh sách
+              if (userName && !allowedDeliveryStaffNames.includes(userName)) {
+                allowedDeliveryStaffNames.push(userName);
+              }
+              
+              console.log('🔐 [VanDon Fallback] Loaded allowed delivery staff names from danh_sach_van_don:', allowedDeliveryStaffNames);
+            }
+          } catch (err) {
+            console.error('❌ [VanDon Fallback] Error loading nguoi_sua_ho:', err);
+            // Fallback: chỉ dùng userName
+            allowedDeliveryStaffNames = userName ? [userName] : [];
+          }
+        }
+
         // Tab "Đơn Nhật": không filter theo selectedPersonnelNames, chỉ filter theo country
         const isJapanTab = bolActiveTab === 'japan';
         
@@ -342,29 +492,27 @@ function VanDon() {
                    country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
           });
         } else {
-          // Các tab khác: filter theo selectedPersonnelNames nếu không phải manager
+          // Các tab khác: filter theo nguoi_sua_ho hoặc userName nếu không phải manager
           // CHỈ filter theo cột "NV vận đơn" (delivery_staff)
-          if (!isManager && selectedPersonnelNames.length > 0) {
-            // Tạo danh sách tên để filter (bao gồm cả user hiện tại nếu chưa có trong danh sách)
-            const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-            console.log('🔍 [VanDon Fallback] Filtering by selected personnel names (NV vận đơn only):', allNames);
+          if (!isManager && allowedDeliveryStaffNames.length > 0) {
+            console.log('🔍 [VanDon Fallback] Filtering by nguoi_sua_ho/userName (NV vận đơn only):', allowedDeliveryStaffNames);
             
             // CHỈ filter theo delivery_staff
             data = data.filter(row => {
-              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase();
+              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
               
-              return allNames.some(name => {
-                const nameLower = name.toLowerCase();
-                return d.includes(nameLower);
+              return allowedDeliveryStaffNames.some(name => {
+                const nameLower = name.toLowerCase().trim();
+                return d === nameLower || d.includes(nameLower);
               });
             });
           } else if (!isManager && userName) {
-            // Nếu không có selectedPersonnelNames, filter theo user hiện tại
-            // CHỈ filter theo cột "NV vận đơn" (delivery_staff)
+            // Fallback: Nếu không load được nguoi_sua_ho, chỉ filter theo userName
+            console.log('🔍 [VanDon Fallback] Fallback: Filtering by userName only:', userName);
             data = data.filter(row => {
-              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase();
-              const u = userName.toLowerCase();
-              return d.includes(u);
+              const d = (row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
+              const u = userName.toLowerCase().trim();
+              return d === u || d.includes(u);
             });
           }
         }
@@ -814,7 +962,25 @@ function VanDon() {
                  country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
         });
       } else if (bolActiveTab === 'hanoi') {
-        data = data.filter(row => row['Team'] === 'Hà Nội');
+        // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn có Team="Hà Nội", Kết quả Check="Ok", Mã Tracking trống/null và Đơn vị vận chuyển trống/null
+        data = data.filter(row => {
+          const team = String(row['Team'] || '').trim();
+          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+          const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
+          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+          
+          // Team phải là "Hà Nội"
+          const isTeamHanoi = team === 'Hà Nội';
+          // Kết quả Check phải là "Ok" hoặc "OK"
+          const isCheckOk = checkResult.toLowerCase() === 'ok';
+          // Mã Tracking phải trống hoặc null
+          const isTrackingEmpty = !tracking || tracking === '' || tracking === 'null';
+          // Đơn vị vận chuyển phải trống hoặc null
+          const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
+          
+          return isTeamHanoi && isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
+        });
+        console.log('🏛️ [VanDon Fallback] Tab Hà Nội - Filtered by Team="Hà Nội", Check="Ok", empty Tracking and empty Đơn vị vận chuyển:', data.length, 'orders');
       }
 
       // Sort by Date Desc - optimized with cached date parsing
@@ -1509,7 +1675,7 @@ function VanDon() {
               {[
                 { id: 'all', label: 'Dữ liệu đơn hàng', icon: '📋' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
-                { id: 'hanoi', label: 'Hà Nội', icon: '🏛️' }
+                { id: 'hanoi', label: 'Đẩy đơn Hà Nội', icon: '🏛️' }
               ].map(tab => (
                 <button
                   key={tab.id}

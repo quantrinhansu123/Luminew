@@ -4,6 +4,7 @@ import { Calendar, Edit, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react
 import { useEffect, useState, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import { supabase } from '../supabase/config';
+import * as rbacService from '../services/rbacService';
 
 export default function DanhSachVanDon() {
     const [data, setData] = useState([]);
@@ -21,6 +22,9 @@ export default function DanhSachVanDon() {
     
     // Staff lists for dropdowns
     const [vanDonStaff, setVanDonStaff] = useState([]);
+    
+    // Selected personnel names (từ cột selected_personnel trong users table)
+    const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
     
     // Edit/Add Mode
     const [editingId, setEditingId] = useState(null);
@@ -104,9 +108,26 @@ export default function DanhSachVanDon() {
 
             if (error) throw error;
 
+            // Filter by selected_personnel nếu có: chỉ xem records có ho_va_ten khớp với selected_personnel
+            // Nếu không có selected_personnel: xem tất cả
+            let filteredRecords = records || [];
+            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+                console.log('🔐 [DanhSachVanDon] Filtering by selected_personnel:', selectedPersonnelNames);
+                filteredRecords = (records || []).filter(record => {
+                    const hoVaTen = (record.ho_va_ten || '').toLowerCase().trim();
+                    return selectedPersonnelNames.some(name => {
+                        const nameLower = String(name).toLowerCase().trim();
+                        return hoVaTen === nameLower || hoVaTen.includes(nameLower);
+                    });
+                });
+                console.log('✅ [DanhSachVanDon] Filtered records:', filteredRecords.length, 'out of', records?.length || 0);
+            } else {
+                console.log('✅ [DanhSachVanDon] No selected_personnel, showing all records');
+            }
+
             // Auto-count orders for each staff member and parse nguoi_sua_ho
             const recordsWithCount = await Promise.all(
-                (records || []).map(async (record) => {
+                filteredRecords.map(async (record) => {
                     if (record.ho_va_ten) {
                         const count = await countOrdersForStaff(record.ho_va_ten);
                         // Parse nguoi_sua_ho từ JSON string về array để hiển thị
@@ -148,9 +169,40 @@ export default function DanhSachVanDon() {
         console.log('vanDonStaff updated:', vanDonStaff);
     }, [vanDonStaff]);
 
+    // Load selected personnel names for current user
+    useEffect(() => {
+        const loadSelectedPersonnel = async () => {
+            try {
+                const userEmail = localStorage.getItem("userEmail") || "";
+                
+                if (!userEmail) {
+                    setSelectedPersonnelNames([]);
+                    return;
+                }
+
+                const userEmailLower = userEmail.toLowerCase().trim();
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+                const personnelNames = personnelMap[userEmailLower] || [];
+
+                const validNames = personnelNames.filter(name => {
+                    const nameStr = String(name).trim();
+                    return nameStr.length > 0 && !nameStr.includes('@');
+                });
+                
+                console.log('📝 [DanhSachVanDon] Valid personnel names:', validNames);
+                setSelectedPersonnelNames(validNames);
+            } catch (error) {
+                console.error('❌ [DanhSachVanDon] Error loading selected personnel:', error);
+                setSelectedPersonnelNames([]);
+            }
+        };
+
+        loadSelectedPersonnel();
+    }, []);
+
     useEffect(() => {
         loadData();
-    }, [startDate, endDate]);
+    }, [startDate, endDate, selectedPersonnelNames]);
 
     // Tính toán danh sách nhân sự có sẵn cho "Họ và tên" (loại trừ những người đã có trong danh sách khi thêm mới)
     const availableHoVaTenOptions = useMemo(() => {
