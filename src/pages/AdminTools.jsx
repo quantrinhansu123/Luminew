@@ -70,6 +70,16 @@ const AdminTools = () => {
     });
     const [cskhStaff, setCskhStaff] = useState([]);
 
+    // --- AUTO FILL TEAM STATE ---
+    const [isFillingTeam, setIsFillingTeam] = useState(false);
+    const [fillTeamProgress, setFillTeamProgress] = useState({
+        current: 0,
+        total: 0,
+        success: 0,
+        failed: 0,
+        currentUser: ''
+    });
+
     // --- SEARCH HELPERS ---
     const matchesSearch = (text) => {
         return text && text.toLowerCase().includes(searchQuery.toLowerCase());
@@ -1182,6 +1192,136 @@ const AdminTools = () => {
         }
     };
 
+    // Helper function để normalize string
+    const normalizeStr = (str) => {
+        if (!str) return '';
+        return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
+    // Tự động điền Team từ bảng nhân sự vào orders
+    const handleAutoFillTeam = async () => {
+        if (!window.confirm('Bạn có chắc muốn tự động điền Team cho tất cả đơn hàng chưa có team?\n\nQuá trình này sẽ lấy dữ liệu từ bảng nhân sự (users/human_resources) dựa trên tên nhân viên sale.')) {
+            return;
+        }
+
+        try {
+            setIsFillingTeam(true);
+            setFillTeamProgress({ current: 0, total: 0, success: 0, failed: 0, currentUser: '' });
+
+            // 1. Lấy tất cả orders chưa có team (hoặc team rỗng/null)
+            const { data: ordersWithoutTeam, error: ordersError } = await supabase
+                .from('orders')
+                .select('id, sale_staff, team')
+                .not('sale_staff', 'is', null)
+                .neq('sale_staff', '')
+                .or('team.is.null,team.eq.');
+
+            if (ordersError) throw ordersError;
+
+            if (!ordersWithoutTeam || ordersWithoutTeam.length === 0) {
+                toast.info('Tất cả đơn hàng đã có team!');
+                setIsFillingTeam(false);
+                return;
+            }
+
+            setFillTeamProgress(prev => ({ ...prev, total: ordersWithoutTeam.length }));
+
+            // 2. Lấy dữ liệu từ bảng users (cột branch - sẽ dùng làm team)
+            const { data: usersData, error: usersError } = await supabase
+                .from('users')
+                .select('name, branch')
+                .not('branch', 'is', null)
+                .neq('branch', '');
+
+            if (usersError) throw usersError;
+
+            // 3. Lấy dữ liệu từ bảng human_resources (cột "chi nhánh")
+            const { data: hrData, error: hrError } = await supabase
+                .from('human_resources')
+                .select('"Họ Và Tên", "chi nhánh"')
+                .not('"chi nhánh"', 'is', null)
+                .neq('"chi nhánh"', '');
+
+            if (hrError) {
+                console.warn('Warning: Could not fetch human_resources:', hrError);
+            }
+
+            // 4. Tạo map: tên nhân viên -> branch (team)
+            // Ưu tiên từ users, sau đó từ human_resources
+            const nameToTeam = new Map();
+            
+            // Từ bảng users
+            (usersData || []).forEach(user => {
+                const name = normalizeStr(user.name);
+                const branch = String(user.branch || '').trim();
+                if (name && branch) {
+                    nameToTeam.set(name, branch);
+                }
+            });
+
+            // Từ bảng human_resources (nếu có, và chưa có trong map)
+            (hrData || []).forEach(hr => {
+                const name = normalizeStr(hr['Họ Và Tên']);
+                const branch = String(hr['chi nhánh'] || '').trim();
+                if (name && branch && !nameToTeam.has(name)) {
+                    nameToTeam.set(name, branch);
+                }
+            });
+
+            // 5. Điền team cho từng order
+            let successCount = 0;
+            let failCount = 0;
+
+            for (let i = 0; i < ordersWithoutTeam.length; i++) {
+                const order = ordersWithoutTeam[i];
+                const saleName = normalizeStr(order.sale_staff);
+                
+                setFillTeamProgress({
+                    current: i + 1,
+                    total: ordersWithoutTeam.length,
+                    success: successCount,
+                    failed: failCount,
+                    currentUser: order.sale_staff || 'N/A'
+                });
+
+                if (!saleName) {
+                    failCount++;
+                    continue;
+                }
+
+                const team = nameToTeam.get(saleName);
+
+                if (!team) {
+                    failCount++;
+                    continue;
+                }
+
+                // Update team trong orders
+                const { error: updateError } = await supabase
+                    .from('orders')
+                    .update({ team: team })
+                    .eq('id', order.id);
+
+                if (updateError) {
+                    console.error(`Error updating order ${order.id}:`, updateError);
+                    failCount++;
+                } else {
+                    successCount++;
+                }
+            }
+
+            // 6. Kết quả
+            toast.success(`✅ Hoàn thành! Đã điền team cho ${successCount} đơn hàng. ${failCount} đơn hàng không tìm thấy dữ liệu.`);
+            setIsFillingTeam(false);
+            setFillTeamProgress({ current: 0, total: 0, success: 0, failed: 0, currentUser: '' });
+        } catch (err) {
+            console.error('Error auto-filling team:', err);
+            toast.error('Lỗi khi tự động điền team: ' + err.message);
+            setIsFillingTeam(false);
+            setFillTeamProgress({ current: 0, total: 0, success: 0, failed: 0, currentUser: '' });
+        }
+    };
+
     // Lấy danh sách sản phẩm từ database để hiển thị
     const displayedProducts = dbProducts
         .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -2067,9 +2207,103 @@ const AdminTools = () => {
                             </div>
                         )}
 
+                        {/* 5. Auto Fill Team */}
+                        {isSectionVisible('Tự động điền Team', ['team', 'tự động', 'điền', 'auto fill']) && (
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                                    <Users className="w-5 h-5 text-indigo-600" />
+                                    4. Tự động điền Team vào đơn hàng
+                                </h3>
+                                <p className="text-sm text-gray-500">
+                                    Tự động điền Team cho các đơn hàng chưa có team dựa trên tên nhân viên sale từ bảng nhân sự.
+                                </p>
+                                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm text-gray-700 mb-2">
+                                                <strong>Chức năng:</strong> Tự động điền Team (Chi nhánh) vào cột team của orders dựa trên tên nhân viên sale.
+                                            </p>
+                                            <p className="text-xs text-gray-600">
+                                                • Lấy dữ liệu từ bảng users (cột branch) và human_resources (cột "chi nhánh")<br/>
+                                                • Chỉ điền cho các đơn hàng chưa có team (team = null hoặc rỗng)<br/>
+                                                • Match theo tên nhân viên sale (sale_staff)
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={handleAutoFillTeam}
+                                            disabled={isFillingTeam}
+                                            className="px-6 py-3 bg-indigo-600 text-white rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                            title="Tự động điền Team từ bảng nhân sự vào đơn hàng"
+                                        >
+                                            {isFillingTeam ? (
+                                                <>
+                                                    <RefreshCw className="w-5 h-5 animate-spin" />
+                                                    <span>Đang điền...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Users className="w-5 h-5" />
+                                                    <span>Tự động điền Team</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                     </div>
                 </div>
             )}
+
+            {/* Progress Modal for Auto Fill Team */}
+            {isFillingTeam && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+                        <div className="bg-gradient-to-r from-indigo-600 to-indigo-500 px-6 py-4 rounded-t-lg">
+                            <h3 className="text-xl font-bold text-white">🔄 Đang điền Team tự động</h3>
+                        </div>
+                        <div className="p-6">
+                            <div className="mb-4">
+                                <div className="flex justify-between text-sm text-gray-600 mb-2">
+                                    <span>Tiến trình:</span>
+                                    <span className="font-semibold">
+                                        {fillTeamProgress.current} / {fillTeamProgress.total}
+                                    </span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-3">
+                                    <div
+                                        className="bg-indigo-600 h-3 rounded-full transition-all duration-300"
+                                        style={{
+                                            width: `${fillTeamProgress.total > 0 ? (fillTeamProgress.current / fillTeamProgress.total) * 100 : 0}%`
+                                        }}
+                                    ></div>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-2 text-sm">
+                                <div className="flex justify-between">
+                                    <span className="text-gray-600">Đang xử lý:</span>
+                                    <span className="font-semibold text-indigo-600">{fillTeamProgress.currentUser || 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-600">Thành công:</span>
+                                    <span className="font-semibold text-green-600">{fillTeamProgress.success}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-600">Thất bại:</span>
+                                    <span className="font-semibold text-red-600">{fillTeamProgress.failed}</span>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 text-xs text-gray-500">
+                                <p>Đang lấy dữ liệu từ bảng nhân sự (users/human_resources) và điền vào cột team trong orders...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* TAB CONTENT: PERMISSIONS */}
             {activeTab === 'permissions' && (
                 <PermissionManager searchQuery={searchQuery} />

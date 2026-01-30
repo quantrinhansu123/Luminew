@@ -11,6 +11,14 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [deletingUser, setDeletingUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isFillingBranch, setIsFillingBranch] = useState(false);
+  const [fillBranchProgress, setFillBranchProgress] = useState({
+    current: 0,
+    total: 0,
+    success: 0,
+    failed: 0,
+    currentUser: ''
+  });
   const [newUser, setNewUser] = useState({
     name: '',
     email: '',
@@ -299,6 +307,136 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
     }
   };
 
+  // Helper function để normalize string
+  const normalizeStr = (str) => {
+    if (!str) return '';
+    return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+  };
+
+  // Tự động điền branch từ bảng nhân sự vào orders
+  const handleAutoFillBranch = async () => {
+    if (!window.confirm('Bạn có chắc muốn tự động điền Chi nhánh cho tất cả đơn hàng chưa có team?\n\nQuá trình này sẽ lấy dữ liệu từ bảng nhân sự (users/human_resources) dựa trên tên nhân viên sale.')) {
+      return;
+    }
+
+    try {
+      setIsFillingBranch(true);
+      setFillBranchProgress({ current: 0, total: 0, success: 0, failed: 0, currentUser: '' });
+
+      // 1. Lấy tất cả orders chưa có team (hoặc team rỗng/null)
+      const { data: ordersWithoutTeam, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, sale_staff, team')
+        .not('sale_staff', 'is', null)
+        .neq('sale_staff', '')
+        .or('team.is.null,team.eq.');
+
+      if (ordersError) throw ordersError;
+
+      if (!ordersWithoutTeam || ordersWithoutTeam.length === 0) {
+        toast.info('Tất cả đơn hàng đã có team!');
+        setIsFillingBranch(false);
+        return;
+      }
+
+      setFillBranchProgress(prev => ({ ...prev, total: ordersWithoutTeam.length }));
+
+      // 2. Lấy dữ liệu từ bảng users (cột branch)
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('name, branch')
+        .not('branch', 'is', null)
+        .neq('branch', '');
+
+      if (usersError) throw usersError;
+
+      // 3. Lấy dữ liệu từ bảng human_resources (cột "chi nhánh")
+      const { data: hrData, error: hrError } = await supabase
+        .from('human_resources')
+        .select('"Họ Và Tên", "chi nhánh"')
+        .not('"chi nhánh"', 'is', null)
+        .neq('"chi nhánh"', '');
+
+      if (hrError) {
+        console.warn('Warning: Could not fetch human_resources:', hrError);
+      }
+
+      // 4. Tạo map: tên nhân viên -> branch
+      // Ưu tiên từ users, sau đó từ human_resources
+      const nameToBranch = new Map();
+      
+      // Từ bảng users
+      (usersData || []).forEach(user => {
+        const name = normalizeStr(user.name);
+        const branch = String(user.branch || '').trim();
+        if (name && branch) {
+          nameToBranch.set(name, branch);
+        }
+      });
+
+      // Từ bảng human_resources (nếu có, và chưa có trong map)
+      (hrData || []).forEach(hr => {
+        const name = normalizeStr(hr['Họ Và Tên']);
+        const branch = String(hr['chi nhánh'] || '').trim();
+        if (name && branch && !nameToBranch.has(name)) {
+          nameToBranch.set(name, branch);
+        }
+      });
+
+      // 5. Điền team cho từng order
+      let successCount = 0;
+      let failCount = 0;
+
+      for (let i = 0; i < ordersWithoutTeam.length; i++) {
+        const order = ordersWithoutTeam[i];
+        const saleName = normalizeStr(order.sale_staff);
+        
+        setFillBranchProgress({
+          current: i + 1,
+          total: ordersWithoutTeam.length,
+          success: successCount,
+          failed: failCount,
+          currentUser: order.sale_staff || 'N/A'
+        });
+
+        if (!saleName) {
+          failCount++;
+          continue;
+        }
+
+        const branch = nameToBranch.get(saleName);
+
+        if (!branch) {
+          failCount++;
+          continue;
+        }
+
+        // Update team trong orders
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ team: branch })
+          .eq('id', order.id);
+
+        if (updateError) {
+          console.error(`Error updating order ${order.id}:`, updateError);
+          failCount++;
+        } else {
+          successCount++;
+        }
+      }
+
+      // 6. Kết quả
+      toast.success(`✅ Hoàn thành! Đã điền team cho ${successCount} đơn hàng. ${failCount} đơn hàng không tìm thấy dữ liệu.`);
+      setIsFillingBranch(false);
+      setFillBranchProgress({ current: 0, total: 0, success: 0, failed: 0, currentUser: '' });
+    } catch (err) {
+      console.error('Error auto-filling branch:', err);
+      toast.error('Lỗi khi tự động điền branch: ' + err.message);
+      setIsFillingBranch(false);
+      setFillBranchProgress({ current: 0, total: 0, success: 0, failed: 0, currentUser: '' });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -316,15 +454,83 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-primary">Quản lý Nhân sự</h2>
         {(userRole === 'admin' || userRole === 'leader') && (
-          <button
-            onClick={openAddModal}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2"
-          >
-            <span className="text-xl">+</span>
-            <span>Thêm nhân sự</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAutoFillBranch}
+              disabled={isFillingBranch}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Tự động điền Chi nhánh từ bảng nhân sự vào đơn hàng"
+            >
+              {isFillingBranch ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span>Đang điền...</span>
+                </>
+              ) : (
+                <>
+                  <span>🔄</span>
+                  <span>Tự động điền Chi nhánh</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={openAddModal}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2"
+            >
+              <span className="text-xl">+</span>
+              <span>Thêm nhân sự</span>
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Progress Modal */}
+      {isFillingBranch && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-4 rounded-t-lg">
+              <h3 className="text-xl font-bold text-white">🔄 Đang điền Chi nhánh tự động</h3>
+            </div>
+            <div className="p-6">
+              <div className="mb-4">
+                <div className="flex justify-between text-sm text-gray-600 mb-2">
+                  <span>Tiến trình:</span>
+                  <span className="font-semibold">
+                    {fillBranchProgress.current} / {fillBranchProgress.total}
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div
+                    className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${fillBranchProgress.total > 0 ? (fillBranchProgress.current / fillBranchProgress.total) * 100 : 0}%`
+                    }}
+                  ></div>
+                </div>
+              </div>
+              
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Đang xử lý:</span>
+                  <span className="font-semibold text-blue-600">{fillBranchProgress.currentUser || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Thành công:</span>
+                  <span className="font-semibold text-green-600">{fillBranchProgress.success}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Thất bại:</span>
+                  <span className="font-semibold text-red-600">{fillBranchProgress.failed}</span>
+                </div>
+              </div>
+
+              <div className="mt-4 text-xs text-gray-500">
+                <p>Đang lấy dữ liệu từ bảng nhân sự (users/human_resources) và điền vào cột team trong orders...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Statistics */}
       <div className="mb-4 flex items-center justify-between">
