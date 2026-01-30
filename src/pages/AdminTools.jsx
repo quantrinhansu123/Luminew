@@ -783,11 +783,12 @@ const AdminTools = () => {
             const endDate = new Date(year, month, 0, 23, 59, 59);
 
             // Lấy tất cả đơn hàng thỏa điều kiện (filter theo tháng được chọn)
+            // Lưu ý: Bỏ điều kiện accountant_confirm để có thể chia đơn ngay cả khi chưa có xác nhận
             const { data: orders, error: ordersError } = await supabase
                 .from('orders')
                 .select('*')
                 .eq('team', selectedTeam)
-                .eq('accountant_confirm', 'Đã thu tiền')
+                // .eq('accountant_confirm', 'Đã thu tiền') // Đã bỏ để có thể chia đơn ngay
                 .gte('order_date', startDate.toISOString().split('T')[0])
                 .lte('order_date', endDate.toISOString().split('T')[0]);
 

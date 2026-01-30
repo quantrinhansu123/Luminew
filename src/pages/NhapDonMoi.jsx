@@ -127,8 +127,6 @@ export default function NhapDonMoi({ isEdit = false }) {
     const [searchQuery, setSearchQuery] = useState(searchParams.get("orderId") || "");
     const [isSearching, setIsSearching] = useState(false);
     const [isOrderLoaded, setIsOrderLoaded] = useState(false);
-    const [hasAutoLoaded, setHasAutoLoaded] = useState(false); // Track if we've already auto-loaded from URL
-    const [currentOrderId, setCurrentOrderId] = useState(null); // Store the order ID (UUID) when editing
 
     // Autocomplete State
     const [suggestions, setSuggestions] = useState([]);
@@ -428,21 +426,12 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     useEffect(() => {
         const orderIdParam = searchParams.get("orderId");
-        console.log('🔗 [NhapDonMoi] URL orderId param:', orderIdParam, 'hasAutoLoaded:', hasAutoLoaded);
-        if (orderIdParam && !hasAutoLoaded) {
-            console.log('🚀 [NhapDonMoi] Auto-loading order from URL:', orderIdParam);
+        if (orderIdParam && isEdit) {
             setSearchQuery(orderIdParam);
-            setHasAutoLoaded(true); // Mark as loaded to prevent multiple calls
-            // Auto-load order when orderId is in URL
-            // Delay slightly to ensure component mounted
-            const timer = setTimeout(() => {
-                console.log('⏰ [NhapDonMoi] Calling handleSearch with:', orderIdParam);
-                handleSearch(null, orderIdParam);
-            }, 300);
-            return () => clearTimeout(timer);
+            // Delay slightly to ensure component mounted or just call directly
+            handleSearch(null, orderIdParam);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchParams]);
+    }, [searchParams, isEdit]);
 
     // --- LOGIC: Auto-fill Product Names ---
     useEffect(() => {
@@ -589,17 +578,7 @@ export default function NhapDonMoi({ isEdit = false }) {
         });
         if (!emp) return;
         const branch = emp['chi nhánh'] ?? emp['Chi_nhánh'] ?? emp['Chi nhánh'] ?? emp['Team'] ?? emp['Bộ_phận'] ?? emp.branch ?? emp.team ?? "";
-        if (branch) {
-            const branchValue = String(branch).trim();
-            // Normalize team values: ensure "Hà Nội" or "HCM" format
-            let normalizedTeam = branchValue;
-            if (branchValue.toLowerCase().includes('hà nội') || branchValue.toLowerCase().includes('hanoi') || branchValue.toLowerCase().includes('hn')) {
-                normalizedTeam = 'Hà Nội';
-            } else if (branchValue.toLowerCase().includes('hcm') || branchValue.toLowerCase().includes('ho chi minh') || branchValue.toLowerCase().includes('sài gòn')) {
-                normalizedTeam = 'HCM';
-            }
-            setFormData((prev) => ({ ...prev, team: normalizedTeam }));
-        }
+        if (branch) setFormData((prev) => ({ ...prev, team: String(branch).trim() }));
     }, [selectedSale, saleEmployees]);
 
     const filteredMktEmployees = useMemo(() => {
@@ -685,59 +664,20 @@ export default function NhapDonMoi({ isEdit = false }) {
 
         setIsSearching(true);
         try {
-            const queryTrimmed = query.trim();
-            console.log('🔍 [NhapDonMoi] Searching for order:', queryTrimmed);
-            
-            let data = null;
-            let error = null;
-
-            // First try to search by order_code
-            const { data: dataByCode, error: errorByCode } = await supabase
+            // Search primarily by order_code. ID search removed to prevent UUID casting errors.
+            const { data, error } = await supabase
                 .from('orders')
                 .select('*')
-                .eq('order_code', queryTrimmed)
-                .maybeSingle();
+                .eq('order_code', query.trim())
+                .maybeSingle(); // Use maybeSingle to return null instead of throwing error if not found
 
-            console.log('📋 [NhapDonMoi] Search by order_code result:', { data: dataByCode, error: errorByCode });
-
-            if (dataByCode) {
-                data = dataByCode;
-            } else if (!errorByCode) {
-                // Not found by order_code, try by id (UUID)
-                console.log('🔄 [NhapDonMoi] Not found by order_code, trying by id...');
-                const { data: dataById, error: errorById } = await supabase
-                    .from('orders')
-                    .select('*')
-                    .eq('id', queryTrimmed)
-                    .maybeSingle();
-                
-                console.log('📋 [NhapDonMoi] Search by id result:', { data: dataById, error: errorById });
-                
-                if (errorById) {
-                    error = errorById;
-                } else {
-                    data = dataById;
-                }
-            } else {
-                error = errorByCode;
-            }
-
-            if (error) {
-                console.error('❌ [NhapDonMoi] Search error:', error);
-                throw error;
-            }
+            if (error) throw error;
 
             if (!data) {
-                console.warn('⚠️ [NhapDonMoi] Order not found:', queryTrimmed);
                 alert("Không tìm thấy đơn hàng có mã này!");
                 setIsOrderLoaded(false); // Reset loaded state
                 return;
             }
-
-            console.log('✅ [NhapDonMoi] Order found:', data.order_code || data.id);
-            
-            // Store order ID for update
-            setCurrentOrderId(data.id);
 
             // Map Data to Form
             setFormData({
@@ -910,15 +850,12 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // Don't overwrite created_by on edit ideally, but here we just send it if new
 
                 // FORCE R&D TAG if user is R&D
-                // Always include team field, even if empty (for updates)
-                // Use empty string instead of null to ensure it's sent
                 team: hasRndPermission ? "RD" : (formData.team || ""),
 
                 note: `${formData["note_sale"] || ""} \nRef: ${hasRndPermission ? "RD" : (formData.team || "")}`,
             };
 
-            // Remove undefined keys (but keep null values for team to allow clearing)
-            // Don't remove team field even if null, as we want to update it
+            // Remove undefined keys
             Object.keys(orderPayload).forEach(key => orderPayload[key] === undefined && delete orderPayload[key]);
 
             // check Data Source Mode
@@ -927,39 +864,17 @@ export default function NhapDonMoi({ isEdit = false }) {
             if (settings.dataSource === 'test') {
                 console.log("🔶 [TEST MODE] Skipping DB Save. Payload:", orderPayload);
                 await new Promise(r => setTimeout(r, 800)); // Fake delay
-                const isEditing = isEdit || (isOrderLoaded && currentOrderId);
-                alert(isEditing ? "✅ [TEST MODE] Giả lập cập nhật đơn hàng thành công!" : "✅ [TEST MODE] Giả lập lưu đơn hàng thành công!");
-                if (!isEditing) handleReset();
+                alert(isEdit ? "✅ [TEST MODE] Giả lập cập nhật đơn hàng thành công!" : "✅ [TEST MODE] Giả lập lưu đơn hàng thành công!");
+                if (!isEdit) handleReset();
                 return;
             }
 
             const query = supabase.from('orders');
             let result;
 
-            // Check if we're editing (either via prop or via loaded order)
-            const isEditing = isEdit || (isOrderLoaded && currentOrderId);
-            
-            // Log payload for debugging
-            console.log('💾 [NhapDonMoi] Saving order payload:', { 
-                isEditing, 
-                currentOrderId, 
-                orderCode, 
-                team: orderPayload.team 
-            });
-            
-            if (isEditing) {
-                // Update existing order by ID
-                if (currentOrderId) {
-                    console.log('🔄 [NhapDonMoi] Updating order by ID:', currentOrderId, 'team:', orderPayload.team);
-                    result = await query.update(orderPayload).eq('id', currentOrderId).select();
-                } else {
-                    // Fallback: update by order_code
-                    console.log('🔄 [NhapDonMoi] Updating order by order_code:', orderCode, 'team:', orderPayload.team);
-                    result = await query.update(orderPayload).eq('order_code', orderCode).select();
-                }
+            if (isEdit) {
+                result = await query.upsert([orderPayload], { onConflict: 'order_code' }).select();
             } else {
-                // Insert new order
-                console.log('➕ [NhapDonMoi] Inserting new order:', orderCode, 'team:', orderPayload.team);
                 result = await query.insert([orderPayload]).select();
             }
 
@@ -971,14 +886,11 @@ export default function NhapDonMoi({ isEdit = false }) {
                 console.warn("⚠️ Warning: Data inserted/updated but not returned (RLS Policy?).");
             }
 
-            alert(isEditing ? "✅ Cập nhật đơn hàng thành công!" : "✅ Lưu đơn hàng thành công!");
+            alert(isEdit ? "✅ Cập nhật đơn hàng thành công!" : "✅ Lưu đơn hàng thành công!");
 
             // Optional: Reset form or Redirect
-            if (!isEditing) {
+            if (!isEdit) {
                 handleReset();
-            } else {
-                // After update, keep the form in edit mode
-                console.log('✅ [NhapDonMoi] Order updated successfully');
             }
 
         } catch (error) {
