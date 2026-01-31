@@ -49,6 +49,7 @@ export default function DanhSachBaoCaoTayCSKH() {
     const [allReports, setAllReports] = useState([]); // Store all filtered reports for pagination
     const [realValuesMap, setRealValuesMap] = useState({}); // Map report ID to real values
     const [calculatingRealValues, setCalculatingRealValues] = useState(false);
+    const [userChangedFilter, setUserChangedFilter] = useState(false); // Track if user changed filter
     const [filters, setFilters] = useState({
         startDate: '',
         endDate: '',
@@ -152,19 +153,26 @@ export default function DanhSachBaoCaoTayCSKH() {
         loadSelectedPersonnel();
     }, [userEmail]);
 
-    // Initialize Dates
+    // Initialize Dates - Default to last 3 days (only if user hasn't changed filter)
     useEffect(() => {
-        const today = new Date();
-        const d = new Date();
-        d.setDate(d.getDate() - 30); // Last 30 days
-        const formatDateForInput = (date) => date.toISOString().split('T')[0];
+        if (!userChangedFilter && !filters.startDate && !filters.endDate) {
+            const today = new Date();
+            const threeDaysAgo = new Date();
+            threeDaysAgo.setDate(today.getDate() - 2); // 3 ngày: hôm nay, hôm qua, hôm kia
+            const formatDateForInput = (date) => date.toISOString().split('T')[0];
 
-        setFilters(prev => ({
-            ...prev,
-            startDate: formatDateForInput(d),
-            endDate: formatDateForInput(today)
-        }));
-    }, []);
+            setFilters(prev => ({
+                ...prev,
+                startDate: formatDateForInput(threeDaysAgo),
+                endDate: formatDateForInput(today)
+            }));
+            
+            console.log('📅 [DanhSachBaoCaoTayCSKH] Khởi tạo filters với 3 ngày gần nhất:', {
+                startDate: formatDateForInput(threeDaysAgo),
+                endDate: formatDateForInput(today)
+            });
+        }
+    }, []); // Chỉ chạy một lần khi mount
     
     // Load available options for filters
     useEffect(() => {
@@ -326,9 +334,9 @@ export default function DanhSachBaoCaoTayCSKH() {
                 query = query.eq('product', reportProduct);
             }
 
-            // Filter by market (country or area)
+            // Filter by market (country)
             if (reportMarket) {
-                query = query.or(`country.ilike.%${reportMarket}%,area.ilike.%${reportMarket}%`);
+                query = query.ilike('country', `%${reportMarket}%`);
             }
 
             const { data: orders, error } = await query;
@@ -792,11 +800,17 @@ export default function DanhSachBaoCaoTayCSKH() {
                         <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '10px', color: '#333' }}>Khoảng thời gian:</h4>
                         <label style={{ display: 'block', marginBottom: '10px' }}>
                             <span style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Từ ngày:</span>
-                            <input type="date" value={filters.startDate} onChange={e => setFilters(prev => ({ ...prev, startDate: e.target.value }))} style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px' }} />
+                            <input type="date" value={filters.startDate} onChange={e => {
+                                setUserChangedFilter(true);
+                                setFilters(prev => ({ ...prev, startDate: e.target.value }));
+                            }} style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px' }} />
                         </label>
                         <label style={{ display: 'block' }}>
                             <span style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Đến ngày:</span>
-                            <input type="date" value={filters.endDate} onChange={e => setFilters(prev => ({ ...prev, endDate: e.target.value }))} style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px' }} />
+                            <input type="date" value={filters.endDate} onChange={e => {
+                                setUserChangedFilter(true);
+                                setFilters(prev => ({ ...prev, endDate: e.target.value }));
+                            }} style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px' }} />
                         </label>
                     </div>
 
@@ -911,15 +925,13 @@ export default function DanhSachBaoCaoTayCSKH() {
                                     <th>Phản hồi</th>
                                     <th>Số đơn</th>
                                     <th>Doanh số</th>
-                                    <th>Số đơn TT</th>
-                                    <th>Doanh số TT</th>
                                     <th>Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {manualReports.length === 0 ? (
                                     <tr>
-                                        <td colSpan="14" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td colSpan="12" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
                                     manualReports.map((item, index) => {
@@ -941,8 +953,6 @@ export default function DanhSachBaoCaoTayCSKH() {
                                             <td>{formatNumber(item.response_count)}</td>
                                             <td>{formatNumber(item.order_count)}</td>
                                                 <td>{formatCurrency(item.revenue_mess)}</td>
-                                                <td className="text-center font-semibold text-blue-600">{formatNumber(realValues.order_count_actual)}</td>
-                                                <td className="text-right font-semibold text-green-600">{formatCurrency(realValues.revenue_actual)}</td>
                                                 <td className="text-center">
                                                     <div className="flex gap-2 justify-center">
                                                         <button
