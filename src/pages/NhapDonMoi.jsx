@@ -68,14 +68,39 @@ const CardTitle = ({ children, className = "" }) => <h3 className={`${className}
 const CardContent = ({ children, className = "" }) => <div className={`p-6 ${className}`}>{children}</div>;
 
 // Simple DatePicker component
-const DatePicker = ({ value, onChange, className = "" }) => (
-    <input
-        type="date"
-        value={value ? value.toISOString().split('T')[0] : ''}
-        onChange={(e) => onChange(new Date(e.target.value))}
-        className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] ${className}`}
-    />
-);
+// Fix: Parse date correctly to avoid timezone issues
+const DatePicker = ({ value, onChange, className = "" }) => {
+    const formatDateForInput = (date) => {
+        if (!date) return '';
+        // Get local date string (YYYY-MM-DD) without timezone conversion
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    
+    const handleDateChange = (e) => {
+        const dateString = e.target.value; // Format: YYYY-MM-DD
+        if (!dateString) {
+            onChange(null);
+            return;
+        }
+        // Parse date string correctly without timezone issues
+        // Split YYYY-MM-DD and create date in local timezone
+        const [year, month, day] = dateString.split('-').map(Number);
+        const newDate = new Date(year, month - 1, day); // month is 0-indexed
+        onChange(newDate);
+    };
+    
+    return (
+        <input
+            type="date"
+            value={formatDateForInput(value)}
+            onChange={handleDateChange}
+            className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] ${className}`}
+        />
+    );
+};
 
 
 const cn = (...classes) => classes.filter(Boolean).join(' ');
@@ -144,7 +169,7 @@ export default function NhapDonMoi({ isEdit = false }) {
         "city": "",
         "state": "",
         "zipcode": "",
-        "area": "", // Khu vực
+        "country": "", // Khu vực (đổi từ area sang country)
 
         "productMain": "",
         "mathang1": "", "sl1": 1,
@@ -463,6 +488,28 @@ export default function NhapDonMoi({ isEdit = false }) {
         setFormData(prev => ({ ...prev, "tong-tien": total }));
     }, [formData.sale_price, formData.exchange_rate]);
 
+    // --- LOGIC: Sync date state with formData["created_at"] ---
+    useEffect(() => {
+        if (date) {
+            // Convert date to datetime-local format (YYYY-MM-DDTHH:mm) in LOCAL timezone
+            // Avoid using toISOString() as it converts to UTC and may change the date
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const dateTimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
+            
+            setFormData(prev => {
+                // Only update if different to avoid infinite loop
+                if (prev["created_at"] !== dateTimeString) {
+                    return { ...prev, "created_at": dateTimeString };
+                }
+                return prev;
+            });
+        }
+    }, [date]);
+
     // Load DB Rates
     useEffect(() => {
         const fetchRates = async () => {
@@ -489,19 +536,19 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     // ...
 
-    // --- LOGIC: Auto-Currency by Area ---
+    // --- LOGIC: Auto-Currency by Country ---
     useEffect(() => {
         let currency = "VND";
-        const area = formData.area;
-        if (area === "US") currency = "USD";
-        if (area === "Nhật Bản" || area === "CĐ Nhật Bản") currency = "JPY";
-        if (area === "Hàn Quốc") currency = "KRW";
-        if (area === "Canada") currency = "CAD";
-        if (area === "Úc") currency = "AUD";
-        if (area === "Anh") currency = "GBP";
+        const country = formData.country;
+        if (country === "US") currency = "USD";
+        if (country === "Nhật Bản" || country === "CĐ Nhật Bản") currency = "JPY";
+        if (country === "Hàn Quốc") currency = "KRW";
+        if (country === "Canada") currency = "CAD";
+        if (country === "Úc") currency = "AUD";
+        if (country === "Anh") currency = "GBP";
 
         // Auto-set Currency and Exchange Rate
-        if (area) {
+        if (country) {
             // Priority: DB Rate > Hardcoded Constant > 1
             const rate = dbRates[currency] || EXCHANGE_RATES[currency] || 1;
             setFormData(prev => ({
@@ -510,7 +557,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 exchange_rate: rate
             }));
         }
-    }, [formData.area, dbRates]); // Add dbRates dependency
+    }, [formData.country, dbRates]); // Add dbRates dependency
 
     // --- LOGIC: Auto-update Rate when Currency Changes Manually ---
     useEffect(() => {
@@ -726,9 +773,27 @@ export default function NhapDonMoi({ isEdit = false }) {
             }
 
             // Map Data to Form
+            // Parse order_date properly - handle both DATE and TIMESTAMP formats
+            let orderDateTimeString = new Date().toISOString().slice(0, 16);
+            if (data.order_date) {
+                try {
+                    const orderDate = new Date(data.order_date);
+                    // Format as datetime-local: YYYY-MM-DDTHH:mm
+                    const year = orderDate.getFullYear();
+                    const month = String(orderDate.getMonth() + 1).padStart(2, '0');
+                    const day = String(orderDate.getDate()).padStart(2, '0');
+                    const hours = String(orderDate.getHours()).padStart(2, '0');
+                    const minutes = String(orderDate.getMinutes()).padStart(2, '0');
+                    orderDateTimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
+                } catch (e) {
+                    console.warn("Error parsing order_date:", e);
+                    orderDateTimeString = new Date().toISOString().slice(0, 16);
+                }
+            }
+            
             setFormData({
                 "ma-don": data.order_code,
-                "created_at": data.order_date ? data.order_date.slice(0, 16) : new Date().toISOString().slice(0, 16),
+                "created_at": orderDateTimeString,
                 "tracking_code": data.tracking_code || "",
 
                 "ten-kh": data.customer_name || "",
@@ -737,7 +802,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 "city": data.city || "",
                 "state": data.state || "",
                 "zipcode": data.zipcode || "",
-                "area": data.area || "",
+                "country": data.country || "", // Lấy từ country
 
                 "productMain": data.product_main || "",
                 "mathang1": data.product_name_1 || "", "sl1": data.quantity_1 || 1,
@@ -759,7 +824,17 @@ export default function NhapDonMoi({ isEdit = false }) {
                 "creator_name": data.created_by || "",
             });
 
-            setDate(data.order_date ? new Date(data.order_date) : new Date());
+            // Sync date state with parsed order_date
+            if (data.order_date) {
+                try {
+                    setDate(new Date(data.order_date));
+                } catch (e) {
+                    console.warn("Error parsing order_date for date state:", e);
+                    setDate(new Date());
+                }
+            } else {
+                setDate(new Date());
+            }
             setSelectedPage(data.page_name || "");
             setSelectedMkt(data.marketing_staff || "");
             setSelectedSale(data.sale_staff || "");
@@ -805,6 +880,12 @@ export default function NhapDonMoi({ isEdit = false }) {
             alert("Vui lòng nhập tên, số điện thoại khách hàng và chọn Page!");
             return;
         }
+        
+        // Validation - Khu vực bắt buộc cho cả tạo mới và edit
+        if (!formData.country || formData.country.trim() === "") {
+            alert("⚠️ Vui lòng chọn Khu vực! Đây là trường bắt buộc.");
+            return;
+        }
 
         setIsSaving(true);
         try {
@@ -837,18 +918,56 @@ export default function NhapDonMoi({ isEdit = false }) {
             const calculatedShift = calculateShiftFromTime(orderDateTime);
 
             // Parse order_date từ created_at hoặc sử dụng thời gian hiện tại
+            // QUAN TRỌNG: order_date là kiểu DATE (chỉ có ngày, không có giờ)
+            // Cần gửi format YYYY-MM-DD, không gửi timestamp để tránh timezone issues
             let orderDateValue;
             if (formData["created_at"]) {
                 // created_at là datetime-local format (YYYY-MM-DDTHH:mm)
-                const dateFromForm = new Date(formData["created_at"]);
-                orderDateValue = dateFromForm.toISOString();
+                const dateTimeStr = formData["created_at"];
+                // Extract chỉ phần date (YYYY-MM-DD)
+                if (dateTimeStr.includes('T')) {
+                    const [datePart] = dateTimeStr.split('T');
+                    // Validate date format
+                    if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        orderDateValue = datePart; // Gửi trực tiếp YYYY-MM-DD
+                    } else {
+                        // Fallback: parse và format lại
+                        const [year, month, day] = datePart.split('-').map(Number);
+                        const localDate = new Date(year, month - 1, day);
+                        const yearStr = localDate.getFullYear();
+                        const monthStr = String(localDate.getMonth() + 1).padStart(2, '0');
+                        const dayStr = String(localDate.getDate()).padStart(2, '0');
+                        orderDateValue = `${yearStr}-${monthStr}-${dayStr}`;
+                    }
+                } else {
+                    // Nếu không có 'T', có thể đã là YYYY-MM-DD
+                    if (dateTimeStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        orderDateValue = dateTimeStr;
+                    } else {
+                        // Fallback: parse và format
+                        const dateFromForm = new Date(dateTimeStr);
+                        const year = dateFromForm.getFullYear();
+                        const month = String(dateFromForm.getMonth() + 1).padStart(2, '0');
+                        const day = String(dateFromForm.getDate()).padStart(2, '0');
+                        orderDateValue = `${year}-${month}-${day}`;
+                    }
+                }
             } else {
-                orderDateValue = new Date().toISOString();
+                // Default: lấy ngày hiện tại (local)
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                orderDateValue = `${year}-${month}-${day}`;
             }
 
             // Prepare payload
+            // LƯU Ý: Khi edit, KHÔNG gửi order_code trong payload vì:
+            // 1. order_code đã được dùng làm điều kiện WHERE
+            // 2. order_code không nên được thay đổi khi edit
             const orderPayload = {
-                order_code: orderCode,
+                // Chỉ thêm order_code khi tạo mới, không thêm khi edit
+                ...(isEdit ? {} : { order_code: orderCode }),
                 order_date: orderDateValue,
                 tracking_code: formData.tracking_code,
 
@@ -858,7 +977,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 city: formData.city,
                 state: formData.state,
                 zipcode: formData.zipcode,
-                area: formData.area,
+                country: formData.country, // Lưu vào country
 
                 // Products
                 product_main: formData.productMain,
@@ -891,8 +1010,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // Defaults / System
                 delivery_status: isEdit ? undefined : "Chờ xử lý", // Don't overwrite status on edit
                 check_result: isEdit ? undefined : "Vận đơn XL", // Default to "Vận đơn XL" for new orders
-                // User Info
-                cskh: userName,
+                // User Info - CSKH không tự động điền, để trống hoặc người dùng tự nhập
+                // cskh: undefined, // Đã xóa tự động điền CSKH
                 // Don't overwrite created_by on edit ideally, but here we just send it if new
 
                 // FORCE R&D TAG if user is R&D
@@ -901,8 +1020,20 @@ export default function NhapDonMoi({ isEdit = false }) {
                 note: `${formData["note_sale"] || ""} \nRef: ${hasRndPermission ? "RD" : (formData.team || "")}`,
             };
 
-            // Remove undefined keys
-            Object.keys(orderPayload).forEach(key => orderPayload[key] === undefined && delete orderPayload[key]);
+            // Remove undefined keys và null values (giữ lại empty string và 0)
+            Object.keys(orderPayload).forEach(key => {
+                if (orderPayload[key] === undefined || orderPayload[key] === null) {
+                    delete orderPayload[key];
+                }
+            });
+
+            // Log payload để debug
+            console.log("📦 Update payload:", {
+                isEdit,
+                orderCode,
+                payload: orderPayload,
+                payloadKeys: Object.keys(orderPayload)
+            });
 
             // check Data Source Mode
             const settingsJson = localStorage.getItem('system_settings');
@@ -919,20 +1050,111 @@ export default function NhapDonMoi({ isEdit = false }) {
             let result;
 
             if (isEdit) {
-                result = await query.upsert([orderPayload], { onConflict: 'order_code' }).select();
+                // Khi edit, sử dụng UPDATE với order_code làm điều kiện
+                if (!orderCode) {
+                    throw new Error("Không tìm thấy mã đơn hàng để cập nhật!");
+                }
+                
+                // QUAN TRỌNG: Kiểm tra đơn hàng có tồn tại không trước khi update
+                const { data: existingOrder, error: checkError } = await supabase
+                    .from('orders')
+                    .select('id, order_code')
+                    .eq('order_code', orderCode)
+                    .maybeSingle();
+                
+                if (checkError) {
+                    console.error("❌ Error checking existing order:", checkError);
+                    throw new Error(`Lỗi khi kiểm tra đơn hàng: ${checkError.message}`);
+                }
+                
+                if (!existingOrder) {
+                    throw new Error(`⚠️ Không tìm thấy đơn hàng với mã: ${orderCode}. Đơn hàng có thể đã bị xóa hoặc mã đơn hàng không đúng.`);
+                }
+                
+                console.log(`🔄 Updating order with code: ${orderCode} (ID: ${existingOrder.id})`);
+                console.log(`📦 Payload keys:`, Object.keys(orderPayload));
+                console.log(`📦 Payload (first 5 keys):`, Object.fromEntries(Object.entries(orderPayload).slice(0, 5)));
+                
+                // Đảm bảo KHÔNG có order_code trong payload khi edit
+                const updatePayload = { ...orderPayload };
+                delete updatePayload.order_code; // Xóa order_code khỏi payload để tránh conflict
+                
+                // Update bằng order_code
+                result = await query
+                    .update(updatePayload)
+                    .eq('order_code', orderCode)
+                    .select();
+                
+                console.log("📊 Update result:", { 
+                    hasData: !!result.data, 
+                    dataLength: result.data?.length,
+                    error: result.error,
+                    updatedOrderCode: result.data?.[0]?.order_code
+                });
             } else {
+                // Khi tạo mới, sử dụng INSERT
+                console.log("➕ Inserting new order");
                 result = await query.insert([orderPayload]).select();
             }
 
             const { data: savedData, error } = result;
 
-            if (error) throw error;
-
-            if (!savedData || savedData.length === 0) {
-                console.warn("⚠️ Warning: Data inserted/updated but not returned (RLS Policy?).");
+            if (error) {
+                console.error("❌ Save error details:", {
+                    error,
+                    message: error.message,
+                    details: error.details,
+                    hint: error.hint,
+                    code: error.code
+                });
+                
+                // Hiển thị lỗi chi tiết hơn
+                let errorMsg = `❌ Lỗi ${isEdit ? 'cập nhật' : 'lưu'} đơn hàng: ${error.message}`;
+                if (error.details) {
+                    errorMsg += `\n\nChi tiết: ${error.details}`;
+                }
+                if (error.hint) {
+                    errorMsg += `\n\nGợi ý: ${error.hint}`;
+                }
+                if (error.code === '42501') {
+                    errorMsg += `\n\n⚠️ Lỗi quyền truy cập (RLS Policy). Vui lòng kiểm tra quyền của bạn.`;
+                }
+                
+                throw new Error(errorMsg);
             }
 
-            alert(isEdit ? "✅ Cập nhật đơn hàng thành công!" : "✅ Lưu đơn hàng thành công!");
+            if (!savedData || savedData.length === 0) {
+                console.warn("⚠️ Warning: Update completed but no data returned.");
+                console.warn("   This could mean:");
+                console.warn("   1. RLS Policy doesn't allow SELECT after UPDATE");
+                console.warn("   2. No rows matched the update condition");
+                console.warn("   3. Update succeeded but SELECT was blocked");
+                
+                // Kiểm tra lại xem order có tồn tại không
+                if (isEdit) {
+                    const { data: checkData, error: checkError } = await supabase
+                        .from('orders')
+                        .select('order_code, order_date')
+                        .eq('order_code', orderCode)
+                        .maybeSingle();
+                    
+                    if (checkError) {
+                        console.error("❌ Error checking updated order:", checkError);
+                        alert(`⚠️ Cập nhật có thể đã thành công nhưng không thể xác nhận. Lỗi: ${checkError.message}`);
+                    } else if (checkData) {
+                        console.log("✅ Order exists after update:", checkData);
+                        alert("✅ Cập nhật đơn hàng thành công!");
+                    } else {
+                        console.error("❌ Order not found after update!");
+                        alert("⚠️ Cảnh báo: Không tìm thấy đơn hàng sau khi cập nhật. Vui lòng kiểm tra lại.");
+                    }
+                } else {
+                    alert("✅ Lưu đơn hàng thành công! (Không thể xác nhận do RLS policy)");
+                }
+            } else {
+                console.log("✅ Update successful, returned data:", savedData);
+                alert(isEdit ? "✅ Cập nhật đơn hàng thành công!" : "✅ Lưu đơn hàng thành công!");
+            }
 
             // Optional: Reset form or Redirect
             if (!isEdit) {
@@ -958,7 +1180,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             "city": "",
             "state": "",
             "zipcode": "",
-            "area": "",
+            "country": "",
             "productMain": "",
             "mathang1": "", "sl1": 1,
             "mathang2": "", "sl2": 0,
@@ -1218,8 +1440,14 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 <Input id="add" value={formData.add} onChange={handleInputChange} placeholder="Địa chỉ chi tiết..." />
                                             </div>
                                             <div className="space-y-2">
-                                                <Label>Khu vực</Label>
-                                                <select id="area" value={formData.area} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]">
+                                                <Label htmlFor="country">Khu vực*</Label>
+                                                <select 
+                                                    id="country" 
+                                                    value={formData.country} 
+                                                    onChange={handleInputChange} 
+                                                    required
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
+                                                >
                                                     <option value="">Chọn khu vực...</option>
                                                     {AREA_LIST.map(a => <option key={a} value={a}>{a}</option>)}
                                                 </select>

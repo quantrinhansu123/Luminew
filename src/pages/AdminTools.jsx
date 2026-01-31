@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import PermissionManager from '../components/admin/PermissionManager';
@@ -63,7 +63,13 @@ const AdminTools = () => {
     // --- AUTO ASSIGN STATE ---
     const [autoAssignLoading, setAutoAssignLoading] = useState(false);
     const [autoAssignResult, setAutoAssignResult] = useState(null);
+    const [notDividedOrders, setNotDividedOrders] = useState([]); // Danh sách đơn không được chia
     const [selectedTeam, setSelectedTeam] = useState('Hà Nội');
+    
+    // --- ORDER SEARCH STATE ---
+    const [orderSearchCode, setOrderSearchCode] = useState('');
+    const [orderSearchResult, setOrderSearchResult] = useState(null);
+    const [orderSearchLoading, setOrderSearchLoading] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState(() => {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -407,19 +413,15 @@ const AdminTools = () => {
     const fetchSettingsFromSupabase = async () => {
         setLoadingSettings(true);
         try {
-            // Load products từ bảng mới (2 cột)
+            // Load products từ bảng mới (2 cột: name, type)
             await fetchProductsFromDatabase();
             
-            // Vẫn giữ logic cũ cho các settings khác (nếu có)
-            const { data, error } = await supabase
-                .from('system_settings')
-                .select('*')
-                .eq('id', GLOBAL_SETTINGS_ID)
-                .single();
-
-            if (data && data.settings) {
-                setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
-            }
+            // Schema mới không còn dùng id='global_config' với settings JSONB
+            // Thay vào đó, sản phẩm được lưu trực tiếp với name và type
+            // Nên không cần query theo id nữa
+            
+            // Fallback to local settings
+            setSettings(getSystemSettings());
         } catch (err) {
             console.error("Error loading settings:", err);
             // Fallback to local
@@ -435,7 +437,7 @@ const AdminTools = () => {
             // Fetch unique Products and Markets from orders for suggestions
             const { data, error } = await supabase
                 .from('orders')
-                .select('product_name_1, product_main, area, city')
+                .select('product_name_1, product_main, country, city')
                 .limit(1000); // Sample data
 
             if (error) throw error;
@@ -446,7 +448,7 @@ const AdminTools = () => {
                 data.forEach(r => {
                     if (r.product_main) products.add(r.product_main);
                     if (r.product_name_1) products.add(r.product_name_1);
-                    if (r.area) markets.add(r.area);
+                    if (r.country) markets.add(r.country);
                 });
 
                 // Merge with defaults to ensure basic list exists
@@ -780,6 +782,7 @@ const AdminTools = () => {
     const handlePhanBoDonHang = async () => {
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
+        setNotDividedOrders([]);
         
         try {
             const staffList = await loadCSKHStaff();
@@ -921,6 +924,7 @@ const AdminTools = () => {
     const handleHachToanBaoCao = async () => {
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
+        setNotDividedOrders([]);
 
         try {
             const staffList = await loadCSKHStaff();
@@ -989,6 +993,7 @@ const AdminTools = () => {
         
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
+        setNotDividedOrders([]);
 
         try {
             // 1. Phân bổ đơn hàng
@@ -1009,10 +1014,82 @@ const AdminTools = () => {
         }
     };
 
+    // --- TÌM KIẾM ĐƠN HÀNG ---
+    const handleSearchOrder = async () => {
+        if (!orderSearchCode.trim()) {
+            setOrderSearchResult({ error: 'Vui lòng nhập mã đơn hàng' });
+            return;
+        }
+
+        setOrderSearchLoading(true);
+        setOrderSearchResult(null);
+
+        try {
+            const orderCode = orderSearchCode.trim();
+            console.log('🔍 [Tìm kiếm đơn hàng] Mã đơn:', orderCode);
+
+            const { data, error } = await supabase
+                .from('orders')
+                .select('order_code, order_date, team, country, delivery_staff, sale_staff, marketing_staff')
+                .eq('order_code', orderCode)
+                .single();
+
+            if (error) {
+                if (error.code === 'PGRST116') {
+                    // Không tìm thấy đơn hàng
+                    setOrderSearchResult({
+                        error: 'Không tìm thấy đơn hàng',
+                        details: `Không có đơn hàng nào với mã "${orderCode}" trong hệ thống. Vui lòng kiểm tra lại mã đơn hàng.`
+                    });
+                } else {
+                    setOrderSearchResult({
+                        error: 'Lỗi khi tìm kiếm đơn hàng',
+                        details: error.message || 'Có lỗi xảy ra khi truy vấn database. Vui lòng thử lại sau.'
+                    });
+                }
+                console.error('❌ [Tìm kiếm đơn hàng] Lỗi:', error);
+                return;
+            }
+
+            if (!data) {
+                setOrderSearchResult({
+                    error: 'Không tìm thấy đơn hàng',
+                    details: `Không có dữ liệu cho mã đơn hàng "${orderCode}".`
+                });
+                return;
+            }
+
+            // Chuẩn hóa dữ liệu
+            const normalizedData = {
+                order_code: data.order_code || 'N/A',
+                order_date: data.order_date ? new Date(data.order_date).toLocaleDateString('vi-VN') : 'N/A',
+                team: data.team || 'N/A',
+                country: data.country || 'N/A',
+                delivery_staff: data.delivery_staff || null,
+                sale_staff: data.sale_staff || 'N/A',
+                marketing_staff: data.marketing_staff || 'N/A'
+            };
+
+            console.log('✅ [Tìm kiếm đơn hàng] Tìm thấy:', normalizedData);
+            setOrderSearchResult(normalizedData);
+
+        } catch (error) {
+            console.error('❌ [Tìm kiếm đơn hàng] Exception:', error);
+            setOrderSearchResult({
+                error: 'Lỗi không xác định',
+                details: error.message || 'Có lỗi xảy ra khi tìm kiếm đơn hàng. Vui lòng thử lại sau.'
+            });
+        } finally {
+            setOrderSearchLoading(false);
+        }
+    };
+
     // --- CHIA ĐƠN VẬN ĐƠN ---
     const handleChiaDonVanDon = async () => {
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
+        setNotDividedOrders([]);
+        setOrderSearchResult(null);
 
         try {
             // Bước 1: Lấy danh sách nhân sự từ users có department = "Vận Đơn"
@@ -1056,14 +1133,15 @@ const AdminTools = () => {
                 throw new Error('Không có nhân viên nào có trạng thái U1');
             }
 
-            // Bước 3: Phân loại nhân viên theo chi nhánh (ưu tiên từ danh_sach_van_don, fallback về users.branch)
+            // Bước 3: Phân loại nhân viên theo chi nhánh (chỉ lấy từ danh_sach_van_don)
             const nhanVienHCM = [];
             const nhanVienHaNoi = [];
 
             nhanVienU1.forEach(user => {
                 const name = user.name;
                 const vanDonInfo = vanDonMap[name];
-                const chiNhanh = vanDonInfo?.chi_nhanh || user.branch || '';
+                // Chỉ lấy chi_nhanh từ danh_sach_van_don, không dùng fallback
+                const chiNhanh = vanDonInfo?.chi_nhanh || '';
 
                 if (chiNhanh === 'HCM') {
                     nhanVienHCM.push(name);
@@ -1092,62 +1170,171 @@ const AdminTools = () => {
                 }
             }
 
-            // Bước 4: Lọc đơn hàng cần chia
+            // Bước 4: Lọc đơn hàng cần chia (lọc trực tiếp trong query Supabase)
+            // Lọc: delivery_staff trống, null hoặc empty string
+            // Sử dụng .or() với format đúng của Supabase
             const { data: allOrders, error: ordersError } = await supabase
                 .from('orders')
-                .select('*');
+                .select('*')
+                .or('delivery_staff.is.null,delivery_staff.eq.');
 
-            if (ordersError) throw ordersError;
+            if (ordersError) {
+                console.error('❌ [Chia đơn vận đơn] Lỗi query orders:', ordersError);
+                throw ordersError;
+            }
 
-            // Lọc: delivery_staff trống, loại trừ "Nhật Bản" và "CĐ Nhật Bản"
+            // Đảm bảo allOrders là array
+            const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+            
+            console.log(`📦 [Chia đơn vận đơn] Đã lấy ${ordersArray.length} đơn có delivery_staff trống/null/empty từ database`);
+            
+            if (ordersArray.length === 0) {
+                console.warn('⚠️ [Chia đơn vận đơn] Không tìm thấy đơn nào có delivery_staff trống/null/empty');
+            }
+
+            // Lọc tiếp: loại trừ "Nhật Bản" và "CĐ Nhật Bản", phân loại theo Team
             const ordersHCM = [];
             const ordersHaNoi = [];
             const ordersWithoutTeam = []; // Đơn không có team
             const ordersExcluded = []; // Đơn bị loại trừ (để debug)
 
-            allOrders?.forEach(order => {
-                const deliveryStaff = order.delivery_staff?.toString().trim() || '';
-                const country = order.country?.toString().trim() || '';
-                const team = order.team?.toString().trim() || '';
+            ordersArray.forEach(order => {
+                // Normalize country: trim và lowercase để so sánh
+                const countryRaw = order.country?.toString() || '';
+                const country = countryRaw.trim().toLowerCase();
+                // Normalize team: trim và lowercase để so sánh
+                const teamRaw = order.team?.toString() || '';
+                const team = teamRaw.trim().toLowerCase();
 
-                // Chỉ chia cho đơn có delivery_staff trống
-                if (deliveryStaff !== '') {
-                    ordersExcluded.push({ ...order, reason: 'delivery_staff đã có' });
+                // Loại trừ "Nhật Bản" và "CĐ Nhật Bản" (không phân biệt hoa thường)
+                // Kiểm tra nếu country chứa các từ khóa liên quan đến Nhật Bản
+                const japanKeywords = ['nhật bản', 'nhat ban', 'japan', 'jp'];
+                const isJapan = japanKeywords.some(keyword => country.includes(keyword));
+                if (isJapan) {
+                    ordersExcluded.push({ ...order, reason: `Nhật Bản/CĐ Nhật Bản (country="${countryRaw}")` });
                     return;
                 }
 
-                // Loại trừ "Nhật Bản" và "CĐ Nhật Bản"
-                if (country === 'Nhật Bản' || country === 'CĐ Nhật Bản') {
-                    ordersExcluded.push({ ...order, reason: 'Nhật Bản' });
-                    return;
-                }
-
-                // Phân loại theo Team
-                if (team === 'HCM') {
+                // Phân loại theo Team (không phân biệt hoa thường, trim dấu cách)
+                const hcmVariants = ['hcm', 'hồ chí minh', 'ho chi minh', 'tp.hcm', 'tp hcm'];
+                const hanoiVariants = ['hà nội', 'ha noi', 'hanoi', 'hn'];
+                
+                if (hcmVariants.includes(team)) {
                     ordersHCM.push(order);
-                } else if (team === 'Hà Nội') {
+                } else if (hanoiVariants.includes(team)) {
                     ordersHaNoi.push(order);
                 } else {
                     // Đơn không có team hoặc team khác
-                    ordersWithoutTeam.push({ ...order, reason: `team="${team}" (không phải HCM/Hà Nội)` });
+                    ordersWithoutTeam.push({ 
+                        ...order, 
+                        reason: `team="${teamRaw}" (normalized: "${team}", không phải HCM/Hà Nội)` 
+                    });
                 }
             });
 
             // Log để debug
             console.log(`📊 [Chia đơn vận đơn] Thống kê:`);
-            console.log(`  - Tổng đơn: ${allOrders?.length || 0}`);
+            console.log(`  - Tổng đơn từ query: ${ordersArray.length}`);
             console.log(`  - Đơn HCM: ${ordersHCM.length}`);
             console.log(`  - Đơn Hà Nội: ${ordersHaNoi.length}`);
             console.log(`  - Đơn không có team/team khác: ${ordersWithoutTeam.length}`);
             console.log(`  - Đơn bị loại trừ: ${ordersExcluded.length}`);
             
+            // Phân tích chi tiết các đơn bị loại trừ
+            const excludedByDeliveryStaff = ordersExcluded.filter(o => o.reason === 'delivery_staff đã có').length;
+            const excludedByJapan = ordersExcluded.filter(o => o.reason?.includes('Nhật Bản')).length;
+            
+            console.log(`  - Đơn bị loại trừ do delivery_staff đã có: ${excludedByDeliveryStaff}`);
+            console.log(`  - Đơn bị loại trừ do Nhật Bản: ${excludedByJapan}`);
+            
+            // Đếm số đơn có delivery_staff trống/null (đã được lọc từ query)
+            const ordersWithEmptyDeliveryStaff = ordersArray.length;
+            
+            console.log(`  - Tổng đơn có delivery_staff trống/null: ${ordersWithEmptyDeliveryStaff}`);
+            console.log(`  - Đơn được chia (HCM + Hà Nội): ${ordersHCM.length + ordersHaNoi.length}`);
+            const ordersNotDivided = ordersWithEmptyDeliveryStaff - (ordersHCM.length + ordersHaNoi.length);
+            console.log(`  - Đơn không được chia (có delivery_staff trống nhưng bị loại): ${ordersNotDivided}`);
+            
+            // Liệt kê tất cả các mã đơn hàng không được chia
+            const allNotDividedOrders = [...ordersWithoutTeam, ...ordersExcluded.filter(o => o.reason?.includes('Nhật Bản'))];
+            
+            // Lưu vào state để hiển thị trên giao diện
+            setNotDividedOrders(allNotDividedOrders);
+            
+            if (allNotDividedOrders.length > 0) {
+                console.warn(`\n❌ [DANH SÁCH ĐƠN KHÔNG ĐƯỢC CHIA] Tổng: ${allNotDividedOrders.length} đơn`);
+                console.table(allNotDividedOrders.map(o => ({
+                    'Mã đơn': o.order_code || '(không có)',
+                    'Team': o.team || '(null/empty)',
+                    'Country': o.country || '(null/empty)',
+                    'Delivery Staff': o.delivery_staff || '(null/empty)',
+                    'Lý do': o.reason || 'Không xác định'
+                })));
+                
+                // Liệt kê chỉ mã đơn hàng (để copy dễ dàng)
+                const orderCodes = allNotDividedOrders.map(o => o.order_code).filter(Boolean);
+                console.warn(`\n📋 Danh sách mã đơn hàng không được chia (${orderCodes.length} mã):`);
+                console.warn(orderCodes.join(', '));
+                console.warn(`\n📋 Danh sách mã đơn hàng không được chia (dạng array):`);
+                console.warn(JSON.stringify(orderCodes, null, 2));
+            } else {
+                setNotDividedOrders([]);
+            }
+            
+            // Log chi tiết các đơn không có team/team khác (để kiểm tra dấu cách, viết hoa/thường)
             if (ordersWithoutTeam.length > 0) {
-                console.warn(`⚠️ [Chia đơn vận đơn] Có ${ordersWithoutTeam.length} đơn không có team hoặc team khác, không được chia:`, 
-                    ordersWithoutTeam.slice(0, 5).map(o => ({
+                console.warn(`\n⚠️ [Chia đơn vận đơn] Có ${ordersWithoutTeam.length} đơn không có team hoặc team khác, không được chia:`);
+                
+                // Nhóm theo team để dễ phân tích
+                const teamGroups = {};
+                ordersWithoutTeam.forEach(o => {
+                    const teamValue = o.team || '(null/empty)';
+                    if (!teamGroups[teamValue]) {
+                        teamGroups[teamValue] = [];
+                    }
+                    teamGroups[teamValue].push(o);
+                });
+                
+                console.warn(`📋 Phân tích theo team (${Object.keys(teamGroups).length} giá trị khác nhau):`);
+                Object.entries(teamGroups).forEach(([teamValue, orders]) => {
+                    const sample = orders[0];
+                    const normalized = (teamValue || '').trim().toLowerCase();
+                    const orderCodesInGroup = orders.map(o => o.order_code).filter(Boolean);
+                    console.warn(`  - Team="${teamValue}" (normalized: "${normalized}") - ${orders.length} đơn`, {
+                        order_codes: orderCodesInGroup,
+                        sample_order_code: sample.order_code,
+                        sample_team: `"${sample.team}"`,
+                        sample_team_length: String(sample.team || '').length,
+                        sample_team_charCodes: String(sample.team || '').split('').map(c => c.charCodeAt(0)),
+                        sample_country: sample.country,
+                        sample_delivery_staff: sample.delivery_staff
+                    });
+                });
+            }
+            
+            // Log chi tiết các đơn bị loại do Nhật Bản (để kiểm tra biến thể)
+            const japanOrders = ordersExcluded.filter(o => o.reason?.includes('Nhật Bản'));
+            if (japanOrders.length > 0) {
+                const countryGroups = {};
+                japanOrders.forEach(o => {
+                    const countryValue = o.country || '(null/empty)';
+                    if (!countryGroups[countryValue]) {
+                        countryGroups[countryValue] = [];
+                    }
+                    countryGroups[countryValue].push(o);
+                });
+                console.log(`📋 Các biến thể country bị loại (Nhật Bản):`, Object.keys(countryGroups));
+            }
+            
+            // Log chi tiết các đơn bị loại trừ do delivery_staff
+            if (excludedByDeliveryStaff > 0) {
+                const sampleExcluded = ordersExcluded.filter(o => o.reason === 'delivery_staff đã có').slice(0, 5);
+                console.log(`📋 [Chia đơn vận đơn] Mẫu đơn bị loại trừ do delivery_staff đã có:`, 
+                    sampleExcluded.map(o => ({
                         order_code: o.order_code,
+                        delivery_staff: o.delivery_staff,
                         team: o.team,
-                        country: o.country,
-                        reason: o.reason
+                        country: o.country
                     }))
                 );
             }
@@ -1156,6 +1343,9 @@ const AdminTools = () => {
             const updates = [];
             let currentIndexHCM = lastIndexHCM;
             let currentIndexHaNoi = lastIndexHaNoi;
+            let successCount = 0;
+            let errorCount = 0;
+            const errors = [];
 
             // Chia đơn HCM
             if (nhanVienHCM.length > 0) {
@@ -1183,16 +1373,49 @@ const AdminTools = () => {
 
             // Bước 6: Cập nhật database
             if (updates.length > 0) {
+                console.log(`🔄 [Chia đơn vận đơn] Bắt đầu cập nhật ${updates.length} đơn hàng...`);
                 const CHUNK_SIZE = 50;
+                successCount = 0;
+                errorCount = 0;
+                errors.length = 0; // Clear array
+                
                 for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
                     const chunk = updates.slice(i, i + CHUNK_SIZE);
-                    const updatePromises = chunk.map(update => 
-                        supabase
-                            .from('orders')
-                            .update({ delivery_staff: update.delivery_staff })
-                            .eq('order_code', update.order_code)
-                    );
-                    await Promise.all(updatePromises);
+                    console.log(`📦 [Chia đơn vận đơn] Đang xử lý chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(updates.length / CHUNK_SIZE)} (${chunk.length} đơn)`);
+                    
+                    const updatePromises = chunk.map(async (update) => {
+                        try {
+                            const { data, error } = await supabase
+                                .from('orders')
+                                .update({ delivery_staff: update.delivery_staff })
+                                .eq('order_code', update.order_code)
+                                .select();
+                            
+                            if (error) {
+                                console.error(`❌ [Chia đơn vận đơn] Lỗi update đơn ${update.order_code}:`, error);
+                                errors.push({ order_code: update.order_code, error: error.message });
+                                errorCount++;
+                                return { success: false, error };
+                            }
+                            
+                            successCount++;
+                            return { success: true, data };
+                        } catch (err) {
+                            console.error(`❌ [Chia đơn vận đơn] Exception khi update đơn ${update.order_code}:`, err);
+                            errors.push({ order_code: update.order_code, error: err.message });
+                            errorCount++;
+                            return { success: false, error: err };
+                        }
+                    });
+                    
+                    const results = await Promise.all(updatePromises);
+                    console.log(`✅ [Chia đơn vận đơn] Chunk ${Math.floor(i / CHUNK_SIZE) + 1} hoàn tất: ${results.filter(r => r.success).length}/${chunk.length} thành công`);
+                }
+
+                console.log(`📊 [Chia đơn vận đơn] Kết quả cập nhật: ${successCount} thành công, ${errorCount} lỗi`);
+                
+                if (errors.length > 0) {
+                    console.warn(`⚠️ [Chia đơn vận đơn] Danh sách lỗi:`, errors);
                 }
 
                 // Lưu lastIndex mới
@@ -1200,20 +1423,42 @@ const AdminTools = () => {
                     hcm: currentIndexHCM,
                     hanoi: currentIndexHaNoi
                 }));
+                
+                console.log(`💾 [Chia đơn vận đơn] Đã lưu lastIndex: HCM=${currentIndexHCM}, Hà Nội=${currentIndexHaNoi}`);
+            } else {
+                console.warn('⚠️ [Chia đơn vận đơn] Không có đơn nào để cập nhật!');
             }
 
-            const message = `✅ Chia đơn vận đơn thành công!\n\n` +
+            // Tính toán số đơn không được chia (sử dụng biến đã khai báo ở trên)
+            // ordersNotDivided đã được tính ở trên (dòng 1169)
+            
+            const message = `✅ Chia đơn vận đơn ${updates.length > 0 ? 'đã hoàn tất' : 'không có đơn để chia'}!\n\n` +
                 `- Nhân viên HCM (U1): ${nhanVienHCM.length} người\n` +
                 `- Nhân viên Hà Nội (U1): ${nhanVienHaNoi.length} người\n` +
-                `- Đơn HCM đã chia: ${ordersHCM.length} đơn\n` +
-                `- Đơn Hà Nội đã chia: ${ordersHaNoi.length} đơn\n` +
-                `- Tổng đơn đã chia: ${updates.length} đơn\n` +
-                (ordersWithoutTeam.length > 0 ? `\n⚠️ Lưu ý: Có ${ordersWithoutTeam.length} đơn không có team hoặc team khác (không phải HCM/Hà Nội) nên không được chia.\n` : '') +
+                `- Đơn HCM cần chia: ${ordersHCM.length} đơn\n` +
+                `- Đơn Hà Nội cần chia: ${ordersHaNoi.length} đơn\n` +
+                `- Tổng đơn cần chia: ${updates.length} đơn\n` +
+                (updates.length > 0 ? `- Đơn đã cập nhật thành công: ${successCount || updates.length}\n` : '') +
+                (errorCount > 0 ? `- Đơn bị lỗi khi cập nhật: ${errorCount}\n` : '') +
+                `\n📊 Thống kê chi tiết:\n` +
+                `- Tổng đơn có delivery_staff trống/null: ${ordersWithEmptyDeliveryStaff}\n` +
+                `- Đơn bị loại trừ do Nhật Bản: ${ordersExcluded.filter(o => o.reason?.includes('Nhật Bản')).length}\n` +
+                `- Đơn không có team/team khác: ${ordersWithoutTeam.length}\n` +
+                (ordersNotDivided > 0 ? `\n⚠️ CẢNH BÁO: Có ${ordersNotDivided} đơn có delivery_staff trống nhưng không được chia!\n` +
+                `   (Có thể do: không có team, team khác HCM/Hà Nội, hoặc country = Nhật Bản)\n` : '') +
+                (errorCount > 0 ? `\n⚠️ LỖI: Có ${errorCount} đơn không thể cập nhật. Vui lòng kiểm tra Console để xem chi tiết.\n` : '') +
                 `\n- LastIndex HCM: ${currentIndexHCM}\n` +
                 `- LastIndex Hà Nội: ${currentIndexHaNoi}`;
 
-            setAutoAssignResult({ success: true, message });
-            toast.success(`Đã chia ${updates.length} đơn vận đơn!`);
+            setAutoAssignResult({ success: updates.length > 0 && errorCount === 0, message });
+            
+            if (updates.length === 0) {
+                toast.warning('Không có đơn nào để chia vận đơn!');
+            } else if (errorCount > 0) {
+                toast.warning(`Đã chia ${successCount} đơn, nhưng có ${errorCount} đơn bị lỗi!`);
+            } else {
+                toast.success(`Đã chia ${updates.length} đơn vận đơn thành công!`);
+            }
         } catch (error) {
             console.error('Error in handleChiaDonVanDon:', error);
             setAutoAssignResult({ success: false, message: `Lỗi: ${error.message}` });
@@ -1227,6 +1472,53 @@ const AdminTools = () => {
     const normalizeStr = (str) => {
         if (!str) return '';
         return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
+    // Xóa toàn bộ dữ liệu trong cột CSKH
+    const handleClearCSKHData = async () => {
+        if (!window.confirm('⚠️ CẢNH BÁO: Bạn có chắc muốn XÓA TOÀN BỘ dữ liệu trong cột CSKH?\n\nHành động này sẽ:\n- Set tất cả giá trị cskh về NULL\n- Không thể hoàn tác!\n\nBạn có chắc chắn muốn tiếp tục?')) {
+            return;
+        }
+
+        setClearCSKHLoading(true);
+        try {
+            // Đếm số đơn có CSKH trước khi xóa (không null và không rỗng)
+            const { count: countBefore } = await supabase
+                .from('orders')
+                .select('*', { count: 'exact', head: true })
+                .not('cskh', 'is', null)
+                .neq('cskh', '');
+
+            console.log(`📊 [Xóa CSKH] Tìm thấy ${countBefore || 0} đơn có dữ liệu CSKH`);
+
+            // Xóa tất cả dữ liệu CSKH (set về null)
+            // Update tất cả đơn có cskh không null và không rỗng
+            const { data, error } = await supabase
+                .from('orders')
+                .update({ cskh: null })
+                .not('cskh', 'is', null)
+                .neq('cskh', '')
+                .select();
+
+            if (error) {
+                throw error;
+            }
+
+            const affectedCount = data?.length || 0;
+            console.log(`✅ [Xóa CSKH] Đã xóa CSKH của ${affectedCount} đơn hàng`);
+
+            toast.success(`✅ Đã xóa dữ liệu CSKH của ${affectedCount} đơn hàng!`);
+            
+            // Refresh page hoặc reload data nếu cần
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+        } catch (error) {
+            console.error('❌ [Xóa CSKH] Lỗi:', error);
+            toast.error(`❌ Lỗi xóa dữ liệu CSKH: ${error.message}`);
+        } finally {
+            setClearCSKHLoading(false);
+        }
     };
 
     // Tự động điền Team từ bảng nhân sự vào orders
@@ -1611,15 +1903,6 @@ const AdminTools = () => {
                                     ) : verifyResult.diff === 0 ? (
                                         <div className="flex-1 flex gap-4 items-center justify-between">
                                             <span className="text-green-700 font-medium">✅ Dữ liệu đã khớp hoàn toàn. Hệ thống sẵn sàng!</span>
-                                            {settings.dataSource === 'test' && (
-                                                <button
-                                                    onClick={handleSwitchToProd}
-                                                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow flex items-center gap-2 animate-pulse"
-                                                >
-                                                    <CheckCircle size={16} />
-                                                    Chuyển sang Chế độ PRODUCTION
-                                                </button>
-                                            )}
                                         </div>
                                     ) : (
                                         <span className="text-gray-500 italic">Vui lòng kiểm tra lại sự chênh lệch (Có thể do đơn mới trên web chưa có trên sheet).</span>
@@ -1835,42 +2118,6 @@ const AdminTools = () => {
                     </div>
 
                     <div className="p-6 space-y-8">
-                        {/* 0. DATA SOURCE MODE */}
-                        {isSectionVisible('Chế độ Dữ liệu', ['environment', 'testing', 'production', 'dữ liệu']) && (
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                <h3 className="text-lg font-semibold text-blue-800 flex items-center gap-2 mb-2">
-                                    <Database className="w-5 h-5" />
-                                    0. Chế độ Dữ liệu (Environment)
-                                </h3>
-                                <div className="flex items-center gap-4">
-                                    <label className="inline-flex items-center">
-                                        <input
-                                            type="radio"
-                                            className="form-radio text-blue-600 w-5 h-5"
-                                            name="dataSource"
-                                            value="prod"
-                                            checked={settings.dataSource !== 'test'}
-                                            onChange={() => setSettings({ ...settings, dataSource: 'prod' })}
-                                        />
-                                        <span className="ml-2 font-medium">Production (Dữ liệu Thật)</span>
-                                    </label>
-                                    <label className="inline-flex items-center">
-                                        <input
-                                            type="radio"
-                                            className="form-radio text-orange-500 w-5 h-5 "
-                                            name="dataSource"
-                                            value="test"
-                                            checked={settings.dataSource === 'test'}
-                                            onChange={() => setSettings({ ...settings, dataSource: 'test' })}
-                                        />
-                                        <span className="ml-2 font-medium text-orange-600">Testing (Dữ liệu Thử nghiệm)</span>
-                                    </label>
-                                </div>
-                                <p className="text-xs text-blue-600 mt-2">
-                                    <strong>Lưu ý:</strong> Chế độ Testing sẽ sử dụng nguồn dữ liệu riêng để không ảnh hưởng đến báo cáo thật.
-                                </p>
-                            </div>
-                        )}
                         {/* 1. Thresholds */}
                         {isSectionVisible('Ngưỡng cảnh báo chỉ số', ['threshold', 'chỉ số', 'cảnh báo', 'kpi', 'tồn kho', 'hoàn', 'ads']) && (
                             <div className="space-y-4">
@@ -2460,6 +2707,99 @@ const AdminTools = () => {
                             </div>
 
                             <div className="space-y-4">
+                                <h3 className="font-semibold text-gray-700">Tìm kiếm đơn hàng</h3>
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                    <div className="flex gap-2">
+                                        <div className="flex-1">
+                                            <input
+                                                type="text"
+                                                placeholder="Nhập mã đơn hàng..."
+                                                value={orderSearchCode}
+                                                onChange={(e) => setOrderSearchCode(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && orderSearchCode.trim()) {
+                                                        handleSearchOrder();
+                                                    }
+                                                }}
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleSearchOrder}
+                                            disabled={orderSearchLoading || !orderSearchCode.trim()}
+                                            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                        >
+                                            {orderSearchLoading ? (
+                                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                                <Search className="w-4 h-4" />
+                                            )}
+                                            Tìm kiếm
+                                        </button>
+                                    </div>
+                                    
+                                    {/* Kết quả tìm kiếm */}
+                                    {orderSearchResult && (
+                                        <div className={`mt-4 p-4 rounded-lg border ${orderSearchResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                                            {orderSearchResult.error ? (
+                                                <div>
+                                                    <h4 className="font-semibold text-red-800 mb-2">❌ Lỗi tìm kiếm</h4>
+                                                    <p className="text-sm text-red-700">{orderSearchResult.error}</p>
+                                                    {orderSearchResult.details && (
+                                                        <div className="mt-2 text-xs text-red-600 bg-red-100 p-2 rounded">
+                                                            <strong>Chi tiết:</strong> {orderSearchResult.details}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <h4 className="font-semibold text-green-800 mb-3">✅ Thông tin đơn hàng</h4>
+                                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                                        <div>
+                                                            <span className="font-medium text-gray-700">Mã đơn hàng:</span>
+                                                            <span className="ml-2 font-mono text-blue-600">{orderSearchResult.order_code || 'N/A'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-medium text-gray-700">Ngày lên đơn:</span>
+                                                            <span className="ml-2">{orderSearchResult.order_date || 'N/A'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-medium text-gray-700">Team:</span>
+                                                            <span className="ml-2">{orderSearchResult.team || 'N/A'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-medium text-gray-700">Country:</span>
+                                                            <span className="ml-2">{orderSearchResult.country || 'N/A'}</span>
+                                                        </div>
+                                                        <div className="col-span-2">
+                                                            <span className="font-medium text-gray-700">NV Vận đơn:</span>
+                                                            <span className={`ml-2 font-semibold ${orderSearchResult.delivery_staff ? 'text-green-600' : 'text-red-600'}`}>
+                                                                {orderSearchResult.delivery_staff || 'Chưa được gán'}
+                                                            </span>
+                                                        </div>
+                                                        {orderSearchResult.delivery_staff && (
+                                                            <div className="col-span-2 text-xs text-green-700 bg-green-100 p-2 rounded">
+                                                                ✅ Đơn hàng đã được gán cho: <strong>{orderSearchResult.delivery_staff}</strong>
+                                                            </div>
+                                                        )}
+                                                        {!orderSearchResult.delivery_staff && (
+                                                            <div className="col-span-2 text-xs text-orange-700 bg-orange-100 p-2 rounded">
+                                                                ⚠️ Đơn hàng chưa được gán NV vận đơn. Có thể do:
+                                                                <ul className="list-disc list-inside mt-1 space-y-1">
+                                                                    {!orderSearchResult.team && <li>Không có Team (cần Team = HCM hoặc Hà Nội)</li>}
+                                                                    {orderSearchResult.country && (orderSearchResult.country.toLowerCase().includes('nhật') || orderSearchResult.country.toLowerCase().includes('nhat')) && <li>Country = Nhật Bản (bị loại trừ)</li>}
+                                                                    {orderSearchResult.team && !['hcm', 'hà nội', 'ha noi', 'hanoi'].includes(orderSearchResult.team.toLowerCase().trim()) && <li>Team không phải HCM/Hà Nội: "{orderSearchResult.team}"</li>}
+                                                                    {orderSearchResult.team && ['hcm', 'hà nội', 'ha noi', 'hanoi'].includes(orderSearchResult.team.toLowerCase().trim()) && !orderSearchResult.country?.toLowerCase().includes('nhật') && <li>Đơn này đủ điều kiện để chia, có thể chạy lại "Chia đơn vận đơn"</li>}
+                                                                </ul>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                
                                 <h3 className="font-semibold text-gray-700">Chia đơn vận đơn</h3>
                                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
                                     <p className="text-xs text-gray-700 mb-2"><strong>Logic chia đơn vận đơn:</strong></p>
@@ -2491,6 +2831,38 @@ const AdminTools = () => {
                             </div>
                         </div>
 
+                        {/* Xóa dữ liệu CSKH */}
+                        <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 mb-6">
+                            <div className="space-y-4">
+                                <h3 className="font-semibold text-gray-700">Xóa dữ liệu CSKH</h3>
+                                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                                    <p className="text-xs text-red-700 mb-2"><strong>⚠️ CẢNH BÁO:</strong></p>
+                                    <ul className="list-disc list-inside space-y-1 text-xs text-red-600">
+                                        <li>Hành động này sẽ xóa TOÀN BỘ dữ liệu trong cột CSKH</li>
+                                        <li>Tất cả giá trị cskh sẽ được set về NULL</li>
+                                        <li>Không thể hoàn tác sau khi xóa!</li>
+                                    </ul>
+                                </div>
+                                <button
+                                    onClick={handleClearCSKHData}
+                                    disabled={clearCSKHLoading}
+                                    className="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    {clearCSKHLoading ? (
+                                        <>
+                                            <RefreshCw className="w-5 h-5 animate-spin" />
+                                            Đang xóa...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Trash2 className="w-5 h-5" />
+                                            Xóa toàn bộ dữ liệu CSKH
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+
                         {/* Results */}
                         {autoAssignResult && (
                             <div className={`border rounded-lg p-4 ${autoAssignResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
@@ -2500,6 +2872,71 @@ const AdminTools = () => {
                                 <pre className="text-sm whitespace-pre-wrap overflow-auto max-h-96">
                                     {autoAssignResult.message}
                                 </pre>
+                            </div>
+                        )}
+                        
+                        {/* Hiển thị danh sách đơn không được chia */}
+                        {notDividedOrders.length > 0 && (
+                            <div className="border rounded-lg p-4 bg-yellow-50 border-yellow-200 mt-4">
+                                <h3 className="font-semibold mb-3 text-yellow-800">
+                                    ⚠️ Danh sách đơn không được chia ({notDividedOrders.length} đơn)
+                                </h3>
+                                
+                                {/* Bảng danh sách */}
+                                <div className="overflow-x-auto mb-4">
+                                    <table className="min-w-full text-sm border-collapse">
+                                        <thead>
+                                            <tr className="bg-yellow-100">
+                                                <th className="border border-yellow-300 px-3 py-2 text-left font-semibold">Mã đơn</th>
+                                                <th className="border border-yellow-300 px-3 py-2 text-left font-semibold">Team</th>
+                                                <th className="border border-yellow-300 px-3 py-2 text-left font-semibold">Country</th>
+                                                <th className="border border-yellow-300 px-3 py-2 text-left font-semibold">Delivery Staff</th>
+                                                <th className="border border-yellow-300 px-3 py-2 text-left font-semibold">Lý do</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {notDividedOrders.map((order, idx) => (
+                                                <tr key={idx} className="hover:bg-yellow-50">
+                                                    <td className="border border-yellow-300 px-3 py-2 font-mono text-xs">
+                                                        {order.order_code || '(không có)'}
+                                                    </td>
+                                                    <td className="border border-yellow-300 px-3 py-2">
+                                                        {order.team || '(null/empty)'}
+                                                    </td>
+                                                    <td className="border border-yellow-300 px-3 py-2">
+                                                        {order.country || '(null/empty)'}
+                                                    </td>
+                                                    <td className="border border-yellow-300 px-3 py-2">
+                                                        {order.delivery_staff || '(null/empty)'}
+                                                    </td>
+                                                    <td className="border border-yellow-300 px-3 py-2 text-xs">
+                                                        {order.reason || 'Không xác định'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                {/* Danh sách mã đơn hàng để copy */}
+                                <div className="mt-4">
+                                    <h4 className="font-semibold text-yellow-800 mb-2">📋 Danh sách mã đơn hàng (để copy):</h4>
+                                    <div className="bg-white border border-yellow-300 rounded p-3 mb-2">
+                                        <code className="text-xs break-all">
+                                            {notDividedOrders.map(o => o.order_code).filter(Boolean).join(', ')}
+                                        </code>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const orderCodes = notDividedOrders.map(o => o.order_code).filter(Boolean).join(', ');
+                                            navigator.clipboard.writeText(orderCodes);
+                                            toast.success('Đã copy danh sách mã đơn hàng!');
+                                        }}
+                                        className="px-3 py-1 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700"
+                                    >
+                                        📋 Copy danh sách mã đơn
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>

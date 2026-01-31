@@ -1,6 +1,6 @@
-import { RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
+import { Eye, Pencil, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
@@ -26,12 +26,20 @@ const HIDDEN_COLUMNS = [
 
 function DanhSachDon() {
   const location = useLocation();
+  const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const teamFilter = searchParams.get('team'); // e.g. 'RD'
 
   // Permission Logic
   const { canView, canEdit, canDelete, role } = usePermissions();
-  const isAdmin = ['admin', 'super_admin'].includes((role || '').toLowerCase());
+  // Check Admin from multiple sources
+  const userJson = localStorage.getItem("user");
+  const user = userJson ? JSON.parse(userJson) : null;
+  const userEmail = (user?.Email || user?.email || localStorage.getItem("userEmail") || "").toString().toLowerCase().trim();
+  const ADMIN_MAIL = "admin@marketing.com";
+  const isAdmin = ['admin', 'super_admin', 'ADMIN', 'SUPER_ADMIN'].includes((role || '').toLowerCase()) || 
+                  userEmail === ADMIN_MAIL ||
+                  (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'admin';
   // Determine relevant page code based on team switch
   // If team=RD, we are in R&D context -> RND_ORDERS
   // Else (default), we are in Sale context -> SALE_ORDERS
@@ -48,9 +56,13 @@ function DanhSachDon() {
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [filterMarket, setFilterMarket] = useState([]);
+  const [showMarketFilter, setShowMarketFilter] = useState(false);
   const [filterProduct, setFilterProduct] = useState([]);
+  const [showProductFilter, setShowProductFilter] = useState(false);
   const [filterStatus, setFilterStatus] = useState([]);
+  const [showStatusFilter, setShowStatusFilter] = useState(false);
   const [filterCheckResult, setFilterCheckResult] = useState([]);
+  const [showCheckResultFilter, setShowCheckResultFilter] = useState(false);
   // Initialize dates with "Last 3 Days"
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -70,6 +82,10 @@ function DanhSachDon() {
   const [syncing, setSyncing] = useState(false); // State for sync process
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   const [deleting, setDeleting] = useState(false); // State for delete all process
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyOrderCode, setHistoryOrderCode] = useState(null);
+  const [historyLogs, setHistoryLogs] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
 
 
@@ -97,19 +113,27 @@ function DanhSachDon() {
 
   // Get all available columns from data (excluding hidden columns and technical columns)
   const allAvailableColumns = useMemo(() => {
-    if (allData.length === 0) return [];
-
     // Get all potential keys from data
     const allKeys = new Set();
-    allData.forEach(row => {
-      Object.keys(row).forEach(key => {
-        // Exclude PRIMARY_KEY_COLUMN, HIDDEN_COLUMNS, and technical columns starting with _
-        if (key !== PRIMARY_KEY_COLUMN && 
-            !HIDDEN_COLUMNS.includes(key) &&
-            !key.startsWith('_')) {
-          allKeys.add(key);
-        }
+    
+    if (allData.length > 0) {
+      allData.forEach(row => {
+        Object.keys(row).forEach(key => {
+          // Exclude PRIMARY_KEY_COLUMN, HIDDEN_COLUMNS, and technical columns starting with _
+          if (key !== PRIMARY_KEY_COLUMN && 
+              !HIDDEN_COLUMNS.includes(key) &&
+              !key.startsWith('_')) {
+            allKeys.add(key);
+          }
+        });
       });
+    }
+
+    // Đảm bảo các cột mặc định luôn có trong danh sách, ngay cả khi không có trong dữ liệu
+    defaultColumns.forEach(col => {
+      if (!HIDDEN_COLUMNS.includes(col)) {
+        allKeys.add(col);
+      }
     });
 
     // Strategy:
@@ -224,7 +248,7 @@ function DanhSachDon() {
     "Add": item.customer_address,
     "City": item.city,
     "State": item.state,
-    "Khu vực": item.country || item.area, // Fallback to 'area' from new form
+    "Khu vực": item.country, // Lấy từ country
     "Zipcode": item.zipcode,
     "Mặt hàng": item.product_main || item.product,
     "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
@@ -271,8 +295,7 @@ function DanhSachDon() {
                 customer_phone: "0901234567",
                 customer_address: "123 Đường Test, Q1",
                 city: "Hồ Chí Minh",
-                country: "Hồ Chí Minh",
-                area: "Miền Nam",
+                country: "Miền Nam",
                 product: "Sản phẩm A",
                 total_amount_vnd: 500000,
                 delivery_status: "ĐANG GIAO",
@@ -285,8 +308,7 @@ function DanhSachDon() {
                 customer_phone: "0909876543",
                 customer_address: "456 Phố Mẫu, HN",
                 city: "Hà Nội",
-                country: "Hà Nội",
-                area: "Miền Bắc",
+                country: "Miền Bắc",
                 product: "Sản phẩm B",
                 total_amount_vnd: 1200000,
                 delivery_status: "GIAO THÀNH CÔNG",
@@ -299,8 +321,7 @@ function DanhSachDon() {
                 customer_phone: "0911223344",
                 customer_address: "789 Đường Demo, ĐN",
                 city: "Đà Nẵng",
-                country: "Đà Nẵng",
-                area: "Miền Trung",
+                country: "Miền Trung",
                 product: "Combo C",
                 total_amount_vnd: 2500000,
                 delivery_status: "HOÀN",
@@ -479,14 +500,24 @@ function DanhSachDon() {
     loadData();
   }, [startDate, endDate, role]); // Reload when dates change
 
-  // Get unique values for filters
+  // Get unique values for filters - Bao gồm cả giá trị trống
   const uniqueMarkets = useMemo(() => {
     const markets = new Set();
+    let hasEmpty = false;
     allData.forEach(row => {
       const market = row["Khu vực"] || row["khu vực"];
-      if (market) markets.add(String(market).trim());
+      if (market && String(market).trim()) {
+        markets.add(String(market).trim());
+      } else {
+        hasEmpty = true;
+      }
     });
-    return Array.from(markets).sort();
+    const sortedMarkets = Array.from(markets).sort();
+    // Thêm "Trống" vào đầu danh sách nếu có giá trị trống
+    if (hasEmpty) {
+      return ['(Trống)', ...sortedMarkets];
+    }
+    return sortedMarkets;
   }, [allData]);
 
   // Sync data from F3 Firebase
@@ -787,6 +818,74 @@ function DanhSachDon() {
     }
   };
 
+  // Handle View History - Show history modal
+  const handleViewHistory = async (orderCode) => {
+    if (!orderCode || orderCode.startsWith('UNK-') || orderCode.startsWith('NO_CODE_')) {
+      toast.error('Không thể xem lịch sử đơn hàng này vì thiếu mã đơn hàng');
+      return;
+    }
+    
+    setHistoryOrderCode(orderCode);
+    setShowHistoryModal(true);
+    setLoadingHistory(true);
+    
+    try {
+      const { data, error } = await supabase
+        .from('sales_order_logs')
+        .select('*')
+        .eq('order_code', orderCode)
+        .order('changed_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      setHistoryLogs(data || []);
+    } catch (error) {
+      console.error('Error fetching history:', error);
+      toast.error('Lỗi khi tải lịch sử chỉnh sửa: ' + error.message);
+      setHistoryLogs([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  // Helper to get changes from old and new data
+  const getHistoryChanges = (oldData, newData) => {
+    const changes = [];
+    if (!oldData || !newData) return changes;
+    
+    Object.keys(newData).forEach(key => {
+      // Skip metadata columns
+      if (['updated_at', 'last_modified_by', 'created_at', 'id', 'order_time'].includes(key)) return;
+      
+      const oldVal = oldData[key];
+      const newVal = newData[key];
+      
+      // Check if values are different
+      if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+        // Map database key to display name
+        const displayKey = COLUMN_MAPPING[key] || key;
+        changes.push({
+          key,
+          label: displayKey,
+          old: oldVal,
+          new: newVal
+        });
+      }
+    });
+    
+    return changes;
+  };
+
+  // Handle Edit - Navigate to edit page
+  const handleEdit = (orderCode) => {
+    if (!orderCode || orderCode.startsWith('UNK-') || orderCode.startsWith('NO_CODE_')) {
+      toast.error('Không thể chỉnh sửa đơn hàng này vì thiếu mã đơn hàng');
+      return;
+    }
+    // Navigate to edit page (chinh-sua-don) with orderId in query params
+    navigate(`/chinh-sua-don?orderId=${encodeURIComponent(orderCode)}`);
+  };
+
   // Handle Delete
   const handleDelete = async (orderCode, rowId) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác.")) return;
@@ -827,29 +926,56 @@ function DanhSachDon() {
 
   const uniqueProducts = useMemo(() => {
     const products = new Set();
+    let hasEmpty = false;
     allData.forEach(row => {
       const product = row["Mặt hàng"];
-      if (product) products.add(String(product).trim());
+      if (product && String(product).trim()) {
+        products.add(String(product).trim());
+      } else {
+        hasEmpty = true;
+      }
     });
-    return Array.from(products).sort();
+    const sortedProducts = Array.from(products).sort();
+    if (hasEmpty) {
+      return ['(Trống)', ...sortedProducts];
+    }
+    return sortedProducts;
   }, [allData]);
 
   const uniqueStatuses = useMemo(() => {
     const statuses = new Set();
+    let hasEmpty = false;
     allData.forEach(row => {
       const status = row["Trạng thái giao hàng"];
-      if (status) statuses.add(String(status).trim());
+      if (status && String(status).trim()) {
+        statuses.add(String(status).trim());
+      } else {
+        hasEmpty = true;
+      }
     });
-    return Array.from(statuses).sort();
+    const sortedStatuses = Array.from(statuses).sort();
+    if (hasEmpty) {
+      return ['(Trống)', ...sortedStatuses];
+    }
+    return sortedStatuses;
   }, [allData]);
 
   const uniqueCheckResults = useMemo(() => {
     const checkResults = new Set();
+    let hasEmpty = false;
     allData.forEach(row => {
       const checkResult = row["Kết quả Check"];
-      if (checkResult) checkResults.add(String(checkResult).trim());
+      if (checkResult && String(checkResult).trim()) {
+        checkResults.add(String(checkResult).trim());
+      } else {
+        hasEmpty = true;
+      }
     });
-    return Array.from(checkResults).sort();
+    const sortedCheckResults = Array.from(checkResults).sort();
+    if (hasEmpty) {
+      return ['(Trống)', ...sortedCheckResults];
+    }
+    return sortedCheckResults;
   }, [allData]);
 
 
@@ -905,15 +1031,32 @@ function DanhSachDon() {
       console.log('ℹ️ Không có selectedPersonnel, hiển thị tất cả đơn hàng');
     }
 
-    // Search filter (using debounced value)
+    // Search filter (using debounced value) - Tìm kiếm toàn diện thông tin khách hàng và nhân viên
     if (debouncedSearchText) {
       const searchLower = debouncedSearchText.toLowerCase();
       data = data.filter(row => {
         return (
+          // Thông tin đơn hàng
           String(row["Mã đơn hàng"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Mã Tracking"] || '').toLowerCase().includes(searchLower) ||
+          // Thông tin khách hàng - Tên
           String(row["Name*"] || '').toLowerCase().includes(searchLower) ||
+          // Thông tin khách hàng - Số điện thoại
           String(row["Phone*"] || '').toLowerCase().includes(searchLower) ||
-          String(row["Mã Tracking"] || '').toLowerCase().includes(searchLower)
+          // Thông tin khách hàng - Địa chỉ
+          String(row["Add"] || '').toLowerCase().includes(searchLower) ||
+          String(row["City"] || '').toLowerCase().includes(searchLower) ||
+          String(row["State"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Zipcode"] || '').toLowerCase().includes(searchLower) ||
+          // Khu vực
+          String(row["Khu vực"] || '').toLowerCase().includes(searchLower) ||
+          // Tên nhân viên - Marketing, Sale, CSKH, Vận đơn
+          String(row["Nhân viên Marketing"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Nhân viên Sale"] || '').toLowerCase().includes(searchLower) ||
+          String(row["CSKH"] || '').toLowerCase().includes(searchLower) ||
+          String(row["NV Vận đơn"] || '').toLowerCase().includes(searchLower) ||
+          // Team
+          String(row["Team"] || '').toLowerCase().includes(searchLower)
         );
       });
     }
@@ -923,35 +1066,61 @@ function DanhSachDon() {
       data = data.filter(row => isDateInRange(row["Ngày lên đơn"], startDate, endDate));
     }
 
-    // Market filter
+    // Market filter - Hỗ trợ multi-select và giá trị trống
     if (filterMarket.length > 0) {
       data = data.filter(row => {
         const market = row["Khu vực"] || row["khu vực"];
-        return filterMarket.includes(String(market).trim());
+        const marketStr = market ? String(market).trim() : '';
+        
+        // Kiểm tra nếu có chọn "(Trống)"
+        if (filterMarket.includes('(Trống)')) {
+          if (!marketStr) return true; // Nếu giá trị trống và đã chọn "(Trống)"
+        }
+        
+        // Kiểm tra các giá trị khác
+        return filterMarket.includes(marketStr);
       });
     }
 
-    // Product filter
+    // Product filter - Hỗ trợ multi-select và giá trị trống
     if (filterProduct.length > 0) {
       data = data.filter(row => {
         const product = row["Mặt hàng"];
-        return filterProduct.includes(String(product).trim());
+        const productStr = product ? String(product).trim() : '';
+        
+        if (filterProduct.includes('(Trống)')) {
+          if (!productStr) return true;
+        }
+        
+        return filterProduct.includes(productStr);
       });
     }
 
-    // Status filter
+    // Status filter - Hỗ trợ multi-select và giá trị trống
     if (filterStatus.length > 0) {
       data = data.filter(row => {
         const status = row["Trạng thái giao hàng"];
-        return filterStatus.includes(String(status).trim());
+        const statusStr = status ? String(status).trim() : '';
+        
+        if (filterStatus.includes('(Trống)')) {
+          if (!statusStr) return true;
+        }
+        
+        return filterStatus.includes(statusStr);
       });
     }
 
-    // Check Result filter
+    // Check Result filter - Hỗ trợ multi-select và giá trị trống
     if (filterCheckResult.length > 0) {
       data = data.filter(row => {
         const checkResult = row["Kết quả Check"];
-        return filterCheckResult.includes(String(checkResult).trim());
+        const checkResultStr = checkResult ? String(checkResult).trim() : '';
+        
+        if (filterCheckResult.includes('(Trống)')) {
+          if (!checkResultStr) return true;
+        }
+        
+        return filterCheckResult.includes(checkResultStr);
       });
     }
 
@@ -1230,7 +1399,7 @@ function DanhSachDon() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Mã đơn, tên, SĐT, tracking..."
+                  placeholder="Tìm kiếm: mã đơn, tên KH, tên NV, SĐT, địa chỉ, tracking..."
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
@@ -1260,64 +1429,289 @@ function DanhSachDon() {
               </div>
             </div>
 
-            {/* Market Filter */}
-            <div className="min-w-[150px]">
+            {/* Market Filter - Multi-select với checkbox */}
+            <div className="min-w-[200px] relative">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Khu vực</label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={filterMarket[0] || ''}
-                onChange={(e) => setFilterMarket(e.target.value ? [e.target.value] : [])}
-              >
-                <option value="">Tất cả</option>
-                {uniqueMarkets.map(market => (
-                  <option key={market} value={market}>{market}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowMarketFilter(!showMarketFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterMarket.length === 0 
+                      ? 'Tất cả' 
+                      : filterMarket.length === 1 
+                        ? filterMarket[0] 
+                        : `Đã chọn ${filterMarket.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+                
+                {showMarketFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn khu vực:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterMarket([]);
+                            setShowMarketFilter(false);
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          Bỏ chọn tất cả
+                        </button>
+                      </div>
+                      {uniqueMarkets.map(market => {
+                        const isChecked = filterMarket.includes(market);
+                        return (
+                          <label
+                            key={market}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterMarket([...filterMarket, market]);
+                                } else {
+                                  setFilterMarket(filterMarket.filter(m => m !== market));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{market}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Click outside to close */}
+              {showMarketFilter && (
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowMarketFilter(false)}
+                />
+              )}
             </div>
 
-            {/* Product Filter */}
-            <div className="min-w-[150px]">
+            {/* Product Filter - Multi-select với checkbox */}
+            <div className="min-w-[200px] relative">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Mặt hàng</label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={filterProduct[0] || ''}
-                onChange={(e) => setFilterProduct(e.target.value ? [e.target.value] : [])}
-              >
-                <option value="">Tất cả</option>
-                {uniqueProducts.map(product => (
-                  <option key={product} value={product}>{product}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowProductFilter(!showProductFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterProduct.length === 0 
+                      ? 'Tất cả' 
+                      : filterProduct.length === 1 
+                        ? filterProduct[0] 
+                        : `Đã chọn ${filterProduct.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+                
+                {showProductFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn mặt hàng:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterProduct([]);
+                            setShowProductFilter(false);
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          Bỏ chọn tất cả
+                        </button>
+                      </div>
+                      {uniqueProducts.map(product => {
+                        const isChecked = filterProduct.includes(product);
+                        return (
+                          <label
+                            key={product}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterProduct([...filterProduct, product]);
+                                } else {
+                                  setFilterProduct(filterProduct.filter(p => p !== product));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{product}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {showProductFilter && (
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowProductFilter(false)}
+                />
+              )}
             </div>
 
-            {/* Status Filter */}
-            <div className="min-w-[150px]">
+            {/* Status Filter - Multi-select với checkbox */}
+            <div className="min-w-[200px] relative">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái</label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={filterStatus[0] || ''}
-                onChange={(e) => setFilterStatus(e.target.value ? [e.target.value] : [])}
-              >
-                <option value="">Tất cả</option>
-                {uniqueStatuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowStatusFilter(!showStatusFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterStatus.length === 0 
+                      ? 'Tất cả' 
+                      : filterStatus.length === 1 
+                        ? filterStatus[0] 
+                        : `Đã chọn ${filterStatus.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+                
+                {showStatusFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn trạng thái:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterStatus([]);
+                            setShowStatusFilter(false);
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          Bỏ chọn tất cả
+                        </button>
+                      </div>
+                      {uniqueStatuses.map(status => {
+                        const isChecked = filterStatus.includes(status);
+                        return (
+                          <label
+                            key={status}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterStatus([...filterStatus, status]);
+                                } else {
+                                  setFilterStatus(filterStatus.filter(s => s !== status));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{status}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {showStatusFilter && (
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowStatusFilter(false)}
+                />
+              )}
             </div>
 
-            {/* Check Result Filter */}
-            <div className="min-w-[150px]">
+            {/* Check Result Filter - Multi-select với checkbox */}
+            <div className="min-w-[200px] relative">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Kết quả Check</label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={filterCheckResult[0] || ''}
-                onChange={(e) => setFilterCheckResult(e.target.value ? [e.target.value] : [])}
-              >
-                <option value="">Tất cả</option>
-                {uniqueCheckResults.map(checkResult => (
-                  <option key={checkResult} value={checkResult}>{checkResult}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowCheckResultFilter(!showCheckResultFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterCheckResult.length === 0 
+                      ? 'Tất cả' 
+                      : filterCheckResult.length === 1 
+                        ? filterCheckResult[0] 
+                        : `Đã chọn ${filterCheckResult.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+                
+                {showCheckResultFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn kết quả check:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterCheckResult([]);
+                            setShowCheckResultFilter(false);
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          Bỏ chọn tất cả
+                        </button>
+                      </div>
+                      {uniqueCheckResults.map(checkResult => {
+                        const isChecked = filterCheckResult.includes(checkResult);
+                        return (
+                          <label
+                            key={checkResult}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterCheckResult([...filterCheckResult, checkResult]);
+                                } else {
+                                  setFilterCheckResult(filterCheckResult.filter(c => c !== checkResult));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{checkResult}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {showCheckResultFilter && (
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowCheckResultFilter(false)}
+                />
+              )}
             </div>
 
 
@@ -1361,15 +1755,17 @@ function DanhSachDon() {
                     </th>
 
                   ))}
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Hành động
-                  </th>
+                  {isAdmin && (
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Hành động
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={displayColumns.length + (isAdmin ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
                       <div className="flex items-center justify-center gap-2">
                         <div className="animate-spin h-5 w-5 border-2 border-[#F37021] border-t-transparent rounded-full"></div>
                         Đang tải dữ liệu...
@@ -1378,7 +1774,7 @@ function DanhSachDon() {
                   </tr>
                 ) : paginatedData.length === 0 ? (
                   <tr>
-                    <td colSpan={displayColumns.length} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={displayColumns.length + (isAdmin ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
                       Không có dữ liệu phù hợp
                     </td>
                   </tr>
@@ -1418,17 +1814,46 @@ function DanhSachDon() {
                           </td>
                         );
                       })}
-                      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap text-center">
-                        {isAdmin && canDelete(permissionCode) && (
-                          <button
-                            onClick={() => handleDelete(row['Mã đơn hàng'], row._id)}
-                            className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-colors"
-                            title="Xóa đơn hàng"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </td>
+                      {isAdmin && (
+                        <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewHistory(row['Mã đơn hàng']);
+                              }}
+                              className="text-green-500 hover:text-green-700 p-1 rounded hover:bg-green-50 transition-colors"
+                              title="Xem lịch sử chỉnh sửa"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            {canEdit(permissionCode) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEdit(row['Mã đơn hàng']);
+                                }}
+                                className="text-blue-500 hover:text-blue-700 p-1 rounded hover:bg-blue-50 transition-colors"
+                                title="Chỉnh sửa đơn hàng"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            {isAdmin && canDelete(permissionCode) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(row['Mã đơn hàng'], row._id);
+                                }}
+                                className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition-colors"
+                                title="Xóa đơn hàng"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
 
                     </tr>
                   ))
@@ -1482,6 +1907,108 @@ function DanhSachDon() {
           </div>
         </div>
       </div>
+
+      {/* History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowHistoryModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Lịch sử chỉnh sửa đơn hàng</h2>
+                <p className="text-sm text-gray-500 mt-1">Mã đơn: <span className="font-mono font-bold text-blue-600">{historyOrderCode}</span></p>
+              </div>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingHistory ? (
+                <div className="text-center py-8 text-gray-500">
+                  <div className="animate-spin h-8 w-8 border-2 border-[#F37021] border-t-transparent rounded-full mx-auto mb-2"></div>
+                  Đang tải lịch sử...
+                </div>
+              ) : historyLogs.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>Chưa có lịch sử chỉnh sửa nào cho đơn hàng này.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {historyLogs.map((log, index) => {
+                    const changes = getHistoryChanges(log.old_data, log.new_data);
+                    if (changes.length === 0) return null;
+                    
+                    const changedAt = new Date(log.changed_at);
+                    const formattedDate = changedAt.toLocaleString('vi-VN', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    });
+                    
+                    return (
+                      <div key={log.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-300">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
+                              {log.changed_by ? log.changed_by.charAt(0).toUpperCase() : '?'}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-800">{log.changed_by || 'Unknown'}</p>
+                              <p className="text-xs text-gray-500">{formattedDate}</p>
+                            </div>
+                          </div>
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                            {changes.length} thay đổi
+                          </span>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          {changes.map((change, idx) => (
+                            <div key={idx} className="bg-white rounded p-3 border border-gray-200">
+                              <div className="font-medium text-sm text-gray-700 mb-1">{change.label}</div>
+                              <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div>
+                                  <span className="text-xs text-gray-500">Trước:</span>
+                                  <div className="bg-red-50 text-red-700 px-2 py-1 rounded mt-1">
+                                    {change.old === null || change.old === '' ? '(Trống)' : String(change.old)}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-xs text-gray-500">Sau:</span>
+                                  <div className="bg-green-50 text-green-700 px-2 py-1 rounded mt-1">
+                                    {change.new === null || change.new === '' ? '(Trống)' : String(change.new)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Column Settings Modal */}
       <ColumnSettingsModal
