@@ -120,7 +120,6 @@ function DonChiaCSKH() {
     'city': 'Thành phố',
     'state': 'Bang/Tỉnh',
     'country': 'Khu vực',
-    'area': 'Khu vực',
     'zipcode': 'Mã bưu điện',
     'product': 'Mặt hàng',
     'product_main': 'Mặt hàng chính',
@@ -519,7 +518,7 @@ function DonChiaCSKH() {
           "Add": item.customer_address,
           "City": item.city,
           "State": item.state,
-          "Khu vực": item.country || item.area,
+          "Khu vực": item.country,
           "Zipcode": item.zipcode,
           "Mặt hàng": item.product_main || item.product,
           "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
@@ -1108,7 +1107,7 @@ function DonChiaCSKH() {
           customer_name: editingOrder.customer_name,
           customer_phone: editingOrder.customer_phone,
           customer_address: editingOrder.customer_address,
-          area: editingOrder.area, // Khu vực
+          country: editingOrder.country || editingOrder["Khu vực"], // Khu vực
           note: editingOrder.note,
 
           // Extended fields
@@ -1694,8 +1693,8 @@ function DonChiaCSKH() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Khu vực</label>
                     <input
-                      name="area"
-                      value={editingOrder.area || ''}
+                      name="country"
+                      value={editingOrder.country || editingOrder["Khu vực"] || ''}
                       onChange={handleEditChange}
                       readOnly={isViewing}
                       disabled={isViewing}

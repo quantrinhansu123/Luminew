@@ -393,7 +393,15 @@ export default function NhapDonMoi({ isEdit = false }) {
                 'Họ_và_tên': name,
                 'Bộ_phận': 'Marketing'
             }));
-            setMktEmployees(mktList);
+            
+            // Thêm các tùy chọn đặc biệt không cần page
+            const specialMktOptions = [
+                { 'Họ_và_tên': 'MKT chưa nhập page', 'Bộ_phận': 'Marketing', 'isSpecial': true },
+                { 'Họ_và_tên': 'MKT LumiGlobal_HN', 'Bộ_phận': 'Marketing', 'isSpecial': true },
+                { 'Họ_và_tên': 'MKT LumiGlobal_HCM', 'Bộ_phận': 'Marketing', 'isSpecial': true }
+            ];
+            
+            setMktEmployees([...specialMktOptions, ...mktList]);
 
 
             // Auto-set defaults: If not selected, default to current user
@@ -875,9 +883,14 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     const handleSave = async () => {
         // Validation
+        // Kiểm tra xem MKT có phải là tùy chọn đặc biệt không (không cần page)
+        const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
+        const isSpecialMkt = selectedMkt && specialMktOptions.includes(selectedMkt);
+        
         // Validation - Only strict for new orders
-        if (!isEdit && (!formData["ten-kh"] || !formData["phone"] || !selectedPage)) {
-            alert("Vui lòng nhập tên, số điện thoại khách hàng và chọn Page!");
+        // Bỏ qua validation page nếu chọn MKT đặc biệt
+        if (!isEdit && (!formData["ten-kh"] || !formData["phone"] || (!selectedPage && !isSpecialMkt))) {
+            alert("Vui lòng nhập tên, số điện thoại khách hàng và chọn Page (hoặc chọn MKT đặc biệt)!");
             return;
         }
         
@@ -1327,17 +1340,110 @@ export default function NhapDonMoi({ isEdit = false }) {
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="nv-mkt">Nhân viên marketing</Label>
-                                                <Input
-                                                    id="nv-mkt"
-                                                    value={selectedMkt}
-                                                    readOnly
-                                                    className="bg-gray-100 cursor-not-allowed text-gray-700 font-medium"
-                                                    placeholder="Tự động theo Page..."
-                                                />
+                                                <Popover open={isMktOpen} onOpenChange={setIsMktOpen}>
+                                                    <div className="relative" ref={mktRef}>
+                                                        <PopoverAnchor asChild>
+                                                            <div className="relative">
+                                                                {(() => {
+                                                                    const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
+                                                                    const isSpecialMkt = selectedMkt && specialMktOptions.includes(selectedMkt);
+                                                                    // Nếu không phải tùy chọn đặc biệt, hiển thị read-only nhưng vẫn có thể click để chọn
+                                                                    if (!isSpecialMkt) {
+                                                                        return (
+                                                                            <Input
+                                                                                id="nv-mkt"
+                                                                                value={selectedMkt || ''}
+                                                                                readOnly
+                                                                                onClick={() => {
+                                                                                    if (mktRef.current) setMktPopoverWidth(mktRef.current.offsetWidth);
+                                                                                    setIsMktOpen(true);
+                                                                                }}
+                                                                                className="bg-gray-100 cursor-pointer text-gray-700 font-medium pr-8"
+                                                                                placeholder="Tự động theo Page (click để chọn tùy chọn đặc biệt)..."
+                                                                            />
+                                                                        );
+                                                                    }
+                                                                    // Nếu là tùy chọn đặc biệt, cho phép chỉnh sửa
+                                                                    return (
+                                                                        <Input
+                                                                            id="nv-mkt"
+                                                                            placeholder="Chọn nhân viên MKT đặc biệt..."
+                                                                            value={selectedMkt}
+                                                                            onChange={(e) => {
+                                                                                setSelectedMkt(e.target.value);
+                                                                                setMktSearch(e.target.value);
+                                                                                setIsMktOpen(true);
+                                                                            }}
+                                                                            onFocus={() => {
+                                                                                if (mktRef.current) setMktPopoverWidth(mktRef.current.offsetWidth);
+                                                                            }}
+                                                                            onClick={() => {
+                                                                                if (mktRef.current) setMktPopoverWidth(mktRef.current.offsetWidth);
+                                                                                setIsMktOpen(true);
+                                                                            }}
+                                                                            className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
+                                                                        />
+                                                                    );
+                                                                })()}
+                                                                <ChevronDown className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none" />
+                                                            </div>
+                                                        </PopoverAnchor>
+                                                        {isMktOpen && (
+                                                            <PopoverContent
+                                                                className="p-0 bg-white"
+                                                                align="start"
+                                                                style={{ width: mktPopoverWidth }}
+                                                                onOpenAutoFocus={(e) => e.preventDefault()}
+                                                            >
+                                                                <div className="max-h-[300px] overflow-y-auto p-1">
+                                                                    {filteredMktEmployees.length > 0 ? (
+                                                                        filteredMktEmployees.map((e, idx) => {
+                                                                            const empName = e['Họ_và_tên'] || e['Họ và tên'] || `MKT ${idx}`;
+                                                                            const isSelected = selectedMkt === empName;
+                                                                            const isSpecial = e.isSpecial || false;
+                                                                            // Chỉ hiển thị các tùy chọn đặc biệt
+                                                                            if (!isSpecial) return null;
+                                                                            return (
+                                                                                <div
+                                                                                    key={idx}
+                                                                                    className={cn(
+                                                                                        "flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-gray-100",
+                                                                                        isSelected && "bg-gray-100 font-medium",
+                                                                                        isSpecial && "bg-blue-50 font-semibold"
+                                                                                    )}
+                                                                                    onClick={() => {
+                                                                                        setSelectedMkt(empName);
+                                                                                        setMktSearch(empName);
+                                                                                        setIsMktOpen(false);
+                                                                                    }}
+                                                                                >
+                                                                                    <Check className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
+                                                                                    <span className="truncate">{empName}</span>
+                                                                                    {isSpecial && <span className="ml-2 text-xs text-blue-600">(Không cần page)</span>}
+                                                                                </div>
+                                                                            );
+                                                                        }).filter(Boolean)
+                                                                    ) : (
+                                                                        <div className="p-2 text-sm text-gray-500">
+                                                                            Không tìm thấy kết quả.
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </PopoverContent>
+                                                        )}
+                                                    </div>
+                                                </Popover>
                                             </div>
                                             <div className="space-y-2">
                                                 <div className="flex items-center justify-between">
-                                                    <Label htmlFor="ten-page">Tên page*</Label>
+                                                    <Label htmlFor="ten-page">
+                                                        Tên page
+                                                        {(() => {
+                                                            const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
+                                                            const isSpecialMkt = selectedMkt && specialMktOptions.includes(selectedMkt);
+                                                            return !isSpecialMkt ? '*' : '';
+                                                        })()}
+                                                    </Label>
                                                     <button onClick={loadPageData} disabled={loadingPages} className="text-[10px] text-blue-600 flex items-center gap-1 hover:underline">
                                                         <RefreshCcw className={cn("w-3 h-3", loadingPages && "animate-spin")} /> Làm mới
                                                     </button>
@@ -1368,8 +1474,27 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                     const mktStaff = matchedPage.mkt_staff || matchedPage.Mkt_staff || "";
                                                                                     if (mktStaff) {
                                                                                         console.log("✅ Auto-fill MKT từ page:", mktStaff);
-                                                                                        setSelectedMkt(String(mktStaff).trim());
+                                                                                        // Chỉ tự động điền nếu chưa chọn tùy chọn đặc biệt
+                                                                                        const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
+                                                                                        const currentIsSpecial = selectedMkt && specialMktOptions.includes(selectedMkt);
+                                                                                        if (!currentIsSpecial) {
+                                                                                            setSelectedMkt(String(mktStaff).trim());
+                                                                                        }
                                                                                     }
+                                                                                } else {
+                                                                                    // Nếu không tìm thấy page, xóa MKT (trừ khi đã chọn tùy chọn đặc biệt)
+                                                                                    const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
+                                                                                    const currentIsSpecial = selectedMkt && specialMktOptions.includes(selectedMkt);
+                                                                                    if (!currentIsSpecial) {
+                                                                                        setSelectedMkt("");
+                                                                                    }
+                                                                                }
+                                                                            } else if (!inputValue) {
+                                                                                // Nếu xóa page, xóa MKT (trừ khi đã chọn tùy chọn đặc biệt)
+                                                                                const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
+                                                                                const currentIsSpecial = selectedMkt && specialMktOptions.includes(selectedMkt);
+                                                                                if (!currentIsSpecial) {
+                                                                                    setSelectedMkt("");
                                                                                 }
                                                                             }
                                                                         } catch (error) {
@@ -1408,10 +1533,14 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                 <div key={idx} className={cn("flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-gray-100", isSelected && "bg-gray-100 font-medium")} onClick={() => {
                                                                                     console.log("DEBUG: Selecting page:", p);
                                                                                     setSelectedPage(pageName);
-                                                                                    // Always update MKT: Set to staff name if exists, else clear it
-                                                                                    const mktStaff = p.mkt_staff || p.Mkt_staff || "";
-                                                                                    console.log("DEBUG: Setting MKT Staff to:", mktStaff);
-                                                                                    setSelectedMkt(mktStaff.toString().trim());
+                                                                                    // Tự động điền MKT từ page (trừ khi đã chọn tùy chọn đặc biệt)
+                                                                                    const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
+                                                                                    const currentIsSpecial = selectedMkt && specialMktOptions.includes(selectedMkt);
+                                                                                    if (!currentIsSpecial) {
+                                                                                        const mktStaff = p.mkt_staff || p.Mkt_staff || "";
+                                                                                        console.log("DEBUG: Setting MKT Staff to:", mktStaff);
+                                                                                        setSelectedMkt(mktStaff.toString().trim());
+                                                                                    }
                                                                                     setIsPageOpen(false);
                                                                                     setPageSearch("");
                                                                                 }}>

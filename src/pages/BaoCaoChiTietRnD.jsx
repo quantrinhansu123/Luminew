@@ -115,7 +115,7 @@ function BaoCaoChiTietRnD() {
         "Add": item.customer_address,
         "City": item.city,
         "State": item.state,
-        "Khu vực": item.country || item.area,
+        "Khu vực": item.country,
         "Zipcode": item.zipcode,
         "Mặt hàng": item.product_main || item.product,
         "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,

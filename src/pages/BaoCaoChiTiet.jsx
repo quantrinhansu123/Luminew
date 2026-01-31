@@ -204,7 +204,7 @@ function BaoCaoChiTiet() {
         "Add": item.customer_address,
         "City": item.city,
         "State": item.state,
-        "Khu vực": item.country || item.area, // Fallback to 'area' from new form
+        "Khu vực": item.country, // Lấy từ country
         "Zipcode": item.zipcode,
         "Mặt hàng": item.product_main || item.product,
         "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
@@ -415,7 +415,7 @@ function BaoCaoChiTiet() {
                     customer_address: getValue(item, ['Add', 'Địa chỉ', 'Dia chi', 'Address']) || undefined,
                     city: getValue(item, ['City', 'Tỉnh/Thành']) || undefined,
                     state: getValue(item, ['State', 'Quận/Huyện']) || undefined,
-                    area: getValue(item, ['Khu vực', 'Area', 'Khu vuc']) || undefined,
+                    country: getValue(item, ['Khu vực', 'Country', 'Khu vuc']) || undefined,
                     zipcode: getValue(item, ['Zipcode', 'Mã bưu điện']) || undefined,
                     product: getValue(item, ['Mặt hàng', 'Sản phẩm', 'Product', 'Mat hang']) || undefined,
                     total_amount_vnd: parseOrUndefined(getValue(item, ['Tổng tiền VNĐ', 'Tong tien VND', 'Total Amount'])),

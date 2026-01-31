@@ -201,9 +201,9 @@ export default function DanhSachBaoCaoTayMKT() {
                 query = query.eq('product', reportProduct);
             }
 
-            // Filter by market (country or area)
+            // Filter by market (country)
             if (reportMarket) {
-                query = query.or(`country.ilike.%${reportMarket}%,area.ilike.%${reportMarket}%`);
+                query = query.ilike('country', `%${reportMarket}%`);
             }
 
             const { data: orders, error } = await query;

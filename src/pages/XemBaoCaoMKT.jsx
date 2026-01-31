@@ -792,7 +792,7 @@ export default function XemBaoCaoMKT() {
       // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
       let query = supabase
         .from('orders')
-        .select('order_date, marketing_staff, product, country, area, total_amount_vnd', { count: 'exact' })
+        .select('order_date, marketing_staff, product, country, total_amount_vnd', { count: 'exact' })
         .gte('order_date', normalizedStartDate)
         .lte('order_date', normalizedEndDate);
 
@@ -823,7 +823,7 @@ export default function XemBaoCaoMKT() {
           order_date: sampleOrder.order_date,
           product: sampleOrder.product,
           country: sampleOrder.country,
-          area: sampleOrder.area,
+          country: sampleOrder.country,
           total_amount_vnd: sampleOrder.total_amount_vnd
         });
       }
@@ -840,7 +840,7 @@ export default function XemBaoCaoMKT() {
         const orderMarketingName = normalizeStr(order.marketing_staff);
         const orderDateStr = normalizeDate(order.order_date);
         const orderProduct = normalizeStr(order.product || '');
-        const orderMarket = normalizeStr(order.country || order.area || '');
+        const orderMarket = normalizeStr(order.country || '');
         const key = `${orderMarketingName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
         
         if (!ordersByMarketingDateProductMarket.has(key)) {

@@ -1,5 +1,5 @@
-import React from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { X, Search } from 'lucide-react';
 
 function ColumnSettingsModal({ 
   isOpen, 
@@ -18,13 +18,36 @@ function ColumnSettingsModal({
   // Hàm để chuyển đổi tên cột sang tên hiển thị
   getDisplayColumnName = null
 }) {
-  if (!isOpen) return null;
+  const [searchText, setSearchText] = useState('');
+
+  // Reset search text when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchText('');
+    }
+  }, [isOpen]);
 
   // Lọc các cột để hiển thị trong modal (loại bỏ hiddenColumns)
   const visibleColumnsInModal = allColumns.filter(col => !hiddenColumns.includes(col));
   
+  // Filter columns based on search text
+  const filteredColumns = useMemo(() => {
+    if (!searchText.trim()) return visibleColumnsInModal;
+    
+    const searchLower = searchText.toLowerCase().trim();
+    return visibleColumnsInModal.filter(column => {
+      const displayName = getDisplayColumnName 
+        ? getDisplayColumnName(column)
+        : (columnLabelMap[column] || column);
+      return displayName.toLowerCase().includes(searchLower) || 
+             column.toLowerCase().includes(searchLower);
+    });
+  }, [visibleColumnsInModal, searchText, getDisplayColumnName, columnLabelMap]);
+  
   // Đếm số cột đã chọn
   const selectedCount = Object.values(visibleColumns).filter(v => v === true).length;
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
@@ -42,6 +65,34 @@ function ColumnSettingsModal({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6">
+          {/* Search Bar */}
+          <div className="mb-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Tìm kiếm cột..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+              />
+              {searchText && (
+                <button
+                  onClick={() => setSearchText('')}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  title="Xóa"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {searchText && (
+              <p className="text-xs text-gray-500 mt-1">
+                Tìm thấy {filteredColumns.length} / {visibleColumnsInModal.length} cột
+              </p>
+            )}
+          </div>
+
           {/* Action Buttons */}
           <div className="flex gap-2 mb-4 pb-4 border-b border-gray-200">
             <button
@@ -71,33 +122,39 @@ function ColumnSettingsModal({
             <p className="text-sm font-semibold text-gray-700 mb-3">
               Chọn các cột để hiển thị trong bảng ({selectedCount} / {visibleColumnsInModal.length} đã chọn):
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {visibleColumnsInModal.map((column) => {
-                const displayName = getDisplayColumnName 
-                  ? getDisplayColumnName(column)
-                  : (columnLabelMap[column] || column);
-                
-                return (
-                  <label
-                    key={column}
-                    className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-200"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns[column] === true}
-                      onChange={() => onToggleColumn(column)}
-                      className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021] focus:ring-2"
-                    />
-                    <span className="text-sm text-gray-700 flex-1">
-                      {displayName}
-                    </span>
-                    {defaultColumns.includes(column) && (
-                      <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Mặc định</span>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
+            {filteredColumns.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                <p>Không tìm thấy cột nào phù hợp với "{searchText}"</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {filteredColumns.map((column) => {
+                  const displayName = getDisplayColumnName 
+                    ? getDisplayColumnName(column)
+                    : (columnLabelMap[column] || column);
+                  
+                  return (
+                    <label
+                      key={column}
+                      className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-200"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[column] === true}
+                        onChange={() => onToggleColumn(column)}
+                        className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021] focus:ring-2"
+                      />
+                      <span className="text-sm text-gray-700 flex-1">
+                        {displayName}
+                      </span>
+                      {defaultColumns.includes(column) && (
+                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Mặc định</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 

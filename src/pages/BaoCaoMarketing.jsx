@@ -412,10 +412,9 @@ export default function BaoCaoMarketing() {
         query = query.ilike('product', `%${reportProduct.trim()}%`);
       }
 
-      // Filter by market (country or area)
+      // Filter by market (country)
       if (reportMarket) {
-        // Use or() to match either country or area
-        query = query.or(`country.ilike.%${reportMarket}%,area.ilike.%${reportMarket}%`);
+        query = query.ilike('country', `%${reportMarket}%`);
       }
 
       console.log('🔍 Query parameters:', {
@@ -429,7 +428,7 @@ export default function BaoCaoMarketing() {
       // First, let's check if there are any orders on this date at all
       const { data: ordersByDate, error: dateError } = await supabase
         .from('orders')
-        .select('id, order_date, marketing_staff, product, country, area, shift')
+        .select('id, order_date, marketing_staff, product, country, shift')
         .eq('order_date', reportDate)
         .limit(10);
 
@@ -440,7 +439,6 @@ export default function BaoCaoMarketing() {
           marketing_staff: o.marketing_staff,
           product: o.product,
           country: o.country,
-          area: o.area,
           shift: o.shift
         })));
       }
@@ -474,7 +472,7 @@ export default function BaoCaoMarketing() {
           marketing_staff: orders[0].marketing_staff,
           product: orders[0].product,
           country: orders[0].country,
-          area: orders[0].area,
+          country: orders[0].country,
           shift: orders[0].shift,
           total_amount_vnd: orders[0].total_amount_vnd,
           total_vnd: orders[0].total_vnd,
@@ -488,7 +486,7 @@ export default function BaoCaoMarketing() {
         // Check orders by date only
         const { data: ordersDateOnly } = await supabase
           .from('orders')
-          .select('id, marketing_staff, product, country, area, shift')
+          .select('id, marketing_staff, product, country, shift')
           .eq('order_date', reportDate)
           .limit(5);
         console.log(`  📅 Orders on date ${reportDate}: ${ordersDateOnly?.length || 0}`, ordersDateOnly);
@@ -497,7 +495,7 @@ export default function BaoCaoMarketing() {
         if (reportName) {
           const { data: ordersDateName } = await supabase
             .from('orders')
-            .select('id, marketing_staff, product, country, area, shift')
+            .select('id, marketing_staff, product, country, shift')
             .eq('order_date', reportDate)
             .ilike('marketing_staff', `%${reportName.trim()}%`)
             .limit(5);
@@ -508,7 +506,7 @@ export default function BaoCaoMarketing() {
         if (reportName && reportProduct) {
           const { data: ordersDateNameProduct } = await supabase
             .from('orders')
-            .select('id, marketing_staff, product, country, area, shift')
+            .select('id, marketing_staff, product, country, shift')
             .eq('order_date', reportDate)
             .ilike('marketing_staff', `%${reportName.trim()}%`)
             .eq('product', reportProduct)
