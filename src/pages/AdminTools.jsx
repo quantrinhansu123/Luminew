@@ -75,6 +75,7 @@ const AdminTools = () => {
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
     const [cskhStaff, setCskhStaff] = useState([]);
+    const [clearCSKHLoading, setClearCSKHLoading] = useState(false);
 
     // --- AUTO FILL TEAM STATE ---
     const [isFillingTeam, setIsFillingTeam] = useState(false);
