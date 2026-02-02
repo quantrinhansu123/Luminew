@@ -78,7 +78,7 @@ const DatePicker = ({ value, onChange, className = "" }) => {
         const day = String(date.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
     };
-    
+
     const handleDateChange = (e) => {
         const dateString = e.target.value; // Format: YYYY-MM-DD
         if (!dateString) {
@@ -91,7 +91,7 @@ const DatePicker = ({ value, onChange, className = "" }) => {
         const newDate = new Date(year, month - 1, day); // month is 0-indexed
         onChange(newDate);
     };
-    
+
     return (
         <input
             type="date"
@@ -243,7 +243,7 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     // --- DATA LISTS ---
     const AREA_LIST = ["US", "Nhật Bản", "Hàn Quốc", "Canada", "Úc", "Anh", "CĐ Nhật Bản"];
-    
+
     // Sản phẩm sẽ được load từ database system_settings (type <> 'test')
     const [PRODUCT_LIST, setPRODUCT_LIST] = useState([
         "Glutathione Collagen", "Bakuchiol Retinol", "Nám DR Hancy", "Kem Body",
@@ -274,7 +274,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                         .filter(item => item.type !== 'test')
                         .map(item => item.name)
                         .filter(Boolean);
-                    
+
                     const testProducts = productsData
                         .filter(item => item.type === 'test')
                         .map(item => item.name)
@@ -284,7 +284,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                         setPRODUCT_LIST(normalProducts);
                         console.log(`✅ Loaded ${normalProducts.length} products from system_settings (excluding test)`);
                     }
-                    
+
                     if (testProducts.length > 0) {
                         setRdProducts(testProducts);
                         console.log(`✅ Loaded ${testProducts.length} R&D products from system_settings`);
@@ -393,14 +393,14 @@ export default function NhapDonMoi({ isEdit = false }) {
                 'Họ_và_tên': name,
                 'Bộ_phận': 'Marketing'
             }));
-            
+
             // Thêm các tùy chọn đặc biệt không cần page
             const specialMktOptions = [
                 { 'Họ_và_tên': 'MKT chưa nhập page', 'Bộ_phận': 'Marketing', 'isSpecial': true },
                 { 'Họ_và_tên': 'MKT LumiGlobal_HN', 'Bộ_phận': 'Marketing', 'isSpecial': true },
                 { 'Họ_và_tên': 'MKT LumiGlobal_HCM', 'Bộ_phận': 'Marketing', 'isSpecial': true }
             ];
-            
+
             setMktEmployees([...specialMktOptions, ...mktList]);
 
 
@@ -507,7 +507,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             const hours = String(date.getHours()).padStart(2, '0');
             const minutes = String(date.getMinutes()).padStart(2, '0');
             const dateTimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
-            
+
             setFormData(prev => {
                 // Only update if different to avoid infinite loop
                 if (prev["created_at"] !== dateTimeString) {
@@ -627,11 +627,11 @@ export default function NhapDonMoi({ isEdit = false }) {
     // --- Tự động điền team (chi nhánh) theo nhân viên sale từ bảng users ---
     useEffect(() => {
         if (!selectedSale) return;
-        
+
         const fetchBranchFromUsers = async () => {
             try {
                 const saleName = selectedSale.trim();
-                
+
                 // Query từ bảng users theo tên (name) để lấy branch
                 // Thử match chính xác trước, nếu không có thì thử ilike
                 let { data: userData, error } = await supabase
@@ -639,7 +639,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                     .select('branch, name')
                     .eq('name', saleName)
                     .limit(1);
-                
+
                 // Nếu không tìm thấy với match chính xác, thử ilike
                 if ((!userData || userData.length === 0) && error === null) {
                     const { data: userDataLike, error: errorLike } = await supabase
@@ -647,18 +647,18 @@ export default function NhapDonMoi({ isEdit = false }) {
                         .select('branch, name')
                         .ilike('name', `%${saleName}%`)
                         .limit(1);
-                    
+
                     if (!errorLike && userDataLike && userDataLike.length > 0) {
                         userData = userDataLike;
                         error = null;
                     }
                 }
-                
+
                 if (error) {
                     console.error('❌ Lỗi khi lấy branch từ users:', error);
                     return;
                 }
-                
+
                 if (userData && userData.length > 0) {
                     const branch = userData[0].branch;
                     if (branch) {
@@ -678,7 +678,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 console.error('❌ Lỗi khi fetch branch từ users:', err);
             }
         };
-        
+
         fetchBranchFromUsers();
     }, [selectedSale]);
 
@@ -798,7 +798,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                     orderDateTimeString = new Date().toISOString().slice(0, 16);
                 }
             }
-            
+
             setFormData({
                 "ma-don": data.order_code,
                 "created_at": orderDateTimeString,
@@ -862,11 +862,11 @@ export default function NhapDonMoi({ isEdit = false }) {
     // Hàm tính ca từ thời gian lên đơn
     const calculateShiftFromTime = (dateTimeString) => {
         if (!dateTimeString) return null;
-        
+
         try {
             const date = new Date(dateTimeString);
             const hour = date.getHours();
-            
+
             // Logic phân ca:
             // Giữa ca: 8h - 17h59
             // Hết ca: 18h trở đi hoặc trước 8h (ca đêm)
@@ -886,14 +886,14 @@ export default function NhapDonMoi({ isEdit = false }) {
         // Kiểm tra xem MKT có phải là tùy chọn đặc biệt không (không cần page)
         const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
         const isSpecialMkt = selectedMkt && specialMktOptions.includes(selectedMkt);
-        
+
         // Validation - Only strict for new orders
         // Bỏ qua validation page nếu chọn MKT đặc biệt
         if (!isEdit && (!formData["ten-kh"] || !formData["phone"] || (!selectedPage && !isSpecialMkt))) {
             alert("Vui lòng nhập tên, số điện thoại khách hàng và chọn Page (hoặc chọn MKT đặc biệt)!");
             return;
         }
-        
+
         // Validation - Khu vực bắt buộc cho cả tạo mới và edit
         if (!formData.country || formData.country.trim() === "") {
             alert("⚠️ Vui lòng chọn Khu vực! Đây là trường bắt buộc.");
@@ -1016,7 +1016,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 page_name: selectedPage,
                 marketing_staff: selectedMkt,
                 sale_staff: selectedSale,
-                
+
                 // Tự động điền ca từ thời gian lên đơn
                 shift: calculatedShift || (isEdit ? undefined : "Giữa ca"), // Chỉ điền khi tạo mới hoặc có thể tính được
 
@@ -1030,7 +1030,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // FORCE R&D TAG if user is R&D
                 team: hasRndPermission ? "RD" : (formData.team || ""),
 
-                note: `${formData["note_sale"] || ""} \nRef: ${hasRndPermission ? "RD" : (formData.team || "")}`,
+                note: formData["note_sale"] || "",
             };
 
             // Remove undefined keys và null values (giữ lại empty string và 0)
@@ -1067,39 +1067,39 @@ export default function NhapDonMoi({ isEdit = false }) {
                 if (!orderCode) {
                     throw new Error("Không tìm thấy mã đơn hàng để cập nhật!");
                 }
-                
+
                 // QUAN TRỌNG: Kiểm tra đơn hàng có tồn tại không trước khi update
                 const { data: existingOrder, error: checkError } = await supabase
                     .from('orders')
                     .select('id, order_code')
                     .eq('order_code', orderCode)
                     .maybeSingle();
-                
+
                 if (checkError) {
                     console.error("❌ Error checking existing order:", checkError);
                     throw new Error(`Lỗi khi kiểm tra đơn hàng: ${checkError.message}`);
                 }
-                
+
                 if (!existingOrder) {
                     throw new Error(`⚠️ Không tìm thấy đơn hàng với mã: ${orderCode}. Đơn hàng có thể đã bị xóa hoặc mã đơn hàng không đúng.`);
                 }
-                
+
                 console.log(`🔄 Updating order with code: ${orderCode} (ID: ${existingOrder.id})`);
                 console.log(`📦 Payload keys:`, Object.keys(orderPayload));
                 console.log(`📦 Payload (first 5 keys):`, Object.fromEntries(Object.entries(orderPayload).slice(0, 5)));
-                
+
                 // Đảm bảo KHÔNG có order_code trong payload khi edit
                 const updatePayload = { ...orderPayload };
                 delete updatePayload.order_code; // Xóa order_code khỏi payload để tránh conflict
-                
+
                 // Update bằng order_code
                 result = await query
                     .update(updatePayload)
                     .eq('order_code', orderCode)
                     .select();
-                
-                console.log("📊 Update result:", { 
-                    hasData: !!result.data, 
+
+                console.log("📊 Update result:", {
+                    hasData: !!result.data,
                     dataLength: result.data?.length,
                     error: result.error,
                     updatedOrderCode: result.data?.[0]?.order_code
@@ -1120,7 +1120,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                     hint: error.hint,
                     code: error.code
                 });
-                
+
                 // Hiển thị lỗi chi tiết hơn
                 let errorMsg = `❌ Lỗi ${isEdit ? 'cập nhật' : 'lưu'} đơn hàng: ${error.message}`;
                 if (error.details) {
@@ -1132,7 +1132,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 if (error.code === '42501') {
                     errorMsg += `\n\n⚠️ Lỗi quyền truy cập (RLS Policy). Vui lòng kiểm tra quyền của bạn.`;
                 }
-                
+
                 throw new Error(errorMsg);
             }
 
@@ -1142,7 +1142,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 console.warn("   1. RLS Policy doesn't allow SELECT after UPDATE");
                 console.warn("   2. No rows matched the update condition");
                 console.warn("   3. Update succeeded but SELECT was blocked");
-                
+
                 // Kiểm tra lại xem order có tồn tại không
                 if (isEdit) {
                     const { data: checkData, error: checkError } = await supabase
@@ -1150,7 +1150,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                         .select('order_code, order_date')
                         .eq('order_code', orderCode)
                         .maybeSingle();
-                    
+
                     if (checkError) {
                         console.error("❌ Error checking updated order:", checkError);
                         alert(`⚠️ Cập nhật có thể đã thành công nhưng không thể xác nhận. Lỗi: ${checkError.message}`);
@@ -1460,7 +1460,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                             const inputValue = e.target.value.trim();
                                                                             setSelectedPage(inputValue);
                                                                             setIsPageOpen(true);
-                                                                            
+
                                                                             // Tự động điền MKT khi nhập/dán tên page đúng
                                                                             if (inputValue && Array.isArray(pages) && pages.length > 0) {
                                                                                 // Tìm page có page_name khớp chính xác (case-insensitive)
@@ -1469,7 +1469,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                     const pageName = (p.page_name || "").trim();
                                                                                     return pageName.toLowerCase() === inputValue.toLowerCase();
                                                                                 });
-                                                                                
+
                                                                                 if (matchedPage) {
                                                                                     const mktStaff = matchedPage.mkt_staff || matchedPage.Mkt_staff || "";
                                                                                     if (mktStaff) {
@@ -1570,10 +1570,10 @@ export default function NhapDonMoi({ isEdit = false }) {
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="country">Khu vực*</Label>
-                                                <select 
-                                                    id="country" 
-                                                    value={formData.country} 
-                                                    onChange={handleInputChange} 
+                                                <select
+                                                    id="country"
+                                                    value={formData.country}
+                                                    onChange={handleInputChange}
                                                     required
                                                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
                                                 >
@@ -1852,8 +1852,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 </CardHeader>
                                                 <CardContent className="space-y-4">
                                                     <div className="space-y-1">
-                                                        <Label htmlFor="ghi-chu" className="text-xs">Ghi chú</Label>
-                                                        <Textarea id="ghi-chu" value={formData["ghi-chu"]} onChange={handleInputChange} placeholder="Nhập ghi chú..." className="h-20" />
+                                                        <Label htmlFor="note_sale" className="text-xs">Ghi chú</Label>
+                                                        <Textarea id="note_sale" value={formData["note_sale"]} onChange={handleInputChange} placeholder="Nhập ghi chú..." className="h-20" />
                                                     </div>
                                                     <div className="space-y-1">
                                                         <Label htmlFor="ph-tc" className="text-xs text-green-600">Phản hồi tích cực</Label>
