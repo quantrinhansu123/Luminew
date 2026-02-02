@@ -431,7 +431,7 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
 
       console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
 
-      res.json({
+      return res.json({
         success: true,
         data: data || [],
         count: data?.length || 0
@@ -446,14 +446,6 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
         data: []
       });
     }
-
-    console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
-
-    res.json({
-      success: true,
-      data: data || [],
-      count: data?.length || 0
-    });
 
   } catch (error) {
     console.error('❌ Fetch detail_reports error:', error);

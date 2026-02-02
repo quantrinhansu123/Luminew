@@ -279,6 +279,9 @@ export default function XemBaoCaoMKT() {
       
       console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`);
       
+      // Enrich Team từ bảng users/human_resources nếu thiếu
+      await enrichTeamFromUsers(dateFilteredReports);
+      
       // Enrich với số đơn TT từ bảng orders
       await enrichWithTotalOrdersFromOrders(dateFilteredReports, startDate, endDate);
       
@@ -733,6 +736,102 @@ export default function XemBaoCaoMKT() {
           isChecked ? [...prev, value] : prev.filter(m => m !== value)
         );
       }
+    }
+  };
+
+  // Enrich Team từ bảng users/human_resources nếu thiếu trong detail_reports
+  const enrichTeamFromUsers = async (reports) => {
+    try {
+      // Helper function để normalize string
+      const normalizeStr = (str) => {
+        if (!str) return '';
+        return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+      };
+
+      // Lấy danh sách Email và Tên từ reports để tìm Team
+      const emailsFromReports = [...new Set(reports
+        .map(item => item['Email'])
+        .filter(email => email && email.trim().length > 0)
+      )];
+      
+      const namesFromReports = [...new Set(reports
+        .map(item => item['Tên'])
+        .filter(name => name && name.trim().length > 0)
+      )];
+
+      // Tạo map từ users table (ưu tiên email)
+      const teamMapByEmail = new Map();
+      const teamMapByName = new Map();
+
+      if (emailsFromReports.length > 0) {
+        const { data: usersData, error: usersError } = await supabase
+          .from('users')
+          .select('email, name, team')
+          .in('email', emailsFromReports);
+
+        if (usersError) {
+          console.warn('⚠️ Error fetching users for Team enrichment:', usersError);
+        } else if (usersData) {
+          usersData.forEach(user => {
+            if (user.email && user.team) {
+              teamMapByEmail.set(normalizeStr(user.email), user.team);
+            }
+            if (user.name && user.team) {
+              teamMapByName.set(normalizeStr(user.name), user.team);
+            }
+          });
+        }
+      }
+
+      // Tạo map từ human_resources table (fallback)
+      if (namesFromReports.length > 0) {
+        const { data: hrData, error: hrError } = await supabase
+          .from('human_resources')
+          .select('"Họ Và Tên", email, "Team"')
+          .or(namesFromReports.map(name => `"Họ Và Tên".ilike.%${name}%`).join(','));
+
+        if (hrError) {
+          console.warn('⚠️ Error fetching human_resources for Team enrichment:', hrError);
+        } else if (hrData) {
+          hrData.forEach(hr => {
+            if (hr.email && hr['Team']) {
+              teamMapByEmail.set(normalizeStr(hr.email), hr['Team']);
+            }
+            if (hr['Họ Và Tên'] && hr['Team']) {
+              teamMapByName.set(normalizeStr(hr['Họ Và Tên']), hr['Team']);
+            }
+          });
+        }
+      }
+
+      // Enrich Team cho các reports thiếu Team
+      let enrichedCount = 0;
+      reports.forEach(report => {
+        if (!report['Team'] || report['Team'].trim() === '') {
+          const reportEmail = normalizeStr(report['Email'] || '');
+          const reportName = normalizeStr(report['Tên'] || '');
+          
+          // Ưu tiên tìm theo Email, sau đó theo Tên
+          const teamFromEmail = reportEmail ? teamMapByEmail.get(reportEmail) : null;
+          const teamFromName = reportName ? teamMapByName.get(reportName) : null;
+          
+          const foundTeam = teamFromEmail || teamFromName;
+          
+          if (foundTeam) {
+            report['Team'] = foundTeam;
+            enrichedCount++;
+            console.log(`✅ Enriched Team for "${report['Tên']}" (${report['Email'] || 'N/A'}): ${foundTeam}`);
+          } else {
+            console.warn(`⚠️ Could not find Team for "${report['Tên']}" (${report['Email'] || 'N/A'})`);
+          }
+        }
+      });
+
+      if (enrichedCount > 0) {
+        console.log(`✅ Enriched Team for ${enrichedCount} reports from users/human_resources`);
+      }
+    } catch (err) {
+      console.error('❌ Error enriching Team from users:', err);
     }
   };
 
