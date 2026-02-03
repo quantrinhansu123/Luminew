@@ -29,7 +29,9 @@ import {
   Image as ImageIcon,
   Upload,
   TrendingUp,
-  Menu
+  Menu,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import {
   BarChart,
@@ -2091,6 +2093,7 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
   const [selectedProjectForTransaction, setSelectedProjectForTransaction] = useState<Project | null>(null);
   const [allTransactions, setAllTransactions] = useState<ProjectTransaction[]>([]);
   const [loading, setLoading] = useState(false);
+  const [expandedChart, setExpandedChart] = useState<'cashFlow' | 'expectedCashFlow' | 'dailyComparison' | null>(null);
 
   // Load all transactions
   useEffect(() => {
@@ -2303,7 +2306,7 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
       }
     });
     
-    return Object.keys(grouped)
+    const sortedData = Object.keys(grouped)
       .sort((a, b) => {
         // Sort by date
         return new Date(a.split('/').reverse().join('-')).getTime() - new Date(b.split('/').reverse().join('-')).getTime();
@@ -2314,6 +2317,16 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
         chiDuKien: grouped[key].expense,
         soDuDuKien: grouped[key].balance
       }));
+    
+    // Tính số dư lũy kế (tổng các số dư ngày trước)
+    let cumulativeBalance = 0;
+    return sortedData.map(item => {
+      cumulativeBalance += item.soDuDuKien;
+      return {
+        ...item,
+        soDuDuKienLuyKe: cumulativeBalance
+      };
+    });
   }, [filteredTransactions, customDateStart, customDateEnd]);
 
   const handleAddTransaction = (project: Project) => {
@@ -2490,10 +2503,19 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
           {/* Area Chart - Cash Flow Over Time (Stacked like Age of Empires) */}
           {chartData.length > 0 && (
             <div className="bg-white rounded-xl border-2 border-slate-200 shadow-sm p-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <TrendingUp size={20} className="text-indigo-600" />
-                Dòng tiền theo thời gian
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <TrendingUp size={20} className="text-indigo-600" />
+                  Dòng tiền theo thời gian
+                </h3>
+                <button
+                  onClick={() => setExpandedChart('cashFlow')}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                  title="Mở rộng biểu đồ"
+                >
+                  <Maximize2 size={18} className="text-slate-600" />
+                </button>
+              </div>
               <ResponsiveContainer width="100%" height={300}>
                 <AreaChart data={chartData}>
                   <defs>
@@ -2563,24 +2585,37 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
           {/* Area Chart - Expected Cash Flow (Pending) */}
           {expectedChartData.length > 0 && (
             <div className="bg-white rounded-xl border-2 border-slate-200 shadow-sm p-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <TrendingUp size={20} className="text-amber-600" />
-                Dòng tiền dự kiến
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <TrendingUp size={20} className="text-amber-600" />
+                  Dòng tiền dự kiến
+                </h3>
+                <button
+                  onClick={() => setExpandedChart('expectedCashFlow')}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                  title="Mở rộng biểu đồ"
+                >
+                  <Maximize2 size={18} className="text-slate-600" />
+                </button>
+              </div>
               <ResponsiveContainer width="100%" height={300}>
                 <AreaChart data={expectedChartData}>
                   <defs>
                     <linearGradient id="colorThuDuKien" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
+                    </linearGradient>
+                    <linearGradient id="colorChiDuKien" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.6}/>
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0.1}/>
+                    </linearGradient>
+                    <linearGradient id="colorSoDuDuKien" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.6}/>
                       <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1}/>
                     </linearGradient>
-                    <linearGradient id="colorChiDuKien" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f97316" stopOpacity={0.6}/>
-                      <stop offset="95%" stopColor="#f97316" stopOpacity={0.1}/>
-                    </linearGradient>
-                    <linearGradient id="colorSoDuDuKien" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.6}/>
-                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.1}/>
+                    <linearGradient id="colorSoDuDuKienLuyKe" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.2}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -2605,7 +2640,7 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
                     type="monotone" 
                     dataKey="thuDuKien" 
                     stackId="1"
-                    stroke="#f59e0b" 
+                    stroke="#10b981" 
                     fill="url(#colorThuDuKien)"
                     strokeWidth={2}
                     strokeDasharray="5 5"
@@ -2615,7 +2650,7 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
                     type="monotone" 
                     dataKey="chiDuKien" 
                     stackId="1"
-                    stroke="#f97316" 
+                    stroke="#ef4444" 
                     fill="url(#colorChiDuKien)"
                     strokeWidth={2}
                     strokeDasharray="5 5"
@@ -2625,11 +2660,21 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
                     type="monotone" 
                     dataKey="soDuDuKien" 
                     stackId="2"
-                    stroke="#8b5cf6" 
+                    stroke="#f59e0b" 
                     fill="url(#colorSoDuDuKien)"
                     strokeWidth={2}
                     strokeDasharray="5 5"
                     name="Số dư dự kiến"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="soDuDuKienLuyKe" 
+                    stackId="3"
+                    stroke="#3b82f6" 
+                    fill="url(#colorSoDuDuKienLuyKe)"
+                    strokeWidth={3}
+                    strokeDasharray="3 3"
+                    name="Số dư dự kiến lũy kế"
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -2639,10 +2684,19 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
           {/* Bar Chart - Daily Comparison */}
           {dailyData.length > 0 && (
             <div className="bg-white rounded-xl border-2 border-slate-200 shadow-sm p-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <TrendingUp size={20} className="text-indigo-600" />
-                So sánh Thu/Chi theo ngày
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <TrendingUp size={20} className="text-indigo-600" />
+                  So sánh Thu/Chi theo ngày
+                </h3>
+                <button
+                  onClick={() => setExpandedChart('dailyComparison')}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                  title="Mở rộng biểu đồ"
+                >
+                  <Maximize2 size={18} className="text-slate-600" />
+                </button>
+              </div>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={dailyData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -2672,6 +2726,207 @@ const ThuChiView: React.FC<ThuChiViewProps> = ({ projects, employees, onTransact
               </ResponsiveContainer>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Fullscreen Chart Modal */}
+      {expandedChart && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full h-full max-w-[95vw] max-h-[95vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
+                <TrendingUp size={24} className="text-indigo-600" />
+                {expandedChart === 'cashFlow' && 'Dòng tiền theo thời gian'}
+                {expandedChart === 'expectedCashFlow' && 'Dòng tiền dự kiến'}
+                {expandedChart === 'dailyComparison' && 'So sánh Thu/Chi theo ngày'}
+              </h2>
+              <button
+                onClick={() => setExpandedChart(null)}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                title="Đóng"
+              >
+                <Minimize2 size={20} className="text-slate-600" />
+              </button>
+            </div>
+            <div className="flex-1 p-6 overflow-auto">
+              {expandedChart === 'cashFlow' && chartData.length > 0 && (
+                <ResponsiveContainer width="100%" height="100%" minHeight={600}>
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="colorThuFull" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
+                      </linearGradient>
+                      <linearGradient id="colorChiFull" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0.1}/>
+                      </linearGradient>
+                      <linearGradient id="colorSoDuFull" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0.1}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke="#64748b"
+                      fontSize={14}
+                      tick={{ fill: '#64748b' }}
+                    />
+                    <YAxis 
+                      stroke="#64748b"
+                      fontSize={14}
+                      tick={{ fill: '#64748b' }}
+                      tickFormatter={(value) => `${(value / 1000000).toFixed(1)}M`}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => `${formatCurrency(value)} VNĐ`}
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                    />
+                    <Legend />
+                    <Area 
+                      type="monotone" 
+                      dataKey="thu" 
+                      stackId="1"
+                      stroke="#10b981" 
+                      fill="url(#colorThuFull)"
+                      strokeWidth={2}
+                      name="Thu"
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="chi" 
+                      stackId="1"
+                      stroke="#ef4444" 
+                      fill="url(#colorChiFull)"
+                      strokeWidth={2}
+                      name="Chi"
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="soDu" 
+                      stackId="2"
+                      stroke="#6366f1" 
+                      fill="url(#colorSoDuFull)"
+                      strokeWidth={2}
+                      name="Số dư"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+              {expandedChart === 'expectedCashFlow' && expectedChartData.length > 0 && (
+                <ResponsiveContainer width="100%" height="100%" minHeight={600}>
+                  <AreaChart data={expectedChartData}>
+                    <defs>
+                      <linearGradient id="colorThuDuKienFull" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
+                      </linearGradient>
+                      <linearGradient id="colorChiDuKienFull" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.6}/>
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0.1}/>
+                      </linearGradient>
+                      <linearGradient id="colorSoDuDuKienFull" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.6}/>
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1}/>
+                      </linearGradient>
+                      <linearGradient id="colorSoDuDuKienLuyKeFull" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.2}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke="#64748b"
+                      fontSize={14}
+                      tick={{ fill: '#64748b' }}
+                    />
+                    <YAxis 
+                      stroke="#64748b"
+                      fontSize={14}
+                      tick={{ fill: '#64748b' }}
+                      tickFormatter={(value) => `${(value / 1000000).toFixed(1)}M`}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => `${formatCurrency(value)} VNĐ`}
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                    />
+                    <Legend />
+                    <Area 
+                      type="monotone" 
+                      dataKey="thuDuKien" 
+                      stackId="1"
+                      stroke="#10b981" 
+                      fill="url(#colorThuDuKienFull)"
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      name="Thu dự kiến"
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="chiDuKien" 
+                      stackId="1"
+                      stroke="#ef4444" 
+                      fill="url(#colorChiDuKienFull)"
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      name="Chi dự kiến"
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="soDuDuKien" 
+                      stackId="2"
+                      stroke="#f59e0b" 
+                      fill="url(#colorSoDuDuKienFull)"
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      name="Số dư dự kiến"
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="soDuDuKienLuyKe" 
+                      stackId="3"
+                      stroke="#3b82f6" 
+                      fill="url(#colorSoDuDuKienLuyKeFull)"
+                      strokeWidth={3}
+                      strokeDasharray="3 3"
+                      name="Số dư dự kiến lũy kế"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+              {expandedChart === 'dailyComparison' && dailyData.length > 0 && (
+                <ResponsiveContainer width="100%" height="100%" minHeight={600}>
+                  <BarChart data={dailyData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis 
+                      dataKey="ngay" 
+                      stroke="#64748b"
+                      fontSize={12}
+                      angle={-45}
+                      textAnchor="end"
+                      height={100}
+                      tick={{ fill: '#64748b' }}
+                    />
+                    <YAxis 
+                      stroke="#64748b"
+                      fontSize={14}
+                      tick={{ fill: '#64748b' }}
+                      tickFormatter={(value) => `${(value / 1000000).toFixed(1)}M`}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => `${formatCurrency(value)} VNĐ`}
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                    />
+                    <Legend />
+                    <Bar dataKey="thu" fill="#10b981" name="Thu" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="chi" fill="#ef4444" name="Chi" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
