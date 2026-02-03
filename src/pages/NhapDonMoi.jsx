@@ -624,11 +624,15 @@ export default function NhapDonMoi({ isEdit = false }) {
         return saleEmployees.filter(e => (e['Họ_và_tên'] || e['Họ và tên'] || "").toLowerCase().includes(saleSearch.toLowerCase()));
     }, [saleEmployees, saleSearch]);
 
+    // State to track if we are currently fetching team/branch info
+    const [isCheckingTeam, setIsCheckingTeam] = useState(false);
+
     // --- Tự động điền team (chi nhánh) theo nhân viên sale từ bảng users ---
     useEffect(() => {
         if (!selectedSale) return;
 
         const fetchBranchFromUsers = async () => {
+            setIsCheckingTeam(true);
             try {
                 const saleName = selectedSale.trim();
 
@@ -656,6 +660,7 @@ export default function NhapDonMoi({ isEdit = false }) {
 
                 if (error) {
                     console.error('❌ Lỗi khi lấy branch từ users:', error);
+                    // On error, DO NOT clear existing team to prevent data loss
                     return;
                 }
 
@@ -666,16 +671,18 @@ export default function NhapDonMoi({ isEdit = false }) {
                         console.log(`✅ Tự động điền Chi nhánh: "${branch}" cho nhân viên "${selectedSale}"`);
                     } else {
                         console.log(`⚠️ Không tìm thấy branch cho nhân viên "${selectedSale}"`);
-                        // Reset team nếu không tìm thấy
+                        // Reset team nếu tìm thấy user nhưng không có branch
                         setFormData((prev) => ({ ...prev, team: "" }));
                     }
                 } else {
                     console.log(`⚠️ Không tìm thấy nhân viên "${selectedSale}" trong bảng users`);
-                    // Reset team nếu không tìm thấy
+                    // Reset team nếu không tìm thấy nhân viên
                     setFormData((prev) => ({ ...prev, team: "" }));
                 }
             } catch (err) {
                 console.error('❌ Lỗi khi fetch branch từ users:', err);
+            } finally {
+                setIsCheckingTeam(false);
             }
         };
 
@@ -897,6 +904,12 @@ export default function NhapDonMoi({ isEdit = false }) {
         // Validation - Khu vực bắt buộc cho cả tạo mới và edit
         if (!formData.country || formData.country.trim() === "") {
             alert("⚠️ Vui lòng chọn Khu vực! Đây là trường bắt buộc.");
+            return;
+        }
+
+        // Prevent race condition: Block save if we are still checking team info
+        if (isCheckingTeam) {
+            alert("⏳ Đang lấy thông tin Chi nhánh (Team) cho nhân viên Sale. Vui lòng đợi trong giây lát rồi thử lại!");
             return;
         }
 
