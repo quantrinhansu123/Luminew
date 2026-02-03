@@ -4,9 +4,9 @@ import { useLocation } from 'react-router-dom';
 
 
 import usePermissions from '../hooks/usePermissions';
+import * as rbacService from '../services/rbacService';
 import { isDateInRange } from '../utils/dateParsing';
 import './BaoCaoSale.css';
-import * as rbacService from '../services/rbacService';
 
 import { supabase } from '../services/supabaseClient';
 
@@ -33,7 +33,7 @@ export default function XemBaoCaoCSKH() {
     // Permission Logic
     const { canView, role } = usePermissions();
     const permissionCode = 'CSKH_VIEW';
-    
+
     // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút xóa)
     const roleFromHook = (role || '').toUpperCase();
     const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
@@ -42,15 +42,15 @@ export default function XemBaoCaoCSKH() {
     const roleFromUserObj = (userObj?.role || '').toLowerCase();
 
     const isAdmin = roleFromHook === 'ADMIN' ||
-                   roleFromHook === 'SUPER_ADMIN' ||
-                   roleFromStorage === 'admin' ||
-                   roleFromStorage === 'super_admin' ||
-                   roleFromUserObj === 'admin' ||
-                   roleFromUserObj === 'super_admin';
+        roleFromHook === 'SUPER_ADMIN' ||
+        roleFromStorage === 'admin' ||
+        roleFromStorage === 'super_admin' ||
+        roleFromUserObj === 'admin' ||
+        roleFromUserObj === 'super_admin';
 
     // Get user email for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
-    
+
     // Selected personnel names (từ cột selected_personnel trong users table)
     // null = chưa load, [] = đã load nhưng không có, [names] = đã load và có danh sách
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState(null);
@@ -66,7 +66,7 @@ export default function XemBaoCaoCSKH() {
 
     // Track xem người dùng đã thay đổi filter chưa
     const [userChangedFilter, setUserChangedFilter] = useState(false);
-    
+
     // Filters State
     const [filters, setFilters] = useState({
         startDate: '',
@@ -351,20 +351,20 @@ export default function XemBaoCaoCSKH() {
                 }
                 return String(date);
             };
-            
+
             // Helper function để normalize string (trim và lowercase) - Định nghĩa trước khi sử dụng
             const normalizeStr = (str) => {
                 if (!str) return '';
                 // Normalize: trim, lowercase, và loại bỏ dấu cách thừa
                 return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
             };
-            
+
             // Normalize startDate và endDate để đảm bảo đúng định dạng YYYY-MM-DD (database format)
             const normalizedStartDate = normalizeDate(startDate);
             const normalizedEndDate = normalizeDate(endDate);
-            
+
             console.log(`📅 Date filter: ${startDate} → ${normalizedStartDate}, ${endDate} → ${normalizedEndDate}`);
-            
+
             // Lấy danh sách tên Sale từ báo cáo để filter ở query level
             const saleNamesFromReports = [...new Set(transformedData
                 .map(item => item['Tên'])
@@ -372,7 +372,7 @@ export default function XemBaoCaoCSKH() {
             )];
 
             console.log(`👥 Lấy ${saleNamesFromReports.length} tên Sale từ báo cáo để filter`);
-            
+
             // Log chi tiết các tên Sale trong báo cáo để debug
             const phamTuyetTrinhInReports = saleNamesFromReports.filter(name => {
                 const normalized = normalizeStr(name);
@@ -383,7 +383,7 @@ export default function XemBaoCaoCSKH() {
             }
 
             // Build query với filter theo check_result, tên Sale, Sản phẩm và Thị trường từ bộ lọc
-            
+
             let query = supabase
                 .from('orders')
                 .select('order_date, sale_staff, check_result, product, country', { count: 'exact' }) // Thêm product và country để match với báo cáo
@@ -404,7 +404,7 @@ export default function XemBaoCaoCSKH() {
                     })
                     .join(',');
                 query = query.or(saleConditions);
-                
+
                 console.log(`🔍 Filter theo ${saleNamesFromReports.length} tên Sale:`, saleNamesFromReports.slice(0, 5));
             }
 
@@ -430,7 +430,7 @@ export default function XemBaoCaoCSKH() {
             }
 
             console.log(`📊 Tìm thấy ${cancelOrders?.length || 0} đơn hủy trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
-            
+
             // Cảnh báo nếu số lượng vượt quá limit
             if (count && count > 10000) {
                 console.warn(`⚠️ Cảnh báo: Có ${count} đơn hủy nhưng chỉ fetch được ${cancelOrders?.length || 0} records (giới hạn 10,000). Có thể cần tăng limit hoặc filter chặt hơn.`);
@@ -453,7 +453,7 @@ export default function XemBaoCaoCSKH() {
                     sale_staff: sampleOrder.sale_staff,
                     normalized_sale_staff: normalizeStr(sampleOrder.sale_staff)
                 });
-                
+
                 // Log các đơn hủy của "Phạm Tuyết Trinh" để debug (chỉ log tên này)
                 const phamTuyetTrinhOrders = validCancelOrders.filter(o => {
                     const name = normalizeStr(o.sale_staff || '');
@@ -467,13 +467,13 @@ export default function XemBaoCaoCSKH() {
                         normalized_date: normalizeDate(o.order_date),
                         check_result: o.check_result
                     })));
-                    
+
                     // Log unique dates và names để debug
                     const uniqueDates = [...new Set(phamTuyetTrinhOrders.map(o => normalizeDate(o.order_date)))];
                     const uniqueNames = [...new Set(phamTuyetTrinhOrders.map(o => normalizeStr(o.sale_staff)))];
                     console.log(`📅 Các ngày của Phạm Tuyết Trinh trong orders (${uniqueDates.length} ngày):`, uniqueDates.sort());
                     console.log(`👤 Tên đã normalize của Phạm Tuyết Trinh trong orders:`, uniqueNames);
-                    
+
                     // Kiểm tra các ngày có đơn hủy nhưng không có báo cáo
                     const reportDates = [...new Set(transformedData
                         .filter(item => {
@@ -495,19 +495,19 @@ export default function XemBaoCaoCSKH() {
                     console.log(`📋 Một vài tên trong đơn hủy đã fetch:`, sampleNames);
                 }
             }
-            
+
             // Log tất cả các tên Sale trong báo cáo để so sánh
             const uniqueReportNames = [...new Set(transformedData.map(item => ({
                 original: item['Tên'],
                 normalized: normalizeStr(item['Tên'])
             })))];
-            const phamTuyetTrinhReports = uniqueReportNames.filter(n => 
-                normalizeStr(n.original) === 'phạm tuyết trinh' || 
+            const phamTuyetTrinhReports = uniqueReportNames.filter(n =>
+                normalizeStr(n.original) === 'phạm tuyết trinh' ||
                 normalizeStr(n.original).includes('phạm tuyết trinh')
             );
             if (phamTuyetTrinhReports.length > 0) {
                 console.log(`📋 Tên "Phạm Tuyết Trinh" trong báo cáo:`, phamTuyetTrinhReports);
-                
+
                 // Log các ngày của Phạm Tuyết Trinh trong báo cáo
                 const phamTuyetTrinhReportDates = transformedData
                     .filter(item => {
@@ -530,7 +530,7 @@ export default function XemBaoCaoCSKH() {
             // Group đơn hủy theo Tên Sale + Ngày + Sản phẩm + Thị trường để match chính xác với từng báo cáo
             // Key: "saleName|date|product|market" -> orders[]
             const cancelOrdersBySaleDateProductMarket = new Map();
-            
+
             validCancelOrders.forEach(order => {
                 // Match theo:
                 // - Tên Sale: sale_staff (orders) = name (sales_reports)
@@ -543,13 +543,13 @@ export default function XemBaoCaoCSKH() {
                 // Thị trường: chỉ lấy country
                 const orderMarket = normalizeStr(order.country || '');
                 const key = `${orderSaleName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
-                
+
                 if (!cancelOrdersBySaleDateProductMarket.has(key)) {
                     cancelOrdersBySaleDateProductMarket.set(key, []);
                 }
                 cancelOrdersBySaleDateProductMarket.get(key).push(order);
             });
-            
+
             // Log cho Phạm Tuyết Trinh
             const phamTuyetTrinhKeys = Array.from(cancelOrdersBySaleDateProductMarket.keys()).filter(key => {
                 const saleName = key.split('|')[0];
@@ -563,7 +563,7 @@ export default function XemBaoCaoCSKH() {
                     console.log(`  - ${saleName} | ${date} | ${product} | ${market}: ${orders.length} đơn hủy`);
                 });
             }
-            
+
             // Cập nhật transformedData với số đơn hoàn hủy từ orders (đã group theo Tên Sale + Ngày)
             let matchedCount = 0;
             const debugLogs = [];
@@ -611,20 +611,20 @@ export default function XemBaoCaoCSKH() {
                 const reportMarket = normalizeStr(item['Thị trường'] || '');
                 const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
                 let matchingOrders = cancelOrdersBySaleDateProductMarket.get(key) || [];
-                
+
                 // Nếu không match được với key đầy đủ, thử match với key không có product/market
                 // (cho trường hợp đơn hàng có product/market empty) - cùng rule như Số đơn TT
                 if (matchingOrders.length === 0) {
                     const keyWithoutProductMarket = `${saleName}|${reportDate}||`;
                     const ordersWithoutProductMarket = cancelOrdersBySaleDateProductMarket.get(keyWithoutProductMarket) || [];
-                    
+
                     // Chỉ lấy các đơn hàng có product hoặc market empty
                     const emptyProductMarketOrders = ordersWithoutProductMarket.filter(order => {
                         const orderProduct = normalizeStr(order.product || '');
                         const orderMarket = normalizeStr(order.country || '');
                         return orderProduct === '' || orderMarket === '';
                     });
-                    
+
                     if (emptyProductMarketOrders.length > 0) {
                         matchingOrders = emptyProductMarketOrders;
                         if (isPhamTuyetTrinh) {
@@ -632,16 +632,16 @@ export default function XemBaoCaoCSKH() {
                         }
                     }
                 }
-                
+
                 const count = matchingOrders.length;
-                
+
                 if (isPhamTuyetTrinh) {
                     console.log(`📊 Phạm Tuyết Trinh [${idx}]: Key "${key}" → ${count} đơn hủy`);
                     console.log(`   - Tên Sale: "${item['Tên']}" → normalized: "${saleName}"`);
                     console.log(`   - Ngày: "${item['Ngày']}" → normalized: "${reportDate}"`);
                     console.log(`   - Sản phẩm: "${item['Sản phẩm']}" → normalized: "${reportProduct}"`);
                     console.log(`   - Thị trường: "${item['Thị trường']}" → normalized: "${reportMarket}"`);
-                    
+
                     // Log các key có cùng Tên Sale + Ngày để debug
                     const sameSaleDateKeys = Array.from(cancelOrdersBySaleDateProductMarket.keys()).filter(k => {
                         const [kSaleName, kDate] = k.split('|');
@@ -669,13 +669,13 @@ export default function XemBaoCaoCSKH() {
             });
 
             console.log(`✅ Đã match ${matchedCount}/${transformedData.length} records với số đơn hủy từ orders`);
-            
+
             // Log debug cho Phạm Tuyết Trinh
             if (debugLogs.length > 0) {
                 console.log('🔍 Debug logs cho Phạm Tuyết Trinh:');
                 debugLogs.forEach(log => console.log(log));
             }
-            
+
             // Log sample đơn hủy để so sánh
             if (validCancelOrders.length > 0) {
                 const sampleDates = validCancelOrders.slice(0, 5).map(o => ({
@@ -733,16 +733,16 @@ export default function XemBaoCaoCSKH() {
                 }
                 return String(date);
             };
-            
+
             // Helper function để normalize string (trim và lowercase)
             const normalizeStr = (str) => {
                 if (!str) return '';
                 return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
             };
-            
+
             const normalizedStartDate = normalizeDate(startDate);
             const normalizedEndDate = normalizeDate(endDate);
-            
+
             // Lấy danh sách tên Sale từ báo cáo để filter ở query level
             const saleNamesFromReports = [...new Set(transformedData
                 .map(item => item['Tên'])
@@ -781,7 +781,7 @@ export default function XemBaoCaoCSKH() {
             }
 
             console.log(`📊 Tìm thấy ${allOrders?.length || 0} đơn tổng trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
-            
+
             // Debug: Đếm đơn theo ngày
             const ordersByDate = {};
             (allOrders || []).forEach(order => {
@@ -791,29 +791,29 @@ export default function XemBaoCaoCSKH() {
             console.log(`📅 Phân bổ đơn theo ngày:`, ordersByDate);
             if (ordersByDate['2026-01-29']) {
                 console.log(`✅ Tìm thấy ${ordersByDate['2026-01-29']} đơn ngày 29/01/2026`);
-                
+
                 // Kiểm tra đơn của Phạm Tuyết Trinh ngày 29
                 const phamTuyetTrinhOrders29 = (allOrders || []).filter(order => {
                     const orderSaleName = normalizeStr(order.sale_staff);
                     const orderDateStr = normalizeDate(order.order_date);
                     return (orderSaleName === 'phạm tuyết trinh' || orderSaleName.includes('phạm tuyết trinh')) &&
-                           orderDateStr === '2026-01-29';
+                        orderDateStr === '2026-01-29';
                 });
-                
-                    if (phamTuyetTrinhOrders29.length > 0) {
-                        console.log(`🔍 [DEBUG] Tìm thấy ${phamTuyetTrinhOrders29.length} đơn của Phạm Tuyết Trinh ngày 29/01/2026 trong database:`);
-                        phamTuyetTrinhOrders29.forEach((order, idx) => {
-                            console.log(`  [${idx + 1}] Order Code: ${order.order_code || 'N/A'}, Product: "${order.product || '(empty)'}", Market: "${order.country || '(empty)'}"`);
-                        });
-                    
+
+                if (phamTuyetTrinhOrders29.length > 0) {
+                    console.log(`🔍 [DEBUG] Tìm thấy ${phamTuyetTrinhOrders29.length} đơn của Phạm Tuyết Trinh ngày 29/01/2026 trong database:`);
+                    phamTuyetTrinhOrders29.forEach((order, idx) => {
+                        console.log(`  [${idx + 1}] Order Code: ${order.order_code || 'N/A'}, Product: "${order.product || '(empty)'}", Market: "${order.country || '(empty)'}"`);
+                    });
+
                     // Kiểm tra xem có record nào trong báo cáo (transformedData) cho Phạm Tuyết Trinh ngày 29 không
                     const reportsForPhamTuyetTrinh29 = transformedData.filter(item => {
                         const itemSaleName = normalizeStr(item['Tên']);
                         const itemDate = normalizeDate(item['Ngày']);
                         return (itemSaleName === 'phạm tuyết trinh' || itemSaleName.includes('phạm tuyết trinh')) &&
-                               itemDate === '2026-01-29';
+                            itemDate === '2026-01-29';
                     });
-                    
+
                     if (reportsForPhamTuyetTrinh29.length === 0) {
                         console.warn(`⚠️ [WARNING] Có ${phamTuyetTrinhOrders29.length} đơn của Phạm Tuyết Trinh ngày 29 trong database NHƯNG KHÔNG CÓ record nào trong báo cáo (sales_reports)!`);
                         console.warn(`   → Đây là lý do tại sao "Số đơn TT" = 0. Báo cáo cần có data cho Phạm Tuyết Trinh ngày 29.`);
@@ -833,14 +833,14 @@ export default function XemBaoCaoCSKH() {
 
             // Group đơn theo Tên Sale + Ngày + Sản phẩm + Thị trường
             const ordersBySaleDateProductMarket = new Map();
-            
+
             (allOrders || []).forEach(order => {
                 const orderSaleName = normalizeStr(order.sale_staff);
                 const orderDateStr = normalizeDate(order.order_date);
                 const orderProduct = normalizeStr(order.product || '');
                 const orderMarket = normalizeStr(order.country || '');
                 const key = `${orderSaleName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
-                
+
                 if (!ordersBySaleDateProductMarket.has(key)) {
                     ordersBySaleDateProductMarket.set(key, []);
                 }
@@ -872,26 +872,26 @@ export default function XemBaoCaoCSKH() {
 
                 const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
                 let matchingOrders = ordersBySaleDateProductMarket.get(key) || [];
-                
+
                 // Nếu không match được với key đầy đủ, thử match với key chỉ có Tên + Ngày
                 // (cho trường hợp đơn hàng có product/market empty hoặc không khớp)
                 if (matchingOrders.length === 0) {
                     const keyWithoutProductMarket = `${saleName}|${reportDate}||`;
                     const ordersWithoutProductMarket = ordersBySaleDateProductMarket.get(keyWithoutProductMarket) || [];
-                    
+
                     // Chỉ lấy các đơn hàng có product hoặc market empty
                     const emptyProductMarketOrders = ordersWithoutProductMarket.filter(order => {
                         const orderProduct = normalizeStr(order.product || '');
                         const orderMarket = normalizeStr(order.country || '');
                         return orderProduct === '' || orderMarket === '';
                     });
-                    
+
                     if (emptyProductMarketOrders.length > 0) {
                         matchingOrders = emptyProductMarketOrders;
                         console.log(`ℹ️ [enrichWithTotalOrdersFromOrders] Match với key không có product/market cho "${item['Tên']}" ngày ${reportDateRaw}: ${matchingOrders.length} đơn`);
                     }
                 }
-                
+
                 // FALLBACK: Nếu vẫn không match được, thử match theo Tên + Ngày (bỏ qua product/market)
                 // Để lấy đủ đơn hơn (tránh thiếu đơn do product/market không khớp)
                 // LƯU Ý: Chỉ dùng fallback này khi không có record nào khác cùng Sale + Ngày đã match được
@@ -904,7 +904,7 @@ export default function XemBaoCaoCSKH() {
                         const otherReportDate = normalizeDate(otherItem['Ngày']);
                         return otherSaleName === saleName && otherReportDate === reportDate;
                     });
-                    
+
                     // Kiểm tra xem các records khác đã match được bao nhiêu đơn
                     let totalMatchedByOthers = 0;
                     otherRecordsSameSaleDate.forEach(otherItem => {
@@ -912,14 +912,14 @@ export default function XemBaoCaoCSKH() {
                         const otherMatching = ordersBySaleDateProductMarket.get(otherKey) || [];
                         totalMatchedByOthers += otherMatching.length;
                     });
-                    
+
                     // Tìm tất cả orders của Sale này ngày này
                     const allSaleOrdersOnDate = (allOrders || []).filter(order => {
                         const orderSaleName = normalizeStr(order.sale_staff);
                         const orderDateStr = normalizeDate(order.order_date);
                         return orderSaleName === saleName && orderDateStr === reportDate;
                     });
-                    
+
                     // Chỉ dùng fallback nếu:
                     // 1. Có orders của Sale này ngày này
                     // 2. Tổng số orders > số đơn đã match bởi các records khác (còn đơn chưa match)
@@ -929,7 +929,7 @@ export default function XemBaoCaoCSKH() {
                             // Kiểm tra xem order này đã được match bởi record khác chưa
                             const orderKey = `${saleName}|${reportDate}|${normalizeStr(order.product || '')}|${normalizeStr(order.country || '')}`;
                             const orderKeyWithoutPM = `${saleName}|${reportDate}||`;
-                            
+
                             // Kiểm tra trong các records khác
                             for (const otherItem of otherRecordsSameSaleDate) {
                                 const otherKey = `${saleName}|${reportDate}|${normalizeStr(otherItem['Sản phẩm'] || '')}|${normalizeStr(otherItem['Thị trường'] || '')}`;
@@ -937,14 +937,14 @@ export default function XemBaoCaoCSKH() {
                                 if (otherMatching.some(o => o.order_code === order.order_code)) {
                                     return false; // Đã được match
                                 }
-                                
+
                                 // Kiểm tra key không có product/market
                                 const otherMatchingWithoutPM = ordersBySaleDateProductMarket.get(orderKeyWithoutPM) || [];
                                 const emptyPMOrders = otherMatchingWithoutPM.filter(o => {
                                     const oProduct = normalizeStr(o.product || '');
                                     const oMarket = normalizeStr(o.country || '');
-                                    return (oProduct === '' || oMarket === '') && 
-                                           (normalizeStr(otherItem['Sản phẩm'] || '') === '' || normalizeStr(otherItem['Thị trường'] || '') === '');
+                                    return (oProduct === '' || oMarket === '') &&
+                                        (normalizeStr(otherItem['Sản phẩm'] || '') === '' || normalizeStr(otherItem['Thị trường'] || '') === '');
                                 });
                                 if (emptyPMOrders.some(o => o.order_code === order.order_code)) {
                                     return false; // Đã được match
@@ -952,23 +952,23 @@ export default function XemBaoCaoCSKH() {
                             }
                             return true; // Chưa được match
                         });
-                        
+
                         if (unmatchedOrders.length > 0) {
                             matchingOrders = unmatchedOrders;
                             console.log(`ℹ️ [enrichWithTotalOrdersFromOrders] Fallback match theo Tên + Ngày cho "${item['Tên']}" ngày ${reportDateRaw}: ${matchingOrders.length} đơn chưa match (tổng ${allSaleOrdersOnDate.length} đơn, ${totalMatchedByOthers} đã match bởi records khác)`);
                         }
                     }
                 }
-                
+
                 const soDonTT = matchingOrders.length;
                 item['Số đơn TT'] = soDonTT;
-                
+
                 if (soDonTT > 0) {
                     updatedCount++;
                 } else {
                     zeroCount++;
                 }
-                
+
                 // Debug: Log nếu không match được để kiểm tra
                 if (matchingOrders.length === 0) {
                     // Kiểm tra xem có đơn của Sale này ngày này không (để debug, không dùng để tính)
@@ -977,7 +977,7 @@ export default function XemBaoCaoCSKH() {
                         const orderDateStr = normalizeDate(order.order_date);
                         return orderSaleName === saleName && orderDateStr === reportDate;
                     });
-                    
+
                     if (saleOrdersOnDate.length > 0) {
                         // Chỉ log để debug, không dùng để tính (tránh tính trùng)
                         console.warn(`⚠️ [enrichWithTotalOrdersFromOrders] Không match key nhưng có ${saleOrdersOnDate.length} đơn của "${item['Tên']}" ngày ${reportDateRaw}`, {
@@ -994,12 +994,12 @@ export default function XemBaoCaoCSKH() {
                         });
                     }
                 }
-                
+
                 // Log chi tiết cho Phạm Tuyết Trinh ngày 29
                 const isPhamTuyetTrinh = saleName === 'phạm tuyết trinh' || saleName.includes('phạm tuyết trinh');
-                const isDate29 = reportDate === '2026-01-29' || reportDateRaw === '2026-01-29' || 
-                                 reportDateRaw === '29/01/2026' || reportDateRaw === '29/1/2026' ||
-                                 (String(reportDateRaw).includes('29') && String(reportDateRaw).includes('01') && String(reportDateRaw).includes('2026'));
+                const isDate29 = reportDate === '2026-01-29' || reportDateRaw === '2026-01-29' ||
+                    reportDateRaw === '29/01/2026' || reportDateRaw === '29/1/2026' ||
+                    (String(reportDateRaw).includes('29') && String(reportDateRaw).includes('01') && String(reportDateRaw).includes('2026'));
                 if (isPhamTuyetTrinh && isDate29) {
                     console.log(`🔍 [DEBUG] Phạm Tuyết Trinh ngày 29/01/2026:`);
                     console.log(`  - Tên báo cáo: "${item['Tên']}" → normalize: "${saleName}"`);
@@ -1008,15 +1008,15 @@ export default function XemBaoCaoCSKH() {
                     console.log(`  - Thị trường báo cáo: "${item['Thị trường']}" → normalize: "${reportMarket}"`);
                     console.log(`  - Key để match: "${key}"`);
                     console.log(`  - Số đơn TT tìm thấy: ${matchingOrders.length}`);
-                    
+
                     // Tìm các đơn của Phạm Tuyết Trinh ngày 29
                     const phamTuyetTrinhOrders29 = (allOrders || []).filter(order => {
                         const orderSaleName = normalizeStr(order.sale_staff);
                         const orderDateStr = normalizeDate(order.order_date);
                         return (orderSaleName === 'phạm tuyết trinh' || orderSaleName.includes('phạm tuyết trinh')) &&
-                               orderDateStr === '2026-01-29';
+                            orderDateStr === '2026-01-29';
                     });
-                    
+
                     if (phamTuyetTrinhOrders29.length > 0) {
                         console.log(`  - ✅ Tìm thấy ${phamTuyetTrinhOrders29.length} đơn của Phạm Tuyết Trinh ngày 29:`);
                         phamTuyetTrinhOrders29.forEach((order, idx) => {
@@ -1035,7 +1035,7 @@ export default function XemBaoCaoCSKH() {
                                 console.log(`           - Market match? "${orderMarket}" === "${reportMarket}"? ${orderMarket === reportMarket}`);
                             }
                         });
-                        
+
                         // Kiểm tra match
                         const matchingKeys = phamTuyetTrinhOrders29.map(order => {
                             const orderSaleName = normalizeStr(order.sale_staff);
@@ -1051,7 +1051,7 @@ export default function XemBaoCaoCSKH() {
                         console.log(`  - ⚠️ Không tìm thấy đơn nào của Phạm Tuyết Trinh ngày 29 trong orders`);
                     }
                 }
-                
+
                 // Log chi tiết cho Phạm Tuyết Trinh ngày 27
                 const isDate27 = reportDate === '2026-01-27' || reportDateRaw === '2026-01-27';
                 if (isPhamTuyetTrinh && isDate27) {
@@ -1062,15 +1062,15 @@ export default function XemBaoCaoCSKH() {
                     console.log(`  - Thị trường báo cáo: "${item['Thị trường']}" → normalize: "${reportMarket}"`);
                     console.log(`  - Key để match: "${key}"`);
                     console.log(`  - Số đơn TT tìm thấy: ${matchingOrders.length}`);
-                    
+
                     // Tìm các đơn của Phạm Tuyết Trinh ngày 27
                     const phamTuyetTrinhOrders = (allOrders || []).filter(order => {
                         const orderSaleName = normalizeStr(order.sale_staff);
                         const orderDateStr = normalizeDate(order.order_date);
                         return (orderSaleName === 'phạm tuyết trinh' || orderSaleName.includes('phạm tuyết trinh')) &&
-                               orderDateStr === '2026-01-27';
+                            orderDateStr === '2026-01-27';
                     });
-                    
+
                     if (phamTuyetTrinhOrders.length > 0) {
                         console.log(`  - Tìm thấy ${phamTuyetTrinhOrders.length} đơn của Phạm Tuyết Trinh ngày 27:`);
                         phamTuyetTrinhOrders.forEach((order, idx) => {
@@ -1078,7 +1078,7 @@ export default function XemBaoCaoCSKH() {
                             const orderMarket = normalizeStr(order.country || '');
                             console.log(`    [${idx + 1}] Sản phẩm: "${order.product}" (normalize: "${orderProduct}"), Thị trường: "${order.country || '(empty)'}" (normalize: "${orderMarket}")`);
                         });
-                        
+
                         // Kiểm tra match
                         const matchingKeys = phamTuyetTrinhOrders.map(order => {
                             const orderSaleName = normalizeStr(order.sale_staff);
@@ -1100,7 +1100,7 @@ export default function XemBaoCaoCSKH() {
             console.log(`   - Records có Số đơn TT > 0: ${updatedCount}`);
             console.log(`   - Records có Số đơn TT = 0: ${zeroCount}`);
             console.log(`   - Tổng số keys trong ordersBySaleDateProductMarket: ${ordersBySaleDateProductMarket.size}`);
-            
+
             // Log sample records có Số đơn TT > 0
             if (updatedCount > 0) {
                 const sampleRecords = transformedData.filter(r => r['Số đơn TT'] > 0).slice(0, 5);
@@ -1160,16 +1160,16 @@ export default function XemBaoCaoCSKH() {
                 }
                 return String(date);
             };
-            
+
             // Helper function để normalize string (trim và lowercase)
             const normalizeStr = (str) => {
                 if (!str) return '';
                 return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
             };
-            
+
             const normalizedStartDate = normalizeDate(startDate);
             const normalizedEndDate = normalizeDate(endDate);
-            
+
             // Lấy danh sách tên Sale từ báo cáo để filter ở query level
             const saleNamesFromReports = [...new Set(transformedData
                 .map(item => item['Tên'])
@@ -1209,14 +1209,14 @@ export default function XemBaoCaoCSKH() {
 
             // Group đơn theo Tên Sale + Ngày + Sản phẩm + Thị trường (giống như Số đơn TT)
             const ordersBySaleDateProductMarket = new Map();
-            
+
             (allOrders || []).forEach(order => {
                 const orderSaleName = normalizeStr(order.sale_staff);
                 const orderDateStr = normalizeDate(order.order_date);
                 const orderProduct = normalizeStr(order.product || '');
                 const orderMarket = normalizeStr(order.country || '');
                 const key = `${orderSaleName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
-                
+
                 if (!ordersBySaleDateProductMarket.has(key)) {
                     ordersBySaleDateProductMarket.set(key, []);
                 }
@@ -1238,26 +1238,26 @@ export default function XemBaoCaoCSKH() {
 
                 const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
                 let matchingOrders = ordersBySaleDateProductMarket.get(key) || [];
-                
+
                 // Nếu không match được với key đầy đủ, thử match với key không có product/market
                 // (cho trường hợp đơn hàng có product/market empty) - cùng rule như Số đơn TT
                 if (matchingOrders.length === 0) {
                     const keyWithoutProductMarket = `${saleName}|${reportDate}||`;
                     const ordersWithoutProductMarket = ordersBySaleDateProductMarket.get(keyWithoutProductMarket) || [];
-                    
+
                     // Chỉ lấy các đơn hàng có product hoặc market empty
                     const emptyProductMarketOrders = ordersWithoutProductMarket.filter(order => {
                         const orderProduct = normalizeStr(order.product || '');
                         const orderMarket = normalizeStr(order.country || '');
                         return orderProduct === '' || orderMarket === '';
                     });
-                    
+
                     if (emptyProductMarketOrders.length > 0) {
                         matchingOrders = emptyProductMarketOrders;
                         console.log(`ℹ️ [enrichWithTotalRevenueFromOrders] Match với key không có product/market cho "${item['Tên']}" ngày ${reportDateRaw}: ${matchingOrders.length} đơn`);
                     }
                 }
-                
+
                 // FALLBACK: Nếu vẫn không match được, thử match theo Tên + Ngày (bỏ qua product/market)
                 // Để lấy đủ doanh số hơn (tránh thiếu doanh số do product/market không khớp)
                 // LƯU Ý: Chỉ dùng fallback này khi không có record nào khác cùng Sale + Ngày đã match được
@@ -1270,7 +1270,7 @@ export default function XemBaoCaoCSKH() {
                         const otherReportDate = normalizeDate(otherItem['Ngày']);
                         return otherSaleName === saleName && otherReportDate === reportDate;
                     });
-                    
+
                     // Kiểm tra xem các records khác đã match được bao nhiêu đơn
                     let totalMatchedByOthers = 0;
                     otherRecordsSameSaleDate.forEach(otherItem => {
@@ -1278,14 +1278,14 @@ export default function XemBaoCaoCSKH() {
                         const otherMatching = ordersBySaleDateProductMarket.get(otherKey) || [];
                         totalMatchedByOthers += otherMatching.length;
                     });
-                    
+
                     // Tìm tất cả orders của Sale này ngày này
                     const allSaleOrdersOnDate = (allOrders || []).filter(order => {
                         const orderSaleName = normalizeStr(order.sale_staff);
                         const orderDateStr = normalizeDate(order.order_date);
                         return orderSaleName === saleName && orderDateStr === reportDate;
                     });
-                    
+
                     // Chỉ dùng fallback nếu:
                     // 1. Có orders của Sale này ngày này
                     // 2. Tổng số orders > số đơn đã match bởi các records khác (còn đơn chưa match)
@@ -1295,7 +1295,7 @@ export default function XemBaoCaoCSKH() {
                             // Kiểm tra xem order này đã được match bởi record khác chưa
                             const orderKey = `${saleName}|${reportDate}|${normalizeStr(order.product || '')}|${normalizeStr(order.country || '')}`;
                             const orderKeyWithoutPM = `${saleName}|${reportDate}||`;
-                            
+
                             // Kiểm tra trong các records khác
                             for (const otherItem of otherRecordsSameSaleDate) {
                                 const otherKey = `${saleName}|${reportDate}|${normalizeStr(otherItem['Sản phẩm'] || '')}|${normalizeStr(otherItem['Thị trường'] || '')}`;
@@ -1303,14 +1303,14 @@ export default function XemBaoCaoCSKH() {
                                 if (otherMatching.some(o => o.order_code === order.order_code)) {
                                     return false; // Đã được match
                                 }
-                                
+
                                 // Kiểm tra key không có product/market
                                 const otherMatchingWithoutPM = ordersBySaleDateProductMarket.get(orderKeyWithoutPM) || [];
                                 const emptyPMOrders = otherMatchingWithoutPM.filter(o => {
                                     const oProduct = normalizeStr(o.product || '');
                                     const oMarket = normalizeStr(o.country || '');
-                                    return (oProduct === '' || oMarket === '') && 
-                                           (normalizeStr(otherItem['Sản phẩm'] || '') === '' || normalizeStr(otherItem['Thị trường'] || '') === '');
+                                    return (oProduct === '' || oMarket === '') &&
+                                        (normalizeStr(otherItem['Sản phẩm'] || '') === '' || normalizeStr(otherItem['Thị trường'] || '') === '');
                                 });
                                 if (emptyPMOrders.some(o => o.order_code === order.order_code)) {
                                     return false; // Đã được match
@@ -1318,19 +1318,19 @@ export default function XemBaoCaoCSKH() {
                             }
                             return true; // Chưa được match
                         });
-                        
+
                         if (unmatchedOrders.length > 0) {
                             matchingOrders = unmatchedOrders;
                             console.log(`ℹ️ [enrichWithTotalRevenueFromOrders] Fallback match theo Tên + Ngày cho "${item['Tên']}" ngày ${reportDateRaw}: ${matchingOrders.length} đơn chưa match (tổng ${allSaleOrdersOnDate.length} đơn, ${totalMatchedByOthers} đã match bởi records khác)`);
                         }
                     }
                 }
-                
+
                 // Tính tổng doanh số từ các đơn match được
                 const revenue = matchingOrders.reduce((sum, order) => {
                     return sum + (Number(order.total_amount_vnd) || 0);
                 }, 0);
-                
+
                 item['Doanh số'] = revenue;
             });
 
@@ -1383,34 +1383,34 @@ export default function XemBaoCaoCSKH() {
                 }
                 return String(date);
             };
-            
+
             // Helper function để normalize string
             const normalizeStr = (str) => {
                 if (!str) return '';
                 return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
             };
-            
+
             const normalizedStartDate = normalizeDate(startDate);
             const normalizedEndDate = normalizeDate(endDate);
-            
+
             // Lấy danh sách tên nhân sự từ transformedData
             const personnelNames = [...new Set(transformedData
                 .map(item => item['Tên'])
                 .filter(name => name && name.trim().length > 0)
             )];
-            
+
             if (personnelNames.length === 0) {
                 console.log('📊 [enrichMessAndResponseFromSalesReports] Không có tên nhân sự để fetch');
                 return;
             }
-            
+
             // Fetch từ sales_reports với filter theo tên và khoảng ngày
             let query = supabase
                 .from('sales_reports')
                 .select('name, mess_count, response_count, date')
                 .gte('date', normalizedStartDate)
                 .lte('date', normalizedEndDate);
-            
+
             // Filter theo tên nhân sự (nếu có ít hơn 50 tên để tránh vượt quá giới hạn OR)
             if (personnelNames.length <= 50) {
                 const nameConditions = personnelNames
@@ -1418,37 +1418,37 @@ export default function XemBaoCaoCSKH() {
                     .join(',');
                 query = query.or(nameConditions);
             }
-            
+
             query = query.limit(10000);
-            
+
             const { data: salesReportsData, error: salesReportsError } = await query;
-            
+
             if (salesReportsError) {
                 console.error('❌ Error fetching mess_count and response_count:', salesReportsError);
                 return;
             }
-            
+
             console.log(`📊 [enrichMessAndResponseFromSalesReports] Fetch được ${salesReportsData?.length || 0} records từ sales_reports`);
-            
+
             // Group theo Tên + Ngày để match chính xác với từng record trong transformedData
             // Key: "name|date" -> { mess_count, response_count }
             const messAndResponseByPersonnelDate = new Map();
-            
+
             (salesReportsData || []).forEach(report => {
                 const reportName = normalizeStr(report.name);
                 const reportDate = normalizeDate(report.date);
-                
+
                 if (!reportName || !reportDate) return;
-                
+
                 // Tìm nhân sự trong personnelNames khớp với report
                 const matchedPersonnel = personnelNames.find(name => {
                     const nameStr = normalizeStr(name);
                     return reportName === nameStr || reportName.includes(nameStr) || nameStr.includes(reportName);
                 });
-                
+
                 if (matchedPersonnel) {
                     const key = `${normalizeStr(matchedPersonnel)}|${reportDate}`;
-                    
+
                     // Tính tổng Số Mess và Phản hồi cho từng cặp (nhân sự, ngày)
                     const current = messAndResponseByPersonnelDate.get(key) || { mess: 0, phanHoi: 0 };
                     current.mess += (Number(report.mess_count) || 0);
@@ -1456,20 +1456,20 @@ export default function XemBaoCaoCSKH() {
                     messAndResponseByPersonnelDate.set(key, current);
                 }
             });
-            
+
             console.log(`📊 [enrichMessAndResponseFromSalesReports] Số keys (nhân sự + ngày): ${messAndResponseByPersonnelDate.size}`);
-            
+
             // Cập nhật transformedData với "Số Mess" và "Phản hồi" từ sales_reports (match theo Tên + Ngày)
             let updatedCount = 0;
             transformedData.forEach(item => {
                 const itemName = normalizeStr(item['Tên']);
                 const itemDate = normalizeDate(item['Ngày']);
-                
+
                 if (!itemName || !itemDate) return;
-                
+
                 const key = `${itemName}|${itemDate}`;
                 const data = messAndResponseByPersonnelDate.get(key);
-                
+
                 if (data) {
                     // Cập nhật "Số Mess" và "Phản hồi" từ sales_reports (ghi đè giá trị cũ)
                     item['Số Mess'] = data.mess;
@@ -1480,7 +1480,7 @@ export default function XemBaoCaoCSKH() {
                     // Không cần làm gì vì giá trị đã có sẵn từ transformedData
                 }
             });
-            
+
             console.log(`✅ [enrichMessAndResponseFromSalesReports] Đã cập nhật "Số Mess" và "Phản hồi" cho ${transformedData.length} records`);
         } catch (err) {
             console.error('❌ Error enriching with mess_count and response_count:', err);
@@ -1529,16 +1529,16 @@ export default function XemBaoCaoCSKH() {
                 }
                 return String(date);
             };
-            
+
             // Helper function để normalize string
             const normalizeStr = (str) => {
                 if (!str) return '';
                 return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
             };
-            
+
             const normalizedStartDate = normalizeDate(startDate);
             const normalizedEndDate = normalizeDate(endDate);
-            
+
             // Lấy danh sách tên Sale từ báo cáo
             const saleNamesFromReports = [...new Set(transformedData
                 .map(item => item['Tên'])
@@ -1597,9 +1597,9 @@ export default function XemBaoCaoCSKH() {
 
                     // Match: Tên Sale + Ngày + Sản phẩm + Thị trường
                     return orderSaleName === reportSaleName &&
-                           orderDateStr === reportDate &&
-                           orderProduct === reportProduct &&
-                           orderMarket === reportMarket;
+                        orderDateStr === reportDate &&
+                        orderProduct === reportProduct &&
+                        orderMarket === reportMarket;
                 });
 
                 // Tính tổng doanh số sau hủy
@@ -1743,28 +1743,28 @@ export default function XemBaoCaoCSKH() {
             const today = new Date();
             const threeDaysAgo = new Date();
             threeDaysAgo.setDate(today.getDate() - 2); // 3 ngày: hôm nay, hôm qua, hôm kia
-            
+
             const formatDateForInput = (date) => date.toISOString().split('T')[0];
-            
+
             setFilters(prev => ({
                 ...prev,
                 startDate: formatDateForInput(threeDaysAgo),
                 endDate: formatDateForInput(today)
             }));
-            
+
             console.log('📅 [BaoCaoSale] Khởi tạo filters với 3 ngày gần nhất:', {
                 startDate: formatDateForInput(threeDaysAgo),
                 endDate: formatDateForInput(today)
             });
         }
     }, []); // Chỉ chạy một lần khi mount
-    
+
     // Track khi người dùng thay đổi filter (cho date inputs)
     const handleDateFilterChange = (type, value) => {
         setUserChangedFilter(true);
         setFilters(prev => ({ ...prev, [type]: value }));
     };
-    
+
     // Load selected personnel names for current user
     useEffect(() => {
         const loadSelectedPersonnel = async () => {
@@ -1783,7 +1783,7 @@ export default function XemBaoCaoCSKH() {
                     const nameStr = String(name).trim();
                     return nameStr.length > 0 && !nameStr.includes('@');
                 });
-                
+
                 console.log('📝 [BaoCaoSale] Valid personnel names:', validNames);
                 setSelectedPersonnelNames(validNames.length > 0 ? validNames : []); // Empty array nếu không có
             } catch (error) {
@@ -1863,28 +1863,28 @@ export default function XemBaoCaoCSKH() {
                     setLoading(false);
                     return;
                 }
-                
+
                 // Call Supabase RPC
                 console.log(`📅 Fetching data from RPC: startDate=${filters.startDate}, endDate=${filters.endDate}`);
-                
+
                 // Đảm bảo startDate và endDate ở định dạng YYYY-MM-DD
                 const normalizedStartDate = filters.startDate ? filters.startDate.split('T')[0] : filters.startDate;
                 const normalizedEndDate = filters.endDate ? filters.endDate.split('T')[0] : filters.endDate;
-                
+
                 // Validate date format
                 if (!normalizedStartDate || !normalizedEndDate) {
                     console.error('❌ [BaoCaoSale] Invalid date format:', { normalizedStartDate, normalizedEndDate });
                     setLoading(false);
                     return;
                 }
-                
+
                 console.log(`📅 Normalized dates: startDate=${normalizedStartDate}, endDate=${normalizedEndDate}`);
-                
+
                 // Fetch tất cả dữ liệu từ RPC function (không có giới hạn)
                 // Supabase RPC function không có limit mặc định, nhưng để đảm bảo fetch đủ, 
                 // chúng ta sẽ fetch trực tiếp từ bảng nếu RPC có vấn đề
                 let data, error;
-                
+
                 // Thử fetch từ RPC function trước, nếu không được thì fallback sang direct query
                 try {
                     const result = await supabase.rpc('get_sales_analytics', {
@@ -1893,7 +1893,7 @@ export default function XemBaoCaoCSKH() {
                     });
                     data = result.data;
                     error = result.error;
-                    
+
                     // Kiểm tra xem RPC có trả về đủ dữ liệu không
                     if (data && data.length > 0) {
                         const dates = [...new Set(data.map(item => {
@@ -1903,9 +1903,9 @@ export default function XemBaoCaoCSKH() {
                             }
                             return String(dateVal).split('T')[0];
                         }))].sort();
-                        
+
                         console.log(`📅 [BaoCaoSale] RPC returned dates: ${dates.join(', ')} (requested: ${normalizedStartDate} to ${normalizedEndDate})`);
-                        
+
                         // Kiểm tra xem có thiếu ngày nào trong range không
                         const missingDates = [];
                         for (let d = new Date(normalizedStartDate); d <= new Date(normalizedEndDate); d.setDate(d.getDate() + 1)) {
@@ -1914,17 +1914,17 @@ export default function XemBaoCaoCSKH() {
                                 missingDates.push(dateStr);
                             }
                         }
-                        
+
                         if (missingDates.length > 0) {
                             console.warn(`⚠️ RPC function thiếu các ngày: ${missingDates.join(', ')}. Sử dụng fallback direct query.`);
                             throw new Error(`RPC returned incomplete data: missing dates ${missingDates.join(', ')}`);
                         }
-                        
+
                         const firstDate = new Date(dates[0]);
                         const lastDate = new Date(dates[dates.length - 1]);
                         const startDate = new Date(normalizedStartDate);
                         const endDate = new Date(normalizedEndDate);
-                        
+
                         // Nếu RPC không trả về đủ dữ liệu (thiếu ngày đầu hoặc cuối), dùng fallback
                         if (firstDate > startDate || lastDate < endDate) {
                             console.warn(`⚠️ RPC function không trả về đủ dữ liệu (firstDate: ${dates[0]}, lastDate: ${dates[dates.length - 1]}). Sử dụng fallback direct query.`);
@@ -1946,11 +1946,11 @@ export default function XemBaoCaoCSKH() {
                     let page = 0;
                     const pageSize = 1000;
                     let hasMore = true;
-                    
+
                     while (hasMore) {
                         const from = page * pageSize;
                         const to = from + pageSize - 1;
-                        
+
                         const directQuery = await supabase
                             .from('sales_reports')
                             .select('*', { count: 'exact' })
@@ -1958,9 +1958,9 @@ export default function XemBaoCaoCSKH() {
                             .lte('date', normalizedEndDate)
                             .order('date', { ascending: false })
                             .range(from, to);
-                        
+
                         console.log(`📊 [BaoCaoSale] Direct query page ${page}: date range ${normalizedStartDate} to ${normalizedEndDate}, fetched ${directQuery.data?.length || 0} records`);
-                        
+
                         if (directQuery.error) {
                             error = directQuery.error;
                             hasMore = false;
@@ -1968,15 +1968,15 @@ export default function XemBaoCaoCSKH() {
                             allData = allData.concat(directQuery.data || []);
                             hasMore = (directQuery.data?.length || 0) === pageSize;
                             page++;
-                            
+
                             if (directQuery.count && allData.length >= directQuery.count) {
                                 hasMore = false;
                             }
                         }
                     }
-                    
+
                     console.log(`📊 Fallback: Fetched ${allData.length} records directly from sales_reports table (${page} pages)`);
-                    
+
                     // Kiểm tra xem có đủ ngày trong range không
                     if (allData.length > 0) {
                         const fetchedDates = [...new Set(allData.map(item => {
@@ -1986,9 +1986,9 @@ export default function XemBaoCaoCSKH() {
                             }
                             return String(dateVal).split('T')[0];
                         }))].sort();
-                        
+
                         console.log(`📅 [BaoCaoSale] Direct query returned dates: ${fetchedDates.join(', ')} (requested: ${normalizedStartDate} to ${normalizedEndDate})`);
-                        
+
                         // Kiểm tra xem có thiếu ngày nào trong range không
                         const missingDates = [];
                         for (let d = new Date(normalizedStartDate); d <= new Date(normalizedEndDate); d.setDate(d.getDate() + 1)) {
@@ -1997,12 +1997,12 @@ export default function XemBaoCaoCSKH() {
                                 missingDates.push(dateStr);
                             }
                         }
-                        
+
                         if (missingDates.length > 0) {
                             console.warn(`⚠️ [BaoCaoSale] Direct query thiếu các ngày: ${missingDates.join(', ')} (có thể không có dữ liệu cho các ngày này)`);
                         }
                     }
-                    
+
                     if (allData.length > 0) {
                         // Transform dữ liệu từ sales_reports sang format giống RPC function
                         data = allData.map(sr => ({
@@ -2034,7 +2034,7 @@ export default function XemBaoCaoCSKH() {
                         data = null;
                     }
                 }
-                
+
                 if (data && data.length > 0) {
                     const dates = [...new Set(data.map(item => {
                         const dateVal = item['Ngày'];
@@ -2045,14 +2045,14 @@ export default function XemBaoCaoCSKH() {
                     }))].sort();
                     console.log(`📊 Fetched ${data.length} records from RPC, date range: ${dates[0]} to ${dates[dates.length - 1]} (${dates.length} unique dates)`);
                     console.log(`📅 All dates in fetched data:`, dates);
-                    
+
                     // Kiểm tra xem có thiếu ngày nào không
                     if (dates.length > 0) {
                         const firstDate = new Date(dates[0]);
                         const lastDate = new Date(dates[dates.length - 1]);
                         const startDate = new Date(normalizedStartDate);
                         const endDate = new Date(normalizedEndDate);
-                        
+
                         if (firstDate > startDate) {
                             console.warn(`⚠️ First date in data (${dates[0]}) is after start date (${normalizedStartDate})`);
                             console.warn(`   → Database may not have data from ${normalizedStartDate} to ${dates[0]}`);
@@ -2122,7 +2122,7 @@ export default function XemBaoCaoCSKH() {
                 console.log(`🔄 [BaoCaoSale] Bắt đầu fetch dữ liệu từ nhiều bảng song song...`);
                 console.log(`📅 [BaoCaoSale] Date range: ${filters.startDate} to ${filters.endDate}`);
                 console.log(`📊 [BaoCaoSale] Số records trong transformedData: ${transformedData.length}`);
-                
+
                 // Debug: Đếm records ngày 29
                 const records29 = transformedData.filter(item => {
                     const date = item['Ngày'];
@@ -2138,7 +2138,7 @@ export default function XemBaoCaoCSKH() {
                         soDonTT: r['Số đơn TT'] // Log để kiểm tra
                     })));
                 }
-                
+
                 // Fetch dữ liệu từ nhiều bảng - ƯU TIÊN "Số đơn TT" trước để đảm bảo tính đúng
                 // Sau đó chạy song song các operations khác
                 try {
@@ -2146,7 +2146,7 @@ export default function XemBaoCaoCSKH() {
                     console.log(`🔄 [BaoCaoSale] Bước 1: Tính "Số đơn TT" từ bảng orders...`);
                     await enrichWithTotalOrdersFromOrders(transformedData, filters.startDate, filters.endDate);
                     console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalOrdersFromOrders`);
-                    
+
                     // Log để kiểm tra sau khi enrich
                     const recordsWithSoDonTT = transformedData.filter(r => r['Số đơn TT'] > 0);
                     console.log(`📊 [BaoCaoSale] Sau enrichWithTotalOrdersFromOrders: ${recordsWithSoDonTT.length}/${transformedData.length} records có Số đơn TT > 0`);
@@ -2161,30 +2161,30 @@ export default function XemBaoCaoCSKH() {
                     } else {
                         console.warn(`⚠️ [BaoCaoSale] KHÔNG CÓ records nào có Số đơn TT > 0!`);
                     }
-                    
+
                     // BƯỚC 2: Chạy SONG SONG các operations còn lại từ bảng orders và sales_reports
                     console.log(`🔄 [BaoCaoSale] Bước 2: Chạy song song các operations khác...`);
                     await Promise.all([
                         enrichWithCancelOrdersFromOrders(transformedData, filters.startDate, filters.endDate, filters.products, filters.markets)
                             .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithCancelOrdersFromOrders`))
                             .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithCancelOrdersFromOrders:`, err)),
-                        
+
                         enrichWithTotalRevenueFromOrders(transformedData, filters.startDate, filters.endDate)
                             .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalRevenueFromOrders`))
                             .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithTotalRevenueFromOrders:`, err)),
-                        
+
                         enrichWithRevenueAfterCancelFromOrders(transformedData, filters.startDate, filters.endDate)
                             .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithRevenueAfterCancelFromOrders`))
                             .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithRevenueAfterCancelFromOrders:`, err)),
-                        
+
                         // Từ bảng sales_reports (độc lập với orders)
                         enrichMessAndResponseFromSalesReports(transformedData, filters.startDate, filters.endDate)
                             .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichMessAndResponseFromSalesReports`))
                             .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichMessAndResponseFromSalesReports:`, err))
                     ]);
-                    
+
                     console.log(`✅ [BaoCaoSale] Hoàn thành tất cả enrich operations`);
-                    
+
                     // Verify "Số đơn TT" sau khi enrich
                     const finalRecordsWithSoDonTT = transformedData.filter(r => r['Số đơn TT'] > 0);
                     console.log(`📊 [BaoCaoSale] FINAL VERIFY: ${finalRecordsWithSoDonTT.length}/${transformedData.length} records có Số đơn TT > 0`);
@@ -2350,20 +2350,20 @@ export default function XemBaoCaoCSKH() {
                     // Tính "Doanh số sau hoàn hủy thực tế" = doanhThuChotThucTe - doanhSoHoanHuyThucTe (tính ở frontend)
                     originalRecord: r // Keep ref if needed
                 }));
-            
+
             const totalRecordsAfterFilter = processed.length;
             const filteredOutCount = totalRecordsBeforeFilter - totalRecordsAfterFilter;
             if (filteredOutCount > 0) {
                 console.warn(`⚠️ Đã loại bỏ ${filteredOutCount} records không có Tên hoặc Team (tổng ${totalRecordsBeforeFilter} records)`);
             }
-            
+
             // Log tổng số Mess trước khi filter
             const totalMessBeforeFilter = (apiData || []).reduce((sum, r) => sum + (Number(r['Số Mess']) || 0), 0);
             const totalMessAfterFilter = processed.reduce((sum, r) => sum + r.soMessCmt, 0);
             console.log(`📊 Tổng số Mess: Trước filter = ${totalMessBeforeFilter}, Sau filter = ${totalMessAfterFilter}, Bị loại = ${totalMessBeforeFilter - totalMessAfterFilter}`);
 
             let visibleData = processed;
-            
+
             // Filter theo permissions hiện tại (nếu có restricted view)
             // Admin KHÔNG bị filter, luôn xem full danh sách
             if (!isAdmin && (isRestrictedView || idFromUrl)) {
@@ -2374,7 +2374,7 @@ export default function XemBaoCaoCSKH() {
                     return true;
                 });
             }
-            
+
             // Filter và thêm nhân sự từ selected_personnel (nếu không phải Admin và có selectedPersonnelNames)
             // Admin KHÔNG bị filter bởi selected_personnel
             // Logic mới: Hiển thị TẤT CẢ nhân sự trong selectedPersonnelNames, kể cả khi không có dữ liệu
@@ -2384,7 +2384,7 @@ export default function XemBaoCaoCSKH() {
                 hasSelectedPersonnel: selectedPersonnelNames && selectedPersonnelNames.length > 0,
                 selectedPersonnelLength: selectedPersonnelNames?.length || 0
             });
-            
+
             if (!isAdmin && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                 const beforeFilterCount = visibleData.length;
                 const uniqueNamesBefore = [...new Set(visibleData.map(r => r.ten).filter(Boolean))];
@@ -2393,22 +2393,22 @@ export default function XemBaoCaoCSKH() {
                 console.log(`  - Số nhân sự unique: ${uniqueNamesBefore.length}`);
                 console.log(`  - Danh sách nhân sự:`, uniqueNamesBefore);
                 console.log(`  - selectedPersonnelNames:`, selectedPersonnelNames);
-                
+
                 // 1. Filter để chỉ giữ lại nhân sự trong selectedPersonnelNames
                 visibleData = visibleData.filter(r => {
                     const rName = String(r.ten || '').trim();
                     const rNameLower = rName.toLowerCase();
-                    
+
                     // Tìm match chính xác hoặc partial match
                     const matched = selectedPersonnelNames.some(name => {
                         const nameStr = String(name).trim();
                         const nameStrLower = nameStr.toLowerCase();
-                        
+
                         // Match chính xác (case-insensitive)
                         if (rNameLower === nameStrLower) {
                             return true;
                         }
-                        
+
                         // Partial match: tên trong data chứa tên trong selectedPersonnelNames hoặc ngược lại
                         if (rNameLower.includes(nameStrLower) || nameStrLower.includes(rNameLower)) {
                             // Kiểm tra thêm để tránh match sai (ví dụ: "Nguyễn" match với "Nguyễn Anh Điệp")
@@ -2418,10 +2418,10 @@ export default function XemBaoCaoCSKH() {
                                 return true;
                             }
                         }
-                        
+
                         return false;
                     });
-                    
+
                     if (!matched) {
                         console.log(`  ⚠️ Loại bỏ: "${r.ten}" (không khớp với selectedPersonnelNames)`);
                     } else {
@@ -2429,13 +2429,13 @@ export default function XemBaoCaoCSKH() {
                     }
                     return matched;
                 });
-                
+
                 // Helper function để normalize string (dùng lại từ enrichWithTotalOrdersFromOrders)
                 const normalizeStr = (str) => {
                     if (!str) return '';
                     return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
                 };
-                
+
                 // 2. Lấy danh sách nhân sự đã có trong visibleData (sau khi filter)
                 const existingNames = new Set(visibleData.map(r => {
                     const rName = String(r.ten || '').trim().toLowerCase();
@@ -2446,25 +2446,25 @@ export default function XemBaoCaoCSKH() {
                     });
                     return matchedName ? matchedName.toLowerCase() : rName;
                 }));
-                
+
                 // 3. Thêm các nhân sự từ selectedPersonnelNames chưa có trong visibleData
                 const missingPersonnel = selectedPersonnelNames.filter(name => {
                     const nameStr = String(name).trim().toLowerCase();
-                    return !existingNames.has(nameStr) && 
-                           !Array.from(existingNames).some(existing => 
-                               existing === nameStr || existing.includes(nameStr) || nameStr.includes(existing)
-                           );
+                    return !existingNames.has(nameStr) &&
+                        !Array.from(existingNames).some(existing =>
+                            existing === nameStr || existing.includes(nameStr) || nameStr.includes(existing)
+                        );
                 });
-                
+
                 console.log(`📋 [BaoCaoSale] Nhân sự chưa có dữ liệu:`, missingPersonnel);
-                
+
                 // 4. Tạo records với dữ liệu = 0 cho nhân sự chưa có
                 // Tính "Số đơn TT" trực tiếp từ database (giống như enrichWithTotalOrdersFromOrders)
                 if (missingPersonnel.length > 0) {
                     // Tìm thông tin team và chi nhánh từ employeeData
                     const defaultTeam = visibleData.length > 0 ? visibleData[0].team : '';
                     const defaultChiNhanh = visibleData.length > 0 ? visibleData[0].chiNhanh : 'Không xác định';
-                    
+
                     // Helper function để normalize date format
                     const normalizeDate = (date) => {
                         if (!date) return '';
@@ -2505,10 +2505,10 @@ export default function XemBaoCaoCSKH() {
                         }
                         return String(date);
                     };
-                    
+
                     const normalizedStartDate = normalizeDate(filters.startDate);
                     const normalizedEndDate = normalizeDate(filters.endDate);
-                    
+
                     // Fetch orders từ database cho các nhân sự chưa có dữ liệu
                     // Tính: Số đơn TT, Doanh số TT, Số đơn Hủy TT
                     // Fetch "Số Mess" và "Phản hồi" độc lập từ sales_reports
@@ -2520,7 +2520,7 @@ export default function XemBaoCaoCSKH() {
                             .gte('order_date', normalizedStartDate)
                             .lte('order_date', normalizedEndDate)
                             .limit(10000);
-                        
+
                         // 2. Fetch đơn hủy (để tính Số đơn Hủy TT)
                         const { data: cancelOrdersForMissingPersonnel, error: cancelOrdersError } = await supabase
                             .from('orders')
@@ -2529,11 +2529,11 @@ export default function XemBaoCaoCSKH() {
                             .lte('order_date', normalizedEndDate)
                             .or('check_result.eq.Hủy,check_result.eq.Huỷ')
                             .limit(10000);
-                        
+
                         // 3. Fetch "Số Mess" và "Phản hồi" độc lập từ sales_reports cho các nhân sự chưa có dữ liệu
                         // Tạo danh sách tên nhân sự để filter
                         const personnelNamesForQuery = missingPersonnel.map(name => name.trim()).filter(Boolean);
-                        
+
                         let messAndResponseData = [];
                         if (personnelNamesForQuery.length > 0) {
                             // Fetch từ sales_reports với filter theo tên và khoảng ngày
@@ -2542,7 +2542,7 @@ export default function XemBaoCaoCSKH() {
                                 .select('name, mess_count, response_count, date')
                                 .gte('date', normalizedStartDate)
                                 .lte('date', normalizedEndDate);
-                            
+
                             // Filter theo tên nhân sự (nếu có ít hơn 50 tên để tránh vượt quá giới hạn OR)
                             if (personnelNamesForQuery.length <= 50) {
                                 const nameConditions = personnelNamesForQuery
@@ -2550,11 +2550,11 @@ export default function XemBaoCaoCSKH() {
                                     .join(',');
                                 query = query.or(nameConditions);
                             }
-                            
+
                             query = query.limit(10000);
-                            
+
                             const { data: salesReportsData, error: salesReportsError } = await query;
-                            
+
                             if (salesReportsError) {
                                 console.error('❌ Error fetching mess_count and response_count:', salesReportsError);
                             } else {
@@ -2562,32 +2562,32 @@ export default function XemBaoCaoCSKH() {
                                 console.log(`📊 [BaoCaoSale] Fetch được ${messAndResponseData.length} records từ sales_reports cho mess_count và response_count`);
                             }
                         }
-                        
+
                         if (ordersError || cancelOrdersError) {
                             console.error('❌ Error fetching orders for missing personnel:', ordersError || cancelOrdersError);
                         } else {
                             console.log(`📊 [BaoCaoSale] Fetch được ${allOrdersForMissingPersonnel?.length || 0} đơn cho missing personnel trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
-                            
+
                             // Validate và filter cancel orders
                             const validCancelOrders = (cancelOrdersForMissingPersonnel || []).filter(order => {
                                 const checkResult = String(order.check_result || '').trim();
                                 return checkResult === 'Hủy' || checkResult === 'Huỷ';
                             });
                             console.log(`📊 [BaoCaoSale] Fetch được ${validCancelOrders.length} đơn hủy cho missing personnel`);
-                            
+
                             // Tính Số đơn TT, Doanh số TT, và Số đơn Hủy TT cho từng nhân sự chưa có dữ liệu
                             const soDonTTByPersonnel = new Map(); // Số đơn TT
                             const doanhSoTTByPersonnel = new Map(); // Doanh số TT (tổng total_amount_vnd)
                             const soDonHuyTTByPersonnel = new Map(); // Số đơn Hủy TT
                             const messByPersonnel = new Map(); // Số Mess (từ sales_reports)
                             const phanHoiByPersonnel = new Map(); // Phản hồi (từ sales_reports)
-                            
+
                             // Tính Số đơn TT và Doanh số TT từ tất cả orders
                             // QUAN TRỌNG: Phải dùng cùng logic matching như enrichWithTotalOrdersFromOrders
                             // để đảm bảo tính nhất quán (tránh "đúng 1 nửa lại sai 1 nửa")
                             (allOrdersForMissingPersonnel || []).forEach(order => {
                                 const orderSaleName = normalizeStr(order.sale_staff);
-                                
+
                                 // Tìm nhân sự trong missingPersonnel khớp với order
                                 // Dùng exact match hoặc partial match (giống logic trong enrichWithTotalOrdersFromOrders)
                                 const matchedPersonnel = missingPersonnel.find(name => {
@@ -2604,28 +2604,28 @@ export default function XemBaoCaoCSKH() {
                                     }
                                     return false;
                                 });
-                                
+
                                 if (matchedPersonnel) {
                                     // Dùng tên đã normalize từ missingPersonnel (không phải từ order)
                                     // để đảm bảo consistency với key trong enrichWithTotalOrdersFromOrders
                                     const key = normalizeStr(matchedPersonnel);
-                                    
+
                                     // Tính Số đơn TT
                                     const currentSoDonTT = soDonTTByPersonnel.get(key) || 0;
                                     soDonTTByPersonnel.set(key, currentSoDonTT + 1);
-                                    
+
                                     // Tính Doanh số TT
                                     const currentDoanhSoTT = doanhSoTTByPersonnel.get(key) || 0;
                                     const orderAmount = Number(order.total_amount_vnd) || 0;
                                     doanhSoTTByPersonnel.set(key, currentDoanhSoTT + orderAmount);
                                 }
                             });
-                            
+
                             // Tính Số đơn Hủy TT từ đơn hủy
                             // QUAN TRỌNG: Dùng cùng logic matching như trên để đảm bảo consistency
                             validCancelOrders.forEach(order => {
                                 const orderSaleName = normalizeStr(order.sale_staff);
-                                
+
                                 // Tìm nhân sự trong missingPersonnel khớp với order
                                 // Dùng exact match hoặc partial match (giống logic trên)
                                 const matchedPersonnel = missingPersonnel.find(name => {
@@ -2641,19 +2641,19 @@ export default function XemBaoCaoCSKH() {
                                     }
                                     return false;
                                 });
-                                
+
                                 if (matchedPersonnel) {
                                     const key = normalizeStr(matchedPersonnel);
                                     const current = soDonHuyTTByPersonnel.get(key) || 0;
                                     soDonHuyTTByPersonnel.set(key, current + 1);
                                 }
                             });
-                            
+
                             // Tính "Số Mess" và "Phản hồi" độc lập từ sales_reports
                             // QUAN TRỌNG: Dùng cùng logic matching như trên để đảm bảo consistency
                             messAndResponseData.forEach(report => {
                                 const reportName = normalizeStr(report.name);
-                                
+
                                 // Tìm nhân sự trong missingPersonnel khớp với report
                                 // Dùng exact match hoặc partial match (giống logic trên)
                                 const matchedPersonnel = missingPersonnel.find(name => {
@@ -2669,36 +2669,36 @@ export default function XemBaoCaoCSKH() {
                                     }
                                     return false;
                                 });
-                                
+
                                 if (matchedPersonnel) {
                                     const key = normalizeStr(matchedPersonnel);
-                                    
+
                                     // Tính tổng Số Mess
                                     const currentMess = messByPersonnel.get(key) || 0;
                                     messByPersonnel.set(key, currentMess + (Number(report.mess_count) || 0));
-                                    
+
                                     // Tính tổng Phản hồi
                                     const currentPhanHoi = phanHoiByPersonnel.get(key) || 0;
                                     phanHoiByPersonnel.set(key, currentPhanHoi + (Number(report.response_count) || 0));
                                 }
                             });
-                            
-                            console.log(`📊 [BaoCaoSale] Số đơn TT theo nhân sự (từ database):`, 
+
+                            console.log(`📊 [BaoCaoSale] Số đơn TT theo nhân sự (từ database):`,
                                 Array.from(soDonTTByPersonnel.entries()).map(([name, count]) => ({ name, count }))
                             );
-                            console.log(`📊 [BaoCaoSale] Doanh số TT theo nhân sự (từ database):`, 
+                            console.log(`📊 [BaoCaoSale] Doanh số TT theo nhân sự (từ database):`,
                                 Array.from(doanhSoTTByPersonnel.entries()).map(([name, amount]) => ({ name, amount }))
                             );
-                            console.log(`📊 [BaoCaoSale] Số đơn Hủy TT theo nhân sự (từ database):`, 
+                            console.log(`📊 [BaoCaoSale] Số đơn Hủy TT theo nhân sự (từ database):`,
                                 Array.from(soDonHuyTTByPersonnel.entries()).map(([name, count]) => ({ name, count }))
                             );
-                            console.log(`📊 [BaoCaoSale] Số Mess theo nhân sự (từ sales_reports):`, 
+                            console.log(`📊 [BaoCaoSale] Số Mess theo nhân sự (từ sales_reports):`,
                                 Array.from(messByPersonnel.entries()).map(([name, count]) => ({ name, count }))
                             );
-                            console.log(`📊 [BaoCaoSale] Phản hồi theo nhân sự (từ sales_reports):`, 
+                            console.log(`📊 [BaoCaoSale] Phản hồi theo nhân sự (từ sales_reports):`,
                                 Array.from(phanHoiByPersonnel.entries()).map(([name, count]) => ({ name, count }))
                             );
-                            
+
                             missingPersonnel.forEach(personnelName => {
                                 // Tìm thông tin nhân sự từ employeeData
                                 const employeeInfo = employeeData.find(e => {
@@ -2706,7 +2706,7 @@ export default function XemBaoCaoCSKH() {
                                     const pName = String(personnelName).trim().toLowerCase();
                                     return eName === pName || eName.includes(pName) || pName.includes(eName);
                                 });
-                                
+
                                 // Lấy các giá trị từ maps
                                 const personnelKey = normalizeStr(personnelName);
                                 const soDonTT = soDonTTByPersonnel.get(personnelKey) || 0;
@@ -2714,7 +2714,7 @@ export default function XemBaoCaoCSKH() {
                                 const soDonHuyTT = soDonHuyTTByPersonnel.get(personnelKey) || 0;
                                 const mess = messByPersonnel.get(personnelKey) || 0; // Số Mess từ sales_reports
                                 const phanHoi = phanHoiByPersonnel.get(personnelKey) || 0; // Phản hồi từ sales_reports
-                                
+
                                 // Tạo record với dữ liệu = 0, nhưng giữ lại các giá trị từ database
                                 const emptyRecord = {
                                     chucVu: employeeInfo?.['Chức vụ'] || employeeInfo?.['Vị trí'] || '',
@@ -2745,7 +2745,7 @@ export default function XemBaoCaoCSKH() {
                                     doanhSoSauHuy: 0,
                                     originalRecord: null
                                 };
-                                
+
                                 visibleData.push(emptyRecord);
                                 console.log(`  ✅ Đã thêm nhân sự "${personnelName}" với Số Mess = ${mess}, Phản hồi = ${phanHoi}, Số đơn TT = ${soDonTT}, Doanh số TT = ${doanhSoTT}, Số đơn Hủy TT = ${soDonHuyTT} (từ database)`);
                             });
@@ -2759,7 +2759,7 @@ export default function XemBaoCaoCSKH() {
                                 const pName = String(personnelName).trim().toLowerCase();
                                 return eName === pName || eName.includes(pName) || pName.includes(eName);
                             });
-                            
+
                             const emptyRecord = {
                                 chucVu: employeeInfo?.['Chức vụ'] || employeeInfo?.['Vị trí'] || '',
                                 ten: personnelName.trim(),
@@ -2789,12 +2789,12 @@ export default function XemBaoCaoCSKH() {
                                 doanhSoSauHuy: 0,
                                 originalRecord: null
                             };
-                            
+
                             visibleData.push(emptyRecord);
                         });
                     }
                 }
-                
+
                 const uniqueNamesAfter = [...new Set(visibleData.map(r => r.ten).filter(Boolean))];
                 console.log(`📋 [BaoCaoSale] Sau khi filter và thêm nhân sự:`);
                 console.log(`  - Tổng records: ${visibleData.length}`);
@@ -2818,7 +2818,7 @@ export default function XemBaoCaoCSKH() {
                     team: r.team
                 }))
             });
-            
+
             setRawData(visibleData);
             setLoading(false);
         };
@@ -2829,16 +2829,16 @@ export default function XemBaoCaoCSKH() {
             console.log('⏳ [BaoCaoSale] Đợi selectedPersonnelNames được load...');
             return; // Đợi selectedPersonnelNames được load
         }
-        
+
         console.log('✅ [BaoCaoSale] selectedPersonnelNames đã sẵn sàng, bắt đầu fetch data:', {
             isAdmin,
             selectedPersonnelNames,
             hasSelectedPersonnel: selectedPersonnelNames && selectedPersonnelNames.length > 0
         });
-        
+
         fetchData();
     }, [filters.startDate, filters.endDate, selectedPersonnelNames, isAdmin]);
-    
+
     // Lưu selectedPersonnelNames vào localStorage để giữ lại khi component re-render hoặc filter thay đổi
     useEffect(() => {
         if (selectedPersonnelNames !== null && selectedPersonnelNames.length > 0) {
@@ -2846,7 +2846,7 @@ export default function XemBaoCaoCSKH() {
             console.log('💾 [BaoCaoSale] Đã lưu selectedPersonnelNames vào localStorage:', selectedPersonnelNames);
         }
     }, [selectedPersonnelNames]);
-    
+
     // Khôi phục selectedPersonnelNames từ localStorage khi filter thay đổi
     // Đảm bảo selectedPersonnelNames không bị mất khi ngày thay đổi
     useEffect(() => {
@@ -2876,7 +2876,7 @@ export default function XemBaoCaoCSKH() {
     // --- Filtering Logic ---
     const filteredData = useMemo(() => {
         if (loading) return [];
-        
+
         console.log(`🔍 [BaoCaoSale] Filtering rawData:`, {
             rawDataLength: rawData.length,
             filters: {
@@ -2887,10 +2887,10 @@ export default function XemBaoCaoCSKH() {
                 endDate: filters.endDate
             }
         });
-        
+
         const filtered = rawData.filter(r => {
             const reasons = [];
-            
+
             // Date Filter - Đảm bảo chỉ lọc theo ngày, không filter lại
             if (!isDateInRange(r.ngay, filters.startDate, filters.endDate)) {
                 reasons.push('date out of range');
@@ -2899,7 +2899,7 @@ export default function XemBaoCaoCSKH() {
             // Nếu là record được thêm vào (originalRecord === null), bỏ qua filter products/markets
             // vì các records này có sanPham = '' và thiTruong = ''
             const isAddedRecord = r.originalRecord === null;
-            
+
             // Checkboxes - chỉ filter khi filters có giá trị và không phải record được thêm vào
             if (!isAddedRecord) {
                 // Chỉ filter khi filters.products có giá trị (length > 0)
@@ -2914,10 +2914,10 @@ export default function XemBaoCaoCSKH() {
                 // Log records được thêm vào
                 console.log(`  📝 Record được thêm vào (bỏ qua filter products/markets): "${r.ten}"`);
             }
-            
+
             // Bỏ filter theo Ca vì tất cả đều tự động là "Hết ca"
             // if (!filters.shifts.includes(String(r.ca))) return false;
-            
+
             // Team filter - chỉ filter khi filters.teams có giá trị (length > 0)
             // Vẫn áp dụng cho cả records được thêm vào
             if (filters.teams.length > 0 && !filters.teams.includes(String(r.team))) {
@@ -2928,12 +2928,12 @@ export default function XemBaoCaoCSKH() {
                 console.log(`  ❌ Loại bỏ record: "${r.ten}" - Lý do:`, reasons);
                 return false;
             }
-            
+
             return true;
         });
-        
+
         console.log(`✅ [BaoCaoSale] Filtered data: ${filtered.length} records (từ ${rawData.length} records)`);
-        
+
         // Log để debug
         if (filtered.length > 0) {
             const dates = [...new Set(filtered.map(r => r.ngay))].sort();
@@ -2941,15 +2941,15 @@ export default function XemBaoCaoCSKH() {
         } else {
             console.warn(`⚠️ [BaoCaoSale] Không có records nào sau khi filter!`);
         }
-        
+
         return filtered;
-        
+
         // Log để debug
         if (filtered.length > 0) {
             const dates = [...new Set(filtered.map(r => r.ngay))].sort();
             console.log(`📊 Filtered data: ${filtered.length} records, date range: ${dates[0]} to ${dates[dates.length - 1]} (${dates.length} unique dates)`);
         }
-        
+
         return filtered;
     }, [rawData, filters, loading]);
 
@@ -2974,7 +2974,7 @@ export default function XemBaoCaoCSKH() {
         const summary = {};
         const initial = {
             mess: 0, don: 0, chot: 0, phanHoi: 0,
-            doanhSoDi: 0, soDonHuy: 0, doanhSoHuy: 0,
+            doanhSoDi: 0, soDonHuy: 0,
             soDonThanhCong: 0, doanhSoThanhCong: 0,
             soDonThucTe: 0, doanhThuChotThucTe: 0, doanhSoDiThucTe: 0,
             soDonHoanHuyThucTe: 0, doanhSoHoanHuyThucTe: 0, doanhSoSauHoanHuyThucTe: 0,
@@ -2995,16 +2995,16 @@ export default function XemBaoCaoCSKH() {
                 };
             }
             const s = summary[r.ten];
-            
+
             // Tính "Số Mess" và "Phản hồi" từ TẤT CẢ records
             // Vì "Số Mess" và "Phản hồi" đã được enrich độc lập từ sales_reports
             // cho cả actual records và empty records (từ enrichMessAndResponseFromSalesReports)
             s.mess += r.soMessCmt || 0;
             s.phanHoi += r.phanHoi || 0;
-            
+
             // "Số đơn TT" tính từ TẤT CẢ records (bao gồm cả empty records) vì nó được tính từ database
             s.soDonTT += r.soDonTT || 0;
-            
+
             // Các giá trị khác vẫn tính từ tất cả records (bao gồm cả empty records)
             s.don += r.soDon || 0;
             s.chot += r.dsChot || 0;
@@ -3042,7 +3042,7 @@ export default function XemBaoCaoCSKH() {
         console.log(`📊 Tổng số đơn Hoàn huỷ (giờ = soDonHoanHuyThucTe từ orders) sau khi tổng hợp: ${total.soDonHuy} (từ ${flatList.length} người)`);
         console.log(`📊 Tổng số đơn Hoàn huỷ (giờ = soDonHoanHuyThucTe từ orders) trước khi tổng hợp: ${totalSoDonHuyBeforeSummary} (từ ${data.length} records)`);
         console.log(`📊 Tổng số đơn hoàn hủy thực tế (từ orders) trước khi tổng hợp: ${totalSoDonHoanHuyThucTeBeforeSummary} (từ ${data.length} records)`);
-        
+
         if (totalMessBeforeSummary !== total.mess) {
             console.warn(`⚠️ CẢNH BÁO: Tổng số Mess không khớp! Trước = ${totalMessBeforeSummary}, Sau = ${total.mess}, Chênh lệch = ${totalMessBeforeSummary - total.mess}`);
         }

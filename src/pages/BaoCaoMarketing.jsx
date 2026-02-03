@@ -305,17 +305,17 @@ export default function BaoCaoMarketing() {
       alert('Bạn không thể xóa dòng cuối cùng.');
       return;
     }
-    
+
     // Confirm before deleting
     if (!window.confirm(`Bạn có chắc chắn muốn xóa dòng ${index + 1}?\n\nDữ liệu trong dòng này sẽ bị mất.`)) {
       return;
     }
-    
+
     const rowId = tableRows[index]?.id;
-    
+
     // Remove from table
     setTableRows(tableRows.filter((_, i) => i !== index));
-    
+
     // Clean up real values map
     if (rowId) {
       setRealValuesMap(prev => {
@@ -329,7 +329,7 @@ export default function BaoCaoMarketing() {
         return newMap;
       });
     }
-    
+
     updateStatus(`Đã xóa dòng ${index + 1}.`);
   };
 
@@ -394,7 +394,7 @@ export default function BaoCaoMarketing() {
 
       // Filter by shift/ca
       const caValue = String(reportCa || '').trim();
-      
+
       if (caValue === 'Hết ca' || caValue.toLowerCase() === 'hết ca') {
         // Hết ca: tính đơn có shift chứa "Hết ca"
         query = query.ilike('shift', '%Hết ca%');
@@ -472,7 +472,6 @@ export default function BaoCaoMarketing() {
           marketing_staff: orders[0].marketing_staff,
           product: orders[0].product,
           country: orders[0].country,
-          country: orders[0].country,
           shift: orders[0].shift,
           total_amount_vnd: orders[0].total_amount_vnd,
           total_vnd: orders[0].total_vnd,
@@ -482,7 +481,7 @@ export default function BaoCaoMarketing() {
       } else {
         // Debug: Try to find orders step by step
         console.log('🔍 Debugging: Checking each filter step by step...');
-        
+
         // Check orders by date only
         const { data: ordersDateOnly } = await supabase
           .from('orders')
@@ -490,7 +489,7 @@ export default function BaoCaoMarketing() {
           .eq('order_date', reportDate)
           .limit(5);
         console.log(`  📅 Orders on date ${reportDate}: ${ordersDateOnly?.length || 0}`, ordersDateOnly);
-        
+
         // Check orders by date + name
         if (reportName) {
           const { data: ordersDateName } = await supabase
@@ -501,7 +500,7 @@ export default function BaoCaoMarketing() {
             .limit(5);
           console.log(`  👤 Orders with name "${reportName}": ${ordersDateName?.length || 0}`, ordersDateName);
         }
-        
+
         // Check orders by date + name + product
         if (reportName && reportProduct) {
           const { data: ordersDateNameProduct } = await supabase
@@ -529,7 +528,7 @@ export default function BaoCaoMarketing() {
 
       // Calculate values
       const totalOrders = orders.length;
-      
+
       // Doanh số thực tế: tổng total_amount_vnd của tất cả đơn khớp điều kiện
       const doanhSoThucTe = orders.reduce((sum, o) => {
         const amount = o.total_amount_vnd || o.total_vnd || 0;
@@ -566,7 +565,7 @@ export default function BaoCaoMarketing() {
     });
 
     setCalculatingRealValues(prev => ({ ...prev, [rowId]: true }));
-    
+
     try {
       const realValues = await calculateRealValues(rowData, rowId);
       console.log('✅ Calculated real values:', realValues);
@@ -656,7 +655,7 @@ export default function BaoCaoMarketing() {
     try {
       setDeleting(true);
       updateStatus('Đang xóa dữ liệu...');
-      
+
       // Delete all records from detail_reports
       const { error } = await supabase
         .from('detail_reports')
@@ -682,7 +681,7 @@ export default function BaoCaoMarketing() {
               .from('detail_reports')
               .delete()
               .in('id', batch);
-            
+
             if (batchError) {
               console.error(`Batch ${i / batchSize + 1} error:`, batchError);
               throw batchError;
@@ -721,7 +720,7 @@ export default function BaoCaoMarketing() {
     try {
       setSyncing(true);
       updateStatus('Đang đồng bộ dữ liệu từ Firebase...');
-      
+
       // Call backend API which uses service role key to bypass RLS
       const response = await fetch('/api/sync-mkt', {
         method: 'POST',
@@ -791,13 +790,13 @@ export default function BaoCaoMarketing() {
         // Must match Supabase detail_reports columns exactly
         // List of columns that DO NOT exist in detail_reports and should be excluded
         const excludedColumns = ['Chi nhánh', 'chi nhánh', 'Chi_nhánh', 'chi_nhánh', 'branch'];
-        
+
         Object.keys(row.data).forEach((key) => {
           // Skip excluded columns that don't exist in detail_reports schema
           if (excludedColumns.includes(key)) {
             return;
           }
-          
+
           let value = row.data[key];
 
           // Process numeric fields
@@ -934,119 +933,119 @@ export default function BaoCaoMarketing() {
           <div className="overflow-x-auto mb-4 border border-gray-300 rounded-lg" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
             <div className="w-full align-middle">
               <table className="w-full border-collapse bg-white text-xs table-fixed">
-              <thead>
-                <tr className="bg-blue-600 text-white sticky top-0">
-                  <th className="border px-2 py-1 text-left font-semibold whitespace-nowrap">Hành động</th>
-                  {headerMkt.map(
-                    (header) =>
-                      !hiddenFields.includes(header.toLowerCase()) && (
-                        <th key={header} className="border px-2 py-1 text-left font-semibold whitespace-nowrap">
-                          {header}
-                        </th>
-                      )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {tableRows.map((row, rowIndex) => (
-                  <tr key={row.id} className="hover:bg-gray-50 even:bg-gray-50">
-                    <td className="border px-2 py-1 flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleAddRow(rowIndex)}
-                        className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition text-xs font-semibold"
-                        title="Copy dòng này"
-                      >
-                        ➕
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveRow(rowIndex)}
-                        className="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded transition text-xs font-semibold"
-                      >
-                        ❌
-                      </button>
-                    </td>
+                <thead>
+                  <tr className="bg-blue-600 text-white sticky top-0">
+                    <th className="border px-2 py-1 text-left font-semibold whitespace-nowrap">Hành động</th>
                     {headerMkt.map(
                       (header) =>
                         !hiddenFields.includes(header.toLowerCase()) && (
-                          <td key={`${row.id}-${header}`} className="border px-2 py-2">
-                            {header === 'Ngày' ? (
-                              <input
-                                type="date"
-                                value={row.data[header] || ''}
-                                onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              />
-                            ) : header === 'ca' ? (
-                              <input
-                                type="text"
-                                list={`ca-datalist-${row.id}`}
-                                placeholder="--"
-                                value={row.data[header] || ''}
-                                onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              />
-                            ) : header === 'Sản_phẩm' ? (
-                              <input
-                                type="text"
-                                list={`product-datalist-${row.id}`}
-                                placeholder="--"
-                                value={row.data[header] || ''}
-                                onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              />
-                            ) : header === 'Thị_trường' ? (
-                              <input
-                                type="text"
-                                list={`market-datalist-${row.id}`}
-                                placeholder="--"
-                                value={row.data[header] || ''}
-                                onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              />
-                            ) : header === 'Email' ? (
-                              <input
-                                type="email"
-                                list="email-datalist"
-                                placeholder="--"
-                                value={row.data[header] || ''}
-                                onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-32 px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              />
-                            ) : header === 'Tên' ? (
-                              <input
-                                type="text"
-                                list="employee-datalist"
-                                placeholder="--"
-                                value={row.data[header] || ''}
-                                onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              />
-                            ) : numberFields.includes(header) ? (
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                placeholder="Số"
-                                value={row.data[header] ? formatNumberInput(row.data[header]) : ''}
-                                onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-12 px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              />
-                            ) : (
-                              <input
-                                type="text"
-                                value={row.data[header] || ''}
-                                onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                              />
-                            )}
-                          </td>
+                          <th key={header} className="border px-2 py-1 text-left font-semibold whitespace-nowrap">
+                            {header}
+                          </th>
                         )
                     )}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {tableRows.map((row, rowIndex) => (
+                    <tr key={row.id} className="hover:bg-gray-50 even:bg-gray-50">
+                      <td className="border px-2 py-1 flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleAddRow(rowIndex)}
+                          className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition text-xs font-semibold"
+                          title="Copy dòng này"
+                        >
+                          ➕
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRow(rowIndex)}
+                          className="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded transition text-xs font-semibold"
+                        >
+                          ❌
+                        </button>
+                      </td>
+                      {headerMkt.map(
+                        (header) =>
+                          !hiddenFields.includes(header.toLowerCase()) && (
+                            <td key={`${row.id}-${header}`} className="border px-2 py-2">
+                              {header === 'Ngày' ? (
+                                <input
+                                  type="date"
+                                  value={row.data[header] || ''}
+                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                />
+                              ) : header === 'ca' ? (
+                                <input
+                                  type="text"
+                                  list={`ca-datalist-${row.id}`}
+                                  placeholder="--"
+                                  value={row.data[header] || ''}
+                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                />
+                              ) : header === 'Sản_phẩm' ? (
+                                <input
+                                  type="text"
+                                  list={`product-datalist-${row.id}`}
+                                  placeholder="--"
+                                  value={row.data[header] || ''}
+                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                />
+                              ) : header === 'Thị_trường' ? (
+                                <input
+                                  type="text"
+                                  list={`market-datalist-${row.id}`}
+                                  placeholder="--"
+                                  value={row.data[header] || ''}
+                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                />
+                              ) : header === 'Email' ? (
+                                <input
+                                  type="email"
+                                  list="email-datalist"
+                                  placeholder="--"
+                                  value={row.data[header] || ''}
+                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                  className="w-32 px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                />
+                              ) : header === 'Tên' ? (
+                                <input
+                                  type="text"
+                                  list="employee-datalist"
+                                  placeholder="--"
+                                  value={row.data[header] || ''}
+                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                />
+                              ) : numberFields.includes(header) ? (
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  placeholder="Số"
+                                  value={row.data[header] ? formatNumberInput(row.data[header]) : ''}
+                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                  className="w-12 px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                />
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={row.data[header] || ''}
+                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                />
+                              )}
+                            </td>
+                          )
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
 

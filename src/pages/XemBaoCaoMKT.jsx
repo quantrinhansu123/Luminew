@@ -1,11 +1,11 @@
+import { Settings } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Settings } from 'lucide-react';
 
+import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { isDateInRange, parseSmartDate } from '../utils/dateParsing';
-import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import './XemBaoCaoMKT.css';
 
 const MARKET_GROUPS = {
@@ -21,21 +21,21 @@ export default function XemBaoCaoMKT() {
   // Permission Logic
   const { canView, role, team: userTeam } = usePermissions();
   const permissionCode = teamFilter === 'RD' ? 'RND_VIEW' : 'MKT_VIEW';
-  
+
   // Kiểm tra Admin
   const roleFromHook = (role || '').toUpperCase();
   const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
   const userJson = localStorage.getItem("user");
   const userObj = userJson ? JSON.parse(userJson) : null;
   const roleFromUserObj = (userObj?.role || '').toLowerCase();
-  
+
   const isAdmin = roleFromHook === 'ADMIN' ||
-                   roleFromHook === 'SUPER_ADMIN' ||
-                   roleFromStorage === 'admin' ||
-                   roleFromStorage === 'super_admin' ||
-                   roleFromUserObj === 'admin' ||
-                   roleFromUserObj === 'super_admin';
-  
+    roleFromHook === 'SUPER_ADMIN' ||
+    roleFromStorage === 'admin' ||
+    roleFromStorage === 'super_admin' ||
+    roleFromUserObj === 'admin' ||
+    roleFromUserObj === 'super_admin';
+
   // Get user email and name for filtering
   const userEmail = localStorage.getItem('userEmail') || '';
   const userName = localStorage.getItem('username') || '';
@@ -68,7 +68,7 @@ export default function XemBaoCaoMKT() {
       giaMess: true, cps: true, cp_ds: true, giaTBDon: true,
       soDonHuy: false, dsHuy: false // Ẩn các cột không có trong hình
     };
-    
+
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -94,7 +94,7 @@ export default function XemBaoCaoMKT() {
   const [products, setProducts] = useState([]);
   const [selectedMarket, setSelectedMarket] = useState('ALL');
   const [markets, setMarkets] = useState([]);
-  
+
   // Filters for Detailed Report Tab
   const [quickSelect, setQuickSelect] = useState('');
   const [selectedProducts, setSelectedProducts] = useState([]); // Array for multiple selection
@@ -195,10 +195,10 @@ export default function XemBaoCaoMKT() {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      
+
       const apiUrl = `/api/fetch-detail-reports?${params.toString()}`;
       console.log('📡 Fetching from:', apiUrl);
-      
+
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -212,7 +212,7 @@ export default function XemBaoCaoMKT() {
       if (!response.ok) {
         const contentType = response.headers.get('content-type');
         let errorText = 'Unknown error';
-        
+
         // Kiểm tra xem response có phải là JSON không
         if (contentType && contentType.includes('application/json')) {
           try {
@@ -227,7 +227,7 @@ export default function XemBaoCaoMKT() {
           console.error('❌ Server returned non-JSON response (possibly HTML error page):', errorText.substring(0, 200));
           throw new Error(`Server error (${response.status}): Backend server có thể chưa chạy hoặc có lỗi. Vui lòng kiểm tra server trên port 3001.`);
         }
-        
+
         console.error('❌ HTTP error:', response.status, errorText);
         throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
       }
@@ -247,17 +247,17 @@ export default function XemBaoCaoMKT() {
       }
 
       const allReports = result.data || [];
-      
+
       // Filter by date first
       let dateFilteredReports = allReports.filter(r => isDateInRange(r['Ngày'], startDate, endDate));
-      
+
       // Then filter by hierarchical permissions
       // Admin: luôn xem tất cả dữ liệu, không bị filter
       if (!isAdmin) {
         // Non-admin: Áp dụng filter theo role
         // Leader: see team data only
         if (role?.toUpperCase() === 'LEADER' && userTeam) {
-          dateFilteredReports = dateFilteredReports.filter(item => 
+          dateFilteredReports = dateFilteredReports.filter(item =>
             item['Team'] && item['Team'].toLowerCase() === userTeam.toLowerCase()
           );
         } else {
@@ -267,24 +267,24 @@ export default function XemBaoCaoMKT() {
             const itemEmail = (item['Email'] || '').toLowerCase().trim();
             const currentUserName = userName.toLowerCase().trim();
             const currentUserEmail = userEmail.toLowerCase().trim();
-            
+
             return (itemName === currentUserName && currentUserName !== '') ||
-                   (itemEmail === currentUserEmail && currentUserEmail !== '');
+              (itemEmail === currentUserEmail && currentUserEmail !== '');
           });
         }
       } else {
         // Admin: xem tất cả, không filter
         console.log('✅ Admin: Viewing all MKT reports (no filter applied)');
       }
-      
+
       console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`);
-      
+
       // Enrich Team từ bảng users/human_resources nếu thiếu
       await enrichTeamFromUsers(dateFilteredReports);
-      
+
       // Enrich với số đơn TT từ bảng orders
       await enrichWithTotalOrdersFromOrders(dateFilteredReports, startDate, endDate);
-      
+
       setData(dateFilteredReports);
 
       // Extract unique teams, products, markets from detail_reports
@@ -297,7 +297,7 @@ export default function XemBaoCaoMKT() {
 
       const uniqueMarkets = [...new Set(dateFilteredReports.map(r => r['Thị_trường']).filter(Boolean))].sort();
       setMarkets(uniqueMarkets);
-      
+
       // Extract unique shifts (Ca) from detail_reports
       const uniqueShifts = [...new Set(dateFilteredReports.map(r => r['ca']).filter(Boolean))].sort();
       setShifts(uniqueShifts);
@@ -309,14 +309,14 @@ export default function XemBaoCaoMKT() {
         stack: err.stack,
         name: err.name
       });
-      
+
       // Hiển thị thông báo lỗi rõ ràng hơn cho user
       if (err.message && (err.message.includes('Backend server') || err.message.includes('non-JSON'))) {
         alert(`⚠️ ${err.message}\n\nVui lòng đảm bảo backend server đang chạy:\nnpm run server`);
       } else {
         alert(`❌ Lỗi khi tải dữ liệu: ${err.message || 'Lỗi không xác định'}\n\nVui lòng kiểm tra console để xem chi tiết.`);
       }
-      
+
       setData([]);
     } finally {
       setLoading(false);
@@ -337,13 +337,13 @@ export default function XemBaoCaoMKT() {
       // - CPQC: từ cột "CPQC" trong detail_reports
       // - Số mess: từ cột "Số_Mess_Cmt" trong detail_reports
       if (selectedTeam !== 'ALL' && row['Team'] !== selectedTeam) return;
-      
+
       // Filter by Product (if any selected, must match; if none selected, show all)
       if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return;
-      
+
       // Filter by Shift (Ca) (if any selected, must match; if none selected, show all)
       if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return;
-      
+
       // Filter by Market (Thị trường) (if any selected, must match; if none selected, show all)
       if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return;
 
@@ -378,7 +378,7 @@ export default function XemBaoCaoMKT() {
       grouped[key].ordersTT += Number(row['Số đơn thực tế'] || 0); // detail_reports."Số đơn thực tế"
       const soDonTTValue = Number(row['Số đơn TT'] || 0);
       grouped[key].soDonTT += soDonTTValue; // Số đơn TT từ bảng orders
-      
+
       // Debug logging cho 3 record đầu tiên
       if (Object.keys(grouped).length <= 3 && soDonTTValue > 0) {
         console.log(`🔍 processData: Key "${key}" - soDonTT += ${soDonTTValue} (từ row['Số đơn TT'] = ${row['Số đơn TT']})`);
@@ -716,7 +716,7 @@ export default function XemBaoCaoMKT() {
       if (value === 'ALL') {
         setSelectedProducts(isChecked ? products : []);
       } else {
-        setSelectedProducts(prev => 
+        setSelectedProducts(prev =>
           isChecked ? [...prev, value] : prev.filter(p => p !== value)
         );
       }
@@ -724,7 +724,7 @@ export default function XemBaoCaoMKT() {
       if (value === 'ALL') {
         setSelectedShifts(isChecked ? shifts : []);
       } else {
-        setSelectedShifts(prev => 
+        setSelectedShifts(prev =>
           isChecked ? [...prev, value] : prev.filter(s => s !== value)
         );
       }
@@ -732,7 +732,7 @@ export default function XemBaoCaoMKT() {
       if (value === 'ALL') {
         setSelectedMarkets(isChecked ? markets : []);
       } else {
-        setSelectedMarkets(prev => 
+        setSelectedMarkets(prev =>
           isChecked ? [...prev, value] : prev.filter(m => m !== value)
         );
       }
@@ -753,7 +753,7 @@ export default function XemBaoCaoMKT() {
         .map(item => item['Email'])
         .filter(email => email && email.trim().length > 0)
       )];
-      
+
       const namesFromReports = [...new Set(reports
         .map(item => item['Tên'])
         .filter(name => name && name.trim().length > 0)
@@ -810,13 +810,13 @@ export default function XemBaoCaoMKT() {
         if (!report['Team'] || report['Team'].trim() === '') {
           const reportEmail = normalizeStr(report['Email'] || '');
           const reportName = normalizeStr(report['Tên'] || '');
-          
+
           // Ưu tiên tìm theo Email, sau đó theo Tên
           const teamFromEmail = reportEmail ? teamMapByEmail.get(reportEmail) : null;
           const teamFromName = reportName ? teamMapByName.get(reportName) : null;
-          
+
           const foundTeam = teamFromEmail || teamFromName;
-          
+
           if (foundTeam) {
             report['Team'] = foundTeam;
             enrichedCount++;
@@ -872,16 +872,16 @@ export default function XemBaoCaoMKT() {
         }
         return String(date);
       };
-      
+
       // Helper function để normalize string
       const normalizeStr = (str) => {
         if (!str) return '';
         return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
       };
-      
+
       const normalizedStartDate = normalizeDate(startDate);
       const normalizedEndDate = normalizeDate(endDate);
-      
+
       // Lấy danh sách tên Marketing từ báo cáo để filter ở query level
       const marketingNamesFromReports = [...new Set(reports
         .map(item => item['Tên'])
@@ -914,14 +914,13 @@ export default function XemBaoCaoMKT() {
 
       console.log(`📊 MKT: Tìm thấy ${allOrders?.length || 0} đơn tổng trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
       console.log(`📊 MKT: Tên Marketing từ báo cáo:`, marketingNamesFromReports.slice(0, 5));
-      
+
       if (allOrders && allOrders.length > 0) {
         const sampleOrder = allOrders[0];
         console.log(`📊 MKT: Sample order:`, {
           marketing_staff: sampleOrder.marketing_staff,
           order_date: sampleOrder.order_date,
           product: sampleOrder.product,
-          country: sampleOrder.country,
           country: sampleOrder.country,
           total_amount_vnd: sampleOrder.total_amount_vnd
         });
@@ -934,21 +933,21 @@ export default function XemBaoCaoMKT() {
       // Group đơn theo Tên Marketing + Ngày + Sản phẩm + Thị trường
       // Lưu cả số đơn và tổng tiền VNĐ
       const ordersByMarketingDateProductMarket = new Map();
-      
+
       (allOrders || []).forEach(order => {
         const orderMarketingName = normalizeStr(order.marketing_staff);
         const orderDateStr = normalizeDate(order.order_date);
         const orderProduct = normalizeStr(order.product || '');
         const orderMarket = normalizeStr(order.country || '');
         const key = `${orderMarketingName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
-        
+
         if (!ordersByMarketingDateProductMarket.has(key)) {
           ordersByMarketingDateProductMarket.set(key, { orders: [], totalAmount: 0 });
         }
         ordersByMarketingDateProductMarket.get(key).orders.push(order);
         ordersByMarketingDateProductMarket.get(key).totalAmount += Number(order.total_amount_vnd || 0);
       });
-      
+
       console.log(`📊 MKT: Đã group ${ordersByMarketingDateProductMarket.size} keys từ ${allOrders?.length || 0} đơn`);
       if (ordersByMarketingDateProductMarket.size > 0) {
         const sampleKeys = Array.from(ordersByMarketingDateProductMarket.keys()).slice(0, 3);
@@ -958,7 +957,7 @@ export default function XemBaoCaoMKT() {
       // Cập nhật reports với số đơn tổng từ orders
       let matchedCount = 0;
       let unmatchedCount = 0;
-      
+
       reports.forEach((item, index) => {
         const marketingName = normalizeStr(item['Tên']);
         const reportDateRaw = item['Ngày'];
@@ -980,7 +979,7 @@ export default function XemBaoCaoMKT() {
         const matchingData = ordersByMarketingDateProductMarket.get(key) || { orders: [], totalAmount: 0 };
         item['Số đơn TT'] = matchingData.orders.length;
         item['Doanh số chốt TT'] = matchingData.totalAmount; // Tổng tiền VNĐ từ orders
-        
+
         if (matchingData.orders.length > 0) {
           matchedCount++;
           if (index < 3) {
@@ -1004,7 +1003,7 @@ export default function XemBaoCaoMKT() {
       console.log(`✅ MKT: Đã cập nhật số đơn TT cho ${reports.length} báo cáo`);
       console.log(`   - Match: ${matchedCount}, Không match: ${unmatchedCount}`);
       console.log(`   - Tổng số keys trong orders map: ${ordersByMarketingDateProductMarket.size}`);
-      
+
       // Debug: Kiểm tra một vài giá trị sau khi enrich
       const sampleReports = reports.slice(0, 3);
       sampleReports.forEach((item, idx) => {
@@ -1178,8 +1177,8 @@ export default function XemBaoCaoMKT() {
               <div className="sidebar">
                 <h3>Bộ lọc</h3>
                 <label>Chọn nhanh:</label>
-                <select 
-                  value={quickSelect} 
+                <select
+                  value={quickSelect}
                   onChange={e => handleQuickDateSelect(e.target.value)}
                 >
                   <option value="">-- Chọn nhanh --</option>
@@ -1193,24 +1192,24 @@ export default function XemBaoCaoMKT() {
                   <option value="last30Days">30 ngày qua</option>
                 </select>
                 <label>Từ ngày:</label>
-                <input 
-                  type="date" 
-                  value={startDate} 
+                <input
+                  type="date"
+                  value={startDate}
                   onChange={e => {
                     setStartDate(e.target.value);
                     setQuickSelect('');
-                  }} 
+                  }}
                 />
                 <label>Đến ngày:</label>
-                <input 
-                  type="date" 
-                  value={endDate} 
+                <input
+                  type="date"
+                  value={endDate}
                   onChange={e => {
                     setEndDate(e.target.value);
                     setQuickSelect('');
-                  }} 
+                  }}
                 />
-                
+
                 <h3>Sản phẩm</h3>
                 <div className="indent">
                   <label style={{ cursor: 'pointer' }}>
@@ -1234,7 +1233,7 @@ export default function XemBaoCaoMKT() {
                     </label>
                   ))}
                 </div>
-                
+
                 <h3>Ca</h3>
                 <div className="indent">
                   <label style={{ cursor: 'pointer' }}>
@@ -1258,7 +1257,7 @@ export default function XemBaoCaoMKT() {
                     </label>
                   ))}
                 </div>
-                
+
                 <h3>Team</h3>
                 <div className="indent">
                   <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>
@@ -1266,7 +1265,7 @@ export default function XemBaoCaoMKT() {
                     {teams.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
-                
+
                 <h3>Thị trường</h3>
                 <div className="indent">
                   <label style={{ cursor: 'pointer' }}>
@@ -1297,183 +1296,183 @@ export default function XemBaoCaoMKT() {
                   <h2 id="report-title-tab1">DỮ LIỆU CHI PHÍ ADS</h2>
                 </div>
                 <div className="table-responsive-container">
-            {/* Column Settings Button */}
-            <div className="mb-4">
-              <button
-                onClick={() => setShowColumnSettings(true)}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
-              >
-                <Settings className="w-4 h-4" />
-                Cột hiển thị
-              </button>
-            </div>
-
-            {/* Banner Header */}
-            <div className="bg-[#2d7c2d] text-white p-3 font-bold text-lg uppercase mb-0 rounded-t-lg">
-              BÁO CÁO TỔNG HỢP
-            </div>
-
-            {loading ? (
-              <div style={{ padding: '20px', textAlign: 'center' }}>Đang tải dữ liệu...</div>
-            ) : (
-              // Main Summary Table
-              <>
-                <table className="report-table" style={{ marginTop: 0 }}>
-                  <thead>
-                    <tr>
-                      {visibleColumns.stt && <th className="green-header">STT</th>}
-                      {visibleColumns.team && <th className="green-header">Team</th>}
-                      {visibleColumns.marketing && <th className="green-header">Marketing</th>}
-                      {visibleColumns.mess && <th className="green-header">Số Mess</th>}
-                      {visibleColumns.cpqc && <th className="green-header">CPQC</th>}
-                      {visibleColumns.orders && <th className="green-header">Số Đơn</th>}
-                      <th className="green-header" style={{backgroundColor: '#4CAF50', color: 'white', fontWeight: 'bold'}}>Số Đơn TT</th>
-                      {visibleColumns.dsChot && <th className="green-header">DS Chốt</th>}
-                      {visibleColumns.dsChotTT && <th className="green-header">DS Chốt (TT)</th>}
-                      {visibleColumns.tiLeChot && <th className="yellow-header">Tỉ lệ chốt</th>}
-                      {visibleColumns.tiLeChotTT && <th className="yellow-header">Tỉ lệ chốt (TT)</th>}
-                      {visibleColumns.giaMess && <th className="yellow-header">Giá Mess</th>}
-                      {visibleColumns.cps && <th className="yellow-header">CPS</th>}
-                      {visibleColumns.cp_ds && <th className="yellow-header">%CP/DS</th>}
-                      {visibleColumns.giaTBDon && <th className="yellow-header">Giá TB Đơn</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="total-row">
-                      {(visibleColumns.stt || visibleColumns.team || visibleColumns.marketing) && (
-                        <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center total-label">TỔNG CỘNG</td>
-                      )}
-                      {visibleColumns.mess && <td className="total-value">{fmtNum(processData.total.mess)}</td>}
-                      {visibleColumns.cpqc && <td className="total-value">{fmtCurrency(processData.total.cpqc)}</td>}
-                      {visibleColumns.orders && <td className="total-value">{fmtNum(processData.total.orders)}</td>}
-                      {visibleColumns.soDonTT ? (
-                        <td className="total-value" style={{backgroundColor: processData.total.soDonTT > 0 ? '#e8f5e9' : 'transparent'}}>
-                          {fmtNum(processData.total.soDonTT)}
-                        </td>
-                      ) : (
-                        <td className="total-value" style={{color: 'red'}}>HIDDEN</td>
-                      )}
-                      {visibleColumns.dsChot && <td className="total-value">{fmtCurrency(processData.total.dsChot)}</td>}
-                      {visibleColumns.dsChotTT && <td className="total-value">{fmtCurrency(processData.total.dsChotTT)}</td>}
-                      {visibleColumns.tiLeChot && <td className={`text-center total-value ${getRateClass(processData.total.tiLeChot)}`}>{fmtPct(processData.total.tiLeChot)}</td>}
-                      {visibleColumns.tiLeChotTT && <td className={`text-center total-value ${getRateClass(processData.total.tiLeChotTT)}`}>{fmtPct(processData.total.tiLeChotTT)}</td>}
-                      {visibleColumns.giaMess && <td className="total-value">{fmtCurrency(processData.total.giaMess)}</td>}
-                      {visibleColumns.cps && <td className="total-value">{fmtCurrency(processData.total.cps)}</td>}
-                      {visibleColumns.cp_ds && <td className="total-value">{fmtPct(processData.total.cp_ds)}</td>}
-                      {visibleColumns.giaTBDon && <td className="total-value">{fmtCurrency(processData.total.giaTBDon)}</td>}
-                    </tr>
-                    {processData.rows.map((row, index) => (
-                      <tr key={index}>
-                        {visibleColumns.stt && <td className="text-center">{index + 1}</td>}
-                        {visibleColumns.team && <td className="text-left">{row.team}</td>}
-                        {visibleColumns.marketing && <td className="text-left">{row.name}</td>}
-                        {visibleColumns.mess && <td>{fmtNum(row.mess)}</td>}
-                        {visibleColumns.cpqc && <td>{fmtCurrency(row.cpqc)}</td>}
-                        {visibleColumns.orders && <td>{fmtNum(row.orders)}</td>}
-                        {visibleColumns.soDonTT ? (
-                          <td title={`soDonTT=${row.soDonTT}`} style={{backgroundColor: row.soDonTT > 0 ? '#e8f5e9' : 'transparent'}}>
-                            {fmtNum(row.soDonTT)}
-                          </td>
-                        ) : (
-                          <td style={{color: 'red'}}>HIDDEN</td>
-                        )}
-                        {visibleColumns.dsChot && <td>{fmtCurrency(row.dsChot)}</td>}
-                        {visibleColumns.dsChotTT && <td>{fmtCurrency(row.dsChotTT)}</td>}
-                        {visibleColumns.tiLeChot && <td className={`text-center ${getRateClass(row.tiLeChot)}`}>{fmtPct(row.tiLeChot)}</td>}
-                        {visibleColumns.tiLeChotTT && <td className={`text-center ${getRateClass(row.tiLeChotTT)}`}>{fmtPct(row.tiLeChotTT)}</td>}
-                        {visibleColumns.giaMess && <td>{fmtCurrency(row.giaMess)}</td>}
-                        {visibleColumns.cps && <td className={getCpsCellStyle(row.cps)}>{fmtCurrency(row.cps)}</td>}
-                        {visibleColumns.cp_ds && <td className={`text-center ${row.cp_ds > 33 ? 'bg-yellow' : ''}`}>{fmtPct(row.cp_ds)}</td>}
-                        {visibleColumns.giaTBDon && <td>{fmtCurrency(row.giaTBDon)}</td>}
-                      </tr>
-                    ))}
-                    {processData.rows.length === 0 && (
-                      <tr>
-                        <td colSpan={15} className="text-center" style={{ padding: '30px' }}>
-                          Không có dữ liệu trong khoảng thời gian này
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-                {/* Date footer */}
-                <div style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
-                  {endDate ? new Date(endDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
-                </div>
-
-                {/* Daily Breakdown */}
-                {processData.dailyData && processData.dailyData.length > 0 && processData.dailyData.map((dayData, dIdx) => (
-                  <div key={dIdx} style={{ marginTop: '30px' }}>
-                    <h3 style={{ borderBottom: '2px solid #2d7c2d', paddingBottom: '5px', marginBottom: '10px' }}>
-                      {dayData.date.split('-').reverse().join('/')}
-                    </h3>
-                    <table className="report-table" style={{ marginTop: '10px' }}>
-                      <thead>
-                        <tr>
-                          {visibleColumns.stt && <th className="green-header">STT</th>}
-                          {visibleColumns.team && <th className="green-header">Team</th>}
-                          {visibleColumns.marketing && <th className="green-header">Marketing</th>}
-                          {visibleColumns.mess && <th className="green-header">Số Mess</th>}
-                          {visibleColumns.cpqc && <th className="green-header">CPQC</th>}
-                          {visibleColumns.orders && <th className="green-header">Số Đơn</th>}
-                          <th className="green-header" style={{backgroundColor: '#4CAF50', color: 'white', fontWeight: 'bold'}}>Số Đơn TT</th>
-                          {visibleColumns.dsChot && <th className="green-header">DS Chốt</th>}
-                          {visibleColumns.dsChotTT && <th className="green-header">DS Chốt (TT)</th>}
-                          {visibleColumns.tiLeChot && <th className="yellow-header">Tỉ lệ chốt</th>}
-                          {visibleColumns.tiLeChotTT && <th className="yellow-header">Tỉ lệ chốt (TT)</th>}
-                          {visibleColumns.giaMess && <th className="yellow-header">Giá Mess</th>}
-                          {visibleColumns.cps && <th className="yellow-header">CPS</th>}
-                          {visibleColumns.cp_ds && <th className="yellow-header">%CP/DS</th>}
-                          {visibleColumns.giaTBDon && <th className="yellow-header">Giá TB Đơn</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="total-row">
-                          {(visibleColumns.stt || visibleColumns.team || visibleColumns.marketing) && (
-                            <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center total-label">TỔNG CỘNG</td>
-                          )}
-                          {visibleColumns.mess && <td className="total-value">{fmtNum(dayData.total.mess)}</td>}
-                          {visibleColumns.cpqc && <td className="total-value">{fmtCurrency(dayData.total.cpqc)}</td>}
-                          {visibleColumns.orders && <td className="total-value">{fmtNum(dayData.total.orders)}</td>}
-                          <td className="total-value" style={{backgroundColor: dayData.total.soDonTT > 0 ? '#e8f5e9' : 'transparent', fontWeight: 'bold'}}>
-                            {fmtNum(dayData.total.soDonTT)}
-                          </td>
-                          {visibleColumns.dsChot && <td className="total-value">{fmtCurrency(dayData.total.dsChot)}</td>}
-                          {visibleColumns.dsChotTT && <td className="total-value">{fmtCurrency(dayData.total.dsChotTT)}</td>}
-                          {visibleColumns.tiLeChot && <td className={`text-center total-value ${getRateClass(dayData.total.tiLeChot)}`}>{fmtPct(dayData.total.tiLeChot)}</td>}
-                          {visibleColumns.tiLeChotTT && <td className={`text-center total-value ${getRateClass(dayData.total.tiLeChotTT)}`}>{fmtPct(dayData.total.tiLeChotTT)}</td>}
-                          {visibleColumns.giaMess && <td className="total-value">{fmtCurrency(dayData.total.giaMess)}</td>}
-                          {visibleColumns.cps && <td className="total-value">{fmtCurrency(dayData.total.cps)}</td>}
-                          {visibleColumns.cp_ds && <td className="total-value">{fmtPct(dayData.total.cp_ds)}</td>}
-                          {visibleColumns.giaTBDon && <td className="total-value">{fmtCurrency(dayData.total.giaTBDon)}</td>}
-                        </tr>
-                        {dayData.rows.map((row, rIdx) => (
-                          <tr key={rIdx}>
-                            {visibleColumns.stt && <td className="text-center">{rIdx + 1}</td>}
-                            {visibleColumns.team && <td className="text-left">{row.team}</td>}
-                            {visibleColumns.marketing && <td className="text-left">{row.name}</td>}
-                            {visibleColumns.mess && <td>{fmtNum(row.mess)}</td>}
-                            {visibleColumns.cpqc && <td>{fmtCurrency(row.cpqc)}</td>}
-                            {visibleColumns.orders && <td>{fmtNum(row.orders)}</td>}
-                            <td style={{backgroundColor: row.soDonTT > 0 ? '#e8f5e9' : 'transparent'}}>
-                              {fmtNum(row.soDonTT)}
-                            </td>
-                            {visibleColumns.dsChot && <td>{fmtCurrency(row.dsChot)}</td>}
-                            {visibleColumns.dsChotTT && <td>{fmtCurrency(row.dsChotTT)}</td>}
-                            {visibleColumns.tiLeChot && <td className={`text-center ${getRateClass(row.tiLeChot)}`}>{fmtPct(row.tiLeChot)}</td>}
-                            {visibleColumns.tiLeChotTT && <td className={`text-center ${getRateClass(row.tiLeChotTT)}`}>{fmtPct(row.tiLeChotTT)}</td>}
-                            {visibleColumns.giaMess && <td>{fmtCurrency(row.giaMess)}</td>}
-                            {visibleColumns.cps && <td className={getCpsCellStyle(row.cps)}>{fmtCurrency(row.cps)}</td>}
-                            {visibleColumns.cp_ds && <td className={`text-center ${row.cp_ds > 33 ? 'bg-yellow' : ''}`}>{fmtPct(row.cp_ds)}</td>}
-                            {visibleColumns.giaTBDon && <td>{fmtCurrency(row.giaTBDon)}</td>}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  {/* Column Settings Button */}
+                  <div className="mb-4">
+                    <button
+                      onClick={() => setShowColumnSettings(true)}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Cột hiển thị
+                    </button>
                   </div>
-                ))}
-              </>
-            )}
+
+                  {/* Banner Header */}
+                  <div className="bg-[#2d7c2d] text-white p-3 font-bold text-lg uppercase mb-0 rounded-t-lg">
+                    BÁO CÁO TỔNG HỢP
+                  </div>
+
+                  {loading ? (
+                    <div style={{ padding: '20px', textAlign: 'center' }}>Đang tải dữ liệu...</div>
+                  ) : (
+                    // Main Summary Table
+                    <>
+                      <table className="report-table" style={{ marginTop: 0 }}>
+                        <thead>
+                          <tr>
+                            {visibleColumns.stt && <th className="green-header">STT</th>}
+                            {visibleColumns.team && <th className="green-header">Team</th>}
+                            {visibleColumns.marketing && <th className="green-header">Marketing</th>}
+                            {visibleColumns.mess && <th className="green-header">Số Mess</th>}
+                            {visibleColumns.cpqc && <th className="green-header">CPQC</th>}
+                            {visibleColumns.orders && <th className="green-header">Số Đơn</th>}
+                            <th className="green-header" style={{ backgroundColor: '#4CAF50', color: 'white', fontWeight: 'bold' }}>Số Đơn TT</th>
+                            {visibleColumns.dsChot && <th className="green-header">DS Chốt</th>}
+                            {visibleColumns.dsChotTT && <th className="green-header">DS Chốt (TT)</th>}
+                            {visibleColumns.tiLeChot && <th className="yellow-header">Tỉ lệ chốt</th>}
+                            {visibleColumns.tiLeChotTT && <th className="yellow-header">Tỉ lệ chốt (TT)</th>}
+                            {visibleColumns.giaMess && <th className="yellow-header">Giá Mess</th>}
+                            {visibleColumns.cps && <th className="yellow-header">CPS</th>}
+                            {visibleColumns.cp_ds && <th className="yellow-header">%CP/DS</th>}
+                            {visibleColumns.giaTBDon && <th className="yellow-header">Giá TB Đơn</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="total-row">
+                            {(visibleColumns.stt || visibleColumns.team || visibleColumns.marketing) && (
+                              <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center total-label">TỔNG CỘNG</td>
+                            )}
+                            {visibleColumns.mess && <td className="total-value">{fmtNum(processData.total.mess)}</td>}
+                            {visibleColumns.cpqc && <td className="total-value">{fmtCurrency(processData.total.cpqc)}</td>}
+                            {visibleColumns.orders && <td className="total-value">{fmtNum(processData.total.orders)}</td>}
+                            {visibleColumns.soDonTT ? (
+                              <td className="total-value" style={{ backgroundColor: processData.total.soDonTT > 0 ? '#e8f5e9' : 'transparent' }}>
+                                {fmtNum(processData.total.soDonTT)}
+                              </td>
+                            ) : (
+                              <td className="total-value" style={{ color: 'red' }}>HIDDEN</td>
+                            )}
+                            {visibleColumns.dsChot && <td className="total-value">{fmtCurrency(processData.total.dsChot)}</td>}
+                            {visibleColumns.dsChotTT && <td className="total-value">{fmtCurrency(processData.total.dsChotTT)}</td>}
+                            {visibleColumns.tiLeChot && <td className={`text-center total-value ${getRateClass(processData.total.tiLeChot)}`}>{fmtPct(processData.total.tiLeChot)}</td>}
+                            {visibleColumns.tiLeChotTT && <td className={`text-center total-value ${getRateClass(processData.total.tiLeChotTT)}`}>{fmtPct(processData.total.tiLeChotTT)}</td>}
+                            {visibleColumns.giaMess && <td className="total-value">{fmtCurrency(processData.total.giaMess)}</td>}
+                            {visibleColumns.cps && <td className="total-value">{fmtCurrency(processData.total.cps)}</td>}
+                            {visibleColumns.cp_ds && <td className="total-value">{fmtPct(processData.total.cp_ds)}</td>}
+                            {visibleColumns.giaTBDon && <td className="total-value">{fmtCurrency(processData.total.giaTBDon)}</td>}
+                          </tr>
+                          {processData.rows.map((row, index) => (
+                            <tr key={index}>
+                              {visibleColumns.stt && <td className="text-center">{index + 1}</td>}
+                              {visibleColumns.team && <td className="text-left">{row.team}</td>}
+                              {visibleColumns.marketing && <td className="text-left">{row.name}</td>}
+                              {visibleColumns.mess && <td>{fmtNum(row.mess)}</td>}
+                              {visibleColumns.cpqc && <td>{fmtCurrency(row.cpqc)}</td>}
+                              {visibleColumns.orders && <td>{fmtNum(row.orders)}</td>}
+                              {visibleColumns.soDonTT ? (
+                                <td title={`soDonTT=${row.soDonTT}`} style={{ backgroundColor: row.soDonTT > 0 ? '#e8f5e9' : 'transparent' }}>
+                                  {fmtNum(row.soDonTT)}
+                                </td>
+                              ) : (
+                                <td style={{ color: 'red' }}>HIDDEN</td>
+                              )}
+                              {visibleColumns.dsChot && <td>{fmtCurrency(row.dsChot)}</td>}
+                              {visibleColumns.dsChotTT && <td>{fmtCurrency(row.dsChotTT)}</td>}
+                              {visibleColumns.tiLeChot && <td className={`text-center ${getRateClass(row.tiLeChot)}`}>{fmtPct(row.tiLeChot)}</td>}
+                              {visibleColumns.tiLeChotTT && <td className={`text-center ${getRateClass(row.tiLeChotTT)}`}>{fmtPct(row.tiLeChotTT)}</td>}
+                              {visibleColumns.giaMess && <td>{fmtCurrency(row.giaMess)}</td>}
+                              {visibleColumns.cps && <td className={getCpsCellStyle(row.cps)}>{fmtCurrency(row.cps)}</td>}
+                              {visibleColumns.cp_ds && <td className={`text-center ${row.cp_ds > 33 ? 'bg-yellow' : ''}`}>{fmtPct(row.cp_ds)}</td>}
+                              {visibleColumns.giaTBDon && <td>{fmtCurrency(row.giaTBDon)}</td>}
+                            </tr>
+                          ))}
+                          {processData.rows.length === 0 && (
+                            <tr>
+                              <td colSpan={15} className="text-center" style={{ padding: '30px' }}>
+                                Không có dữ liệu trong khoảng thời gian này
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                      {/* Date footer */}
+                      <div style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
+                        {endDate ? new Date(endDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
+                      </div>
+
+                      {/* Daily Breakdown */}
+                      {processData.dailyData && processData.dailyData.length > 0 && processData.dailyData.map((dayData, dIdx) => (
+                        <div key={dIdx} style={{ marginTop: '30px' }}>
+                          <h3 style={{ borderBottom: '2px solid #2d7c2d', paddingBottom: '5px', marginBottom: '10px' }}>
+                            {dayData.date.split('-').reverse().join('/')}
+                          </h3>
+                          <table className="report-table" style={{ marginTop: '10px' }}>
+                            <thead>
+                              <tr>
+                                {visibleColumns.stt && <th className="green-header">STT</th>}
+                                {visibleColumns.team && <th className="green-header">Team</th>}
+                                {visibleColumns.marketing && <th className="green-header">Marketing</th>}
+                                {visibleColumns.mess && <th className="green-header">Số Mess</th>}
+                                {visibleColumns.cpqc && <th className="green-header">CPQC</th>}
+                                {visibleColumns.orders && <th className="green-header">Số Đơn</th>}
+                                <th className="green-header" style={{ backgroundColor: '#4CAF50', color: 'white', fontWeight: 'bold' }}>Số Đơn TT</th>
+                                {visibleColumns.dsChot && <th className="green-header">DS Chốt</th>}
+                                {visibleColumns.dsChotTT && <th className="green-header">DS Chốt (TT)</th>}
+                                {visibleColumns.tiLeChot && <th className="yellow-header">Tỉ lệ chốt</th>}
+                                {visibleColumns.tiLeChotTT && <th className="yellow-header">Tỉ lệ chốt (TT)</th>}
+                                {visibleColumns.giaMess && <th className="yellow-header">Giá Mess</th>}
+                                {visibleColumns.cps && <th className="yellow-header">CPS</th>}
+                                {visibleColumns.cp_ds && <th className="yellow-header">%CP/DS</th>}
+                                {visibleColumns.giaTBDon && <th className="yellow-header">Giá TB Đơn</th>}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr className="total-row">
+                                {(visibleColumns.stt || visibleColumns.team || visibleColumns.marketing) && (
+                                  <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center total-label">TỔNG CỘNG</td>
+                                )}
+                                {visibleColumns.mess && <td className="total-value">{fmtNum(dayData.total.mess)}</td>}
+                                {visibleColumns.cpqc && <td className="total-value">{fmtCurrency(dayData.total.cpqc)}</td>}
+                                {visibleColumns.orders && <td className="total-value">{fmtNum(dayData.total.orders)}</td>}
+                                <td className="total-value" style={{ backgroundColor: dayData.total.soDonTT > 0 ? '#e8f5e9' : 'transparent', fontWeight: 'bold' }}>
+                                  {fmtNum(dayData.total.soDonTT)}
+                                </td>
+                                {visibleColumns.dsChot && <td className="total-value">{fmtCurrency(dayData.total.dsChot)}</td>}
+                                {visibleColumns.dsChotTT && <td className="total-value">{fmtCurrency(dayData.total.dsChotTT)}</td>}
+                                {visibleColumns.tiLeChot && <td className={`text-center total-value ${getRateClass(dayData.total.tiLeChot)}`}>{fmtPct(dayData.total.tiLeChot)}</td>}
+                                {visibleColumns.tiLeChotTT && <td className={`text-center total-value ${getRateClass(dayData.total.tiLeChotTT)}`}>{fmtPct(dayData.total.tiLeChotTT)}</td>}
+                                {visibleColumns.giaMess && <td className="total-value">{fmtCurrency(dayData.total.giaMess)}</td>}
+                                {visibleColumns.cps && <td className="total-value">{fmtCurrency(dayData.total.cps)}</td>}
+                                {visibleColumns.cp_ds && <td className="total-value">{fmtPct(dayData.total.cp_ds)}</td>}
+                                {visibleColumns.giaTBDon && <td className="total-value">{fmtCurrency(dayData.total.giaTBDon)}</td>}
+                              </tr>
+                              {dayData.rows.map((row, rIdx) => (
+                                <tr key={rIdx}>
+                                  {visibleColumns.stt && <td className="text-center">{rIdx + 1}</td>}
+                                  {visibleColumns.team && <td className="text-left">{row.team}</td>}
+                                  {visibleColumns.marketing && <td className="text-left">{row.name}</td>}
+                                  {visibleColumns.mess && <td>{fmtNum(row.mess)}</td>}
+                                  {visibleColumns.cpqc && <td>{fmtCurrency(row.cpqc)}</td>}
+                                  {visibleColumns.orders && <td>{fmtNum(row.orders)}</td>}
+                                  <td style={{ backgroundColor: row.soDonTT > 0 ? '#e8f5e9' : 'transparent' }}>
+                                    {fmtNum(row.soDonTT)}
+                                  </td>
+                                  {visibleColumns.dsChot && <td>{fmtCurrency(row.dsChot)}</td>}
+                                  {visibleColumns.dsChotTT && <td>{fmtCurrency(row.dsChotTT)}</td>}
+                                  {visibleColumns.tiLeChot && <td className={`text-center ${getRateClass(row.tiLeChot)}`}>{fmtPct(row.tiLeChot)}</td>}
+                                  {visibleColumns.tiLeChotTT && <td className={`text-center ${getRateClass(row.tiLeChotTT)}`}>{fmtPct(row.tiLeChotTT)}</td>}
+                                  {visibleColumns.giaMess && <td>{fmtCurrency(row.giaMess)}</td>}
+                                  {visibleColumns.cps && <td className={getCpsCellStyle(row.cps)}>{fmtCurrency(row.cps)}</td>}
+                                  {visibleColumns.cp_ds && <td className={`text-center ${row.cp_ds > 33 ? 'bg-yellow' : ''}`}>{fmtPct(row.cp_ds)}</td>}
+                                  {visibleColumns.giaTBDon && <td>{fmtCurrency(row.giaTBDon)}</td>}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1489,16 +1488,16 @@ export default function XemBaoCaoMKT() {
               <div className="sidebar">
                 <h3>Bộ lọc</h3>
                 <label>Từ ngày:</label>
-                <input 
-                  type="date" 
-                  value={startDate} 
-                  onChange={e => setStartDate(e.target.value)} 
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={e => setStartDate(e.target.value)}
                 />
                 <label>Đến ngày:</label>
-                <input 
-                  type="date" 
-                  value={endDate} 
-                  onChange={e => setEndDate(e.target.value)} 
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={e => setEndDate(e.target.value)}
                 />
                 <h3>Team</h3>
                 <div className="indent">
@@ -1514,55 +1513,55 @@ export default function XemBaoCaoMKT() {
                   <h2>BÁO CÁO HIỆU SUẤT KPI</h2>
                 </div>
                 <div className="table-responsive-container">
-            {loading ? (
-              <div style={{ padding: '20px', textAlign: 'center' }}>Đang tải dữ liệu...</div>
-            ) : (
-              <table className="report-table">
-                <thead>
-                  <tr>
-                    <th className="green-header">STT</th>
-                    <th className="green-header">Team</th>
-                    <th className="green-header">Marketing</th>
-                    <th className="green-header">CPQC</th>
-                    <th className="green-header">DS Chốt</th>
-                    <th className="blue-header">DS Chốt (TT)</th>
-                    <th className="blue-header">Số đơn hủy (TT)</th>
-                    <th className="blue-header">Doanh số Hủy (TT)</th>
-                    <th className="blue-header">DS Thành Công (TT)</th>
-                    <th className="yellow-header">%CP/DS</th>
-                    <th className="yellow-header">% KPI</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="total-row">
-                    <td colSpan={3} className="text-center">TỔNG CỘNG</td>
-                    <td>{fmtCurrency(processData.total.cpqc)}</td>
-                    <td>{fmtCurrency(processData.total.dsChot)}</td>
-                    <td>{fmtCurrency(processData.total.dsChotTT)}</td>
-                    <td>{fmtNum(processData.total.soDonHuyTT)}</td>
-                    <td>{fmtCurrency(processData.total.dsHuyTT)}</td>
-                    <td>{fmtCurrency(processData.total.dsThanhCongTT)}</td>
-                    <td>{fmtPct(processData.total.cp_ds_sau_ship)}</td>
-                    <td>{fmtPct(processData.total.kpi_percent)}</td>
-                  </tr>
-                  {processData.rows.map((row, index) => (
-                    <tr key={index}>
-                      <td className="text-center">{index + 1}</td>
-                      <td>{row.team}</td>
-                      <td>{row.name}</td>
-                      <td>{fmtCurrency(row.cpqc)}</td>
-                      <td>{fmtCurrency(row.dsChot)}</td>
-                      <td>{fmtCurrency(row.dsChotTT)}</td>
-                      <td>{fmtNum(row.soDonHuyTT)}</td>
-                      <td>{fmtCurrency(row.dsHuyTT)}</td>
-                      <td>{fmtCurrency(row.dsThanhCongTT)}</td>
-                      <td className="text-center">{fmtPct(row.cp_ds_sau_ship)}</td>
-                      <td className="text-center">{fmtPct(row.kpi_percent)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                  {loading ? (
+                    <div style={{ padding: '20px', textAlign: 'center' }}>Đang tải dữ liệu...</div>
+                  ) : (
+                    <table className="report-table">
+                      <thead>
+                        <tr>
+                          <th className="green-header">STT</th>
+                          <th className="green-header">Team</th>
+                          <th className="green-header">Marketing</th>
+                          <th className="green-header">CPQC</th>
+                          <th className="green-header">DS Chốt</th>
+                          <th className="blue-header">DS Chốt (TT)</th>
+                          <th className="blue-header">Số đơn hủy (TT)</th>
+                          <th className="blue-header">Doanh số Hủy (TT)</th>
+                          <th className="blue-header">DS Thành Công (TT)</th>
+                          <th className="yellow-header">%CP/DS</th>
+                          <th className="yellow-header">% KPI</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="total-row">
+                          <td colSpan={3} className="text-center">TỔNG CỘNG</td>
+                          <td>{fmtCurrency(processData.total.cpqc)}</td>
+                          <td>{fmtCurrency(processData.total.dsChot)}</td>
+                          <td>{fmtCurrency(processData.total.dsChotTT)}</td>
+                          <td>{fmtNum(processData.total.soDonHuyTT)}</td>
+                          <td>{fmtCurrency(processData.total.dsHuyTT)}</td>
+                          <td>{fmtCurrency(processData.total.dsThanhCongTT)}</td>
+                          <td>{fmtPct(processData.total.cp_ds_sau_ship)}</td>
+                          <td>{fmtPct(processData.total.kpi_percent)}</td>
+                        </tr>
+                        {processData.rows.map((row, index) => (
+                          <tr key={index}>
+                            <td className="text-center">{index + 1}</td>
+                            <td>{row.team}</td>
+                            <td>{row.name}</td>
+                            <td>{fmtCurrency(row.cpqc)}</td>
+                            <td>{fmtCurrency(row.dsChot)}</td>
+                            <td>{fmtCurrency(row.dsChotTT)}</td>
+                            <td>{fmtNum(row.soDonHuyTT)}</td>
+                            <td>{fmtCurrency(row.dsHuyTT)}</td>
+                            <td>{fmtCurrency(row.dsThanhCongTT)}</td>
+                            <td className="text-center">{fmtPct(row.cp_ds_sau_ship)}</td>
+                            <td className="text-center">{fmtPct(row.kpi_percent)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
             </div>
@@ -1593,18 +1592,18 @@ export default function XemBaoCaoMKT() {
             <div className="filter-container">
               <div className="filter-group">
                 <label>Từ ngày:</label>
-                <input 
-                  type="date" 
-                  value={startDate} 
-                  onChange={e => setStartDate(e.target.value)} 
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={e => setStartDate(e.target.value)}
                 />
               </div>
               <div className="filter-group">
                 <label>Đến ngày:</label>
-                <input 
-                  type="date" 
-                  value={endDate} 
-                  onChange={e => setEndDate(e.target.value)} 
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={e => setEndDate(e.target.value)}
                 />
               </div>
               <div className="filter-group">
@@ -1628,7 +1627,7 @@ export default function XemBaoCaoMKT() {
                   {markets.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
-              <button 
+              <button
                 onClick={fetchData}
                 style={{
                   background: '#2d7c2d',
@@ -1690,10 +1689,10 @@ export default function XemBaoCaoMKT() {
         onSelectAll={() => {
           const all = {};
           ['stt', 'team', 'marketing', 'cpqc', 'mess', 'orders', 'soDonTT',
-           'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
-           'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'].forEach(key => {
-            all[key] = true;
-          });
+            'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
+            'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'].forEach(key => {
+              all[key] = true;
+            });
           // Đảm bảo soDonTT luôn là true
           all.soDonTT = true;
           setVisibleColumns(all);
@@ -1701,10 +1700,10 @@ export default function XemBaoCaoMKT() {
         onDeselectAll={() => {
           const none = {};
           ['stt', 'team', 'marketing', 'cpqc', 'mess', 'orders', 'soDonTT',
-           'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
-           'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'].forEach(key => {
-            none[key] = false;
-          });
+            'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
+            'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'].forEach(key => {
+              none[key] = false;
+            });
           setVisibleColumns(none);
         }}
         onResetDefault={() => {
@@ -1719,8 +1718,8 @@ export default function XemBaoCaoMKT() {
           setVisibleColumns(defaultCols);
         }}
         defaultColumns={['stt', 'team', 'marketing', 'mess', 'cpqc', 'orders', 'soDonTT',
-                         'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
-                         'cp_ds', 'giaTBDon']}
+          'dsChot', 'dsChotTT', 'tiLeChot', 'tiLeChotTT', 'giaMess', 'cps',
+          'cp_ds', 'giaTBDon']}
       />
     </div >
   );
