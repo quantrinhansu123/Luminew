@@ -1,4 +1,4 @@
-import { Eye, Pencil, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
+import { Eye, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -37,9 +37,9 @@ function DanhSachDon() {
   const user = userJson ? JSON.parse(userJson) : null;
   const userEmail = (user?.Email || user?.email || localStorage.getItem("userEmail") || "").toString().toLowerCase().trim();
   const ADMIN_MAIL = "admin@marketing.com";
-  const isAdmin = ['admin', 'super_admin', 'ADMIN', 'SUPER_ADMIN'].includes((role || '').toLowerCase()) || 
-                  userEmail === ADMIN_MAIL ||
-                  (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'admin';
+  const isAdmin = ['admin', 'super_admin', 'ADMIN', 'SUPER_ADMIN'].includes((role || '').toLowerCase()) ||
+    userEmail === ADMIN_MAIL ||
+    (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'admin';
   // Determine relevant page code based on team switch
   // If team=RD, we are in R&D context -> RND_ORDERS
   // Else (default), we are in Sale context -> SALE_ORDERS
@@ -80,6 +80,7 @@ function DanhSachDon() {
   const [sortDirection, setSortDirection] = useState('asc');
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [syncing, setSyncing] = useState(false); // State for sync process
+  const [isFixingTeams, setIsFixingTeams] = useState(false); // State for fixing missing teams
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -115,14 +116,14 @@ function DanhSachDon() {
   const allAvailableColumns = useMemo(() => {
     // Get all potential keys from data
     const allKeys = new Set();
-    
+
     if (allData.length > 0) {
       allData.forEach(row => {
         Object.keys(row).forEach(key => {
           // Exclude PRIMARY_KEY_COLUMN, HIDDEN_COLUMNS, and technical columns starting with _
-          if (key !== PRIMARY_KEY_COLUMN && 
-              !HIDDEN_COLUMNS.includes(key) &&
-              !key.startsWith('_')) {
+          if (key !== PRIMARY_KEY_COLUMN &&
+            !HIDDEN_COLUMNS.includes(key) &&
+            !key.startsWith('_')) {
             allKeys.add(key);
           }
         });
@@ -161,7 +162,7 @@ function DanhSachDon() {
   const [visibleColumns, setVisibleColumns] = useState(() => {
     const saved = localStorage.getItem('danhSachDon_visibleColumns');
     let initial = {};
-    
+
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -176,7 +177,7 @@ function DanhSachDon() {
         console.error('Error parsing saved columns:', e);
       }
     }
-    
+
     // Initialize with default columns if empty
     if (Object.keys(initial).length === 0) {
       defaultColumns.forEach(col => {
@@ -190,7 +191,7 @@ function DanhSachDon() {
         }
       });
     }
-    
+
     return initial;
   });
 
@@ -204,7 +205,7 @@ function DanhSachDon() {
     setVisibleColumns(prev => {
       let updated = { ...prev };
       let changed = false;
-      
+
       // Remove any hidden columns
       HIDDEN_COLUMNS.forEach(col => {
         if (updated[col] !== undefined) {
@@ -212,7 +213,7 @@ function DanhSachDon() {
           changed = true;
         }
       });
-      
+
       // Ensure default columns are present
       defaultColumns.forEach(col => {
         if (updated[col] === undefined) {
@@ -220,7 +221,7 @@ function DanhSachDon() {
           changed = true;
         }
       });
-      
+
       return changed ? updated : prev;
     });
   }, []); // Chỉ chạy một lần khi component mount
@@ -368,7 +369,7 @@ function DanhSachDon() {
           // Tạo danh sách tên để filter (bao gồm cả user hiện tại nếu chưa có trong danh sách)
           const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
           console.log('🔍 Filtering by selected personnel names:', allNames);
-          
+
           // Filter theo sale_staff, marketing_staff, hoặc delivery_staff
           // Sử dụng .or() để match với bất kỳ tên nào trong danh sách
           const orConditions = allNames.flatMap(name => [
@@ -376,7 +377,7 @@ function DanhSachDon() {
             `marketing_staff.ilike.%${name}%`,
             `delivery_staff.ilike.%${name}%`
           ]);
-          
+
           query = query.or(orConditions.join(','));
         } else if (userName) {
           // Nếu không có selectedPersonnelNames, filter theo user hiện tại
@@ -434,9 +435,9 @@ function DanhSachDon() {
       try {
         // Lấy userEmail từ localStorage (được set khi login)
         const userEmail = localStorage.getItem("userEmail") || "";
-        
+
         console.log('🔍 Current userEmail:', userEmail);
-        
+
         if (!userEmail) {
           console.warn('⚠️ Không tìm thấy userEmail trong localStorage');
           setSelectedPersonnelEmails([]);
@@ -468,10 +469,10 @@ function DanhSachDon() {
           const nameStr = String(name).trim();
           return nameStr.length > 0 && !nameStr.includes('@');
         });
-        
+
         console.log('📝 Valid personnel names:', validNames);
         console.log('✅ Đã load', validNames.length, 'nhân sự');
-        
+
         // Giờ selectedPersonnelNames chứa tên trực tiếp từ DB
         setSelectedPersonnelEmails([]); // Không dùng email nữa
         setSelectedPersonnelNames(validNames);
@@ -723,6 +724,115 @@ function DanhSachDon() {
     }
   };
 
+  // --- FEATURE: FIX MISSING TEAMS ---
+  const handleFixMissingTeams = async () => {
+    if (!window.confirm("Bạn có muốn tự động điền 'Chi nhánh' (Team) cho các đơn hàng bị thiếu không?\n\nHệ thống sẽ dựa vào tên 'Nhân viên Sale' để tra cứu chi nhánh.")) return;
+
+    setIsFixingTeams(true);
+    try {
+      // 1. Fetch orders with missing team
+      // team is null OR team is empty string OR team is '-'
+      const { data: ordersMissing, error: fetchError } = await supabase
+        .from('orders')
+        .select('id, sale_staff')
+        .or('team.is.null,team.eq.,team.eq.-,team.eq.""');
+
+      if (fetchError) throw fetchError;
+
+      if (!ordersMissing || ordersMissing.length === 0) {
+        alert("✅ Không tìm thấy đơn hàng nào bị thiếu thông tin Team.");
+        return;
+      }
+
+      console.log(`Found ${ordersMissing.length} orders detecting missing team.`);
+
+      // 2. Get unique sale staff names
+      const staffNames = [...new Set(ordersMissing.map(o => o.sale_staff).filter(Boolean).map(s => s.trim()))];
+
+      if (staffNames.length === 0) {
+        alert("⚠️ Các đơn thiếu Team đều không có tên Nhân viên Sale, không thể tự sửa.");
+        return;
+      }
+
+      // 3. Fetch users map (name -> branch)
+      // We need to fetch ALL users matching these names.
+      // Since 'ilike' with array is tricky, let's fetch matching users loosely
+      // or just fetch all sales? No, too many.
+      // Let's iterate in chunks or just fetch all valid users if database isn't huge.
+      // Better: Fetch all users who have a branch.
+      const { data: users, error: userError } = await supabase
+        .from('users')
+        .select('name, branch')
+        .not('branch', 'is', null)
+        .neq('branch', '');
+
+      if (userError) throw userError;
+
+      // Create a map: clean_name -> branch
+      // Normalization: trim, lowercase? Let's try exact match first then loose.
+      const userMap = {};
+      users.forEach(u => {
+        if (u.name) userMap[u.name.trim().toLowerCase()] = u.branch;
+      });
+
+      // 4. Prepare updates
+      let updateCount = 0;
+      const updates = [];
+
+      for (const order of ordersMissing) {
+        const saleName = order.sale_staff ? order.sale_staff.trim() : "";
+        if (!saleName) continue;
+
+        const branch = userMap[saleName.toLowerCase()];
+        if (branch) {
+          updates.push({
+            id: order.id,
+            team: branch
+          });
+        }
+      }
+
+      if (updates.length === 0) {
+        alert("⚠️ Không tìm thấy thông tin Chi nhánh của các nhân viên Sale tương ứng trong bảng Users.");
+        return;
+      }
+
+      // 5. Execute updates
+      // Supabase upsert requires unique key, but we are updating by ID.
+      // Bulk update is tricky in Supabase without proper RPC or Upsert.
+      // Upsert works if we provide all required fields, but we only want to patch 'team'.
+      // So safest way is individual updates or loops.
+      // For performance, do simple loop for now (assuming not thousands).
+
+      // Optimization: Group by branch to reduce calls?
+      // No, ID is unique.
+
+      console.log(`Updating ${updates.length} orders...`);
+
+      let success = 0;
+      // Process in chunks of 10 parallel requests
+      const chunkSize = 10;
+      for (let i = 0; i < updates.length; i += chunkSize) {
+        const chunk = updates.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(async (u) => {
+          const { error } = await supabase.from('orders').update({ team: u.team }).eq('id', u.id);
+          if (!error) success++;
+        }));
+      }
+
+      alert(`✅ Đã cập nhật xong!\n- Tìm thấy: ${ordersMissing.length} đơn thiếu.\n- Sửa thành công: ${success} đơn.\n- Không tìm thấy thông tin sale: ${ordersMissing.length - success} đơn.`);
+
+    } catch (err) {
+      console.error('Error fixing teams:', err);
+      alert(`❌ Lỗi: ${err.message}`);
+    } finally {
+      setIsFixingTeams(false);
+      loadData();
+    }
+  };
+
+
+
   // Handle Delete All
   const handleDeleteAll = async () => {
     const confirm1 = window.confirm(
@@ -764,7 +874,7 @@ function DanhSachDon() {
 
       if (error) {
         console.log('⚠️ First delete method failed, trying batch delete...', error);
-        
+
         // If the above doesn't work, try deleting by selecting all IDs first
         const { data: allRecords, error: fetchError } = await supabase
           .from('orders')
@@ -779,27 +889,27 @@ function DanhSachDon() {
         if (allRecords && allRecords.length > 0) {
           console.log(`📋 Found ${allRecords.length} orders to delete. Deleting in batches...`);
           const ids = allRecords.map(r => r.id);
-          
+
           // Delete in batches
           const batchSize = 1000;
           let deletedCount = 0;
-          
+
           for (let i = 0; i < ids.length; i += batchSize) {
             const batch = ids.slice(i, i + batchSize);
             const { error: batchError } = await supabase
               .from('orders')
               .delete()
               .in('id', batch);
-            
+
             if (batchError) {
               console.error(`❌ Batch ${Math.floor(i / batchSize) + 1} error:`, batchError);
               throw batchError;
             }
-            
+
             deletedCount += batch.length;
             console.log(`✅ Deleted batch ${Math.floor(i / batchSize) + 1}: ${batch.length} orders (Total: ${deletedCount}/${ids.length})`);
           }
-          
+
           alert(`✅ Đã xóa toàn bộ ${deletedCount} đơn hàng thành công!`);
         } else {
           alert("ℹ️ Không có dữ liệu để xóa.");
@@ -824,20 +934,20 @@ function DanhSachDon() {
       toast.error('Không thể xem lịch sử đơn hàng này vì thiếu mã đơn hàng');
       return;
     }
-    
+
     setHistoryOrderCode(orderCode);
     setShowHistoryModal(true);
     setLoadingHistory(true);
-    
+
     try {
       const { data, error } = await supabase
         .from('sales_order_logs')
         .select('*')
         .eq('order_code', orderCode)
         .order('changed_at', { ascending: false });
-      
+
       if (error) throw error;
-      
+
       setHistoryLogs(data || []);
     } catch (error) {
       console.error('Error fetching history:', error);
@@ -852,14 +962,14 @@ function DanhSachDon() {
   const getHistoryChanges = (oldData, newData) => {
     const changes = [];
     if (!oldData || !newData) return changes;
-    
+
     Object.keys(newData).forEach(key => {
       // Skip metadata columns
       if (['updated_at', 'last_modified_by', 'created_at', 'id', 'order_time'].includes(key)) return;
-      
+
       const oldVal = oldData[key];
       const newVal = newData[key];
-      
+
       // Check if values are different
       if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
         // Map database key to display name
@@ -872,7 +982,7 @@ function DanhSachDon() {
         });
       }
     });
-    
+
     return changes;
   };
 
@@ -991,21 +1101,21 @@ function DanhSachDon() {
     if (!isAdmin && selectedPersonnelNames.length > 0) {
       const beforeFilter = data.length;
       let debugCount = 0;
-      
+
       data = data.filter((row, index) => {
         const marketingStaff = String(row["Nhân viên Marketing"] || '').toLowerCase().trim();
         const salesStaff = String(row["Nhân viên Sale"] || '').toLowerCase().trim();
         const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
-        
+
         // Match theo tên (selectedPersonnelNames giờ là tên trực tiếp)
         const matchByName = selectedPersonnelNames.some(name => {
           const nameLower = name.toLowerCase().trim();
           // Match tên trong cột "Nhân viên Marketing" HOẶC "Nhân viên Sale" HOẶC "NV Vận đơn"
-          return (marketingStaff && marketingStaff.includes(nameLower)) || 
-                 (salesStaff && salesStaff.includes(nameLower)) ||
-                 (deliveryStaff && deliveryStaff.includes(nameLower));
+          return (marketingStaff && marketingStaff.includes(nameLower)) ||
+            (salesStaff && salesStaff.includes(nameLower)) ||
+            (deliveryStaff && deliveryStaff.includes(nameLower));
         });
-        
+
         // Debug log cho 3 row đầu tiên
         if (debugCount < 3 && index < 10) {
           debugCount++;
@@ -1020,10 +1130,10 @@ function DanhSachDon() {
             matched: matchByName
           });
         }
-        
+
         return matchByName;
       });
-      
+
       const afterFilter = data.length;
       console.log(`📊 Filter by personnel: ${beforeFilter} → ${afterFilter} đơn hàng`);
       console.log(`👥 Đang filter theo ${selectedPersonnelNames.length} tên nhân sự (Marketing/Sale/Vận đơn)`);
@@ -1071,12 +1181,12 @@ function DanhSachDon() {
       data = data.filter(row => {
         const market = row["Khu vực"] || row["khu vực"];
         const marketStr = market ? String(market).trim() : '';
-        
+
         // Kiểm tra nếu có chọn "(Trống)"
         if (filterMarket.includes('(Trống)')) {
           if (!marketStr) return true; // Nếu giá trị trống và đã chọn "(Trống)"
         }
-        
+
         // Kiểm tra các giá trị khác
         return filterMarket.includes(marketStr);
       });
@@ -1087,11 +1197,11 @@ function DanhSachDon() {
       data = data.filter(row => {
         const product = row["Mặt hàng"];
         const productStr = product ? String(product).trim() : '';
-        
+
         if (filterProduct.includes('(Trống)')) {
           if (!productStr) return true;
         }
-        
+
         return filterProduct.includes(productStr);
       });
     }
@@ -1101,11 +1211,11 @@ function DanhSachDon() {
       data = data.filter(row => {
         const status = row["Trạng thái giao hàng"];
         const statusStr = status ? String(status).trim() : '';
-        
+
         if (filterStatus.includes('(Trống)')) {
           if (!statusStr) return true;
         }
-        
+
         return filterStatus.includes(statusStr);
       });
     }
@@ -1115,11 +1225,11 @@ function DanhSachDon() {
       data = data.filter(row => {
         const checkResult = row["Kết quả Check"];
         const checkResultStr = checkResult ? String(checkResult).trim() : '';
-        
+
         if (filterCheckResult.includes('(Trống)')) {
           if (!checkResultStr) return true;
         }
-        
+
         return filterCheckResult.includes(checkResultStr);
       });
     }
@@ -1370,6 +1480,35 @@ function DanhSachDon() {
                   )}
                 </button>
               )}
+              {isAdmin && (
+                <button
+                  onClick={handleSyncF3}
+                  disabled={loading || syncing || isFixingTeams}
+                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 h-10 disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                  Sync F3
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={handleFixMissingTeams}
+                  disabled={syncing || loading || deleting || isFixingTeams}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                >
+                  {isFixingTeams ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      Đang xử lý...
+                    </>
+                  ) : (
+                    <>
+                      <Wrench className="w-4 h-4" />
+                      Sửa lỗi Team
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 onClick={loadData}
                 disabled={loading}
@@ -1439,15 +1578,15 @@ function DanhSachDon() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
-                    {filterMarket.length === 0 
-                      ? 'Tất cả' 
-                      : filterMarket.length === 1 
-                        ? filterMarket[0] 
+                    {filterMarket.length === 0
+                      ? 'Tất cả'
+                      : filterMarket.length === 1
+                        ? filterMarket[0]
                         : `Đã chọn ${filterMarket.length}`}
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
-                
+
                 {showMarketFilter && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2">
@@ -1491,7 +1630,7 @@ function DanhSachDon() {
                   </div>
                 )}
               </div>
-              
+
               {/* Click outside to close */}
               {showMarketFilter && (
                 <div
@@ -1511,15 +1650,15 @@ function DanhSachDon() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
-                    {filterProduct.length === 0 
-                      ? 'Tất cả' 
-                      : filterProduct.length === 1 
-                        ? filterProduct[0] 
+                    {filterProduct.length === 0
+                      ? 'Tất cả'
+                      : filterProduct.length === 1
+                        ? filterProduct[0]
                         : `Đã chọn ${filterProduct.length}`}
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
-                
+
                 {showProductFilter && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2">
@@ -1563,7 +1702,7 @@ function DanhSachDon() {
                   </div>
                 )}
               </div>
-              
+
               {showProductFilter && (
                 <div
                   className="fixed inset-0 z-40"
@@ -1582,15 +1721,15 @@ function DanhSachDon() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
-                    {filterStatus.length === 0 
-                      ? 'Tất cả' 
-                      : filterStatus.length === 1 
-                        ? filterStatus[0] 
+                    {filterStatus.length === 0
+                      ? 'Tất cả'
+                      : filterStatus.length === 1
+                        ? filterStatus[0]
                         : `Đã chọn ${filterStatus.length}`}
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
-                
+
                 {showStatusFilter && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2">
@@ -1634,7 +1773,7 @@ function DanhSachDon() {
                   </div>
                 )}
               </div>
-              
+
               {showStatusFilter && (
                 <div
                   className="fixed inset-0 z-40"
@@ -1653,15 +1792,15 @@ function DanhSachDon() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
-                    {filterCheckResult.length === 0 
-                      ? 'Tất cả' 
-                      : filterCheckResult.length === 1 
-                        ? filterCheckResult[0] 
+                    {filterCheckResult.length === 0
+                      ? 'Tất cả'
+                      : filterCheckResult.length === 1
+                        ? filterCheckResult[0]
                         : `Đã chọn ${filterCheckResult.length}`}
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
-                
+
                 {showCheckResultFilter && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2">
@@ -1705,7 +1844,7 @@ function DanhSachDon() {
                   </div>
                 )}
               </div>
-              
+
               {showCheckResultFilter && (
                 <div
                   className="fixed inset-0 z-40"
@@ -1942,7 +2081,7 @@ function DanhSachDon() {
                   {historyLogs.map((log, index) => {
                     const changes = getHistoryChanges(log.old_data, log.new_data);
                     if (changes.length === 0) return null;
-                    
+
                     const changedAt = new Date(log.changed_at);
                     const formattedDate = changedAt.toLocaleString('vi-VN', {
                       year: 'numeric',
@@ -1951,7 +2090,7 @@ function DanhSachDon() {
                       hour: '2-digit',
                       minute: '2-digit'
                     });
-                    
+
                     return (
                       <div key={log.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                         <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-300">
@@ -1968,7 +2107,7 @@ function DanhSachDon() {
                             {changes.length} thay đổi
                           </span>
                         </div>
-                        
+
                         <div className="space-y-2">
                           {changes.map((change, idx) => (
                             <div key={idx} className="bg-white rounded p-3 border border-gray-200">
