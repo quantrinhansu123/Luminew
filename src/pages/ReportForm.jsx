@@ -56,19 +56,46 @@ function ReportForm() {
           console.log('⚠️ Error fetching products from system_settings:', supabaseError);
         }
 
-        // Bước 2: Load thị trường từ sales_reports (hoặc orders)
+        // Bước 2: Load thị trường từ sales_reports (Lấy danh sách DISTINCT thị trường)
         try {
-          const { data, error } = await supabase
-            .from('sales_reports')
-            .select('market')
-            .limit(1000)
-            .order('created_at', { ascending: false });
+          // Fetch all unique markets using a dedicated function or by fetching distinct column
+          // Supabase JS doesn't have a simple .distinct() on select easily without RPC or specific setup
+          // So we fetch larger range or use the same pagination logic as BaoCaoSale if needed.
+          // For efficiency, let's fetch 'market' column only, ordered by market
+          // Limitation: Supabase max rows per request is usually 1000.
 
-          if (!error && data) {
-            data.forEach(item => {
-              if (item.market?.trim()) marketsSet.add(item.market.trim());
-            });
+          // Solution: Fetch distinct markets via RPC if available, OR fetch distinct column via magic CSV trick or just fetch recently used ones but with larger limit?
+          // "BaoCaoSale" fetches *everything* with pagination. We can do the same here to be 100% consistent.
+
+          let allMarkets = new Set();
+          let page = 0;
+          const pageSize = 1000;
+          let hasMore = true;
+
+          while (hasMore) {
+            const { data, error } = await supabase
+              .from('sales_reports')
+              .select('market')
+              .range(page * pageSize, (page + 1) * pageSize - 1);
+
+            if (error || !data || data.length === 0) {
+              hasMore = false;
+            } else {
+              data.forEach(item => {
+                if (item.market?.trim()) allMarkets.add(item.market.trim());
+              });
+              if (data.length < pageSize) hasMore = false;
+              page++;
+            }
+            // Safety break to avoid infinite loops if DB is huge (e.g. max 5 pages = 5000 records check)
+            // Assuming market list doesn't change THAT fast, checking last 5000 records is likely enough.
+            if (page > 10) hasMore = false;
           }
+
+          // Assign to marketsSet
+          allMarkets.forEach(m => marketsSet.add(m));
+          console.log(`✅ Loaded ${allMarkets.size} unique markets from history`);
+
         } catch (dbError) {
           console.error('Error fetching markets from sales_reports:', dbError);
         }
@@ -117,7 +144,7 @@ function ReportForm() {
       fetchDropdownData();
     };
     window.addEventListener('storage', handleStorageChange);
-    
+
     // Also listen for custom event dispatched from AdminTools
     window.addEventListener('settingsUpdated', handleStorageChange);
 
@@ -516,11 +543,10 @@ function ReportForm() {
                             deleteReport(idx);
                           }
                         }}
-                        className={`flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                          reports.length <= 1
+                        className={`flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${reports.length <= 1
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                             : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
-                        }`}
+                          }`}
                         title="Xóa dòng"
                         disabled={reports.length <= 1}
                       >

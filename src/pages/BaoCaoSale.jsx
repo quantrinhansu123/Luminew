@@ -2143,39 +2143,39 @@ export default function BaoCaoSale() {
                 // Sau đó chạy song song các operations khác
                 try {
                     // BƯỚC 1: Tính "Số đơn TT" TRƯỚC (quan trọng nhất, cần đảm bảo tính đúng)
-                    console.log(`🔄 [BaoCaoSale] Bước 1: Tính "Số đơn TT" từ bảng orders...`);
-                    await enrichWithTotalOrdersFromOrders(transformedData, filters.startDate, filters.endDate);
-                    console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalOrdersFromOrders`);
+                    // console.log(`🔄 [BaoCaoSale] Bước 1: Tính "Số đơn TT" từ bảng orders...`);
+                    // await enrichWithTotalOrdersFromOrders(transformedData, filters.startDate, filters.endDate);
+                    // console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalOrdersFromOrders`);
 
                     // Log để kiểm tra sau khi enrich
-                    const recordsWithSoDonTT = transformedData.filter(r => r['Số đơn TT'] > 0);
-                    console.log(`📊 [BaoCaoSale] Sau enrichWithTotalOrdersFromOrders: ${recordsWithSoDonTT.length}/${transformedData.length} records có Số đơn TT > 0`);
-                    if (recordsWithSoDonTT.length > 0) {
-                        console.log(`📊 [BaoCaoSale] Sample records có Số đơn TT:`, recordsWithSoDonTT.slice(0, 5).map(r => ({
-                            ten: r['Tên'],
-                            ngay: r['Ngày'],
-                            sanPham: r['Sản phẩm'],
-                            thiTruong: r['Thị trường'],
-                            soDonTT: r['Số đơn TT']
-                        })));
-                    } else {
-                        console.warn(`⚠️ [BaoCaoSale] KHÔNG CÓ records nào có Số đơn TT > 0!`);
-                    }
+                    // const recordsWithSoDonTT = transformedData.filter(r => r['Số đơn TT'] > 0);
+                    // console.log(`📊 [BaoCaoSale] Sau enrichWithTotalOrdersFromOrders: ${recordsWithSoDonTT.length}/${transformedData.length} records có Số đơn TT > 0`);
+                    // if (recordsWithSoDonTT.length > 0) {
+                    //     console.log(`📊 [BaoCaoSale] Sample records có Số đơn TT:`, recordsWithSoDonTT.slice(0, 5).map(r => ({
+                    //         ten: r['Tên'],
+                    //         ngay: r['Ngày'],
+                    //         sanPham: r['Sản phẩm'],
+                    //         thiTruong: r['Thị trường'],
+                    //         soDonTT: r['Số đơn TT']
+                    //     })));
+                    // } else {
+                    //     console.warn(`⚠️ [BaoCaoSale] KHÔNG CÓ records nào có Số đơn TT > 0!`);
+                    // }
 
                     // BƯỚC 2: Chạy SONG SONG các operations còn lại từ bảng orders và sales_reports
                     console.log(`🔄 [BaoCaoSale] Bước 2: Chạy song song các operations khác...`);
                     await Promise.all([
-                        enrichWithCancelOrdersFromOrders(transformedData, filters.startDate, filters.endDate, filters.products, filters.markets)
-                            .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithCancelOrdersFromOrders`))
-                            .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithCancelOrdersFromOrders:`, err)),
+                        // enrichWithCancelOrdersFromOrders(transformedData, filters.startDate, filters.endDate, filters.products, filters.markets)
+                        //     .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithCancelOrdersFromOrders`))
+                        //     .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithCancelOrdersFromOrders:`, err)),
 
-                        enrichWithTotalRevenueFromOrders(transformedData, filters.startDate, filters.endDate)
-                            .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalRevenueFromOrders`))
-                            .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithTotalRevenueFromOrders:`, err)),
+                        // enrichWithTotalRevenueFromOrders(transformedData, filters.startDate, filters.endDate)
+                        //     .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalRevenueFromOrders`))
+                        //     .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithTotalRevenueFromOrders:`, err)),
 
-                        enrichWithRevenueAfterCancelFromOrders(transformedData, filters.startDate, filters.endDate)
-                            .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithRevenueAfterCancelFromOrders`))
-                            .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithRevenueAfterCancelFromOrders:`, err)),
+                        // enrichWithRevenueAfterCancelFromOrders(transformedData, filters.startDate, filters.endDate)
+                        //     .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithRevenueAfterCancelFromOrders`))
+                        //     .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithRevenueAfterCancelFromOrders:`, err)),
 
                         // Từ bảng sales_reports (độc lập với orders)
                         enrichMessAndResponseFromSalesReports(transformedData, filters.startDate, filters.endDate)
@@ -2186,11 +2186,11 @@ export default function BaoCaoSale() {
                     console.log(`✅ [BaoCaoSale] Hoàn thành tất cả enrich operations`);
 
                     // Verify "Số đơn TT" sau khi enrich
-                    const finalRecordsWithSoDonTT = transformedData.filter(r => r['Số đơn TT'] > 0);
-                    console.log(`📊 [BaoCaoSale] FINAL VERIFY: ${finalRecordsWithSoDonTT.length}/${transformedData.length} records có Số đơn TT > 0`);
-                    if (finalRecordsWithSoDonTT.length === 0) {
-                        console.error(`❌ [BaoCaoSale] CẢNH BÁO: Không có records nào có Số đơn TT > 0 sau khi enrich!`);
-                    }
+                    // const finalRecordsWithSoDonTT = transformedData.filter(r => r['Số đơn TT'] > 0);
+                    // console.log(`📊 [BaoCaoSale] FINAL VERIFY: ${finalRecordsWithSoDonTT.length}/${transformedData.length} records có Số đơn TT > 0`);
+                    // if (finalRecordsWithSoDonTT.length === 0) {
+                    //     console.error(`❌ [BaoCaoSale] CẢNH BÁO: Không có records nào có Số đơn TT > 0 sau khi enrich!`);
+                    // }
                 } catch (err) {
                     console.error(`❌ [BaoCaoSale] Lỗi trong enrich operations:`, err);
                 }
@@ -2344,10 +2344,17 @@ export default function BaoCaoSale() {
                     doanhSoDiThucTe: Number(r['Doanh số đi thực tế']) || 0,
                     soDonHoanHuyThucTe: Number(r['Số đơn hoàn hủy thực tế']) || 0,
                     doanhSoHoanHuyThucTe: Number(r['Doanh số hoàn hủy thực tế']) || 0,
-                    soDonTT: Number(r['Số đơn TT']) || 0, // Số đơn tổng từ bảng orders
-                    doanhSoTT: Number(r['Doanh số']) || 0, // Tổng doanh số từ bảng orders (total_amount_vnd)
-                    doanhSoSauHuy: Number(r['Doanh số sau hủy']) || 0, // Doanh số sau hủy (tổng VNĐ của các đơn không phải Hủy)
-                    // Tính "Doanh số sau hoàn hủy thực tế" = doanhThuChotThucTe - doanhSoHoanHuyThucTe (tính ở frontend)
+                    // CHỈNH SỬA: Lấy dữ liệu TRỰC TIẾP từ sales_reports (Input Form)
+                    // Thay vì lấy từ r['Số đơn TT'] (đã bị comment out ở trên)
+                    soDonTT: Number(r['Đơn Mess']) || 0, // Lấy từ sales_reports.order_count
+                    doanhSoTT: Number(r['Doanh số Mess']) || 0, // Lấy từ sales_reports.revenue_mess
+                    doanhSoHuy: Number(r['Doanh số hoàn huỷ']) || 0, // Lấy từ sales_reports.revenue_cancel
+                    // Số đơn hủy: sales_reports.order_cancel_count (thường là 0 vì form không có nhập)
+                    soDonHuy: Number(r['Số đơn Hoàn huỷ']) || 0,
+
+                    // Tính Doanh số sau hủy = Doanh số Mess - Doanh số hoàn hủy
+                    doanhSoSauHuy: (Number(r['Doanh số Mess']) || 0) - (Number(r['Doanh số hoàn huỷ']) || 0),
+
                     originalRecord: r // Keep ref if needed
                 }));
 
@@ -3002,25 +3009,23 @@ export default function BaoCaoSale() {
             s.mess += r.soMessCmt || 0;
             s.phanHoi += r.phanHoi || 0;
 
-            // "Số đơn TT" tính từ TẤT CẢ records (bao gồm cả empty records) vì nó được tính từ database
+            // "Số đơn TT" giờ lấy từ input sales_reports
             s.soDonTT += r.soDonTT || 0;
 
-            // Các giá trị khác vẫn tính từ tất cả records (bao gồm cả empty records)
+            // Các giá trị khác
             s.don += r.soDon || 0;
             s.chot += r.dsChot || 0;
             s.soDonThucTe += r.soDonThucTe || 0;
             s.doanhThuChotThucTe += r.doanhThuChotThucTe || 0;
-            // "Số đơn hoàn hủy thực tế" tính từ TẤT CẢ records (bao gồm cả empty records)
-            // vì nó được tính từ database (enrichWithCancelOrdersFromOrders)
-            s.soDonHoanHuyThucTe += r.soDonHoanHuyThucTe || 0;
+            // "Số đơn hoàn hủy thực tế" lấy từ record (đã được map từ sales_reports)
+            s.soDonHoanHuyThucTe += r.soDonHuy || 0;
             s.doanhSoHoanHuyThucTe += r.doanhSoHoanHuyThucTe || 0;
-            s.doanhSoHuy += r.doanhSoHuy || 0; // Doanh số hủy từ form nhập
-            s.doanhSoTT += r.doanhSoTT || 0; // Tổng doanh số TT (vẫn tính từ tất cả records)
-            s.doanhSoSauHuy += r.doanhSoSauHuy || 0; // Doanh số sau hủy
+            s.doanhSoHuy += r.doanhSoHuy || 0;
+            s.doanhSoTT += r.doanhSoTT || 0;
+            s.doanhSoSauHuy += r.doanhSoSauHuy || 0;
             s.doanhSoDi += r.doanhSoDi || 0;
-            // "Số đơn Hoàn huỷ" giờ lấy từ soDonHoanHuyThucTe (từ orders thực tế) thay vì sales_reports (nhập tay)
-            // Dùng soDonHoanHuyThucTe thay vì soDonHuy để đảm bảo tính từ database
-            s.soDonHuy += r.soDonHoanHuyThucTe || 0;
+
+            s.soDonHuy += r.soDonHuy || 0;
             s.soDonThanhCong += r.soDonThanhCong || 0;
             s.doanhSoThanhCong += r.doanhSoThanhCong || 0;
         });
