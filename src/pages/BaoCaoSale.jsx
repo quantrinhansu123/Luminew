@@ -2165,9 +2165,9 @@ export default function BaoCaoSale() {
                     // BƯỚC 2: Chạy SONG SONG các operations còn lại từ bảng orders và sales_reports
                     console.log(`🔄 [BaoCaoSale] Bước 2: Chạy song song các operations khác...`);
                     await Promise.all([
-                        // enrichWithCancelOrdersFromOrders(transformedData, filters.startDate, filters.endDate, filters.products, filters.markets)
-                        //     .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithCancelOrdersFromOrders`))
-                        //     .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithCancelOrdersFromOrders:`, err)),
+                        enrichWithCancelOrdersFromOrders(transformedData, filters.startDate, filters.endDate, filters.products, filters.markets)
+                            .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithCancelOrdersFromOrders`))
+                            .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithCancelOrdersFromOrders:`, err)),
 
                         // enrichWithTotalRevenueFromOrders(transformedData, filters.startDate, filters.endDate)
                         //     .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalRevenueFromOrders`))
@@ -2350,7 +2350,7 @@ export default function BaoCaoSale() {
                     doanhSoTT: Number(r['Doanh số Mess']) || 0, // Lấy từ sales_reports.revenue_mess
                     doanhSoHuy: Number(r['Doanh số hoàn huỷ']) || 0, // Lấy từ sales_reports.revenue_cancel
                     // Số đơn hủy: sales_reports.order_cancel_count (thường là 0 vì form không có nhập)
-                    soDonHuy: Number(r['Số đơn Hoàn huỷ']) || 0,
+                    soDonHuy: Number(r['Số đơn hoàn hủy thực tế']) || 0, // Lấy từ kết quả enrichWithCancelOrdersFromOrders
 
                     // Tính Doanh số sau hủy = Doanh số Mess - Doanh số hoàn hủy
                     doanhSoSauHuy: (Number(r['Doanh số Mess']) || 0) - (Number(r['Doanh số hoàn huỷ']) || 0),
