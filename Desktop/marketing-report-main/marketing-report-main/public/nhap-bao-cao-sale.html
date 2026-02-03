@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nhập Báo Cáo Sale</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 600px; width: 100%; }
+        h1 { color: #333; margin-bottom: 30px; text-align: center; font-size: 28px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: 600; font-size: 14px; }
+        input, select, textarea { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; transition: all 0.3s; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        button { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s; }
+        button:hover { transform: translateY(-2px); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .message { margin-top: 20px; padding: 15px; border-radius: 8px; text-align: center; font-weight: 600; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .user-info { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 25px; }
+        .user-info p { margin: 5px 0; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Nhập Báo Cáo Sale</h1>
+        
+        <div class="user-info" id="userInfo"></div>
+
+        <form id="reportForm">
+            <div class="form-group">
+                <label>Ngày báo cáo *</label>
+                <input type="date" id="date" required>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Ca làm việc *</label>
+                    <select id="shift" required>
+                        <option value="Sáng">Sáng</option>
+                        <option value="Chiều">Chiều</option>
+                        <option value="Tối">Tối</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Thị trường *</label>
+                    <input type="text" id="market" value="VN" list="markets" required>
+                    <datalist id="markets">
+                        <option value="VN">
+                        <option value="TH">
+                        <option value="US">
+                        <option value="Global">
+                    </datalist>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Sản phẩm *</label>
+                <input type="text" id="product" placeholder="Nhập tên sản phẩm..." required>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Số Mess</label>
+                    <input type="number" id="mess_count" min="0" value="0">
+                </div>
+                <div class="form-group">
+                    <label>Phản hồi</label>
+                    <input type="number" id="response_count" min="0" value="0">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Số đơn (Mess)</label>
+                    <input type="number" id="order_count" min="0" value="0">
+                </div>
+                <div class="form-group">
+                    <label>Doanh số (Mess)</label>
+                    <input type="number" id="revenue_mess" min="0" value="0">
+                </div>
+            </div>
+
+            <button type="submit" id="submitBtn">Gửi Báo Cáo</button>
+        </form>
+
+        <div id="message" class="message" style="display: none;"></div>
+    </div>
+
+    <script>
+        // Get URL params
+        const urlParams = new URLSearchParams(window.location.search);
+        const userName = urlParams.get('hoten') || 'Unknown';
+        const userEmail = urlParams.get('email') || 'unknown@example.com';
+
+        // Display user info
+        document.getElementById('userInfo').innerHTML = `
+            <p><strong>👤 Người báo cáo:</strong> ${userName}</p>
+            <p><strong>📧 Email:</strong> ${userEmail}</p>
+        `;
+
+        // Set today's date
+        document.getElementById('date').valueAsDate = new Date();
+
+        // Initialize Supabase
+        const SUPABASE_URL = 'https://lggpbxiuxsrtwzvpmxbo.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxnZ3BieGl1eHNydHd6dnBteGJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzc0NTE3MDcsImV4cCI6MjA1MzAyNzcwN30.kjnYr2BwvJsJOmMAHJcdZrvOxK1VpgkewqEgmWJEd4I';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Handle form submission
+        document.getElementById('reportForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const messageDiv = document.getElementById('message');
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Đang gửi...';
+            messageDiv.style.display = 'none';
+
+            const formData = {
+                name: userName,
+                email: userEmail,
+                team: '',
+                branch: '',
+                position: '',
+                date: document.getElementById('date').value,
+                shift: document.getElementById('shift').value,
+                product: document.getElementById('product').value,
+                market: document.getElementById('market').value,
+                mess_count: parseInt(document.getElementById('mess_count').value) || 0,
+                response_count: parseInt(document.getElementById('response_count').value) || 0,
+                order_count: parseInt(document.getElementById('order_count').value) || 0,
+                revenue_mess: parseFloat(document.getElementById('revenue_mess').value) || 0,
+                created_by: userEmail
+            };
+
+            try {
+                const { data, error } = await supabase
+                    .from('sales_reports')
+                    .insert([formData]);
+
+                if (error) throw error;
+
+                messageDiv.className = 'message success';
+                messageDiv.textContent = '✅ Gửi báo cáo thành công!';
+                messageDiv.style.display = 'block';
+
+                // Reset numeric fields
+                document.getElementById('mess_count').value = 0;
+                document.getElementById('response_count').value = 0;
+                document.getElementById('order_count').value = 0;
+                document.getElementById('revenue_mess').value = 0;
+                document.getElementById('product').value = '';
+
+            } catch (error) {
+                console.error('Error:', error);
+                messageDiv.className = 'message error';
+                messageDiv.textContent = '❌ Lỗi: ' + error.message;
+                messageDiv.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Gửi Báo Cáo';
+            }
+        });
+    </script>
+</body>
+</html>

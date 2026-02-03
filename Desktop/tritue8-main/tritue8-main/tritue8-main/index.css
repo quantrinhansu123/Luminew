@@ -1,0 +1,667 @@
+@import 'tailwindcss';
+
+/* Khai báo dark variant */
+@custom-variant dark (&:is(.dark *));
+
+/* Map các biến màu vào hệ thống theme để Tailwind hiểu */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ======================== */
+/* LIGHT THEME (Default)    */
+/* ======================== */
+:root {
+  --radius: 0.65rem;
+
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.16 0.01 240);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0.01 240);
+
+  /* Màu chủ đạo: #36797f (deep teal) */
+  --primary: oklch(0.63 0.09 195);
+  --primary-foreground: oklch(0.97 0.02 240);
+
+  --secondary: oklch(0.85 0.05 195);
+  --secondary-foreground: oklch(0.26 0.03 240);
+
+  --muted: oklch(0.92 0.02 195);
+  --muted-foreground: oklch(0.55 0.02 240);
+
+  --accent: oklch(0.86 0.05 195);
+  --accent-foreground: oklch(0.18 0.02 240);
+
+  --destructive: oklch(0.6 0.22 25);
+  --border: oklch(0.88 0.02 195);
+  --input: oklch(0.9 0.02 195);
+  --ring: oklch(0.63 0.09 195);
+
+  /* Chart / sidebar */
+  --chart-1: oklch(0.63 0.09 195);
+  --chart-2: oklch(0.65 0.1 160);
+  --chart-3: oklch(0.62 0.09 100);
+  --chart-4: oklch(0.7 0.08 250);
+  --chart-5: oklch(0.68 0.09 280);
+
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.18 0.01 240);
+  --sidebar-primary: oklch(0.63 0.09 195);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.88 0.04 195);
+  --sidebar-accent-foreground: oklch(0.18 0.01 240);
+  --sidebar-border: oklch(0.9 0.02 195);
+  --sidebar-ring: oklch(0.63 0.09 195);
+}
+
+/* ======================== */
+/* DARK THEME               */
+/* ======================== */
+.dark {
+  --background: oklch(0.18 0.01 240);
+  --foreground: oklch(0.985 0 0);
+
+  --card: oklch(0.22 0.01 240);
+  --card-foreground: oklch(0.98 0 0);
+
+  /* Primary teal cho dark: sáng hơn 1 chút */
+  --primary: oklch(0.68 0.09 195);
+  --primary-foreground: oklch(0.12 0.02 220);
+
+  --secondary: oklch(0.3 0.04 195);
+  --secondary-foreground: oklch(0.98 0 0);
+
+  --muted: oklch(0.28 0.03 195);
+  --muted-foreground: oklch(0.75 0.04 195);
+
+  --accent: oklch(0.32 0.05 195);
+  --accent-foreground: oklch(0.98 0 0);
+
+  --destructive: oklch(0.6 0.2 25);
+  --border: oklch(0.35 0.02 195);
+  --input: oklch(0.35 0.02 195);
+  --ring: oklch(0.68 0.09 195);
+
+  --chart-1: oklch(0.68 0.09 195);
+  --chart-2: oklch(0.63 0.1 160);
+  --chart-3: oklch(0.58 0.11 100);
+  --chart-4: oklch(0.65 0.08 250);
+  --chart-5: oklch(0.62 0.09 280);
+
+  --sidebar: oklch(0.22 0.01 240);
+  --sidebar-foreground: oklch(0.98 0 0);
+  --sidebar-primary: oklch(0.68 0.09 195);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.3 0.05 195);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border: oklch(0.35 0.02 195);
+  --sidebar-ring: oklch(0.68 0.09 195);
+}
+
+/* ======================== */
+/* Base styles              */
+/* ======================== */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-weight: 500;
+  }
+  
+  /* Tăng font size và font weight cho tất cả text */
+  body, html {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  /* Tăng font size cho các thẻ text */
+  p, span, div, a, label, input, textarea, select, button {
+    font-weight: 500;
+  }
+  
+  /* Tăng font size cho headings */
+  h1 {
+    font-size: 2.75rem;  /* Increased from 2.5rem */
+    font-weight: 700;
+  }
+  
+  h2 {
+    font-size: 2.25rem;  /* Increased from 2rem */
+    font-weight: 700;
+  }
+  
+  h3 {
+    font-size: 2rem;  /* Increased from 1.75rem */
+    font-weight: 600;
+  }
+  
+  h4 {
+    font-size: 1.75rem;  /* Increased from 1.5rem */
+    font-weight: 600;
+  }
+  
+  h5 {
+    font-size: 1.5rem;  /* Increased from 1.25rem */
+    font-weight: 600;
+  }
+  
+  h6 {
+    font-size: 1.375rem;  /* Increased from 1.125rem */
+    font-weight: 600;
+  }
+  
+  /* Tăng font size cho Ant Design components */
+  .ant-typography {
+    font-weight: 500;
+  }
+  
+  .ant-table {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-table-thead > tr > th {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 600;
+  }
+  
+  .ant-table-tbody > tr > td {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-btn {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-input, .ant-input-number, .ant-select-selector {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-card-head-title {
+    font-size: 20px;  /* Increased from 18px */
+    font-weight: 600;
+  }
+  
+  .ant-menu-item, .ant-menu-submenu-title {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-form-item-label > label {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-modal-title {
+    font-size: 22px;  /* Increased from 20px */
+    font-weight: 600;
+  }
+  
+  .ant-tag {
+    font-size: 16px;  /* Increased from 14px */
+    font-weight: 500;
+  }
+  
+  .ant-tabs-tab {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-dropdown-menu-item {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-tooltip-inner {
+    font-size: 16px;  /* Increased from 14px */
+    font-weight: 500;
+  }
+  
+  .ant-message {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-notification-notice-message {
+    font-size: 18px;  /* Increased from 16px */
+    font-weight: 500;
+  }
+  
+  .ant-notification-notice-description {
+    font-size: 17px;  /* Increased from 15px */
+    font-weight: 500;
+  }
+}
+
+/* ======================== */
+/* Print styles             */
+/* ======================== */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-content,
+  .print-content * {
+    visibility: visible;
+  }
+  .print-content {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  button,
+  .ant-btn {
+    display: none !important;
+  }
+  .ant-table-pagination {
+    display: none !important;
+  }
+}
+
+/* ======================== */
+/* Schedule Calendar Styles */
+/* ======================== */
+:root {
+    /* Palette Colors - ROOM BASED */
+    /* P1 - Orange/Warm */
+    --col-p1: #F57C00;
+    --col-p1-bg: #FFF3E0;
+    /* P2 - Purple */
+    --col-p2: #7E57C2;
+    --col-p2-bg: #EDE7F6;
+    /* P3 - Green */
+    --col-p3: #2E7D32;
+    --col-p3-bg: #E8F5E9;
+    /* P4 - Blue */
+    --col-p4: #0277BD;
+    --col-p4-bg: #E1F5FE;
+    /* P5 - Yellow/Mustard */
+    --col-p5: #FBC02D;
+    --col-p5-bg: #FFFDE7;
+    
+    --col-default: #616161;
+    --col-default-bg: #F5F5F5;
+
+    /* Dimensions */
+    --hour-height: 50px;
+    --header-height: 45px;
+    --time-col-width: 45px;
+    
+    /* Typography */
+    --font-main: 'Inter', sans-serif;
+    --font-head: 'Montserrat', sans-serif;
+}
+
+/* Schedule Container */
+.schedule-container {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    position: relative;
+    min-width: 1400px;
+    overflow: hidden;
+    border: 1px solid #dfe6e9;
+}
+
+/* Grid Layout */
+.calendar-header {
+    display: grid;
+    grid-template-columns: var(--time-col-width) repeat(7, 1fr);
+    border-bottom: 1px solid #dfe6e9;
+    background: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+}
+
+.day-head {
+    text-align: center;
+    padding: 12px 2px;
+    border-left: 1px solid #f1f2f6;
+    background: #fff;
+}
+
+.day-head:last-child {
+    background: #fafafa;
+}
+
+.day-name {
+    font-family: var(--font-head);
+    font-size: 13px;
+    font-weight: 800;
+    color: #2d3436;
+    text-transform: uppercase;
+}
+
+.calendar-body {
+    display: grid;
+    grid-template-columns: var(--time-col-width) repeat(7, 1fr);
+    position: relative;
+}
+
+/* Time Axis */
+.time-column {
+    background: #fafafa;
+    border-right: 1px solid #eee;
+    position: relative;
+}
+
+.time-slot {
+    height: var(--hour-height);
+    border-bottom: 1px dashed #e0e0e0;
+    color: #b2bec3;
+    font-size: 9px;
+    font-weight: 600;
+    text-align: right;
+    padding-right: 6px;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+}
+
+/* Grid Lines */
+.day-column {
+    border-left: 1px solid #f1f2f6;
+    position: relative;
+    background: linear-gradient(to bottom, transparent 49px, #f5f6fa 50px);
+    background-size: 100% 50px;
+}
+
+/* Event Cards */
+.event-card {
+    position: absolute;
+    border-radius: 4px;
+    padding: 3px 6px;
+    border-left: 3px solid #ccc;
+    background: white;
+    border: 1px solid rgba(0,0,0,0.06);
+    border-left-width: 3px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    transition: all 0.2s;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.event-card:hover {
+    z-index: 100 !important;
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    height: auto !important;
+    min-height: fit-content;
+}
+
+/* Typography */
+.event-card .subject {
+    font-family: var(--font-head);
+    font-weight: 800;
+    font-size: 11px;
+    line-height: 1.2;
+    color: #2d3436;
+    margin-bottom: 2px;
+    white-space: normal;
+}
+
+.event-card .meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1px;
+}
+
+.event-card .room-badge {
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    background: rgba(0,0,0,0.1);
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+/* Color Classes Based on Room */
+.event-card.type-p1 {
+    border-left-color: var(--col-p1);
+    background: var(--col-p1-bg);
+}
+
+.event-card.type-p1 .subject {
+    color: #E65100;
+}
+
+.event-card.type-p1 .room-badge {
+    background: var(--col-p1);
+}
+
+.event-card.type-p2 {
+    border-left-color: var(--col-p2);
+    background: var(--col-p2-bg);
+}
+
+.event-card.type-p2 .subject {
+    color: #4527A0;
+}
+
+.event-card.type-p2 .room-badge {
+    background: var(--col-p2);
+}
+
+.event-card.type-p3 {
+    border-left-color: var(--col-p3);
+    background: var(--col-p3-bg);
+}
+
+.event-card.type-p3 .subject {
+    color: #1B5E20;
+}
+
+.event-card.type-p3 .room-badge {
+    background: var(--col-p3);
+}
+
+.event-card.type-p4 {
+    border-left-color: var(--col-p4);
+    background: var(--col-p4-bg);
+}
+
+.event-card.type-p4 .subject {
+    color: #01579B;
+}
+
+.event-card.type-p4 .room-badge {
+    background: var(--col-p4);
+}
+
+.event-card.type-p5 {
+    border-left-color: var(--col-p5);
+    background: var(--col-p5-bg);
+}
+
+.event-card.type-p5 .subject {
+    color: #F57F17;
+}
+
+.event-card.type-p5 .room-badge {
+    background: var(--col-p5);
+    color: #222;
+}
+
+.event-card.type-other {
+    border-left-color: var(--col-default);
+    background: var(--col-default-bg);
+}
+
+.event-card.type-other .room-badge {
+    background: var(--col-default);
+}
+
+/* Page Header */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    background: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.page-title h1 {
+    font-family: var(--font-head);
+    font-size: 18px;
+    color: #263238;
+    text-transform: uppercase;
+    font-weight: 800;
+    margin: 0;
+}
+
+.legend {
+    display: flex;
+    gap: 15px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #455A64;
+    text-transform: uppercase;
+}
+
+.legend-item .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+}
+
+.btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    background: #2c3e50;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.no-print {
+    /* This class is for hiding elements when printing */
+}
+
+/* Print Settings */
+@media print {
+    @page {
+        size: A4 landscape;
+        margin: 5mm;
+    }
+    
+    .page-header {
+        box-shadow: none;
+        border: none;
+        padding: 0 0 5px 0;
+        margin-bottom: 5px;
+    }
+    
+    .schedule-container {
+        border: 1px solid #ccc;
+        width: 100%;
+        min-width: 100%;
+        box-shadow: none;
+    }
+    
+    .no-print {
+        display: none !important;
+    }
+    
+    .event-card {
+        box-shadow: none;
+        border: 1px solid #eee;
+        break-inside: avoid;
+    }
+    
+    /* Force Backgrounds */
+    .event-card.type-p1 {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        background: #FFF3E0 !important;
+    }
+    
+    .event-card.type-p2 {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        background: #EDE7F6 !important;
+    }
+    
+    .event-card.type-p3 {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        background: #E8F5E9 !important;
+    }
+    
+    .event-card.type-p4 {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        background: #E1F5FE !important;
+    }
+    
+    .event-card.type-p5 {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        background: #FFFDE7 !important;
+    }
+    
+    .event-card .room-badge {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}

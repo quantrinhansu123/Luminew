@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: crm-api
+    env: node
+    plan: free
+    buildCommand: |
+      pnpm install
+      cd apps/api
+      pnpm run build
+    startCommand: node apps/api/dist/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PORT
+        value: 10000

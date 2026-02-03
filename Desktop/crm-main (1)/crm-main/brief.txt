@@ -1,0 +1,14 @@
+Tôi cần bạn làm lại luồng hoạt động như sau: 
+-	Tạo khách hàng tiềm năng (leads)  Gán nhân viên sales cho leads đó  Thay đổi thông tin trạng thái của leads đó theo từng giai đoạn (đang gọi, huỷ,…)  khi leads đó giao tiếp với nhân viên và đồng ý chốt  nhân viên đổi trạng thái sang đã chốt  lúc này mới bắt đầu cho phép bên cạnh đó có nút tạo khách hàng và tạo đơn hàng luôn. Lưu ý: không được không có đơn mà tạo khách hàng như lúc trước nữa.
+-	Đơn hàng sẽ bao gồm: 
+o	Mã đơn
+o	Khách hàng 
+o	Mô tả
+o	Tổng tiền 
+o	Trạng thái
+o	Chỗ để upload tài liệu cần phải thiết kế cho đơn hàng đó (yêu cầu phải kết nối được với google drive của mình hoặc setting sao đó cho nó kết nối của google drive của mình và up lên) 
+o	Tổng tiền
+o	Trạng thái
+-	Yêu cầu thiết kế section: đổi lại là nơi nhân viên dùng để trả kết quả sau khi thiết kế sau cho 1 đơn hàng. Ví dụ: nếu click vào 1 đơn hàng của section đó  nó sẽ ra tên khách hàng hay gì đó ngoài ra có nơi để mình upload kết quả thiết kế sau khi nhận của đơn đó. Sau đó kết quả đó phải được đính kèm với của đơn hàng để section “Đơn hàng” nhấp vào cũng có kết quả của đơn hàng đó từ bên Yêu cầu thiết kế section luôn. Khi upload hình ảnh, file lên đơn hàng nhớ lưu lại link để các tính năng khác có thể trỏ tới để xem nhé (đối với ảnh là có thể trỏ tới để hiển thị preview trên web với cơ cấu ở dưới luôn)
+-	Kho thiết kế: đổi là nơi để mình có thể tra nhanh các đơn hàng nhưng chủ yếu là để các nhân viên vào đó nhìn được các ảnh preview từ đơn hàng và sau đó xem chi tiết (tại vì 1 đơn hàng không chỉ có 1 hoặc 2 file hoặc ảnh). Hãy dựa vào phần hình ảnh giao diện tôi gửi để làm theo. (Mô tả sơ: có 1 thanh để tìm kiếm thiết theo tên khách hàng hoặc mã đơn, phía dưới sẽ phần section được chia đều thành các ô, trong mỗi ô phải hiển thị được 3 tính năng (ảnh, mã đơn, tên khách hàng), phần ảnh thì lấy cái ảnh đầu tiên có trong đơn hàng đó, và sau khi bấm vào đó mình sẽ xem rõ hơn). Kho thiết kế này bỏ đi nút bấm thêm thiết kế đi. Cơ chế để hiển thị ảnh ở trang này khi dùng google drive là dùng theo format là: https://drive.google.com/thumbnail?<id của ảnh đó khi upload lên google drive>&sz=<tuỳ chỉnh>.
+-	Section “Khách hàng” và “Đơn hàng” không được thêm nút tạo, nó chỉ được tạo thông qua hộp chờ tư vấn, sau khi khách hàng đó đã chốt đơn thì mới cho phép tạo ở trang đó thôi. Bỏ đi nút tạo của section “Khách hàng” và “Đơn hàng”

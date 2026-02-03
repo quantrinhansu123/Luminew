@@ -1,0 +1,75 @@
+{
+  "datasheet": {
+    "Chi_phí_vận_hành": {},
+    "Danh_sách_học_sinh": {},
+    "Gia_hạn": {},
+    "Giáo_viên": {
+      "admin_001": {
+        "Họ và tên": "Nguyễn Admin (Kiet)",
+        "Email": "tskiet2811@gmail.com",
+        "Password": "admin",
+        "Vị trí": "Admin",
+        "Mã giáo viên": "GV_ADMIN_01",
+        "SĐT": "0909000001",
+        "Địa chỉ": "Hệ thống",
+        "Ngân hàng": "",
+        "STK": ""
+      },
+      "admin_002": {
+        "Họ và tên": "IT Developer (Gia Phu)",
+        "Email": "it_dev@giaphu.co",
+        "Password": "admin",
+        "Vị trí": "Admin",
+        "Mã giáo viên": "GV_ADMIN_02",
+        "SĐT": "0909000002",
+        "Địa chỉ": "Hệ thống",
+        "Ngân hàng": "",
+        "STK": ""
+      },
+      "admin_003": {
+        "Họ và tên": "Mr. Liêm Khiết",
+        "Email": "mrliemkhiet@gmail.com",
+        "Password": "admin",
+        "Vị trí": "Admin",
+        "Mã giáo viên": "GV_ADMIN_03",
+        "SĐT": "0909000003",
+        "Địa chỉ": "Hệ thống",
+        "Ngân hàng": "",
+        "STK": ""
+      },
+      "admin_004": {
+        "Họ và tên": "Hoàng Thành Đạt",
+        "Email": "htdat2711@gmail.com",
+        "Password": "admin",
+        "Vị trí": "Admin",
+        "Mã giáo viên": "GV_ADMIN_04",
+        "SĐT": "0909000004",
+        "Địa chỉ": "Hệ thống",
+        "Ngân hàng": "",
+        "STK": ""
+      },
+      "admin_005": {
+        "Họ và tên": "Hoàng Thu Huệ",
+        "Email": "hoangthuhue191103@gmail.com",
+        "Password": "admin",
+        "Vị trí": "Admin",
+        "Mã giáo viên": "GV_ADMIN_05",
+        "SĐT": "0909000005",
+        "Địa chỉ": "Hệ thống",
+        "Ngân hàng": "",
+        "STK": ""
+      }
+    },
+    "Học_sinh": {},
+    "Lịch_học": {},
+    "Môn_học": {},
+    "Phụ_huynh": {},
+    "Phiếu_lương_giáo_viên": {},
+    "Phiếu_thu_học_phí": {},
+    "Thời_khoá_biểu": {},
+    "Trường_học": {},
+    "Vật_tư": {},
+    "Xe_bus": {},
+    "Điểm_danh": {}
+  }
+}

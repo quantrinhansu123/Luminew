@@ -1,0 +1,80 @@
+/* Global Styles - Navy Blue and Red Theme */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  font-family: 'Roboto', sans-serif;
+}
+
+body {
+  font-family: 'Roboto', sans-serif !important;
+}
+
+/* Override accent colors to Red */
+.bg-accent {
+  background-color: #dc2626 !important; /* Red */
+}
+
+.text-accent {
+  color: #dc2626 !important; /* Red */
+}
+
+.border-accent {
+  border-color: #dc2626 !important; /* Red */
+}
+
+.hover\:bg-accent:hover {
+  background-color: #dc2626 !important;
+}
+
+/* Navy Blue overrides */
+.bg-primary {
+  background-color: #001f3f !important; /* Navy */
+}
+
+.text-primary {
+  color: #001f3f !important; /* Navy */
+}
+
+.border-primary {
+  border-color: #001f3f !important; /* Navy */
+}
+
+/* Update button styles */
+button.bg-accent,
+button[class*="bg-accent"] {
+  background-color: #dc2626 !important;
+}
+
+button.bg-accent:hover,
+button[class*="bg-accent"]:hover {
+  background-color: #b91c1c !important; /* Darker Red */
+}
+
+/* Update link and active states */
+.active,
+[class*="active"],
+[aria-current="page"] {
+  background-color: #dc2626 !important;
+  color: white !important;
+}
+
+/* Gradient colors for sidebar */
+.from-primary {
+  --tw-gradient-from: #001f3f !important;
+}
+
+.via-secondary {
+  --tw-gradient-via: #003366 !important;
+}
+
+.to-primary {
+  --tw-gradient-to: #001f3f !important;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900;
+  }
+}

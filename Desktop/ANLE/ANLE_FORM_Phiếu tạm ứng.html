@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PHIẾU TẠM ỨNG</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Times New Roman', serif;
+            font-size: 12pt;
+            padding: 20px;
+            background: #fff;
+        }
+        .container {
+            max-width: 210mm;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .logo {
+            max-width: 150px;
+            height: auto;
+        }
+        .company-name {
+            font-weight: bold;
+            font-size: 16pt;
+            text-align: right;
+        }
+        .form-title {
+            font-size: 24pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin: 20px 0;
+            text-align: center;
+            border-top: 3px solid #000;
+            border-bottom: 3px solid #000;
+            padding: 15px 0;
+            letter-spacing: 2px;
+            background-color: #f5f5f5;
+        }
+        .info-section {
+            margin-bottom: 15px;
+        }
+        .info-row {
+            display: flex;
+            margin-bottom: 8px;
+        }
+        .info-label {
+            width: 150px;
+            font-weight: bold;
+        }
+        .info-value {
+            flex: 1;
+            border-bottom: 1px solid #000;
+            min-height: 20px;
+        }
+        .amount-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 2px solid #000;
+        }
+        .amount-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 14pt;
+        }
+        .amount-label {
+            font-weight: bold;
+        }
+        .amount-value {
+            border-bottom: 2px solid #000;
+            min-width: 200px;
+            text-align: right;
+            padding-right: 10px;
+        }
+        .amount-words {
+            margin-top: 10px;
+            font-style: italic;
+        }
+        .signature-section {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 40px;
+        }
+        .signature-box {
+            text-align: center;
+            width: 45%;
+        }
+        .signature-line {
+            border-top: 1px solid #000;
+            margin-top: 60px;
+            padding-top: 5px;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            .container {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fe3112a9a.%E1%BA%A2nh.002806.jpg" alt="Logo" class="logo">
+            <div class="company-name">CÔNG TY TNHH ANLE</div>
+        </div>
+
+        <div class="form-title">PHIẾU TẠM ỨNG</div>
+
+        <div class="info-section">
+            <div class="info-row">
+                <div class="info-label">Số phiếu:</div>
+                <div class="info-value"></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Ngày:</div>
+                <div class="info-value"></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Người tạm ứng:</div>
+                <div class="info-value"></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Bộ phận:</div>
+                <div class="info-value"></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Chức vụ:</div>
+                <div class="info-value"></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Lý do tạm ứng:</div>
+                <div class="info-value"></div>
+            </div>
+        </div>
+
+        <div class="amount-section">
+            <div class="amount-row">
+                <div class="amount-label">Số tiền tạm ứng:</div>
+                <div class="amount-value"></div>
+            </div>
+            <div class="amount-words">
+                <strong>Bằng chữ:</strong> <span style="border-bottom: 1px solid #000; min-width: 300px; display: inline-block;"></span>
+            </div>
+        </div>
+
+        <div class="info-section">
+            <div style="margin-bottom: 10px;"><strong>Cam kết:</strong></div>
+            <div style="border: 1px solid #000; min-height: 60px; padding: 5px;">
+                <p>Tôi cam kết sẽ thanh toán đầy đủ số tiền tạm ứng trên trong thời hạn quy định. Nếu quá hạn, tôi sẽ chịu trách nhiệm hoàn toàn về số tiền này.</p>
+            </div>
+        </div>
+
+        <div class="signature-section">
+            <div class="signature-box">
+                <div><strong>NGƯỜI TẠM ỨNG</strong></div>
+                <div class="signature-line"></div>
+            </div>
+            <div class="signature-box">
+                <div><strong>GIÁM ĐỐC</strong></div>
+                <div class="signature-line"></div>
+            </div>
+        </div>
+
+        <div class="signature-section" style="margin-top: 20px;">
+            <div class="signature-box">
+                <div><strong>KẾ TOÁN TRƯỞNG</strong></div>
+                <div class="signature-line"></div>
+            </div>
+            <div class="signature-box">
+                <div><strong>THỦ QUỸ</strong></div>
+                <div class="signature-line"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

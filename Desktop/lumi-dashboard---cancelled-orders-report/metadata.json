@@ -1,0 +1,5 @@
+{
+  "name": "Lumi Dashboard - Cancelled Orders Report",
+  "description": "A high-performance analytics dashboard for monitoring cancelled orders, reasons for cancellation, and sales performance across teams, products, and markets.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,491 @@
+{
+  "info": {
+    "name": "Google Sheets API Collection", 
+    "description": "Complete API collection for Google Sheets management system",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8081",
+      "type": "string"
+    },
+    {
+      "key": "sheetName", 
+      "value": "F3 test",
+      "type": "string"
+    },
+    {
+      "key": "testOrderId",
+      "value": "DH240902999",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Spreadsheet Info",
+      "item": [
+        {
+          "name": "Get Spreadsheet Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/info",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "info"]
+            }
+          }
+        },
+        {
+          "name": "Get Available Schemas", 
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/schemas",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "schemas"]
+            }
+          }
+        },
+        {
+          "name": "Get Sheet Schema",
+          "request": {
+            "method": "GET", 
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/schema",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "schema"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Sheet Management",
+      "item": [
+        {
+          "name": "Create New Sheet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sheetName\": \"{{sheetName}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet",
+              "host": ["{{baseUrl}}"], 
+              "path": ["sheet"]
+            }
+          }
+        },
+        {
+          "name": "Delete Sheet",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}"]
+            }
+          }
+        },
+        {
+          "name": "Set Headers",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/headers", 
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "headers"]
+            }
+          }
+        },
+        {
+          "name": "Clear All Data",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/data",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "data"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Data Retrieval",
+      "item": [
+        {
+          "name": "Get All Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/data",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "data"]
+            }
+          }
+        },
+        {
+          "name": "Get Data by Range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/data/range?range=A1:E10",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "data", "range"],
+              "query": [
+                {
+                  "key": "range",
+                  "value": "A1:E10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Row Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/count",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "count"]
+            }
+          }
+        },
+        {
+          "name": "Search Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/search?searchColumn=maDonHang&searchValue={{testOrderId}}&exactMatch=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "search"],
+              "query": [
+                {
+                  "key": "searchColumn", 
+                  "value": "maDonHang"
+                },
+                {
+                  "key": "searchValue",
+                  "value": "{{testOrderId}}"
+                },
+                {
+                  "key": "exactMatch",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Data Modification",
+      "item": [
+        {
+          "name": "Add Single Row",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"maDonHang\": \"{{testOrderId}}\",\n  \"name\": \"Nguyễn Test API\",\n  \"phone\": \"0123456789\",\n  \"address\": \"123 Test Street\",\n  \"city\": \"TP.HCM\",\n  \"ngayLenDon\": \"02/09/2025\",\n  \"giaBan\": 500000,\n  \"tongTienVND\": 500000,\n  \"loaiTienThanhToan\": \"VND\",\n  \"hinhThucThanhToan\": \"Chuyển khoản\",\n  \"nhanVienSale\": \"TestSale\",\n  \"nhanVienMarketing\": \"TestMKT\",\n  \"trangThaiDon\": \"Mới tạo\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/rows",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "rows"]
+            }
+          }
+        },
+        {
+          "name": "Add Multiple Rows",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rows\": [\n    {\n      \"maDonHang\": \"TEST001\",\n      \"name\": \"Test User 1\",\n      \"phone\": \"0111111111\"\n    },\n    {\n      \"maDonHang\": \"TEST002\", \n      \"name\": \"Test User 2\",\n      \"phone\": \"0222222222\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/rows/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "rows", "batch"]
+            }
+          }
+        },
+        {
+          "name": "Update Row by Index",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trangThaiDon\": \"Đã cập nhật\",\n  \"ketQuaCheck\": \"OK\",\n  \"donViVanChuyen\": \"Test Shipping\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/rows/0",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "rows", "0"]
+            }
+          }
+        },
+        {
+          "name": "Update Row by Condition",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"searchColumn\": \"maDonHang\",\n  \"searchValue\": \"{{testOrderId}}\",\n  \"newRowData\": {\n    \"trangThaiDon\": \"Đã giao\",\n    \"maTracking\": \"TRACK123456\",\n    \"soTienThucThu\": 500000\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/rows/condition",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "rows", "condition"]
+            }
+          }
+        },
+        {
+          "name": "Delete Row by Index",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/rows/0",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "rows", "0"]
+            }
+          }
+        },
+        {
+          "name": "Delete Row by Condition",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"searchColumn\": \"maDonHang\",\n  \"searchValue\": \"{{testOrderId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/rows/condition", 
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "rows", "condition"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Utility Functions",
+      "item": [
+        {
+          "name": "Backup Sheet",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/backup",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "backup"]
+            }
+          }
+        },
+        {
+          "name": "Restore Sheet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"backupData\": [\n    {\n      \"maDonHang\": \"RESTORE001\",\n      \"name\": \"Restored User\",\n      \"phone\": \"0999999999\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/restore",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "restore"]
+            }
+          }
+        },
+        {
+          "name": "Copy Sheet Data",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceSheetName\": \"{{sheetName}}\",\n  \"targetSheetName\": \"F3 backup\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/copy",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "copy"]
+            }
+          }
+        },
+        {
+          "name": "Validate Batch Data",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type", 
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rows\": [\n    {\n      \"maDonHang\": \"VALID001\",\n      \"name\": \"Valid User\",\n      \"phone\": \"0123456789\"\n    },\n    {\n      \"maDonHang\": \"INVALID001\"\n      // Missing required fields\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/validate",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "validate"]
+            }
+          }
+        },
+        {
+          "name": "Import with Validation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rows\": [\n    {\n      \"maDonHang\": \"IMPORT001\",\n      \"name\": \"Import User 1\",\n      \"phone\": \"0111000111\"\n    },\n    {\n      \"maDonHang\": \"IMPORT002\",\n      \"name\": \"Import User 2\", \n      \"phone\": \"0222000222\"\n    }\n  ],\n  \"options\": {\n    \"skipErrors\": true,\n    \"clearBeforeImport\": false\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/import",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "import"]
+            }
+          }
+        },
+        {
+          "name": "Get Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/statistics",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "statistics"]
+            }
+          }
+        },
+        {
+          "name": "Find and Replace",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"searchValue\": \"Mới tạo\",\n  \"replaceValue\": \"Đã xác nhận\",\n  \"options\": {\n    \"searchColumns\": [\"trangThaiDon\"],\n    \"exactMatch\": true,\n    \"caseSensitive\": false\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/find-replace",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "find-replace"]
+            }
+          }
+        },
+        {
+          "name": "Export CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sheet/{{sheetName}}/export/csv",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "{{sheetName}}", "export", "csv"]
+            }
+          }
+        },
+        {
+          "name": "Duplicate Sheet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceSheetName\": \"{{sheetName}}\",\n  \"newSheetName\": \"F3 test - Copy\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sheet/duplicate",
+              "host": ["{{baseUrl}}"],
+              "path": ["sheet", "duplicate"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

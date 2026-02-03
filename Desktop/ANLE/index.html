@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANLE - Danh sách Form</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+            color: white;
+        }
+        .logo {
+            max-width: 200px;
+            height: auto;
+            margin-bottom: 20px;
+            background: white;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .header h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .header p {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+        .forms-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-top: 40px;
+        }
+        .form-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+        .form-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        }
+        .form-card h3 {
+            font-size: 20px;
+            color: #667eea;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .form-card p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .form-icon {
+            font-size: 40px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        @media (max-width: 768px) {
+            .forms-grid {
+                grid-template-columns: 1fr;
+            }
+            .header h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fe3112a9a.%E1%BA%A2nh.002806.jpg" alt="Logo ANLE" class="logo">
+            <h1>CÔNG TY TNHH ANLE</h1>
+            <p>Hệ thống quản lý Form</p>
+        </div>
+
+        <div class="forms-grid">
+            <a href="ANLE_FORM_BÁO GIÁ CƯỚC DỊCH VỤ.html" class="form-card">
+                <div class="form-icon">📋</div>
+                <h3>BÁO GIÁ CƯỚC DỊCH VỤ</h3>
+                <p>Form báo giá cước dịch vụ cho khách hàng, bao gồm danh sách dịch vụ, đơn giá và tổng tiền.</p>
+                <span class="badge">Báo giá</span>
+            </a>
+
+            <a href="ANLE_FORM_BIÊN BẢN BÀN GIAO CHỨNG TỪ.html" class="form-card">
+                <div class="form-icon">📄</div>
+                <h3>BIÊN BẢN BÀN GIAO CHỨNG TỪ</h3>
+                <p>Biên bản bàn giao chứng từ giữa các bộ phận trong công ty.</p>
+                <span class="badge">Nội bộ</span>
+            </a>
+
+            <a href="ANLE_FORM_BIÊN BẢN GIAO NHẬN HÀNG.html" class="form-card">
+                <div class="form-icon">📦</div>
+                <h3>BIÊN BẢN GIAO NHẬN HÀNG</h3>
+                <p>Biên bản giao nhận hàng hóa giữa người giao và người nhận.</p>
+                <span class="badge">Kho</span>
+            </a>
+
+            <a href="ANLE_FORM_ĐỀ NGHỊ THANH TOÁN KHÁCH HÀNG.html" class="form-card">
+                <div class="form-icon">💳</div>
+                <h3>ĐỀ NGHỊ THANH TOÁN KHÁCH HÀNG</h3>
+                <p>Form đề nghị thanh toán cho khách hàng, bao gồm danh sách hóa đơn và số tiền cần thanh toán.</p>
+                <span class="badge">Tài chính</span>
+            </a>
+
+            <a href="ANLE_FORM_ĐỀ NGHỊ THANH TOÁN NỘI BỘ.html" class="form-card">
+                <div class="form-icon">💰</div>
+                <h3>ĐỀ NGHỊ THANH TOÁN NỘI BỘ</h3>
+                <p>Form đề nghị thanh toán nội bộ giữa các bộ phận trong công ty.</p>
+                <span class="badge">Nội bộ</span>
+            </a>
+
+            <a href="ANLE_FORM_Phiếu tạm ứng.html" class="form-card">
+                <div class="form-icon">💵</div>
+                <h3>PHIẾU TẠM ỨNG</h3>
+                <p>Phiếu tạm ứng tiền cho nhân viên, bao gồm thông tin người tạm ứng và lý do.</p>
+                <span class="badge">Tài chính</span>
+            </a>
+
+            <a href="ANLE_FORM_Phiếu Xuất Kho.html" class="form-card">
+                <div class="form-icon">📤</div>
+                <h3>PHIẾU XUẤT KHO</h3>
+                <p>Phiếu xuất kho hàng hóa, bao gồm danh sách hàng hóa và thông tin người xuất/nhận.</p>
+                <span class="badge">Kho</span>
+            </a>
+
+            <a href="ANLE_FORM_Purchasing Order.html" class="form-card">
+                <div class="form-icon">🛒</div>
+                <h3>PURCHASING ORDER</h3>
+                <p>Đơn đặt hàng mua, bao gồm thông tin nhà cung cấp và danh sách hàng hóa cần mua.</p>
+                <span class="badge">Mua hàng</span>
+            </a>
+        </div>
+    </div>
+</body>
+</html>

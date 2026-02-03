@@ -1,0 +1,22 @@
+{
+  "name": "crm-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --filter=web",
+    "dev:all": "turbo run dev",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:api": "turbo run dev --filter=api",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "clean": "rm -rf node_modules .turbo apps/**/node_modules packages/**/node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.7.4"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Supabase Connection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Test Supabase Connection</h1>
+    <button onclick="testConnection()">Test Connection</button>
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc;"></div>
+
+    <script>
+        // NOTE: Don't hardcode Supabase keys in repo.
+        // Paste your Project URL + anon key below (from Supabase Dashboard > Settings > API).
+        const SUPABASE_URL = prompt('Supabase Project URL (https://xxxx.supabase.co):') || '';
+        const SUPABASE_ANON_KEY = prompt('Supabase anon key (starts with eyJ...):') || '';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL.trim(), SUPABASE_ANON_KEY.trim());
+
+        async function testConnection() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Testing...';
+
+            try {
+                // Test 1: Simple query
+                const { data, error } = await supabase
+                    .from('lead_sources')
+                    .select('*')
+                    .limit(1);
+
+                if (error) {
+                    resultDiv.innerHTML = `
+                        <h3 style="color: red;">❌ Error: ${error.message}</h3>
+                        <p><strong>Code:</strong> ${error.code || 'N/A'}</p>
+                        <p><strong>Details:</strong> ${JSON.stringify(error, null, 2)}</p>
+                        <p><strong>Possible causes:</strong></p>
+                        <ul>
+                            <li>RLS is still enabled - Run TURN-OFF-RLS-NOW.sql in Supabase SQL Editor</li>
+                            <li>Anon key is incorrect - Check Supabase Dashboard > Settings > API</li>
+                            <li>Table doesn't exist or has wrong name</li>
+                        </ul>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <h3 style="color: green;">✅ Connection Successful!</h3>
+                        <p><strong>Data:</strong> ${JSON.stringify(data, null, 2)}</p>
+                        <p>If you see this, RLS is disabled and connection works!</p>
+                    `;
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `
+                    <h3 style="color: red;">❌ Exception: ${err.message}</h3>
+                    <pre>${err.stack}</pre>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+--- SYNC START ---
+Fetching users...
+Found 57 users.
+User: dongthuydta@gmail.com | Team: "TP KD" | CurrentRole: user | Suggested: leader
+=> Updating dongthuydta@gmail.com to leader
+   SUCCESS.
+User: lethithuy100997@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating lethithuy100997@gmail.com to delivery
+   SUCCESS.
+User: huong12d01@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating huong12d01@gmail.com to delivery
+   SUCCESS.
+User: anonymous3a4@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating anonymous3a4@gmail.com to delivery
+   SUCCESS.
+User: nhungmoc030513@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating nhungmoc030513@gmail.com to sale
+   SUCCESS.
+User: huyhungtran2606@gmail.com | Team: "MKT" | CurrentRole: user | Suggested: marketing
+=> Updating huyhungtran2606@gmail.com to marketing
+   SUCCESS.
+User: huedo909@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating huedo909@gmail.com to delivery
+   SUCCESS.
+User: anhnguyenn.hr@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating anhnguyenn.hr@gmail.com to delivery
+   SUCCESS.
+User: cewcewastro@gmail.com | Team: "CSKH" | CurrentRole: user | Suggested: cskh
+=> Updating cewcewastro@gmail.com to cskh
+   SUCCESS.
+User: manhcuongdig01@gmail.com | Team: "MKT" | CurrentRole: user | Suggested: marketing
+=> Updating manhcuongdig01@gmail.com to marketing
+   SUCCESS.
+User: nguyenluong9449@gmail.com | Team: "MKT" | CurrentRole: user | Suggested: marketing
+=> Updating nguyenluong9449@gmail.com to marketing
+   SUCCESS.
+User: hoangthiuyen20012019@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating hoangthiuyen20012019@gmail.com to sale
+   SUCCESS.
+User: mtahqy29@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating mtahqy29@gmail.com to delivery
+   SUCCESS.
+User: phamthile0703@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating phamthile0703@gmail.com to sale
+   SUCCESS.
+User: phuonglan20022811@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating phuonglan20022811@gmail.com to delivery
+   SUCCESS.
+User: tientran97dota@gmail.com | Team: "R&D" | CurrentRole: user | Suggested: rnd
+=> Updating tientran97dota@gmail.com to rnd
+   SUCCESS.
+User: vanthianh3@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating vanthianh3@gmail.com to delivery
+   SUCCESS.
+User: hlbc1007@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating hlbc1007@gmail.com to delivery
+   SUCCESS.
+User: thunguyencbk@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating thunguyencbk@gmail.com to delivery
+   SUCCESS.
+User: buihao456@gmail.com | Team: "Vận Đơn" | CurrentRole: ORDERS_MEMBER | Suggested: delivery
+=> Updating buihao456@gmail.com to delivery
+   SUCCESS.
+User: manhkatun@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating manhkatun@gmail.com to sale
+   SUCCESS.
+User: maily.ml1998@gmail.com | Team: "CSKH" | CurrentRole: user | Suggested: leader
+=> Updating maily.ml1998@gmail.com to leader
+   SUCCESS.
+User: dathsyj@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating dathsyj@gmail.com to sale
+   SUCCESS.
+User: phamtienthanh8888@gmail.com | Team: "MKT" | CurrentRole: user | Suggested: marketing
+=> Updating phamtienthanh8888@gmail.com to marketing
+   SUCCESS.
+User: tranthinhung98@gmail.com | Team: "CSKH" | CurrentRole: user | Suggested: cskh
+=> Updating tranthinhung98@gmail.com to cskh
+   SUCCESS.
+User: luungoan22112002@gmail.com | Team: "Kế toán" | CurrentRole: user | Suggested: finance
+=> Updating luungoan22112002@gmail.com to finance
+   SUCCESS.
+User: duynnte1007@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating duynnte1007@gmail.com to sale
+   SUCCESS.
+User: huyentranghoang20k1@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating huyentranghoang20k1@gmail.com to sale
+   SUCCESS.
+User: dothithuhang852002@gmail.com | Team: "CSKH" | CurrentRole: user | Suggested: cskh
+=> Updating dothithuhang852002@gmail.com to cskh
+   SUCCESS.
+User: diepa951@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating diepa951@gmail.com to sale
+   SUCCESS.
+User: nthithao45@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating nthithao45@gmail.com to sale
+   SUCCESS.
+User: dangthinga0310@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating dangthinga0310@gmail.com to sale
+   SUCCESS.
+User: huonggiang160596@gmail.com | Team: "Kế toán" | CurrentRole: user | Suggested: finance
+=> Updating huonggiang160596@gmail.com to finance
+   SUCCESS.
+User: nguyentranthanhdat310304@gmail.com | Team: "Media" | CurrentRole: user | Suggested: user
+User: hieunt2968@gmail.com | Team: "MKT" | CurrentRole: user | Suggested: marketing
+=> Updating hieunt2968@gmail.com to marketing
+   SUCCESS.
+User: phamhaiyen620@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating phamhaiyen620@gmail.com to sale
+   SUCCESS.
+User: hanhsino2k6@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating hanhsino2k6@gmail.com to delivery
+   SUCCESS.
+User: tienmanh773@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating tienmanh773@gmail.com to sale
+   SUCCESS.
+User: anhvu2705pro@gmail.com | Team: "MKT" | CurrentRole: user | Suggested: marketing
+=> Updating anhvu2705pro@gmail.com to marketing
+   SUCCESS.
+User: minhtri050401@gmail.com | Team: "MKT" | CurrentRole: user | Suggested: marketing
+=> Updating minhtri050401@gmail.com to marketing
+   SUCCESS.
+User: nguyenmyduyen10102001@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating nguyenmyduyen10102001@gmail.com to sale
+   SUCCESS.
+User: huongphanthu02@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating huongphanthu02@gmail.com to sale
+   SUCCESS.
+User: 123nguyenmanhtu@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating 123nguyenmanhtu@gmail.com to sale
+   SUCCESS.
+User: tranuyvu78@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating tranuyvu78@gmail.com to sale
+   SUCCESS.
+User: dungdungdong1409@gmail.com | Team: "Vận Đơn" | CurrentRole: user | Suggested: delivery
+=> Updating dungdungdong1409@gmail.com to delivery
+   SUCCESS.
+User: hoangcuong252003@gmail.com | Team: "R&D" | CurrentRole: user | Suggested: rnd
+=> Updating hoangcuong252003@gmail.com to rnd
+   SUCCESS.
+User: phuongthaop834@gmail.com | Team: "HR" | CurrentRole: user | Suggested: hr
+=> Updating phuongthaop834@gmail.com to hr
+   SUCCESS.
+User: hoangthithutrang2000@gmail.com | Team: "HCNS" | CurrentRole: user | Suggested: hr
+=> Updating hoangthithutrang2000@gmail.com to hr
+   SUCCESS.
+User: dinhkhai246@gmail.com | Team: "MKT chuyển đổi" | CurrentRole: user | Suggested: marketing
+=> Updating dinhkhai246@gmail.com to marketing
+   SUCCESS.
+User: trunghieu97tb@gmail.com | Team: "MKT chuyển đổi" | CurrentRole: user | Suggested: marketing
+=> Updating trunghieu97tb@gmail.com to marketing
+   SUCCESS.
+User: dothithuuyen2001tb@gmail.com | Team: "HR" | CurrentRole: user | Suggested: hr
+=> Updating dothithuuyen2001tb@gmail.com to hr
+   SUCCESS.
+User: vantuan15061995@gmail.com | Team: "HCNS" | CurrentRole: user | Suggested: hr
+=> Updating vantuan15061995@gmail.com to hr
+   SUCCESS.
+User: thuytiennt1407@gmail.com | Team: "Content" | CurrentRole: user | Suggested: user
+User: ptrinh190302@gmail.com | Team: "Sale" | CurrentRole: user | Suggested: sale
+=> Updating ptrinh190302@gmail.com to sale
+   SUCCESS.
+User: doankimoanh880@gmail.com | Team: "Content" | CurrentRole: user | Suggested: user
+User: trankhai11012000@gmail.com | Team: "MKT" | CurrentRole: marketing | Suggested: marketing
+--- SYNC COMPLETE. Updated 52 users. ---

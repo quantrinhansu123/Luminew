@@ -1,0 +1,151 @@
+{
+  "roles": [
+    {
+      "id": 1,
+      "code": "ADMIN",
+      "name": "Quản trị viên",
+      "department": "Board",
+      "description": "Toàn quyền hệ thống",
+      "created_at": "2026-01-18T03:47:51.030282+00:00",
+      "position": null
+    },
+    {
+      "id": 2,
+      "code": "DIRECTOR",
+      "name": "Giám đốc",
+      "department": "Board",
+      "description": "Xem tất cả báo cáo",
+      "created_at": "2026-01-18T03:47:51.030282+00:00",
+      "position": null
+    },
+    {
+      "id": 3,
+      "code": "MKT_LEADER",
+      "name": "Trưởng nhóm MKT",
+      "department": "Marketing",
+      "description": "Quản lý MKT",
+      "created_at": "2026-01-18T03:47:51.030282+00:00",
+      "position": null
+    },
+    {
+      "id": 4,
+      "code": "SALE_MEMBER",
+      "name": "Nhân viên Sale",
+      "department": "Sales",
+      "description": "Chỉ xem đơn của mình",
+      "created_at": "2026-01-18T03:47:51.030282+00:00",
+      "position": null
+    },
+    {
+      "id": 6,
+      "code": "ORDERS_MEMBER",
+      "name": "Nhân viên Vận Đơn",
+      "department": "Vận Đơn",
+      "description": null,
+      "created_at": "2026-01-20T06:50:24.704628+00:00",
+      "position": "Nhân viên"
+    },
+    {
+      "id": 7,
+      "code": "CONTENT_MEMBER",
+      "name": "Nhân viên Content",
+      "department": "Content",
+      "description": null,
+      "created_at": "2026-01-20T07:50:19.685552+00:00",
+      "position": "Nhân viên"
+    },
+    {
+      "id": 9,
+      "code": "ORDERS_QUAN_LY",
+      "name": "Quản lý Vận Đơn",
+      "department": "Vận Đơn",
+      "description": null,
+      "created_at": "2026-01-20T10:44:07.118506+00:00",
+      "position": "Quản lý"
+    },
+    {
+      "id": 10,
+      "code": "marketing",
+      "name": "Marketing Staff",
+      "department": null,
+      "description": "Nhân viên bộ phận Marketing",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    },
+    {
+      "id": 11,
+      "code": "sale",
+      "name": "Sale Staff",
+      "department": null,
+      "description": "Nhân viên bộ phận Kinh doanh/Sale",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    },
+    {
+      "id": 12,
+      "code": "cskh",
+      "name": "CSKH Staff",
+      "department": null,
+      "description": "Nhân viên bộ phận CSKH",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    },
+    {
+      "id": 13,
+      "code": "delivery",
+      "name": "Delivery Staff",
+      "department": null,
+      "description": "Nhân viên bộ phận Kho/Vận đơn",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    },
+    {
+      "id": 14,
+      "code": "rnd",
+      "name": "R&D Staff",
+      "department": null,
+      "description": "Nhân viên bộ phận R&D",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    },
+    {
+      "id": 15,
+      "code": "hr",
+      "name": "HR Staff",
+      "department": null,
+      "description": "Nhân viên bộ phận Hành chính Nhân sự",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    },
+    {
+      "id": 16,
+      "code": "finance",
+      "name": "Finance Staff",
+      "department": null,
+      "description": "Nhân viên bộ phận Tài chính Kế toán",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    },
+    {
+      "id": 17,
+      "code": "leader",
+      "name": "Team Leader",
+      "department": null,
+      "description": "Quản lý/Trưởng nhóm",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    },
+    {
+      "id": 18,
+      "code": "user",
+      "name": "Standard User",
+      "department": null,
+      "description": "Người dùng cơ bản",
+      "created_at": "2026-01-21T01:43:28.073502+00:00",
+      "position": null
+    }
+  ],
+  "permissions": null,
+  "pagePerms": null,
+  "timestamp": "2026-01-21T04:46:04.402Z"
+}

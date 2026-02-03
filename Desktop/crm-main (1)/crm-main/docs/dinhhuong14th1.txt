@@ -1,0 +1,14 @@
+Web quản lý đơn hàng thiết kế và in ấn
+Hộp chờ tư vấn chuyển chức năng thành chuẩn bị đơn hàng
+	+ chức năng thêm khách hàng trở thành thêm đơn hàng
+	+ Nhập nhu cầu của khách (có sẵn)
+	+ Điền thông tin khách hàng, hoặc lấy từ khách hàng có sẵn
+	+ khách hàng và quản lý tự liên hệ với nhau qua thông tin khách hàng, từng trạng thái do quản lý tự chỉnh sửa (đã có), sau mỗi cuộc gọi quản lý tự thêm thông tin cuộc gọi vào lịch sử gọi (tự tạo lịch sử gọi, đã có)
+	+ sau khi chốt (trạng thái đã chốt), quản lý tạo đơn hàng, nội dung chủ yếu ở mô tả đơn hàng và giá tiền, có thể cân nhắc thêm phần kiểm tra thông tin và yêu cầu của khách hàng hàng tại chỗ mà không cần thoát ra để xem lại yêu cầu khách chốt với quản lý trong lịch sử cuộc gọi hoặc những nơi khác
+	+ sau khi tạo đơn hàng sẽ được chuyển hướng đến mục đơn hàng, tự động hiển thị phần xem chi tiết đơn hàng của đơn hàng vừa tạo
+	+ tích hợp sửa đơn hàng vào xem chi tiết, có thể là nút sửa và điền lại thông tin, chọn lưu hay không, nếu lưu thì ghi lại lịch sử chỉnh sửa
+	+ thêm lịch sử hoạt động của đơn hàng, là danh sách các file văn bản với tiêu đề, ngày tháng
+	+ tích hợp mục yêu cầu thiết kế vào phần xem chi tiết của từng khách hàng tại mục đơn hàng, tức là phải nâng cấp phần xem chi tiết, như thêm link drive
+	+ thêm chức năng phân loại trạng thái đơn hàng để có thể xem danh sách các đơn hàng theo tiêu chí như đang xử lý, thiết kế hay đang in... (vì nó bao gồm chức năng xem danh sách của yêu cầu thiết kế)
+	+ trạng thái do quản lý tự điều chỉnh dựa trên trạng thái thực tế, mỗi lần chuyển trạng thái cũng lưu lại lịch sử kèm note nếu có
+	+ sau khi hoàn thành và thanh toán hoàn tất, lưu lại toàn bộ thông tin của đơn hàng lại thành một file hoặc một thư mục chứa nhiều file

@@ -1,0 +1,5 @@
+{
+  "name": "Weekly Schedule Planner",
+  "description": "An interactive weekly academic schedule planner application that allows users to view, add, and manage their study and exam schedules. Features include a filterable calendar view, a detailed task modal, and a Kanban board for task management.",
+  "requestFramePermissions": []
+}

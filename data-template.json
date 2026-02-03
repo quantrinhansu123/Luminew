@@ -1,0 +1,81 @@
+{
+  "users": [
+    {
+      "id": "user-001",
+      "username": "example_username",
+      "email": "user@example.com",
+      "password": "$2a$10$your_bcrypt_hash_here",
+      "name": "User Full Name",
+      "role": "user",
+      "team": "Team Name",
+      "department": "Department",
+      "position": "NV",
+      "branch": "Hà Nội",
+      "shift": "Ca Ngày",
+      "created_at": "2025-01-07T00:00:00Z",
+      "created_by": "admin"
+    }
+  ],
+  "human_resources": [
+    {
+      "id": "user-001",
+      "Họ Và Tên": "User Full Name",
+      "email": "user@example.com",
+      "Bộ phận": "Department",
+      "Team": "Team Name",
+      "Vị trí": "NV",
+      "chi nhánh": "Hà Nội",
+      "Ca": "Ca Ngày",
+      "role": "user",
+      "status": "active",
+      "Ngày vào làm": "2025-01-07",
+      "created_at": "2025-01-07T00:00:00Z",
+      "created_by": "admin"
+    }
+  ],
+  "detail_reports": [
+    {
+      "id": "detail-001",
+      "Tên": "User Full Name",
+      "Email": "user@example.com",
+      "Ngày": "2025-01-06",
+      "ca": "Ca Ngày",
+      "Sản_phẩm": "Tên sản phẩm",
+      "Thị_trường": "Hà Nội",
+      "Team": "Team Name",
+      "CPQC": 0,
+      "Số_Mess_Cmt": 0,
+      "Số đơn": 0,
+      "Doanh số": 0,
+      "DS sau hoàn hủy": 0,
+      "Số đơn hoàn hủy": 0,
+      "Doanh số sau ship": 0,
+      "Doanh số TC": 0,
+      "KPIs": 0,
+      "Số đơn thực tế": 0,
+      "Doanh thu chốt thực tế": 0,
+      "Doanh số hoàn hủy thực tế": 0,
+      "Số đơn hoàn hủy thực tế": 0,
+      "Doanh số sau hoàn hủy thực tế": 0,
+      "Doanh số đi thực tế": 0,
+      "created_at": "2025-01-06T08:00:00Z",
+      "updated_at": "2025-01-06T17:00:00Z"
+    }
+  ],
+  "reports": [
+    {
+      "id": "report-001",
+      "email": "user@example.com",
+      "team": "Team Name",
+      "date": "2025-01-06",
+      "status": "completed",
+      "data": {
+        "orders": 0,
+        "revenue": 0,
+        "notes": "Ghi chú"
+      },
+      "created_at": "2025-01-06T17:00:00Z",
+      "updated_at": "2025-01-06T17:00:00Z"
+    }
+  ]
+}

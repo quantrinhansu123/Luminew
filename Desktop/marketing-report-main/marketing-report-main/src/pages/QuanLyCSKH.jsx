@@ -1,0 +1,1222 @@
+import { Edit, Eye, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+
+import usePermissions from '../hooks/usePermissions';
+import * as rbacService from '../services/rbacService';
+import { supabase } from '../supabase/config';
+import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
+
+function QuanLyCSKH() {
+  const navigate = useNavigate(); // Add hook for navigation if needed, or just use Link
+  const { canView, canEdit, canDelete, role } = usePermissions();
+
+
+
+  const [allData, setAllData] = useState([]);
+  const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
+
+  const [loading, setLoading] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearchText, setDebouncedSearchText] = useState('');
+  const [filterMarket, setFilterMarket] = useState([]);
+  const [filterProduct, setFilterProduct] = useState([]);
+  const [filterStatus, setFilterStatus] = useState([]);
+
+  // Date state - default to last 3 days
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 3);
+    return d.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  const [quickFilter, setQuickFilter] = useState('today');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [selectedRowId, setSelectedRowId] = useState(null);
+
+  const defaultColumns = [
+    'Mã đơn hàng',
+    'Ngày lên đơn',
+    'Name*',
+    'Phone*',
+    'Khu vực',
+    'Mặt hàng',
+    'Mã Tracking',
+    'Trạng thái giao hàng',
+    'Tổng tiền VNĐ',
+  ];
+
+  // Debounce search text for better performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchText(searchText);
+      setCurrentPage(1); // Reset to first page when search changes
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  // Get all available columns from data
+  const allAvailableColumns = useMemo(() => {
+    if (allData.length === 0) return [];
+
+    // Get all potential keys from data
+    const allKeys = new Set();
+    allData.forEach(row => {
+      Object.keys(row).forEach(key => {
+        if (key !== PRIMARY_KEY_COLUMN) {
+          allKeys.add(key);
+        }
+      });
+    });
+
+    // Strategy:
+    // 1. Start Defaults: Defaults excluding pinned ones
+    // 2. Other/Dynamic Cols: Alphabetic sort
+    // 3. End Cols: Pinned ones (Status, Total)
+
+    const pinnedEndColumns = ['Trạng thái giao hàng', 'Tổng tiền VNĐ'];
+
+    const startDefaults = defaultColumns
+      .filter(col => !pinnedEndColumns.includes(col) && allKeys.has(col));
+
+    const otherCols = Array.from(allKeys)
+      .filter(key => !defaultColumns.includes(key))
+      .sort();
+
+    const endCols = pinnedEndColumns.filter(col => allKeys.has(col));
+
+    return [...startDefaults, ...otherCols, ...endCols];
+  }, [allData]);
+
+  // Default columns
+
+
+  // Load column visibility from localStorage or use defaults
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    const saved = localStorage.getItem('quanLyCSKH_visibleColumns');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Error parsing saved columns:', e);
+      }
+    }
+    // Initialize with default columns
+    const initial = {};
+    defaultColumns.forEach(col => {
+      initial[col] = true;
+    });
+    return initial;
+  });
+
+  // Update displayColumns based on visibleColumns
+  const displayColumns = useMemo(() => {
+    return allAvailableColumns.filter(col => visibleColumns[col] === true);
+  }, [allAvailableColumns, visibleColumns]);
+
+  // Save to localStorage when visibleColumns changes
+  useEffect(() => {
+    if (Object.keys(visibleColumns).length > 0) {
+      localStorage.setItem('quanLyCSKH_visibleColumns', JSON.stringify(visibleColumns));
+    }
+  }, [visibleColumns]);
+
+  // Load data from Supabase with date filter
+  const loadData = async () => {
+    if (!startDate || !endDate) return;
+
+    setLoading(true);
+    try {
+      console.log('Loading orders from Supabase (Date Range)...');
+
+      // Get user info for permission
+      const userJson = localStorage.getItem("user");
+      const user = userJson ? JSON.parse(userJson) : null;
+      const userEmail = (user?.Email || user?.email || "").toString().toLowerCase().trim();
+      const userName = (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || "").toString().trim();
+      const boPhan = (user?.['Bộ_phận'] || user?.['Bộ phận'] || "").toString().trim().toLowerCase();
+      const viTri = (user?.['Vị_trí'] || user?.['Vị trí'] || "").toString().trim().toLowerCase();
+
+      const ADMIN_MAIL = "admin@marketing.com";
+      const isAdmin = userEmail === ADMIN_MAIL || boPhan === 'admin';
+      const isLeader = viTri.includes('leader') || viTri.includes('quản lý') || boPhan.includes('manager');
+      const isManager = isAdmin || isLeader || role === 'ADMIN' || role === 'SUPER_ADMIN';
+
+      let query = supabase.from('orders').select('*');
+
+      // Date Filter Logic
+      // Date Filter Logic (Aligned with DanhSachDon)
+      if (startDate) {
+        query = query.gte('order_date', startDate);
+      }
+      if (endDate) {
+        query = query.lte('order_date', endDate);
+      }
+
+      query = query.order('order_date', { ascending: false });
+
+      // --- USER ISOLATION FILTER (CSKH) ---
+      // Nếu có selectedPersonnelNames, lấy đơn hàng của tất cả nhân sự trong danh sách
+      // Nếu không có, mới filter theo user hiện tại
+      if (!isManager && selectedPersonnelNames.length > 0) {
+        // Tạo danh sách tên để filter (bao gồm cả user hiện tại nếu chưa có trong danh sách)
+        const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
+        console.log('🔍 [CSKH] Filtering by selected personnel names at DB level:', allNames);
+        
+        // Filter theo cột cskh với tất cả tên trong danh sách
+        const orConditions = allNames.map(name => `cskh.ilike.%${name}%`);
+        
+        if (orConditions.length > 0) {
+          query = query.or(orConditions.join(','));
+        }
+      } else if (!isManager && userName) {
+        // Nếu không có selectedPersonnelNames, filter theo user hiện tại
+        query = query.ilike('cskh', `%${userName}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      const mappedData = (data || []).map(item => ({
+        "Mã đơn hàng": item.order_code,
+        "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
+        "Name*": item.customer_name,
+        "Phone*": item.customer_phone,
+        "Khu vực": item.country || item.area,
+        "Loại tiền": item.payment_type,
+        "Hình thức thanh toán": item.payment_method_text || item.payment_method,
+        "Mặt hàng": item.product_main || item.product,
+        "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
+        "Mã Tracking": item.tracking_code,
+        "Trạng thái giao hàng": item.delivery_status,
+        "Tổng tiền VNĐ": item.total_amount_vnd,
+        "CSKH": item.cskh,
+        "Team": item.team,
+        ...item
+      }));
+
+      setAllData(mappedData);
+
+    } catch (error) {
+      console.error('Load data error:', error);
+      alert(`❌ Lỗi tải dữ liệu: ${error.message}`);
+      setAllData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [startDate, endDate, role]);
+
+
+
+  // Get unique values for filters
+  const uniqueMarkets = useMemo(() => {
+    const markets = new Set();
+    allData.forEach(row => {
+      const market = row["Khu vực"] || row["khu vực"];
+      if (market) markets.add(String(market).trim());
+    });
+    return Array.from(markets).sort();
+  }, [allData]);
+
+  const uniqueProducts = useMemo(() => {
+    const products = new Set();
+    allData.forEach(row => {
+      const product = row["Mặt hàng"];
+      if (product) products.add(String(product).trim());
+    });
+    return Array.from(products).sort();
+  }, [allData]);
+
+  const uniqueStatuses = useMemo(() => {
+    const statuses = new Set();
+    allData.forEach(row => {
+      const status = row["Trạng thái giao hàng"];
+      if (status) statuses.add(String(status).trim());
+    });
+    return Array.from(statuses).sort();
+  }, [allData]);
+
+  // Handle quick filter
+  const handleQuickFilter = (value) => {
+    setQuickFilter(value);
+    if (!value) return;
+
+    const today = new Date();
+    let start = new Date();
+    let end = new Date();
+
+    switch (value) {
+      case 'today':
+        start = new Date(today);
+        end = new Date(today);
+        break;
+      case 'yesterday':
+        start = new Date(today);
+        start.setDate(today.getDate() - 1);
+        end = new Date(start);
+        break;
+      case 'this-week': {
+        const dayOfWeek = today.getDay();
+        const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Monday
+        start = new Date(today.getFullYear(), today.getMonth(), diff);
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        break;
+      }
+      case 'last-week': {
+        const dayOfWeek = today.getDay();
+        const diff = today.getDate() - dayOfWeek - 6 + (dayOfWeek === 0 ? -6 : 1); // Last Monday
+        start = new Date(today.getFullYear(), today.getMonth(), diff);
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        break;
+      }
+      case 'this-month':
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        break;
+      case 'last-month':
+        start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        end = new Date(today.getFullYear(), today.getMonth(), 0);
+        break;
+      case 'this-year':
+        start = new Date(today.getFullYear(), 0, 1);
+        end = new Date(today.getFullYear(), 11, 31);
+        break;
+      default:
+        return;
+    }
+
+    setStartDate(start.toISOString().split('T')[0]);
+    setEndDate(end.toISOString().split('T')[0]);
+  };
+
+  // Filter and sort data
+  const filteredData = useMemo(() => {
+    let data = [...allData];
+
+    // Search filter (using debounced value)
+    if (debouncedSearchText) {
+      const searchLower = debouncedSearchText.toLowerCase();
+      data = data.filter(row => {
+        return (
+          String(row["Mã đơn hàng"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Name*"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Phone*"] || '').toLowerCase().includes(searchLower) ||
+          String(row["Mã Tracking"] || '').toLowerCase().includes(searchLower)
+        );
+      });
+    }
+
+    // Market filter
+    if (filterMarket.length > 0) {
+      data = data.filter(row => {
+        const market = row["Khu vực"] || row["khu vực"];
+        return filterMarket.includes(String(market).trim());
+      });
+    }
+
+    // Product filter
+    if (filterProduct.length > 0) {
+      data = data.filter(row => {
+        const product = row["Mặt hàng"];
+        return filterProduct.includes(String(product).trim());
+      });
+    }
+
+    // Status filter
+    if (filterStatus.length > 0) {
+      data = data.filter(row => {
+        const status = row["Trạng thái giao hàng"];
+        return filterStatus.includes(String(status).trim());
+      });
+    }
+
+    // Date filter (already applied on server-side, but double check if needed or just skip)
+    // Since allData is already filtered by date from server, we might not need strict filtering here 
+    // BUT if the user changes local state `startDate` it triggers fetch. 
+    // We can skip client-side date filter or keep it for safety if `allData` contains out-of-range rows (unlikely with this logic)
+
+    // Sort
+    if (sortColumn) {
+      data.sort((a, b) => {
+        const aVal = a[sortColumn] || '';
+        const bVal = b[sortColumn] || '';
+        const comparison = String(aVal).localeCompare(String(bVal), 'vi', { numeric: true });
+        return sortDirection === 'asc' ? comparison : -comparison;
+      });
+    }
+
+    return data;
+  }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, sortColumn, sortDirection]);
+
+  // Handle Ctrl+C to copy selected row
+  useEffect(() => {
+    const handleKeyDown = async (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        if (!selectedRowId) return;
+
+        const filteredRow = filteredData.find(row => row.id === selectedRowId);
+        if (!filteredRow) return;
+
+        // Prevent default copy behavior if we are handling it
+        e.preventDefault();
+
+        // Format data based on visible columns (displayColumns)
+        const rowValues = displayColumns.map(col => {
+          let value = filteredRow[col];
+
+          if (value === undefined || value === null) {
+            const key = COLUMN_MAPPING[col];
+            if (key) value = filteredRow[key];
+          }
+
+          value = value ?? '';
+
+          // Format date
+          if (col.includes('Ngày') || col.includes('Time') || col === 'order_date') {
+            value = formatDate(value);
+          }
+
+          // Format money
+          if (['Tổng tiền VNĐ', 'Tiền Hàng', 'Phí ship', 'Phí Chung'].includes(col)) {
+            const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
+            value = num.toLocaleString('vi-VN') + ' ₫';
+          }
+
+          return String(value).replace(/\t/g, ' ').trim(); // Remove tabs from content to avoid breaking TSV
+        });
+
+        const tsv = rowValues.join('\t');
+
+        try {
+          await navigator.clipboard.writeText(tsv);
+          toast.success("📋 Đã sao chép dòng vào bộ nhớ tạm!", {
+            autoClose: 2000,
+            hideProgressBar: true,
+          });
+        } catch (err) {
+          console.error('Copy failed:', err);
+          toast.error("❌ Sao chép thất bại");
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedRowId, filteredData, displayColumns]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+  const paginatedData = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return filteredData.slice(start, start + rowsPerPage);
+  }, [filteredData, currentPage, rowsPerPage]);
+
+  // Format date
+  const formatDate = (dateString) => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return dateString;
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  // Handle sort
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+
+
+
+
+
+
+  // Copy single cell content (double-click)
+  const handleCellClick = async (e, value) => {
+    const textValue = String(value ?? '').trim();
+    if (!textValue || textValue === '-') {
+      toast.info("⚠️ Ô này không có nội dung", { autoClose: 1500, hideProgressBar: true });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(textValue);
+      toast.success(`📋 Đã copy: "${textValue.length > 30 ? textValue.substring(0, 30) + '...' : textValue}"`, {
+        autoClose: 2000,
+        hideProgressBar: true,
+      });
+    } catch (err) {
+      console.error('Copy failed:', err);
+      toast.error("❌ Sao chép thất bại");
+    }
+  };
+
+  // Handle column visibility toggle
+  const toggleColumn = (column) => {
+    setVisibleColumns(prev => ({
+      ...prev,
+      [column]: !prev[column]
+    }));
+  };
+
+  // Select all columns
+  const selectAllColumns = () => {
+    const all = {};
+    allAvailableColumns.forEach(col => {
+      all[col] = true;
+    });
+    setVisibleColumns(all);
+  };
+
+  // Deselect all columns
+  const deselectAllColumns = () => {
+    const none = {};
+    allAvailableColumns.forEach(col => {
+      none[col] = false;
+    });
+    setVisibleColumns(none);
+  };
+
+  // Reset to default columns
+  const resetToDefault = () => {
+    const defaultCols = {};
+    defaultColumns.forEach(col => {
+      defaultCols[col] = true;
+    });
+    setVisibleColumns(defaultCols);
+  };
+
+
+
+  // --- Edit Modal Logic ---
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isViewing, setIsViewing] = useState(false); // New state for View Only mode
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Open Edit modal
+  const openEditModal = (order) => {
+    if (!canEdit('CSKH_LIST')) {
+      toast.error("Bạn không có quyền sửa đơn hàng này!");
+      return;
+    }
+    setEditingOrder({ ...order });
+    setIsViewing(false);
+    setIsEditModalOpen(true);
+  };
+
+  // Open View modal
+  const openViewModal = (order) => {
+    setEditingOrder({ ...order });
+    setIsViewing(true);
+    setIsEditModalOpen(true);
+  };
+
+  // Handle Input Change in Modal
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditingOrder(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Save Updates
+  const handleUpdateOrder = async () => {
+    if (!editingOrder) return;
+    if (!canEdit('CSKH_LIST')) return toast.error("Không có quyền sửa!");
+
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          customer_name: editingOrder.customer_name,
+          customer_phone: editingOrder.customer_phone,
+          customer_address: editingOrder.customer_address,
+          area: editingOrder.area, // Khu vực
+          note: editingOrder.note,
+
+          // Extended fields
+          product_main: editingOrder.product_main,
+          payment_method: editingOrder.payment_method, // or payment_method_text if needed, check schema
+          delivery_status: editingOrder.delivery_status,
+          total_amount_vnd: parseFloat(editingOrder.total_amount_vnd) || 0,
+          tracking_code: editingOrder.tracking_code,
+          // Add others if necessary based on schema
+        })
+        .eq('id', editingOrder.id);
+
+      if (error) throw error;
+
+      alert("✅ Cập nhật thành công!");
+
+      // Update local list
+      setAllData(prev => prev.map(item => item.id === editingOrder.id ? { ...item, ...editingOrder } : item));
+      setIsEditModalOpen(false);
+      setEditingOrder(null);
+
+    } catch (err) {
+      console.error("Update error:", err);
+      alert("❌ Lỗi cập nhật: " + err.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+
+  // Handle Delete
+  const handleDelete = async (id) => {
+    if (!canDelete('CSKH_LIST')) {
+      toast.error("Bạn không có quyền xóa đơn hàng này!");
+      return;
+    }
+    if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác!")) return;
+
+    try {
+      const { error } = await supabase.from('orders').delete().eq('id', id);
+      if (error) throw error;
+
+      alert("✅ Đã xóa đơn hàng thành công!");
+      // Update UI locally to avoid reload
+      setAllData(prev => prev.filter(item => item.id !== id));
+    } catch (error) {
+      console.error("Delete error:", error);
+      alert("❌ Lỗi xóa đơn: " + error.message);
+    }
+  };
+
+  if (!canView('CSKH_LIST')) {
+    return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (CSKH_LIST).</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
+        <div className="max-w-full mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+
+              <div>
+                <h1 className="text-xl font-bold text-gray-800">QUẢN LÝ CSKH</h1>
+                <p className="text-xs text-gray-500">Dữ liệu từ F3</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg">
+                <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                <span className="text-sm text-gray-600">
+                  {filteredData.length} / {allData.length} đơn hàng
+                </span>
+              </div>
+              <button
+                onClick={loadData}
+                disabled={loading}
+                className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+              >
+                {loading ? (
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                {loading ? 'Đang tải...' : 'Tải lại'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-full mx-auto px-6 py-6">
+        {/* Filters */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+          <div className="flex flex-wrap items-end gap-4">
+            {/* Search */}
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tìm kiếm</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Mã đơn, tên, SĐT, tracking..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Market Filter */}
+            <div className="min-w-[150px]">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Khu vực</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                value={filterMarket[0] || ''}
+                onChange={(e) => setFilterMarket(e.target.value ? [e.target.value] : [])}
+              >
+                <option value="">Tất cả</option>
+                {uniqueMarkets.map(market => (
+                  <option key={market} value={market}>{market}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Product Filter */}
+            <div className="min-w-[150px]">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Mặt hàng</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                value={filterProduct[0] || ''}
+                onChange={(e) => setFilterProduct(e.target.value ? [e.target.value] : [])}
+              >
+                <option value="">Tất cả</option>
+                {uniqueProducts.map(product => (
+                  <option key={product} value={product}>{product}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status Filter */}
+            <div className="min-w-[150px]">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                value={filterStatus[0] || ''}
+                onChange={(e) => setFilterStatus(e.target.value ? [e.target.value] : [])}
+              >
+                <option value="">Tất cả</option>
+                {uniqueStatuses.map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Quick Filter */}
+            <div className="min-w-[180px]">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc nhanh</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                value={quickFilter}
+                onChange={(e) => handleQuickFilter(e.target.value)}
+              >
+                <option value="">-- Chọn --</option>
+                <option value="today">Hôm nay</option>
+                <option value="yesterday">Hôm qua</option>
+                <option value="this-week">Tuần này</option>
+                <option value="last-week">Tuần trước</option>
+                <option value="this-month">Tháng này</option>
+                <option value="last-month">Tháng trước</option>
+                <option value="this-year">Năm nay</option>
+              </select>
+            </div>
+
+            {/* Date Range Filter */}
+            <div className="min-w-[200px]">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
+                Thời gian (Từ - Đến)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+                <input
+                  type="date"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Settings Button */}
+            <button
+              onClick={() => setShowColumnSettings(true)}
+              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+            >
+              <Settings className="w-4 h-4" />
+              Cài đặt cột
+            </button>
+
+
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {displayColumns.map((col) => (
+                    <th
+                      key={col}
+                      className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort(col)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {col}
+                        {sortColumn === col && (
+                          <span className="text-[#F37021]">
+                            {sortDirection === 'asc' ? '↑' : '↓'}
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider bg-gray-50 border-l border-gray-200 sticky right-0 z-10 w-[120px]">
+                    Thao tác
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {loading ? (
+                  <tr>
+                    <td colSpan={displayColumns.length} className="px-4 py-8 text-center text-gray-500">
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="animate-spin h-5 w-5 border-2 border-[#F37021] border-t-transparent rounded-full"></div>
+                        Đang tải dữ liệu...
+                      </div>
+                    </td>
+                  </tr>
+                ) : paginatedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={displayColumns.length} className="px-4 py-8 text-center text-gray-500">
+                      Không có dữ liệu phù hợp
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedData.map((row, index) => (
+                    <tr
+                      key={row[PRIMARY_KEY_COLUMN] || index}
+                      onClick={() => setSelectedRowId(row.id)}
+                      className={`cursor-pointer transition-colors ${selectedRowId === row.id ? 'bg-blue-100 hover:bg-blue-200' : 'hover:bg-gray-50'}`}
+                    >
+                      {displayColumns.map((col) => {
+                        // Priority: Check if row has exact key 'col'. If not, try COLUMN_MAPPING.
+                        // This prevents COLUMN_MAPPING from overriding our manually mapped friendly keys.
+                        let value = row[col];
+
+                        if (value === undefined || value === null) {
+                          const key = COLUMN_MAPPING[col];
+                          if (key) value = row[key];
+                        }
+
+                        value = value ?? '';
+
+                        // Format date
+                        if (col.includes('Ngày') || col.includes('Time') || col === 'order_date') {
+                          value = formatDate(value);
+                        }
+
+                        // Format money
+                        if (['Tổng tiền VNĐ', 'Tiền Hàng', 'Phí ship', 'Phí Chung'].includes(col)) {
+                          const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
+                          value = num.toLocaleString('vi-VN') + ' ₫';
+                        }
+
+                        return (
+                          <td
+                            key={col}
+                            className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50"
+                            title={`${value || '-'} (Double-click để copy)`}
+                            onDoubleClick={(e) => handleCellClick(e, value)}
+                          >
+                            {value || '-'}
+                          </td>
+                        );
+                      })}
+
+                      {/* Action Column */}
+                      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap border-l border-gray-200 sticky right-0 bg-white z-10 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          {/* View - Open Modal Read Only */}
+                          <button
+                            onClick={() => openViewModal(row)}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            title="Xem chi tiết"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+
+                          {/* Edit - Open Modal */}
+                          {canEdit('CSKH_LIST') && (
+                            <button
+                              onClick={() => openEditModal(row)}
+                              className="p-1.5 text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                              title="Chỉnh sửa nhanh"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
+
+                          {/* Delete */}
+                          {canDelete('CSKH_LIST') && (
+                            <button
+                              onClick={() => handleDelete(row.id)}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                              title="Xóa đơn hàng"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Pagination */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mt-6">
+          <div className="flex justify-between items-center flex-wrap gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">Số dòng/trang:</label>
+              <select
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                value={rowsPerPage}
+                onChange={(e) => {
+                  setRowsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+              >
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-700">
+                Trang <span className="font-bold text-[#F37021]">{currentPage}</span> / {totalPages || 1}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(p => p - 1)}
+                  className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium transition-colors shadow-sm"
+                >
+                  ← Trước
+                </button>
+                <button
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium transition-colors shadow-sm"
+                >
+                  Sau →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Column Settings Modal */}
+      {showColumnSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowColumnSettings(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-800">Cài đặt hiển thị cột</h2>
+              <button
+                onClick={() => setShowColumnSettings(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Action Buttons */}
+              <div className="flex gap-2 mb-4 pb-4 border-b border-gray-200">
+                <button
+                  onClick={selectAllColumns}
+                  className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm font-medium transition-colors"
+                >
+                  Chọn tất cả
+                </button>
+                <button
+                  onClick={deselectAllColumns}
+                  className="px-3 py-1.5 bg-gray-500 hover:bg-gray-600 text-white rounded text-sm font-medium transition-colors"
+                >
+                  Bỏ chọn tất cả
+                </button>
+                <button
+                  onClick={resetToDefault}
+                  className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium transition-colors"
+                >
+                  Mặc định
+                </button>
+              </div>
+
+              {/* Column List */}
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-gray-700 mb-3">
+                  Chọn các cột để hiển thị trong bảng ({displayColumns.length} / {allAvailableColumns.length} đã chọn):
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {allAvailableColumns.map((column) => (
+                    <label
+                      key={column}
+                      className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-200"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[column] === true}
+                        onChange={() => toggleColumn(column)}
+                        className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021] focus:ring-2"
+                      />
+                      <span className="text-sm text-gray-700 flex-1">{column}</span>
+                      {defaultColumns.includes(column) && (
+                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">Mặc định</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => setShowColumnSettings(false)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+              >
+                Đóng
+              </button>
+              <button
+                onClick={() => setShowColumnSettings(false)}
+                className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Áp dụng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Edit/View Modal for CSKH */}
+      {isEditModalOpen && editingOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">
+                  {isViewing ? "Chi tiết đơn hàng" : "Chỉnh sửa thông tin CSKH"}
+                </h2>
+                <p className="text-sm text-gray-500">Mã đơn: <span className="font-mono font-bold text-blue-600">{editingOrder.order_code}</span></p>
+              </div>
+              <button onClick={() => setIsEditModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6">
+
+              {/* Section 1: Thông tin khách hàng */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-gray-800 mb-3 border-b pb-2">1. Thông tin khách hàng</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tên khách hàng</label>
+                    <input
+                      name="customer_name"
+                      value={editingOrder.customer_name || ''}
+                      onChange={handleEditChange}
+                      readOnly={isViewing}
+                      disabled={isViewing}
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
+                    <input
+                      name="customer_phone"
+                      value={editingOrder.customer_phone || ''}
+                      onChange={handleEditChange}
+                      readOnly={isViewing}
+                      disabled={isViewing}
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                    />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Địa chỉ</label>
+                  <input
+                    name="customer_address"
+                    value={editingOrder.customer_address || ''}
+                    onChange={handleEditChange}
+                    readOnly={isViewing}
+                    disabled={isViewing}
+                    className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Khu vực</label>
+                    <input
+                      name="area"
+                      value={editingOrder.area || ''}
+                      onChange={handleEditChange}
+                      readOnly={isViewing}
+                      disabled={isViewing}
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Thông tin đơn hàng */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-gray-800 mb-3 border-b pb-2">2. Thông tin đơn hàng</h3>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Mặt hàng chính</label>
+                    <input
+                      name="product_main"
+                      value={editingOrder.product_main || ''}
+                      onChange={handleEditChange}
+                      readOnly={isViewing}
+                      disabled={isViewing}
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tổng tiền (VNĐ)</label>
+                    <input
+                      name="total_amount_vnd"
+                      type="number"
+                      value={editingOrder.total_amount_vnd || 0}
+                      onChange={handleEditChange}
+                      readOnly={isViewing}
+                      disabled={isViewing}
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 font-bold text-red-600 ${isViewing ? 'bg-gray-100' : ''}`}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Hình thức thanh toán</label>
+                    <select
+                      name="payment_method"
+                      value={editingOrder.payment_method || ''}
+                      onChange={handleEditChange}
+                      disabled={isViewing}
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                    >
+                      <option value="">-- Chọn --</option>
+                      <option value="COD">COD (Thu hộ)</option>
+                      <option value="CK">Chuyển khoản</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Trạng thái & Vận chuyển */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-gray-800 mb-3 border-b pb-2">3. Trạng thái & Vận chuyển</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Mã Tracking</label>
+                    <input
+                      name="tracking_code"
+                      value={editingOrder.tracking_code || ''}
+                      onChange={handleEditChange}
+                      readOnly={isViewing}
+                      disabled={isViewing}
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 font-mono ${isViewing ? 'bg-gray-100' : ''}`}
+                      placeholder="Nhập mã vận đơn..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Trạng thái giao hàng</label>
+                    <input
+                      name="delivery_status"
+                      value={editingOrder.delivery_status || ''}
+                      onChange={handleEditChange}
+                      readOnly={isViewing}
+                      disabled={isViewing}
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                      placeholder="Ví dụ: Đã giao, Đang vận chuyển..."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ghi chú CSKH</label>
+                <textarea
+                  name="note"
+                  rows={3}
+                  value={editingOrder.note || ''}
+                  onChange={handleEditChange}
+                  readOnly={isViewing}
+                  disabled={isViewing}
+                  className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                  placeholder="Nhập ghi chú..."
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
+                disabled={isUpdating}
+              >
+                {isViewing ? "Đóng" : "Hủy bỏ"}
+              </button>
+
+              {!isViewing && (
+                <button
+                  onClick={handleUpdateOrder}
+                  disabled={isUpdating}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2"
+                >
+                  {isUpdating && <RefreshCw className="w-4 h-4 animate-spin" />}
+                  {isUpdating ? "Đang lưu..." : "Lưu thay đổi"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default QuanLyCSKH;

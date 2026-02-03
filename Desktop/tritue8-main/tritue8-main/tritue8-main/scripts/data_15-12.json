@@ -1,0 +1,2367 @@
+{
+  "datasheet": {
+    "Danh_sách_học_sinh": {
+      "-OgBmkg_-Ff5M5OPqqP-": {
+        "Họ và tên": "Vũ Trà My ",
+        "Mã học sinh": "HS001",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBmtP7ejFTDKmoV6Ma": {
+        "Họ và tên": "Hồng Anh ",
+        "Mã học sinh": "HS002",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBn4gvrlWpImattx02": {
+        "Họ và tên": "Yến Vy ",
+        "Mã học sinh": "HS003",
+        "Mật khẩu": "admin",
+        "SĐT phụ huynh": "0944297333",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBn8utLJvzxGwRi-bk": {
+        "Họ và tên": "Trần Hà Linh",
+        "Mã học sinh": "HS004",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnE-Z0pqgCsM8VSd8": {
+        "Họ và tên": "Nguyễn Phương Uyên",
+        "Mã học sinh": "HS005",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnGbl0sROFAH5aGN2": {
+        "Họ và tên": "Mai Hạ",
+        "Mã học sinh": "HS006",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnJDOadnSeGLI3Wx0": {
+        "Họ và tên": "Hương Quỳnh",
+        "Mã học sinh": "HS007",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnMGizbsckU1_3OTH": {
+        "Họ và tên": "Nguyễn Minh Quang",
+        "Mã học sinh": "HS008",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnPcLxktYLHQPRt2r": {
+        "Họ và tên": "Việt Anh",
+        "Mã học sinh": "HS009",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnSARyqrD1x-BuSso": {
+        "Họ và tên": "Nguyễn Bảo Châu",
+        "Mã học sinh": "HS010",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnURAj8Wz9NMw-_HT": {
+        "Họ và tên": "Khánh Nam",
+        "Mã học sinh": "HS011",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnXupqyNscu4SJZTW": {
+        "Họ và tên": "Bùi Gia Kim",
+        "Mã học sinh": "HS012",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnaa4WFQjhVsO_sqd": {
+        "Họ và tên": "Đào Duy Linh",
+        "Mã học sinh": "HS013",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBndq_M2HB8y2x05MZ": {
+        "Họ và tên": "Lê Anh",
+        "Mã học sinh": "HS014",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBngw8Go8zi4K71NOV": {
+        "Họ và tên": "Vũ Hồng Cúc",
+        "Mã học sinh": "HS015",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnlEHOk4DQEkPfRdU": {
+        "Họ và tên": "Kiều Chi",
+        "Mã học sinh": "HS016",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBnoBfiUhpxiKPt7ff": {
+        "Họ và tên": "Tuệ Anh",
+        "Mã học sinh": "HS017",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoCSj718kKcvvpJx7": {
+        "Họ và tên": "Hải Anh",
+        "Mã học sinh": "HS018",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoF9BIrRZYaopm1n3": {
+        "Họ và tên": "Đăng khôi",
+        "Mã học sinh": "HS019",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoHlOVvE9dSE5BjiH": {
+        "Họ và tên": "Đào Minh Đức",
+        "Mã học sinh": "HS020",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoLOt_Yhu9DVk1yn2": {
+        "Họ và tên": "Quỳnh Nhi",
+        "Mã học sinh": "HS021",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoOK3aci9m8mbnSVK": {
+        "Họ và tên": "Yến Nhi",
+        "Mã học sinh": "HS022",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoQgZ3Lwl1wkryHqC": {
+        "Họ và tên": "Nguyễn Khánh An",
+        "Mã học sinh": "HS023",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoTKjoZp1XSx3N0L0": {
+        "Họ và tên": "Lê Linh Chi",
+        "Mã học sinh": "HS024",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoW6zCxz2SSrssMub": {
+        "Họ và tên": "Nguyễn Hải Đăng",
+        "Mã học sinh": "HS025",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoYN9ErFwiFDov84j": {
+        "Họ và tên": "Trần Kim Ngân",
+        "Mã học sinh": "HS026",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoaKF3i2QFU8KAGca": {
+        "Họ và tên": "Lê Đào Uyên Nhi",
+        "Mã học sinh": "HS027",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoctlyBoJBjDuhlrb": {
+        "Họ và tên": "Mạc Khánh Hưng",
+        "Mã học sinh": "HS028",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoo3bTN_IpObB6u4J": {
+        "Họ và tên": "Đào Đoàn An Gia",
+        "Mã học sinh": "HS029",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoqXHAD36WVoQ6uAe": {
+        "Họ và tên": "Minh Trí",
+        "Mã học sinh": "HS030",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoseLfbUC5tA1LIYJ": {
+        "Họ và tên": "Nguyễn Đặng Tường Vy",
+        "Mã học sinh": "HS031",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBovaMGvjtjZBAoMOV": {
+        "Họ và tên": "Linh Đan",
+        "Mã học sinh": "HS032",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBoxrEQyw_UghylHCC": {
+        "Họ và tên": "Ngọc Ánh",
+        "Mã học sinh": "HS033",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBp-MOBZD1Xo58CyML": {
+        "Họ và tên": "Khánh Linh",
+        "Mã học sinh": "HS034",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBp1cFow5jtRAUnrxp": {
+        "Họ và tên": "Quang Anh",
+        "Mã học sinh": "HS035",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBp4jfwPCF7kx_oW8c": {
+        "Họ và tên": "Gia Hân",
+        "Mã học sinh": "HS036",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBp71T4COzgHaarK2z": {
+        "Họ và tên": "Linh Chi",
+        "Mã học sinh": "HS037",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBp93BB3wo_nOobeyh": {
+        "Họ và tên": "Thanh Diệp",
+        "Mã học sinh": "HS038",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpCgB7GPhTRS8bKjk": {
+        "Họ và tên": "Thảo Vy",
+        "Mã học sinh": "HS039",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpEtsDkexa2y8iwr4": {
+        "Họ và tên": "Thảo Tiên",
+        "Mã học sinh": "HS040",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpGlp3_JzhLC57ieB": {
+        "Họ và tên": "Nhữ Minh Vũ ",
+        "Mã học sinh": "HS041",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpJ8owHwrkziyosPv": {
+        "Họ và tên": "Phùng Minh Khôi",
+        "Mã học sinh": "HS042",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpL1hjYNe91_D7acR": {
+        "Họ và tên": "Đỗ Gia Huy",
+        "Mã học sinh": "HS043",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpMqTHgrM7iOyvDTT": {
+        "Họ và tên": "Minh Châu",
+        "Mã học sinh": "HS044",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpP3dLFt5ZrOrBK0u": {
+        "Họ và tên": "Huyền My",
+        "Mã học sinh": "HS045",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpQsqyi5t-k9R_InU": {
+        "Họ và tên": "Nguyễn Ngọc Chi",
+        "Mã học sinh": "HS046",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpTiJ1eZ6LaE-RjeT": {
+        "Họ và tên": "Lâm Như",
+        "Mã học sinh": "HS047",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpYIEve8rcIgsAwK7": {
+        "Họ và tên": "Minh Thư",
+        "Mã học sinh": "HS048",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBp_NgVJVACujnb6Y-": {
+        "Họ và tên": "Đặng Diễm Quỳnh",
+        "Mã học sinh": "HS049",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpcMnCZvUUlY3Yjda": {
+        "Họ và tên": "Nguyễn Văn Nghĩa",
+        "Mã học sinh": "HS050",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBph6-NserAMMwMvTH": {
+        "Họ và tên": "Nguyễn Trang Linh",
+        "Mã học sinh": "HS051",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpjLlSYqSgs31JiL4": {
+        "Họ và tên": "Nguyễn Minh Châu",
+        "Mã học sinh": "HS052",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBplWbrNiyC9citHjr": {
+        "Họ và tên": "Lê Linh Nhi",
+        "Mã học sinh": "HS053",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpoS0kMsIDBl5ytEV": {
+        "Họ và tên": "Quân",
+        "Mã học sinh": "HS054",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpqVDnzonGquXsS2v": {
+        "Họ và tên": "Nghiêm Chí Văn",
+        "Mã học sinh": "HS055",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpt4ubCCz4L4kU4sU": {
+        "Họ và tên": "Lâm Nhi",
+        "Mã học sinh": "HS056",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpvS5Nz46IKbZoTpS": {
+        "Họ và tên": "Ngô Đức Thái",
+        "Mã học sinh": "HS057",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpxBjL4kW7lQ0H-2C": {
+        "Họ và tên": "Gia Bảo",
+        "Mã học sinh": "HS058",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBpzVa05ltVBrsTpDT": {
+        "Họ và tên": "Hiếu Anh",
+        "Mã học sinh": "HS059",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBq0U12_BJWs-QSmt1": {
+        "Họ và tên": "Đào Minh Ngọc",
+        "Mã học sinh": "HS060",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBq2DTLT8ugdJ8u25o": {
+        "Họ và tên": "Nguyễn Phương Thảo",
+        "Mã học sinh": "HS061",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBq4h9zpq7VmtODvAZ": {
+        "Họ và tên": "Tô Nguyễn Ngọc Hân",
+        "Mã học sinh": "HS062",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBq6zeoOrqLaqj4nQv": {
+        "Họ và tên": "Hồ Gia Huy ",
+        "Mã học sinh": "HS063",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBq9XE7aJAFi4xpLdc": {
+        "Họ và tên": "Nguyễn Bảo Anh",
+        "Mã học sinh": "HS064",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqC1hsofPm3YHQ6ph": {
+        "Họ và tên": "Nghiêm Tuấn Tài",
+        "Mã học sinh": "HS065",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqIcKDlCZ2kEdzlw4": {
+        "Họ và tên": "Hà My",
+        "Mã học sinh": "HS066",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqLG6Ux-Y_l3-JSyT": {
+        "Họ và tên": "Đỗ Nhật Hạ",
+        "Mã học sinh": "HS067",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqNXDv9ltoKS51max": {
+        "Họ và tên": "Nghiêm Gia Hưng",
+        "Mã học sinh": "HS068",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqPV-pCtC2wMYiuOy": {
+        "Họ và tên": "Nguyễn Hà Phương",
+        "Mã học sinh": "HS069",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqS104DtQoKfQfM21": {
+        "Họ và tên": "Trần Tuệ Châu",
+        "Mã học sinh": "HS070",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqUOyUk8gpeNjgqr2": {
+        "Họ và tên": "Ngô Hà Linh",
+        "Mã học sinh": "HS071",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqWKsn2yZFnW2R1RA": {
+        "Họ và tên": "Ngô Bảo Châu",
+        "Mã học sinh": "HS072",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqYwvSsJbYvKa9zVs": {
+        "Họ và tên": "Bùi Khánh Thy",
+        "Mã học sinh": "HS073",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqa4cQdhR-JDPWAnA": {
+        "Họ và tên": "Hân",
+        "Mã học sinh": "HS074",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqcUE8zDHIidxNiRW": {
+        "Họ và tên": "Phương Uyên",
+        "Mã học sinh": "HS075",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqeXnwRC79USgPRRJ": {
+        "Họ và tên": "Nghiêm Chí Hào",
+        "Mã học sinh": "HS076",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqgu1RFycA36gE_vu": {
+        "Họ và tên": "Lê Hồng Phong",
+        "Mã học sinh": "HS077",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqjPulza7Bt4lQJHO": {
+        "Họ và tên": "Nguyễn Thị Tuyết Nga",
+        "Mã học sinh": "HS078",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqlVD04fyMVQmsZYM": {
+        "Họ và tên": "Ngô Bảo Anh",
+        "Mã học sinh": "HS079",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqnGTAEWNcp3EUniS": {
+        "Họ và tên": "Đỗ Khánh Hà",
+        "Mã học sinh": "HS080",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqpyNYPOBUVHPlTsx": {
+        "Họ và tên": "Nguyễn Quang Sang",
+        "Mã học sinh": "HS081",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqs0afWYjpEmZr8jp": {
+        "Họ và tên": "Tuấn Tú",
+        "Mã học sinh": "HS082",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBquOticbCXWJ6qBl8": {
+        "Họ và tên": "Quang Vinh",
+        "Mã học sinh": "HS083",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqw3UUVEx63RKxBdY": {
+        "Họ và tên": "Văn Lượng",
+        "Mã học sinh": "HS084",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBqxyyQ4VvjxEwJShv": {
+        "Họ và tên": "Vy",
+        "Mã học sinh": "HS085",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBr-J_C2t-r2xG-NJJ": {
+        "Họ và tên": "Nguyễn Thị Phương Ly ",
+        "Mã học sinh": "HS086",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBr166FGNgVhERvWHp": {
+        "Họ và tên": "Nguyễn Phương Linh",
+        "Mã học sinh": "HS087",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBr77YqjCWt3uIPd0C": {
+        "Họ và tên": "Nguyễn Khánh Ly",
+        "Mã học sinh": "HS088",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBr8z7DAWTXgPmjMPH": {
+        "Họ và tên": "Nghiêm Anh Tú",
+        "Mã học sinh": "HS089",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrBO6yzntYaVFzf5I": {
+        "Họ và tên": "Nguyễn Mai Phương",
+        "Mã học sinh": "HS090",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrDEVYA33okzLuXrr": {
+        "Họ và tên": "Nguyễn Quỳnh Trang",
+        "Mã học sinh": "HS091",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrICW6Gd7Fv1AV8Ld": {
+        "Họ và tên": "Nguyễn Phương Thảo A",
+        "Mã học sinh": "HS092",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrK0lXEbi1Wa1rUI4": {
+        "Họ và tên": "Ngô Tuấn Anh",
+        "Mã học sinh": "HS093",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrMAKqX_khPlHu8oZ": {
+        "Họ và tên": "Nghiêm Kỳ Hiểu An",
+        "Mã học sinh": "HS094",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrO4WEW4q_oLyABtx": {
+        "Họ và tên": "Gia Hân",
+        "Mã học sinh": "HS095",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrQ5ZTLEvJIrFgLQz": {
+        "Họ và tên": "Nguyễn Phương Thảo B",
+        "Mã học sinh": "HS096",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrRmyav1p1eQINJaI": {
+        "Họ và tên": "Lê Kiều Trinh",
+        "Mã học sinh": "HS097",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrTKZfTpnBQ9KZEuA": {
+        "Họ và tên": "Nguyễn Hà Anh",
+        "Mã học sinh": "HS098",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrVthHa2BC_2LIhVx": {
+        "Họ và tên": "Nam",
+        "Mã học sinh": "HS099",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrXjKUzGiZIlH20RO": {
+        "Họ và tên": "Bảo Linh",
+        "Mã học sinh": "HS100",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrZgNmGmvNWMK5blf": {
+        "Họ và tên": "Gia Khánh",
+        "Mã học sinh": "HS101",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrasCjIxce_ptjoTN": {
+        "Họ và tên": "Nguyễn Bảo Ngọc ",
+        "Mã học sinh": "HS102",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrdi9ICkWxU70Kyr4": {
+        "Họ và tên": "Đức Anh",
+        "Mã học sinh": "HS103",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrfnoR3t5y_w2JpQn": {
+        "Họ và tên": "Nguyễn Châu Giang",
+        "Mã học sinh": "HS104",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgBrh_mD0pOVVmztFm9": {
+        "Họ và tên": "Bún ",
+        "Mã học sinh": "HS105",
+        "Mật khẩu": "admin",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "tskiet2811@gmail.com"
+      },
+      "-OgC2zOwDVOkqBRZ3LmA": {
+        "Họ và tên": "Ngô Gia Hạo",
+        "Mã học sinh": "HS106",
+        "Mật khẩu": "admin123",
+        "Số giờ đã gia hạn": 0,
+        "Trạng thái": "haiyen@gmail.com"
+      }
+    },
+    "Giáo_viên": {
+      "-OgBs8QZdm_7334qvXJa": {
+        "Email": "truclinh@gmail.com",
+        "Họ và tên": "Nguyễn Trúc Linh",
+        "Lương theo buổi": 0,
+        "Mã giáo viên": "GV001",
+        "Password": "admin123",
+        "Vị trí": "Teacher"
+      },
+      "-OgBsI4t8g5RmfSmIzJO": {
+        "Email": "hoanguyen@gmail.com",
+        "Họ và tên": "Nguyễn Thị Hòa",
+        "Lương theo buổi": 0,
+        "Mã giáo viên": "GV002",
+        "Password": "admin123",
+        "Vị trí": "Teacher"
+      },
+      "-OgBsQ7OdgD1VswCbND4": {
+        "Email": "haiyen@gmail.com",
+        "Họ và tên": "Trần Thị Hải Yến ",
+        "Lương theo buổi": 0,
+        "Mã giáo viên": "GV003",
+        "Password": "admin123",
+        "Vị trí": "Teacher"
+      },
+      "-OgBsVNsX7KHaC_nOAm8": {
+        "Email": "quangdai@gmail.com",
+        "Họ và tên": "Lê Quang Đại ",
+        "Lương theo buổi": 0,
+        "Mã giáo viên": "GV004",
+        "Password": "admin123",
+        "Vị trí": "Teacher"
+      },
+      "-OgBsZzT7zJoVBXoECTs": {
+        "Email": "duynam@gmail.com",
+        "Họ và tên": "Nguyễn Duy Nam",
+        "Lương theo buổi": 0,
+        "Mã giáo viên": "GV005",
+        "Password": "admin123",
+        "Vị trí": "Teacher"
+      },
+      "-OgBsdxQRa2GX7bX0D2B": {
+        "Email": "syhoang@gmail.com",
+        "Họ và tên": "Nguyễn Sỹ Hoàng",
+        "Lương theo buổi": 0,
+        "Mã giáo viên": "GV006",
+        "Password": "admin123",
+        "Vị trí": "Teacher"
+      },
+      "-OgBsiehuaR7kDpAme-r": {
+        "Email": "baokhanh@gmail.com",
+        "Họ và tên": "Lê Đặng Bảo Khanh",
+        "Lương theo buổi": 0,
+        "Mã giáo viên": "GV007",
+        "Password": "admin123",
+        "Vị trí": "Teacher"
+      },
+      "-OgBsn82dqsWMgHI-wJ9": {
+        "Email": "huongly@gmail.com",
+        "Họ và tên": "Nguyễn Trần Hương Ly ",
+        "Lương theo buổi": 0,
+        "Mã giáo viên": "GV008",
+        "Password": "admin123",
+        "Vị trí": "Teacher"
+      },
+      "admin_001": {
+        "Email": "tskiet2811@gmail.com",
+        "Họ và tên": "Nguyễn Admin (Kiet)",
+        "Mã giáo viên": "GV_ADMIN_01",
+        "Ngân hàng": "",
+        "Password": "admin",
+        "STK": "",
+        "SĐT": "0909000001",
+        "Vị trí": "Admin",
+        "Địa chỉ": "Hệ thống"
+      },
+      "admin_002": {
+        "Email": "it_dev@giaphu.co",
+        "Họ và tên": "IT Developer (Gia Phu)",
+        "Mã giáo viên": "GV_ADMIN_02",
+        "Ngân hàng": "",
+        "Password": "admin",
+        "STK": "",
+        "SĐT": "0909000002",
+        "Vị trí": "Admin",
+        "Địa chỉ": "Hệ thống"
+      },
+      "admin_003": {
+        "Email": "mrliemkhiet@gmail.com",
+        "Họ và tên": "Mr. Liêm Khiết",
+        "Mã giáo viên": "GV_ADMIN_03",
+        "Ngân hàng": "",
+        "Password": "admin",
+        "STK": "",
+        "SĐT": "0909000003",
+        "Vị trí": "Admin",
+        "Địa chỉ": "Hệ thống"
+      },
+      "admin_004": {
+        "Email": "htdat2711@gmail.com",
+        "Họ và tên": "Hoàng Thành Đạt",
+        "Mã giáo viên": "GV_ADMIN_04",
+        "Ngân hàng": "",
+        "Password": "admin",
+        "STK": "",
+        "SĐT": "0909000004",
+        "Vị trí": "Admin",
+        "Địa chỉ": "Hệ thống"
+      },
+      "admin_005": {
+        "Email": "hoangthuhue191103@gmail.com",
+        "Họ và tên": "Hoàng Thu Huệ",
+        "Mã giáo viên": "GV_ADMIN_05",
+        "Ngân hàng": "",
+        "Password": "admin",
+        "STK": "",
+        "SĐT": "0909000005",
+        "Vị trí": "Admin",
+        "Địa chỉ": "Hệ thống"
+      }
+    },
+    "Lớp_học": {
+      "-OgBueqvUgfUI778lc9u": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Trúc Linh",
+        "Học phí mỗi buổi": 100000,
+        "Học sinh": [
+          "Yến Nhi",
+          "Đăng khôi",
+          "Quỳnh Nhi"
+        ],
+        "Khối": 2,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 4,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 6,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "T2L",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T10:17:42.004Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuFQqFUtT4tEtAH3K",
+        "Student IDs": [
+          "-OgBoOK3aci9m8mbnSVK",
+          "-OgBoF9BIrRZYaopm1n3",
+          "-OgBoLOt_Yhu9DVk1yn2"
+        ],
+        "Teacher ID": "-OgBs8QZdm_7334qvXJa",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 2",
+        "Địa điểm": "Phòng 2 - Phòng 2"
+      },
+      "-OgBvH5t67sBoRDb0i1u": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Thị Hòa",
+        "Học phí mỗi buổi": 100000,
+        "Học sinh": [
+          "Lê Linh Chi",
+          "Lê Đào Uyên Nhi",
+          "Nguyễn Khánh An",
+          "Đào Đoàn An Gia",
+          "Mạc Khánh Hưng",
+          "Minh Trí"
+        ],
+        "Khối": 3,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "17:30",
+            "Giờ kết thúc": "19:00",
+            "Thứ": 3,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "17:30",
+            "Giờ kết thúc": "19:00",
+            "Thứ": 6,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "T3H",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T10:20:22.771Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuJGKVGUfWSUDB8L-",
+        "Student IDs": [
+          "-OgBoTKjoZp1XSx3N0L0",
+          "-OgBoaKF3i2QFU8KAGca",
+          "-OgBoQgZ3Lwl1wkryHqC",
+          "-OgBoo3bTN_IpObB6u4J",
+          "-OgBoctlyBoJBjDuhlrb",
+          "-OgBoqXHAD36WVoQ6uAe"
+        ],
+        "Teacher ID": "-OgBsI4t8g5RmfSmIzJO",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 3",
+        "Địa điểm": "Phòng 4 - Phòng 4"
+      },
+      "-OgBvqEd7FPocE1PEwiW": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Trúc Linh",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Linh Đan",
+          "Gia Hân",
+          "Khánh Linh",
+          "Quang Anh",
+          "Nguyễn Đặng Tường Vy",
+          "Linh Chi",
+          "Thanh Diệp",
+          "Thảo Vy",
+          "Ngọc Ánh"
+        ],
+        "Khối": 4,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 3,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 6,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN4",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T10:22:50.787Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuFQqFUtT4tEtAH3K",
+        "Student IDs": [
+          "-OgBovaMGvjtjZBAoMOV",
+          "-OgBp4jfwPCF7kx_oW8c",
+          "-OgBp-MOBZD1Xo58CyML",
+          "-OgBp1cFow5jtRAUnrxp",
+          "-OgBoseLfbUC5tA1LIYJ",
+          "-OgBp71T4COzgHaarK2z",
+          "-OgBp93BB3wo_nOobeyh",
+          "-OgBpCgB7GPhTRS8bKjk",
+          "-OgBoxrEQyw_UghylHCC"
+        ],
+        "Teacher ID": "-OgBs8QZdm_7334qvXJa",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 4",
+        "Địa điểm": "Phòng 2 - Phòng 2"
+      },
+      "-OgBwbbB7urYNmn3RFJ7": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Thị Hòa",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Phùng Minh Khôi",
+          "Đỗ Gia Huy",
+          "Huyền My",
+          "Đặng Diễm Quỳnh",
+          "Minh Thư",
+          "Nguyễn Minh Châu",
+          "Lâm Như",
+          "Nguyễn Ngọc Chi"
+        ],
+        "Khối": 5,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 4,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "08:30",
+            "Giờ kết thúc": "10:00",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN5",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T10:26:12.998Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuJGKVGUfWSUDB8L-",
+        "Student IDs": [
+          "-OgBpJ8owHwrkziyosPv",
+          "-OgBpL1hjYNe91_D7acR",
+          "-OgBpP3dLFt5ZrOrBK0u",
+          "-OgBp_NgVJVACujnb6Y-",
+          "-OgBpYIEve8rcIgsAwK7",
+          "-OgBpjLlSYqSgs31JiL4",
+          "-OgBpTiJ1eZ6LaE-RjeT",
+          "-OgBpQsqyi5t-k9R_InU"
+        ],
+        "Teacher ID": "-OgBsI4t8g5RmfSmIzJO",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 5",
+        "Địa điểm": "Phòng 4 - Phòng 4"
+      },
+      "-OgBxFJYseCNaYnP7Z4L": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Thị Hòa",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Minh Châu",
+          "Lê Linh Nhi",
+          "Nguyễn Văn Nghĩa",
+          "Nguyễn Trang Linh"
+        ],
+        "Khối": 6,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 2,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 6,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN6",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T10:28:59.741Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuJGKVGUfWSUDB8L-",
+        "Student IDs": [
+          "-OgBpjLlSYqSgs31JiL4",
+          "-OgBplWbrNiyC9citHjr",
+          "-OgBpcMnCZvUUlY3Yjda",
+          "-OgBph6-NserAMMwMvTH"
+        ],
+        "Teacher ID": "-OgBsI4t8g5RmfSmIzJO",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 6",
+        "Địa điểm": "Phòng 4 - Phòng 4"
+      },
+      "-OgBxw-LAN1ZqII8xtEH": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Trần Thị Hải Yến ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Hà My",
+          "Hiếu Anh",
+          "Nghiêm Tuấn Tài"
+        ],
+        "Khối": 7,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 3,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 5,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN7.1",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T10:31:58.672Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuHQvUxv7woF6hIC9",
+        "Student IDs": [
+          "-OgBqIcKDlCZ2kEdzlw4",
+          "-OgBpzVa05ltVBrsTpDT",
+          "-OgBqC1hsofPm3YHQ6ph"
+        ],
+        "Teacher ID": "-OgBsQ7OdgD1VswCbND4",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 7 (Y)",
+        "Địa điểm": "Phòng 3 - Phòng 3"
+      },
+      "-OgByIO36J60jaFupa80": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Thị Hòa",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nghiêm Chí Hào",
+          "Nguyễn Thị Tuyết Nga",
+          "Đỗ Khánh Hà",
+          "Trần Tuệ Châu",
+          "Ngô Bảo Anh",
+          "Nguyễn Quang Sang",
+          "Ngô Hà Linh",
+          "Ngô Bảo Châu",
+          "Ngô Gia Hạo"
+        ],
+        "Khối": 8,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 2,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 5,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN8.1",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T10:33:34.462Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuJGKVGUfWSUDB8L-",
+        "Student IDs": [
+          "-OgBqeXnwRC79USgPRRJ",
+          "-OgBqjPulza7Bt4lQJHO",
+          "-OgBqnGTAEWNcp3EUniS",
+          "-OgBqS104DtQoKfQfM21",
+          "-OgBqlVD04fyMVQmsZYM",
+          "-OgBqpyNYPOBUVHPlTsx",
+          "-OgBqUOyUk8gpeNjgqr2",
+          "-OgBqWKsn2yZFnW2R1RA",
+          "-OgC2zOwDVOkqBRZ3LmA"
+        ],
+        "Teacher ID": "-OgBsI4t8g5RmfSmIzJO",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 8 (H)",
+        "Địa điểm": "Phòng 4 - Phòng 4"
+      },
+      "-OgC03ikfZRjnLoT_oET": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Thị Hòa",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Lâm Nhi",
+          "Ngô Đức Thái",
+          "Tô Nguyễn Ngọc Hân",
+          "Nghiêm Gia Hưng",
+          "Đỗ Nhật Hạ",
+          "Nguyễn Bảo Anh",
+          "Hồ Gia Huy ",
+          "Nguyễn Hà Phương",
+          "Đào Minh Ngọc",
+          "Nguyễn Phương Thảo"
+        ],
+        "Khối": 7,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 4,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "10:00",
+            "Giờ kết thúc": "11:30",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN7.2",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T10:45:40.842Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuJGKVGUfWSUDB8L-",
+        "Student IDs": [
+          "-OgBpt4ubCCz4L4kU4sU",
+          "-OgBpvS5Nz46IKbZoTpS",
+          "-OgBq4h9zpq7VmtODvAZ",
+          "-OgBqNXDv9ltoKS51max",
+          "-OgBqLG6Ux-Y_l3-JSyT",
+          "-OgBq9XE7aJAFi4xpLdc",
+          "-OgBq6zeoOrqLaqj4nQv",
+          "-OgBqPV-pCtC2wMYiuOy",
+          "-OgBq0U12_BJWs-QSmt1",
+          "-OgBq2DTLT8ugdJ8u25o"
+        ],
+        "Teacher ID": "-OgBsI4t8g5RmfSmIzJO",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 7 (H)",
+        "Địa điểm": "Phòng 4 - Phòng 4"
+      },
+      "-OgC53FqSHBx0cTP9BrY": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Trần Thị Hải Yến ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Phương Uyên",
+          "Tuấn Tú",
+          "Quang Vinh",
+          "Văn Lượng"
+        ],
+        "Khối": 8,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 2,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 6,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN8.2",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T11:07:29.648Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuHQvUxv7woF6hIC9",
+        "Student IDs": [
+          "-OgBqcUE8zDHIidxNiRW",
+          "-OgBqs0afWYjpEmZr8jp",
+          "-OgBquOticbCXWJ6qBl8",
+          "-OgBqw3UUVEx63RKxBdY"
+        ],
+        "Teacher ID": "-OgBsQ7OdgD1VswCbND4",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 8 (Y)",
+        "Địa điểm": "Phòng 3 - Phòng 3"
+      },
+      "-OgC5m5vluC4bky5st0S": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Thị Hòa",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Mai Phương",
+          "Nguyễn Khánh Ly",
+          "Nguyễn Thị Phương Ly ",
+          "Nghiêm Anh Tú",
+          "Nguyễn Bảo Ngọc ",
+          "Nghiêm Kỳ Hiểu An",
+          "Nguyễn Phương Thảo A",
+          "Nguyễn Phương Thảo B",
+          "Ngô Tuấn Anh",
+          "Nguyễn Phương Linh",
+          "Nguyễn Quỳnh Trang",
+          "Gia Hân"
+        ],
+        "Khối": 9,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:00",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 3,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 5,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "10:30",
+            "Giờ kết thúc": "12:00",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN9.1",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-11T11:10:37.429Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuJGKVGUfWSUDB8L-",
+        "Student IDs": [
+          "-OgBrBO6yzntYaVFzf5I",
+          "-OgBr77YqjCWt3uIPd0C",
+          "-OgBr-J_C2t-r2xG-NJJ",
+          "-OgBr8z7DAWTXgPmjMPH",
+          "-OgBrasCjIxce_ptjoTN",
+          "-OgBrMAKqX_khPlHu8oZ",
+          "-OgBrICW6Gd7Fv1AV8Ld",
+          "-OgBrQ5ZTLEvJIrFgLQz",
+          "-OgBrK0lXEbi1Wa1rUI4",
+          "-OgBr166FGNgVhERvWHp",
+          "-OgBrDEVYA33okzLuXrr",
+          "-OgBrO4WEW4q_oLyABtx"
+        ],
+        "Teacher ID": "-OgBsI4t8g5RmfSmIzJO",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 9 (H)",
+        "Địa điểm": "Phòng 4 - Phòng 4"
+      },
+      "-OgFYRScj2r_ObNHYmWl": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Trần Thị Hải Yến ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Bảo Linh",
+          "Nguyễn Châu Giang",
+          "Đức Anh"
+        ],
+        "Khối": 9,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "20:00",
+            "Giờ kết thúc": "21:30",
+            "Thứ": 3,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "20:00",
+            "Giờ kết thúc": "21:30",
+            "Thứ": 6,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "17:00",
+            "Giờ kết thúc": "18:30",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN9.2",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-12T03:14:42.475Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuHQvUxv7woF6hIC9",
+        "Student IDs": [
+          "-OgBrXjKUzGiZIlH20RO",
+          "-OgBrfnoR3t5y_w2JpQn",
+          "-OgBrdi9ICkWxU70Kyr4"
+        ],
+        "Teacher ID": "-OgBsQ7OdgD1VswCbND4",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 9 (Y)",
+        "Địa điểm": "Phòng 3 - Phòng 3"
+      },
+      "-OgFYyYWG14rvYZDUa22": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Trần Thị Hải Yến ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Vũ Trà My "
+        ],
+        "Khối": 10,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "09:00",
+            "Giờ kết thúc": "10:30",
+            "Thứ": 6,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "15:00",
+            "Giờ kết thúc": "16:30",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN10A",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-12T03:17:02.117Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuHQvUxv7woF6hIC9",
+        "Student IDs": [
+          "-OgBmkg_-Ff5M5OPqqP-"
+        ],
+        "Teacher ID": "-OgBsQ7OdgD1VswCbND4",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 10 A",
+        "Địa điểm": "Phòng 3 - Phòng 3"
+      },
+      "-OgFZxrGgo99OEaIYbjD": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Trần Thị Hải Yến ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Hồng Anh ",
+          "Trần Hà Linh",
+          "Yến Vy "
+        ],
+        "Khối": 10,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "20:00",
+            "Giờ kết thúc": "21:30",
+            "Thứ": 2,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "20:00",
+            "Giờ kết thúc": "21:30",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN10B",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-12T03:21:21.429Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuHQvUxv7woF6hIC9",
+        "Student IDs": [
+          "-OgBmtP7ejFTDKmoV6Ma",
+          "-OgBn8utLJvzxGwRi-bk",
+          "-OgBn4gvrlWpImattx02"
+        ],
+        "Teacher ID": "-OgBsQ7OdgD1VswCbND4",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 10 B",
+        "Địa điểm": "Phòng 3 - Phòng 3"
+      },
+      "-OgF__CWVedc2kXDaWEH": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Trần Thị Hải Yến ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Bảo Châu",
+          "Việt Anh"
+        ],
+        "Khối": 11,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 4,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN11",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-12T03:24:02.597Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuHQvUxv7woF6hIC9",
+        "Student IDs": [
+          "-OgBnSARyqrD1x-BuSso",
+          "-OgBnPcLxktYLHQPRt2r"
+        ],
+        "Teacher ID": "-OgBsQ7OdgD1VswCbND4",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 11",
+        "Địa điểm": "Phòng 3 - Phòng 3"
+      },
+      "-OgFa24gRgqd2HZ3ApGY": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Trần Thị Hải Yến ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Vũ Hồng Cúc",
+          "Bùi Gia Kim",
+          "Lê Anh",
+          "Tuệ Anh",
+          "Kiều Chi"
+        ],
+        "Khối": 12,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "20:00",
+            "Giờ kết thúc": "21:30",
+            "Thứ": 4,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "10:00",
+            "Giờ kết thúc": "11:30",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "TOAN12",
+        "Môn học": "Mathematics",
+        "Ngày tạo": "2025-12-12T03:26:04.976Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuHQvUxv7woF6hIC9",
+        "Student IDs": [
+          "-OgBngw8Go8zi4K71NOV",
+          "-OgBnXupqyNscu4SJZTW",
+          "-OgBndq_M2HB8y2x05MZ",
+          "-OgBnoBfiUhpxiKPt7ff",
+          "-OgBnlEHOk4DQEkPfRdU"
+        ],
+        "Teacher ID": "-OgBsQ7OdgD1VswCbND4",
+        "Trạng thái": "active",
+        "Tên lớp": "Toán 12",
+        "Địa điểm": "Phòng 3 - Phòng 3"
+      },
+      "-OgFaTSid7NaaK1AoNUy": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Lê Quang Đại ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nghiêm Tuấn Tài"
+        ],
+        "Khối": 7,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:00",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 2,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "17:30",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "VAN7",
+        "Môn học": "Literature",
+        "Ngày tạo": "2025-12-12T03:27:57.106Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuD59oF8NiwMdLdpz",
+        "Student IDs": [
+          "-OgBqC1hsofPm3YHQ6ph"
+        ],
+        "Teacher ID": "-OgBsVNsX7KHaC_nOAm8",
+        "Trạng thái": "active",
+        "Tên lớp": "Văn 7",
+        "Địa điểm": "Phòng 1 - Phòng 1"
+      },
+      "-OgFazhrlw63-avkMFis": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Lê Quang Đại ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nam",
+          "Lê Kiều Trinh",
+          "Nguyễn Phương Linh"
+        ],
+        "Khối": 9,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:30",
+            "Thứ": 4,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "15:00",
+            "Giờ kết thúc": "17:00",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "VAN9",
+        "Môn học": "Literature",
+        "Ngày tạo": "2025-12-12T03:30:13.306Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuD59oF8NiwMdLdpz",
+        "Student IDs": [
+          "-OgBrVthHa2BC_2LIhVx",
+          "-OgBrRmyav1p1eQINJaI",
+          "-OgBr166FGNgVhERvWHp"
+        ],
+        "Teacher ID": "-OgBsVNsX7KHaC_nOAm8",
+        "Trạng thái": "active",
+        "Tên lớp": "Văn 9",
+        "Địa điểm": "Phòng 1 - Phòng 1"
+      },
+      "-OgFbw-_97biFvsTz_j8": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Lê Quang Đại ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Bùi Gia Kim",
+          "Vũ Hồng Cúc"
+        ],
+        "Khối": 12,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:00",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 5,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "15:00",
+            "Giờ kết thúc": "17:00",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "VAN12",
+        "Môn học": "Literature",
+        "Ngày tạo": "2025-12-12T03:34:20.265Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuD59oF8NiwMdLdpz",
+        "Student IDs": [
+          "-OgBnXupqyNscu4SJZTW",
+          "-OgBngw8Go8zi4K71NOV"
+        ],
+        "Teacher ID": "-OgBsVNsX7KHaC_nOAm8",
+        "Trạng thái": "active",
+        "Tên lớp": "Văn 12",
+        "Địa điểm": "Phòng 1 - Phòng 1"
+      },
+      "-OgFcFs5GXe8AnGz5Ju_": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Trúc Linh",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Khánh Linh",
+          "Quang Anh",
+          "Nguyễn Đặng Tường Vy",
+          "Thảo Tiên"
+        ],
+        "Khối": 4,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 4,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "ANH4",
+        "Môn học": "English",
+        "Ngày tạo": "2025-12-12T03:35:45.738Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuFQqFUtT4tEtAH3K",
+        "Student IDs": [
+          "-OgBp-MOBZD1Xo58CyML",
+          "-OgBp1cFow5jtRAUnrxp",
+          "-OgBoseLfbUC5tA1LIYJ",
+          "-OgBpEtsDkexa2y8iwr4"
+        ],
+        "Teacher ID": "-OgBs8QZdm_7334qvXJa",
+        "Trạng thái": "active",
+        "Tên lớp": "Tiếng Anh 4",
+        "Địa điểm": "Phòng 2 - Phòng 2"
+      },
+      "-OgFcnvr2z2EXYXtZVPD": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Trúc Linh",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Đào Đoàn An Gia",
+          "Mạc Khánh Hưng"
+        ],
+        "Khối": 3,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 2,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "17:30",
+            "Giờ kết thúc": "19:00",
+            "Thứ": 5,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "ANH3",
+        "Môn học": "English",
+        "Ngày tạo": "2025-12-12T03:38:09.339Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuFQqFUtT4tEtAH3K",
+        "Student IDs": [
+          "-OgBoo3bTN_IpObB6u4J",
+          "-OgBoctlyBoJBjDuhlrb"
+        ],
+        "Teacher ID": "-OgBs8QZdm_7334qvXJa",
+        "Trạng thái": "active",
+        "Tên lớp": "Tiếng Anh 3",
+        "Địa điểm": "Phòng 2 - Phòng 2"
+      },
+      "-OgFdJ1sVpyHmyigd2GM": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Duy Nam",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Văn Nghĩa",
+          "Nghiêm Chí Văn"
+        ],
+        "Khối": 6,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 5,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "16:00",
+            "Giờ kết thúc": "17:30",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "ANH6",
+        "Môn học": "English",
+        "Ngày tạo": "2025-12-12T03:40:20.860Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuFQqFUtT4tEtAH3K",
+        "Student IDs": [
+          "-OgBpcMnCZvUUlY3Yjda",
+          "-OgBpqVDnzonGquXsS2v"
+        ],
+        "Teacher ID": "-OgBsZzT7zJoVBXoECTs",
+        "Trạng thái": "active",
+        "Tên lớp": "Tiếng Anh 6",
+        "Địa điểm": "Phòng 2 - Phòng 2"
+      },
+      "-OgFdlCirDdOjbh5doMD": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Duy Nam",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Thị Tuyết Nga",
+          "Nghiêm Chí Hào",
+          "Ngô Bảo Châu",
+          "Đỗ Khánh Hà",
+          "Vy"
+        ],
+        "Khối": 8,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 3,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "ANH8",
+        "Môn học": "English",
+        "Ngày tạo": "2025-12-12T03:42:20.337Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBqjPulza7Bt4lQJHO",
+          "-OgBqeXnwRC79USgPRRJ",
+          "-OgBqWKsn2yZFnW2R1RA",
+          "-OgBqnGTAEWNcp3EUniS",
+          "-OgBqxyyQ4VvjxEwJShv"
+        ],
+        "Teacher ID": "-OgBsZzT7zJoVBXoECTs",
+        "Trạng thái": "active",
+        "Tên lớp": "Tiếng Anh 8",
+        "Địa điểm": ""
+      },
+      "-OgFeJOKAuO79-UpWIsi": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Duy Nam",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Ngô Tuấn Anh",
+          "Nguyễn Bảo Ngọc ",
+          "Nguyễn Khánh Ly",
+          "Nghiêm Kỳ Hiểu An",
+          "Gia Hân"
+        ],
+        "Khối": 9,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 7,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "ANH9MC",
+        "Môn học": "English",
+        "Ngày tạo": "2025-12-12T03:44:44.441Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBrK0lXEbi1Wa1rUI4",
+          "-OgBrasCjIxce_ptjoTN",
+          "-OgBr77YqjCWt3uIPd0C",
+          "-OgBrMAKqX_khPlHu8oZ",
+          "-OgBrO4WEW4q_oLyABtx"
+        ],
+        "Teacher ID": "-OgBsZzT7zJoVBXoECTs",
+        "Trạng thái": "active",
+        "Tên lớp": "Tiếng Anh 9 MC",
+        "Địa điểm": ""
+      },
+      "-OgFevfIjJcbFHgABHJ7": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Duy Nam",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Thị Phương Ly ",
+          "Nguyễn Hà Anh"
+        ],
+        "Khối": 9,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 6,
+            "Địa điểm": ""
+          },
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "ANH9CB",
+        "Môn học": "English",
+        "Ngày tạo": "2025-12-12T03:47:25.335Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBr-J_C2t-r2xG-NJJ",
+          "-OgBrTKZfTpnBQ9KZEuA"
+        ],
+        "Teacher ID": "-OgBsZzT7zJoVBXoECTs",
+        "Trạng thái": "active",
+        "Tên lớp": "Tiếng Anh 9 CB",
+        "Địa điểm": ""
+      },
+      "-OgFfFW7Ojj0otoybAYq": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Sỹ Hoàng",
+        "Học phí mỗi buổi": 150000,
+        "Học sinh": [
+          "Hân"
+        ],
+        "Khối": 8,
+        "Lương GV": 250000,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "15:30",
+            "Giờ kết thúc": "17:00",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "HOA8",
+        "Môn học": "Chemistry",
+        "Ngày tạo": "2025-12-12T03:48:50.700Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBqa4cQdhR-JDPWAnA"
+        ],
+        "Teacher ID": "-OgBsdxQRa2GX7bX0D2B",
+        "Trạng thái": "active",
+        "Tên lớp": "Hóa học 8",
+        "Địa điểm": ""
+      },
+      "-OgFfdnxnyoDq592rPvx": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Sỹ Hoàng",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Hà Anh",
+          "Lê Kiều Trinh"
+        ],
+        "Khối": 8,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "19:30",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 2,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "VATLY8",
+        "Môn học": "Physics",
+        "Ngày tạo": "2025-12-12T03:50:34.305Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBrTKZfTpnBQ9KZEuA",
+          "-OgBrRmyav1p1eQINJaI"
+        ],
+        "Teacher ID": "-OgBsdxQRa2GX7bX0D2B",
+        "Trạng thái": "active",
+        "Tên lớp": "Vật lý 8",
+        "Địa điểm": ""
+      },
+      "-OgFh18DklYA8ePlbgZi": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Sỹ Hoàng",
+        "Học phí mỗi buổi": 250000,
+        "Học sinh": [
+          "Mai Hạ",
+          "Nguyễn Phương Uyên"
+        ],
+        "Khối": 10,
+        "Lương GV": 400000,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:30",
+            "Giờ kết thúc": "21:30",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "VATLY10",
+        "Môn học": "Physics",
+        "Ngày tạo": "2025-12-12T03:56:36.114Z",
+        "Người tạo": "admin",
+        "Phòng học": "-OgBuL4_cQyS54aX2Asu",
+        "Student IDs": [
+          "-OgBnGbl0sROFAH5aGN2",
+          "-OgBnE-Z0pqgCsM8VSd8"
+        ],
+        "Teacher ID": "-OgBsdxQRa2GX7bX0D2B",
+        "Trạng thái": "active",
+        "Tên lớp": "Vật lý 10",
+        "Địa điểm": "Phòng 5 - Phòng 5"
+      },
+      "-OgFhSyHOJ6q5uF4-Oz2": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Sỹ Hoàng",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Minh Quang",
+          "Hương Quỳnh",
+          "Việt Anh"
+        ],
+        "Khối": 11,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "17:30",
+            "Giờ kết thúc": "20:30",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "VATLY11",
+        "Môn học": "Physics",
+        "Ngày tạo": "2025-12-12T03:58:30.102Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBnMGizbsckU1_3OTH",
+          "-OgBnJDOadnSeGLI3Wx0",
+          "-OgBnPcLxktYLHQPRt2r"
+        ],
+        "Teacher ID": "-OgBsdxQRa2GX7bX0D2B",
+        "Trạng thái": "active",
+        "Tên lớp": "Vật lý 11",
+        "Địa điểm": ""
+      },
+      "-OgFhs4NlIdHLgUzHZ1w": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Sỹ Hoàng",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Đào Duy Linh",
+          "Bùi Gia Kim"
+        ],
+        "Khối": 12,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 6,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "VATLY12",
+        "Môn học": "Physics",
+        "Ngày tạo": "2025-12-12T04:00:17.052Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBnaa4WFQjhVsO_sqd",
+          "-OgBnXupqyNscu4SJZTW"
+        ],
+        "Teacher ID": "-OgBsdxQRa2GX7bX0D2B",
+        "Trạng thái": "active",
+        "Tên lớp": "Vật lý 12",
+        "Địa điểm": ""
+      },
+      "-OgFiD-shg8bemUNgqK5": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Lê Đặng Bảo Khanh",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Hân"
+        ],
+        "Khối": 8,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "19:30",
+            "Thứ": 7,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "HOA8",
+        "Môn học": "Chemistry",
+        "Ngày tạo": "2025-12-12T04:01:46.876Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBqa4cQdhR-JDPWAnA"
+        ],
+        "Teacher ID": "-OgBsiehuaR7kDpAme-r",
+        "Trạng thái": "active",
+        "Tên lớp": "Hóa học 8",
+        "Địa điểm": ""
+      },
+      "-OgFk1A6s84440xgSByl": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Trần Hương Ly ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Nguyễn Thị Phương Ly ",
+          "Nguyễn Hà Anh",
+          "Lê Kiều Trinh"
+        ],
+        "Khối": 9,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "14:30",
+            "Giờ kết thúc": "16:00",
+            "Thứ": 8,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "HOA9",
+        "Môn học": "Chemistry",
+        "Ngày tạo": "2025-12-12T04:09:42.667Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBr-J_C2t-r2xG-NJJ",
+          "-OgBrTKZfTpnBQ9KZEuA",
+          "-OgBrRmyav1p1eQINJaI"
+        ],
+        "Teacher ID": "-OgBsn82dqsWMgHI-wJ9",
+        "Trạng thái": "active",
+        "Tên lớp": "Hóa học",
+        "Địa điểm": ""
+      },
+      "-OgFoYhFBAu_Y7DOt1pF": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Nguyễn Trần Hương Ly ",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Hương Quỳnh"
+        ],
+        "Khối": 11,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "15:00",
+            "Giờ kết thúc": "18:00",
+            "Thứ": 4,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "HOA11",
+        "Môn học": "Chemistry",
+        "Ngày tạo": "2025-12-12T04:29:28.595Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBnJDOadnSeGLI3Wx0"
+        ],
+        "Teacher ID": "-OgBsn82dqsWMgHI-wJ9",
+        "Trạng thái": "active",
+        "Tên lớp": "Hóa học 11",
+        "Địa điểm": ""
+      },
+      "-OgFooJPfXiTVn3o7rn8": {
+        "Ghi chú": "",
+        "Giáo viên chủ nhiệm": "Lê Đặng Bảo Khanh",
+        "Học phí mỗi buổi": 0,
+        "Học sinh": [
+          "Bùi Gia Kim"
+        ],
+        "Khối": 12,
+        "Lương GV": 0,
+        "Lịch học": [
+          {
+            "Giờ bắt đầu": "18:00",
+            "Giờ kết thúc": "21:00",
+            "Thứ": 3,
+            "Địa điểm": ""
+          }
+        ],
+        "Mã lớp": "HOA12",
+        "Môn học": "Chemistry",
+        "Ngày tạo": "2025-12-12T04:30:36.638Z",
+        "Người tạo": "admin",
+        "Phòng học": "",
+        "Student IDs": [
+          "-OgBnXupqyNscu4SJZTW"
+        ],
+        "Teacher ID": "-OgBsiehuaR7kDpAme-r",
+        "Trạng thái": "active",
+        "Tên lớp": "Hóa học 12",
+        "Địa điểm": ""
+      }
+    },
+    "Phòng_học": {
+      "-OgBuD59oF8NiwMdLdpz": {
+        "Ghi chú": "",
+        "Tên phòng": "Phòng 1",
+        "Địa điểm": "Phòng 1"
+      },
+      "-OgBuFQqFUtT4tEtAH3K": {
+        "Ghi chú": "",
+        "Tên phòng": "Phòng 2",
+        "Địa điểm": "Phòng 2"
+      },
+      "-OgBuHQvUxv7woF6hIC9": {
+        "Ghi chú": "",
+        "Tên phòng": "Phòng 3",
+        "Địa điểm": "Phòng 3"
+      },
+      "-OgBuJGKVGUfWSUDB8L-": {
+        "Ghi chú": "",
+        "Tên phòng": "Phòng 4",
+        "Địa điểm": "Phòng 4"
+      },
+      "-OgBuL4_cQyS54aX2Asu": {
+        "Ghi chú": "",
+        "Tên phòng": "Phòng 5",
+        "Địa điểm": "Phòng 5"
+      }
+    },
+    "Điểm_danh_sessions": {
+      "-OgGDRKgsmIXJ3oi1oVf": {
+        "Bài tập": {
+          "Mô tả": "Hoàn thành phiếu Ôn luyện kiểm tra số 4 \nKhánh An, Minh Trí hoàn thành phiếu tuần 14 nâng cao",
+          "Người giao": "Nguyễn Thị Hòa",
+          "Thời gian giao": "2025-12-12T12:26:04.149Z",
+          "Tổng số bài": 0
+        },
+        "Class ID": "-OgBvH5t67sBoRDb0i1u",
+        "Giáo viên": "Nguyễn Thị Hòa",
+        "Giờ bắt đầu": "17:30",
+        "Giờ kết thúc": "19:00",
+        "Mã lớp": "T3H",
+        "Ngày": "2025-12-12",
+        "Người hoàn thành": "Nguyễn Thị Hòa",
+        "Người điểm danh": "Nguyễn Thị Hòa",
+        "Teacher ID": "-OgBsI4t8g5RmfSmIzJO",
+        "Thời gian hoàn thành": "2025-12-12T12:26:04.149Z",
+        "Thời gian điểm danh": "2025-12-12T06:20:03.447Z",
+        "Timestamp": "2025-12-12T06:22:37.277Z",
+        "Trạng thái": "completed",
+        "Tên lớp": "Toán 3",
+        "Điểm danh": [
+          {
+            "Có mặt": true,
+            "Ghi chú": "Hôm nay con làm bài tốt , ý thức học tốt. Cần phát huy thêm các buổi học sau",
+            "Giờ check-in": "13:19:50",
+            "Giờ check-out": "13:19:55",
+            "Student ID": "-OgBoQgZ3Lwl1wkryHqC",
+            "Tên học sinh": "Nguyễn Khánh An",
+            "Điểm thưởng": 3
+          },
+          {
+            "Có mặt": true,
+            "Ghi chú": "Bài tập con chưa hoàn thành đủ. Làm bài vẫn còn yếu các dạng chia và bài giải.",
+            "Giờ check-in": "13:19:51",
+            "Giờ check-out": "13:19:56",
+            "Student ID": "-OgBoTKjoZp1XSx3N0L0",
+            "Tên học sinh": "Lê Linh Chi"
+          },
+          {
+            "Có mặt": false,
+            "Ghi chú": "",
+            "Giờ check-in": "13:19:52",
+            "Giờ check-out": "13:19:56",
+            "Student ID": "-OgBoaKF3i2QFU8KAGca",
+            "Tên học sinh": "Lê Đào Uyên Nhi"
+          },
+          {
+            "Có mặt": true,
+            "Ghi chú": "Con làm bài chậm. Chăm chỉ làm bài tập về nhà. Ý thức học tốt. Con có tư duy ổn nhưng tính toán khá chậm",
+            "Giờ check-in": "13:19:54",
+            "Giờ check-out": "13:19:57",
+            "Student ID": "-OgBoctlyBoJBjDuhlrb",
+            "Tên học sinh": "Mạc Khánh Hưng",
+            "Điểm thưởng": 1
+          },
+          {
+            "Có mặt": true,
+            "Ghi chú": "Con làm bài vẫn còn chậm hơn so với các bạn. Con vẫn thường dễ mất tập trung trong buổi học. Có ý thức làm BTVN , tính toán còn dễ sai sót, tư duy bài giải chưa có",
+            "Giờ check-in": "13:19:54",
+            "Giờ check-out": "13:19:57",
+            "Student ID": "-OgBoo3bTN_IpObB6u4J",
+            "Tên học sinh": "Đào Đoàn An Gia",
+            "Điểm thưởng": 1
+          },
+          {
+            "Có mặt": true,
+            "Ghi chú": "Khen Minh Trí làm bài trên lớp tốt, Tư duy nhạy bén. Nhanh ẩu nên làm bài về nhà sai khá nhiều",
+            "Giờ check-in": "13:19:55",
+            "Giờ check-out": "13:19:58",
+            "Student ID": "-OgBoqXHAD36WVoQ6uAe",
+            "Tên học sinh": "Minh Trí",
+            "Điểm thưởng": 1
+          }
+        ]
+      },
+      "-OgHsVq5HLLFwFE_4Bs2": {
+        "Bài tập": {
+          "Mô tả": "Hoàn thành đề Mỹ Hào",
+          "Người giao": "Nguyễn Thị Hòa",
+          "Thời gian giao": "2025-12-12T14:06:02.577Z",
+          "Tổng số bài": 17
+        },
+        "Class ID": "-OgBxFJYseCNaYnP7Z4L",
+        "Giáo viên": "Nguyễn Thị Hòa",
+        "Giờ bắt đầu": "19:30",
+        "Giờ kết thúc": "21:00",
+        "Mã lớp": "TOAN6",
+        "Ngày": "2025-12-12",
+        "Người hoàn thành": "Nguyễn Thị Hòa",
+        "Người điểm danh": "Nguyễn Thị Hòa",
+        "Teacher ID": "-OgBsI4t8g5RmfSmIzJO",
+        "Thời gian hoàn thành": "2025-12-12T14:06:02.577Z",
+        "Thời gian điểm danh": "2025-12-12T12:54:49.926Z",
+        "Timestamp": "2025-12-12T14:06:02.577Z",
+        "Trạng thái": "completed",
+        "Tên lớp": "Toán 6",
+        "Điểm danh": [
+          {
+            "Bài kiểm tra": "Đề Mỹ Tiến ",
+            "Có mặt": false,
+            "Ghi chú": "",
+            "Student ID": "-OgBpcMnCZvUUlY3Yjda",
+            "Tên học sinh": "Nguyễn Văn Nghĩa"
+          },
+          {
+            "Bài kiểm tra": "Đề Mỹ Tiến ",
+            "Có mặt": true,
+            "Ghi chú": "Chưa hoàn thành BTVN., Chư acó ý thức hoàn thành bài nhiều lần",
+            "Giờ check-in": "19:54:44",
+            "Giờ check-out": "20:59:36",
+            "Student ID": "-OgBph6-NserAMMwMvTH",
+            "Tên học sinh": "Nguyễn Trang Linh",
+            "Điểm kiểm tra": 3.5,
+            "Điểm thưởng": 6
+          },
+          {
+            "Bài kiểm tra": "Đề Mỹ Tiến ",
+            "Có mặt": true,
+            "Ghi chú": "Đã làm BTVN. nhưng sai khá nhiều, tính toán ẩu ",
+            "Giờ check-in": "19:26:18",
+            "Giờ check-out": "21:03:30",
+            "Student ID": "-OgBpjLlSYqSgs31JiL4",
+            "Tên học sinh": "Nguyễn Minh Châu",
+            "Điểm kiểm tra": 3.25
+          },
+          {
+            "Bài kiểm tra": "Đề Mỹ Tiến ",
+            "Có mặt": true,
+            "Ghi chú": "Đã làm đầy đủ BTVN",
+            "Giờ check-in": "19:26:18",
+            "Giờ check-out": "20:46:21",
+            "Student ID": "-OgBplWbrNiyC9citHjr",
+            "Tên học sinh": "Lê Linh Nhi",
+            "Điểm kiểm tra": 3.75
+          }
+        ]
+      }
+    }
+  }
+}

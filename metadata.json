@@ -1,0 +1,5 @@
+{
+  "name": "Lumi Dashboard Module",
+  "description": "A comprehensive business dashboard for Lumi featuring Growth, KPI, and OKR tracking with multi-level views (Company, Team, Individual).",
+  "requestFramePermissions": []
+}

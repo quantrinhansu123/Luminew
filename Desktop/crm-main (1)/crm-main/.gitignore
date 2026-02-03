@@ -1,0 +1,98 @@
+# Dependencies
+node_modules
+server/node_modules
+
+# Build outputs
+dist
+dist-ssr
+build
+*.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+server/.env
+apps/api/.env
+apps/web/.env.local
+
+# Firebase config - Sensitive API keys
+firebase.config.ts
+firebase-realtime.config.ts
+database.config.ts
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary and cache files
+*.tmp
+*.temp
+.cache
+.vite
+.turbo
+.next
+
+# Claude Code temp files
+tmpclaude-*
+.claude/
+
+# Scraped/downloaded content
+binhfile/
+
+# TypeScript
+*.tsbuildinfo
+.tsbuildinfo
+
+# Testing
+coverage
+.nyc_output
+
+# Vercel
+.vercel
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Prisma
+apps/api/prisma/migrations/*.sql.bak
+
+# Misc
+nul
+frontend/
+.mcp.json
