@@ -1177,10 +1177,9 @@ export default function XemBaoCaoCSKH() {
             )];
 
             // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
-            // Thêm order_code để kiểm tra duplicate khi fallback match
             let query = supabase
                 .from('orders')
-                .select('order_code, order_date, sale_staff, product, country, total_amount_vnd', { count: 'exact' })
+                .select('order_date, sale_staff, product, country, total_amount_vnd', { count: 'exact' })
                 .gte('order_date', normalizedStartDate)
                 .lte('order_date', normalizedEndDate);
 
@@ -1224,7 +1223,7 @@ export default function XemBaoCaoCSKH() {
             });
 
             // Cập nhật transformedData với tổng doanh số từ orders (theo cùng rule như Số đơn TT)
-            transformedData.forEach((item, index) => {
+            transformedData.forEach((item) => {
                 const saleName = normalizeStr(item['Tên']);
                 const reportDateRaw = item['Ngày'];
                 const reportDate = normalizeDate(reportDateRaw);

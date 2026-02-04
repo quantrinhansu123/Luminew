@@ -370,19 +370,34 @@ function DanhSachDon() {
           const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
           console.log('🔍 Filtering by selected personnel names:', allNames);
 
+          // Helper function to normalize name (remove extra spaces)
+          const normalizeNameForQuery = (str) => {
+            if (!str) return '';
+            return String(str).trim().replace(/\s+/g, ' ');
+          };
+
           // Filter theo sale_staff, marketing_staff, hoặc delivery_staff
           // Sử dụng .or() để match với bất kỳ tên nào trong danh sách
-          const orConditions = allNames.flatMap(name => [
-            `sale_staff.ilike.%${name}%`,
-            `marketing_staff.ilike.%${name}%`,
-            `delivery_staff.ilike.%${name}%`
-          ]);
+          const orConditions = allNames.flatMap(name => {
+            const normalizedName = normalizeNameForQuery(name);
+            return [
+              `sale_staff.ilike.%${normalizedName}%`,
+              `marketing_staff.ilike.%${normalizedName}%`,
+              `delivery_staff.ilike.%${normalizedName}%`
+            ];
+          });
 
           query = query.or(orConditions.join(','));
         } else if (userName) {
           // Nếu không có selectedPersonnelNames, filter theo user hiện tại
+          // Helper function to normalize name (remove extra spaces)
+          const normalizeNameForQuery = (str) => {
+            if (!str) return '';
+            return String(str).trim().replace(/\s+/g, ' ');
+          };
+          const normalizedUserName = normalizeNameForQuery(userName);
           // Filter by sale_staff, marketing_staff, hoặc delivery_staff
-          query = query.or(`sale_staff.ilike.%${userName}%,marketing_staff.ilike.%${userName}%,delivery_staff.ilike.%${userName}%`);
+          query = query.or(`sale_staff.ilike.%${normalizedUserName}%,marketing_staff.ilike.%${normalizedUserName}%,delivery_staff.ilike.%${normalizedUserName}%`);
         }
       } else {
         // Admin: không filter, xem tất cả đơn

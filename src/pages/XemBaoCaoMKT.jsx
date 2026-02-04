@@ -261,15 +261,23 @@ export default function XemBaoCaoMKT() {
             item['Team'] && item['Team'].toLowerCase() === userTeam.toLowerCase()
           );
         } else {
+          // Helper function to normalize name for matching
+          const normalizeNameForMatch = (str) => {
+            if (!str) return '';
+            return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+          };
+
           // Staff: see own data only (by name or email)
           dateFilteredReports = dateFilteredReports.filter(item => {
-            const itemName = (item['Tên'] || '').toLowerCase().trim();
-            const itemEmail = (item['Email'] || '').toLowerCase().trim();
-            const currentUserName = userName.toLowerCase().trim();
-            const currentUserEmail = userEmail.toLowerCase().trim();
+            const itemName = normalizeNameForMatch(item['Tên'] || '');
+            const itemEmail = normalizeNameForMatch(item['Email'] || '');
+            const currentUserName = normalizeNameForMatch(userName);
+            const currentUserEmail = normalizeNameForMatch(userEmail);
 
             return (itemName === currentUserName && currentUserName !== '') ||
-              (itemEmail === currentUserEmail && currentUserEmail !== '');
+              (itemEmail === currentUserEmail && currentUserEmail !== '') ||
+              itemName.includes(currentUserName) ||
+              currentUserName.includes(itemName);
           });
         }
       } else {

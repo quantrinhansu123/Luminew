@@ -19,6 +19,15 @@ const PORT = 3001; // Backend port (khác với Vite dev server port 3000)
 app.use(cors());
 app.use(express.json());
 
+// Set default headers to avoid 406 errors
+app.use((req, res, next) => {
+  // Only set Content-Type for non-OPTIONS requests
+  if (req.method !== 'OPTIONS') {
+    res.setHeader('Content-Type', 'application/json');
+  }
+  next();
+});
+
 // API URL từ config (giống như trong api.js)
 const PROD_HOST = 'https://n-api-gamma.vercel.app';
 const SHEET_NAME = 'F3';
@@ -143,6 +152,10 @@ app.get('/van-don', async (req, res) => {
     const endIndex = startIndex + limitNum;
     const paginatedData = filteredData.slice(startIndex, endIndex);
 
+    // Set proper headers to avoid 406 error
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Accept', 'application/json');
+    
     res.json({
       success: true,
       data: paginatedData,
@@ -154,6 +167,7 @@ app.get('/van-don', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error in /van-don:', error);
+    res.setHeader('Content-Type', 'application/json');
     res.status(500).json({
       success: false,
       error: error.message,
@@ -431,7 +445,7 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
 
       console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
 
-      return res.json({
+      res.json({
         success: true,
         data: data || [],
         count: data?.length || 0
@@ -446,6 +460,14 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
         data: []
       });
     }
+
+    console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
+
+    res.json({
+      success: true,
+      data: data || [],
+      count: data?.length || 0
+    });
 
   } catch (error) {
     console.error('❌ Fetch detail_reports error:', error);

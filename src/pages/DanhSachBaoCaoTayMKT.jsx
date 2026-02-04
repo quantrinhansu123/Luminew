@@ -322,10 +322,20 @@ export default function DanhSachBaoCaoTayMKT() {
                 // Filter theo selected_personnel nếu có
                 if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                     console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
+                    
+                    // Helper function to normalize name (remove extra spaces)
+                    const normalizeNameForQuery = (str) => {
+                        if (!str) return '';
+                        return String(str).trim().replace(/\s+/g, ' ');
+                    };
+
                     // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
                     const orConditions = selectedPersonnelNames
                         .filter(name => name && name.trim().length > 0)
-                        .map(name => `Tên.ilike.%${name.trim()}%`);
+                        .map(name => {
+                            const normalizedName = normalizeNameForQuery(name);
+                            return `Tên.ilike.%${normalizedName}%`;
+                        });
                     
                     if (orConditions.length > 0) {
                         query = query.or(orConditions.join(','));
@@ -434,10 +444,20 @@ export default function DanhSachBaoCaoTayMKT() {
                 // Filter theo selected_personnel nếu có
                 if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                     console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
+                    
+                    // Helper function to normalize name (remove extra spaces)
+                    const normalizeNameForQuery = (str) => {
+                        if (!str) return '';
+                        return String(str).trim().replace(/\s+/g, ' ');
+                    };
+
                     // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
                     const orConditions = selectedPersonnelNames
                         .filter(name => name && name.trim().length > 0)
-                        .map(name => `Tên.ilike.%${name.trim()}%`);
+                        .map(name => {
+                            const normalizedName = normalizeNameForQuery(name);
+                            return `Tên.ilike.%${normalizedName}%`;
+                        });
                     
                     if (orConditions.length > 0) {
                         query = query.or(orConditions.join(','));

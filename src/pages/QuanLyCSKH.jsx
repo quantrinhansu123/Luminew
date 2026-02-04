@@ -364,11 +364,19 @@ function QuanLyCSKH() {
           // Lấy đơn mà bất kỳ người nào trong danh sách xuất hiện ở Sale/MKT/Vận đơn
           console.log('🔍 [CSKH] Filtering by selected personnel list (Sale/MKT/Vận đơn):', selectedPersonnelNames);
 
+          // Helper function to normalize name (remove extra spaces)
+          const normalizeNameForQuery = (str) => {
+            if (!str) return '';
+            return String(str).trim().replace(/\s+/g, ' ');
+          };
+
           const orConditions = [];
           selectedPersonnelNames
             .filter(name => name && name.trim().length > 0)
             .forEach(name => {
-              const pattern = `%${name.trim()}%`;
+              // Normalize tên trước khi query để match tốt hơn
+              const normalizedName = normalizeNameForQuery(name);
+              const pattern = `%${normalizedName}%`;
               orConditions.push(`sale_staff.ilike.${pattern}`);
               orConditions.push(`marketing_staff.ilike.${pattern}`);
               orConditions.push(`delivery_staff.ilike.${pattern}`);

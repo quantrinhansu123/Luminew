@@ -347,22 +347,33 @@ function VanDon() {
           }
         }
 
+        // Helper function to normalize name for matching (remove extra spaces, lowercase)
+        const normalizeNameForMatch = (str) => {
+          if (!str) return '';
+          return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+        };
+
         // Helper function to check if row matches any personnel name across Sale/MKT/Vận đơn columns
         const matchesPersonnelFilter = (row) => {
           if (isManager || allAllowedNames.length === 0) return true;
           
-          const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-          const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-          const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
+          const saleStaff = normalizeNameForMatch(row.sale_staff || row["Nhân viên Sale"] || '');
+          const mktStaff = normalizeNameForMatch(row.marketing_staff || row["Nhân viên Sale"] || '');
+          const deliveryStaff = normalizeNameForMatch(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '');
           
           return allAllowedNames.some(name => {
-            const nameLower = name.toLowerCase().trim();
-            return saleStaff.includes(nameLower) || 
-                   mktStaff.includes(nameLower) || 
-                   deliveryStaff.includes(nameLower) ||
-                   saleStaff === nameLower ||
-                   mktStaff === nameLower ||
-                   deliveryStaff === nameLower;
+            const nameNormalized = normalizeNameForMatch(name);
+            // Match bằng includes (partial match) hoặc exact match
+            return saleStaff.includes(nameNormalized) || 
+                   mktStaff.includes(nameNormalized) || 
+                   deliveryStaff.includes(nameNormalized) ||
+                   saleStaff === nameNormalized ||
+                   mktStaff === nameNormalized ||
+                   deliveryStaff === nameNormalized ||
+                   // Reverse match: tên trong DB có thể ngắn hơn tên trong selectedPersonnelNames
+                   nameNormalized.includes(saleStaff) ||
+                   nameNormalized.includes(mktStaff) ||
+                   nameNormalized.includes(deliveryStaff);
           });
         };
 
@@ -398,17 +409,20 @@ function VanDon() {
           } else if (!isManager && userName) {
             // Fallback: Nếu không load được, chỉ filter theo userName
             console.log('🔍 [VanDon Backend] Tab Hà Nội - Fallback: Filtering by userName only:', userName);
-            const userNameLower = userName.toLowerCase().trim();
+            const userNameNormalized = normalizeNameForMatch(userName);
             filteredData = filteredData.filter(row => {
-              const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-              const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-              const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
-              return saleStaff.includes(userNameLower) || 
-                     mktStaff.includes(userNameLower) || 
-                     deliveryStaff.includes(userNameLower) ||
-                     saleStaff === userNameLower ||
-                     mktStaff === userNameLower ||
-                     deliveryStaff === userNameLower;
+              const saleStaff = normalizeNameForMatch(row.sale_staff || row["Nhân viên Sale"] || '');
+              const mktStaff = normalizeNameForMatch(row.marketing_staff || row["Nhân viên Sale"] || '');
+              const deliveryStaff = normalizeNameForMatch(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '');
+              return saleStaff.includes(userNameNormalized) || 
+                     mktStaff.includes(userNameNormalized) || 
+                     deliveryStaff.includes(userNameNormalized) ||
+                     saleStaff === userNameNormalized ||
+                     mktStaff === userNameNormalized ||
+                     deliveryStaff === userNameNormalized ||
+                     userNameNormalized.includes(saleStaff) ||
+                     userNameNormalized.includes(mktStaff) ||
+                     userNameNormalized.includes(deliveryStaff);
             });
             filteredTotal = filteredData.length;
           }
@@ -432,17 +446,20 @@ function VanDon() {
           } else if (!isManager && userName) {
             // Fallback: Nếu không load được, chỉ filter theo userName
             console.log('🔍 [VanDon Backend] Fallback: Filtering by userName only:', userName);
-            const userNameLower = userName.toLowerCase().trim();
+            const userNameNormalized = normalizeNameForMatch(userName);
             filteredData = result.data.filter(row => {
-              const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-              const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-              const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
-              return saleStaff.includes(userNameLower) || 
-                     mktStaff.includes(userNameLower) || 
-                     deliveryStaff.includes(userNameLower) ||
-                     saleStaff === userNameLower ||
-                     mktStaff === userNameLower ||
-                     deliveryStaff === userNameLower;
+              const saleStaff = normalizeNameForMatch(row.sale_staff || row["Nhân viên Sale"] || '');
+              const mktStaff = normalizeNameForMatch(row.marketing_staff || row["Nhân viên Sale"] || '');
+              const deliveryStaff = normalizeNameForMatch(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '');
+              return saleStaff.includes(userNameNormalized) || 
+                     mktStaff.includes(userNameNormalized) || 
+                     deliveryStaff.includes(userNameNormalized) ||
+                     saleStaff === userNameNormalized ||
+                     mktStaff === userNameNormalized ||
+                     deliveryStaff === userNameNormalized ||
+                     userNameNormalized.includes(saleStaff) ||
+                     userNameNormalized.includes(mktStaff) ||
+                     userNameNormalized.includes(deliveryStaff);
             });
             filteredTotal = filteredData.length;
           }
@@ -537,22 +554,31 @@ function VanDon() {
           }
         }
 
+        // Helper function to normalize name for matching (fallback mode)
+        const normalizeNameForMatchFallback = (str) => {
+          if (!str) return '';
+          return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+        };
+
         // Helper function to check if row matches any personnel name across Sale/MKT/Vận đơn columns (fallback mode)
         const matchesPersonnelFilterFallback = (row) => {
           if (isManager || allAllowedNamesFallback.length === 0) return true;
           
-          const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-          const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-          const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
+          const saleStaff = normalizeNameForMatchFallback(row.sale_staff || row["Nhân viên Sale"] || '');
+          const mktStaff = normalizeNameForMatchFallback(row.marketing_staff || row["Nhân viên Sale"] || '');
+          const deliveryStaff = normalizeNameForMatchFallback(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '');
           
           return allAllowedNamesFallback.some(name => {
-            const nameLower = name.toLowerCase().trim();
-            return saleStaff.includes(nameLower) || 
-                   mktStaff.includes(nameLower) || 
-                   deliveryStaff.includes(nameLower) ||
-                   saleStaff === nameLower ||
-                   mktStaff === nameLower ||
-                   deliveryStaff === nameLower;
+            const nameNormalized = normalizeNameForMatchFallback(name);
+            return saleStaff.includes(nameNormalized) || 
+                   mktStaff.includes(nameNormalized) || 
+                   deliveryStaff.includes(nameNormalized) ||
+                   saleStaff === nameNormalized ||
+                   mktStaff === nameNormalized ||
+                   deliveryStaff === nameNormalized ||
+                   nameNormalized.includes(saleStaff) ||
+                   nameNormalized.includes(mktStaff) ||
+                   nameNormalized.includes(deliveryStaff);
           });
         };
 
@@ -577,17 +603,20 @@ function VanDon() {
           } else if (!isManager && userName) {
             // Fallback: Nếu không load được, chỉ filter theo userName
             console.log('🔍 [VanDon Fallback] Fallback: Filtering by userName only:', userName);
-            const userNameLower = userName.toLowerCase().trim();
+            const userNameNormalized = normalizeNameForMatchFallback(userName);
             data = data.filter(row => {
-              const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-              const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').toLowerCase().trim();
-              const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
-              return saleStaff.includes(userNameLower) || 
-                     mktStaff.includes(userNameLower) || 
-                     deliveryStaff.includes(userNameLower) ||
-                     saleStaff === userNameLower ||
-                     mktStaff === userNameLower ||
-                     deliveryStaff === userNameLower;
+              const saleStaff = normalizeNameForMatchFallback(row.sale_staff || row["Nhân viên Sale"] || '');
+              const mktStaff = normalizeNameForMatchFallback(row.marketing_staff || row["Nhân viên Sale"] || '');
+              const deliveryStaff = normalizeNameForMatchFallback(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '');
+              return saleStaff.includes(userNameNormalized) || 
+                     mktStaff.includes(userNameNormalized) || 
+                     deliveryStaff.includes(userNameNormalized) ||
+                     saleStaff === userNameNormalized ||
+                     mktStaff === userNameNormalized ||
+                     deliveryStaff === userNameNormalized ||
+                     userNameNormalized.includes(saleStaff) ||
+                     userNameNormalized.includes(mktStaff) ||
+                     userNameNormalized.includes(deliveryStaff);
             });
           }
         }

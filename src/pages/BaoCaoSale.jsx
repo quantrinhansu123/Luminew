@@ -104,6 +104,28 @@ export default function BaoCaoSale() {
         return tab || 'sau-huy';
     });
 
+    // KPI Report Filters
+    const [kpiFilters, setKpiFilters] = useState({
+        team: [],
+        personnel: [],
+        products: [],
+        markets: [],
+        branches: [],
+        includeShipZero: false
+    });
+
+    // KPI Column Visibility
+    const [kpiColumnVisibility, setKpiColumnVisibility] = useState({
+        soDonDSChot: true,
+        soDonDSHuy: true,
+        soDonDSSauHuy: true,
+        soDonDSDi: true,
+        soDonDThuTC: true,
+        ship: true,
+        dThuTinhKPI: true,
+        tyLeThuTien: true
+    });
+
     // Toggle visibility for filters
     const [showProductFilter, setShowProductFilter] = useState(false);
     const [showShiftFilter, setShowShiftFilter] = useState(true);
@@ -1177,10 +1199,9 @@ export default function BaoCaoSale() {
             )];
 
             // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
-            // Thêm order_code để kiểm tra duplicate khi fallback match
             let query = supabase
                 .from('orders')
-                .select('order_code, order_date, sale_staff, product, country, total_amount_vnd', { count: 'exact' })
+                .select('order_date, sale_staff, product, country, total_amount_vnd', { count: 'exact' })
                 .gte('order_date', normalizedStartDate)
                 .lte('order_date', normalizedEndDate);
 
@@ -1224,7 +1245,7 @@ export default function BaoCaoSale() {
             });
 
             // Cập nhật transformedData với tổng doanh số từ orders (theo cùng rule như Số đơn TT)
-            transformedData.forEach((item, index) => {
+            transformedData.forEach((item) => {
                 const saleName = normalizeStr(item['Tên']);
                 const reportDateRaw = item['Ngày'];
                 const reportDate = normalizeDate(reportDateRaw);
@@ -3088,6 +3109,483 @@ export default function BaoCaoSale() {
         }));
     }, [filteredData]);
 
+    // --- KPI Report Calculation ---
+    const [kpiReportData, setKpiReportData] = useState({ kpiData: [], kpiTotal: null });
+    const [kpiLoading, setKpiLoading] = useState(false);
+
+    useEffect(() => {
+        if (activeTab !== 'bao-cao-kpis' || !filters.startDate || !filters.endDate) {
+            setKpiReportData({ kpiData: [], kpiTotal: null });
+            return;
+        }
+
+        const calculateKPI = async () => {
+            setKpiLoading(true);
+            try {
+                // Helper functions
+                const normalizeDate = (date) => {
+                    if (!date) return '';
+                    if (date instanceof Date) {
+                        return date.toISOString().split('T')[0];
+                    }
+                    const trimmed = String(date).trim();
+                    if (trimmed.includes('T')) return trimmed.split('T')[0];
+                    if (trimmed.includes(' ')) return trimmed.split(' ')[0];
+                    if (trimmed.match(/^\d{4}-\d{2}-\d{2}$/)) return trimmed;
+                    if (trimmed.includes('/')) {
+                        const parts = trimmed.split('/');
+                        if (parts.length === 3) {
+                            const p1 = parseInt(parts[0]);
+                            const p2 = parseInt(parts[1]);
+                            const p3 = parseInt(parts[2]);
+                            if (p2 > 12 && p1 <= 12) {
+                                return `${p3}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+                            } else if (p1 > 12 && p2 <= 12) {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            } else {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            }
+                        }
+                    }
+                    const parsed = new Date(trimmed);
+                    if (!isNaN(parsed.getTime())) {
+                        return parsed.toISOString().split('T')[0];
+                    }
+                    return trimmed;
+                };
+
+                const normalizeStr = (str) => {
+                    if (!str) return '';
+                    return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+                };
+
+                const normalizedStartDate = normalizeDate(filters.startDate);
+                const normalizedEndDate = normalizeDate(filters.endDate);
+
+                // Fetch orders
+                let query = supabase
+                    .from('orders')
+                    .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, team')
+                    .gte('order_date', normalizedStartDate)
+                    .lte('order_date', normalizedEndDate);
+
+                // Apply filters
+                if (kpiFilters.products.length > 0) {
+                    const productConditions = kpiFilters.products.map(p => `product.ilike.%${p}%`).join(',');
+                    query = query.or(productConditions);
+                }
+                if (kpiFilters.markets.length > 0) {
+                    const marketConditions = kpiFilters.markets.map(m => `country.ilike.%${m}%`).join(',');
+                    query = query.or(marketConditions);
+                }
+                if (kpiFilters.teams.length > 0) {
+                    const teamConditions = kpiFilters.teams.map(t => `team.ilike.%${t}%`).join(',');
+                    query = query.or(teamConditions);
+                }
+
+                const { data: allOrders, error } = await query.limit(50000);
+
+                if (error) {
+                    console.error('❌ Error fetching orders for KPI:', error);
+                    setKpiReportData({ kpiData: [], kpiTotal: null });
+                    return;
+                }
+
+                // Filter orders
+                let filteredOrders = (allOrders || []).filter(order => {
+                    // Filter by personnel
+                    if (kpiFilters.personnel.length > 0) {
+                        const orderName = normalizeStr(order.sale_staff);
+                        if (!kpiFilters.personnel.some(p => orderName.includes(normalizeStr(p)))) {
+                            return false;
+                        }
+                    }
+
+                    // Filter by ship = 0
+                    if (!kpiFilters.includeShipZero && (Number(order.shipping_fee) || 0) === 0) {
+                        return false;
+                    }
+
+                    return true;
+                });
+
+                // Group by personnel
+                const kpiByPersonnel = {};
+                filteredOrders.forEach(order => {
+                    const personnelName = order.sale_staff || 'Không xác định';
+                    if (!kpiByPersonnel[personnelName]) {
+                        kpiByPersonnel[personnelName] = {
+                            name: personnelName,
+                            team: order.team || '',
+                            soDonChot: 0,
+                            dsChot: 0,
+                            soDonHuy: 0,
+                            dsHuy: 0,
+                            soDonSauHuy: 0,
+                            dsSauHuy: 0,
+                            soDonDi: 0,
+                            dsDi: 0,
+                            soDonTC: 0,
+                            dThuTC: 0,
+                            ship: 0,
+                            dThuTinhKPI: 0
+                        };
+                    }
+
+                    const kpi = kpiByPersonnel[personnelName];
+                    const amount = Number(order.total_amount_vnd) || 0;
+                    const shipFee = Number(order.shipping_fee) || 0;
+                    const checkResult = String(order.check_result || '').trim();
+                    const isHuy = checkResult === 'Hủy' || checkResult === 'Huỷ';
+                    const isThanhCong = checkResult === 'Thành công' || checkResult === 'OK';
+                    const isDi = String(order.delivery_status || '').toLowerCase().includes('đi') || 
+                                 String(order.delivery_status || '').toLowerCase().includes('di');
+
+                    // Số đơn và DS chốt (tất cả đơn)
+                    kpi.soDonChot++;
+                    kpi.dsChot += amount;
+
+                    // Số đơn và DS hủy
+                    if (isHuy) {
+                        kpi.soDonHuy++;
+                        kpi.dsHuy += amount;
+                    }
+
+                    // Số đơn và DS sau hủy (tất cả trừ hủy)
+                    if (!isHuy) {
+                        kpi.soDonSauHuy++;
+                        kpi.dsSauHuy += amount;
+                    }
+
+                    // Số đơn và DS đi
+                    if (isDi) {
+                        kpi.soDonDi++;
+                        kpi.dsDi += amount;
+                    }
+
+                    // Số đơn và DThu thành công
+                    if (isThanhCong) {
+                        kpi.soDonTC++;
+                        kpi.dThuTC += amount;
+                    }
+
+                    // Ship
+                    kpi.ship += shipFee;
+
+                    // DThu tính KPI (total_amount_vnd - shipping_fee)
+                    kpi.dThuTinhKPI += (amount - shipFee);
+                });
+
+                // Convert to array and calculate tỷ lệ thu tiền
+                const kpiData = Object.values(kpiByPersonnel).map(kpi => {
+                    const tyLeThuTien = kpi.dsChot > 0 ? kpi.dThuTinhKPI / kpi.dsChot : 0;
+                    return { ...kpi, tyLeThuTien };
+                }).sort((a, b) => a.team.localeCompare(b.team) || b.dsChot - a.dsChot || a.name.localeCompare(b.name));
+
+                // Calculate total
+                const kpiTotal = kpiData.reduce((acc, item) => {
+                    acc.soDonChot += item.soDonChot;
+                    acc.dsChot += item.dsChot;
+                    acc.soDonHuy += item.soDonHuy;
+                    acc.dsHuy += item.dsHuy;
+                    acc.soDonSauHuy += item.soDonSauHuy;
+                    acc.dsSauHuy += item.dsSauHuy;
+                    acc.soDonDi += item.soDonDi;
+                    acc.dsDi += item.dsDi;
+                    acc.soDonTC += item.soDonTC;
+                    acc.dThuTC += item.dThuTC;
+                    acc.ship += item.ship;
+                    acc.dThuTinhKPI += item.dThuTinhKPI;
+                    return acc;
+                }, {
+                    soDonChot: 0, dsChot: 0,
+                    soDonHuy: 0, dsHuy: 0,
+                    soDonSauHuy: 0, dsSauHuy: 0,
+                    soDonDi: 0, dsDi: 0,
+                    soDonTC: 0, dThuTC: 0,
+                    ship: 0, dThuTinhKPI: 0
+                });
+
+                kpiTotal.tyLeThuTien = kpiTotal.dsChot > 0 ? kpiTotal.dThuTinhKPI / kpiTotal.dsChot : 0;
+
+                setKpiReportData({ kpiData, kpiTotal });
+            } catch (err) {
+                console.error('❌ Error calculating KPI report:', err);
+                setKpiReportData({ kpiData: [], kpiTotal: null });
+            } finally {
+                setKpiLoading(false);
+            }
+        };
+
+        calculateKPI();
+    }, [activeTab, filters.startDate, filters.endDate, kpiFilters]);
+
+    // --- Vận đơn Report Calculation ---
+    const [vanDonReportData, setVanDonReportData] = useState({ vanDonData: [], vanDonTotal: null });
+    const [vanDonLoading, setVanDonLoading] = useState(false);
+
+    useEffect(() => {
+        if (activeTab !== 'bao-cao-van-don' || !filters.startDate || !filters.endDate) {
+            setVanDonReportData({ vanDonData: [], vanDonTotal: null });
+            return;
+        }
+
+        const calculateVanDon = async () => {
+            setVanDonLoading(true);
+            try {
+                // Helper functions
+                const normalizeDate = (date) => {
+                    if (!date) return '';
+                    if (date instanceof Date) {
+                        return date.toISOString().split('T')[0];
+                    }
+                    const trimmed = String(date).trim();
+                    if (trimmed.includes('T')) return trimmed.split('T')[0];
+                    if (trimmed.includes(' ')) return trimmed.split(' ')[0];
+                    if (trimmed.match(/^\d{4}-\d{2}-\d{2}$/)) return trimmed;
+                    if (trimmed.includes('/')) {
+                        const parts = trimmed.split('/');
+                        if (parts.length === 3) {
+                            const p1 = parseInt(parts[0]);
+                            const p2 = parseInt(parts[1]);
+                            const p3 = parseInt(parts[2]);
+                            if (p2 > 12 && p1 <= 12) {
+                                return `${p3}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+                            } else if (p1 > 12 && p2 <= 12) {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            } else {
+                                return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+                            }
+                        }
+                    }
+                    const parsed = new Date(trimmed);
+                    if (!isNaN(parsed.getTime())) {
+                        return parsed.toISOString().split('T')[0];
+                    }
+                    return trimmed;
+                };
+
+                const normalizeStr = (str) => {
+                    if (!str) return '';
+                    return String(str).trim().toLowerCase();
+                };
+
+                const normalizedStartDate = normalizeDate(filters.startDate);
+                const normalizedEndDate = normalizeDate(filters.endDate);
+
+                // Fetch orders với tất cả các trường cần thiết
+                let query = supabase
+                    .from('orders')
+                    .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, payment_status, payment_status_detail, tracking_code, team')
+                    .gte('order_date', normalizedStartDate)
+                    .lte('order_date', normalizedEndDate);
+
+                // Apply filters tương tự như KPI
+                if (kpiFilters.products.length > 0) {
+                    const productConditions = kpiFilters.products.map(p => `product.ilike.%${p}%`).join(',');
+                    query = query.or(productConditions);
+                }
+                if (kpiFilters.markets.length > 0) {
+                    const marketConditions = kpiFilters.markets.map(m => `country.ilike.%${m}%`).join(',');
+                    query = query.or(marketConditions);
+                }
+                if (kpiFilters.teams.length > 0) {
+                    const teamConditions = kpiFilters.teams.map(t => `team.ilike.%${t}%`).join(',');
+                    query = query.or(teamConditions);
+                }
+
+                const { data: allOrders, error } = await query.limit(50000);
+
+                if (error) {
+                    console.error('❌ Error fetching orders for Vận đơn:', error);
+                    setVanDonReportData({ vanDonData: [], vanDonTotal: null });
+                    return;
+                }
+
+                // Filter orders
+                let filteredOrders = (allOrders || []).filter(order => {
+                    // Filter by personnel
+                    if (kpiFilters.personnel.length > 0) {
+                        const orderName = normalizeStr(order.sale_staff);
+                        if (!kpiFilters.personnel.some(p => orderName.includes(normalizeStr(p)))) {
+                            return false;
+                        }
+                    }
+
+                    // Filter by ship = 0
+                    if (!kpiFilters.includeShipZero && (Number(order.shipping_fee) || 0) === 0) {
+                        return false;
+                    }
+
+                    return true;
+                });
+
+                // Group by personnel
+                const vanDonByPersonnel = {};
+                filteredOrders.forEach(order => {
+                    const personnelName = order.sale_staff || 'Không xác định';
+                    if (!vanDonByPersonnel[personnelName]) {
+                        vanDonByPersonnel[personnelName] = {
+                            name: personnelName,
+                            team: order.team || '',
+                            daThanhToanCoBill: { soDon: 0, thanhTien: 0 },
+                            billMotPhan: { soDon: 0, thanhTien: 0 },
+                            tongDonLenNoiBo: 0,
+                            tongDonDuDkienDayVh: 0,
+                            hoanVanHanh: { soDon: 0, thanhTien: 0 },
+                            tongDonLenVanHanhChuaMa: 0,
+                            donOKChuaDayDi: 0,
+                            giaoThanhCong: { soDon: 0, thanhTien: 0 },
+                            dangGiao: { soDon: 0, thanhTien: 0 },
+                            chuaGiao: { soDon: 0, thanhTien: 0 },
+                            choCheck: { soDon: 0, thanhTien: 0 },
+                            trongTrangThai: { soDon: 0, thanhTien: 0 }
+                        };
+                    }
+
+                    const vd = vanDonByPersonnel[personnelName];
+                    const amount = Number(order.total_amount_vnd) || 0;
+                    const paymentStatus = normalizeStr(order.payment_status || '');
+                    const paymentStatusDetail = normalizeStr(order.payment_status_detail || '');
+                    const deliveryStatus = normalizeStr(order.delivery_status || '');
+                    const checkResult = normalizeStr(order.check_result || '');
+                    const hasTrackingCode = order.tracking_code && order.tracking_code.trim() !== '';
+
+                    // Đã Thanh Toán (có bill)
+                    if (paymentStatus.includes('bill') || paymentStatusDetail.includes('bill') || paymentStatus.includes('có bill')) {
+                        vd.daThanhToanCoBill.soDon++;
+                        vd.daThanhToanCoBill.thanhTien += amount;
+                    }
+
+                    // Bill 1 phần
+                    if (paymentStatus.includes('1 phần') || paymentStatusDetail.includes('1 phần') || paymentStatus.includes('mot phan')) {
+                        vd.billMotPhan.soDon++;
+                        vd.billMotPhan.thanhTien += amount;
+                    }
+
+                    // Tổng đơn lên nội bộ (đơn đã được check OK)
+                    if (checkResult === 'ok' || checkResult === 'thành công') {
+                        vd.tongDonLenNoiBo++;
+                    }
+
+                    // Tổng đơn đủ đkien đẩy vh (đơn OK và có tracking code hoặc đã lên vận hành)
+                    if ((checkResult === 'ok' || checkResult === 'thành công') && (hasTrackingCode || deliveryStatus.includes('đi') || deliveryStatus.includes('giao'))) {
+                        vd.tongDonDuDkienDayVh++;
+                    }
+
+                    // Hoàn vận hành
+                    if (deliveryStatus.includes('hoàn') || deliveryStatus.includes('hoan')) {
+                        vd.hoanVanHanh.soDon++;
+                        vd.hoanVanHanh.thanhTien += amount;
+                    }
+
+                    // Tổng đơn lên vận hành chưa mã (đã có delivery_status nhưng chưa có tracking_code)
+                    if ((deliveryStatus.includes('đi') || deliveryStatus.includes('giao') || deliveryStatus.includes('di')) && !hasTrackingCode) {
+                        vd.tongDonLenVanHanhChuaMa++;
+                    }
+
+                    // Đơn OK chưa đẩy đi (check_result = OK nhưng chưa có delivery_status hoặc delivery_status rỗng/null)
+                    if ((checkResult === 'ok' || checkResult === 'thành công') && (!deliveryStatus || deliveryStatus === '')) {
+                        vd.donOKChuaDayDi++;
+                    }
+
+                    // Giao Thành Công
+                    if (deliveryStatus.includes('thành công') || deliveryStatus.includes('thanh cong') || deliveryStatus.includes('đã giao') || deliveryStatus.includes('da giao')) {
+                        vd.giaoThanhCong.soDon++;
+                        vd.giaoThanhCong.thanhTien += amount;
+                    }
+
+                    // Đang Giao
+                    if (deliveryStatus.includes('đang giao') || deliveryStatus.includes('dang giao') || deliveryStatus.includes('giao hàng')) {
+                        vd.dangGiao.soDon++;
+                        vd.dangGiao.thanhTien += amount;
+                    }
+
+                    // Chưa Giao
+                    if (!deliveryStatus || deliveryStatus === '' || deliveryStatus === 'chưa giao' || deliveryStatus === 'chua giao') {
+                        vd.chuaGiao.soDon++;
+                        vd.chuaGiao.thanhTien += amount;
+                    }
+
+                    // chờ check (check_result null hoặc rỗng)
+                    if (!checkResult || checkResult === '') {
+                        vd.choCheck.soDon++;
+                        vd.choCheck.thanhTien += amount;
+                    }
+
+                    // Trống trạng thái (delivery_status và payment_status đều null/rỗng)
+                    if ((!deliveryStatus || deliveryStatus === '') && (!paymentStatus || paymentStatus === '')) {
+                        vd.trongTrangThai.soDon++;
+                        vd.trongTrangThai.thanhTien += amount;
+                    }
+                });
+
+                // Convert to array and calculate tỷ lệ
+                const vanDonData = Object.values(vanDonByPersonnel).map(vd => {
+                    const tyLeDonLenVanHanh = vd.tongDonLenNoiBo > 0 ? (vd.tongDonDuDkienDayVh / vd.tongDonLenNoiBo) : 0;
+                    const tyLeThuTienGiaoThanhCong = vd.giaoThanhCong.soDon > 0 ? (vd.daThanhToanCoBill.thanhTien / vd.giaoThanhCong.thanhTien) : 0;
+                    const tyLeTTThanhCongDonTinhPhi = (vd.daThanhToanCoBill.soDon + vd.billMotPhan.soDon) > 0 ? (vd.daThanhToanCoBill.soDon / (vd.daThanhToanCoBill.soDon + vd.billMotPhan.soDon)) : 0;
+                    return { 
+                        ...vd, 
+                        tyLeDonLenVanHanh,
+                        tyLeThuTienGiaoThanhCong,
+                        tyLeTTThanhCongDonTinhPhi
+                    };
+                }).sort((a, b) => a.team.localeCompare(b.team) || b.daThanhToanCoBill.soDon - a.daThanhToanCoBill.soDon || a.name.localeCompare(b.name));
+
+                // Calculate total
+                const vanDonTotal = vanDonData.reduce((acc, item) => {
+                    acc.daThanhToanCoBill.soDon += item.daThanhToanCoBill.soDon;
+                    acc.daThanhToanCoBill.thanhTien += item.daThanhToanCoBill.thanhTien;
+                    acc.billMotPhan.soDon += item.billMotPhan.soDon;
+                    acc.billMotPhan.thanhTien += item.billMotPhan.thanhTien;
+                    acc.tongDonLenNoiBo += item.tongDonLenNoiBo;
+                    acc.tongDonDuDkienDayVh += item.tongDonDuDkienDayVh;
+                    acc.hoanVanHanh.soDon += item.hoanVanHanh.soDon;
+                    acc.hoanVanHanh.thanhTien += item.hoanVanHanh.thanhTien;
+                    acc.tongDonLenVanHanhChuaMa += item.tongDonLenVanHanhChuaMa;
+                    acc.donOKChuaDayDi += item.donOKChuaDayDi;
+                    acc.giaoThanhCong.soDon += item.giaoThanhCong.soDon;
+                    acc.giaoThanhCong.thanhTien += item.giaoThanhCong.thanhTien;
+                    acc.dangGiao.soDon += item.dangGiao.soDon;
+                    acc.dangGiao.thanhTien += item.dangGiao.thanhTien;
+                    acc.chuaGiao.soDon += item.chuaGiao.soDon;
+                    acc.chuaGiao.thanhTien += item.chuaGiao.thanhTien;
+                    acc.choCheck.soDon += item.choCheck.soDon;
+                    acc.choCheck.thanhTien += item.choCheck.thanhTien;
+                    acc.trongTrangThai.soDon += item.trongTrangThai.soDon;
+                    acc.trongTrangThai.thanhTien += item.trongTrangThai.thanhTien;
+                    return acc;
+                }, {
+                    daThanhToanCoBill: { soDon: 0, thanhTien: 0 },
+                    billMotPhan: { soDon: 0, thanhTien: 0 },
+                    tongDonLenNoiBo: 0,
+                    tongDonDuDkienDayVh: 0,
+                    hoanVanHanh: { soDon: 0, thanhTien: 0 },
+                    tongDonLenVanHanhChuaMa: 0,
+                    donOKChuaDayDi: 0,
+                    giaoThanhCong: { soDon: 0, thanhTien: 0 },
+                    dangGiao: { soDon: 0, thanhTien: 0 },
+                    chuaGiao: { soDon: 0, thanhTien: 0 },
+                    choCheck: { soDon: 0, thanhTien: 0 },
+                    trongTrangThai: { soDon: 0, thanhTien: 0 }
+                });
+
+                vanDonTotal.tyLeDonLenVanHanh = vanDonTotal.tongDonLenNoiBo > 0 ? (vanDonTotal.tongDonDuDkienDayVh / vanDonTotal.tongDonLenNoiBo) : 0;
+                vanDonTotal.tyLeThuTienGiaoThanhCong = vanDonTotal.giaoThanhCong.soDon > 0 ? (vanDonTotal.daThanhToanCoBill.thanhTien / vanDonTotal.giaoThanhCong.thanhTien) : 0;
+                vanDonTotal.tyLeTTThanhCongDonTinhPhi = (vanDonTotal.daThanhToanCoBill.soDon + vanDonTotal.billMotPhan.soDon) > 0 ? (vanDonTotal.daThanhToanCoBill.soDon / (vanDonTotal.daThanhToanCoBill.soDon + vanDonTotal.billMotPhan.soDon)) : 0;
+
+                setVanDonReportData({ vanDonData, vanDonTotal });
+            } catch (err) {
+                console.error('❌ Error calculating Vận đơn report:', err);
+                setVanDonReportData({ vanDonData: [], vanDonTotal: null });
+            } finally {
+                setVanDonLoading(false);
+            }
+        };
+
+        calculateVanDon();
+    }, [activeTab, filters.startDate, filters.endDate, kpiFilters]);
 
     // --- Render Helpers ---
     const getRateClass = (rate) => rate >= 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : '');
@@ -3275,6 +3773,8 @@ export default function BaoCaoSale() {
                     <div className="tabs-container">
                         <button className={`tab-button ${activeTab === 'sau-huy' ? 'active' : ''}`} onClick={() => setActiveTab('sau-huy')}>Dữ liệu báo cáo</button>
                         <button className={`tab-button ${activeTab === 'du-lieu-tru-huy' ? 'active' : ''}`} onClick={() => setActiveTab('du-lieu-tru-huy')}>Dữ liệu trừ hủy</button>
+                        <button className={`tab-button ${activeTab === 'bao-cao-kpis' ? 'active' : ''}`} onClick={() => setActiveTab('bao-cao-kpis')}>Báo cáo KPIs</button>
+                        <button className={`tab-button ${activeTab === 'bao-cao-van-don' ? 'active' : ''}`} onClick={() => setActiveTab('bao-cao-van-don')}>Báo cáo Vận đơn</button>
                         {/* Ẩn 2 tab này */}
                         {/* <button className={`tab-button ${activeTab === 'kpi-sale' ? 'active' : ''}`} onClick={() => setActiveTab('kpi-sale')}>KPIs Sale</button> */}
                         {/* <button className={`tab-button ${activeTab === 'van-don-sale' ? 'active' : ''}`} onClick={() => setActiveTab('van-don-sale')}>Vận đơn Sale</button> */}
@@ -3456,6 +3956,537 @@ export default function BaoCaoSale() {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+
+                    {/* Tab 3: Báo cáo KPIs */}
+                    <div className={`tab-content ${activeTab === 'bao-cao-kpis' ? 'active' : ''}`}>
+                        {kpiLoading && <div className="loading-overlay">Đang tải dữ liệu KPIs...</div>}
+                        
+                        {/* KPI Filters */}
+                        <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+                            <h3 style={{ marginBottom: '15px', color: '#2d5016' }}>Chỉ số vận đơn của MKT</h3>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '15px' }}>
+                                <div>
+                                    <label>Bộ lọc nhanh:</label>
+                                    <select style={{ width: '100%', padding: '5px' }}>
+                                        <option>Tất cả</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Từ ngày:</label>
+                                    <input 
+                                        type="date" 
+                                        value={filters.startDate} 
+                                        onChange={e => handleDateFilterChange('startDate', e.target.value)}
+                                        style={{ width: '100%', padding: '5px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label>Đến ngày:</label>
+                                    <input 
+                                        type="date" 
+                                        value={filters.endDate} 
+                                        onChange={e => handleDateFilterChange('endDate', e.target.value)}
+                                        style={{ width: '100%', padding: '5px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label>Team:</label>
+                                    <select 
+                                        style={{ width: '100%', padding: '5px' }}
+                                        multiple
+                                        value={kpiFilters.teams}
+                                        onChange={e => {
+                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                                            setKpiFilters({ ...kpiFilters, teams: selected });
+                                        }}
+                                    >
+                                        <option value="">Tất cả</option>
+                                        {options.teams.map(team => (
+                                            <option key={team} value={team}>{team}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Tìm tên:</label>
+                                    <select 
+                                        style={{ width: '100%', padding: '5px' }}
+                                        multiple
+                                        value={kpiFilters.personnel}
+                                        onChange={e => {
+                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                                            setKpiFilters({ ...kpiFilters, personnel: selected });
+                                        }}
+                                    >
+                                        <option value="">Tất cả</option>
+                                        {summaryList.map(item => (
+                                            <option key={item.name} value={item.name}>{item.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Sản phẩm:</label>
+                                    <select 
+                                        style={{ width: '100%', padding: '5px' }}
+                                        multiple
+                                        value={kpiFilters.products}
+                                        onChange={e => {
+                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                                            setKpiFilters({ ...kpiFilters, products: selected });
+                                        }}
+                                    >
+                                        <option value="">Tất cả</option>
+                                        {options.products.map(product => (
+                                            <option key={product} value={product}>{product}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Thị trường:</label>
+                                    <select 
+                                        style={{ width: '100%', padding: '5px' }}
+                                        multiple
+                                        value={kpiFilters.markets}
+                                        onChange={e => {
+                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                                            setKpiFilters({ ...kpiFilters, markets: selected });
+                                        }}
+                                    >
+                                        <option value="">Tất cả</option>
+                                        {options.markets.map(market => (
+                                            <option key={market} value={market}>{market}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Chi nhánh:</label>
+                                    <select 
+                                        style={{ width: '100%', padding: '5px' }}
+                                        multiple
+                                        value={kpiFilters.branches}
+                                        onChange={e => {
+                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
+                                            setKpiFilters({ ...kpiFilters, branches: selected });
+                                        }}
+                                    >
+                                        <option value="">Tất cả</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={kpiFilters.includeShipZero}
+                                        onChange={e => setKpiFilters({ ...kpiFilters, includeShipZero: e.target.checked })}
+                                    />
+                                    Bao gồm đơn ship = 0
+                                </label>
+                                <button 
+                                    onClick={() => {
+                                        setKpiFilters({
+                                            team: [],
+                                            personnel: [],
+                                            products: [],
+                                            markets: [],
+                                            branches: [],
+                                            includeShipZero: false
+                                        });
+                                    }}
+                                    style={{ padding: '8px 15px', backgroundColor: '#2d5016', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                >
+                                    Hiện tất cả
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        // Trigger recalculation
+                                        setKpiFilters({ ...kpiFilters });
+                                    }}
+                                    style={{ padding: '8px 15px', backgroundColor: '#2d5016', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                >
+                                    Làm mới
+                                </button>
+                            </div>
+
+                            {/* Column Visibility Options */}
+                            <div style={{ marginTop: '15px' }}>
+                                <label style={{ fontWeight: 'bold', marginBottom: '10px', display: 'block' }}>Tùy chọn hiển thị cột:</label>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={kpiColumnVisibility.soDonDSChot}
+                                            onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDSChot: e.target.checked })}
+                                        />
+                                        Số đơn & DS chốt
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={kpiColumnVisibility.soDonDSHuy}
+                                            onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDSHuy: e.target.checked })}
+                                        />
+                                        Số đơn & DS hủy
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={kpiColumnVisibility.soDonDSSauHuy}
+                                            onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDSSauHuy: e.target.checked })}
+                                        />
+                                        Số đơn & DS sau hủy
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={kpiColumnVisibility.soDonDSDi}
+                                            onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDSDi: e.target.checked })}
+                                        />
+                                        Số đơn & DS đi
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={kpiColumnVisibility.soDonDThuTC}
+                                            onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDThuTC: e.target.checked })}
+                                        />
+                                        Số đơn & DThu thành công
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={kpiColumnVisibility.ship}
+                                            onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, ship: e.target.checked })}
+                                        />
+                                        Ship
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={kpiColumnVisibility.dThuTinhKPI}
+                                            onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, dThuTinhKPI: e.target.checked })}
+                                        />
+                                        DThu tính KPI
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={kpiColumnVisibility.tyLeThuTien}
+                                            onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, tyLeThuTien: e.target.checked })}
+                                        />
+                                        Tỷ lệ thu tiền
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* KPI Table */}
+                        {kpiReportData.kpiData.length > 0 && (
+                            <div className="table-responsive-container">
+                                <table>
+                                    <thead>
+                                        <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
+                                            <th>STT</th>
+                                            <th>Nhân viên</th>
+                                            <th>Team</th>
+                                            {kpiColumnVisibility.soDonDSChot && (
+                                                <>
+                                                    <th colSpan="2">Số đơn và DS chốt</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSHuy && (
+                                                <>
+                                                    <th colSpan="2">Số đơn và DS hủy</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSSauHuy && (
+                                                <>
+                                                    <th colSpan="2">Số đơn và DS sau hủy</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSDi && (
+                                                <>
+                                                    <th colSpan="2">Số đơn và DS đi</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDThuTC && (
+                                                <>
+                                                    <th colSpan="2">Số đơn và DThu thành công</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.ship && <th>Ship</th>}
+                                            {kpiColumnVisibility.dThuTinhKPI && <th>DThu tính KPI</th>}
+                                            {kpiColumnVisibility.tyLeThuTien && <th>Tỷ lệ thu tiền</th>}
+                                        </tr>
+                                        <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
+                                            <th></th>
+                                            <th></th>
+                                            <th></th>
+                                            {kpiColumnVisibility.soDonDSChot && (
+                                                <>
+                                                    <th>Số đơn</th>
+                                                    <th>DS chốt</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSHuy && (
+                                                <>
+                                                    <th>Số đơn</th>
+                                                    <th>DS hủy</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSSauHuy && (
+                                                <>
+                                                    <th>Số đơn</th>
+                                                    <th>DS sau hủy</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSDi && (
+                                                <>
+                                                    <th>Số đơn</th>
+                                                    <th>DS đi</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDThuTC && (
+                                                <>
+                                                    <th>Số đơn</th>
+                                                    <th>DThu TC</th>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.ship && <th></th>}
+                                            {kpiColumnVisibility.dThuTinhKPI && <th></th>}
+                                            {kpiColumnVisibility.tyLeThuTien && <th></th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {/* Total Row */}
+                                        {kpiReportData.kpiTotal && (
+                                            <tr className="total-row" style={{ backgroundColor: '#fffacd' }}>
+                                                <td className="total-label" colSpan={3} style={{ fontWeight: 'bold' }}>TỔNG CỘNG</td>
+                                                {kpiColumnVisibility.soDonDSChot && (
+                                                    <>
+                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonChot)}</td>
+                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsChot)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.soDonDSHuy && (
+                                                    <>
+                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonHuy)}</td>
+                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsHuy)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.soDonDSSauHuy && (
+                                                    <>
+                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonSauHuy)}</td>
+                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsSauHuy)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.soDonDSDi && (
+                                                    <>
+                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonDi)}</td>
+                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsDi)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.soDonDThuTC && (
+                                                    <>
+                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonTC)}</td>
+                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dThuTC)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.ship && (
+                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.ship)}</td>
+                                                )}
+                                                {kpiColumnVisibility.dThuTinhKPI && (
+                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dThuTinhKPI)}</td>
+                                                )}
+                                                {kpiColumnVisibility.tyLeThuTien && (
+                                                    <td className="total-value">{formatPercent(kpiReportData.kpiTotal.tyLeThuTien)}</td>
+                                                )}
+                                            </tr>
+                                        )}
+                                        {/* Data Rows */}
+                                        {kpiReportData.kpiData.map((item, index) => (
+                                            <tr key={index}>
+                                                <td className="text-center">{index + 1}</td>
+                                                <td className="text-left">{item.name}</td>
+                                                <td className="text-left">{item.team}</td>
+                                                {kpiColumnVisibility.soDonDSChot && (
+                                                    <>
+                                                        <td>{formatNumber(item.soDonChot)}</td>
+                                                        <td>{formatCurrency(item.dsChot)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.soDonDSHuy && (
+                                                    <>
+                                                        <td>{formatNumber(item.soDonHuy)}</td>
+                                                        <td>{formatCurrency(item.dsHuy)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.soDonDSSauHuy && (
+                                                    <>
+                                                        <td>{formatNumber(item.soDonSauHuy)}</td>
+                                                        <td>{formatCurrency(item.dsSauHuy)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.soDonDSDi && (
+                                                    <>
+                                                        <td>{formatNumber(item.soDonDi)}</td>
+                                                        <td>{formatCurrency(item.dsDi)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.soDonDThuTC && (
+                                                    <>
+                                                        <td>{formatNumber(item.soDonTC)}</td>
+                                                        <td>{formatCurrency(item.dThuTC)}</td>
+                                                    </>
+                                                )}
+                                                {kpiColumnVisibility.ship && (
+                                                    <td>{formatCurrency(item.ship)}</td>
+                                                )}
+                                                {kpiColumnVisibility.dThuTinhKPI && (
+                                                    <td>{formatCurrency(item.dThuTinhKPI)}</td>
+                                                )}
+                                                {kpiColumnVisibility.tyLeThuTien && (
+                                                    <td className={getRateClass(item.tyLeThuTien)}>{formatPercent(item.tyLeThuTien)}</td>
+                                                )}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                        {!kpiLoading && kpiReportData.kpiData.length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                                Không có dữ liệu để hiển thị
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Tab 4: Báo cáo Vận đơn */}
+                    <div className={`tab-content ${activeTab === 'bao-cao-van-don' ? 'active' : ''}`}>
+                        {vanDonLoading && <div className="loading-overlay">Đang tải dữ liệu Vận đơn...</div>}
+                        
+                        <h2 style={{ marginBottom: '20px', fontWeight: 'bold' }}>Báo cáo chi tiết</h2>
+
+                        {/* Vận đơn Table */}
+                        {vanDonReportData.vanDonData.length > 0 && (
+                            <div className="table-responsive-container">
+                                <table>
+                                    <thead>
+                                        <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
+                                            <th>Tên NV</th>
+                                            <th colSpan="2">Đã Thanh Toán (có bill)</th>
+                                            <th colSpan="2">Bill 1 phần</th>
+                                            <th>Tổng đơn lên nội bộ</th>
+                                            <th>Tổng đơn đủ đkien đẩy vh</th>
+                                            <th colSpan="2">Hoàn vận hành</th>
+                                            <th>Tổng đơn lên vận hành chưa mã</th>
+                                            <th>Đơn OK chưa đẩy đi</th>
+                                            <th colSpan="2">Giao Thành Công</th>
+                                            <th colSpan="2">Đang Giao</th>
+                                            <th colSpan="2">Chưa Giao</th>
+                                            <th colSpan="2">chờ check</th>
+                                            <th colSpan="2">Trống trạng thái</th>
+                                            <th>Tỷ lệ đơn lên vận hành</th>
+                                            <th>Tỷ lệ thu tiền/giao thành công</th>
+                                            <th>Tỷ lệ TT thành công/Đơn tính phí</th>
+                                        </tr>
+                                        <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
+                                            <th></th>
+                                            <th>Số đơn</th>
+                                            <th>Thành Tiền</th>
+                                            <th>Số đơn</th>
+                                            <th>Thành Tiền</th>
+                                            <th></th>
+                                            <th></th>
+                                            <th>Số đơn</th>
+                                            <th>Thành Tiền</th>
+                                            <th></th>
+                                            <th></th>
+                                            <th>Số đơn</th>
+                                            <th>Thành Tiền</th>
+                                            <th>Số đơn</th>
+                                            <th>Thành Tiền</th>
+                                            <th>Số đơn</th>
+                                            <th>Thành Tiền</th>
+                                            <th>Số đơn</th>
+                                            <th>Thành Tiền</th>
+                                            <th>Số đơn</th>
+                                            <th>Thành Tiền</th>
+                                            <th></th>
+                                            <th></th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {/* Total Row */}
+                                        {vanDonReportData.vanDonTotal && (
+                                            <tr className="total-row" style={{ backgroundColor: '#fffacd' }}>
+                                                <td className="total-label" style={{ fontWeight: 'bold' }}>TỔNG CỘNG</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.daThanhToanCoBill.soDon)}</td>
+                                                <td className="total-value">{formatCurrency(vanDonReportData.vanDonTotal.daThanhToanCoBill.thanhTien)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.billMotPhan.soDon)}</td>
+                                                <td className="total-value">{formatCurrency(vanDonReportData.vanDonTotal.billMotPhan.thanhTien)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.tongDonLenNoiBo)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.tongDonDuDkienDayVh)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.hoanVanHanh.soDon)}</td>
+                                                <td className="total-value">{formatCurrency(vanDonReportData.vanDonTotal.hoanVanHanh.thanhTien)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.tongDonLenVanHanhChuaMa)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.donOKChuaDayDi)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.giaoThanhCong.soDon)}</td>
+                                                <td className="total-value">{formatCurrency(vanDonReportData.vanDonTotal.giaoThanhCong.thanhTien)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.dangGiao.soDon)}</td>
+                                                <td className="total-value">{formatCurrency(vanDonReportData.vanDonTotal.dangGiao.thanhTien)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.chuaGiao.soDon)}</td>
+                                                <td className="total-value">{formatCurrency(vanDonReportData.vanDonTotal.chuaGiao.thanhTien)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.choCheck.soDon)}</td>
+                                                <td className="total-value">{formatCurrency(vanDonReportData.vanDonTotal.choCheck.thanhTien)}</td>
+                                                <td className="total-value">{formatNumber(vanDonReportData.vanDonTotal.trongTrangThai.soDon)}</td>
+                                                <td className="total-value">{formatCurrency(vanDonReportData.vanDonTotal.trongTrangThai.thanhTien)}</td>
+                                                <td className="total-value">{formatPercent(vanDonReportData.vanDonTotal.tyLeDonLenVanHanh)}</td>
+                                                <td className="total-value">{formatPercent(vanDonReportData.vanDonTotal.tyLeThuTienGiaoThanhCong)}</td>
+                                                <td className="total-value">{formatPercent(vanDonReportData.vanDonTotal.tyLeTTThanhCongDonTinhPhi)}</td>
+                                            </tr>
+                                        )}
+                                        {/* Data Rows */}
+                                        {vanDonReportData.vanDonData.map((item, index) => (
+                                            <tr key={index}>
+                                                <td className="text-left">{item.name}</td>
+                                                <td>{formatNumber(item.daThanhToanCoBill.soDon)}</td>
+                                                <td>{formatCurrency(item.daThanhToanCoBill.thanhTien)}</td>
+                                                <td>{formatNumber(item.billMotPhan.soDon)}</td>
+                                                <td>{formatCurrency(item.billMotPhan.thanhTien)}</td>
+                                                <td>{formatNumber(item.tongDonLenNoiBo)}</td>
+                                                <td>{formatNumber(item.tongDonDuDkienDayVh)}</td>
+                                                <td>{formatNumber(item.hoanVanHanh.soDon)}</td>
+                                                <td>{formatCurrency(item.hoanVanHanh.thanhTien)}</td>
+                                                <td>{formatNumber(item.tongDonLenVanHanhChuaMa)}</td>
+                                                <td>{formatNumber(item.donOKChuaDayDi)}</td>
+                                                <td>{formatNumber(item.giaoThanhCong.soDon)}</td>
+                                                <td>{formatCurrency(item.giaoThanhCong.thanhTien)}</td>
+                                                <td>{formatNumber(item.dangGiao.soDon)}</td>
+                                                <td>{formatCurrency(item.dangGiao.thanhTien)}</td>
+                                                <td>{formatNumber(item.chuaGiao.soDon)}</td>
+                                                <td>{formatCurrency(item.chuaGiao.thanhTien)}</td>
+                                                <td>{formatNumber(item.choCheck.soDon)}</td>
+                                                <td>{formatCurrency(item.choCheck.thanhTien)}</td>
+                                                <td>{formatNumber(item.trongTrangThai.soDon)}</td>
+                                                <td>{formatCurrency(item.trongTrangThai.thanhTien)}</td>
+                                                <td className={getRateClass(item.tyLeDonLenVanHanh)}>{formatPercent(item.tyLeDonLenVanHanh)}</td>
+                                                <td className={getRateClass(item.tyLeThuTienGiaoThanhCong)}>{formatPercent(item.tyLeThuTienGiaoThanhCong)}</td>
+                                                <td className={getRateClass(item.tyLeTTThanhCongDonTinhPhi)}>{formatPercent(item.tyLeTTThanhCongDonTinhPhi)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                        {!vanDonLoading && vanDonReportData.vanDonData.length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                                Không có dữ liệu để hiển thị
+                            </div>
+                        )}
                     </div>
 
                     {/* Ẩn 2 tab này */}

@@ -238,11 +238,20 @@ export default function DanhSachBaoCaoTay() {
                 .lte('date', filters.endDate)
                 .order('created_at', { ascending: false });
 
+            // Helper function to normalize name (remove extra spaces)
+            const normalizeNameForQuery = (str) => {
+                if (!str) return '';
+                return String(str).trim().replace(/\s+/g, ' ');
+            };
+
             // Filter theo selected_personnel nếu có
             if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                 const orConditions = selectedPersonnelNames
                     .filter(name => name && name.trim().length > 0)
-                    .map(name => `name.ilike.%${name.trim()}%`);
+                    .map(name => {
+                        const normalizedName = normalizeNameForQuery(name);
+                        return `name.ilike.%${normalizedName}%`;
+                    });
                 if (orConditions.length > 0) {
                     query = query.or(orConditions.join(','));
                     console.log('📋 Filter by selected_personnel:', selectedPersonnelNames);
