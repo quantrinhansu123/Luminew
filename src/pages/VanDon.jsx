@@ -343,51 +343,98 @@ function VanDon() {
             const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
             const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
             const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-            return (checkResult.toLowerCase() === 'ok') &&
-              (!tracking || tracking === '' || tracking === 'null') &&
-              (!deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null');
+
+            // Kết quả Check phải là "Ok" hoặc "OK"
+            const isCheckOk = checkResult.toLowerCase() === 'ok';
+            // Mã Tracking phải trống hoặc null
+            const isTrackingEmpty = !tracking || tracking === '' || tracking === 'null';
+            // Đơn vị vận chuyển phải trống hoặc null
+            const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
+
+            return isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
           });
-          // Note: totalRecords might be inaccurate here because we filtered a page, but it's a limitation of mixing backend pagination with complex un-indexed filters.
-          // For Hanoi tab purposes (usually processing pending orders), this is acceptable.
           filteredTotal = filteredData.length;
           console.log('🏛️ [VanDon Backend] Tab Hà Nội - Filtered by Check="Ok", empty Tracking and empty Đơn vị vận chuyển:', filteredData.length, 'orders');
         }
 
+        // Tab "Đơn Nhật": không filter theo selectedPersonnelNames (đã filter ở API level)
+        else if (isJapanTab) {
+          // Tab "Đơn Nhật": đã filter theo country ở API level, chỉ cần bỏ filter nhân sự
+          console.log('🇯🇵 [VanDon Backend] Japan tab - already filtered by country at API level, no personnel filter');
+          filteredData = result.data; // Data đã được filter theo country ở API
+          filteredTotal = result.total; // Total đã đúng từ API
+        } else {
+          // Standard tabs - already filtered by backend
+          // No extra client filtering needed
+        }
+
         setAllData(filteredData);
-        setTotalRecords(filteredTotal); // Use backend total (or filtered page total)
+        setTotalRecords(filteredTotal);
 
         if (filteredData.length === 0 && filteredTotal === 0) {
           addToast('⚠️ Không tìm thấy dữ liệu phù hợp', 'warning', 3000);
         } else {
-          addToast(`✅ Đã tải ${filteredData.length} dòng (Tổng: ${filteredTotal})`, 'success', 2000);
+          addToast(`✅ Đã tải ${filteredData.length}/${filteredTotal} đơn hàng (trang ${result.page}/${result.totalPages})`, 'success', 2000);
         }
 
       } else {
         // Fallback: Load all data (Client Side Pagination) logic...
-        // Re-implementing simplified version that respects the same permissions
         let data = await API.fetchOrders();
 
-        // Filter by permissions
-        if (!isManager && !bolActiveTab === 'japan' && allAllowedNames.length > 0) {
-          const normalize = (str) => String(str).trim().toLowerCase().replace(/\s+/g, ' ');
-          data = data.filter(row => {
-            const s = normalize(row.sale_staff || row["Nhân viên Sale"] || '');
-            const m = normalize(row.marketing_staff || row["Nhân viên Sale"] || '');
-            const d = normalize(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '');
-            return allAllowedNames.some(n => {
-              const nn = normalize(n);
-              return s.includes(nn) || m.includes(nn) || d.includes(nn) || nn.includes(s) || nn.includes(m) || nn.includes(d);
-            });
-          });
-          console.log('🔍 [VanDon Fallback] Filtering by selectedPersonnelNames/allowedDeliveryStaffNames (Sale/MKT/Vận đơn):', allAllowedNames);
+        // --- PREPARE PERMISSIONS & ALLOWED NAMES FOR CLIENT-SIDE FILTERING ---
+        // userJson, user, userName, isManager are already defined above
+        let allAllowedNamesFallback = [];
+        if (!isManager) {
+          if (selectedPersonnelNames.length > 0) {
+            allAllowedNamesFallback = [...new Set([...selectedPersonnelNames, ...allAllowedNames])]; // allAllowedNames from above is allowedDeliveryStaffNames
+            console.log('📝 [VanDon Fallback] Using selectedPersonnelNames + allowedDeliveryStaffNames:', allAllowedNamesFallback);
+          } else if (allAllowedNames.length > 0) { // allAllowedNames from above is allowedDeliveryStaffNames
+            allAllowedNamesFallback = allAllowedNames;
+            console.log('📝 [VanDon Fallback] Using only allowedDeliveryStaffNames:', allAllowedNamesFallback);
+          } else if (userName) {
+            allAllowedNamesFallback = [userName];
+            console.log('📝 [VanDon Fallback] Fallback: Using userName only:', allAllowedNamesFallback);
+          }
         }
 
-        if (bolActiveTab === 'japan') {
+        const normalizeNameForMatchFallback = (str) => String(str || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+        const matchesPersonnelFilterFallback = (row) => {
+          if (isManager || allAllowedNamesFallback.length === 0) return true;
+          const s = normalizeNameForMatchFallback(row.sale_staff || row["Nhân viên Sale"]);
+          const m = normalizeNameForMatchFallback(row.marketing_staff || row["Nhân viên Sale"]);
+          const d = normalizeNameForMatchFallback(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"]);
+          return allAllowedNamesFallback.some(n => {
+            const nn = normalizeNameForMatchFallback(n);
+            return s.includes(nn) || m.includes(nn) || d.includes(nn) || nn.includes(s) || nn.includes(m) || nn.includes(d);
+          });
+        };
+
+        // --- CLIENT-SIDE FILTERING ---
+        const isJapanTab = bolActiveTab === 'japan';
+
+        if (isJapanTab) {
           data = data.filter(r => {
             const c = String(r.country || r['Khu vực'] || '').toLowerCase();
             return c === 'nhật bản' || c === 'cđ nhật bản';
           });
-          console.log('🇯🇵 [VanDon Fallback] Japan tab - filtering by country only, no personnel filter');
+          console.log('🇯🇵 [VanDon Fallback] Japan tab - filtering by country only');
+        } else {
+          // Filter by personnel for non-manager and non-Japan tabs
+          if (!isManager && allAllowedNamesFallback.length > 0) {
+            data = data.filter(r => matchesPersonnelFilterFallback(r));
+            console.log('🔍 [VanDon Fallback] Filtering by personnel:', allAllowedNamesFallback);
+          } else if (!isManager && userName) {
+            // Fallback: If no specific personnel names, filter by current userName
+            const uNorm = normalizeNameForMatchFallback(userName);
+            data = data.filter(r => {
+              const s = normalizeNameForMatchFallback(r.sale_staff || r["Nhân viên Sale"]);
+              const m = normalizeNameForMatchFallback(r.marketing_staff || r["Nhân viên Sale"]);
+              const d = normalizeNameForMatchFallback(r.delivery_staff || r["NV Vận đơn"] || r["Nhân viên Vận đơn"]);
+              return s.includes(uNorm) || m.includes(uNorm) || d.includes(uNorm) || uNorm.includes(s) || uNorm.includes(m) || uNorm.includes(d);
+            });
+            console.log('🔍 [VanDon Fallback] Fallback filtering by username:', userName);
+          }
         }
 
         setAllData(data);
@@ -395,13 +442,14 @@ function VanDon() {
         addToast(`✅ Đã tải ${data.length} đơn hàng (Client Mode)`, 'success', 2000);
       }
 
-      // Load MGT Noi Bo orders
+      // Load MGT Noi Bo orders (This block runs after both backend and client pagination logic)
       try {
         const mgtOrder = await API.fetchMGTNoiBoOrders();
         setMgtNoiBoOrder(mgtOrder);
       } catch (e) {
         console.error('Error loading MGT Noi Bo orders:', e);
       }
+
     } catch (error) {
       console.error('Load data error:', error);
       addToast(`❌ Lỗi tải dữ liệu: ${error.message}. Vui lòng thử lại.`, 'error', 8000);
@@ -820,6 +868,16 @@ function VanDon() {
 
     } else {
       // --- BILL OF LADING FILTERING LOGIC ---
+
+      // Filter: Chỉ hiển thị đơn có ít nhất một tên nhân sự (không trống)
+      const initialDataLength = data.length;
+      data = data.filter(row => {
+        const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
+        const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').trim();
+        const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim();
+        return saleStaff.length > 0 || mktStaff.length > 0 || deliveryStaff.length > 0;
+      });
+      console.log('🔍 [VanDon Client-side] Filtered out orders with empty personnel names:', initialDataLength - data.length, 'orders removed');
 
       // Tab Logic - use early filtering to reduce dataset size
       if (bolActiveTab === 'japan') {
