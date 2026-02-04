@@ -11,7 +11,8 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 5173,
+    host: '0.0.0.0', // Listen on all interfaces (IPv4 and IPv6)
     open: true,
     proxy: {
       '/api/van-don': {
