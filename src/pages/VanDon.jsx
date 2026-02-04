@@ -353,6 +353,16 @@ function VanDon() {
           return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
         };
 
+        // Helper function to check if row has at least one personnel name (not empty)
+        const hasPersonnelName = (row) => {
+          const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
+          const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').trim();
+          const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim();
+          
+          // Phải có ít nhất một tên nhân sự không trống
+          return saleStaff.length > 0 || mktStaff.length > 0 || deliveryStaff.length > 0;
+        };
+
         // Helper function to check if row matches any personnel name across Sale/MKT/Vận đơn columns
         const matchesPersonnelFilter = (row) => {
           if (isManager || allAllowedNames.length === 0) return true;
@@ -379,6 +389,11 @@ function VanDon() {
 
         let filteredData = result.data;
         let filteredTotal = result.total;
+
+        // Filter: Chỉ hiển thị đơn có ít nhất một tên nhân sự (không trống)
+        filteredData = filteredData.filter(row => hasPersonnelName(row));
+        filteredTotal = filteredData.length;
+        console.log('🔍 [VanDon Backend] Filtered out orders with empty personnel names:', result.data.length - filteredData.length, 'orders removed');
 
         // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn có Kết quả Check="Ok", Mã Tracking trống/null và Đơn vị vận chuyển trống/null
         if (bolActiveTab === 'hanoi') {
@@ -554,6 +569,16 @@ function VanDon() {
           }
         }
 
+        // Helper function to check if row has at least one personnel name (not empty) - fallback mode
+        const hasPersonnelNameFallback = (row) => {
+          const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
+          const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').trim();
+          const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim();
+          
+          // Phải có ít nhất một tên nhân sự không trống
+          return saleStaff.length > 0 || mktStaff.length > 0 || deliveryStaff.length > 0;
+        };
+
         // Helper function to normalize name for matching (fallback mode)
         const normalizeNameForMatchFallback = (str) => {
           if (!str) return '';
@@ -581,6 +606,11 @@ function VanDon() {
                    nameNormalized.includes(deliveryStaff);
           });
         };
+
+        // Filter: Chỉ hiển thị đơn có ít nhất một tên nhân sự (không trống)
+        const initialDataLength = data.length;
+        data = data.filter(row => hasPersonnelNameFallback(row));
+        console.log('🔍 [VanDon Fallback] Filtered out orders with empty personnel names:', initialDataLength - data.length, 'orders removed');
 
         // Tab "Đơn Nhật": không filter theo selectedPersonnelNames, chỉ filter theo country
         const isJapanTab = bolActiveTab === 'japan';
@@ -1056,6 +1086,16 @@ function VanDon() {
 
     } else {
       // --- BILL OF LADING FILTERING LOGIC ---
+
+      // Filter: Chỉ hiển thị đơn có ít nhất một tên nhân sự (không trống)
+      const initialDataLength = data.length;
+      data = data.filter(row => {
+        const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
+        const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').trim();
+        const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim();
+        return saleStaff.length > 0 || mktStaff.length > 0 || deliveryStaff.length > 0;
+      });
+      console.log('🔍 [VanDon Client-side] Filtered out orders with empty personnel names:', initialDataLength - data.length, 'orders removed');
 
       // Tab Logic - use early filtering to reduce dataset size
       if (bolActiveTab === 'japan') {
