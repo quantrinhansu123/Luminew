@@ -2356,8 +2356,7 @@ export default function BaoCaoSale() {
                     phanHoi: Number(r['Phản hồi']) || 0,
                     doanhSoDi: Number(r['Doanh số đi']) || 0,
                     // BỎ: soDonHuy từ sales_reports (nhập tay), chỉ dùng soDonHoanHuyThucTe từ orders (thực tế)
-                    soDonHuy: Number(r['Số đơn hoàn hủy thực tế']) || 0, // Lấy từ orders (thực tế) thay vì sales_reports (nhập tay)
-                    doanhSoHuy: Number(r['Doanh số hoàn huỷ']) || 0, // Doanh số hủy từ form nhập (revenue_cancel)
+
                     soDonThanhCong: Number(r['Số đơn thành công']) || 0,
                     doanhSoThanhCong: Number(r['Doanh số thành công']) || 0,
                     soDonThucTe: Number(r['Số đơn thực tế']) || 0,
@@ -3238,8 +3237,8 @@ export default function BaoCaoSale() {
                     const checkResult = String(order.check_result || '').trim();
                     const isHuy = checkResult === 'Hủy' || checkResult === 'Huỷ';
                     const isThanhCong = checkResult === 'Thành công' || checkResult === 'OK';
-                    const isDi = String(order.delivery_status || '').toLowerCase().includes('đi') || 
-                                 String(order.delivery_status || '').toLowerCase().includes('di');
+                    const isDi = String(order.delivery_status || '').toLowerCase().includes('đi') ||
+                        String(order.delivery_status || '').toLowerCase().includes('di');
 
                     // Số đơn và DS chốt (tất cả đơn)
                     kpi.soDonChot++;
@@ -3525,8 +3524,8 @@ export default function BaoCaoSale() {
                     const tyLeDonLenVanHanh = vd.tongDonLenNoiBo > 0 ? (vd.tongDonDuDkienDayVh / vd.tongDonLenNoiBo) : 0;
                     const tyLeThuTienGiaoThanhCong = vd.giaoThanhCong.soDon > 0 ? (vd.daThanhToanCoBill.thanhTien / vd.giaoThanhCong.thanhTien) : 0;
                     const tyLeTTThanhCongDonTinhPhi = (vd.daThanhToanCoBill.soDon + vd.billMotPhan.soDon) > 0 ? (vd.daThanhToanCoBill.soDon / (vd.daThanhToanCoBill.soDon + vd.billMotPhan.soDon)) : 0;
-                    return { 
-                        ...vd, 
+                    return {
+                        ...vd,
                         tyLeDonLenVanHanh,
                         tyLeThuTienGiaoThanhCong,
                         tyLeTTThanhCongDonTinhPhi
@@ -3961,11 +3960,11 @@ export default function BaoCaoSale() {
                     {/* Tab 3: Báo cáo KPIs */}
                     <div className={`tab-content ${activeTab === 'bao-cao-kpis' ? 'active' : ''}`}>
                         {kpiLoading && <div className="loading-overlay">Đang tải dữ liệu KPIs...</div>}
-                        
+
                         {/* KPI Filters */}
                         <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
                             <h3 style={{ marginBottom: '15px', color: '#2d5016' }}>Chỉ số vận đơn của MKT</h3>
-                            
+
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '15px' }}>
                                 <div>
                                     <label>Bộ lọc nhanh:</label>
@@ -3975,25 +3974,25 @@ export default function BaoCaoSale() {
                                 </div>
                                 <div>
                                     <label>Từ ngày:</label>
-                                    <input 
-                                        type="date" 
-                                        value={filters.startDate} 
+                                    <input
+                                        type="date"
+                                        value={filters.startDate}
                                         onChange={e => handleDateFilterChange('startDate', e.target.value)}
                                         style={{ width: '100%', padding: '5px' }}
                                     />
                                 </div>
                                 <div>
                                     <label>Đến ngày:</label>
-                                    <input 
-                                        type="date" 
-                                        value={filters.endDate} 
+                                    <input
+                                        type="date"
+                                        value={filters.endDate}
                                         onChange={e => handleDateFilterChange('endDate', e.target.value)}
                                         style={{ width: '100%', padding: '5px' }}
                                     />
                                 </div>
                                 <div>
                                     <label>Team:</label>
-                                    <select 
+                                    <select
                                         style={{ width: '100%', padding: '5px' }}
                                         multiple
                                         value={kpiFilters.teams}
@@ -4010,7 +4009,7 @@ export default function BaoCaoSale() {
                                 </div>
                                 <div>
                                     <label>Tìm tên:</label>
-                                    <select 
+                                    <select
                                         style={{ width: '100%', padding: '5px' }}
                                         multiple
                                         value={kpiFilters.personnel}
@@ -4027,7 +4026,7 @@ export default function BaoCaoSale() {
                                 </div>
                                 <div>
                                     <label>Sản phẩm:</label>
-                                    <select 
+                                    <select
                                         style={{ width: '100%', padding: '5px' }}
                                         multiple
                                         value={kpiFilters.products}
@@ -4044,7 +4043,7 @@ export default function BaoCaoSale() {
                                 </div>
                                 <div>
                                     <label>Thị trường:</label>
-                                    <select 
+                                    <select
                                         style={{ width: '100%', padding: '5px' }}
                                         multiple
                                         value={kpiFilters.markets}
@@ -4061,7 +4060,7 @@ export default function BaoCaoSale() {
                                 </div>
                                 <div>
                                     <label>Chi nhánh:</label>
-                                    <select 
+                                    <select
                                         style={{ width: '100%', padding: '5px' }}
                                         multiple
                                         value={kpiFilters.branches}
@@ -4074,17 +4073,17 @@ export default function BaoCaoSale() {
                                     </select>
                                 </div>
                             </div>
-                            
+
                             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px' }}>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                    <input 
-                                        type="checkbox" 
+                                    <input
+                                        type="checkbox"
                                         checked={kpiFilters.includeShipZero}
                                         onChange={e => setKpiFilters({ ...kpiFilters, includeShipZero: e.target.checked })}
                                     />
                                     Bao gồm đơn ship = 0
                                 </label>
-                                <button 
+                                <button
                                     onClick={() => {
                                         setKpiFilters({
                                             team: [],
@@ -4099,7 +4098,7 @@ export default function BaoCaoSale() {
                                 >
                                     Hiện tất cả
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => {
                                         // Trigger recalculation
                                         setKpiFilters({ ...kpiFilters });
@@ -4115,64 +4114,64 @@ export default function BaoCaoSale() {
                                 <label style={{ fontWeight: 'bold', marginBottom: '10px', display: 'block' }}>Tùy chọn hiển thị cột:</label>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={kpiColumnVisibility.soDonDSChot}
                                             onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDSChot: e.target.checked })}
                                         />
                                         Số đơn & DS chốt
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={kpiColumnVisibility.soDonDSHuy}
                                             onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDSHuy: e.target.checked })}
                                         />
                                         Số đơn & DS hủy
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={kpiColumnVisibility.soDonDSSauHuy}
                                             onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDSSauHuy: e.target.checked })}
                                         />
                                         Số đơn & DS sau hủy
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={kpiColumnVisibility.soDonDSDi}
                                             onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDSDi: e.target.checked })}
                                         />
                                         Số đơn & DS đi
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={kpiColumnVisibility.soDonDThuTC}
                                             onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, soDonDThuTC: e.target.checked })}
                                         />
                                         Số đơn & DThu thành công
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={kpiColumnVisibility.ship}
                                             onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, ship: e.target.checked })}
                                         />
                                         Ship
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={kpiColumnVisibility.dThuTinhKPI}
                                             onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, dThuTinhKPI: e.target.checked })}
                                         />
                                         DThu tính KPI
                                     </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={kpiColumnVisibility.tyLeThuTien}
                                             onChange={e => setKpiColumnVisibility({ ...kpiColumnVisibility, tyLeThuTien: e.target.checked })}
                                         />
@@ -4366,7 +4365,7 @@ export default function BaoCaoSale() {
                     {/* Tab 4: Báo cáo Vận đơn */}
                     <div className={`tab-content ${activeTab === 'bao-cao-van-don' ? 'active' : ''}`}>
                         {vanDonLoading && <div className="loading-overlay">Đang tải dữ liệu Vận đơn...</div>}
-                        
+
                         <h2 style={{ marginBottom: '20px', fontWeight: 'bold' }}>Báo cáo chi tiết</h2>
 
                         {/* Vận đơn Table */}

@@ -421,7 +421,8 @@ export const fetchVanDon = async (options = {}) => {
         market = [],
         product = [],
         dateFrom,
-        dateTo
+        dateTo,
+        allowedStaff // Array of names allowed to view
     } = options;
 
     const mode = getDataSourceMode();
@@ -498,6 +499,26 @@ export const fetchVanDon = async (options = {}) => {
         }
         if (dateTo) {
             query = query.lte('order_date', dateTo);
+        }
+
+        // --- PERSONNEL PERMISSION FILTER ---
+        if (Array.isArray(allowedStaff) && allowedStaff.length > 0) {
+            // Logic: Row is visible if sale_staff OR marketing_staff OR delivery_staff matches ANY of the allowed names.
+            // Using ilike for case-insensitive matching.
+            // match string: column.ilike.%value%
+
+            const conditions = [];
+            allowedStaff.forEach(staffName => {
+                if (!staffName) return;
+                const safeName = staffName.trim();
+                conditions.push(`sale_staff.ilike.%${safeName}%`);
+                conditions.push(`marketing_staff.ilike.%${safeName}%`);
+                conditions.push(`delivery_staff.ilike.%${safeName}%`);
+            });
+
+            if (conditions.length > 0) {
+                query = query.or(conditions.join(','));
+            }
         }
 
         // --- PAGINATION ---

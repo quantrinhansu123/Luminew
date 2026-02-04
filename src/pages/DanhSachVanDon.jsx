@@ -1,17 +1,17 @@
 // Columns to always hide
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 import { Calendar, Edit, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
-import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
+import { supabase } from '../supabase/config';
 
 export default function DanhSachVanDon() {
     const [data, setData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchText, setSearchText] = useState('');
-    
+
     // Date filter
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
@@ -19,13 +19,13 @@ export default function DanhSachVanDon() {
         return d.toISOString().split('T')[0];
     });
     const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
-    
+
     // Staff lists for dropdowns
     const [vanDonStaff, setVanDonStaff] = useState([]);
-    
+
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
-    
+
     // Edit/Add Mode
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({
@@ -37,7 +37,7 @@ export default function DanhSachVanDon() {
     });
     const [isAdding, setIsAdding] = useState(false);
     const [showModal, setShowModal] = useState(false);
-    
+
     // Search state for dropdowns
     const [hoVaTenSearch, setHoVaTenSearch] = useState('');
     const [nguoiSuaHoSearch, setNguoiSuaHoSearch] = useState('');
@@ -63,12 +63,12 @@ export default function DanhSachVanDon() {
             console.log('Raw staff data:', staff);
             const staffNames = staff?.map(s => s.name).filter(Boolean) || [];
             console.log('Filtered staff names:', staffNames);
-            
+
             if (staffNames.length === 0) {
                 console.warn('No staff found with department = "Vận Đơn"');
                 toast.warning('Không tìm thấy nhân sự nào có department = "Vận Đơn"');
             }
-            
+
             setVanDonStaff(staffNames);
             return staffNames;
         } catch (error) {
@@ -174,7 +174,7 @@ export default function DanhSachVanDon() {
         const loadSelectedPersonnel = async () => {
             try {
                 const userEmail = localStorage.getItem("userEmail") || "";
-                
+
                 if (!userEmail) {
                     setSelectedPersonnelNames([]);
                     return;
@@ -188,7 +188,7 @@ export default function DanhSachVanDon() {
                     const nameStr = String(name).trim();
                     return nameStr.length > 0 && !nameStr.includes('@');
                 });
-                
+
                 console.log('📝 [DanhSachVanDon] Valid personnel names:', validNames);
                 setSelectedPersonnelNames(validNames);
             } catch (error) {
@@ -227,7 +227,7 @@ export default function DanhSachVanDon() {
         }
 
         const searchLower = searchText.toLowerCase();
-        const filtered = data.filter(item => 
+        const filtered = data.filter(item =>
             item.ho_va_ten?.toLowerCase().includes(searchLower) ||
             item.trang_thai_chia?.toLowerCase().includes(searchLower) ||
             item.chi_nhanh?.toLowerCase().includes(searchLower) ||
@@ -242,7 +242,7 @@ export default function DanhSachVanDon() {
         if (vanDonStaff.length === 0) {
             await loadVanDonStaff();
         }
-        
+
         setIsAdding(true);
         setEditingId(null);
         setHoVaTenSearch('');
@@ -317,8 +317,8 @@ export default function DanhSachVanDon() {
             // Auto-count orders when saving
             const orderCount = await countOrdersForStaff(editForm.ho_va_ten);
             // Lưu nguoi_sua_ho dưới dạng JSON array string
-            const formData = { 
-                ...editForm, 
+            const formData = {
+                ...editForm,
                 so_don: orderCount,
                 nguoi_sua_ho: JSON.stringify(editForm.nguoi_sua_ho || [])
             };
@@ -538,7 +538,7 @@ export default function DanhSachVanDon() {
                                                     setHoVaTenSearch(searchValue);
                                                     setShowHoVaTenDropdown(true);
                                                     // Auto-select nếu tìm thấy exact match
-                                                    const exactMatch = availableHoVaTenOptions.find(name => 
+                                                    const exactMatch = availableHoVaTenOptions.find(name =>
                                                         name.toLowerCase() === searchValue.toLowerCase()
                                                     );
                                                     if (exactMatch) {
@@ -561,7 +561,7 @@ export default function DanhSachVanDon() {
                                         {isAdding && showHoVaTenDropdown && availableHoVaTenOptions.length > 0 && (
                                             <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                                                 {availableHoVaTenOptions
-                                                    .filter(name => 
+                                                    .filter(name =>
                                                         !hoVaTenSearch || name.toLowerCase().includes(hoVaTenSearch.toLowerCase())
                                                     )
                                                     .map((name) => (
@@ -577,13 +577,13 @@ export default function DanhSachVanDon() {
                                                             {name}
                                                         </div>
                                                     ))}
-                                                {availableHoVaTenOptions.filter(name => 
+                                                {availableHoVaTenOptions.filter(name =>
                                                     !hoVaTenSearch || name.toLowerCase().includes(hoVaTenSearch.toLowerCase())
                                                 ).length === 0 && (
-                                                    <div className="px-3 py-2 text-sm text-gray-500 text-center">
-                                                        Không tìm thấy kết quả
-                                                    </div>
-                                                )}
+                                                        <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                                                            Không tìm thấy kết quả
+                                                        </div>
+                                                    )}
                                             </div>
                                         )}
                                     </div>
@@ -649,7 +649,7 @@ export default function DanhSachVanDon() {
                                         ) : (
                                             <div className="space-y-2">
                                                 {availableNguoiSuaHoOptions
-                                                    .filter(name => 
+                                                    .filter(name =>
                                                         !nguoiSuaHoSearch || name.toLowerCase().includes(nguoiSuaHoSearch.toLowerCase())
                                                     )
                                                     .map((name) => (
@@ -673,11 +673,11 @@ export default function DanhSachVanDon() {
                                                             <span className="ml-2 text-sm text-gray-700">{name}</span>
                                                         </label>
                                                     ))}
-                                                {availableNguoiSuaHoOptions.filter(name => 
+                                                {availableNguoiSuaHoOptions.filter(name =>
                                                     !nguoiSuaHoSearch || name.toLowerCase().includes(nguoiSuaHoSearch.toLowerCase())
                                                 ).length === 0 && (
-                                                    <p className="text-sm text-gray-500 text-center py-2">Không tìm thấy kết quả</p>
-                                                )}
+                                                        <p className="text-sm text-gray-500 text-center py-2">Không tìm thấy kết quả</p>
+                                                    )}
                                             </div>
                                         )}
                                     </div>
