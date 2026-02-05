@@ -1,10 +1,10 @@
+import { createClient } from '@supabase/supabase-js';
 import cors from 'cors';
+import { randomUUID } from 'crypto';
+import dotenv from 'dotenv';
 import express from 'express';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createClient } from '@supabase/supabase-js';
-import { randomUUID } from 'crypto';
-import dotenv from 'dotenv';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -155,7 +155,7 @@ app.get('/van-don', async (req, res) => {
     // Set proper headers to avoid 406 error
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Accept', 'application/json');
-    
+
     res.json({
       success: true,
       data: paginatedData,
@@ -303,9 +303,9 @@ app.post('/api/sync-mkt', async (req, res) => {
 
   } catch (error) {
     console.error('Sync MKT error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -316,7 +316,7 @@ app.get('/api/test-supabase', async (req, res) => {
     console.log('🧪 Testing Supabase connection...');
     console.log('   URL:', SUPABASE_URL);
     console.log('   Key prefix:', SUPABASE_SERVICE_ROLE_KEY.substring(0, 30) + '...');
-    
+
     // Simple test query
     const { data, error, count } = await supabaseAdmin
       .from('detail_reports')
@@ -353,11 +353,11 @@ app.get('/api/test-supabase', async (req, res) => {
 app.get('/api/fetch-detail-reports', async (req, res) => {
   try {
     const { startDate, endDate, limit = 10000 } = req.query;
-    
+
     console.log('📥 Fetching detail_reports data...', { startDate, endDate, limit });
     console.log('🔑 Using Supabase URL:', SUPABASE_URL);
     console.log('🔑 Using Service Role Key:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
-    
+
     if (!SUPABASE_SERVICE_ROLE_KEY) {
       console.error('❌ SUPABASE_SERVICE_ROLE_KEY is missing!');
       return res.status(500).json({
@@ -366,7 +366,7 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
         data: []
       });
     }
-    
+
     console.log('🔑 Key prefix:', SUPABASE_SERVICE_ROLE_KEY.substring(0, 20) + '...');
 
     // Try selecting all first, then filter in memory if needed
@@ -389,16 +389,16 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
       const endDateFormatted = endDate.split('T')[0]; // Remove time if present
       query = query.lte('Ngày', endDateFormatted);
     }
-    
+
     // Order by date - column name with special character
     query = query.order('Ngày', { ascending: false });
-    
+
     // Apply limit
     query = query.limit(parseInt(limit));
 
     console.log('🔍 Executing query...');
     console.log('📋 Query params:', { startDate, endDate, limit });
-    
+
     try {
       const { data, error } = await query;
 
@@ -408,7 +408,7 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
         console.error('❌ Error message:', error.message);
         console.error('❌ Error details:', JSON.stringify(error, null, 2));
         console.error('❌ Full error object:', error);
-        
+
         // Check if it's an RLS error
         if (error.message && (error.message.includes('row-level security') || error.message.includes('RLS') || error.message.includes('permission denied'))) {
           return res.status(500).json({
@@ -420,7 +420,7 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
             errorMessage: error.message
           });
         }
-        
+
         // Check if column doesn't exist
         if (error.message && (error.message.includes('column') || error.message.includes('does not exist') || error.message.includes('Ngày'))) {
           return res.status(500).json({
@@ -432,7 +432,7 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
             errorMessage: error.message
           });
         }
-        
+
         return res.status(500).json({
           success: false,
           error: error.message || 'Unknown error',
@@ -445,7 +445,7 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
 
       console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
 
-      res.json({
+      return res.json({
         success: true,
         data: data || [],
         count: data?.length || 0
@@ -460,14 +460,6 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
         data: []
       });
     }
-
-    console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
-
-    res.json({
-      success: true,
-      data: data || [],
-      count: data?.length || 0
-    });
 
   } catch (error) {
     console.error('❌ Fetch detail_reports error:', error);

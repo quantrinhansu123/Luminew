@@ -155,7 +155,7 @@ const NewsDetail = () => {
                     {/* Right Section - Related News */}
                     <div className="lg:col-span-1">
                         <div className="sticky top-24">
-                            <h3 className="text-2xl font-bold text-white bg-[#2d7c2d] px-4 py-3 mb-4 text-center" style={{ fontFamily: 'cursive' }}>
+                            <h3 className="text-2xl font-bold text-white bg-[#2d7c2d] px-4 py-3 mb-4 text-center">
                                 Nổi bật từ LumiGlobal
                             </h3>
 
@@ -207,9 +207,9 @@ const NewsDetail = () => {
                 <div className="fixed bottom-0 left-0 right-0 bg-[#2d7c2d] text-white p-4 shadow-lg z-50">
                     <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
                         <p className="text-sm text-center md:text-left">
-                            We use cookies on our website to give you the most relevant experience by remembering your preferences and repeat visits. 
-                            By clicking "Accept", you consent to the use of ALL the cookies. 
-                            You may visit Cookie settings to manage which cookies are used. 
+                            We use cookies on our website to give you the most relevant experience by remembering your preferences and repeat visits.
+                            By clicking "Accept", you consent to the use of ALL the cookies.
+                            You may visit Cookie settings to manage which cookies are used.
                             <a href="#" className="underline ml-1">Cookie Policy</a>
                         </p>
                         <div className="flex gap-3">
