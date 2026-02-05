@@ -114,11 +114,25 @@ export const usePermissions = () => {
     // --- CHECKER FUNCTIONS ---
 
     const canView = (pageCode) => {
-        // Legacy Admin Bypass
+        // Legacy Admin Bypass - Check both localStorage and role from DB
         const legacyRole = localStorage.getItem('userRole');
-        if (legacyRole === 'admin') return true;
+        const roleLower = (legacyRole || '').toLowerCase();
+        const roleFromDbLower = (role || '').toLowerCase();
+        
+        // Admin bypass - check multiple variations
+        if (roleLower === 'admin' || 
+            roleFromDbLower === 'admin' || 
+            roleFromDbLower === 'administrator' ||
+            roleFromDbLower === 'super_admin' ||
+            roleFromDbLower === 'director' ||
+            roleFromDbLower === 'manager') {
+            return true;
+        }
 
-        if (role === 'ADMIN') return true; // Admin bypass
+        // Also check uppercase version
+        if (role === 'ADMIN' || role === 'ADMINISTRATOR' || role === 'SUPER_ADMIN' || role === 'DIRECTOR' || role === 'MANAGER') {
+            return true;
+        }
 
         // If the pageCode is actually a module code (e.g., checking if module is visible)
         // We might want to return true if ANY page in the module is visible, or check specifically.
@@ -133,26 +147,98 @@ export const usePermissions = () => {
     };
 
     const canEdit = (pageCode) => {
-        if (role === 'ADMIN') return true;
+        // Admin bypass - check multiple variations
+        const legacyRole = localStorage.getItem('userRole');
+        const roleLower = (legacyRole || '').toLowerCase();
+        const roleFromDbLower = (role || '').toLowerCase();
+        
+        if (roleLower === 'admin' || 
+            roleFromDbLower === 'admin' || 
+            roleFromDbLower === 'administrator' ||
+            roleFromDbLower === 'super_admin' ||
+            roleFromDbLower === 'director' ||
+            roleFromDbLower === 'manager' ||
+            role === 'ADMIN' || 
+            role === 'ADMINISTRATOR' || 
+            role === 'SUPER_ADMIN' || 
+            role === 'DIRECTOR' || 
+            role === 'MANAGER') {
+            return true;
+        }
+        
         const p = permissions.find(x => x.page_code === pageCode);
         return !!p?.can_edit;
     };
 
     const canDelete = (pageCode) => {
-        if (role === 'ADMIN') return true;
+        // Admin bypass - check multiple variations
+        const legacyRole = localStorage.getItem('userRole');
+        const roleLower = (legacyRole || '').toLowerCase();
+        const roleFromDbLower = (role || '').toLowerCase();
+        
+        if (roleLower === 'admin' || 
+            roleFromDbLower === 'admin' || 
+            roleFromDbLower === 'administrator' ||
+            roleFromDbLower === 'super_admin' ||
+            roleFromDbLower === 'director' ||
+            roleFromDbLower === 'manager' ||
+            role === 'ADMIN' || 
+            role === 'ADMINISTRATOR' || 
+            role === 'SUPER_ADMIN' || 
+            role === 'DIRECTOR' || 
+            role === 'MANAGER') {
+            return true;
+        }
+        
         const p = permissions.find(x => x.page_code === pageCode);
         return !!p?.can_delete;
     };
 
     const getAllowedColumns = (pageCode) => {
-        if (role === 'ADMIN') return ['*'];
+        // Admin bypass - check multiple variations
+        const legacyRole = localStorage.getItem('userRole');
+        const roleLower = (legacyRole || '').toLowerCase();
+        const roleFromDbLower = (role || '').toLowerCase();
+        
+        if (roleLower === 'admin' || 
+            roleFromDbLower === 'admin' || 
+            roleFromDbLower === 'administrator' ||
+            roleFromDbLower === 'super_admin' ||
+            roleFromDbLower === 'director' ||
+            roleFromDbLower === 'manager' ||
+            role === 'ADMIN' || 
+            role === 'ADMINISTRATOR' || 
+            role === 'SUPER_ADMIN' || 
+            role === 'DIRECTOR' || 
+            role === 'MANAGER') {
+            return ['*'];
+        }
+        
         const p = permissions.find(x => x.page_code === pageCode);
         if (!p) return []; // No permission entry means access denied generally
         return p.allowed_columns || []; // JSON array
     };
 
     const isColumnAllowed = (pageCode, columnName) => {
-        if (role === 'ADMIN') return true;
+        // Admin bypass - check multiple variations
+        const legacyRole = localStorage.getItem('userRole');
+        const roleLower = (legacyRole || '').toLowerCase();
+        const roleFromDbLower = (role || '').toLowerCase();
+        
+        if (roleLower === 'admin' || 
+            roleFromDbLower === 'admin' || 
+            roleFromDbLower === 'administrator' ||
+            roleFromDbLower === 'super_admin' ||
+            roleFromDbLower === 'director' ||
+            roleFromDbLower === 'manager' ||
+            role === 'ADMIN' || 
+            role === 'ADMINISTRATOR' || 
+            role === 'SUPER_ADMIN' || 
+            role === 'DIRECTOR' || 
+            role === 'MANAGER') {
+            return true;
+        }
+        
         const cols = getAllowedColumns(pageCode);
         if (cols.includes('*')) return true;
         return cols.includes(columnName);

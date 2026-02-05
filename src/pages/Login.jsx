@@ -13,31 +13,53 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   
-  console.log('Supabase config:', { url: import.meta.env.VITE_SUPABASE_URL ? 'Set' : 'Missing', key: import.meta.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'Missing' });
+  console.log('Supabase config:', { 
+    url: import.meta.env.VITE_SUPABASE_URL ? 'Set' : 'Missing', 
+    key: import.meta.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'Missing' 
+  });
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
+    console.log('🔐 Attempting login with email:', email);
+
     try {
       // Query Supabase users table
+      console.log('📡 Querying users table...');
       const { data: user, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('email', email)
         .single();
 
-      if (userError && userError.code !== 'PGRST116') { // PGRST116 is specific for 0 rows in .single()
+      console.log('📡 Query result:', { user: user ? 'Found' : 'Not found', error: userError });
+
+      if (userError) {
+        console.error('❌ Supabase error:', userError);
+        // PGRST116 is specific for 0 rows in .single()
+        if (userError.code === 'PGRST116') {
+          console.log('⚠️ User not found with email:', email);
+          toast.error('Email hoặc mật khẩu không đúng!', {
+            position: "top-right",
+            autoClose: 4000,
+          });
+          setLoading(false);
+          return;
+        }
+        // Other errors
         throw userError;
       }
 
       if (user) {
         const userData = user;
         const userId = user.id;
+        console.log('✅ User found:', { id: userId, email: userData.email, hasPassword: !!userData.password });
 
         // Kiểm tra xem user có mật khẩu không
         if (!userData.password) {
+          console.log('⚠️ User has no password set');
           toast.error('Tài khoản chưa được thiết lập mật khẩu. Vui lòng liên hệ quản trị viên!', {
             position: "top-right",
             autoClose: 5000,
@@ -47,9 +69,12 @@ function Login() {
         }
 
         // So sánh mật khẩu đã hash
+        console.log('🔒 Comparing password...');
         const passwordMatch = bcrypt.compareSync(password, userData.password);
+        console.log('🔒 Password match:', passwordMatch);
 
         if (passwordMatch) {
+          console.log('✅ Login successful!');
           // Lưu thông tin đăng nhập vào localStorage
           localStorage.setItem('isAuthenticated', 'true');
           localStorage.setItem('userId', userId);
@@ -75,20 +100,28 @@ function Login() {
             navigate('/trang-chu');
           }, 2000);
         } else {
+          console.log('❌ Password mismatch');
           toast.error('Email hoặc mật khẩu không đúng!', {
             position: "top-right",
             autoClose: 4000,
           });
         }
       } else {
+        console.log('⚠️ No user data returned');
         toast.error('Email hoặc mật khẩu không đúng!', {
           position: "top-right",
           autoClose: 4000,
         });
       }
     } catch (err) {
-      console.error('Login error:', err);
-      toast.error('Đã xảy ra lỗi khi đăng nhập. Vui lòng thử lại!', {
+      console.error('❌ Login error:', err);
+      console.error('Error details:', {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+        hint: err.hint
+      });
+      toast.error(`Đã xảy ra lỗi khi đăng nhập: ${err.message || 'Vui lòng thử lại!'}`, {
         position: "top-right",
         autoClose: 5000,
       });
