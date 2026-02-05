@@ -75,7 +75,7 @@ const AdminTools = () => {
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
     const [cskhStaff, setCskhStaff] = useState([]);
-    const [clearCSKHLoading, setClearCSKHLoading] = useState(false);
+    const [syncTeamLoading, setSyncTeamLoading] = useState(false);
 
     // --- ACCOUNT MANAGEMENT STATE ---
     const [authAccounts, setAuthAccounts] = useState([]);
@@ -1520,49 +1520,215 @@ const AdminTools = () => {
     };
 
     // Xóa toàn bộ dữ liệu trong cột CSKH
-    const handleClearCSKHData = async () => {
-        if (!window.confirm('⚠️ CẢNH BÁO: Bạn có chắc muốn XÓA TOÀN BỘ dữ liệu trong cột CSKH?\n\nHành động này sẽ:\n- Set tất cả giá trị cskh về NULL\n- Không thể hoàn tác!\n\nBạn có chắc chắn muốn tiếp tục?')) {
+    const handleSyncTeam = async () => {
+        if (!window.confirm('🔄 Đồng bộ team dựa trên tên nhân viên?\n\nHành động này sẽ:\n- Lấy team từ bảng users dựa trên tên\n- Cập nhật team tương ứng trong các bảng orders, detail_reports, reports\n- Đồng bộ team cho sale_staff, cskh, delivery_staff\n\nBạn có chắc chắn muốn tiếp tục?')) {
             return;
         }
 
-        setClearCSKHLoading(true);
+        setSyncTeamLoading(true);
         try {
-            // Đếm số đơn có CSKH trước khi xóa (không null và không rỗng)
-            const { count: countBefore } = await supabase
-                .from('orders')
-                .select('*', { count: 'exact', head: true })
-                .not('cskh', 'is', null)
-                .neq('cskh', '');
+            console.log('🔄 [Đồng bộ Team] Bắt đầu...');
 
-            console.log(`📊 [Xóa CSKH] Tìm thấy ${countBefore || 0} đơn có dữ liệu CSKH`);
+            // 1. Lấy tất cả users với name và team
+            const { data: users, error: usersError } = await supabase
+                .from('users')
+                .select('id, name, team')
+                .not('name', 'is', null)
+                .neq('name', '');
 
-            // Xóa tất cả dữ liệu CSKH (set về null)
-            // Update tất cả đơn có cskh không null và không rỗng
-            const { data, error } = await supabase
-                .from('orders')
-                .update({ cskh: null })
-                .not('cskh', 'is', null)
-                .neq('cskh', '')
-                .select();
-
-            if (error) {
-                throw error;
+            if (usersError) {
+                throw usersError;
             }
 
-            const affectedCount = data?.length || 0;
-            console.log(`✅ [Xóa CSKH] Đã xóa CSKH của ${affectedCount} đơn hàng`);
+            if (!users || users.length === 0) {
+                toast.warning('Không tìm thấy users nào có tên!');
+                return;
+            }
 
-            toast.success(`✅ Đã xóa dữ liệu CSKH của ${affectedCount} đơn hàng!`);
+            console.log(`📊 [Đồng bộ Team] Tìm thấy ${users.length} users`);
+
+            // Tạo map name -> team
+            const nameToTeamMap = {};
+            users.forEach(user => {
+                if (user.name && user.team) {
+                    const name = user.name.trim();
+                    nameToTeamMap[name] = user.team;
+                }
+            });
+
+            console.log(`📋 [Đồng bộ Team] Map name->team:`, Object.keys(nameToTeamMap).length, 'entries');
+
+            let totalUpdated = 0;
+            const results = {
+                orders: { sale_staff: 0, cskh: 0, delivery_staff: 0 },
+                detail_reports: 0,
+                reports: 0
+            };
+
+            // 2. Đồng bộ trong bảng orders
+            console.log('🔄 [Đồng bộ Team] Đang xử lý bảng orders...');
             
-            // Refresh page hoặc reload data nếu cần
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
+            // Lấy tất cả orders
+            const { data: orders, error: ordersError } = await supabase
+                .from('orders')
+                .select('id, sale_staff, cskh, delivery_staff, team');
+
+            if (ordersError) {
+                console.error('❌ [Đồng bộ Team] Lỗi lấy orders:', ordersError);
+            } else if (orders && orders.length > 0) {
+                const updates = [];
+                
+                for (const order of orders) {
+                    const updatesForOrder = {};
+                    let hasUpdate = false;
+
+                    // Kiểm tra sale_staff
+                    if (order.sale_staff && nameToTeamMap[order.sale_staff.trim()]) {
+                        const team = nameToTeamMap[order.sale_staff.trim()];
+                        if (order.team !== team) {
+                            updatesForOrder.team = team;
+                            hasUpdate = true;
+                            results.orders.sale_staff++;
+                        }
+                    }
+
+                    // Kiểm tra cskh
+                    if (order.cskh && nameToTeamMap[order.cskh.trim()]) {
+                        const team = nameToTeamMap[order.cskh.trim()];
+                        if (order.team !== team) {
+                            updatesForOrder.team = team;
+                            hasUpdate = true;
+                            results.orders.cskh++;
+                        }
+                    }
+
+                    // Kiểm tra delivery_staff
+                    if (order.delivery_staff && nameToTeamMap[order.delivery_staff.trim()]) {
+                        const team = nameToTeamMap[order.delivery_staff.trim()];
+                        if (order.team !== team) {
+                            updatesForOrder.team = team;
+                            hasUpdate = true;
+                            results.orders.delivery_staff++;
+                        }
+                    }
+
+                    if (hasUpdate) {
+                        updates.push({ id: order.id, ...updatesForOrder });
+                    }
+                }
+
+                // Batch update orders
+                if (updates.length > 0) {
+                    for (const update of updates) {
+                        const { error: updateError } = await supabase
+                            .from('orders')
+                            .update({ team: update.team })
+                            .eq('id', update.id);
+
+                        if (updateError) {
+                            console.error(`❌ [Đồng bộ Team] Lỗi cập nhật order ${update.id}:`, updateError);
+                        } else {
+                            totalUpdated++;
+                        }
+                    }
+                }
+            }
+
+            // 3. Đồng bộ trong bảng detail_reports (nếu có trường team và owner)
+            console.log('🔄 [Đồng bộ Team] Đang xử lý bảng detail_reports...');
+            try {
+                const { data: detailReports, error: detailReportsError } = await supabase
+                    .from('detail_reports')
+                    .select('id, owner, team')
+                    .limit(1000); // Giới hạn để tránh quá tải
+
+                if (!detailReportsError && detailReports && detailReports.length > 0) {
+                    const updates = [];
+                    for (const report of detailReports) {
+                        if (report.owner && nameToTeamMap[report.owner.trim()]) {
+                            const team = nameToTeamMap[report.owner.trim()];
+                            if (report.team !== team) {
+                                updates.push({ id: report.id, team });
+                                results.detail_reports++;
+                            }
+                        }
+                    }
+
+                    // Batch update
+                    for (const update of updates) {
+                        const { error: updateError } = await supabase
+                            .from('detail_reports')
+                            .update({ team: update.team })
+                            .eq('id', update.id);
+
+                        if (!updateError) {
+                            totalUpdated++;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('⚠️ [Đồng bộ Team] Bảng detail_reports có thể không có trường team:', err);
+            }
+
+            // 4. Đồng bộ trong bảng reports (nếu có trường team và owner)
+            console.log('🔄 [Đồng bộ Team] Đang xử lý bảng reports...');
+            try {
+                const { data: reports, error: reportsError } = await supabase
+                    .from('reports')
+                    .select('id, owner, team')
+                    .limit(1000);
+
+                if (!reportsError && reports && reports.length > 0) {
+                    const updates = [];
+                    for (const report of reports) {
+                        if (report.owner && nameToTeamMap[report.owner.trim()]) {
+                            const team = nameToTeamMap[report.owner.trim()];
+                            if (report.team !== team) {
+                                updates.push({ id: report.id, team });
+                                results.reports++;
+                            }
+                        }
+                    }
+
+                    // Batch update
+                    for (const update of updates) {
+                        const { error: updateError } = await supabase
+                            .from('reports')
+                            .update({ team: update.team })
+                            .eq('id', update.id);
+
+                        if (!updateError) {
+                            totalUpdated++;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('⚠️ [Đồng bộ Team] Bảng reports có thể không có trường team:', err);
+            }
+
+            const summary = `
+✅ Đồng bộ team hoàn tất!
+
+📊 Kết quả:
+- Orders (sale_staff): ${results.orders.sale_staff} records
+- Orders (cskh): ${results.orders.cskh} records  
+- Orders (delivery_staff): ${results.orders.delivery_staff} records
+- Detail Reports: ${results.detail_reports} records
+- Reports: ${results.reports} records
+
+Tổng cộng: ${totalUpdated} records đã được cập nhật
+            `.trim();
+
+            console.log(summary);
+            toast.success(`✅ Đã đồng bộ team cho ${totalUpdated} records!`, {
+                autoClose: 5000
+            });
+
         } catch (error) {
-            console.error('❌ [Xóa CSKH] Lỗi:', error);
-            toast.error(`❌ Lỗi xóa dữ liệu CSKH: ${error.message}`);
+            console.error('❌ [Đồng bộ Team] Lỗi:', error);
+            toast.error(`❌ Lỗi đồng bộ team: ${error.message}`);
         } finally {
-            setClearCSKHLoading(false);
+            setSyncTeamLoading(false);
         }
     };
 
@@ -3146,32 +3312,33 @@ const AdminTools = () => {
                             </div>
                         </div>
 
-                        {/* Xóa dữ liệu CSKH */}
+                        {/* Đồng bộ team */}
                         <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 mb-6">
                             <div className="space-y-4">
-                                <h3 className="font-semibold text-gray-700">Xóa dữ liệu CSKH</h3>
-                                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                                    <p className="text-xs text-red-700 mb-2"><strong>⚠️ CẢNH BÁO:</strong></p>
-                                    <ul className="list-disc list-inside space-y-1 text-xs text-red-600">
-                                        <li>Hành động này sẽ xóa TOÀN BỘ dữ liệu trong cột CSKH</li>
-                                        <li>Tất cả giá trị cskh sẽ được set về NULL</li>
-                                        <li>Không thể hoàn tác sau khi xóa!</li>
+                                <h3 className="font-semibold text-gray-700">Đồng bộ team</h3>
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                    <p className="text-xs text-blue-700 mb-2"><strong>ℹ️ Thông tin:</strong></p>
+                                    <ul className="list-disc list-inside space-y-1 text-xs text-blue-600">
+                                        <li>Đồng bộ team dựa trên tên nhân viên từ bảng users</li>
+                                        <li>Cập nhật team trong các bảng: orders, detail_reports, reports</li>
+                                        <li>Khớp theo tên trong các trường: sale_staff, cskh, delivery_staff, owner</li>
+                                        <li>Team sẽ được lấy từ bảng users dựa trên name tương ứng</li>
                                     </ul>
                                 </div>
                                 <button
-                                    onClick={handleClearCSKHData}
-                                    disabled={clearCSKHLoading}
-                                    className="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    onClick={handleSyncTeam}
+                                    disabled={syncTeamLoading}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
-                                    {clearCSKHLoading ? (
+                                    {syncTeamLoading ? (
                                         <>
                                             <RefreshCw className="w-5 h-5 animate-spin" />
-                                            Đang xóa...
+                                            Đang đồng bộ...
                                         </>
                                     ) : (
                                         <>
-                                            <Trash2 className="w-5 h-5" />
-                                            Xóa toàn bộ dữ liệu CSKH
+                                            <RefreshCw className="w-5 h-5" />
+                                            Đồng bộ team
                                         </>
                                     )}
                                 </button>
