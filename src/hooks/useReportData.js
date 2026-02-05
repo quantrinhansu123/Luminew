@@ -183,8 +183,10 @@ export function useReportData(userRole, userTeam, userEmail, useSnapshot = false
   const filteredMasterData = useMemo(() => {
     let filtered = [...masterData];
 
-    if (userRole === 'admin') {
-      // Admin sees all
+    // Finance và Admin xem tất cả
+    const roleLower = (userRole || '').toLowerCase();
+    if (roleLower === 'admin' || roleLower === 'finance') {
+      // Admin và Finance sees all
       return filtered;
     } else if (userRole === 'leader' && userTeam) {
       // Leader sees team data
@@ -200,7 +202,9 @@ export function useReportData(userRole, userTeam, userEmail, useSnapshot = false
   const filteredFirebaseReports = useMemo(() => {
     let filtered = [...firebaseReports];
 
-    if (userRole === 'admin') {
+    // Finance và Admin xem tất cả
+    const roleLower = (userRole || '').toLowerCase();
+    if (roleLower === 'admin' || roleLower === 'finance') {
       return filtered;
     } else if (userRole === 'leader' && userTeam) {
       return filtered.filter(r => r.team === userTeam);

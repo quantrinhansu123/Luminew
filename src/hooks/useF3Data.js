@@ -62,15 +62,17 @@ export function useF3Data(filters, userRole, userEmail, userTeam = '') {
     const hasVanDonTeam = String(userTeam || '').toLowerCase().includes('vận đơn');
 
     // Role-based access control
-    // Chỉ admin mới xem được tất cả, còn lại chỉ xem dữ liệu của chính họ
+    // Admin và Finance xem tất cả, còn lại chỉ xem dữ liệu của chính họ
+    const roleLower = (userRole || '').toLowerCase();
     if (
-      userRole === "admin" ||
+      roleLower === "admin" ||
+      roleLower === "finance" ||
       userRole === "accountant" ||
       userRole === "kế toán" ||
       userRole === "vận đơn" ||
       hasVanDonTeam
     ) {
-      // Admin và các role đặc biệt: xem tất cả dữ liệu (không filter)
+      // Admin, Finance và các role đặc biệt: xem tất cả dữ liệu (không filter)
       // filtered remains as is
     } else {
       // Tất cả các role khác (user, leader, etc.): chỉ xem dữ liệu của chính họ

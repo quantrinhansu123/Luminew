@@ -185,9 +185,10 @@ function DonChiaCSKH() {
     return columnName;
   };
 
-  // Helper function để kiểm tra Admin
+  // Helper function để kiểm tra Admin hoặc Finance
   const isAdmin = () => {
-    return role === 'ADMIN' || role === 'SUPER_ADMIN';
+    const roleLower = (role || '').toLowerCase();
+    return roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
   };
 
   // Debounce search text for better performance
@@ -358,7 +359,8 @@ function DonChiaCSKH() {
       const ADMIN_MAIL = "admin@marketing.com";
       const isAdmin = userEmail === ADMIN_MAIL || boPhan === 'admin';
       const isLeader = viTri.includes('leader') || viTri.includes('quản lý') || boPhan.includes('manager');
-      const isManager = isAdmin || isLeader || role === 'ADMIN' || role === 'SUPER_ADMIN';
+      const roleLower = (role || '').toLowerCase();
+      const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
 
       let query = supabase.from('orders').select('*');
 

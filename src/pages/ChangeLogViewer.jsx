@@ -108,7 +108,8 @@ export default function ChangeLogViewer() {
 
   // Check if user can revert a specific log
   const canRevertThisLog = (log) => {
-    if (userRole === "admin") return true;
+    const roleLower = (userRole || '').toLowerCase();
+    if (roleLower === "admin" || roleLower === "finance") return true;
     if (userRole === "leader") {
       // Leader can revert logs of their team members
       const userRecord = humanResources.find((hr) => hr && hr["email"] === userEmail);
@@ -234,8 +235,9 @@ export default function ChangeLogViewer() {
     console.log("Filtering logs for user:", { userRole, userEmail, userTeam });
     console.log("Human resources loaded:", humanResources.length, "records");
 
-    if (userRole === "admin") {
-      console.log("Admin user - showing all logs");
+    const roleLower = (userRole || '').toLowerCase();
+    if (roleLower === "admin" || roleLower === "finance") {
+      console.log("Admin/Finance user - showing all logs");
       return changeLogs;
     } else if (userRole === "leader") {
       console.log("Leader user - filtering by team");

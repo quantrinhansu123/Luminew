@@ -119,7 +119,7 @@ function App() {
             <Route path="/lich-su-cskh" element={<ProtectedRoute><CskhCrmHistoryPage /></ProtectedRoute>} />
 
             {/* Admin Tools & System */}
-            <Route path="/admin-tools" element={<ProtectedRoute><AdminTools /></ProtectedRoute>} />
+            <Route path="/admin-tools" element={<AdminTools />} />
 
             <Route path="/news/:id" element={<ProtectedRoute><NewsDetail /></ProtectedRoute>} />
             <Route path="/external-view" element={<ProtectedRoute><ExternalView /></ProtectedRoute>} />

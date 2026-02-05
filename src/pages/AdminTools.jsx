@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import PermissionManager from '../components/admin/PermissionManager';
@@ -75,6 +75,29 @@ const AdminTools = () => {
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
     const [cskhStaff, setCskhStaff] = useState([]);
+    const [syncTeamLoading, setSyncTeamLoading] = useState(false);
+
+    // --- ACCOUNT MANAGEMENT STATE ---
+    const [authAccounts, setAuthAccounts] = useState([]);
+    const [accountLoading, setAccountLoading] = useState(false);
+    const [selectedAccount, setSelectedAccount] = useState(null);
+    const [showAccountModal, setShowAccountModal] = useState(false);
+    const [accountForm, setAccountForm] = useState({
+        email: '',
+        username: '',
+        name: '',
+        password: '',
+        user_id: '',
+        role: 'user',
+        team: '',
+        department: '',
+        status: 'active',
+        must_change_password: false
+    });
+    const [loginHistory, setLoginHistory] = useState([]);
+    const [showLoginHistory, setShowLoginHistory] = useState(false);
+    const [showPasswords, setShowPasswords] = useState({}); // Track which passwords are visible
+    const [passwordInputs, setPasswordInputs] = useState({}); // Store password inputs for quick edit
 
     // --- AUTO FILL TEAM STATE ---
     const [isFillingTeam, setIsFillingTeam] = useState(false);
@@ -106,6 +129,7 @@ const AdminTools = () => {
         { id: 'upload_download', label: 'Upload và Tải về', icon: Download, keywords: ['upload', 'download', 'excel', 'tải về', 'nhập', 'xuất'] },
         { id: 'permissions', label: 'Phân quyền (RBAC)', icon: Shield, keywords: ['phân quyền', 'rbac', 'nhân viên', 'user', 'role', 'nhóm quyền', 'matrix'] },
         { id: 'auto_assign', label: 'Chia đơn tự động', icon: Users, keywords: ['chia đơn', 'tự động', 'phân bổ', 'cskh', 'auto assign', 'hạch toán'] },
+        { id: 'account_management', label: 'Quản lý tài khoản mật khẩu', icon: Key, keywords: ['tài khoản', 'mật khẩu', 'password', 'account', 'đăng nhập', 'login', 'auth', 'authentication'] },
     ];
 
     const visibleTabs = TABS.filter(tab => isSectionVisible(tab.label, tab.keywords));
@@ -1112,7 +1136,12 @@ const AdminTools = () => {
                 .from('danh_sach_van_don')
                 .select('ho_va_ten, chi_nhanh, trang_thai_chia');
 
-            if (vanDonError) throw vanDonError;
+            if (vanDonError) {
+                // Nếu bảng không tồn tại hoặc lỗi, log và tiếp tục với usersList
+                console.warn('⚠️ [Chia đơn vận đơn] Lỗi query danh_sach_van_don:', vanDonError);
+                console.warn('⚠️ [Chia đơn vận đơn] Sẽ sử dụng dữ liệu từ bảng users thay thế');
+                // Không throw error, tiếp tục với logic fallback
+            }
 
             // Tạo map để tra cứu trạng thái và chi nhánh từ danh_sach_van_don
             const vanDonMap = {};
@@ -1125,36 +1154,47 @@ const AdminTools = () => {
                 }
             });
 
-            // Lọc nhân viên có trạng thái "U1"
-            const nhanVienU1 = usersList.filter(user => {
-                const name = user.name;
-                const vanDonInfo = vanDonMap[name];
-                return vanDonInfo && vanDonInfo.trang_thai_chia === 'U1';
-            });
-
-            if (nhanVienU1.length === 0) {
-                throw new Error('Không có nhân viên nào có trạng thái U1');
+            // Lọc nhân viên có trạng thái "U1" (nếu có danh_sach_van_don)
+            // Nếu không có danh_sach_van_don, sử dụng tất cả users từ department "Vận Đơn"
+            let nhanVienU1Names = [];
+            if (vanDonList && vanDonList.length > 0) {
+                // Lọc users có trạng thái U1 trong danh_sach_van_don
+                const filteredUsers = usersList.filter(user => {
+                    const name = user.name;
+                    const vanDonInfo = vanDonMap[name];
+                    return vanDonInfo && vanDonInfo.trang_thai_chia === 'U1';
+                });
+                nhanVienU1Names = filteredUsers.map(user => user.name);
+            } else {
+                // Fallback: Sử dụng tất cả users từ department "Vận Đơn" nếu không có danh_sach_van_don
+                console.warn('⚠️ [Chia đơn vận đơn] Không có dữ liệu danh_sach_van_don, sử dụng tất cả users từ department "Vận Đơn"');
+                nhanVienU1Names = usersList.map(user => user.name);
             }
 
-            // Bước 3: Phân loại nhân viên theo chi nhánh (chỉ lấy từ danh_sach_van_don)
+            if (nhanVienU1Names.length === 0) {
+                throw new Error('Không có nhân viên nào có trạng thái U1 hoặc không có nhân sự Vận Đơn');
+            }
+
+            // Bước 3: Phân loại nhân viên theo chi nhánh
+            // Ưu tiên lấy từ danh_sach_van_don, fallback về branch từ users
             const nhanVienHCM = [];
             const nhanVienHaNoi = [];
 
-            nhanVienU1.forEach(user => {
-                const name = user.name;
+            nhanVienU1Names.forEach(name => {
+                const user = usersList.find(u => u.name === name);
                 const vanDonInfo = vanDonMap[name];
-                // Chỉ lấy chi_nhanh từ danh_sach_van_don, không dùng fallback
-                const chiNhanh = vanDonInfo?.chi_nhanh || '';
+                // Ưu tiên chi_nhanh từ danh_sach_van_don, fallback về branch từ users
+                const chiNhanh = vanDonInfo?.chi_nhanh || user?.branch || '';
 
-                if (chiNhanh === 'HCM') {
+                if (chiNhanh === 'HCM' || chiNhanh?.toLowerCase() === 'hcm') {
                     nhanVienHCM.push(name);
-                } else if (chiNhanh === 'Hà Nội') {
+                } else if (chiNhanh === 'Hà Nội' || chiNhanh?.toLowerCase() === 'hà nội' || chiNhanh?.toLowerCase() === 'ha noi' || chiNhanh?.toLowerCase() === 'hanoi') {
                     nhanVienHaNoi.push(name);
                 }
             });
 
             if (nhanVienHCM.length === 0 && nhanVienHaNoi.length === 0) {
-                throw new Error('Không có nhân viên U1 nào thuộc HCM hoặc Hà Nội');
+                throw new Error('Không có nhân viên nào thuộc HCM hoặc Hà Nội. Vui lòng kiểm tra dữ liệu trong bảng danh_sach_van_don hoặc branch trong bảng users');
             }
 
             // Bước 3: Lấy lastIndex từ localStorage
@@ -1173,13 +1213,12 @@ const AdminTools = () => {
                 }
             }
 
-            // Bước 4: Lọc đơn hàng cần chia (lọc trực tiếp trong query Supabase)
+            // Bước 4: Lọc đơn hàng cần chia
             // Lọc: delivery_staff trống, null hoặc empty string
-            // Sử dụng .or() với format đúng của Supabase
+            // Supabase không hỗ trợ .or() với empty string, nên query tất cả rồi filter
             const { data: allOrders, error: ordersError } = await supabase
                 .from('orders')
-                .select('*')
-                .or('delivery_staff.is.null,delivery_staff.eq.');
+                .select('*');
 
             if (ordersError) {
                 console.error('❌ [Chia đơn vận đơn] Lỗi query orders:', ordersError);
@@ -1187,7 +1226,13 @@ const AdminTools = () => {
             }
 
             // Đảm bảo allOrders là array
-            const ordersArray = Array.isArray(allOrders) ? allOrders : [];
+            let ordersArray = Array.isArray(allOrders) ? allOrders : [];
+
+            // Filter: chỉ lấy đơn có delivery_staff là null, undefined, hoặc empty string
+            ordersArray = ordersArray.filter(order => {
+                const deliveryStaff = order.delivery_staff;
+                return !deliveryStaff || deliveryStaff === '' || deliveryStaff === null || deliveryStaff === undefined;
+            });
 
             console.log(`📦 [Chia đơn vận đơn] Đã lấy ${ordersArray.length} đơn có delivery_staff trống/null/empty từ database`);
 
@@ -1478,30 +1523,227 @@ const AdminTools = () => {
     };
 
     // Xóa toàn bộ dữ liệu trong cột CSKH
-    const handleClearCSKHData = async () => {
-        if (!window.confirm('⚠️ CẢNH BÁO: Bạn có chắc muốn XÓA TOÀN BỘ dữ liệu trong cột CSKH?\n\nHành động này sẽ:\n- Set tất cả giá trị cskh về NULL\n- Không thể hoàn tác!\n\nBạn có chắc chắn muốn tiếp tục?')) {
+    const handleSyncTeam = async () => {
+        if (!window.confirm('🔄 Đồng bộ team dựa trên tên nhân viên?\n\nHành động này sẽ:\n- Lấy team từ bảng users dựa trên tên\n- Cập nhật team tương ứng trong các bảng orders, detail_reports, reports\n- Đồng bộ team cho sale_staff, cskh, delivery_staff\n\nBạn có chắc chắn muốn tiếp tục?')) {
             return;
         }
 
-        setClearCSKHLoading(true);
+        setSyncTeamLoading(true);
         try {
-            // Đếm số đơn có CSKH trước khi xóa (không null và không rỗng)
-            const { count: countBefore } = await supabase
+            console.log('🔄 [Đồng bộ Team] Bắt đầu...');
+
+            // 1. Lấy tất cả users với name và team
+            const { data: users, error: usersError } = await supabase
+                .from('users')
+                .select('id, name, team')
+                .not('name', 'is', null)
+                .neq('name', '');
+
+            if (usersError) {
+                throw usersError;
+            }
+
+            if (!users || users.length === 0) {
+                toast.warning('Không tìm thấy users nào có tên!');
+                return;
+            }
+
+            console.log(`📊 [Đồng bộ Team] Tìm thấy ${users.length} users`);
+
+            // Tạo map name -> team
+            const nameToTeamMap = {};
+            users.forEach(user => {
+                if (user.name && user.team) {
+                    const name = user.name.trim();
+                    nameToTeamMap[name] = user.team;
+                }
+            });
+
+            console.log(`📋 [Đồng bộ Team] Map name->team:`, Object.keys(nameToTeamMap).length, 'entries');
+
+            let totalUpdated = 0;
+            const results = {
+                orders: { sale_staff: 0, cskh: 0, delivery_staff: 0 },
+                detail_reports: 0,
+                reports: 0
+            };
+
+            // 2. Đồng bộ trong bảng orders
+            console.log('🔄 [Đồng bộ Team] Đang xử lý bảng orders...');
+
+            // Lấy tất cả orders
+            const { data: orders, error: ordersError } = await supabase
                 .from('orders')
-                .select('*', { count: 'exact', head: true })
-                .not('cskh', 'is', null)
-                .neq('cskh', '');
+                .select('id, sale_staff, cskh, delivery_staff, team');
 
-            console.log(`📊 [Xóa CSKH] Tìm thấy ${countBefore || 0} đơn có dữ liệu CSKH`);
+            if (ordersError) {
+                console.error('❌ [Đồng bộ Team] Lỗi lấy orders:', ordersError);
+            } else if (orders && orders.length > 0) {
+                const updates = [];
 
-            // Xóa tất cả dữ liệu CSKH (set về null)
-            // Update tất cả đơn có cskh không null và không rỗng
+                for (const order of orders) {
+                    const updatesForOrder = {};
+                    let hasUpdate = false;
+
+                    // Kiểm tra sale_staff
+                    if (order.sale_staff && nameToTeamMap[order.sale_staff.trim()]) {
+                        const team = nameToTeamMap[order.sale_staff.trim()];
+                        if (order.team !== team) {
+                            updatesForOrder.team = team;
+                            hasUpdate = true;
+                            results.orders.sale_staff++;
+                        }
+                    }
+
+                    // Kiểm tra cskh
+                    if (order.cskh && nameToTeamMap[order.cskh.trim()]) {
+                        const team = nameToTeamMap[order.cskh.trim()];
+                        if (order.team !== team) {
+                            updatesForOrder.team = team;
+                            hasUpdate = true;
+                            results.orders.cskh++;
+                        }
+                    }
+
+                    // Kiểm tra delivery_staff
+                    if (order.delivery_staff && nameToTeamMap[order.delivery_staff.trim()]) {
+                        const team = nameToTeamMap[order.delivery_staff.trim()];
+                        if (order.team !== team) {
+                            updatesForOrder.team = team;
+                            hasUpdate = true;
+                            results.orders.delivery_staff++;
+                        }
+                    }
+
+                    if (hasUpdate) {
+                        updates.push({ id: order.id, ...updatesForOrder });
+                    }
+                }
+
+                // Batch update orders
+                if (updates.length > 0) {
+                    for (const update of updates) {
+                        const { error: updateError } = await supabase
+                            .from('orders')
+                            .update({ team: update.team })
+                            .eq('id', update.id);
+
+                        if (updateError) {
+                            console.error(`❌ [Đồng bộ Team] Lỗi cập nhật order ${update.id}:`, updateError);
+                        } else {
+                            totalUpdated++;
+                        }
+                    }
+                }
+            }
+
+            // 3. Đồng bộ trong bảng detail_reports (nếu có trường team và owner)
+            console.log('🔄 [Đồng bộ Team] Đang xử lý bảng detail_reports...');
+            try {
+                const { data: detailReports, error: detailReportsError } = await supabase
+                    .from('detail_reports')
+                    .select('id, owner, team')
+                    .limit(1000); // Giới hạn để tránh quá tải
+
+                if (!detailReportsError && detailReports && detailReports.length > 0) {
+                    const updates = [];
+                    for (const report of detailReports) {
+                        if (report.owner && nameToTeamMap[report.owner.trim()]) {
+                            const team = nameToTeamMap[report.owner.trim()];
+                            if (report.team !== team) {
+                                updates.push({ id: report.id, team });
+                                results.detail_reports++;
+                            }
+                        }
+                    }
+
+                    // Batch update
+                    for (const update of updates) {
+                        const { error: updateError } = await supabase
+                            .from('detail_reports')
+                            .update({ team: update.team })
+                            .eq('id', update.id);
+
+                        if (!updateError) {
+                            totalUpdated++;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('⚠️ [Đồng bộ Team] Bảng detail_reports có thể không có trường team:', err);
+            }
+
+            // 4. Đồng bộ trong bảng reports (nếu có trường team và owner)
+            console.log('🔄 [Đồng bộ Team] Đang xử lý bảng reports...');
+            try {
+                const { data: reports, error: reportsError } = await supabase
+                    .from('reports')
+                    .select('id, owner, team')
+                    .limit(1000);
+
+                if (!reportsError && reports && reports.length > 0) {
+                    const updates = [];
+                    for (const report of reports) {
+                        if (report.owner && nameToTeamMap[report.owner.trim()]) {
+                            const team = nameToTeamMap[report.owner.trim()];
+                            if (report.team !== team) {
+                                updates.push({ id: report.id, team });
+                                results.reports++;
+                            }
+                        }
+                    }
+
+                    // Batch update
+                    for (const update of updates) {
+                        const { error: updateError } = await supabase
+                            .from('reports')
+                            .update({ team: update.team })
+                            .eq('id', update.id);
+
+                        if (!updateError) {
+                            totalUpdated++;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('⚠️ [Đồng bộ Team] Bảng reports có thể không có trường team:', err);
+            }
+
+            const summary = `
+✅ Đồng bộ team hoàn tất!
+
+📊 Kết quả:
+- Orders (sale_staff): ${results.orders.sale_staff} records
+- Orders (cskh): ${results.orders.cskh} records  
+- Orders (delivery_staff): ${results.orders.delivery_staff} records
+- Detail Reports: ${results.detail_reports} records
+- Reports: ${results.reports} records
+
+Tổng cộng: ${totalUpdated} records đã được cập nhật
+            `.trim();
+
+            console.log(summary);
+            toast.success(`✅ Đã đồng bộ team cho ${totalUpdated} records!`, {
+                autoClose: 5000
+            });
+
+        } catch (error) {
+            console.error('❌ [Đồng bộ Team] Lỗi:', error);
+            toast.error(`❌ Lỗi đồng bộ team: ${error.message}`);
+        } finally {
+            setSyncTeamLoading(false);
+        }
+    };
+
+    // --- ACCOUNT MANAGEMENT FUNCTIONS ---
+    const loadAuthAccounts = async () => {
+        setAccountLoading(true);
+        try {
+            // Lấy danh sách từ bảng users (bao gồm can_day_ffm)
             const { data, error } = await supabase
-                .from('orders')
-                .update({ cskh: null })
-                .not('cskh', 'is', null)
-                .neq('cskh', '')
-                .select();
+                .from('users')
+                .select('id, username, email, password, name, role, team, department, position, branch, shift, created_at, can_day_ffm')
+                .order('created_at', { ascending: false });
 
             if (error) {
                 throw error;
@@ -1517,12 +1759,235 @@ const AdminTools = () => {
                 window.location.reload();
             }, 2000);
         } catch (error) {
-            console.error('❌ [Xóa CSKH] Lỗi:', error);
-            toast.error(`❌ Lỗi xóa dữ liệu CSKH: ${error.message}`);
+            console.error('Error loading users:', error);
+            toast.error('Lỗi khi tải danh sách tài khoản: ' + error.message);
         } finally {
-            setClearCSKHLoading(false);
+            setAccountLoading(false);
         }
     };
+
+    const handleViewLoginHistory = async (accountId) => {
+        try {
+            // Lấy lịch sử đăng nhập từ login_history dựa trên user_id hoặc email
+            const account = authAccounts.find(a => a.id === accountId || a.user_id === accountId);
+            if (!account) {
+                toast.error('Không tìm thấy tài khoản');
+                return;
+            }
+
+            // Thử query từ login_history nếu bảng tồn tại
+            const { data, error } = await supabase
+                .from('login_history')
+                .select('*')
+                .or(`user_id.eq.${accountId},email.eq.${account.email}`)
+                .order('login_at', { ascending: false })
+                .limit(50);
+
+            if (error) {
+                // Nếu bảng không tồn tại, hiển thị thông báo
+                if (error.code === 'PGRST116' || error.message?.includes('does not exist')) {
+                    toast.info('Bảng login_history chưa được tạo. Lịch sử đăng nhập sẽ được lưu sau khi bảng được tạo.');
+                    setLoginHistory([]);
+                    setShowLoginHistory(true);
+                    return;
+                }
+                throw error;
+            }
+
+            setLoginHistory(data || []);
+            setShowLoginHistory(true);
+        } catch (error) {
+            console.error('Error loading login history:', error);
+            toast.error('Lỗi khi tải lịch sử đăng nhập: ' + error.message);
+        }
+    };
+
+    const handleEditAccount = (account) => {
+        setSelectedAccount(account);
+        setAccountForm({
+            email: account.email || '',
+            username: account.username || '',
+            name: account.name || '',
+            password: '', // Không hiển thị password
+            user_id: account.id || account.user_id || '',
+            role: account.role || 'user',
+            team: account.team || '',
+            department: account.department || '',
+            status: account.has_password ? 'active' : 'inactive',
+            must_change_password: false
+        });
+        setShowAccountModal(true);
+    };
+
+    const handleLockAccount = async (accountId) => {
+        if (!window.confirm('Bạn có chắc muốn vô hiệu hóa tài khoản này? (Sẽ xóa mật khẩu để ngăn đăng nhập)')) return;
+
+        try {
+            // Xóa mật khẩu để khóa tài khoản (hoặc có thể thêm cột status vào users)
+            const { error } = await supabase
+                .from('users')
+                .update({
+                    password: null // Xóa mật khẩu để khóa
+                })
+                .eq('id', accountId);
+
+            if (error) throw error;
+
+            toast.success('Đã vô hiệu hóa tài khoản thành công!');
+            loadAuthAccounts();
+        } catch (error) {
+            console.error('Error locking account:', error);
+            toast.error('Lỗi khi vô hiệu hóa tài khoản: ' + error.message);
+        }
+    };
+
+    const handleUnlockAccount = async (accountId) => {
+        try {
+            // Để mở khóa, cần set lại mật khẩu tạm thời hoặc yêu cầu user đặt lại
+            const newPassword = prompt('Nhập mật khẩu mới cho tài khoản này (hoặc để trống để user tự đặt):');
+
+            if (newPassword === null) return; // User hủy
+
+            if (newPassword) {
+                // Hash password mới
+                const bcrypt = await import('bcryptjs');
+                const passwordHash = bcrypt.default.hashSync(newPassword, 10);
+
+                const { error } = await supabase
+                    .from('users')
+                    .update({ password: passwordHash })
+                    .eq('id', accountId);
+
+                if (error) throw error;
+                toast.success('Đã mở khóa tài khoản và set mật khẩu mới thành công!');
+            } else {
+                toast.info('Tài khoản đã được mở khóa nhưng cần user tự đặt mật khẩu mới khi đăng nhập.');
+            }
+
+            loadAuthAccounts();
+        } catch (error) {
+            console.error('Error unlocking account:', error);
+            toast.error('Lỗi khi mở khóa tài khoản: ' + error.message);
+        }
+    };
+
+    const handleSaveAccount = async () => {
+        if (!accountForm.email) {
+            toast.error('Email là bắt buộc!');
+            return;
+        }
+
+        try {
+            // Nếu có password, cần hash trước khi lưu
+            let passwordHash = null;
+            if (accountForm.password) {
+                // Import bcryptjs để hash password
+                const bcrypt = await import('bcryptjs');
+                passwordHash = bcrypt.default.hashSync(accountForm.password, 10);
+            }
+
+            if (selectedAccount) {
+                // Update existing user in users table
+                const updateData = {
+                    email: accountForm.email,
+                    username: accountForm.username,
+                    name: accountForm.name,
+                    role: accountForm.role || 'user'
+                };
+
+                if (passwordHash) {
+                    updateData.password = passwordHash;
+                }
+
+                if (accountForm.team !== undefined) {
+                    updateData.team = accountForm.team || null;
+                }
+                if (accountForm.department !== undefined) {
+                    updateData.department = accountForm.department || null;
+                }
+
+                const { error } = await supabase
+                    .from('users')
+                    .update(updateData)
+                    .eq('id', selectedAccount.id);
+
+                if (error) throw error;
+                toast.success('Đã cập nhật tài khoản thành công!');
+            } else {
+                // Create new user in users table
+                if (!passwordHash) {
+                    toast.error('Mật khẩu là bắt buộc khi tạo tài khoản mới!');
+                    return;
+                }
+
+                if (!accountForm.username) {
+                    toast.error('Username là bắt buộc!');
+                    return;
+                }
+
+                if (!accountForm.name) {
+                    toast.error('Tên là bắt buộc!');
+                    return;
+                }
+
+                // Generate ID từ email hoặc username
+                const userId = accountForm.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+                const { error } = await supabase
+                    .from('users')
+                    .insert({
+                        id: userId,
+                        email: accountForm.email,
+                        username: accountForm.username,
+                        password: passwordHash,
+                        name: accountForm.name,
+                        role: accountForm.role || 'user',
+                        team: accountForm.team || null,
+                        department: accountForm.department || null
+                    });
+
+                if (error) {
+                    // Nếu user đã tồn tại, update thông tin
+                    if (error.code === '23505') { // Unique violation
+                        const updateData = {
+                            username: accountForm.username,
+                            password: passwordHash,
+                            name: accountForm.name,
+                            role: accountForm.role || 'user'
+                        };
+                        if (accountForm.team) updateData.team = accountForm.team;
+                        if (accountForm.department) updateData.department = accountForm.department;
+
+                        const { error: updateError } = await supabase
+                            .from('users')
+                            .update(updateData)
+                            .eq('email', accountForm.email);
+
+                        if (updateError) throw updateError;
+                        toast.success('Tài khoản đã tồn tại, đã cập nhật thông tin!');
+                    } else {
+                        throw error;
+                    }
+                } else {
+                    toast.success('Đã tạo tài khoản thành công!');
+                }
+            }
+
+            setShowAccountModal(false);
+            setSelectedAccount(null);
+            loadAuthAccounts();
+        } catch (error) {
+            console.error('Error saving account:', error);
+            toast.error('Lỗi khi lưu tài khoản: ' + error.message);
+        }
+    };
+
+    // Load accounts on mount if tab is active
+    useEffect(() => {
+        if (activeTab === 'account_management') {
+            loadAuthAccounts();
+        }
+    }, [activeTab]);
 
     // Tự động điền Team từ bảng nhân sự vào orders
     const handleAutoFillTeam = async () => {
@@ -2834,32 +3299,33 @@ const AdminTools = () => {
                             </div>
                         </div>
 
-                        {/* Xóa dữ liệu CSKH */}
+                        {/* Đồng bộ team */}
                         <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 mb-6">
                             <div className="space-y-4">
-                                <h3 className="font-semibold text-gray-700">Xóa dữ liệu CSKH</h3>
-                                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                                    <p className="text-xs text-red-700 mb-2"><strong>⚠️ CẢNH BÁO:</strong></p>
-                                    <ul className="list-disc list-inside space-y-1 text-xs text-red-600">
-                                        <li>Hành động này sẽ xóa TOÀN BỘ dữ liệu trong cột CSKH</li>
-                                        <li>Tất cả giá trị cskh sẽ được set về NULL</li>
-                                        <li>Không thể hoàn tác sau khi xóa!</li>
+                                <h3 className="font-semibold text-gray-700">Đồng bộ team</h3>
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                    <p className="text-xs text-blue-700 mb-2"><strong>ℹ️ Thông tin:</strong></p>
+                                    <ul className="list-disc list-inside space-y-1 text-xs text-blue-600">
+                                        <li>Đồng bộ team dựa trên tên nhân viên từ bảng users</li>
+                                        <li>Cập nhật team trong các bảng: orders, detail_reports, reports</li>
+                                        <li>Khớp theo tên trong các trường: sale_staff, cskh, delivery_staff, owner</li>
+                                        <li>Team sẽ được lấy từ bảng users dựa trên name tương ứng</li>
                                     </ul>
                                 </div>
                                 <button
-                                    onClick={handleClearCSKHData}
-                                    disabled={clearCSKHLoading}
-                                    className="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    onClick={handleSyncTeam}
+                                    disabled={syncTeamLoading}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
-                                    {clearCSKHLoading ? (
+                                    {syncTeamLoading ? (
                                         <>
                                             <RefreshCw className="w-5 h-5 animate-spin" />
-                                            Đang xóa...
+                                            Đang đồng bộ...
                                         </>
                                     ) : (
                                         <>
-                                            <Trash2 className="w-5 h-5" />
-                                            Xóa toàn bộ dữ liệu CSKH
+                                            <RefreshCw className="w-5 h-5" />
+                                            Đồng bộ team
                                         </>
                                     )}
                                 </button>
@@ -2939,6 +3405,466 @@ const AdminTools = () => {
                                     >
                                         📋 Copy danh sách mã đơn
                                     </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* TAB CONTENT: ACCOUNT MANAGEMENT */}
+            {activeTab === 'account_management' && (
+                <div className="bg-white rounded-xl shadow-md border border-gray-100 animate-fadeIn overflow-hidden">
+                    <div className="p-6 border-b border-gray-100 bg-gray-50">
+                        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                            <Key className="w-6 h-6 text-blue-600" />
+                            Quản lý tài khoản đăng nhập và mật khẩu
+                        </h2>
+                        <p className="text-sm text-gray-600 mt-2">
+                            Quản lý tài khoản đăng nhập, mật khẩu và lịch sử đăng nhập của người dùng
+                        </p>
+                    </div>
+
+                    <div className="p-6">
+                        {/* Action Buttons */}
+                        <div className="flex gap-3 mb-6">
+                            <button
+                                onClick={loadAuthAccounts}
+                                disabled={accountLoading}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                                <RefreshCw className={`w-4 h-4 ${accountLoading ? 'animate-spin' : ''}`} />
+                                Tải lại danh sách
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setAccountForm({
+                                        email: '',
+                                        username: '',
+                                        name: '',
+                                        password: '',
+                                        user_id: '',
+                                        role: 'user',
+                                        team: '',
+                                        department: '',
+                                        status: 'active',
+                                        must_change_password: false
+                                    });
+                                    setSelectedAccount(null);
+                                    setShowAccountModal(true);
+                                }}
+                                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors flex items-center gap-2"
+                            >
+                                <Users className="w-4 h-4" />
+                                Tạo tài khoản mới
+                            </button>
+                        </div>
+
+                        {/* Accounts List */}
+                        {accountLoading ? (
+                            <div className="text-center py-8">
+                                <RefreshCw className="w-8 h-8 animate-spin mx-auto text-blue-600" />
+                                <p className="mt-2 text-gray-600">Đang tải danh sách tài khoản...</p>
+                            </div>
+                        ) : authAccounts.length === 0 ? (
+                            <div className="text-center py-8 text-gray-500">
+                                <Key className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                <p>Chưa có tài khoản nào. Nhấn "Tạo tài khoản mới" để bắt đầu.</p>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full border-collapse border border-gray-300">
+                                    <thead>
+                                        <tr className="bg-gray-100">
+                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Email</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Username</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Tên</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Password</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Role</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Team</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold">Đẩy FFM</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Trạng thái</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Thao tác</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {authAccounts.map((account) => (
+                                            <tr key={account.id} className="hover:bg-gray-50">
+                                                <td className="border border-gray-300 px-4 py-3">{account.email}</td>
+                                                <td className="border border-gray-300 px-4 py-3">{account.username || '-'}</td>
+                                                <td className="border border-gray-300 px-4 py-3">{account.name || '-'}</td>
+                                                <td className="border border-gray-300 px-4 py-3">
+                                                    <div className="flex items-center gap-2">
+                                                        {showPasswords[account.id] ? (
+                                                            <>
+                                                                <input
+                                                                    type="text"
+                                                                    value={passwordInputs[account.id] !== undefined ? passwordInputs[account.id] : (account.password ? '••••••••' : '')}
+                                                                    onChange={(e) => setPasswordInputs({ ...passwordInputs, [account.id]: e.target.value })}
+                                                                    className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                                                                    placeholder="Nhập mật khẩu mới"
+                                                                />
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        const newPassword = passwordInputs[account.id];
+                                                                        if (newPassword && newPassword.trim()) {
+                                                                            const bcrypt = await import('bcryptjs');
+                                                                            const passwordHash = bcrypt.default.hashSync(newPassword, 10);
+                                                                            const { error } = await supabase
+                                                                                .from('users')
+                                                                                .update({ password: passwordHash })
+                                                                                .eq('id', account.id);
+                                                                            if (error) {
+                                                                                toast.error('Lỗi: ' + error.message);
+                                                                            } else {
+                                                                                toast.success('Đã cập nhật mật khẩu!');
+                                                                                loadAuthAccounts();
+                                                                                setShowPasswords({ ...showPasswords, [account.id]: false });
+                                                                                delete passwordInputs[account.id];
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                                                                    title="Lưu mật khẩu"
+                                                                >
+                                                                    <Save className="w-3 h-3" />
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <span className="text-xs text-gray-600">
+                                                                    {account.has_password ? '••••••••' : 'Chưa có'}
+                                                                </span>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setShowPasswords({ ...showPasswords, [account.id]: true });
+                                                                        setPasswordInputs({ ...passwordInputs, [account.id]: '' });
+                                                                    }}
+                                                                    className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200"
+                                                                    title="Đặt mật khẩu"
+                                                                >
+                                                                    <Key className="w-3 h-3" />
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowPasswords({ ...showPasswords, [account.id]: !showPasswords[account.id] });
+                                                                if (showPasswords[account.id]) {
+                                                                    const newInputs = { ...passwordInputs };
+                                                                    delete newInputs[account.id];
+                                                                    setPasswordInputs(newInputs);
+                                                                }
+                                                            }}
+                                                            className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200"
+                                                            title={showPasswords[account.id] ? 'Hủy' : 'Sửa mật khẩu'}
+                                                        >
+                                                            {showPasswords[account.id] ? <X className="w-3 h-3" /> : <Settings className="w-3 h-3" />}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                                <td className="border border-gray-300 px-4 py-3">
+                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${account.role === 'admin' ? 'bg-purple-100 text-purple-800' :
+                                                        account.role === 'leader' ? 'bg-blue-100 text-blue-800' :
+                                                            'bg-gray-100 text-gray-800'
+                                                        }`}>
+                                                        {account.role || 'user'}
+                                                    </span>
+                                                </td>
+                                                <td className="border border-gray-300 px-4 py-3">{account.team || '-'}</td>
+                                                <td className="border border-gray-300 px-4 py-3">
+                                                    <label className="flex items-center justify-center cursor-pointer group">
+                                                        <div className="relative">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={account.can_day_ffm === true}
+                                                                onChange={async (e) => {
+                                                                    const newValue = e.target.checked;
+                                                                    try {
+                                                                        const { error } = await supabase
+                                                                            .from('users')
+                                                                            .update({ can_day_ffm: newValue })
+                                                                            .eq('id', account.id);
+
+                                                                        if (error) {
+                                                                            toast.error('Lỗi cập nhật quyền đẩy FFM: ' + error.message);
+                                                                        } else {
+                                                                            toast.success(newValue ? 'Đã cấp quyền đẩy FFM' : 'Đã thu hồi quyền đẩy FFM');
+                                                                            loadAuthAccounts(); // Reload để cập nhật UI
+                                                                        }
+                                                                    } catch (err) {
+                                                                        toast.error('Lỗi: ' + err.message);
+                                                                    }
+                                                                }}
+                                                                className="sr-only"
+                                                            />
+                                                            <div className={`
+                                                                w-11 h-6 rounded-full transition-all duration-200 ease-in-out
+                                                                ${account.can_day_ffm
+                                                                    ? 'bg-green-500'
+                                                                    : 'bg-gray-300'
+                                                                }
+                                                                group-hover:opacity-80
+                                                            `}>
+                                                                <div className={`
+                                                                    w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out
+                                                                    ${account.can_day_ffm
+                                                                        ? 'translate-x-5'
+                                                                        : 'translate-x-0.5'
+                                                                    }
+                                                                    mt-0.5
+                                                                `}></div>
+                                                            </div>
+                                                        </div>
+                                                        <span className={`ml-2 text-xs font-medium ${account.can_day_ffm ? 'text-green-700' : 'text-gray-500'
+                                                            }`}>
+                                                            {account.can_day_ffm ? 'Có' : 'Không'}
+                                                        </span>
+                                                    </label>
+                                                </td>
+                                                <td className="border border-gray-300 px-4 py-3">
+                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${account.status === 'active' ? 'bg-green-100 text-green-800' :
+                                                        account.status === 'locked' ? 'bg-red-100 text-red-800' :
+                                                            account.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
+                                                                'bg-yellow-100 text-yellow-800'
+                                                        }`}>
+                                                        {account.has_password ? 'Có mật khẩu' : 'Chưa có mật khẩu'}
+                                                    </span>
+                                                </td>
+                                                <td className="border border-gray-300 px-4 py-3">
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => handleViewLoginHistory(account.id)}
+                                                            className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200"
+                                                            title="Xem lịch sử đăng nhập"
+                                                        >
+                                                            <Clock className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleEditAccount(account)}
+                                                            className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200"
+                                                            title="Sửa tài khoản"
+                                                        >
+                                                            <Settings className="w-4 h-4" />
+                                                        </button>
+                                                        {account.has_password ? (
+                                                            <button
+                                                                onClick={() => handleLockAccount(account.id)}
+                                                                className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                                                                title="Vô hiệu hóa tài khoản (xóa mật khẩu)"
+                                                            >
+                                                                <Lock className="w-4 h-4" />
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => handleUnlockAccount(account.id)}
+                                                                className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                                                                title="Kích hoạt tài khoản (set mật khẩu)"
+                                                            >
+                                                                <Lock className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        {/* Account Modal */}
+                        {showAccountModal && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-xl font-bold text-gray-800">
+                                            {selectedAccount ? 'Sửa tài khoản' : 'Tạo tài khoản mới'}
+                                        </h3>
+                                        <button
+                                            onClick={() => {
+                                                setShowAccountModal(false);
+                                                setSelectedAccount(null);
+                                            }}
+                                            className="text-gray-500 hover:text-gray-700"
+                                        >
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Email <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="email"
+                                                value={accountForm.email}
+                                                onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                placeholder="user@example.com"
+                                                required
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Username <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={accountForm.username}
+                                                onChange={(e) => setAccountForm({ ...accountForm, username: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                placeholder="username"
+                                                required
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Tên <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={accountForm.name}
+                                                onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                placeholder="Họ và tên"
+                                                required
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Mật khẩu {selectedAccount ? '(để trống nếu không đổi)' : <span className="text-red-500">*</span>}
+                                            </label>
+                                            <input
+                                                type="password"
+                                                value={accountForm.password}
+                                                onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                placeholder={selectedAccount ? 'Nhập mật khẩu mới (nếu muốn đổi)' : 'Nhập mật khẩu'}
+                                                required={!selectedAccount}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Role
+                                            </label>
+                                            <select
+                                                value={accountForm.role}
+                                                onChange={(e) => setAccountForm({ ...accountForm, role: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                                <option value="user">User</option>
+                                                <option value="leader">Leader</option>
+                                                <option value="admin">Admin</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Team
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={accountForm.team}
+                                                onChange={(e) => setAccountForm({ ...accountForm, team: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                placeholder="HCM, Hà Nội, ..."
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Department
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={accountForm.department}
+                                                onChange={(e) => setAccountForm({ ...accountForm, department: e.target.value })}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                placeholder="Marketing, Sales, CSKH, ..."
+                                            />
+                                        </div>
+
+                                        <div className="flex gap-3 pt-4">
+                                            <button
+                                                onClick={handleSaveAccount}
+                                                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+                                            >
+                                                {selectedAccount ? 'Cập nhật' : 'Tạo mới'}
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setShowAccountModal(false);
+                                                    setSelectedAccount(null);
+                                                }}
+                                                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium transition-colors"
+                                            >
+                                                Hủy
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Login History Modal */}
+                        {showLoginHistory && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-xl font-bold text-gray-800">Lịch sử đăng nhập</h3>
+                                        <button
+                                            onClick={() => setShowLoginHistory(false)}
+                                            className="text-gray-500 hover:text-gray-700"
+                                        >
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    </div>
+
+                                    {loginHistory.length === 0 ? (
+                                        <p className="text-gray-500 text-center py-8">Chưa có lịch sử đăng nhập</p>
+                                    ) : (
+                                        <div className="overflow-x-auto">
+                                            <table className="min-w-full border-collapse border border-gray-300">
+                                                <thead>
+                                                    <tr className="bg-gray-100">
+                                                        <th className="border border-gray-300 px-4 py-2 text-left font-semibold">Thời gian</th>
+                                                        <th className="border border-gray-300 px-4 py-2 text-left font-semibold">Trạng thái</th>
+                                                        <th className="border border-gray-300 px-4 py-2 text-left font-semibold">IP</th>
+                                                        <th className="border border-gray-300 px-4 py-2 text-left font-semibold">Thiết bị</th>
+                                                        <th className="border border-gray-300 px-4 py-2 text-left font-semibold">Lý do</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {loginHistory.map((history) => (
+                                                        <tr key={history.id} className="hover:bg-gray-50">
+                                                            <td className="border border-gray-300 px-4 py-2 text-sm">
+                                                                {new Date(history.login_at).toLocaleString('vi-VN')}
+                                                            </td>
+                                                            <td className="border border-gray-300 px-4 py-2">
+                                                                <span className={`px-2 py-1 rounded text-xs font-medium ${history.status === 'success' ? 'bg-green-100 text-green-800' :
+                                                                    history.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                                                        'bg-yellow-100 text-yellow-800'
+                                                                    }`}>
+                                                                    {history.status === 'success' ? 'Thành công' :
+                                                                        history.status === 'failed' ? 'Thất bại' :
+                                                                            history.status}
+                                                                </span>
+                                                            </td>
+                                                            <td className="border border-gray-300 px-4 py-2 text-sm">{history.login_ip || '-'}</td>
+                                                            <td className="border border-gray-300 px-4 py-2 text-sm">{history.user_agent || '-'}</td>
+                                                            <td className="border border-gray-300 px-4 py-2 text-sm text-red-600">{history.failure_reason || '-'}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}

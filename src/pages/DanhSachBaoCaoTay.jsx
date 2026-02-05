@@ -33,12 +33,24 @@ export default function DanhSachBaoCaoTay() {
     const userObj = userJson ? JSON.parse(userJson) : null;
     const roleFromUserObj = (userObj?.role || '').toLowerCase();
 
-    const isAdmin = roleFromHook === 'ADMIN' ||
-                   roleFromHook === 'SUPER_ADMIN' ||
+    const roleFromHookLower = (roleFromHook || '').toLowerCase();
+    const isAdmin = roleFromHookLower === 'admin' ||
+                   roleFromHookLower === 'super_admin' ||
+                   roleFromHookLower === 'finance' ||
                    roleFromStorage === 'admin' ||
                    roleFromStorage === 'super_admin' ||
+                   roleFromStorage === 'finance' ||
                    roleFromUserObj === 'admin' ||
-                   roleFromUserObj === 'super_admin';
+                   roleFromUserObj === 'super_admin' ||
+                   roleFromUserObj === 'finance';
+    
+    // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
+    const isAdminOnly = roleFromHookLower === 'admin' ||
+                        roleFromHookLower === 'super_admin' ||
+                        roleFromStorage === 'admin' ||
+                        roleFromStorage === 'super_admin' ||
+                        roleFromUserObj === 'admin' ||
+                        roleFromUserObj === 'super_admin';
 
     // Get user email for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
@@ -244,8 +256,8 @@ export default function DanhSachBaoCaoTay() {
                 return String(str).trim().replace(/\s+/g, ' ');
             };
 
-            // Filter theo selected_personnel nếu có
-            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+            // Filter theo selected_personnel nếu có (Admin và Finance không bị filter)
+            if (!isAdmin && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                 const orConditions = selectedPersonnelNames
                     .filter(name => name && name.trim().length > 0)
                     .map(name => {
@@ -259,6 +271,8 @@ export default function DanhSachBaoCaoTay() {
                     // Nếu không có tên hợp lệ, không hiển thị gì cả
                     query = query.eq('id', '00000000-0000-0000-0000-000000000000');
                 }
+            } else if (isAdmin) {
+                console.log('✅ Admin/Finance: Viewing all manual reports (no filter applied)');
             }
 
             // Filter theo sản phẩm
@@ -732,8 +746,8 @@ export default function DanhSachBaoCaoTay() {
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY SALE</h2>
-                        {/* Chỉ Admin mới thấy nút xóa */}
-                        {isAdmin && (
+                        {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
+                        {isAdminOnly && (
                             <button
                                 onClick={handleDeleteAll}
                                 disabled={deleting || loading}

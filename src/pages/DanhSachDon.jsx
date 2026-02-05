@@ -37,7 +37,14 @@ function DanhSachDon() {
   const user = userJson ? JSON.parse(userJson) : null;
   const userEmail = (user?.Email || user?.email || localStorage.getItem("userEmail") || "").toString().toLowerCase().trim();
   const ADMIN_MAIL = "admin@marketing.com";
-  const isAdmin = ['admin', 'super_admin', 'ADMIN', 'SUPER_ADMIN'].includes((role || '').toLowerCase()) ||
+  const roleLower = (role || '').toLowerCase();
+  const isAdmin = ['admin', 'super_admin', 'finance'].includes(roleLower) ||
+    userEmail === ADMIN_MAIL ||
+    (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'admin' ||
+    (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'finance';
+  
+  // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền đồng bộ và xóa toàn bộ
+  const isAdminOnly = ['admin', 'super_admin', 'ADMIN', 'SUPER_ADMIN'].includes(roleLower) ||
     userEmail === ADMIN_MAIL ||
     (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'admin';
   // Determine relevant page code based on team switch
@@ -1477,7 +1484,8 @@ function DanhSachDon() {
                   }, 0).toLocaleString('vi-VN')} ₫
                 </span>
               </div>
-              {isAdmin && (
+              {/* Chỉ Admin mới thấy nút xóa toàn bộ (không bao gồm Finance) */}
+              {isAdminOnly && (
                 <button
                   onClick={handleDeleteAll}
                   disabled={syncing || loading || deleting}
@@ -1495,7 +1503,8 @@ function DanhSachDon() {
                   )}
                 </button>
               )}
-              {isAdmin && (
+              {/* Chỉ Admin mới thấy nút đồng bộ từ F3 (không bao gồm Finance) */}
+              {isAdminOnly && (
                 <button
                   onClick={handleSyncF3}
                   disabled={loading || syncing || isFixingTeams}

@@ -238,9 +238,10 @@ function BaoCaoChiTiet() {
             let query = supabase.from('orders').select('*');
 
             // --- USER FILTER (Re-applied) ---
-            // Only Admin/Director/Manager sees all. Staff sees only their own.
-            // checking role for 'admin', 'director', 'manager'
-            const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
+            // Only Admin/Director/Manager/Finance sees all. Staff sees only their own.
+            // checking role for 'admin', 'director', 'manager', 'finance'
+            const roleLower = (role || '').toLowerCase();
+            const isManager = ['admin', 'director', 'manager', 'super_admin', 'finance'].includes(roleLower);
 
             if (!isManager && userName) {
                 // Filter by marketing_staff

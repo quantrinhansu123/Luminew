@@ -123,6 +123,7 @@ function VanDon() {
   const [bolActiveTab, setBolActiveTab] = useState('all'); // all, japan, hanoi
   const [bolDateType, setBolDateType] = useState('Ngày lên đơn');
   const [isLongTextExpanded, setIsLongTextExpanded] = useState(false);
+  const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Đẩy đơn Hà Nội không
 
   // --- Pagination ---
   const [currentPage, setCurrentPage] = useState(1);
@@ -522,6 +523,56 @@ function VanDon() {
 
     loadSelectedPersonnel();
   }, []);
+
+  // Kiểm tra quyền xem tab "Đẩy đơn Hà Nội" dựa trên cột can_day_ffm trong users table
+  useEffect(() => {
+    const loadCanDayFFMPermission = async () => {
+      try {
+        const userEmail = localStorage.getItem('userEmail') || '';
+        const userId = localStorage.getItem('userId') || '';
+
+        if (!userEmail && !userId) {
+          console.log('⚠️ [VanDon] No user email or ID found');
+          setCanViewHaNoi(false);
+          return;
+        }
+
+        // Query user từ bảng users để kiểm tra cột can_day_ffm
+        let query = supabase.from('users').select('can_day_ffm');
+        
+        if (userId) {
+          query = query.eq('id', userId);
+        } else if (userEmail) {
+          query = query.eq('email', userEmail);
+        }
+
+        const { data: userData, error } = await query.single();
+
+        if (error) {
+          console.error('❌ [VanDon] Error loading can_day_ffm:', error);
+          setCanViewHaNoi(false);
+          return;
+        }
+
+        const hasPermission = userData?.can_day_ffm === true;
+        console.log('🔐 [VanDon] User can_day_ffm:', hasPermission);
+        setCanViewHaNoi(hasPermission);
+      } catch (error) {
+        console.error('❌ [VanDon] Error checking can_day_ffm permission:', error);
+        setCanViewHaNoi(false);
+      }
+    };
+
+    loadCanDayFFMPermission();
+  }, []);
+
+  // Tự động chuyển về 'all' nếu user đang ở tab hanoi nhưng không có quyền
+  useEffect(() => {
+    if (bolActiveTab === 'hanoi' && !canViewHaNoi) {
+      console.log('⚠️ [VanDon] User không có quyền xem Đẩy đơn Hà Nội, chuyển về "all"');
+      setBolActiveTab('all');
+    }
+  }, [canViewHaNoi, bolActiveTab]);
 
   // Reload data when filters or pagination change (if using backend)
   // Don't skip initial mount - let it load on mount
@@ -1602,7 +1653,13 @@ function VanDon() {
                 { id: 'all', label: 'Dữ liệu đơn hàng', icon: '📋' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
                 { id: 'hanoi', label: 'Đẩy đơn Hà Nội', icon: '🏛️' }
-              ].map(tab => (
+              ].filter(tab => {
+                // Chỉ hiển thị tab "Đẩy đơn Hà Nội" nếu user có quyền
+                if (tab.id === 'hanoi') {
+                  return canViewHaNoi;
+                }
+                return true;
+              }).map(tab => (
                 <button
                   key={tab.id}
                   className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${bolActiveTab === tab.id

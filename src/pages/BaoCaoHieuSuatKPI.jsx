@@ -611,8 +611,9 @@ export default function BaoCaoHieuSuatKPI() {
     let filtered = [...masterData];
 
     // Phân quyền dựa trên role
-    if (userRole === "admin") {
-      // Admin xem tất cả - không lọc
+    const roleLower = (userRole || '').toLowerCase();
+    if (roleLower === "admin" || roleLower === "finance") {
+      // Admin và Finance xem tất cả - không lọc
     } else if (userRole === "leader") {
       // Leader chỉ xem dữ liệu của team mình
       const teamMembers = getTeamMembers;
