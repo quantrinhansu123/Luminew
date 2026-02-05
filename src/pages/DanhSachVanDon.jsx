@@ -33,6 +33,7 @@ export default function DanhSachVanDon() {
         trang_thai_chia: '',
         chi_nhanh: '',
         nguoi_sua_ho: [], // Array for multiple selection
+        nguoi_day_ffm: [], // Array for multiple selection - Người đẩy FFM
         so_don: 0
     });
     const [isAdding, setIsAdding] = useState(false);
@@ -41,8 +42,10 @@ export default function DanhSachVanDon() {
     // Search state for dropdowns
     const [hoVaTenSearch, setHoVaTenSearch] = useState('');
     const [nguoiSuaHoSearch, setNguoiSuaHoSearch] = useState('');
+    const [nguoiDayFFMSearch, setNguoiDayFFMSearch] = useState('');
     const [showHoVaTenDropdown, setShowHoVaTenDropdown] = useState(false);
     const [showNguoiSuaHoDropdown, setShowNguoiSuaHoDropdown] = useState(false);
+    const [showNguoiDayFFMDropdown, setShowNguoiDayFFMDropdown] = useState(false);
 
     // Load staff from users with department = "Vận Đơn"
     const loadVanDonStaff = async () => {
@@ -125,7 +128,8 @@ export default function DanhSachVanDon() {
                 console.log('✅ [DanhSachVanDon] No selected_personnel, showing all records');
             }
 
-            // Auto-count orders for each staff member and parse nguoi_sua_ho
+            // Auto-count orders for each staff member and parse nguoi_sua_ho, nguoi_day_ffm
+            // Đồng thời load can_day_ffm từ bảng users
             const recordsWithCount = await Promise.all(
                 filteredRecords.map(async (record) => {
                     if (record.ho_va_ten) {
@@ -144,7 +148,41 @@ export default function DanhSachVanDon() {
                                 }
                             }
                         }
-                        return { ...record, so_don: count, nguoi_sua_ho_parsed: nguoiSuaHo };
+                        // Parse nguoi_day_ffm từ JSON string về array để hiển thị
+                        let nguoiDayFFM = [];
+                        if (record.nguoi_day_ffm) {
+                            if (Array.isArray(record.nguoi_day_ffm)) {
+                                nguoiDayFFM = record.nguoi_day_ffm;
+                            } else if (typeof record.nguoi_day_ffm === 'string') {
+                                try {
+                                    const parsed = JSON.parse(record.nguoi_day_ffm);
+                                    nguoiDayFFM = Array.isArray(parsed) ? parsed : [record.nguoi_day_ffm];
+                                } catch {
+                                    nguoiDayFFM = record.nguoi_day_ffm.trim() ? [record.nguoi_day_ffm] : [];
+                                }
+                            }
+                        }
+                        
+                        // Load can_day_ffm từ bảng users dựa trên ho_va_ten
+                        let canDayFFM = false;
+                        try {
+                            const { data: userData } = await supabase
+                                .from('users')
+                                .select('can_day_ffm')
+                                .eq('name', record.ho_va_ten)
+                                .maybeSingle();
+                            canDayFFM = userData?.can_day_ffm === true;
+                        } catch (err) {
+                            console.warn('Could not load can_day_ffm for', record.ho_va_ten, err);
+                        }
+                        
+                        return { 
+                            ...record, 
+                            so_don: count, 
+                            nguoi_sua_ho_parsed: nguoiSuaHo, 
+                            nguoi_day_ffm_parsed: nguoiDayFFM,
+                            can_day_ffm: canDayFFM
+                        };
                     }
                     return record;
                 })
@@ -232,6 +270,7 @@ export default function DanhSachVanDon() {
             item.trang_thai_chia?.toLowerCase().includes(searchLower) ||
             item.chi_nhanh?.toLowerCase().includes(searchLower) ||
             item.nguoi_sua_ho?.toLowerCase().includes(searchLower) ||
+            (item.nguoi_day_ffm_parsed && item.nguoi_day_ffm_parsed.some(name => name.toLowerCase().includes(searchLower))) ||
             String(item.so_don || '').includes(searchText)
         );
         setFilteredData(filtered);
@@ -247,13 +286,16 @@ export default function DanhSachVanDon() {
         setEditingId(null);
         setHoVaTenSearch('');
         setNguoiSuaHoSearch('');
+        setNguoiDayFFMSearch('');
         setShowHoVaTenDropdown(false);
         setShowNguoiSuaHoDropdown(false);
+        setShowNguoiDayFFMDropdown(false);
         setEditForm({
             ho_va_ten: '',
             trang_thai_chia: '',
             chi_nhanh: '',
             nguoi_sua_ho: [],
+            nguoi_day_ffm: [],
             so_don: 0
         });
         setShowModal(true);
@@ -278,11 +320,27 @@ export default function DanhSachVanDon() {
             }
         }
 
+        // Parse nguoi_day_ffm: có thể là string, array, hoặc JSON string
+        let nguoiDayFFM = [];
+        if (item.nguoi_day_ffm) {
+            if (Array.isArray(item.nguoi_day_ffm)) {
+                nguoiDayFFM = item.nguoi_day_ffm;
+            } else if (typeof item.nguoi_day_ffm === 'string') {
+                try {
+                    const parsed = JSON.parse(item.nguoi_day_ffm);
+                    nguoiDayFFM = Array.isArray(parsed) ? parsed : [item.nguoi_day_ffm];
+                } catch {
+                    nguoiDayFFM = item.nguoi_day_ffm.trim() ? [item.nguoi_day_ffm] : [];
+                }
+            }
+        }
+
         setEditForm({
             ho_va_ten: item.ho_va_ten || '',
             trang_thai_chia: item.trang_thai_chia || '',
             chi_nhanh: item.chi_nhanh || '',
             nguoi_sua_ho: nguoiSuaHo,
+            nguoi_day_ffm: nguoiDayFFM,
             so_don: item.so_don || 0
         });
         setShowModal(true);
@@ -316,37 +374,74 @@ export default function DanhSachVanDon() {
         try {
             // Auto-count orders when saving
             const orderCount = await countOrdersForStaff(editForm.ho_va_ten);
-            // Lưu nguoi_sua_ho dưới dạng JSON array string
+            // Lưu nguoi_sua_ho và nguoi_day_ffm dưới dạng JSON array string
             const formData = {
-                ...editForm,
+                ho_va_ten: editForm.ho_va_ten.trim(),
+                trang_thai_chia: editForm.trang_thai_chia || null,
+                chi_nhanh: editForm.chi_nhanh || null,
                 so_don: orderCount,
-                nguoi_sua_ho: JSON.stringify(editForm.nguoi_sua_ho || [])
+                nguoi_sua_ho: JSON.stringify(editForm.nguoi_sua_ho || []),
+                nguoi_day_ffm: JSON.stringify(editForm.nguoi_day_ffm || [])
             };
+
+            console.log('💾 [DanhSachVanDon] Saving data:', {
+                isAdding,
+                editingId,
+                formData
+            });
 
             if (isAdding) {
                 // Add new
-                const { error } = await supabase
+                const { data, error } = await supabase
                     .from('danh_sach_van_don')
-                    .insert([formData]);
+                    .insert([formData])
+                    .select();
 
-                if (error) throw error;
+                if (error) {
+                    console.error('❌ [DanhSachVanDon] Insert error:', error);
+                    throw error;
+                }
+                console.log('✅ [DanhSachVanDon] Insert success:', data);
                 toast.success('Đã thêm thành công!');
             } else {
                 // Update
-                const { error } = await supabase
+                const { data, error } = await supabase
                     .from('danh_sach_van_don')
                     .update(formData)
-                    .eq('id', editingId);
+                    .eq('id', editingId)
+                    .select();
 
-                if (error) throw error;
+                if (error) {
+                    console.error('❌ [DanhSachVanDon] Update error:', error);
+                    console.error('❌ [DanhSachVanDon] Error details:', {
+                        message: error.message,
+                        code: error.code,
+                        details: error.details,
+                        hint: error.hint
+                    });
+                    throw error;
+                }
+                console.log('✅ [DanhSachVanDon] Update success:', data);
                 toast.success('Đã cập nhật thành công!');
             }
 
             setShowModal(false);
             loadData();
         } catch (error) {
-            console.error('Error saving:', error);
-            toast.error('Lỗi khi lưu: ' + error.message);
+            console.error('❌ [DanhSachVanDon] Error saving:', error);
+            console.error('❌ [DanhSachVanDon] Full error object:', JSON.stringify(error, null, 2));
+            const errorMessage = error.message || error.details || 'Không xác định được lỗi';
+            
+            // Kiểm tra nếu lỗi liên quan đến cột không tồn tại
+            if (error.message && error.message.includes('nguoi_day_ffm')) {
+                toast.error('Lỗi: Cột "nguoi_day_ffm" chưa được tạo trong database. Vui lòng chạy script SQL: supabase_scripts/add_nguoi_day_ffm_column.sql', {
+                    autoClose: 8000
+                });
+            } else {
+                toast.error(`Lỗi khi lưu: ${errorMessage}`, {
+                    autoClose: 5000
+                });
+            }
         }
     };
 
@@ -446,6 +541,8 @@ export default function DanhSachVanDon() {
                                     {!HIDDEN_COLUMNS.includes("Trạng thái chia") && <th className="px-4 py-3 whitespace-nowrap">Trạng thái chia</th>}
                                     {!HIDDEN_COLUMNS.includes("Chi nhánh") && <th className="px-4 py-3 whitespace-nowrap">Chi nhánh</th>}
                                     {!HIDDEN_COLUMNS.includes("Người sửa hộ") && <th className="px-4 py-3 whitespace-nowrap">Người sửa hộ</th>}
+                                    {!HIDDEN_COLUMNS.includes("Người đẩy FFM") && <th className="px-4 py-3 whitespace-nowrap">Người đẩy FFM</th>}
+                                    <th className="px-4 py-3 whitespace-nowrap text-center">Đẩy FFM</th>
                                     {!HIDDEN_COLUMNS.includes("Số đơn") && <th className="px-4 py-3 whitespace-nowrap text-right">Số đơn</th>}
                                     <th className="px-4 py-3 whitespace-nowrap text-center">Thao tác</th>
                                 </tr>
@@ -475,6 +572,68 @@ export default function DanhSachVanDon() {
                                                     : '-'}
                                             </td>
                                         )}
+                                        {!HIDDEN_COLUMNS.includes("Người đẩy FFM") && (
+                                            <td className="px-4 py-3">
+                                                {item.nguoi_day_ffm_parsed && item.nguoi_day_ffm_parsed.length > 0
+                                                    ? item.nguoi_day_ffm_parsed.join(', ')
+                                                    : '-'}
+                                            </td>
+                                        )}
+                                        <td className="px-4 py-3">
+                                            <label className="flex items-center justify-center cursor-pointer group">
+                                                <div className="relative">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={item.can_day_ffm === true}
+                                                        onChange={async (e) => {
+                                                            const newValue = e.target.checked;
+                                                            if (!item.ho_va_ten) {
+                                                                toast.error('Không tìm thấy tên nhân viên');
+                                                                return;
+                                                            }
+                                                            try {
+                                                                const { error } = await supabase
+                                                                    .from('users')
+                                                                    .update({ can_day_ffm: newValue })
+                                                                    .eq('name', item.ho_va_ten);
+                                                                
+                                                                if (error) {
+                                                                    toast.error('Lỗi cập nhật quyền đẩy FFM: ' + error.message);
+                                                                } else {
+                                                                    toast.success(newValue ? 'Đã cấp quyền đẩy FFM' : 'Đã thu hồi quyền đẩy FFM');
+                                                                    loadData(); // Reload để cập nhật UI
+                                                                }
+                                                            } catch (err) {
+                                                                toast.error('Lỗi: ' + err.message);
+                                                            }
+                                                        }}
+                                                        className="sr-only"
+                                                    />
+                                                    <div className={`
+                                                        w-11 h-6 rounded-full transition-all duration-200 ease-in-out
+                                                        ${item.can_day_ffm 
+                                                            ? 'bg-green-500' 
+                                                            : 'bg-gray-300'
+                                                        }
+                                                        group-hover:opacity-80
+                                                    `}>
+                                                        <div className={`
+                                                            w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out
+                                                            ${item.can_day_ffm 
+                                                                ? 'translate-x-5' 
+                                                                : 'translate-x-0.5'
+                                                            }
+                                                            mt-0.5
+                                                        `}></div>
+                                                    </div>
+                                                </div>
+                                                <span className={`ml-2 text-xs font-medium ${
+                                                    item.can_day_ffm ? 'text-green-700' : 'text-gray-500'
+                                                }`}>
+                                                    {item.can_day_ffm ? 'Có' : 'Không'}
+                                                </span>
+                                            </label>
+                                        </td>
                                         {!HIDDEN_COLUMNS.includes("Số đơn") && (
                                             <td className="px-4 py-3 text-right font-medium">{item.so_don || 0}</td>
                                         )}
@@ -684,6 +843,65 @@ export default function DanhSachVanDon() {
                                     {editForm.nguoi_sua_ho && editForm.nguoi_sua_ho.length > 0 && (
                                         <p className="text-xs text-gray-500 mt-1">
                                             Đã chọn: {editForm.nguoi_sua_ho.join(', ')}
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Người đẩy FFM (có thể chọn nhiều)
+                                    </label>
+                                    <div className="mb-2">
+                                        <input
+                                            type="text"
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Gõ tên để tìm kiếm..."
+                                            value={nguoiDayFFMSearch}
+                                            onChange={(e) => setNguoiDayFFMSearch(e.target.value)}
+                                            onFocus={() => setShowNguoiDayFFMDropdown(true)}
+                                        />
+                                    </div>
+                                    <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
+                                        {vanDonStaff.length === 0 ? (
+                                            <p className="text-sm text-gray-500">Đang tải danh sách...</p>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {vanDonStaff
+                                                    .filter(name =>
+                                                        !nguoiDayFFMSearch || name.toLowerCase().includes(nguoiDayFFMSearch.toLowerCase())
+                                                    )
+                                                    .map((name) => (
+                                                        <label
+                                                            key={name}
+                                                            className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                                                checked={editForm.nguoi_day_ffm?.includes(name) || false}
+                                                                onChange={(e) => {
+                                                                    const current = editForm.nguoi_day_ffm || [];
+                                                                    if (e.target.checked) {
+                                                                        setEditForm({ ...editForm, nguoi_day_ffm: [...current, name] });
+                                                                    } else {
+                                                                        setEditForm({ ...editForm, nguoi_day_ffm: current.filter(n => n !== name) });
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <span className="ml-2 text-sm text-gray-700">{name}</span>
+                                                        </label>
+                                                    ))}
+                                                {vanDonStaff.filter(name =>
+                                                    !nguoiDayFFMSearch || name.toLowerCase().includes(nguoiDayFFMSearch.toLowerCase())
+                                                ).length === 0 && (
+                                                        <p className="text-sm text-gray-500 text-center py-2">Không tìm thấy kết quả</p>
+                                                    )}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {editForm.nguoi_day_ffm && editForm.nguoi_day_ffm.length > 0 && (
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Đã chọn: {editForm.nguoi_day_ffm.join(', ')}
                                         </p>
                                     )}
                                 </div>

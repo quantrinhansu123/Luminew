@@ -1736,10 +1736,10 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
     const loadAuthAccounts = async () => {
         setAccountLoading(true);
         try {
-            // Lấy danh sách từ bảng users
+            // Lấy danh sách từ bảng users (bao gồm can_day_ffm)
             const { data, error } = await supabase
                 .from('users')
-                .select('id, username, email, password, name, role, team, department, position, branch, shift, created_at')
+                .select('id, username, email, password, name, role, team, department, position, branch, shift, created_at, can_day_ffm')
                 .order('created_at', { ascending: false });
 
             if (error) {
@@ -1759,6 +1759,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                 position: user.position,
                 branch: user.branch,
                 shift: user.shift,
+                can_day_ffm: user.can_day_ffm === true, // Quyền đẩy FFM
                 has_password: !!user.password && user.password !== '',
                 password_set: !!user.password,
                 created_at: user.created_at,
@@ -3495,6 +3496,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                             <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Password</th>
                                             <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Role</th>
                                             <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Team</th>
+                                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold">Đẩy FFM</th>
                                             <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Trạng thái</th>
                                             <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Thao tác</th>
                                         </tr>
@@ -3585,6 +3587,57 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                     </span>
                                                 </td>
                                                 <td className="border border-gray-300 px-4 py-3">{account.team || '-'}</td>
+                                                <td className="border border-gray-300 px-4 py-3">
+                                                    <label className="flex items-center justify-center cursor-pointer group">
+                                                        <div className="relative">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={account.can_day_ffm === true}
+                                                                onChange={async (e) => {
+                                                                    const newValue = e.target.checked;
+                                                                    try {
+                                                                        const { error } = await supabase
+                                                                            .from('users')
+                                                                            .update({ can_day_ffm: newValue })
+                                                                            .eq('id', account.id);
+                                                                        
+                                                                        if (error) {
+                                                                            toast.error('Lỗi cập nhật quyền đẩy FFM: ' + error.message);
+                                                                        } else {
+                                                                            toast.success(newValue ? 'Đã cấp quyền đẩy FFM' : 'Đã thu hồi quyền đẩy FFM');
+                                                                            loadAuthAccounts(); // Reload để cập nhật UI
+                                                                        }
+                                                                    } catch (err) {
+                                                                        toast.error('Lỗi: ' + err.message);
+                                                                    }
+                                                                }}
+                                                                className="sr-only"
+                                                            />
+                                                            <div className={`
+                                                                w-11 h-6 rounded-full transition-all duration-200 ease-in-out
+                                                                ${account.can_day_ffm 
+                                                                    ? 'bg-green-500' 
+                                                                    : 'bg-gray-300'
+                                                                }
+                                                                group-hover:opacity-80
+                                                            `}>
+                                                                <div className={`
+                                                                    w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out
+                                                                    ${account.can_day_ffm 
+                                                                        ? 'translate-x-5' 
+                                                                        : 'translate-x-0.5'
+                                                                    }
+                                                                    mt-0.5
+                                                                `}></div>
+                                                            </div>
+                                                        </div>
+                                                        <span className={`ml-2 text-xs font-medium ${
+                                                            account.can_day_ffm ? 'text-green-700' : 'text-gray-500'
+                                                        }`}>
+                                                            {account.can_day_ffm ? 'Có' : 'Không'}
+                                                        </span>
+                                                    </label>
+                                                </td>
                                                 <td className="border border-gray-300 px-4 py-3">
                                                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                                                         account.status === 'active' ? 'bg-green-100 text-green-800' :

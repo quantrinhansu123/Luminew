@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -11,6 +11,7 @@ function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showIntro, setShowIntro] = useState(false);
   const navigate = useNavigate();
   
   console.log('Supabase config:', { 
@@ -95,10 +96,13 @@ function Login() {
             autoClose: 2000,
           });
 
-          // Chuyển đến trang chính sau 2 giây
+          // Hiển thị intro logo animation
+          setShowIntro(true);
+          
+          // Chuyển đến trang chính sau 3 giây (sau khi intro animation)
           setTimeout(() => {
             navigate('/trang-chu');
-          }, 2000);
+          }, 3000);
         } else {
           console.log('❌ Password mismatch');
           toast.error('Email hoặc mật khẩu không đúng!', {
@@ -143,7 +147,7 @@ function Login() {
             />
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">
-            BÁO CÁO MARKETING
+            Hệ thống vận hành Lumi
           </h1>
           <p className="text-green-100">Đăng nhập để tiếp tục</p>
         </div>
@@ -218,9 +222,75 @@ function Login() {
 
         {/* Footer */}
         <div className="text-center mt-6 text-white text-sm">
-          <p>&copy; 2025 Báo cáo Marketing. All rights reserved.</p>
+          <p>&copy; 2025 Hệ thống vận hành Lumi. All rights reserved.</p>
         </div>
       </div>
+
+      {/* Intro Logo Animation */}
+      {showIntro && (
+        <div className="fixed inset-0 bg-gradient-to-br from-primary to-secondary flex items-center justify-center z-50" style={{
+          animation: 'fadeIn 0.3s ease-in',
+        }}>
+          <style>{`
+            @keyframes logoIntro {
+              0% {
+                transform: scale(0) rotate(0deg);
+                opacity: 0;
+              }
+              50% {
+                transform: scale(1.2) rotate(180deg);
+                opacity: 1;
+              }
+              100% {
+                transform: scale(1) rotate(360deg);
+                opacity: 1;
+              }
+            }
+            @keyframes fadeInUp {
+              from {
+                opacity: 0;
+                transform: translateY(20px);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0);
+              }
+            }
+            @keyframes fadeIn {
+              from {
+                opacity: 0;
+              }
+              to {
+                opacity: 1;
+              }
+            }
+            .logo-intro {
+              animation: logoIntro 1.5s ease-out;
+            }
+            .fade-in-up-delay-1 {
+              animation: fadeInUp 1s ease-out 0.5s both;
+            }
+            .fade-in-up-delay-2 {
+              animation: fadeInUp 1s ease-out 1s both;
+            }
+          `}</style>
+          <div className="text-center">
+            <div className="mb-6">
+              <img
+                src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
+                alt="Logo"
+                className="h-32 w-32 rounded-full shadow-2xl mx-auto logo-intro"
+              />
+            </div>
+            <h2 className="text-4xl font-bold text-white mb-2 fade-in-up-delay-1">
+              Hệ thống vận hành Lumi
+            </h2>
+            <p className="text-green-100 text-lg fade-in-up-delay-2">
+              Chào mừng bạn trở lại!
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Toast Container */}
       <ToastContainer

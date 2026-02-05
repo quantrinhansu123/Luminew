@@ -2,6 +2,7 @@
 import MultiSelect from '../components/MultiSelect';
 import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
+import { supabase } from '../supabase/config';
 import '../styles/selection.css';
 import {
   COLUMN_MAPPING,
@@ -67,14 +68,54 @@ function FFM() {
   const isSelecting = useRef(false);
 
   const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
+  const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Hà Nội không (dựa trên can_day_ffm)
 
   const updateQueue = useRef(new Map());
 
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
 
+  // Kiểm tra quyền xem tab "Hà Nội" dựa trên cột can_day_ffm trong users table
+  const loadCanDayFFMPermission = async () => {
+    try {
+      const userEmail = localStorage.getItem('userEmail') || '';
+      const userId = localStorage.getItem('userId') || '';
+
+      if (!userEmail && !userId) {
+        console.log('⚠️ [FFM] No user email or ID found');
+        setCanViewHaNoi(false);
+        return;
+      }
+
+      // Query user từ bảng users để kiểm tra cột can_day_ffm
+      let query = supabase.from('users').select('can_day_ffm');
+      
+      if (userId) {
+        query = query.eq('id', userId);
+      } else if (userEmail) {
+        query = query.eq('email', userEmail);
+      }
+
+      const { data: userData, error } = await query.single();
+
+      if (error) {
+        console.error('❌ [FFM] Error loading can_day_ffm:', error);
+        setCanViewHaNoi(false);
+        return;
+      }
+
+      const hasPermission = userData?.can_day_ffm === true;
+      console.log('🔐 [FFM] User can_day_ffm:', hasPermission);
+      setCanViewHaNoi(hasPermission);
+    } catch (error) {
+      console.error('❌ [FFM] Error checking can_day_ffm permission:', error);
+      setCanViewHaNoi(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
+    loadCanDayFFMPermission();
     const storedChanges = localStorage.getItem('speegoPendingChanges');
     if (storedChanges) {
       try {
@@ -93,6 +134,14 @@ function FFM() {
       }
     }
   }, []);
+
+  // Tự động chuyển về "all" nếu user đang ở tab Hà Nội nhưng không có quyền
+  useEffect(() => {
+    if ((omActiveTeam === 'Hà Nội' || omActiveTeam === 'Hanoi') && !canViewHaNoi) {
+      console.log('⚠️ [FFM] User không có quyền xem Hà Nội, chuyển về "all"');
+      setOmActiveTeam('all');
+    }
+  }, [canViewHaNoi, omActiveTeam]);
 
 
   const addToast = (message, type, duration = 3000) => {
@@ -302,11 +351,22 @@ function FFM() {
     return Array.from(values).sort();
   }, [allData]);
 
-  // Teams list - exclude Hà Nội
+  // Teams list - chỉ hiển thị Hà Nội nếu user có quyền
   const teams = useMemo(() => {
     const allTeams = getUniqueValues('Team');
-    return allTeams.filter(t => t !== 'Hà Nội' && t !== 'Hanoi');
-  }, [getUniqueValues]);
+    // Chỉ thêm Hà Nội vào danh sách nếu user có quyền xem
+    const teamsList = [...allTeams];
+    if (canViewHaNoi && !teamsList.includes('Hà Nội') && !teamsList.includes('Hanoi')) {
+      teamsList.push('Hà Nội');
+    }
+    // Loại trừ Hà Nội nếu user không có quyền
+    return teamsList.filter(t => {
+      if (t === 'Hà Nội' || t === 'Hanoi') {
+        return canViewHaNoi;
+      }
+      return true;
+    });
+  }, [getUniqueValues, canViewHaNoi]);
 
   const getMultiSelectOptions = (col) => {
     const key = COLUMN_MAPPING[col] || col;
