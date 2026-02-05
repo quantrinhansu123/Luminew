@@ -102,8 +102,9 @@ export default function DanhSachPage() {
     useEffect(() => {
         let result = [...data];
 
-        // Filter by selected personnel names (if not manager/admin)
-        const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
+        // Filter by selected personnel names (if not manager/admin/finance)
+        const roleLower = (role || '').toLowerCase();
+        const isManager = ['admin', 'director', 'manager', 'super_admin', 'finance'].includes(roleLower);
         const userName = localStorage.getItem("username") || "";
         
         // Helper function to normalize name for matching

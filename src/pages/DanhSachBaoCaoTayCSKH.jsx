@@ -719,12 +719,24 @@ export default function DanhSachBaoCaoTayCSKH() {
     const user = userJson ? JSON.parse(userJson) : null;
     const roleFromUser = (user?.role || user?.Role || '').toLowerCase();
     
-    const isAdmin = roleFromHook === 'ADMIN' || 
-                   roleFromHook === 'SUPER_ADMIN' ||
+    const roleFromHookLower = (roleFromHook || '').toLowerCase();
+    const isAdmin = roleFromHookLower === 'admin' || 
+                   roleFromHookLower === 'super_admin' ||
+                   roleFromHookLower === 'finance' ||
                    roleFromStorage === 'admin' ||
                    roleFromStorage === 'super_admin' ||
+                   roleFromStorage === 'finance' ||
                    roleFromUser === 'admin' ||
-                   roleFromUser === 'super_admin';
+                   roleFromUser === 'super_admin' ||
+                   roleFromUser === 'finance';
+    
+    // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
+    const isAdminOnly = roleFromHookLower === 'admin' || 
+                        roleFromHookLower === 'super_admin' ||
+                        roleFromStorage === 'admin' ||
+                        roleFromStorage === 'super_admin' ||
+                        roleFromUser === 'admin' ||
+                        roleFromUser === 'super_admin';
 
     // Edit Handlers
     const handleEditClick = (report) => {
@@ -900,8 +912,8 @@ export default function DanhSachBaoCaoTayCSKH() {
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY CSKH</h2>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                            {/* Chỉ Admin mới thấy nút xóa */}
-                            {isAdmin && (
+                            {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
+                            {isAdminOnly && (
                         <button
                             onClick={handleDeleteAll}
                                     disabled={syncing || loading || deleting}

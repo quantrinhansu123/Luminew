@@ -41,12 +41,24 @@ export default function BaoCaoSale() {
     const userObj = userJson ? JSON.parse(userJson) : null;
     const roleFromUserObj = (userObj?.role || '').toLowerCase();
 
-    const isAdmin = roleFromHook === 'ADMIN' ||
-        roleFromHook === 'SUPER_ADMIN' ||
+    const roleFromHookLower = (roleFromHook || '').toLowerCase();
+    const isAdmin = roleFromHookLower === 'admin' ||
+        roleFromHookLower === 'super_admin' ||
+        roleFromHookLower === 'finance' ||
         roleFromStorage === 'admin' ||
         roleFromStorage === 'super_admin' ||
+        roleFromStorage === 'finance' ||
         roleFromUserObj === 'admin' ||
-        roleFromUserObj === 'super_admin';
+        roleFromUserObj === 'super_admin' ||
+        roleFromUserObj === 'finance';
+    
+    // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
+    const isAdminOnly = roleFromHookLower === 'admin' ||
+                        roleFromHookLower === 'super_admin' ||
+                        roleFromStorage === 'admin' ||
+                        roleFromStorage === 'super_admin' ||
+                        roleFromUserObj === 'admin' ||
+                        roleFromUserObj === 'super_admin';
 
     // Get user email for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
@@ -3747,8 +3759,8 @@ export default function BaoCaoSale() {
                             {/* <button className="btn-excel">
                                 <FileSpreadsheet size={16} /> Xuất Excel
                             </button> */}
-                            {/* Chỉ Admin mới thấy nút xóa */}
-                            {isAdmin && (
+                            {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
+                            {isAdminOnly && (
                                 <button
                                     onClick={handleDeleteAll}
                                     disabled={deleting}

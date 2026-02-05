@@ -41,12 +41,16 @@ export default function XemBaoCaoCSKH() {
     const userObj = userJson ? JSON.parse(userJson) : null;
     const roleFromUserObj = (userObj?.role || '').toLowerCase();
 
-    const isAdmin = roleFromHook === 'ADMIN' ||
-        roleFromHook === 'SUPER_ADMIN' ||
+    const roleFromHookLower = (roleFromHook || '').toLowerCase();
+    const isAdmin = roleFromHookLower === 'admin' ||
+        roleFromHookLower === 'super_admin' ||
+        roleFromHookLower === 'finance' ||
         roleFromStorage === 'admin' ||
         roleFromStorage === 'super_admin' ||
+        roleFromStorage === 'finance' ||
         roleFromUserObj === 'admin' ||
-        roleFromUserObj === 'super_admin';
+        roleFromUserObj === 'super_admin' ||
+        roleFromUserObj === 'finance';
 
     // Get user email for filtering
     const userEmail = localStorage.getItem('userEmail') || '';

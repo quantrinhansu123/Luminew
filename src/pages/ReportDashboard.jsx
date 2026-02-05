@@ -323,15 +323,17 @@ function ReportDashboard() {
     }
 
     // Team filter
-    if (filters.teams.length > 0 && userRole === "admin") {
+    const roleLower = (userRole || '').toLowerCase();
+    if (filters.teams.length > 0 && (roleLower === "admin" || roleLower === "finance")) {
       filtered = filtered.filter(
         (item) => item["Team"] && filters.teams.includes(item["Team"])
       );
     }
 
-    // Access control: Only leader and admin can view F3 data
-    const allowedRoles = ["admin", "leader"];
-    if (!allowedRoles.includes(userRole)) {
+    // Access control: Only leader, admin và Finance can view F3 data
+    const allowedRoles = ["admin", "finance", "leader"];
+    const roleLowerCheck = (userRole || '').toLowerCase();
+    if (!allowedRoles.includes(roleLowerCheck)) {
       filtered = [];
     }
 
@@ -422,11 +424,12 @@ function ReportDashboard() {
     }
 
     // Access control:
-    // - Admin: Xem TẤT CẢ báo cáo (full access)
+    // - Admin và Finance: Xem TẤT CẢ báo cáo (full access)
     // - Leader: Xem báo cáo của team mình
     // - User: Chỉ xem báo cáo của bản thân
-    if (userRole === "admin") {
-      // Admin sees all reports - no access restriction
+    const roleLower = (userRole || '').toLowerCase();
+    if (roleLower === "admin" || roleLower === "finance") {
+      // Admin và Finance sees all reports - no access restriction
     } else if (userRole === "leader" && userTeam) {
       // Leader sees their team's reports
       filtered = filtered.filter((report) => report.team === userTeam);
@@ -442,11 +445,12 @@ function ReportDashboard() {
     let filtered = [...masterData];
 
     // Access control:
-    // - Admin: Xem TẤT CẢ dữ liệu không bị giới hạn (full access)
+    // - Admin và Finance: Xem TẤT CẢ dữ liệu không bị giới hạn (full access)
     // - Leader: Xem theo team của mình
     // - User: Chỉ xem dữ liệu của bản thân
-    if (userRole === "admin") {
-      // Admin sees ALL data - no access restriction
+    const roleLower = (userRole || '').toLowerCase();
+    if (roleLower === "admin" || roleLower === "finance") {
+      // Admin và Finance sees ALL data - no access restriction
     } else if (userRole === "leader" && userTeam) {
       // Leader sees their team's reports only
       filtered = filtered.filter((r) => r.team === userTeam);
@@ -495,8 +499,8 @@ function ReportDashboard() {
       filtered = filtered.filter((r) => filters.markets.includes(r.market));
     }
 
-    // Team filter (only applicable for admin to filter specific teams)
-    if (filters.teams.length > 0 && userRole === "admin") {
+    // Team filter (only applicable for admin và Finance to filter specific teams)
+    if (filters.teams.length > 0 && (roleLower === "admin" || roleLower === "finance")) {
       filtered = filtered.filter(
         (r) => r.team && filters.teams.includes(r.team)
       );

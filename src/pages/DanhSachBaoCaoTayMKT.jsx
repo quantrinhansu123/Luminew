@@ -34,12 +34,24 @@ export default function DanhSachBaoCaoTayMKT() {
     const userObj = userJson ? JSON.parse(userJson) : null;
     const roleFromUserObj = (userObj?.role || '').toLowerCase();
     
-    const isAdmin = roleFromHook === 'ADMIN' ||
-                     roleFromHook === 'SUPER_ADMIN' ||
+    const roleFromHookLower = (roleFromHook || '').toLowerCase();
+    const isAdmin = roleFromHookLower === 'admin' ||
+                     roleFromHookLower === 'super_admin' ||
+                     roleFromHookLower === 'finance' ||
                      roleFromStorage === 'admin' ||
                      roleFromStorage === 'super_admin' ||
+                     roleFromStorage === 'finance' ||
                      roleFromUserObj === 'admin' ||
-                     roleFromUserObj === 'super_admin';
+                     roleFromUserObj === 'super_admin' ||
+                     roleFromUserObj === 'finance';
+    
+    // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền đồng bộ và xóa toàn bộ
+    const isAdminOnly = roleFromHookLower === 'admin' ||
+                        roleFromHookLower === 'super_admin' ||
+                        roleFromStorage === 'admin' ||
+                        roleFromStorage === 'super_admin' ||
+                        roleFromUserObj === 'admin' ||
+                        roleFromUserObj === 'super_admin';
     
     // Get user email and name for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
@@ -908,8 +920,8 @@ export default function DanhSachBaoCaoTayMKT() {
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY MARKETING</h2>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                            {/* Chỉ Admin mới thấy nút đồng bộ */}
-                            {isAdmin && (
+                            {/* Chỉ Admin mới thấy nút đồng bộ (không bao gồm Finance) */}
+                            {isAdminOnly && (
                                 <button
                                     onClick={handleSyncMKT}
                                     disabled={syncing || loading || deleting}
@@ -927,8 +939,8 @@ export default function DanhSachBaoCaoTayMKT() {
                                     )}
                                 </button>
                             )}
-                            {/* Admin hoặc user có quyền delete mới thấy nút xóa toàn bộ */}
-                            {canDeleteAll && (
+                            {/* Chỉ Admin mới thấy nút xóa toàn bộ (không bao gồm Finance) */}
+                            {isAdminOnly && (
                                 <button
                                     onClick={handleDeleteAll}
                                     disabled={syncing || loading || deleting}

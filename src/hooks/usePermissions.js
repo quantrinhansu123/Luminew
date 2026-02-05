@@ -119,18 +119,19 @@ export const usePermissions = () => {
         const roleLower = (legacyRole || '').toLowerCase();
         const roleFromDbLower = (role || '').toLowerCase();
         
-        // Admin bypass - check multiple variations
+        // Admin bypass - check multiple variations (including Finance)
         if (roleLower === 'admin' || 
             roleFromDbLower === 'admin' || 
             roleFromDbLower === 'administrator' ||
             roleFromDbLower === 'super_admin' ||
             roleFromDbLower === 'director' ||
-            roleFromDbLower === 'manager') {
+            roleFromDbLower === 'manager' ||
+            roleFromDbLower === 'finance') {
             return true;
         }
 
         // Also check uppercase version
-        if (role === 'ADMIN' || role === 'ADMINISTRATOR' || role === 'SUPER_ADMIN' || role === 'DIRECTOR' || role === 'MANAGER') {
+        if (role === 'ADMIN' || role === 'ADMINISTRATOR' || role === 'SUPER_ADMIN' || role === 'DIRECTOR' || role === 'MANAGER' || role === 'FINANCE') {
             return true;
         }
 
@@ -147,7 +148,7 @@ export const usePermissions = () => {
     };
 
     const canEdit = (pageCode) => {
-        // Admin bypass - check multiple variations
+        // Admin bypass - check multiple variations (including Finance)
         const legacyRole = localStorage.getItem('userRole');
         const roleLower = (legacyRole || '').toLowerCase();
         const roleFromDbLower = (role || '').toLowerCase();
@@ -158,11 +159,13 @@ export const usePermissions = () => {
             roleFromDbLower === 'super_admin' ||
             roleFromDbLower === 'director' ||
             roleFromDbLower === 'manager' ||
+            roleFromDbLower === 'finance' ||
             role === 'ADMIN' || 
             role === 'ADMINISTRATOR' || 
             role === 'SUPER_ADMIN' || 
             role === 'DIRECTOR' || 
-            role === 'MANAGER') {
+            role === 'MANAGER' ||
+            role === 'FINANCE') {
             return true;
         }
         
@@ -171,7 +174,7 @@ export const usePermissions = () => {
     };
 
     const canDelete = (pageCode) => {
-        // Admin bypass - check multiple variations
+        // Admin bypass - check multiple variations (including Finance)
         const legacyRole = localStorage.getItem('userRole');
         const roleLower = (legacyRole || '').toLowerCase();
         const roleFromDbLower = (role || '').toLowerCase();
@@ -182,11 +185,13 @@ export const usePermissions = () => {
             roleFromDbLower === 'super_admin' ||
             roleFromDbLower === 'director' ||
             roleFromDbLower === 'manager' ||
+            roleFromDbLower === 'finance' ||
             role === 'ADMIN' || 
             role === 'ADMINISTRATOR' || 
             role === 'SUPER_ADMIN' || 
             role === 'DIRECTOR' || 
-            role === 'MANAGER') {
+            role === 'MANAGER' ||
+            role === 'FINANCE') {
             return true;
         }
         
@@ -195,7 +200,7 @@ export const usePermissions = () => {
     };
 
     const getAllowedColumns = (pageCode) => {
-        // Admin bypass - check multiple variations
+        // Admin bypass - check multiple variations (including Finance)
         const legacyRole = localStorage.getItem('userRole');
         const roleLower = (legacyRole || '').toLowerCase();
         const roleFromDbLower = (role || '').toLowerCase();
@@ -206,11 +211,13 @@ export const usePermissions = () => {
             roleFromDbLower === 'super_admin' ||
             roleFromDbLower === 'director' ||
             roleFromDbLower === 'manager' ||
+            roleFromDbLower === 'finance' ||
             role === 'ADMIN' || 
             role === 'ADMINISTRATOR' || 
             role === 'SUPER_ADMIN' || 
             role === 'DIRECTOR' || 
-            role === 'MANAGER') {
+            role === 'MANAGER' ||
+            role === 'FINANCE') {
             return ['*'];
         }
         
@@ -220,7 +227,7 @@ export const usePermissions = () => {
     };
 
     const isColumnAllowed = (pageCode, columnName) => {
-        // Admin bypass - check multiple variations
+        // Admin bypass - check multiple variations (including Finance)
         const legacyRole = localStorage.getItem('userRole');
         const roleLower = (legacyRole || '').toLowerCase();
         const roleFromDbLower = (role || '').toLowerCase();
@@ -231,11 +238,13 @@ export const usePermissions = () => {
             roleFromDbLower === 'super_admin' ||
             roleFromDbLower === 'director' ||
             roleFromDbLower === 'manager' ||
+            roleFromDbLower === 'finance' ||
             role === 'ADMIN' || 
             role === 'ADMINISTRATOR' || 
             role === 'SUPER_ADMIN' || 
             role === 'DIRECTOR' || 
-            role === 'MANAGER') {
+            role === 'MANAGER' ||
+            role === 'FINANCE') {
             return true;
         }
         
