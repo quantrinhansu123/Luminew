@@ -67,6 +67,8 @@ export default function DanhSachBaoCaoTay() {
         markets: []
     });
     const [deleting, setDeleting] = useState(false);
+    const [sortColumn, setSortColumn] = useState(null);
+    const [sortDirection, setSortDirection] = useState('asc');
     
     // Available options for filters
     const [availableOptions, setAvailableOptions] = useState({
@@ -589,6 +591,63 @@ export default function DanhSachBaoCaoTay() {
         }
     };
 
+    // Handle sort
+    const handleSort = (column) => {
+        if (sortColumn === column) {
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortColumn(column);
+            setSortDirection('asc');
+        }
+    };
+
+    // Sort data
+    const sortedReports = [...manualReports].sort((a, b) => {
+        if (!sortColumn) return 0;
+
+        let aVal, bVal;
+
+        // Map column names to data fields
+        const columnMap = {
+            'Ngày': 'date',
+            'Ca': 'shift',
+            'Người báo cáo': 'name',
+            'Team': 'team',
+            'Sản phẩm': 'product',
+            'Thị trường': 'market',
+            'Số mess': 'mess_count',
+            'Phản hồi': 'response_count',
+            'Số đơn': 'order_count',
+            'Doanh số': 'revenue_mess'
+        };
+
+        const field = columnMap[sortColumn];
+        if (!field) return 0;
+
+        aVal = a[field];
+        bVal = b[field];
+
+        // Handle date sorting
+        if (field === 'date') {
+            const dA = aVal ? new Date(aVal).getTime() : 0;
+            const dB = bVal ? new Date(bVal).getTime() : 0;
+            return sortDirection === 'asc' ? dA - dB : dB - dA;
+        }
+
+        // Handle number sorting
+        if (['mess_count', 'response_count', 'order_count', 'revenue_mess'].includes(field)) {
+            const numA = Number(aVal) || 0;
+            const numB = Number(bVal) || 0;
+            return sortDirection === 'asc' ? numA - numB : numB - numA;
+        }
+
+        // Handle string sorting
+        const strA = String(aVal || '').toLowerCase();
+        const strB = String(bVal || '').toLowerCase();
+        const comparison = strA.localeCompare(strB, 'vi', { numeric: true });
+        return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
     return (
         <div className="bao-cao-sale-container">
             {loading && <div className="loading-overlay">Đang tải dữ liệu...</div>}
@@ -772,26 +831,156 @@ export default function DanhSachBaoCaoTay() {
                             <thead>
                                 <tr>
                                     <th>STT</th>
-                                    <th>Ngày</th>
-                                    <th>Ca</th>
-                                    <th>Người báo cáo</th>
-                                    <th>Team</th>
-                                    <th>Sản phẩm</th>
-                                    <th>Thị trường</th>
-                                    <th>Số mess</th>
-                                    <th>Phản hồi</th>
-                                    <th>Số đơn</th>
-                                    <th>Doanh số</th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Ngày')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Ngày
+                                            {sortColumn === 'Ngày' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Ca')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Ca
+                                            {sortColumn === 'Ca' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Người báo cáo')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Người báo cáo
+                                            {sortColumn === 'Người báo cáo' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Team')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Team
+                                            {sortColumn === 'Team' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Sản phẩm')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Sản phẩm
+                                            {sortColumn === 'Sản phẩm' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Thị trường')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Thị trường
+                                            {sortColumn === 'Thị trường' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Số mess')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Số mess
+                                            {sortColumn === 'Số mess' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Phản hồi')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Phản hồi
+                                            {sortColumn === 'Phản hồi' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Số đơn')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Số đơn
+                                            {sortColumn === 'Số đơn' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Doanh số')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Doanh số
+                                            {sortColumn === 'Doanh số' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
                                     <th>Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {manualReports.length === 0 ? (
+                                {sortedReports.length === 0 ? (
                                     <tr>
                                         <td colSpan="12" className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
-                                    manualReports.map((item, index) => (
+                                    sortedReports.map((item, index) => (
                                         <tr key={item.id || index}>
                                             <td className="text-center">{index + 1}</td>
                                             <td>{formatDate(item.date)}</td>
