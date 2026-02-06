@@ -5,7 +5,7 @@ import { useLocation } from 'react-router-dom';
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
-import { isDateInRange, parseSmartDate } from '../utils/dateParsing';
+import { parseSmartDate } from '../utils/dateParsing';
 import './XemBaoCaoMKT.css';
 
 const MARKET_GROUPS = {
@@ -49,13 +49,22 @@ export default function XemBaoCaoMKT() {
   const [activeTab, setActiveTab] = useState('DetailedReport');
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Helper function để format date theo LOCAL time (tránh lỗi timezone trên Vercel)
+  const formatLocalDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 30); // Last 30 Days default (expanded from 3)
-    return d.toISOString().split('T')[0];
+    d.setDate(d.getDate() - 30); // Last 30 Days default
+    return formatLocalDate(d);
   });
   const [endDate, setEndDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
+    return formatLocalDate(new Date());
   });
   const [selectedTeam, setSelectedTeam] = useState('ALL');
   const [teams, setTeams] = useState([]);
@@ -252,8 +261,32 @@ export default function XemBaoCaoMKT() {
 
       console.log(`✅ Fetched ${allReports.length} records từ detail_reports`);
 
-      // Filter by date first
-      let dateFilteredReports = allReports.filter(r => isDateInRange(r['Ngày'], startDate, endDate));
+      // Debug: Log sample date format từ database
+      if (allReports.length > 0) {
+        const sampleDates = allReports.slice(0, 3).map(r => r['Ngày']);
+        console.log(`📅 Sample dates từ DB:`, sampleDates);
+        console.log(`📅 Date format check: startDate=${startDate}, endDate=${endDate}`);
+      }
+
+      // Supabase đã filter theo date ở query, nhưng vẫn filter lại ở client để đảm bảo chính xác
+      let dateFilteredReports = allReports.filter(r => {
+        const reportDate = r['Ngày'];
+        if (!reportDate) return false;
+
+        // Normalize date to YYYY-MM-DD for comparison
+        let dateStr = reportDate;
+        if (reportDate.includes('T')) {
+          // If it's ISO format with time, extract just the date part
+          dateStr = reportDate.split('T')[0];
+        }
+
+        // Compare as strings (YYYY-MM-DD format sorts correctly)
+        if (startDate && dateStr < startDate) return false;
+        if (endDate && dateStr > endDate) return false;
+        return true;
+      });
+
+      console.log(`📊 After client-side date filter: ${dateFilteredReports.length}/${allReports.length}`);
 
       // Then filter by hierarchical permissions
       // Admin: luôn xem tất cả dữ liệu, không bị filter
