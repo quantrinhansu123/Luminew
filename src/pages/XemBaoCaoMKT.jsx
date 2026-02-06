@@ -195,62 +195,62 @@ export default function XemBaoCaoMKT() {
       }
       // --------------------------
 
-      // Fetch via backend API (bypasses RLS) - Required because RLS policy needs permissions
-      const params = new URLSearchParams();
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
+      // Fetch trực tiếp từ Supabase (thay vì qua backend API - để deploy được trên Vercel)
+      // Sử dụng PAGINATION để lấy tất cả records (Supabase mặc định giới hạn 1000 rows/request)
+      const PAGE_SIZE = 1000;
+      let allReports = [];
+      let hasMore = true;
+      let offset = 0;
+      let totalCount = 0;
 
-      const apiUrl = `/api/fetch-detail-reports?${params.toString()}`;
-      console.log('📡 Fetching from:', apiUrl);
+      console.log(`📡 Fetching detail_reports trực tiếp từ Supabase...`);
+      console.log(`📅 Date range: ${startDate} đến ${endDate}`);
 
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }).catch(err => {
-        console.error('❌ Network error when fetching detail reports:', err);
-        throw new Error(`Lỗi kết nối: ${err.message}. Vui lòng kiểm tra backend server có đang chạy trên port 3001 không.`);
-      });
+      while (hasMore) {
+        let query = supabase
+          .from('detail_reports')
+          .select('*', { count: 'exact' });
 
-      if (!response.ok) {
-        const contentType = response.headers.get('content-type');
-        let errorText = 'Unknown error';
-
-        // Kiểm tra xem response có phải là JSON không
-        if (contentType && contentType.includes('application/json')) {
-          try {
-            const errorJson = await response.json();
-            errorText = errorJson.error || errorJson.message || JSON.stringify(errorJson);
-          } catch (e) {
-            errorText = await response.text().catch(() => 'Unknown error');
-          }
-        } else {
-          // Nếu không phải JSON (có thể là HTML error page)
-          errorText = await response.text().catch(() => 'Unknown error');
-          console.error('❌ Server returned non-JSON response (possibly HTML error page):', errorText.substring(0, 200));
-          throw new Error(`Server error (${response.status}): Backend server có thể chưa chạy hoặc có lỗi. Vui lòng kiểm tra server trên port 3001.`);
+        // Apply date filters if provided
+        if (startDate) {
+          query = query.gte('Ngày', startDate);
+        }
+        if (endDate) {
+          query = query.lte('Ngày', endDate);
         }
 
-        console.error('❌ HTTP error:', response.status, errorText);
-        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        // Order by date descending (mới nhất trước)
+        query = query.order('Ngày', { ascending: false });
+
+        // Pagination
+        query = query.range(offset, offset + PAGE_SIZE - 1);
+
+        const { data: pageData, error, count } = await query;
+
+        if (error) {
+          console.error('❌ Error fetching detail_reports:', error);
+          throw new Error(`Lỗi truy vấn Supabase: ${error.message}`);
+        }
+
+        if (count !== null && totalCount === 0) {
+          totalCount = count;
+          console.log(`📊 Detail Reports: Tổng số records: ${totalCount}`);
+        }
+
+        if (pageData && pageData.length > 0) {
+          allReports = [...allReports, ...pageData];
+          offset += PAGE_SIZE;
+          console.log(`📊 Detail Reports: Đã lấy ${allReports.length}/${totalCount}...`);
+
+          if (pageData.length < PAGE_SIZE) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      // Kiểm tra content-type trước khi parse JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('❌ Server returned non-JSON response:', text.substring(0, 200));
-        throw new Error(`Server returned non-JSON response. Backend server có thể chưa chạy hoặc có lỗi.`);
-      }
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || 'Lỗi không xác định');
-      }
-
-      const allReports = result.data || [];
+      console.log(`✅ Fetched ${allReports.length} records từ detail_reports`);
 
       // Filter by date first
       let dateFilteredReports = allReports.filter(r => isDateInRange(r['Ngày'], startDate, endDate));
