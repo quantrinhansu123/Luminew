@@ -61,7 +61,7 @@ export default function XemBaoCaoCSKH() {
 
     // --- State ---
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState(false); // State for sync process
+
     const [deleting, setDeleting] = useState(false); // State for delete process
     const [rawData, setRawData] = useState([]);
 
@@ -114,157 +114,10 @@ export default function XemBaoCaoCSKH() {
     const [showTeamFilter, setShowTeamFilter] = useState(true);
     const [showMarketFilter, setShowMarketFilter] = useState(true);
 
-    // --- Sync F3 Logic ---
-    const handleSyncF3Report = async () => {
-        if (!window.confirm(`Bạn có chắc chắn muốn đồng bộ TOÀN BỘ dữ liệu Báo Cáo Sale từ F3?\n\n(Quá trình này có thể mất một chút thời gian nếu dữ liệu lớn)`)) return;
+    // --- Sync F3 Logic DISABLED ---
+    // User requested to remove Firebase integration.
+    // handleSyncF3Report was removed.
 
-        try {
-            setSyncing(true);
-            // Updated URL provided by user
-            const SALES_REPORT_URL = "https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/B%C3%A1o_c%C3%A1o_sale.json";
-            console.log("Fetching Sales Report data from:", SALES_REPORT_URL);
-
-            const response = await fetch(SALES_REPORT_URL);
-            const dataRaw = await response.json();
-
-            // Convert object to array
-            let firebaseData = [];
-            if (Array.isArray(dataRaw)) {
-                firebaseData = dataRaw;
-            } else if (dataRaw && typeof dataRaw === 'object') {
-                firebaseData = Object.values(dataRaw);
-            }
-
-            if (firebaseData.length === 0) {
-                alert("Không tìm thấy dữ liệu trên F3 (Báo cáo sale).");
-                return;
-            }
-
-            // Filter for SALES REPORT items
-            // Reverted Optimization: Sync ALL items as requested by user
-            const reportItems = firebaseData.filter(item =>
-                item["Email"] &&
-                item["Ngày"]
-            );
-
-            console.log(`Found ${reportItems.length} sales report items (Full Sync).`);
-
-            if (reportItems.length === 0) {
-                alert("Không tìm thấy bản ghi báo cáo hợp lệ (cần có Email và Ngày).");
-                return;
-            }
-
-            // Map to Supabase Columns
-            const mappedItems = reportItems.map(item => {
-                // Parse numbers safely
-                const parseNum = (val) => parseFloat(String(val || 0).replace(/[^0-9.-]+/g, "")) || 0;
-
-                return {
-                    // NEW: Map Firebase ID
-                    firebase_id: String(item["id"] || ""), // Ensure string
-
-                    name: item["Tên"],
-                    email: item["Email"],
-                    team: item["Team"],
-                    branch: item["Chi_nhánh"],
-                    position: item["Chức vụ"] || item["Vị trí"], // Fallback if available
-
-                    date: item["Ngày"], // Assumed YYYY-MM-DD or parseable
-                    shift: item["Ca"],
-                    product: item["Sản_phẩm"],
-                    market: item["Thị_trường"],
-
-                    // Metrics
-                    mess_count: parseNum(item["Số_Mess"] || item["Số mess"] || item["mess_count"]),
-                    response_count: parseNum(item["Phản_hồi"] || item["Phản hồi"] || item["response_count"]),
-                    order_count: parseNum(item["Đơn Mess"] || item["Đơn_Mess"] || item["order_count"]),
-                    revenue_mess: parseNum(item["Doanh_số_Mess"] || item["Doanh số Mess"] || item["revenue_mess"]),
-
-                    order_cancel_count: parseNum(item["Số_đơn_Hoàn_huỷ"] || item["Số đơn hoàn hủy"]),
-                    revenue_cancel: parseNum(item["Doanh_số_hoàn_huỷ"] || item["Doanh số hoàn hủy"]),
-
-                    order_success_count: parseNum(item["Số_đơn_thành_công"] || item["Số đơn thành công"]),
-                    revenue_success: parseNum(item["Doanh_số_thành_công"] || item["Doanh số thành công"]),
-
-                    revenue_go: parseNum(item["Doanh_số_đi"] || item["Doanh số đi"]),
-
-                    // ACTUAL METRICS (Correctly mapped)
-                    order_count_actual: parseNum(item["Số_đơn_thực_tế"] || item["Số đơn thực tế"]),
-                    revenue_actual: parseNum(item["Doanh_thu_chốt_thực_tế"] || item["Doanh thu chốt thực tế"]),
-
-                    order_cancel_count_actual: parseNum(item["Số_đơn_hoàn_hủy_thực_tế"] || item["Số_đơn_hoàn_huỷ_thực_tế"]),
-                    revenue_cancel_actual: parseNum(item["Doanh_số_hoàn_hủy_thực_tế"] || item["Doanh_số_hoàn_huỷ_thực_tế"]),
-
-                    revenue_after_cancel_actual: parseNum(item["Doanh_số_sau_hoàn_hủy_thực_tế"]),
-                    revenue_go_actual: parseNum(item["Doanh_số_đi_thực_tế"]),
-
-                    // New Fields
-                    customer_old: parseNum(item["Khách_cũ"]),
-                    customer_new: parseNum(item["Khách_mới"]),
-                    cross_sale: parseNum(item["Bán_chéo"]),
-                    status: item["Trạng_thái"],
-                    id_ns: item["id_NS"] || item["id_ns"],
-
-                    // IDs
-                    id_feedback: item["id_phản_hồi"] || item["id_phan_hoi"],
-                    id_mess_count: item["id_số_mess"] || item["id_so_mess"],
-
-                    // Metadata
-                    updated_at: new Date().toISOString()
-                };
-            });
-
-            // --- OPTIMIZED SYNC STRATEGY WITH UNIQUE ID ---
-
-            // 0. DEDUPLICATION (Prioritize Firebase ID)
-            const uniqueItemsMap = new Map();
-            mappedItems.forEach(item => {
-                if (item.firebase_id) {
-                    uniqueItemsMap.set(item.firebase_id, item);
-                } else {
-                    // Fallback for items without ID
-                    const key = `${item.email}|${item.date}|${item.product}`.toLowerCase();
-                    uniqueItemsMap.set(key, item);
-                }
-            });
-            const dedupedItems = Array.from(uniqueItemsMap.values());
-            console.log(`Deduplication: Reduced from ${mappedItems.length} to ${dedupedItems.length} unique items.`);
-
-            // 5. Execute Operations (Bulk Upsert directly on firebase_id)
-            let successCount = 0;
-            const BATCH_SIZE = 500;
-
-            for (let i = 0; i < dedupedItems.length; i += BATCH_SIZE) {
-                const batch = dedupedItems.slice(i, i + BATCH_SIZE);
-
-                // Using firebase_id as the conflict target.
-                const { error: upsertError } = await supabase
-                    .from('sales_reports')
-                    .upsert(batch, { onConflict: 'firebase_id', ignoreDuplicates: false });
-
-                if (upsertError) {
-                    console.error("Bulk Upsert Error:", upsertError);
-                    if (upsertError.code === '42703') { // Undefined column
-                        throw new Error("Cột 'firebase_id' chưa tồn tại. Vui lòng chạy script 'add_firebase_id_column.sql'.");
-                    }
-                    if (upsertError.code === '42P10') { // Invalid conflict target
-                        throw new Error("Chưa có Unique Index cho 'firebase_id'. Vui lòng chạy script cập nhật.");
-                    }
-                    throw upsertError;
-                }
-                successCount += batch.length;
-            }
-
-            alert(`✅ Đã đồng bộ xong! (Tổng: ${dedupedItems.length} bản ghi)`);
-            window.location.reload();
-
-        } catch (error) {
-            console.error("Sync Error:", error);
-            alert(`❌ Lỗi đồng bộ: ${error.message}`);
-        } finally {
-            setSyncing(false);
-        }
-    };
 
     // --- Delete All Logic ---
     const handleDeleteAll = async () => {
@@ -854,6 +707,11 @@ export default function XemBaoCaoCSKH() {
             // Cập nhật transformedData với số đơn tổng từ orders
             let updatedCount = 0;
             let zeroCount = 0;
+
+            // IMPORTANT: Track order_codes đã được đếm để TRÁNH ĐẾM TRÙNG
+            // Mỗi order chỉ được đếm 1 lần duy nhất cho 1 record
+            const countedOrderCodes = new Set();
+
             transformedData.forEach((item, index) => {
                 const saleName = normalizeStr(item['Tên']);
                 const reportDateRaw = item['Ngày'];
@@ -964,7 +822,20 @@ export default function XemBaoCaoCSKH() {
                     }
                 }
 
-                const soDonTT = matchingOrders.length;
+                // IMPORTANT: Filter ra các orders đã được đếm trước đó
+                // Điều này đảm bảo mỗi order chỉ được đếm 1 lần duy nhất
+                const uncountedMatchingOrders = matchingOrders.filter(order => {
+                    return order.order_code && !countedOrderCodes.has(order.order_code);
+                });
+
+                // Mark các orders mới được đếm
+                uncountedMatchingOrders.forEach(order => {
+                    if (order.order_code) {
+                        countedOrderCodes.add(order.order_code);
+                    }
+                });
+
+                const soDonTT = uncountedMatchingOrders.length;
                 item['Số đơn TT'] = soDonTT;
 
                 if (soDonTT > 0) {
@@ -1103,6 +974,7 @@ export default function XemBaoCaoCSKH() {
             console.log(`✅ [enrichWithTotalOrdersFromOrders] Đã cập nhật "Số đơn TT" cho ${transformedData.length} records:`);
             console.log(`   - Records có Số đơn TT > 0: ${updatedCount}`);
             console.log(`   - Records có Số đơn TT = 0: ${zeroCount}`);
+            console.log(`   - Tổng số UNIQUE orders đã đếm: ${countedOrderCodes.size}`);
             console.log(`   - Tổng số keys trong ordersBySaleDateProductMarket: ${ordersBySaleDateProductMarket.size}`);
 
             // Log sample records có Số đơn TT > 0
@@ -2104,21 +1976,80 @@ export default function XemBaoCaoCSKH() {
                     // Note: "Doanh số sau hoàn hủy thực tế" sẽ được tính toán từ orders table
                 }));
 
-                // Fetch employee list for permissions - reusing same fetch logic or simple supabase fetch
-                // Efficiently get employee list (distinct users)
-                // For now, let's just list unique users from the report or fetching profiles if needed.
-                // The original code expected `employeeData`.
-                // Let's create a minimal employee list from the report data itself for now to resolve permission logic.
-                const uniqueEmployees = Array.from(new Map(transformedData.map(item => [item['Email'], item])).values());
-                const employeeData = uniqueEmployees.map(u => ({
-                    'id': u['Email'], // Mock ID using email
-                    'Họ Và Tên': u['Tên'],
-                    'Email': u['Email'],
-                    'Chức vụ': u['Chức vụ'],
-                    'Team': u['Team'],
-                    'Chi nhánh': u['Chi nhánh'] || u['chi nhánh'],
-                    'Vị trí': u['Chức vụ']
-                }));
+                // Fetch employee list for permissions AND to fix missing/incorrect Team/Branch in repots
+                // Instead of using data from reports (which might be wrong), we fetch authoritative data from `users` table.
+                let employeeData = [];
+                try {
+                    const { data: usersData, error: usersError } = await supabase
+                        .from('users')
+                        .select('email, name, full_name, team, branch, position, role');
+
+                    if (usersError) {
+                        console.error('❌ [BaoCaoSale] Error fetching users table:', usersError);
+                    } else {
+                        console.log(`✅ [BaoCaoSale] Fetched ${usersData?.length || 0} users from database`);
+
+                        // Create a map for quick lookup: Email -> User Info
+                        const userMap = new Map();
+                        (usersData || []).forEach(u => {
+                            const email = u.email ? String(u.email).trim().toLowerCase() : '';
+                            if (email) userMap.set(email, u);
+                        });
+
+                        // Update transformedData with correct Team and Branch from users table
+                        transformedData.forEach(item => {
+                            const email = item['Email'] ? String(item['Email']).trim().toLowerCase() : '';
+                            const user = userMap.get(email);
+                            if (user) {
+                                // Update Team if available in users table
+                                if (user.team) item['Team'] = user.team;
+                                // Update Branch if available in users table
+                                if (user.branch) item['Chi nhánh'] = user.branch;
+
+                                // Optional: Update Name/Position if needed
+                                // if (user.name) item['Tên'] = user.name;
+                            }
+                        });
+
+                        // Create authoritative employeeData
+                        employeeData = (usersData || []).map(u => ({
+                            'id': u.email, // Use email as ID
+                            'Họ Và Tên': u.full_name || u.name,
+                            'Email': u.email,
+                            'Chức vụ': u.position || u.role || '',
+                            'Team': u.team || '',
+                            'Chi nhánh': u.branch || '',
+                            'Vị trí': u.position || u.role || ''
+                        }));
+                    }
+                } catch (err) {
+                    console.error("❌ [BaoCaoSale] Unexpected error fetching users:", err);
+                    // Fallback to original logic if users fetch fails
+                    const uniqueEmployees = Array.from(new Map(transformedData.map(item => [item['Email'], item])).values());
+                    employeeData = uniqueEmployees.map(u => ({
+                        'id': u['Email'],
+                        'Họ Và Tên': u['Tên'],
+                        'Email': u['Email'],
+                        'Chức vụ': u['Chức vụ'],
+                        'Team': u['Team'],
+                        'Chi nhánh': u['Chi nhánh'] || u['chi nhánh'],
+                        'Vị trí': u['Chức vụ']
+                    }));
+                }
+
+                // Fallback if employeeData is still empty (e.g. both fetch failed)
+                if (employeeData.length === 0) {
+                    const uniqueEmployees = Array.from(new Map(transformedData.map(item => [item['Email'], item])).values());
+                    employeeData = uniqueEmployees.map(u => ({
+                        'id': u['Email'],
+                        'Họ Và Tên': u['Tên'],
+                        'Email': u['Email'],
+                        'Chức vụ': u['Chức vụ'],
+                        'Team': u['Team'],
+                        'Chi nhánh': u['Chi nhánh'] || u['chi nhánh'],
+                        'Vị trí': u['Chức vụ']
+                    }));
+                }
 
                 // Fetch dữ liệu từ nhiều bảng SONG SONG để tránh xung đột và tăng tốc độ
                 // Sử dụng Promise.all() để chạy các operations độc lập cùng lúc

@@ -51,14 +51,14 @@ export default function BaoCaoSale() {
         roleFromUserObj === 'admin' ||
         roleFromUserObj === 'super_admin' ||
         roleFromUserObj === 'finance';
-    
+
     // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
     const isAdminOnly = roleFromHookLower === 'admin' ||
-                        roleFromHookLower === 'super_admin' ||
-                        roleFromStorage === 'admin' ||
-                        roleFromStorage === 'super_admin' ||
-                        roleFromUserObj === 'admin' ||
-                        roleFromUserObj === 'super_admin';
+        roleFromHookLower === 'super_admin' ||
+        roleFromStorage === 'admin' ||
+        roleFromStorage === 'super_admin' ||
+        roleFromUserObj === 'admin' ||
+        roleFromUserObj === 'super_admin';
 
     // Get user email for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
@@ -69,7 +69,7 @@ export default function BaoCaoSale() {
 
     // --- State ---
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState(false); // State for sync process
+
     const [deleting, setDeleting] = useState(false); // State for delete process
     const [rawData, setRawData] = useState([]);
     const [employeeData, setEmployeeData] = useState([]); // State for employee data for permissions/KPI
@@ -145,157 +145,10 @@ export default function BaoCaoSale() {
     const [showTeamFilter, setShowTeamFilter] = useState(true);
     const [showMarketFilter, setShowMarketFilter] = useState(true);
 
-    // --- Sync F3 Logic ---
-    const handleSyncF3Report = async () => {
-        if (!window.confirm(`Bạn có chắc chắn muốn đồng bộ TOÀN BỘ dữ liệu Báo Cáo Sale từ F3?\n\n(Quá trình này có thể mất một chút thời gian nếu dữ liệu lớn)`)) return;
+    // --- Sync F3 Logic DISABLED ---
+    // User requested to remove Firebase integration.
+    // handleSyncF3Report was removed.
 
-        try {
-            setSyncing(true);
-            // Updated URL provided by user
-            const SALES_REPORT_URL = "https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/B%C3%A1o_c%C3%A1o_sale.json";
-            console.log("Fetching Sales Report data from:", SALES_REPORT_URL);
-
-            const response = await fetch(SALES_REPORT_URL);
-            const dataRaw = await response.json();
-
-            // Convert object to array
-            let firebaseData = [];
-            if (Array.isArray(dataRaw)) {
-                firebaseData = dataRaw;
-            } else if (dataRaw && typeof dataRaw === 'object') {
-                firebaseData = Object.values(dataRaw);
-            }
-
-            if (firebaseData.length === 0) {
-                alert("Không tìm thấy dữ liệu trên F3 (Báo cáo sale).");
-                return;
-            }
-
-            // Filter for SALES REPORT items
-            // Reverted Optimization: Sync ALL items as requested by user
-            const reportItems = firebaseData.filter(item =>
-                item["Email"] &&
-                item["Ngày"]
-            );
-
-            console.log(`Found ${reportItems.length} sales report items (Full Sync).`);
-
-            if (reportItems.length === 0) {
-                alert("Không tìm thấy bản ghi báo cáo hợp lệ (cần có Email và Ngày).");
-                return;
-            }
-
-            // Map to Supabase Columns
-            const mappedItems = reportItems.map(item => {
-                // Parse numbers safely
-                const parseNum = (val) => parseFloat(String(val || 0).replace(/[^0-9.-]+/g, "")) || 0;
-
-                return {
-                    // NEW: Map Firebase ID
-                    firebase_id: String(item["id"] || ""), // Ensure string
-
-                    name: item["Tên"],
-                    email: item["Email"],
-                    team: item["Team"],
-                    branch: item["Chi_nhánh"],
-                    position: item["Chức vụ"] || item["Vị trí"], // Fallback if available
-
-                    date: item["Ngày"], // Assumed YYYY-MM-DD or parseable
-                    shift: item["Ca"],
-                    product: item["Sản_phẩm"],
-                    market: item["Thị_trường"],
-
-                    // Metrics
-                    mess_count: parseNum(item["Số_Mess"] || item["Số mess"] || item["mess_count"]),
-                    response_count: parseNum(item["Phản_hồi"] || item["Phản hồi"] || item["response_count"]),
-                    order_count: parseNum(item["Đơn Mess"] || item["Đơn_Mess"] || item["order_count"]),
-                    revenue_mess: parseNum(item["Doanh_số_Mess"] || item["Doanh số Mess"] || item["revenue_mess"]),
-
-                    order_cancel_count: parseNum(item["Số_đơn_Hoàn_huỷ"] || item["Số đơn hoàn hủy"]),
-                    revenue_cancel: parseNum(item["Doanh_số_hoàn_huỷ"] || item["Doanh số hoàn hủy"]),
-
-                    order_success_count: parseNum(item["Số_đơn_thành_công"] || item["Số đơn thành công"]),
-                    revenue_success: parseNum(item["Doanh_số_thành_công"] || item["Doanh số thành công"]),
-
-                    revenue_go: parseNum(item["Doanh_số_đi"] || item["Doanh số đi"]),
-
-                    // ACTUAL METRICS (Correctly mapped)
-                    order_count_actual: parseNum(item["Số_đơn_thực_tế"] || item["Số đơn thực tế"]),
-                    revenue_actual: parseNum(item["Doanh_thu_chốt_thực_tế"] || item["Doanh thu chốt thực tế"]),
-
-                    order_cancel_count_actual: parseNum(item["Số_đơn_hoàn_hủy_thực_tế"] || item["Số_đơn_hoàn_huỷ_thực_tế"]),
-                    revenue_cancel_actual: parseNum(item["Doanh_số_hoàn_hủy_thực_tế"] || item["Doanh_số_hoàn_huỷ_thực_tế"]),
-
-                    revenue_after_cancel_actual: parseNum(item["Doanh_số_sau_hoàn_hủy_thực_tế"]),
-                    revenue_go_actual: parseNum(item["Doanh_số_đi_thực_tế"]),
-
-                    // New Fields
-                    customer_old: parseNum(item["Khách_cũ"]),
-                    customer_new: parseNum(item["Khách_mới"]),
-                    cross_sale: parseNum(item["Bán_chéo"]),
-                    status: item["Trạng_thái"],
-                    id_ns: item["id_NS"] || item["id_ns"],
-
-                    // IDs
-                    id_feedback: item["id_phản_hồi"] || item["id_phan_hoi"],
-                    id_mess_count: item["id_số_mess"] || item["id_so_mess"],
-
-                    // Metadata
-                    updated_at: new Date().toISOString()
-                };
-            });
-
-            // --- OPTIMIZED SYNC STRATEGY WITH UNIQUE ID ---
-
-            // 0. DEDUPLICATION (Prioritize Firebase ID)
-            const uniqueItemsMap = new Map();
-            mappedItems.forEach(item => {
-                if (item.firebase_id) {
-                    uniqueItemsMap.set(item.firebase_id, item);
-                } else {
-                    // Fallback for items without ID
-                    const key = `${item.email}|${item.date}|${item.product}`.toLowerCase();
-                    uniqueItemsMap.set(key, item);
-                }
-            });
-            const dedupedItems = Array.from(uniqueItemsMap.values());
-            console.log(`Deduplication: Reduced from ${mappedItems.length} to ${dedupedItems.length} unique items.`);
-
-            // 5. Execute Operations (Bulk Upsert directly on firebase_id)
-            let successCount = 0;
-            const BATCH_SIZE = 500;
-
-            for (let i = 0; i < dedupedItems.length; i += BATCH_SIZE) {
-                const batch = dedupedItems.slice(i, i + BATCH_SIZE);
-
-                // Using firebase_id as the conflict target.
-                const { error: upsertError } = await supabase
-                    .from('sales_reports')
-                    .upsert(batch, { onConflict: 'firebase_id', ignoreDuplicates: false });
-
-                if (upsertError) {
-                    console.error("Bulk Upsert Error:", upsertError);
-                    if (upsertError.code === '42703') { // Undefined column
-                        throw new Error("Cột 'firebase_id' chưa tồn tại. Vui lòng chạy script 'add_firebase_id_column.sql'.");
-                    }
-                    if (upsertError.code === '42P10') { // Invalid conflict target
-                        throw new Error("Chưa có Unique Index cho 'firebase_id'. Vui lòng chạy script cập nhật.");
-                    }
-                    throw upsertError;
-                }
-                successCount += batch.length;
-            }
-
-            alert(`✅ Đã đồng bộ xong! (Tổng: ${dedupedItems.length} bản ghi)`);
-            window.location.reload();
-
-        } catch (error) {
-            console.error("Sync Error:", error);
-            alert(`❌ Lỗi đồng bộ: ${error.message}`);
-        } finally {
-            setSyncing(false);
-        }
-    };
 
     // --- Delete All Logic ---
     const handleDeleteAll = async () => {
@@ -347,10 +200,15 @@ export default function BaoCaoSale() {
     const enrichWithCancelOrdersFromOrders = async (transformedData, startDate, endDate, productsFilter, marketsFilter) => {
         try {
             // Helper function để normalize date format - Database lưu ở định dạng YYYY-MM-DD
+            // IMPORTANT: Sử dụng LOCAL date, KHÔNG dùng toISOString() vì nó chuyển sang UTC
             const normalizeDate = (date) => {
                 if (!date) return '';
                 if (date instanceof Date) {
-                    return date.toISOString().split('T')[0];
+                    // Sử dụng LOCAL date để tránh lỗi timezone
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
                 }
                 if (typeof date === 'string') {
                     const trimmed = date.trim();
@@ -380,7 +238,11 @@ export default function BaoCaoSale() {
                     }
                     const parsed = new Date(trimmed);
                     if (!isNaN(parsed.getTime())) {
-                        return parsed.toISOString().split('T')[0];
+                        // Sử dụng LOCAL date
+                        const year = parsed.getFullYear();
+                        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+                        const day = String(parsed.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
                     }
                     return trimmed;
                 }
@@ -729,10 +591,15 @@ export default function BaoCaoSale() {
     const enrichWithTotalOrdersFromOrders = async (transformedData, startDate, endDate) => {
         try {
             // Helper function để normalize date format - Database lưu ở định dạng YYYY-MM-DD
+            // IMPORTANT: Sử dụng LOCAL date, KHÔNG dùng toISOString() vì nó chuyển sang UTC
             const normalizeDate = (date) => {
                 if (!date) return '';
                 if (date instanceof Date) {
-                    return date.toISOString().split('T')[0];
+                    // Sử dụng LOCAL date để tránh lỗi timezone
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
                 }
                 if (typeof date === 'string') {
                     const trimmed = date.trim();
@@ -762,7 +629,11 @@ export default function BaoCaoSale() {
                     }
                     const parsed = new Date(trimmed);
                     if (!isNaN(parsed.getTime())) {
-                        return parsed.toISOString().split('T')[0];
+                        // Sử dụng LOCAL date
+                        const year = parsed.getFullYear();
+                        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+                        const day = String(parsed.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
                     }
                     return trimmed;
                 }
@@ -885,6 +756,11 @@ export default function BaoCaoSale() {
             // Cập nhật transformedData với số đơn tổng từ orders
             let updatedCount = 0;
             let zeroCount = 0;
+
+            // IMPORTANT: Track order_codes đã được đếm để TRÁNH ĐẾM TRÙNG
+            // Mỗi order chỉ được đếm 1 lần duy nhất cho 1 record
+            const countedOrderCodes = new Set();
+
             transformedData.forEach((item, index) => {
                 const saleName = normalizeStr(item['Tên']);
                 const reportDateRaw = item['Ngày'];
@@ -995,7 +871,20 @@ export default function BaoCaoSale() {
                     }
                 }
 
-                const soDonTT = matchingOrders.length;
+                // IMPORTANT: Filter ra các orders đã được đếm trước đó
+                // Điều này đảm bảo mỗi order chỉ được đếm 1 lần duy nhất
+                const uncountedMatchingOrders = matchingOrders.filter(order => {
+                    return order.order_code && !countedOrderCodes.has(order.order_code);
+                });
+
+                // Mark các orders mới được đếm
+                uncountedMatchingOrders.forEach(order => {
+                    if (order.order_code) {
+                        countedOrderCodes.add(order.order_code);
+                    }
+                });
+
+                const soDonTT = uncountedMatchingOrders.length;
                 item['Số đơn TT'] = soDonTT;
 
                 if (soDonTT > 0) {
@@ -1134,6 +1023,7 @@ export default function BaoCaoSale() {
             console.log(`✅ [enrichWithTotalOrdersFromOrders] Đã cập nhật "Số đơn TT" cho ${transformedData.length} records:`);
             console.log(`   - Records có Số đơn TT > 0: ${updatedCount}`);
             console.log(`   - Records có Số đơn TT = 0: ${zeroCount}`);
+            console.log(`   - Tổng số UNIQUE orders đã đếm: ${countedOrderCodes.size}`);
             console.log(`   - Tổng số keys trong ordersBySaleDateProductMarket: ${ordersBySaleDateProductMarket.size}`);
 
             // Log sample records có Số đơn TT > 0
@@ -1371,6 +1261,52 @@ export default function BaoCaoSale() {
             console.log(`✅ Đã cập nhật doanh số cho ${transformedData.length} records`);
         } catch (err) {
             console.error('❌ Error enriching with total revenue:', err);
+        }
+    };
+
+    // Hàm enrich Team từ bảng users (override Team trong báo cáo)
+    const enrichTeamFromUsers = async (transformedData) => {
+        try {
+            // Lấy danh sách email từ báo cáo
+            const emails = [...new Set(transformedData
+                .map(item => item['Email'])
+                .filter(e => e && e.trim().length > 0)
+            )];
+
+            if (emails.length === 0) return;
+
+            // Fetch users từ supabase
+            const { data: users, error } = await supabase
+                .from('users')
+                .select('email, team');
+
+            if (error) {
+                console.error('❌ Error fetching users for team enrichment:', error);
+                return;
+            }
+
+            const teamMap = new Map();
+            users.forEach(u => {
+                if (u.email && u.team) {
+                    teamMap.set(u.email.trim().toLowerCase(), u.team);
+                }
+            });
+
+            let updatedCount = 0;
+            transformedData.forEach(item => {
+                const email = (item['Email'] || '').trim().toLowerCase();
+                if (teamMap.has(email)) {
+                    const foundTeam = teamMap.get(email);
+                    if (item['Team'] !== foundTeam) {
+                        item['Team'] = foundTeam;
+                        updatedCount++;
+                    }
+                }
+            });
+            console.log(`✅ [enrichTeamFromUsers] Đã cập nhật Team cho ${updatedCount} records từ bảng users`);
+
+        } catch (err) {
+            console.error('❌ Error in enrichTeamFromUsers:', err);
         }
     };
 
@@ -1933,7 +1869,11 @@ export default function BaoCaoSale() {
                         const dates = [...new Set(data.map(item => {
                             const dateVal = item['Ngày'];
                             if (dateVal instanceof Date) {
-                                return dateVal.toISOString().split('T')[0];
+                                // Sử dụng LOCAL date format yyyy-mm-dd
+                                const year = dateVal.getFullYear();
+                                const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+                                const day = String(dateVal.getDate()).padStart(2, '0');
+                                return `${year}-${month}-${day}`;
                             }
                             return String(dateVal).split('T')[0];
                         }))].sort();
@@ -1942,27 +1882,34 @@ export default function BaoCaoSale() {
 
                         // Kiểm tra xem có thiếu ngày nào trong range không
                         const missingDates = [];
-                        for (let d = new Date(normalizedStartDate); d <= new Date(normalizedEndDate); d.setDate(d.getDate() + 1)) {
-                            const dateStr = d.toISOString().split('T')[0];
+                        const start = new Date(normalizedStartDate);
+                        const end = new Date(normalizedEndDate);
+
+                        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                            // Sử dụng LOCAL date format yyyy-mm-dd
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            const dateStr = `${year}-${month}-${day}`;
+
                             if (!dates.includes(dateStr)) {
                                 missingDates.push(dateStr);
                             }
                         }
 
                         if (missingDates.length > 0) {
-                            console.warn(`⚠️ RPC function thiếu các ngày: ${missingDates.join(', ')}. Sử dụng fallback direct query.`);
-                            throw new Error(`RPC returned incomplete data: missing dates ${missingDates.join(', ')}`);
-                        }
+                            const today = new Date();
+                            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-                        const firstDate = new Date(dates[0]);
-                        const lastDate = new Date(dates[dates.length - 1]);
-                        const startDate = new Date(normalizedStartDate);
-                        const endDate = new Date(normalizedEndDate);
+                            // Nếu thiếu ngày hôm nay hoặc tương lai, chỉ warn nhẹ (chấp nhận được vì có thể chưa nhập báo cáo)
+                            const isMissingOnlyTodayOrFuture = missingDates.every(d => d >= todayStr);
 
-                        // Nếu RPC không trả về đủ dữ liệu (thiếu ngày đầu hoặc cuối), dùng fallback
-                        if (firstDate > startDate || lastDate < endDate) {
-                            console.warn(`⚠️ RPC function không trả về đủ dữ liệu (firstDate: ${dates[0]}, lastDate: ${dates[dates.length - 1]}). Sử dụng fallback direct query.`);
-                            throw new Error('RPC returned incomplete data');
+                            if (isMissingOnlyTodayOrFuture) {
+                                console.log(`ℹ️ RPC function thiếu dữ liệu các ngày (hôm nay/tương lai): ${missingDates.join(', ')}. Chấp nhận kết quả.`);
+                            } else {
+                                console.warn(`⚠️ RPC function thiếu các ngày quá khứ: ${missingDates.join(', ')}. Sử dụng fallback direct query.`);
+                                throw new Error(`RPC returned incomplete data: missing dates ${missingDates.join(', ')}`);
+                            }
                         }
                     }
                 } catch (rpcError) {
@@ -2016,7 +1963,11 @@ export default function BaoCaoSale() {
                         const fetchedDates = [...new Set(allData.map(item => {
                             const dateVal = item.date;
                             if (dateVal instanceof Date) {
-                                return dateVal.toISOString().split('T')[0];
+                                // Sử dụng LOCAL date format yyyy-mm-dd
+                                const year = dateVal.getFullYear();
+                                const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+                                const day = String(dateVal.getDate()).padStart(2, '0');
+                                return `${year}-${month}-${day}`;
                             }
                             return String(dateVal).split('T')[0];
                         }))].sort();
@@ -2025,15 +1976,30 @@ export default function BaoCaoSale() {
 
                         // Kiểm tra xem có thiếu ngày nào trong range không
                         const missingDates = [];
-                        for (let d = new Date(normalizedStartDate); d <= new Date(normalizedEndDate); d.setDate(d.getDate() + 1)) {
-                            const dateStr = d.toISOString().split('T')[0];
+                        const start = new Date(normalizedStartDate);
+                        const end = new Date(normalizedEndDate);
+                        const today = new Date();
+                        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+                        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                            // Sử dụng LOCAL date format yyyy-mm-dd
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            const dateStr = `${year}-${month}-${day}`;
+
                             if (!fetchedDates.includes(dateStr)) {
                                 missingDates.push(dateStr);
                             }
                         }
 
                         if (missingDates.length > 0) {
-                            console.warn(`⚠️ [BaoCaoSale] Direct query thiếu các ngày: ${missingDates.join(', ')} (có thể không có dữ liệu cho các ngày này)`);
+                            const isMissingOnlyTodayOrFuture = missingDates.every(d => d >= todayStr);
+                            if (isMissingOnlyTodayOrFuture) {
+                                console.log(`ℹ️ [BaoCaoSale] Query thiếu dữ liệu các ngày (hôm nay/tương lai): ${missingDates.join(', ')}. Chấp nhận kết quả.`);
+                            } else {
+                                console.warn(`⚠️ [BaoCaoSale] Direct query thiếu các ngày quá khứ: ${missingDates.join(', ')} (có thể không có dữ liệu cho các ngày này)`);
+                            }
                         }
                     }
 
@@ -2134,6 +2100,9 @@ export default function BaoCaoSale() {
                     'Doanh số hoàn hủy thực tế': item["Doanh số hoàn hủy thực tế"]
                     // Note: "Doanh số sau hoàn hủy thực tế" sẽ được tính toán từ orders table
                 }));
+
+                // Enrich Team from users BEFORE creating employee list to ensure permissions are correct
+                await enrichTeamFromUsers(transformedData);
 
                 // Fetch employee list for permissions - reusing same fetch logic or simple supabase fetch
                 // Efficiently get employee list (distinct users)

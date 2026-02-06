@@ -31,12 +31,20 @@ function QuanLyCSKH() {
   const [showMKTFilter, setShowMKTFilter] = useState(false);
 
   // Date state - default to last 3 days
+  // Helper function để format date theo LOCAL time (tránh lỗi timezone trên Vercel)
+  const formatLocalDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 3);
-    return d.toISOString().split('T')[0];
+    return formatLocalDate(d);
   });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(() => formatLocalDate(new Date()));
 
   const [quickFilter, setQuickFilter] = useState('today');
   const [currentPage, setCurrentPage] = useState(1);
@@ -136,7 +144,7 @@ function QuanLyCSKH() {
     if (COLUMN_DISPLAY_NAMES[columnName]) {
       return COLUMN_DISPLAY_NAMES[columnName];
     }
-    
+
     // Nếu là tên thân thiện đã được map (không có trong COLUMN_DISPLAY_NAMES), giữ nguyên
     // Kiểm tra xem có phải là tên DB (snake_case hoặc camelCase) không
     if (columnName.includes('_') || (columnName.match(/[a-z][A-Z]/))) {
@@ -148,7 +156,7 @@ function QuanLyCSKH() {
         .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
         .join(' ');
     }
-    
+
     // Nếu không phải tên DB, giữ nguyên (đã là tên thân thiện)
     return columnName;
   };
@@ -182,7 +190,7 @@ function QuanLyCSKH() {
     // Giữ lại các cột đặc biệt đã được sử dụng trong hệ thống
     const specialColumns = ['Name*', 'Phone*', 'Add', 'City', 'State', 'Zipcode', 'Team', 'CSKH'];
     if (specialColumns.includes(columnName)) return false;
-    
+
     // Kiểm tra snake_case (có dấu gạch dưới) - đây là tên cột DB
     if (columnName.includes('_')) return true;
     // Kiểm tra camelCase (có chữ thường tiếp theo chữ hoa) - đây là tên cột DB
@@ -199,18 +207,18 @@ function QuanLyCSKH() {
   const allAvailableColumns = useMemo(() => {
     // Get all potential keys from data - chỉ lấy cột tiếng Việt
     const allKeys = new Set();
-    
+
     // Luôn thêm các cột mặc định vào danh sách (để đảm bảo chúng luôn có trong cài đặt)
     defaultColumns.forEach(col => allKeys.add(col));
-    
+
     if (allData.length > 0) {
       allData.forEach(row => {
         Object.keys(row).forEach(key => {
           // Exclude PRIMARY_KEY_COLUMN, English columns, removed columns, and technical columns
-          if (key !== PRIMARY_KEY_COLUMN && 
-              !isEnglishColumn(key) && 
-              !REMOVED_COLUMNS.includes(key) &&
-              !key.startsWith('_')) {
+          if (key !== PRIMARY_KEY_COLUMN &&
+            !isEnglishColumn(key) &&
+            !REMOVED_COLUMNS.includes(key) &&
+            !key.startsWith('_')) {
             allKeys.add(key);
           }
         });
@@ -243,7 +251,7 @@ function QuanLyCSKH() {
   const [visibleColumns, setVisibleColumns] = useState(() => {
     const saved = localStorage.getItem('quanLyCSKH_visibleColumns');
     let initial = {};
-    
+
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -258,7 +266,7 @@ function QuanLyCSKH() {
         console.error('Error parsing saved columns:', e);
       }
     }
-    
+
     // Initialize with default columns if empty
     if (Object.keys(initial).length === 0) {
       defaultColumns.forEach(col => {
@@ -272,7 +280,7 @@ function QuanLyCSKH() {
         }
       });
     }
-    
+
     return initial;
   });
 
@@ -286,7 +294,7 @@ function QuanLyCSKH() {
     setVisibleColumns(prev => {
       let updated = { ...prev };
       let changed = false;
-      
+
       // Remove any removed columns
       REMOVED_COLUMNS.forEach(col => {
         if (updated[col] !== undefined) {
@@ -294,7 +302,7 @@ function QuanLyCSKH() {
           changed = true;
         }
       });
-      
+
       // Ensure default columns are present
       defaultColumns.forEach(col => {
         if (updated[col] === undefined) {
@@ -302,7 +310,7 @@ function QuanLyCSKH() {
           changed = true;
         }
       });
-      
+
       return changed ? updated : prev;
     });
   }, []); // Only run once on mount
@@ -463,7 +471,7 @@ function QuanLyCSKH() {
 
         // Loại bỏ tất cả các cột tiếng Anh (snake_case, camelCase) - chỉ giữ cột tiếng Việt
         // Không thêm bất kỳ cột nào từ DB nếu chưa được map sang tiếng Việt
-        
+
         return friendlyData;
       });
 
@@ -483,18 +491,18 @@ function QuanLyCSKH() {
         selectedPersonnelNames,
         userName
       });
-      
+
       // User-friendly error message
       const errorMessage = error?.message || 'Lỗi không xác định';
       const isRLSError = errorMessage.includes('row-level security') || errorMessage.includes('RLS');
       const isPermissionError = errorMessage.includes('permission') || errorMessage.includes('quyền');
-      
+
       if (isRLSError || isPermissionError) {
         alert(`❌ Lỗi phân quyền:\n\n${errorMessage}\n\nVui lòng kiểm tra quyền truy cập của bạn hoặc liên hệ Admin.`);
       } else {
         alert(`❌ Lỗi tải dữ liệu CSKH:\n\n${errorMessage}\n\nVui lòng thử lại hoặc liên hệ IT nếu lỗi tiếp tục xảy ra.`);
       }
-      
+
       setAllData([]);
     } finally {
       setLoading(false);
@@ -506,7 +514,7 @@ function QuanLyCSKH() {
     const loadSelectedPersonnel = async () => {
       try {
         const userEmail = localStorage.getItem("userEmail") || "";
-        
+
         if (!userEmail) {
           setSelectedPersonnelNames([]);
           return;
@@ -520,7 +528,7 @@ function QuanLyCSKH() {
           const nameStr = String(name).trim();
           return nameStr.length > 0 && !nameStr.includes('@');
         });
-        
+
         console.log('📝 [QuanLyCSKH] Valid personnel names:', validNames);
         setSelectedPersonnelNames(validNames);
       } catch (error) {
@@ -655,8 +663,8 @@ function QuanLyCSKH() {
         return;
     }
 
-    setStartDate(start.toISOString().split('T')[0]);
-    setEndDate(end.toISOString().split('T')[0]);
+    setStartDate(formatLocalDate(start));
+    setEndDate(formatLocalDate(end));
   };
 
   // Filter and sort data
@@ -714,12 +722,12 @@ function QuanLyCSKH() {
       data = data.filter(row => {
         const sale = row["Nhân viên Sale"];
         const saleStr = sale ? String(sale).trim() : '';
-        
+
         // Kiểm tra nếu có chọn "(Trống)"
         if (filterSale.includes('(Trống)')) {
           if (!saleStr) return true; // Nếu giá trị trống và đã chọn "(Trống)"
         }
-        
+
         // Kiểm tra các giá trị khác
         return filterSale.includes(saleStr);
       });
@@ -730,12 +738,12 @@ function QuanLyCSKH() {
       data = data.filter(row => {
         const mkt = row["Nhân viên Marketing"];
         const mktStr = mkt ? String(mkt).trim() : '';
-        
+
         // Kiểm tra nếu có chọn "(Trống)"
         if (filterMKT.includes('(Trống)')) {
           if (!mktStr) return true; // Nếu giá trị trống và đã chọn "(Trống)"
         }
-        
+
         // Kiểm tra các giá trị khác
         return filterMKT.includes(mktStr);
       });
@@ -1144,15 +1152,15 @@ function QuanLyCSKH() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
-                    {filterSale.length === 0 
-                      ? 'Tất cả' 
-                      : filterSale.length === 1 
-                        ? filterSale[0] 
+                    {filterSale.length === 0
+                      ? 'Tất cả'
+                      : filterSale.length === 1
+                        ? filterSale[0]
                         : `Đã chọn ${filterSale.length}`}
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
-                
+
                 {showSaleFilter && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2">
@@ -1196,7 +1204,7 @@ function QuanLyCSKH() {
                   </div>
                 )}
               </div>
-              
+
               {/* Click outside to close */}
               {showSaleFilter && (
                 <div
@@ -1216,15 +1224,15 @@ function QuanLyCSKH() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
-                    {filterMKT.length === 0 
-                      ? 'Tất cả' 
-                      : filterMKT.length === 1 
-                        ? filterMKT[0] 
+                    {filterMKT.length === 0
+                      ? 'Tất cả'
+                      : filterMKT.length === 1
+                        ? filterMKT[0]
                         : `Đã chọn ${filterMKT.length}`}
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
-                
+
                 {showMKTFilter && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2">
@@ -1268,7 +1276,7 @@ function QuanLyCSKH() {
                   </div>
                 )}
               </div>
-              
+
               {/* Click outside to close */}
               {showMKTFilter && (
                 <div
@@ -1421,48 +1429,48 @@ function QuanLyCSKH() {
                       {/* Action Column - Chỉ Admin mới thấy */}
                       {isAdmin() && (
                         <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap border-l border-gray-200 sticky right-0 bg-white z-10 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          {/* View - Open Modal Read Only */}
-                          <button
-                            onClick={() => openViewModal(row)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                            title="Xem chi tiết"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-
-                          {/* Edit - Chỉnh sửa đầy đủ trong form NhapDonMoi */}
-                          {(canEdit('CSKH_LIST') || canEdit('SALE_ORDERS') || isAdmin()) && (
+                          <div className="flex items-center justify-center gap-2">
+                            {/* View - Open Modal Read Only */}
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const orderId = row['Mã đơn hàng'] || row.order_code;
-                                if (orderId) {
-                                  navigate(`/chinh-sua-don?orderId=${orderId}`);
-                                } else {
-                                  toast.error('Không tìm thấy mã đơn hàng');
-                                }
-                              }}
+                              onClick={() => openViewModal(row)}
                               className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                              title="Chỉnh sửa đầy đủ thông tin đơn hàng"
+                              title="Xem chi tiết"
                             >
-                              <Edit className="w-4 h-4" />
+                              <Eye className="w-4 h-4" />
                             </button>
-                          )}
-                          
 
-                          {/* Delete - Chỉ Admin mới thấy */}
-                          {isAdmin() && (
-                            <button
-                              onClick={() => handleDelete(row.id)}
-                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                              title="Xóa đơn hàng"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                            {/* Edit - Chỉnh sửa đầy đủ trong form NhapDonMoi */}
+                            {(canEdit('CSKH_LIST') || canEdit('SALE_ORDERS') || isAdmin()) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const orderId = row['Mã đơn hàng'] || row.order_code;
+                                  if (orderId) {
+                                    navigate(`/chinh-sua-don?orderId=${orderId}`);
+                                  } else {
+                                    toast.error('Không tìm thấy mã đơn hàng');
+                                  }
+                                }}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                title="Chỉnh sửa đầy đủ thông tin đơn hàng"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                            )}
+
+
+                            {/* Delete - Chỉ Admin mới thấy */}
+                            {isAdmin() && (
+                              <button
+                                onClick={() => handleDelete(row.id)}
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Xóa đơn hàng"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
                       )}
                     </tr>
                   ))

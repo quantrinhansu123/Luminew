@@ -772,8 +772,8 @@ export default function XemBaoCaoMKT() {
         return;
     }
 
-    setStartDate(start.toISOString().split('T')[0]);
-    setEndDate(end.toISOString().split('T')[0]);
+    setStartDate(formatLocalDate(start));
+    setEndDate(formatLocalDate(end));
   };
 
   // Handle filter checkbox changes
@@ -904,11 +904,15 @@ export default function XemBaoCaoMKT() {
   // Fetch số đơn tổng (tất cả các đơn, không filter theo check_result) từ bảng orders cho MKT
   const enrichWithTotalOrdersFromOrders = async (reports, startDate, endDate) => {
     try {
-      // Helper function để normalize date format
+      // Helper function để normalize date format (sử dụng LOCAL time)
       const normalizeDate = (date) => {
         if (!date) return '';
         if (date instanceof Date) {
-          return date.toISOString().split('T')[0];
+          // Sử dụng local date thay vì toISOString() (UTC)
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
         }
         if (typeof date === 'string') {
           const trimmed = date.trim();
@@ -929,10 +933,13 @@ export default function XemBaoCaoMKT() {
           if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
             return trimmed;
           }
-          // Thử parse
+          // Thử parse - sử dụng local date
           const parsed = new Date(trimmed);
           if (!isNaN(parsed.getTime())) {
-            return parsed.toISOString().split('T')[0];
+            const year = parsed.getFullYear();
+            const month = String(parsed.getMonth() + 1).padStart(2, '0');
+            const day = String(parsed.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
           }
           return trimmed;
         }

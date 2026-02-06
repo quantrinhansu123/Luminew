@@ -299,22 +299,52 @@ function ReportForm() {
 
     setLoading(true);
     try {
-      const payload = reports.map(report => ({
-        name: report.name,
-        email: report.email,
-        date: report.date,
-        shift: report.shift,
-        product: report.product,
-        market: report.market,
-        mess_count: Number(cleanNumberInput(String(report.mess_cmt || ''))) || 0,
-        response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
-        order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
-        revenue_mess: Number(cleanNumberInput(String(report.revenue || ''))) || 0,
-        revenue_cancel: Number(cleanNumberInput(String(report.revenue_cancel || ''))) || 0, // Doanh số hủy
-        team: localStorage.getItem('userTeam') || 'Sale',
-        branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
-        created_at: new Date().toISOString(),
-      }));
+      // Fetch teams for all emails in the reports to ensure accuracy
+      const emails = [...new Set(reports.map(r => r.email).filter(e => e && e.trim()))];
+      let emailToTeamMap = {};
+
+      if (emails.length > 0) {
+        try {
+          const { data: usersData, error: usersError } = await supabase
+            .from('users')
+            .select('email, team')
+            .in('email', emails);
+
+          if (!usersError && usersData) {
+            usersData.forEach(u => {
+              if (u.email && u.team) {
+                emailToTeamMap[u.email.trim().toLowerCase()] = u.team;
+              }
+            });
+            console.log('✅ Fetched teams for emails:', emailToTeamMap);
+          }
+        } catch (fetchTeamError) {
+          console.error('⚠️ Error fetching teams from users table:', fetchTeamError);
+        }
+      }
+
+      const payload = reports.map(report => {
+        const reportEmail = (report.email || '').trim().toLowerCase();
+        // Priority: Team from Users Table > LocalStorage User Team > 'Sale'
+        const correctTeam = emailToTeamMap[reportEmail] || localStorage.getItem('userTeam') || 'Sale';
+
+        return {
+          name: report.name,
+          email: report.email,
+          date: report.date,
+          shift: report.shift,
+          product: report.product,
+          market: report.market,
+          mess_count: Number(cleanNumberInput(String(report.mess_cmt || ''))) || 0,
+          response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
+          order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
+          revenue_mess: Number(cleanNumberInput(String(report.revenue || ''))) || 0,
+          revenue_cancel: Number(cleanNumberInput(String(report.revenue_cancel || ''))) || 0, // Doanh số hủy
+          team: correctTeam,
+          branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
+          created_at: new Date().toISOString(),
+        };
+      });
 
       const { error } = await supabase
         .from('sales_reports')
@@ -544,8 +574,8 @@ function ReportForm() {
                           }
                         }}
                         className={`flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${reports.length <= 1
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
                           }`}
                         title="Xóa dòng"
                         disabled={reports.length <= 1}

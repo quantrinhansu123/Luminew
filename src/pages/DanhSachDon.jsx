@@ -42,7 +42,7 @@ function DanhSachDon() {
     userEmail === ADMIN_MAIL ||
     (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'admin' ||
     (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'finance';
-  
+
   // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền đồng bộ và xóa toàn bộ
   const isAdminOnly = ['admin', 'super_admin', 'ADMIN', 'SUPER_ADMIN'].includes(roleLower) ||
     userEmail === ADMIN_MAIL ||
