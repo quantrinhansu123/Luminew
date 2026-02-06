@@ -1099,7 +1099,7 @@ export default function XemBaoCaoCSKH() {
             });
 
             // Cập nhật transformedData với tổng doanh số từ orders (theo cùng rule như Số đơn TT)
-            transformedData.forEach((item) => {
+            transformedData.forEach((item, index) => {
                 const saleName = normalizeStr(item['Tên']);
                 const reportDateRaw = item['Ngày'];
                 const reportDate = normalizeDate(reportDateRaw);
@@ -1990,16 +1990,31 @@ export default function XemBaoCaoCSKH() {
                         console.log(`✅ [BaoCaoSale] Fetched ${usersData?.length || 0} users from database`);
 
                         // Create a map for quick lookup: Email -> User Info
+                        // AND Name -> User Info (fallback)
                         const userMap = new Map();
+                        const nameMap = new Map();
+
                         (usersData || []).forEach(u => {
                             const email = u.email ? String(u.email).trim().toLowerCase() : '';
+                            const name = u.name ? normalizeStr(u.name) : '';
+
                             if (email) userMap.set(email, u);
+                            if (name) nameMap.set(name, u);
                         });
 
                         // Update transformedData with correct Team and Branch from users table
                         transformedData.forEach(item => {
                             const email = item['Email'] ? String(item['Email']).trim().toLowerCase() : '';
-                            const user = userMap.get(email);
+                            const name = item['Tên'] ? normalizeStr(item['Tên']) : '';
+
+                            // 1. Try Lookup by Email first (Priority 1)
+                            let user = userMap.get(email);
+
+                            // 2. If not found, try Lookup by Name (Priority 2)
+                            if (!user && name) {
+                                user = nameMap.get(name);
+                            }
+
                             if (user) {
                                 // Update Team if available in users table
                                 if (user.team) item['Team'] = user.team;
