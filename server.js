@@ -1,10 +1,10 @@
+import { createClient } from '@supabase/supabase-js';
 import cors from 'cors';
+import { randomUUID } from 'crypto';
+import dotenv from 'dotenv';
 import express from 'express';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createClient } from '@supabase/supabase-js';
-import { randomUUID } from 'crypto';
-import dotenv from 'dotenv';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -155,7 +155,7 @@ app.get('/van-don', async (req, res) => {
     // Set proper headers to avoid 406 error
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Accept', 'application/json');
-    
+
     res.json({
       success: true,
       data: paginatedData,
@@ -303,9 +303,9 @@ app.post('/api/sync-mkt', async (req, res) => {
 
   } catch (error) {
     console.error('Sync MKT error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -316,7 +316,7 @@ app.get('/api/test-supabase', async (req, res) => {
     console.log('🧪 Testing Supabase connection...');
     console.log('   URL:', SUPABASE_URL);
     console.log('   Key prefix:', SUPABASE_SERVICE_ROLE_KEY.substring(0, 30) + '...');
-    
+
     // Simple test query
     const { data, error, count } = await supabaseAdmin
       .from('detail_reports')
@@ -353,11 +353,11 @@ app.get('/api/test-supabase', async (req, res) => {
 app.get('/api/fetch-detail-reports', async (req, res) => {
   try {
     const { startDate, endDate, limit = 10000 } = req.query;
-    
+
     console.log('📥 Fetching detail_reports data...', { startDate, endDate, limit });
     console.log('🔑 Using Supabase URL:', SUPABASE_URL);
     console.log('🔑 Using Service Role Key:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
-    
+
     if (!SUPABASE_SERVICE_ROLE_KEY) {
       console.error('❌ SUPABASE_SERVICE_ROLE_KEY is missing!');
       return res.status(500).json({
@@ -366,89 +366,91 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
         data: []
       });
     }
-    
+
     console.log('🔑 Key prefix:', SUPABASE_SERVICE_ROLE_KEY.substring(0, 20) + '...');
 
-    // Try selecting all first, then filter in memory if needed
-    // Note: Column name "Ngày" has special character, need to use double quotes in PostgREST
-    let query = supabaseAdmin
-      .from('detail_reports')
-      .select('*');
+    // Sử dụng PAGINATION để lấy tất cả records (Supabase mặc định giới hạn 1000 rows/request)
+    const PAGE_SIZE = 1000;
+    let allData = [];
+    let hasMore = true;
+    let offset = 0;
+    let totalCount = 0;
 
-    // Apply date filters if provided
-    // Convert date strings to proper format for Supabase DATE comparison
-    if (startDate) {
-      console.log('📅 Filtering by startDate:', startDate);
-      // Ensure date is in YYYY-MM-DD format
-      const startDateFormatted = startDate.split('T')[0]; // Remove time if present
-      query = query.gte('Ngày', startDateFormatted);
-    }
-    if (endDate) {
-      console.log('📅 Filtering by endDate:', endDate);
-      // Ensure date is in YYYY-MM-DD format
-      const endDateFormatted = endDate.split('T')[0]; // Remove time if present
-      query = query.lte('Ngày', endDateFormatted);
-    }
-    
-    // Order by date - column name with special character
-    query = query.order('Ngày', { ascending: false });
-    
-    // Apply limit
-    query = query.limit(parseInt(limit));
-
-    console.log('🔍 Executing query...');
-    console.log('📋 Query params:', { startDate, endDate, limit });
-    
     try {
-      const { data, error } = await query;
+      while (hasMore) {
+        let query = supabaseAdmin
+          .from('detail_reports')
+          .select('*', { count: 'exact' });
 
-      if (error) {
-        console.error('❌ Error fetching detail_reports:', error);
-        console.error('❌ Error code:', error.code);
-        console.error('❌ Error message:', error.message);
-        console.error('❌ Error details:', JSON.stringify(error, null, 2));
-        console.error('❌ Full error object:', error);
-        
-        // Check if it's an RLS error
-        if (error.message && (error.message.includes('row-level security') || error.message.includes('RLS') || error.message.includes('permission denied'))) {
+        // Apply date filters if provided
+        if (startDate) {
+          const startDateFormatted = startDate.split('T')[0];
+          query = query.gte('Ngày', startDateFormatted);
+        }
+        if (endDate) {
+          const endDateFormatted = endDate.split('T')[0];
+          query = query.lte('Ngày', endDateFormatted);
+        }
+
+        // Order by date
+        query = query.order('Ngày', { ascending: false });
+
+        // Pagination
+        query = query.range(offset, offset + PAGE_SIZE - 1);
+
+        const { data: pageData, error, count } = await query;
+
+        if (error) {
+          console.error('❌ Error fetching detail_reports:', error);
+          console.error('❌ Error code:', error.code);
+          console.error('❌ Error message:', error.message);
+
+          // Check if it's an RLS error
+          if (error.message && (error.message.includes('row-level security') || error.message.includes('RLS') || error.message.includes('permission denied'))) {
+            return res.status(500).json({
+              success: false,
+              error: `RLS Policy Error: ${error.message}. Please configure SUPABASE_SERVICE_ROLE_KEY in .env file to bypass RLS.`,
+              data: [],
+              hint: 'The current key may not have permission to bypass RLS. You need a service role key.',
+              errorCode: error.code,
+              errorMessage: error.message
+            });
+          }
+
           return res.status(500).json({
             success: false,
-            error: `RLS Policy Error: ${error.message}. Please configure SUPABASE_SERVICE_ROLE_KEY in .env file to bypass RLS.`,
-            data: [],
-            hint: 'The current key may not have permission to bypass RLS. You need a service role key.',
+            error: error.message || 'Unknown error',
             errorCode: error.code,
-            errorMessage: error.message
+            errorMessage: error.message,
+            data: []
           });
         }
-        
-        // Check if column doesn't exist
-        if (error.message && (error.message.includes('column') || error.message.includes('does not exist') || error.message.includes('Ngày'))) {
-          return res.status(500).json({
-            success: false,
-            error: `Column Error: ${error.message}. Please check if column 'Ngày' exists in detail_reports table.`,
-            data: [],
-            hint: 'The column name might be different. Check your database schema.',
-            errorCode: error.code,
-            errorMessage: error.message
-          });
+
+        if (count !== null && totalCount === 0) {
+          totalCount = count;
+          console.log(`📊 Detail Reports: Tổng số records cần lấy: ${totalCount}`);
         }
-        
-        return res.status(500).json({
-          success: false,
-          error: error.message || 'Unknown error',
-          errorCode: error.code,
-          errorMessage: error.message,
-          errorDetails: JSON.stringify(error),
-          data: []
-        });
+
+        if (pageData && pageData.length > 0) {
+          allData = [...allData, ...pageData];
+          offset += PAGE_SIZE;
+          console.log(`📊 Detail Reports: Đã lấy ${allData.length}/${totalCount} records...`);
+
+          // Kiểm tra còn dữ liệu không
+          if (pageData.length < PAGE_SIZE) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
+      console.log(`✅ Fetched ${allData.length} records from detail_reports (không giới hạn 1000)`);
 
-      res.json({
+      return res.json({
         success: true,
-        data: data || [],
-        count: data?.length || 0
+        data: allData,
+        count: allData.length
       });
     } catch (queryError) {
       console.error('❌ Query execution error:', queryError);
@@ -460,14 +462,6 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
         data: []
       });
     }
-
-    console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
-
-    res.json({
-      success: true,
-      data: data || [],
-      count: data?.length || 0
-    });
 
   } catch (error) {
     console.error('❌ Fetch detail_reports error:', error);

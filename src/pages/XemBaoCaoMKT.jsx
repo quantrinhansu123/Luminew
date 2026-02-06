@@ -5,7 +5,7 @@ import { useLocation } from 'react-router-dom';
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
-import { isDateInRange, parseSmartDate } from '../utils/dateParsing';
+import { parseSmartDate } from '../utils/dateParsing';
 import './XemBaoCaoMKT.css';
 
 const MARKET_GROUPS = {
@@ -49,13 +49,22 @@ export default function XemBaoCaoMKT() {
   const [activeTab, setActiveTab] = useState('DetailedReport');
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Helper function để format date theo LOCAL time (tránh lỗi timezone trên Vercel)
+  const formatLocalDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 30); // Last 30 Days default (expanded from 3)
-    return d.toISOString().split('T')[0];
+    d.setDate(d.getDate() - 30); // Last 30 Days default
+    return formatLocalDate(d);
   });
   const [endDate, setEndDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
+    return formatLocalDate(new Date());
   });
   const [selectedTeam, setSelectedTeam] = useState('ALL');
   const [teams, setTeams] = useState([]);
@@ -195,65 +204,89 @@ export default function XemBaoCaoMKT() {
       }
       // --------------------------
 
-      // Fetch via backend API (bypasses RLS) - Required because RLS policy needs permissions
-      const params = new URLSearchParams();
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
+      // Fetch trực tiếp từ Supabase (thay vì qua backend API - để deploy được trên Vercel)
+      // Sử dụng PAGINATION để lấy tất cả records (Supabase mặc định giới hạn 1000 rows/request)
+      const PAGE_SIZE = 1000;
+      let allReports = [];
+      let hasMore = true;
+      let offset = 0;
+      let totalCount = 0;
 
-      const apiUrl = `/api/fetch-detail-reports?${params.toString()}`;
-      console.log('📡 Fetching from:', apiUrl);
+      console.log(`📡 Fetching detail_reports trực tiếp từ Supabase...`);
+      console.log(`📅 Date range: ${startDate} đến ${endDate}`);
 
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }).catch(err => {
-        console.error('❌ Network error when fetching detail reports:', err);
-        throw new Error(`Lỗi kết nối: ${err.message}. Vui lòng kiểm tra backend server có đang chạy trên port 3001 không.`);
-      });
+      while (hasMore) {
+        let query = supabase
+          .from('detail_reports')
+          .select('*', { count: 'exact' });
 
-      if (!response.ok) {
-        const contentType = response.headers.get('content-type');
-        let errorText = 'Unknown error';
-
-        // Kiểm tra xem response có phải là JSON không
-        if (contentType && contentType.includes('application/json')) {
-          try {
-            const errorJson = await response.json();
-            errorText = errorJson.error || errorJson.message || JSON.stringify(errorJson);
-          } catch (e) {
-            errorText = await response.text().catch(() => 'Unknown error');
-          }
-        } else {
-          // Nếu không phải JSON (có thể là HTML error page)
-          errorText = await response.text().catch(() => 'Unknown error');
-          console.error('❌ Server returned non-JSON response (possibly HTML error page):', errorText.substring(0, 200));
-          throw new Error(`Server error (${response.status}): Backend server có thể chưa chạy hoặc có lỗi. Vui lòng kiểm tra server trên port 3001.`);
+        // Apply date filters if provided
+        if (startDate) {
+          query = query.gte('Ngày', startDate);
+        }
+        if (endDate) {
+          query = query.lte('Ngày', endDate);
         }
 
-        console.error('❌ HTTP error:', response.status, errorText);
-        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        // Order by date descending (mới nhất trước)
+        query = query.order('Ngày', { ascending: false });
+
+        // Pagination
+        query = query.range(offset, offset + PAGE_SIZE - 1);
+
+        const { data: pageData, error, count } = await query;
+
+        if (error) {
+          console.error('❌ Error fetching detail_reports:', error);
+          throw new Error(`Lỗi truy vấn Supabase: ${error.message}`);
+        }
+
+        if (count !== null && totalCount === 0) {
+          totalCount = count;
+          console.log(`📊 Detail Reports: Tổng số records: ${totalCount}`);
+        }
+
+        if (pageData && pageData.length > 0) {
+          allReports = [...allReports, ...pageData];
+          offset += PAGE_SIZE;
+          console.log(`📊 Detail Reports: Đã lấy ${allReports.length}/${totalCount}...`);
+
+          if (pageData.length < PAGE_SIZE) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      // Kiểm tra content-type trước khi parse JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('❌ Server returned non-JSON response:', text.substring(0, 200));
-        throw new Error(`Server returned non-JSON response. Backend server có thể chưa chạy hoặc có lỗi.`);
+      console.log(`✅ Fetched ${allReports.length} records từ detail_reports`);
+
+      // Debug: Log sample date format từ database
+      if (allReports.length > 0) {
+        const sampleDates = allReports.slice(0, 3).map(r => r['Ngày']);
+        console.log(`📅 Sample dates từ DB:`, sampleDates);
+        console.log(`📅 Date format check: startDate=${startDate}, endDate=${endDate}`);
       }
 
-      const result = await response.json();
+      // Supabase đã filter theo date ở query, nhưng vẫn filter lại ở client để đảm bảo chính xác
+      let dateFilteredReports = allReports.filter(r => {
+        const reportDate = r['Ngày'];
+        if (!reportDate) return false;
 
-      if (!result.success) {
-        throw new Error(result.error || 'Lỗi không xác định');
-      }
+        // Normalize date to YYYY-MM-DD for comparison
+        let dateStr = reportDate;
+        if (reportDate.includes('T')) {
+          // If it's ISO format with time, extract just the date part
+          dateStr = reportDate.split('T')[0];
+        }
 
-      const allReports = result.data || [];
+        // Compare as strings (YYYY-MM-DD format sorts correctly)
+        if (startDate && dateStr < startDate) return false;
+        if (endDate && dateStr > endDate) return false;
+        return true;
+      });
 
-      // Filter by date first
-      let dateFilteredReports = allReports.filter(r => isDateInRange(r['Ngày'], startDate, endDate));
+      console.log(`📊 After client-side date filter: ${dateFilteredReports.length}/${allReports.length}`);
 
       // Then filter by hierarchical permissions
       // Admin: luôn xem tất cả dữ liệu, không bị filter
@@ -306,13 +339,19 @@ export default function XemBaoCaoMKT() {
 
       const uniqueProducts = [...new Set(dateFilteredReports.map(r => r['Sản_phẩm']).filter(Boolean))].sort();
       setProducts(uniqueProducts);
+      // Auto-select tất cả sản phẩm để tránh filter sai
+      setSelectedProducts(uniqueProducts);
 
       const uniqueMarkets = [...new Set(dateFilteredReports.map(r => r['Thị_trường']).filter(Boolean))].sort();
       setMarkets(uniqueMarkets);
+      // Auto-select tất cả thị trường
+      setSelectedMarkets(uniqueMarkets);
 
       // Extract unique shifts (Ca) from detail_reports
       const uniqueShifts = [...new Set(dateFilteredReports.map(r => r['ca']).filter(Boolean))].sort();
       setShifts(uniqueShifts);
+      // Auto-select tất cả ca
+      setSelectedShifts(uniqueShifts);
 
     } catch (err) {
       console.error('❌ Error fetching data:', err);
@@ -476,26 +515,41 @@ export default function XemBaoCaoMKT() {
 
     // --- DAILY BREAKDOWN LOGIC ---
     const dailyGroups = {};
+    let debugFilterStats = { total: 0, passedTeam: 0, passedProduct: 0, passedShift: 0, passedMarket: 0, passedDate: 0 };
+
     if (activeTab === 'DetailedReport') {
       data.forEach(row => {
+        debugFilterStats.total++;
         // Tất cả dữ liệu lấy từ detail_reports
         if (selectedTeam !== 'ALL' && row['Team'] !== selectedTeam) return;
+        debugFilterStats.passedTeam++;
         if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return;
+        debugFilterStats.passedProduct++;
         if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return;
+        debugFilterStats.passedShift++;
         if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return;
+        debugFilterStats.passedMarket++;
         if (!row['Ngày']) return;
 
         const dObj = parseSmartDate(row['Ngày']);
         if (!dObj) return;
-        const date = dObj.toISOString().split('T')[0];
+        // Sử dụng LOCAL date để tránh lỗi timezone (toISOString trả về UTC)
+        const year = dObj.getFullYear();
+        const month = String(dObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dObj.getDate()).padStart(2, '0');
+        const date = `${year}-${month}-${day}`;
+        debugFilterStats.passedDate++;
 
         if (!dailyGroups[date]) dailyGroups[date] = [];
         dailyGroups[date].push(row);
       });
+
+      console.log(`🔍 Filter stats: Total=${debugFilterStats.total}, PassedTeam=${debugFilterStats.passedTeam}, PassedProduct=${debugFilterStats.passedProduct}, PassedShift=${debugFilterStats.passedShift}, PassedMarket=${debugFilterStats.passedMarket}, PassedDate=${debugFilterStats.passedDate}`);
     }
 
     // Sort dates desc
     const sortedDates = Object.keys(dailyGroups).sort((a, b) => new Date(b) - new Date(a));
+    console.log(`📅 Daily dates found: ${sortedDates.length} ngày:`, sortedDates.slice(0, 10));
 
     const dailyData = sortedDates.map(date => {
       const dayRows = dailyGroups[date];
@@ -900,29 +954,55 @@ export default function XemBaoCaoMKT() {
         .filter(name => name && name.trim().length > 0)
       )];
 
-      // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
-      let query = supabase
-        .from('orders')
-        .select('order_date, marketing_staff, product, country, total_amount_vnd', { count: 'exact' })
-        .gte('order_date', normalizedStartDate)
-        .lte('order_date', normalizedEndDate);
+      // Build query với PAGINATION để lấy tất cả orders (Supabase mặc định giới hạn 1000 rows/request)
+      const PAGE_SIZE = 1000;
+      let allOrders = [];
+      let hasMore = true;
+      let offset = 0;
+      let totalCount = 0;
 
-      // Filter theo tên Marketing từ báo cáo
-      if (marketingNamesFromReports.length > 0) {
-        const marketingConditions = marketingNamesFromReports
-          .map(name => `marketing_staff.ilike.%${name.trim()}%`)
-          .join(',');
-        query = query.or(marketingConditions);
+      console.log(`📊 MKT: Đang query orders với khoảng ngày: ${normalizedStartDate} đến ${normalizedEndDate}`);
+
+      while (hasMore) {
+        let query = supabase
+          .from('orders')
+          .select('order_date, marketing_staff, product, country, total_amount_vnd', { count: 'exact' })
+          .gte('order_date', normalizedStartDate)
+          .lte('order_date', normalizedEndDate)
+          .order('order_date', { ascending: false }); // Lấy đơn mới nhất trước
+
+        // KHÔNG filter theo marketing_staff để lấy TẤT CẢ đơn trong khoảng thời gian
+        // Việc match sẽ thực hiện ở bước sau
+
+        query = query.range(offset, offset + PAGE_SIZE - 1);
+
+        const { data: pageData, error, count } = await query;
+
+        if (error) {
+          console.error('❌ Error fetching total orders for MKT:', error);
+          return;
+        }
+
+        if (count !== null && totalCount === 0) {
+          totalCount = count;
+          console.log(`📊 MKT: Tổng số đơn cần lấy: ${totalCount}`);
+        }
+
+        if (pageData && pageData.length > 0) {
+          allOrders = [...allOrders, ...pageData];
+          offset += PAGE_SIZE;
+          console.log(`📊 MKT: Đã lấy ${allOrders.length}/${totalCount} đơn...`);
+
+          // Kiểm tra còn dữ liệu không
+          if (pageData.length < PAGE_SIZE) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      query = query.limit(10000);
-
-      const { data: allOrders, error, count } = await query;
-
-      if (error) {
-        console.error('❌ Error fetching total orders for MKT:', error);
-        return;
-      }
+      console.log(`✅ MKT: Hoàn tất lấy ${allOrders.length} đơn (không giới hạn 1000)`);
 
       console.log(`📊 MKT: Tìm thấy ${allOrders?.length || 0} đơn tổng trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
       console.log(`📊 MKT: Tên Marketing từ báo cáo:`, marketingNamesFromReports.slice(0, 5));
@@ -938,31 +1018,29 @@ export default function XemBaoCaoMKT() {
         });
       }
 
-      if (count && count > 10000) {
-        console.warn(`⚠️ Cảnh báo: Có ${count} đơn tổng nhưng chỉ fetch được ${allOrders?.length || 0} records (giới hạn 10,000).`);
-      }
 
-      // Group đơn theo Tên Marketing + Ngày + Sản phẩm + Thị trường
+
+      // Group đơn theo Tên Marketing + Ngày + Thị trường (BỎ sản phẩm vì orders thường không có)
       // Lưu cả số đơn và tổng tiền VNĐ
-      const ordersByMarketingDateProductMarket = new Map();
+      const ordersByMarketingDateMarket = new Map();
 
       (allOrders || []).forEach(order => {
         const orderMarketingName = normalizeStr(order.marketing_staff);
         const orderDateStr = normalizeDate(order.order_date);
-        const orderProduct = normalizeStr(order.product || '');
         const orderMarket = normalizeStr(order.country || '');
-        const key = `${orderMarketingName}|${orderDateStr}|${orderProduct}|${orderMarket}`;
+        // Key WITHOUT product - chỉ dùng Tên + Ngày + Thị trường
+        const key = `${orderMarketingName}|${orderDateStr}|${orderMarket}`;
 
-        if (!ordersByMarketingDateProductMarket.has(key)) {
-          ordersByMarketingDateProductMarket.set(key, { orders: [], totalAmount: 0 });
+        if (!ordersByMarketingDateMarket.has(key)) {
+          ordersByMarketingDateMarket.set(key, { orders: [], totalAmount: 0 });
         }
-        ordersByMarketingDateProductMarket.get(key).orders.push(order);
-        ordersByMarketingDateProductMarket.get(key).totalAmount += Number(order.total_amount_vnd || 0);
+        ordersByMarketingDateMarket.get(key).orders.push(order);
+        ordersByMarketingDateMarket.get(key).totalAmount += Number(order.total_amount_vnd || 0);
       });
 
-      console.log(`📊 MKT: Đã group ${ordersByMarketingDateProductMarket.size} keys từ ${allOrders?.length || 0} đơn`);
-      if (ordersByMarketingDateProductMarket.size > 0) {
-        const sampleKeys = Array.from(ordersByMarketingDateProductMarket.keys()).slice(0, 3);
+      console.log(`📊 MKT: Đã group ${ordersByMarketingDateMarket.size} keys từ ${allOrders?.length || 0} đơn`);
+      if (ordersByMarketingDateMarket.size > 0) {
+        const sampleKeys = Array.from(ordersByMarketingDateMarket.keys()).slice(0, 3);
         console.log(`📊 MKT: Sample keys từ orders:`, sampleKeys);
       }
 
@@ -974,7 +1052,6 @@ export default function XemBaoCaoMKT() {
         const marketingName = normalizeStr(item['Tên']);
         const reportDateRaw = item['Ngày'];
         const reportDate = normalizeDate(reportDateRaw);
-        const reportProduct = normalizeStr(item['Sản_phẩm'] || '');
         const reportMarket = normalizeStr(item['Thị_trường'] || '');
 
         if (!marketingName || !reportDate) {
@@ -987,40 +1064,21 @@ export default function XemBaoCaoMKT() {
           return;
         }
 
-        const key = `${marketingName}|${reportDate}|${reportProduct}|${reportMarket}`;
-        const matchingData = ordersByMarketingDateProductMarket.get(key) || { orders: [], totalAmount: 0 };
+        // Key WITHOUT product - chỉ dùng Tên + Ngày + Thị trường
+        const key = `${marketingName}|${reportDate}|${reportMarket}`;
+        const matchingData = ordersByMarketingDateMarket.get(key) || { orders: [], totalAmount: 0 };
         item['Số đơn TT'] = matchingData.orders.length;
         item['Doanh số chốt TT'] = matchingData.totalAmount; // Tổng tiền VNĐ từ orders
 
         if (matchingData.orders.length > 0) {
           matchedCount++;
-          if (index < 3) {
-            console.log(`✅ MKT [${index}]: Match ${matchingData.orders.length} đơn, Tổng tiền: ${matchingData.totalAmount.toLocaleString('vi-VN')} - Key: "${key}"`);
-          }
         } else {
           unmatchedCount++;
-          if (index < 3) {
-            console.log(`❌ MKT [${index}]: Không match - Key: "${key}"`);
-            console.log(`   - Tên báo cáo: "${item['Tên']}" → normalized: "${marketingName}"`);
-            console.log(`   - Ngày báo cáo: "${reportDateRaw}" → normalized: "${reportDate}"`);
-            console.log(`   - Sản phẩm: "${item['Sản_phẩm']}" → normalized: "${reportProduct}"`);
-            console.log(`   - Thị trường: "${item['Thị_trường']}" → normalized: "${reportMarket}"`);
-            // Log một vài keys có trong ordersByMarketingDateProductMarket để so sánh
-            const sampleKeys = Array.from(ordersByMarketingDateProductMarket.keys()).slice(0, 5);
-            console.log(`   - Sample keys trong orders:`, sampleKeys);
-          }
         }
       });
 
-      console.log(`✅ MKT: Đã cập nhật số đơn TT cho ${reports.length} báo cáo`);
-      console.log(`   - Match: ${matchedCount}, Không match: ${unmatchedCount}`);
-      console.log(`   - Tổng số keys trong orders map: ${ordersByMarketingDateProductMarket.size}`);
-
-      // Debug: Kiểm tra một vài giá trị sau khi enrich
-      const sampleReports = reports.slice(0, 3);
-      sampleReports.forEach((item, idx) => {
-        console.log(`📋 Sample report [${idx}]: Tên="${item['Tên']}", Ngày="${item['Ngày']}", Số đơn TT=${item['Số đơn TT']}, Doanh số chốt TT=${item['Doanh số chốt TT']}`);
-      });
+      // Chỉ log tóm tắt, không log từng record
+      console.log(`✅ MKT: Enriched ${reports.length} báo cáo - Match: ${matchedCount}, Không match: ${unmatchedCount}`);
     } catch (err) {
       console.error('❌ Error enriching with total orders for MKT:', err);
     }

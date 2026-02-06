@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Key, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import PermissionManager from '../components/admin/PermissionManager';
@@ -56,7 +56,7 @@ const AdminTools = () => {
     const [loadingData, setLoadingData] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [loadingSettings, setLoadingSettings] = useState(false);
-    
+
     // State để lưu danh sách sản phẩm từ database (bảng system_settings với 2 cột)
     const [dbProducts, setDbProducts] = useState([]); // [{id, name, type}, ...]
 
@@ -65,7 +65,7 @@ const AdminTools = () => {
     const [autoAssignResult, setAutoAssignResult] = useState(null);
     const [notDividedOrders, setNotDividedOrders] = useState([]); // Danh sách đơn không được chia
     const [selectedTeam, setSelectedTeam] = useState('Hà Nội');
-    
+
     // --- ORDER SEARCH STATE ---
     const [orderSearchCode, setOrderSearchCode] = useState('');
     const [orderSearchResult, setOrderSearchResult] = useState(null);
@@ -168,21 +168,24 @@ const AdminTools = () => {
 
     const AVAILABLE_TABLES = [
         // SALES
-        { id: 'sale_orders', name: 'Danh sách đơn (Sale)', desc: 'Danh sách đơn hàng của bộ phận Sale' },
+        // { id: 'sale_orders', name: 'Danh sách đơn (Sale)', desc: 'Danh sách đơn hàng của bộ phận Sale' },
         { id: 'sale_reports', name: 'Xem báo cáo (Sale)', desc: 'Dữ liệu báo cáo doanh số Sale' },
 
         // LOGISTICS (Vận đơn)
         { id: 'delivery_orders', name: 'Quản lý vận đơn', desc: 'Danh sách vận đơn (Delivery)' },
-        { id: 'delivery_reports', name: 'Báo cáo vận đơn', desc: 'Dữ liệu báo cáo vận đơn' },
+        // { id: 'delivery_reports', name: 'Báo cáo vận đơn', desc: 'Dữ liệu báo cáo vận đơn' },
 
         // MARKETING
-        { id: 'mkt_orders', name: 'Danh sách đơn (MKT)', desc: 'Danh sách đơn hàng Marketing' },
+        // { id: 'mkt_orders', name: 'Danh sách đơn (MKT)', desc: 'Danh sách đơn hàng Marketing' },
         { id: 'mkt_reports', name: 'Xem báo cáo (MKT)', desc: 'Báo cáo chi tiết Marketing (detail_reports)' },
 
         // CSKH (Customer Service)
-        { id: 'cskh_all', name: 'Danh sách đơn (CSKH)', desc: 'Toàn bộ đơn hàng (Dùng cho CSKH)' },
-        { id: 'cskh_money', name: 'Đơn đã thu tiền/cần CS (CSKH)', desc: 'Đơn hàng có trạng thái thu tiền/cần xử lý' },
+        // { id: 'cskh_all', name: 'Danh sách đơn (CSKH)', desc: 'Toàn bộ đơn hàng (Dùng cho CSKH)' },
+        // { id: 'cskh_money', name: 'Đơn đã thu tiền/cần CS (CSKH)', desc: 'Đơn hàng có trạng thái thu tiền/cần xử lý' },
         { id: 'cskh_report', name: 'Xem báo cáo CSKH', desc: 'Dữ liệu nguồn cho báo cáo CSKH' },
+
+        // SYSTEM
+        { id: 'users', name: 'Quản lý nhân sự (Users)', desc: 'Danh sách tài khoản và nhân sự hệ thống' },
     ];
 
     const handleDownloadTable = async (tableId) => {
@@ -439,11 +442,11 @@ const AdminTools = () => {
         try {
             // Load products từ bảng mới (2 cột: name, type)
             await fetchProductsFromDatabase();
-            
+
             // Schema mới không còn dùng id='global_config' với settings JSONB
             // Thay vào đó, sản phẩm được lưu trực tiếp với name và type
             // Nên không cần query theo id nữa
-            
+
             // Fallback to local settings
             setSettings(getSystemSettings());
         } catch (err) {
@@ -568,7 +571,7 @@ const AdminTools = () => {
 
             // Lưu tất cả sản phẩm từ dbProducts vào database
             if (dbProducts.length > 0) {
-                const savePromises = dbProducts.map(product => 
+                const savePromises = dbProducts.map(product =>
                     saveProductToDatabase(product.name, product.type)
                 );
                 await Promise.all(savePromises);
@@ -576,7 +579,7 @@ const AdminTools = () => {
 
             toast.success("✅ Đã lưu danh sách sản phẩm lên Server thành công!");
             window.dispatchEvent(new Event('storage'));
-            
+
             // Reload để cập nhật lại danh sách
             await fetchProductsFromDatabase();
         } catch (err) {
@@ -792,7 +795,7 @@ const AdminTools = () => {
                 .order('name', { ascending: true });
 
             if (error) throw error;
-            
+
             const staffNames = data?.map(u => u.name).filter(Boolean) || [];
             setCskhStaff(staffNames);
             return staffNames;
@@ -807,7 +810,7 @@ const AdminTools = () => {
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
         setNotDividedOrders([]);
-        
+
         try {
             const staffList = await loadCSKHStaff();
             if (staffList.length === 0) {
@@ -859,7 +862,7 @@ const AdminTools = () => {
                 const cskh = order.cskh?.toString().trim();
                 const sale = order.sale_staff?.toString().trim();
                 const monthKey = getMonthKey(order.order_date);
-                
+
                 if (cskh && staffList.includes(cskh) && cskh !== sale && monthKey) {
                     counter[cskh][monthKey] = (counter[cskh][monthKey] || 0) + 1;
                 }
@@ -871,7 +874,7 @@ const AdminTools = () => {
 
             eligibleOrders.forEach(order => {
                 const sale = order.sale_staff?.toString().trim();
-                
+
                 // Nếu Sale là CSKH -> tự chăm
                 if (sale && staffList.includes(sale)) {
                     updates.push({
@@ -918,7 +921,7 @@ const AdminTools = () => {
                 const CHUNK_SIZE = 50;
                 for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
                     const chunk = updates.slice(i, i + CHUNK_SIZE);
-                    const updatePromises = chunk.map(update => 
+                    const updatePromises = chunk.map(update =>
                         supabase
                             .from('orders')
                             .update({ cskh: update.cskh })
@@ -1014,7 +1017,7 @@ const AdminTools = () => {
 
     const handleRunAll = async () => {
         if (!window.confirm('Bạn có chắc muốn chạy toàn bộ quy trình (Phân bổ + Hạch toán)?')) return;
-        
+
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
         setNotDividedOrders([]);
@@ -1022,10 +1025,10 @@ const AdminTools = () => {
         try {
             // 1. Phân bổ đơn hàng
             await handlePhanBoDonHang();
-            
+
             // Đợi một chút
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             // 2. Hạch toán báo cáo
             await handleHachToanBaoCao();
 
@@ -1224,15 +1227,15 @@ const AdminTools = () => {
 
             // Đảm bảo allOrders là array
             let ordersArray = Array.isArray(allOrders) ? allOrders : [];
-            
+
             // Filter: chỉ lấy đơn có delivery_staff là null, undefined, hoặc empty string
             ordersArray = ordersArray.filter(order => {
                 const deliveryStaff = order.delivery_staff;
                 return !deliveryStaff || deliveryStaff === '' || deliveryStaff === null || deliveryStaff === undefined;
             });
-            
+
             console.log(`📦 [Chia đơn vận đơn] Đã lấy ${ordersArray.length} đơn có delivery_staff trống/null/empty từ database`);
-            
+
             if (ordersArray.length === 0) {
                 console.warn('⚠️ [Chia đơn vận đơn] Không tìm thấy đơn nào có delivery_staff trống/null/empty');
             }
@@ -1263,16 +1266,16 @@ const AdminTools = () => {
                 // Phân loại theo Team (không phân biệt hoa thường, trim dấu cách)
                 const hcmVariants = ['hcm', 'hồ chí minh', 'ho chi minh', 'tp.hcm', 'tp hcm'];
                 const hanoiVariants = ['hà nội', 'ha noi', 'hanoi', 'hn'];
-                
+
                 if (hcmVariants.includes(team)) {
                     ordersHCM.push(order);
                 } else if (hanoiVariants.includes(team)) {
                     ordersHaNoi.push(order);
                 } else {
                     // Đơn không có team hoặc team khác
-                    ordersWithoutTeam.push({ 
-                        ...order, 
-                        reason: `team="${teamRaw}" (normalized: "${team}", không phải HCM/Hà Nội)` 
+                    ordersWithoutTeam.push({
+                        ...order,
+                        reason: `team="${teamRaw}" (normalized: "${team}", không phải HCM/Hà Nội)`
                     });
                 }
             });
@@ -1284,28 +1287,28 @@ const AdminTools = () => {
             console.log(`  - Đơn Hà Nội: ${ordersHaNoi.length}`);
             console.log(`  - Đơn không có team/team khác: ${ordersWithoutTeam.length}`);
             console.log(`  - Đơn bị loại trừ: ${ordersExcluded.length}`);
-            
+
             // Phân tích chi tiết các đơn bị loại trừ
             const excludedByDeliveryStaff = ordersExcluded.filter(o => o.reason === 'delivery_staff đã có').length;
             const excludedByJapan = ordersExcluded.filter(o => o.reason?.includes('Nhật Bản')).length;
-            
+
             console.log(`  - Đơn bị loại trừ do delivery_staff đã có: ${excludedByDeliveryStaff}`);
             console.log(`  - Đơn bị loại trừ do Nhật Bản: ${excludedByJapan}`);
-            
+
             // Đếm số đơn có delivery_staff trống/null (đã được lọc từ query)
             const ordersWithEmptyDeliveryStaff = ordersArray.length;
-            
+
             console.log(`  - Tổng đơn có delivery_staff trống/null: ${ordersWithEmptyDeliveryStaff}`);
             console.log(`  - Đơn được chia (HCM + Hà Nội): ${ordersHCM.length + ordersHaNoi.length}`);
             const ordersNotDivided = ordersWithEmptyDeliveryStaff - (ordersHCM.length + ordersHaNoi.length);
             console.log(`  - Đơn không được chia (có delivery_staff trống nhưng bị loại): ${ordersNotDivided}`);
-            
+
             // Liệt kê tất cả các mã đơn hàng không được chia
             const allNotDividedOrders = [...ordersWithoutTeam, ...ordersExcluded.filter(o => o.reason?.includes('Nhật Bản'))];
-            
+
             // Lưu vào state để hiển thị trên giao diện
             setNotDividedOrders(allNotDividedOrders);
-            
+
             if (allNotDividedOrders.length > 0) {
                 console.warn(`\n❌ [DANH SÁCH ĐƠN KHÔNG ĐƯỢC CHIA] Tổng: ${allNotDividedOrders.length} đơn`);
                 console.table(allNotDividedOrders.map(o => ({
@@ -1315,7 +1318,7 @@ const AdminTools = () => {
                     'Delivery Staff': o.delivery_staff || '(null/empty)',
                     'Lý do': o.reason || 'Không xác định'
                 })));
-                
+
                 // Liệt kê chỉ mã đơn hàng (để copy dễ dàng)
                 const orderCodes = allNotDividedOrders.map(o => o.order_code).filter(Boolean);
                 console.warn(`\n📋 Danh sách mã đơn hàng không được chia (${orderCodes.length} mã):`);
@@ -1325,11 +1328,11 @@ const AdminTools = () => {
             } else {
                 setNotDividedOrders([]);
             }
-            
+
             // Log chi tiết các đơn không có team/team khác (để kiểm tra dấu cách, viết hoa/thường)
             if (ordersWithoutTeam.length > 0) {
                 console.warn(`\n⚠️ [Chia đơn vận đơn] Có ${ordersWithoutTeam.length} đơn không có team hoặc team khác, không được chia:`);
-                
+
                 // Nhóm theo team để dễ phân tích
                 const teamGroups = {};
                 ordersWithoutTeam.forEach(o => {
@@ -1339,7 +1342,7 @@ const AdminTools = () => {
                     }
                     teamGroups[teamValue].push(o);
                 });
-                
+
                 console.warn(`📋 Phân tích theo team (${Object.keys(teamGroups).length} giá trị khác nhau):`);
                 Object.entries(teamGroups).forEach(([teamValue, orders]) => {
                     const sample = orders[0];
@@ -1356,7 +1359,7 @@ const AdminTools = () => {
                     });
                 });
             }
-            
+
             // Log chi tiết các đơn bị loại do Nhật Bản (để kiểm tra biến thể)
             const japanOrders = ordersExcluded.filter(o => o.reason?.includes('Nhật Bản'));
             if (japanOrders.length > 0) {
@@ -1370,11 +1373,11 @@ const AdminTools = () => {
                 });
                 console.log(`📋 Các biến thể country bị loại (Nhật Bản):`, Object.keys(countryGroups));
             }
-            
+
             // Log chi tiết các đơn bị loại trừ do delivery_staff
             if (excludedByDeliveryStaff > 0) {
                 const sampleExcluded = ordersExcluded.filter(o => o.reason === 'delivery_staff đã có').slice(0, 5);
-                console.log(`📋 [Chia đơn vận đơn] Mẫu đơn bị loại trừ do delivery_staff đã có:`, 
+                console.log(`📋 [Chia đơn vận đơn] Mẫu đơn bị loại trừ do delivery_staff đã có:`,
                     sampleExcluded.map(o => ({
                         order_code: o.order_code,
                         delivery_staff: o.delivery_staff,
@@ -1423,11 +1426,11 @@ const AdminTools = () => {
                 successCount = 0;
                 errorCount = 0;
                 errors.length = 0; // Clear array
-                
+
                 for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
                     const chunk = updates.slice(i, i + CHUNK_SIZE);
                     console.log(`📦 [Chia đơn vận đơn] Đang xử lý chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(updates.length / CHUNK_SIZE)} (${chunk.length} đơn)`);
-                    
+
                     const updatePromises = chunk.map(async (update) => {
                         try {
                             const { data, error } = await supabase
@@ -1435,14 +1438,14 @@ const AdminTools = () => {
                                 .update({ delivery_staff: update.delivery_staff })
                                 .eq('order_code', update.order_code)
                                 .select();
-                            
+
                             if (error) {
                                 console.error(`❌ [Chia đơn vận đơn] Lỗi update đơn ${update.order_code}:`, error);
                                 errors.push({ order_code: update.order_code, error: error.message });
                                 errorCount++;
                                 return { success: false, error };
                             }
-                            
+
                             successCount++;
                             return { success: true, data };
                         } catch (err) {
@@ -1452,13 +1455,13 @@ const AdminTools = () => {
                             return { success: false, error: err };
                         }
                     });
-                    
+
                     const results = await Promise.all(updatePromises);
                     console.log(`✅ [Chia đơn vận đơn] Chunk ${Math.floor(i / CHUNK_SIZE) + 1} hoàn tất: ${results.filter(r => r.success).length}/${chunk.length} thành công`);
                 }
 
                 console.log(`📊 [Chia đơn vận đơn] Kết quả cập nhật: ${successCount} thành công, ${errorCount} lỗi`);
-                
+
                 if (errors.length > 0) {
                     console.warn(`⚠️ [Chia đơn vận đơn] Danh sách lỗi:`, errors);
                 }
@@ -1468,7 +1471,7 @@ const AdminTools = () => {
                     hcm: currentIndexHCM,
                     hanoi: currentIndexHaNoi
                 }));
-                
+
                 console.log(`💾 [Chia đơn vận đơn] Đã lưu lastIndex: HCM=${currentIndexHCM}, Hà Nội=${currentIndexHaNoi}`);
             } else {
                 console.warn('⚠️ [Chia đơn vận đơn] Không có đơn nào để cập nhật!');
@@ -1476,7 +1479,7 @@ const AdminTools = () => {
 
             // Tính toán số đơn không được chia (sử dụng biến đã khai báo ở trên)
             // ordersNotDivided đã được tính ở trên (dòng 1169)
-            
+
             const message = `✅ Chia đơn vận đơn ${updates.length > 0 ? 'đã hoàn tất' : 'không có đơn để chia'}!\n\n` +
                 `- Nhân viên HCM (U1): ${nhanVienHCM.length} người\n` +
                 `- Nhân viên Hà Nội (U1): ${nhanVienHaNoi.length} người\n` +
@@ -1490,13 +1493,13 @@ const AdminTools = () => {
                 `- Đơn bị loại trừ do Nhật Bản: ${ordersExcluded.filter(o => o.reason?.includes('Nhật Bản')).length}\n` +
                 `- Đơn không có team/team khác: ${ordersWithoutTeam.length}\n` +
                 (ordersNotDivided > 0 ? `\n⚠️ CẢNH BÁO: Có ${ordersNotDivided} đơn có delivery_staff trống nhưng không được chia!\n` +
-                `   (Có thể do: không có team, team khác HCM/Hà Nội, hoặc country = Nhật Bản)\n` : '') +
+                    `   (Có thể do: không có team, team khác HCM/Hà Nội, hoặc country = Nhật Bản)\n` : '') +
                 (errorCount > 0 ? `\n⚠️ LỖI: Có ${errorCount} đơn không thể cập nhật. Vui lòng kiểm tra Console để xem chi tiết.\n` : '') +
                 `\n- LastIndex HCM: ${currentIndexHCM}\n` +
                 `- LastIndex Hà Nội: ${currentIndexHaNoi}`;
 
             setAutoAssignResult({ success: updates.length > 0 && errorCount === 0, message });
-            
+
             if (updates.length === 0) {
                 toast.warning('Không có đơn nào để chia vận đơn!');
             } else if (errorCount > 0) {
@@ -1567,7 +1570,7 @@ const AdminTools = () => {
 
             // 2. Đồng bộ trong bảng orders
             console.log('🔄 [Đồng bộ Team] Đang xử lý bảng orders...');
-            
+
             // Lấy tất cả orders
             const { data: orders, error: ordersError } = await supabase
                 .from('orders')
@@ -1577,7 +1580,7 @@ const AdminTools = () => {
                 console.error('❌ [Đồng bộ Team] Lỗi lấy orders:', ordersError);
             } else if (orders && orders.length > 0) {
                 const updates = [];
-                
+
                 for (const order of orders) {
                     const updatesForOrder = {};
                     let hasUpdate = false;
@@ -1746,32 +1749,15 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                 throw error;
             }
 
-            // Transform data để phù hợp với UI
-            const transformedData = (data || []).map(user => ({
-                id: user.id,
-                email: user.email,
-                username: user.username,
-                name: user.name,
-                password: user.password || '', // Lưu password để hiển thị
-                role: user.role,
-                team: user.team,
-                department: user.department,
-                position: user.position,
-                branch: user.branch,
-                shift: user.shift,
-                can_day_ffm: user.can_day_ffm === true, // Quyền đẩy FFM
-                has_password: !!user.password && user.password !== '',
-                password_set: !!user.password,
-                created_at: user.created_at,
-                // Status mặc định dựa trên có password hay không
-                status: user.password && user.password !== '' ? 'active' : 'inactive',
-                // Giả lập các trường từ auth_accounts nếu cần
-                last_login_at: null,
-                login_attempts: 0,
-                user_id: user.id
-            }));
+            const affectedCount = data?.length || 0;
+            console.log(`✅ [Xóa CSKH] Đã xóa CSKH của ${affectedCount} đơn hàng`);
 
-            setAuthAccounts(transformedData);
+            toast.success(`✅ Đã xóa dữ liệu CSKH của ${affectedCount} đơn hàng!`);
+
+            // Refresh page hoặc reload data nếu cần
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
         } catch (error) {
             console.error('Error loading users:', error);
             toast.error('Lỗi khi tải danh sách tài khoản: ' + error.message);
@@ -1840,7 +1826,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
             // Xóa mật khẩu để khóa tài khoản (hoặc có thể thêm cột status vào users)
             const { error } = await supabase
                 .from('users')
-                .update({ 
+                .update({
                     password: null // Xóa mật khẩu để khóa
                 })
                 .eq('id', accountId);
@@ -1859,14 +1845,14 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
         try {
             // Để mở khóa, cần set lại mật khẩu tạm thời hoặc yêu cầu user đặt lại
             const newPassword = prompt('Nhập mật khẩu mới cho tài khoản này (hoặc để trống để user tự đặt):');
-            
+
             if (newPassword === null) return; // User hủy
 
             if (newPassword) {
                 // Hash password mới
                 const bcrypt = await import('bcryptjs');
                 const passwordHash = bcrypt.default.hashSync(newPassword, 10);
-                
+
                 const { error } = await supabase
                     .from('users')
                     .update({ password: passwordHash })
@@ -1877,7 +1863,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
             } else {
                 toast.info('Tài khoản đã được mở khóa nhưng cần user tự đặt mật khẩu mới khi đăng nhập.');
             }
-            
+
             loadAuthAccounts();
         } catch (error) {
             console.error('Error unlocking account:', error);
@@ -1976,7 +1962,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                             .from('users')
                             .update(updateData)
                             .eq('email', accountForm.email);
-                        
+
                         if (updateError) throw updateError;
                         toast.success('Tài khoản đã tồn tại, đã cập nhật thông tin!');
                     } else {
@@ -2054,7 +2040,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
             // 4. Tạo map: tên nhân viên -> branch (team)
             // Ưu tiên từ users, sau đó từ human_resources
             const nameToTeam = new Map();
-            
+
             // Từ bảng users
             (usersData || []).forEach(user => {
                 const name = normalizeStr(user.name);
@@ -2080,7 +2066,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
             for (let i = 0; i < ordersWithoutTeam.length; i++) {
                 const order = ordersWithoutTeam[i];
                 const saleName = normalizeStr(order.sale_staff);
-                
+
                 setFillTeamProgress({
                     current: i + 1,
                     total: ordersWithoutTeam.length,
@@ -2752,7 +2738,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                                             try {
                                                                                 await updateProductTypeInDatabase(product.name, newType);
                                                                                 // Cập nhật local state
-                                                                                setDbProducts(prev => prev.map(p => 
+                                                                                setDbProducts(prev => prev.map(p =>
                                                                                     p.name === product.name ? { ...p, type: newType } : p
                                                                                 ));
                                                                                 toast.success(`Đã cập nhật loại sản phẩm "${product.name}"`);
@@ -2810,17 +2796,17 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                 if (e.key === 'Enter') {
                                                     const val = e.target.value.trim();
                                                     if (!val) return;
-                                                    
+
                                                     // Kiểm tra xem đã có trong database chưa
-                                                    const existsInDb = dbProducts.some(p => 
+                                                    const existsInDb = dbProducts.some(p =>
                                                         p.name.toLowerCase().trim() === val.toLowerCase().trim()
                                                     );
-                                                    
+
                                                     if (existsInDb) {
                                                         toast.warning('Sản phẩm này đã có trong danh sách!');
                                                         return;
                                                     }
-                                                    
+
                                                     try {
                                                         // Lưu vào database với type mặc định là 'normal'
                                                         await saveProductToDatabase(val, 'normal');
@@ -2846,17 +2832,17 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                     toast.warning('Vui lòng nhập tên sản phẩm');
                                                     return;
                                                 }
-                                                
+
                                                 // Kiểm tra xem đã có trong database chưa
-                                                const existsInDb = dbProducts.some(p => 
+                                                const existsInDb = dbProducts.some(p =>
                                                     p.name.toLowerCase().trim() === val.toLowerCase().trim()
                                                 );
-                                                
+
                                                 if (existsInDb) {
                                                     toast.warning('Sản phẩm này đã có trong danh sách!');
                                                     return;
                                                 }
-                                                
+
                                                 try {
                                                     // Lưu vào database với type mặc định là 'normal'
                                                     await saveProductToDatabase(val, 'normal');
@@ -2984,8 +2970,8 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                 <strong>Chức năng:</strong> Tự động điền Team (Chi nhánh) vào cột team của orders dựa trên tên nhân viên sale.
                                             </p>
                                             <p className="text-xs text-gray-600">
-                                                • Lấy dữ liệu từ bảng users (cột branch) và human_resources (cột "chi nhánh")<br/>
-                                                • Chỉ điền cho các đơn hàng chưa có team (team = null hoặc rỗng)<br/>
+                                                • Lấy dữ liệu từ bảng users (cột branch) và human_resources (cột "chi nhánh")<br />
+                                                • Chỉ điền cho các đơn hàng chưa có team (team = null hoặc rỗng)<br />
                                                 • Match theo tên nhân viên sale (sale_staff)
                                             </p>
                                         </div>
@@ -3040,7 +3026,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                     ></div>
                                 </div>
                             </div>
-                            
+
                             <div className="space-y-2 text-sm">
                                 <div className="flex justify-between">
                                     <span className="text-gray-600">Đang xử lý:</span>
@@ -3121,7 +3107,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                             <li><strong>Chia đều:</strong> Với mỗi đơn còn lại, lấy tháng của "Ngày lên đơn", chọn nhân viên CSKH có <strong>ít đơn nhất trong tháng đó</strong></li>
                                         </ol>
                                         <p className="mt-2 text-blue-700 text-xs">
-                                            💡 Ví dụ: Nhân viên A có 5 đơn tháng 1, 3 đơn tháng 2. Nhân viên B có 2 đơn tháng 1, 4 đơn tháng 2. 
+                                            💡 Ví dụ: Nhân viên A có 5 đơn tháng 1, 3 đơn tháng 2. Nhân viên B có 2 đơn tháng 1, 4 đơn tháng 2.
                                             Đơn mới tháng 1 → chia cho B (B có ít đơn tháng 1 hơn). Đơn mới tháng 2 → chia cho A (A có ít đơn tháng 2 hơn).
                                         </p>
                                     </div>
@@ -3219,7 +3205,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                             Tìm kiếm
                                         </button>
                                     </div>
-                                    
+
                                     {/* Kết quả tìm kiếm */}
                                     {orderSearchResult && (
                                         <div className={`mt-4 p-4 rounded-lg border ${orderSearchResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
@@ -3281,7 +3267,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                         </div>
                                     )}
                                 </div>
-                                
+
                                 <h3 className="font-semibold text-gray-700">Chia đơn vận đơn</h3>
                                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
                                     <p className="text-xs text-gray-700 mb-2"><strong>Logic chia đơn vận đơn:</strong></p>
@@ -3357,14 +3343,14 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                 </pre>
                             </div>
                         )}
-                        
+
                         {/* Hiển thị danh sách đơn không được chia */}
                         {notDividedOrders.length > 0 && (
                             <div className="border rounded-lg p-4 bg-yellow-50 border-yellow-200 mt-4">
                                 <h3 className="font-semibold mb-3 text-yellow-800">
                                     ⚠️ Danh sách đơn không được chia ({notDividedOrders.length} đơn)
                                 </h3>
-                                
+
                                 {/* Bảng danh sách */}
                                 <div className="overflow-x-auto mb-4">
                                     <table className="min-w-full text-sm border-collapse">
@@ -3400,7 +3386,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                         </tbody>
                                     </table>
                                 </div>
-                                
+
                                 {/* Danh sách mã đơn hàng để copy */}
                                 <div className="mt-4">
                                     <h4 className="font-semibold text-yellow-800 mb-2">📋 Danh sách mã đơn hàng (để copy):</h4>
@@ -3578,11 +3564,10 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                     </div>
                                                 </td>
                                                 <td className="border border-gray-300 px-4 py-3">
-                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                                        account.role === 'admin' ? 'bg-purple-100 text-purple-800' :
+                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${account.role === 'admin' ? 'bg-purple-100 text-purple-800' :
                                                         account.role === 'leader' ? 'bg-blue-100 text-blue-800' :
-                                                        'bg-gray-100 text-gray-800'
-                                                    }`}>
+                                                            'bg-gray-100 text-gray-800'
+                                                        }`}>
                                                         {account.role || 'user'}
                                                     </span>
                                                 </td>
@@ -3600,7 +3585,7 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                                             .from('users')
                                                                             .update({ can_day_ffm: newValue })
                                                                             .eq('id', account.id);
-                                                                        
+
                                                                         if (error) {
                                                                             toast.error('Lỗi cập nhật quyền đẩy FFM: ' + error.message);
                                                                         } else {
@@ -3615,36 +3600,34 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                             />
                                                             <div className={`
                                                                 w-11 h-6 rounded-full transition-all duration-200 ease-in-out
-                                                                ${account.can_day_ffm 
-                                                                    ? 'bg-green-500' 
+                                                                ${account.can_day_ffm
+                                                                    ? 'bg-green-500'
                                                                     : 'bg-gray-300'
                                                                 }
                                                                 group-hover:opacity-80
                                                             `}>
                                                                 <div className={`
                                                                     w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out
-                                                                    ${account.can_day_ffm 
-                                                                        ? 'translate-x-5' 
+                                                                    ${account.can_day_ffm
+                                                                        ? 'translate-x-5'
                                                                         : 'translate-x-0.5'
                                                                     }
                                                                     mt-0.5
                                                                 `}></div>
                                                             </div>
                                                         </div>
-                                                        <span className={`ml-2 text-xs font-medium ${
-                                                            account.can_day_ffm ? 'text-green-700' : 'text-gray-500'
-                                                        }`}>
+                                                        <span className={`ml-2 text-xs font-medium ${account.can_day_ffm ? 'text-green-700' : 'text-gray-500'
+                                                            }`}>
                                                             {account.can_day_ffm ? 'Có' : 'Không'}
                                                         </span>
                                                     </label>
                                                 </td>
                                                 <td className="border border-gray-300 px-4 py-3">
-                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                                        account.status === 'active' ? 'bg-green-100 text-green-800' :
+                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${account.status === 'active' ? 'bg-green-100 text-green-800' :
                                                         account.status === 'locked' ? 'bg-red-100 text-red-800' :
-                                                        account.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
-                                                        'bg-yellow-100 text-yellow-800'
-                                                    }`}>
+                                                            account.status === 'inactive' ? 'bg-gray-100 text-gray-800' :
+                                                                'bg-yellow-100 text-yellow-800'
+                                                        }`}>
                                                         {account.has_password ? 'Có mật khẩu' : 'Chưa có mật khẩu'}
                                                     </span>
                                                 </td>
@@ -3864,14 +3847,13 @@ Tổng cộng: ${totalUpdated} records đã được cập nhật
                                                                 {new Date(history.login_at).toLocaleString('vi-VN')}
                                                             </td>
                                                             <td className="border border-gray-300 px-4 py-2">
-                                                                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                                                    history.status === 'success' ? 'bg-green-100 text-green-800' :
+                                                                <span className={`px-2 py-1 rounded text-xs font-medium ${history.status === 'success' ? 'bg-green-100 text-green-800' :
                                                                     history.status === 'failed' ? 'bg-red-100 text-red-800' :
-                                                                    'bg-yellow-100 text-yellow-800'
-                                                                }`}>
+                                                                        'bg-yellow-100 text-yellow-800'
+                                                                    }`}>
                                                                     {history.status === 'success' ? 'Thành công' :
-                                                                     history.status === 'failed' ? 'Thất bại' :
-                                                                     history.status}
+                                                                        history.status === 'failed' ? 'Thất bại' :
+                                                                            history.status}
                                                                 </span>
                                                             </td>
                                                             <td className="border border-gray-300 px-4 py-2 text-sm">{history.login_ip || '-'}</td>

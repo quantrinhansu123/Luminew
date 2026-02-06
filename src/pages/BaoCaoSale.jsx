@@ -72,6 +72,7 @@ export default function BaoCaoSale() {
     const [syncing, setSyncing] = useState(false); // State for sync process
     const [deleting, setDeleting] = useState(false); // State for delete process
     const [rawData, setRawData] = useState([]);
+    const [employeeData, setEmployeeData] = useState([]); // State for employee data for permissions/KPI
 
     const [currentUserInfo, setCurrentUserInfo] = useState(null);
     const [isRestrictedView, setIsRestrictedView] = useState(false);
@@ -2140,7 +2141,7 @@ export default function BaoCaoSale() {
                 // The original code expected `employeeData`.
                 // Let's create a minimal employee list from the report data itself for now to resolve permission logic.
                 const uniqueEmployees = Array.from(new Map(transformedData.map(item => [item['Email'], item])).values());
-                const employeeData = uniqueEmployees.map(u => ({
+                const extractedEmployeeData = uniqueEmployees.map(u => ({
                     'id': u['Email'], // Mock ID using email
                     'Họ Và Tên': u['Tên'],
                     'Email': u['Email'],
@@ -2149,6 +2150,8 @@ export default function BaoCaoSale() {
                     'Chi nhánh': u['Chi nhánh'] || u['chi nhánh'],
                     'Vị trí': u['Chức vụ']
                 }));
+
+                setEmployeeData(extractedEmployeeData);
 
                 // Fetch dữ liệu từ nhiều bảng SONG SONG để tránh xung đột và tăng tốc độ
                 // Sử dụng Promise.all() để chạy các operations độc lập cùng lúc
@@ -2228,7 +2231,7 @@ export default function BaoCaoSale() {
                     console.error(`❌ [BaoCaoSale] Lỗi trong enrich operations:`, err);
                 }
 
-                await processFetchedData(transformedData, employeeData);
+                await processFetchedData(transformedData, extractedEmployeeData);
 
             } catch (err) {
                 console.error('Fetch Error:', err);
@@ -3174,6 +3177,70 @@ export default function BaoCaoSale() {
                 const normalizedEndDate = normalizeDate(filters.endDate);
 
                 // Fetch orders
+                console.log(`🚀 [KPI] Bắt đầu tính KPI. Filter:`, { startDate: normalizedStartDate, endDate: normalizedEndDate, kpiFilters });
+
+                // --- TEST MODE CHECK ---
+                try {
+                    const settings = localStorage.getItem('system_settings');
+                    if (settings) {
+                        const parsed = JSON.parse(settings);
+                        if (parsed.dataSource === 'test') {
+                            console.log("🔶 [KPI] Loading Mock Data for KPI Report");
+                            const mockKpiData = [
+                                {
+                                    name: 'Sale Leader Test',
+                                    team: 'Team Test 1',
+                                    soDonChot: 10, dsChot: 15000000,
+                                    soDonHuy: 2, dsHuy: 3000000,
+                                    soDonSauHuy: 8, dsSauHuy: 12000000,
+                                    soDonDi: 8, dsDi: 12000000,
+                                    soDonTC: 6, dThuTC: 9000000,
+                                    ship: 500000, dThuTinhKPI: 8500000,
+                                    tyLeThuTien: 0.7083 // 8500000 / 12000000
+                                },
+                                {
+                                    name: 'Sale Member 1',
+                                    team: 'Team Test 1',
+                                    soDonChot: 5, dsChot: 5000000,
+                                    soDonHuy: 0, dsHuy: 0,
+                                    soDonSauHuy: 5, dsSauHuy: 5000000,
+                                    soDonDi: 5, dsDi: 5000000,
+                                    soDonTC: 4, dThuTC: 4000000,
+                                    ship: 200000, dThuTinhKPI: 3800000,
+                                    tyLeThuTien: 0.76
+                                },
+                                {
+                                    name: 'Sale Member 2',
+                                    team: 'Team Test 2',
+                                    soDonChot: 8, dsChot: 12000000,
+                                    soDonHuy: 1, dsHuy: 1500000,
+                                    soDonSauHuy: 7, dsSauHuy: 10500000,
+                                    soDonDi: 6, dsDi: 9000000,
+                                    soDonTC: 5, dThuTC: 7500000,
+                                    ship: 300000, dThuTinhKPI: 7200000,
+                                    tyLeThuTien: 0.6857
+                                }
+                            ];
+
+                            let mockTotal = {
+                                soDonChot: 23, dsChot: 32000000,
+                                soDonHuy: 3, dsHuy: 4500000,
+                                soDonSauHuy: 20, dsSauHuy: 27500000,
+                                soDonDi: 19, dsDi: 26000000,
+                                soDonTC: 15, dThuTC: 20500000,
+                                ship: 1000000, dThuTinhKPI: 19500000,
+                                tyLeThuTien: 0.709 // 19500000 / 27500000
+                            };
+
+                            setKpiReportData({ kpiData: mockKpiData, kpiTotal: mockTotal });
+                            setKpiLoading(false);
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Error checking test mode in KPI:", e);
+                }
+
                 let query = supabase
                     .from('orders')
                     .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, team')
@@ -3189,8 +3256,8 @@ export default function BaoCaoSale() {
                     const marketConditions = kpiFilters.markets.map(m => `country.ilike.%${m}%`).join(',');
                     query = query.or(marketConditions);
                 }
-                if (kpiFilters.teams.length > 0) {
-                    const teamConditions = kpiFilters.teams.map(t => `team.ilike.%${t}%`).join(',');
+                if (kpiFilters.team.length > 0) {
+                    const teamConditions = kpiFilters.team.map(t => `team.ilike.%${t}%`).join(',');
                     query = query.or(teamConditions);
                 }
 
@@ -3201,6 +3268,8 @@ export default function BaoCaoSale() {
                     setKpiReportData({ kpiData: [], kpiTotal: null });
                     return;
                 }
+
+                console.log(`📊 [KPI] Fetched ${allOrders?.length || 0} orders.`);
 
                 // Filter orders
                 let filteredOrders = (allOrders || []).filter(order => {
@@ -3305,7 +3374,6 @@ export default function BaoCaoSale() {
                     acc.dsDi += item.dsDi;
                     acc.soDonTC += item.soDonTC;
                     acc.dThuTC += item.dThuTC;
-                    acc.ship += item.ship;
                     acc.dThuTinhKPI += item.dThuTinhKPI;
                     return acc;
                 }, {
@@ -3319,6 +3387,129 @@ export default function BaoCaoSale() {
 
                 kpiTotal.tyLeThuTien = kpiTotal.dsChot > 0 ? kpiTotal.dThuTinhKPI / kpiTotal.dsChot : 0;
 
+                // --- NEW LOGIC: Fetch Manual Data from sales_reports for "Chốt" metrics ---
+                // Fetch sales_reports
+                let salesQuery = supabase
+                    .from('sales_reports')
+                    .select('name, order_count, revenue_mess, date')
+                    .gte('date', normalizedStartDate)
+                    .lte('date', normalizedEndDate);
+
+                const { data: salesReportsData, error: salesError } = await salesQuery.limit(10000);
+
+                if (salesError) {
+                    console.error('❌ Error fetching sales_reports for KPI:', salesError);
+                } else {
+                    console.log(`📊 [KPI] Fetched ${salesReportsData.length} records from sales_reports to align with Tab 1`);
+
+                    // Aggregate sales_reports by personnel
+                    const manualDataByPersonnel = {};
+                    (salesReportsData || []).forEach(r => {
+                        const name = normalizeStr(r.name);
+                        if (!manualDataByPersonnel[name]) {
+                            manualDataByPersonnel[name] = { soDonChot: 0, dsChot: 0 };
+                        }
+                        manualDataByPersonnel[name].soDonChot += Number(r.order_count) || 0;
+                        manualDataByPersonnel[name].dsChot += Number(r.revenue_mess) || 0;
+                    });
+
+                    // Merge Manual Data into kpiData and kpiTotal
+                    // Strategy:
+                    // 1. Update existing personnel in kpiData with Manual "Chốt" values.
+                    // 2. Add personnel who exist in sales_reports but NOT in orders (kpiData).
+
+                    // Helper to find KPI record for a name
+                    const findKpiRecord = (name) => kpiData.find(item => normalizeStr(item.name) === name);
+
+                    // Update existing
+                    kpiData.forEach(item => {
+                        const nameKey = normalizeStr(item.name);
+                        const manual = manualDataByPersonnel[nameKey];
+                        if (manual) {
+                            // OVERWRITE "Chốt" with Manual Data
+                            item.soDonChot = manual.soDonChot;
+                            item.dsChot = manual.dsChot;
+
+                            // Recalculate "Sau hủy" = Manual Chốt - Actual Hủy
+                            item.soDonSauHuy = item.soDonChot - item.soDonHuy;
+                            item.dsSauHuy = item.dsChot - item.dsHuy;
+
+                            // Recalculate Rate
+                            item.tyLeThuTien = item.dsChot > 0 ? item.dThuTinhKPI / item.dsChot : 0;
+                        } else {
+                            // If no manual data, set Chốt = 0 (or keep Actual? User implies alignment, so assume Manual is truth)
+                            // Tab 1 sets 0 if no sales_report found. Let's set 0 to be safe and strictly aligned.
+                            // BUT: If strict alignment, we should probably set 0.
+                            // However, if we have orders but no sales_report, implying "Chốt" = 0 but "Hủy" > 0 is weird but possible.
+                            item.soDonChot = 0;
+                            item.dsChot = 0;
+                            item.soDonSauHuy = 0 - item.soDonHuy;
+                            item.dsSauHuy = 0 - item.dsHuy;
+                            item.tyLeThuTien = 0;
+                        }
+                    });
+
+                    // Add missing personnel from sales_reports
+                    Object.keys(manualDataByPersonnel).forEach(nameKey => {
+                        // Check if this name already exists in kpiData (normalized check)
+                        const exists = kpiData.some(item => normalizeStr(item.name) === nameKey);
+                        if (!exists) {
+                            const manual = manualDataByPersonnel[nameKey];
+                            // Find original name case if possible, else Title Case
+                            const originalNameRecord = salesReportsData.find(r => normalizeStr(r.name) === nameKey);
+                            const displayName = originalNameRecord ? originalNameRecord.name : nameKey;
+
+                            // Need Team info? Tab 1 gets it from employeeData.
+                            // Here we might lack it if not in orders.
+                            // Try to find from employeeData (globally available?) - No, employeeData is in parent scope but not passed to calculateKPI directly?
+                            // Wait, employeeData is available in component scope!
+                            const employee = employeeData.find(e => normalizeStr(e['Họ Và Tên']) === nameKey);
+                            const team = employee ? (employee['Team'] || '') : 'Unknown';
+
+                            kpiData.push({
+                                name: displayName,
+                                team: team,
+                                soDonChot: manual.soDonChot,
+                                dsChot: manual.dsChot,
+                                soDonHuy: 0,
+                                dsHuy: 0,
+                                soDonSauHuy: manual.soDonChot, // 0 Hủy
+                                dsSauHuy: manual.dsChot,
+                                soDonDi: 0,
+                                dsDi: 0,
+                                soDonTC: 0,
+                                dThuTC: 0,
+                                ship: 0,
+                                dThuTinhKPI: 0,
+                                tyLeThuTien: 0 // No revenue calculated
+                            });
+                        }
+                    });
+
+                    // Re-sort
+                    kpiData.sort((a, b) => a.team.localeCompare(b.team) || b.dsChot - a.dsChot || a.name.localeCompare(b.name));
+
+                    // Recalculate kpiTotal based on updated kpiData
+                    // Reset total
+                    Object.keys(kpiTotal).forEach(key => kpiTotal[key] = 0);
+
+                    kpiData.forEach(item => {
+                        kpiTotal.soDonChot += item.soDonChot;
+                        kpiTotal.dsChot += item.dsChot;
+                        kpiTotal.soDonHuy += item.soDonHuy;
+                        kpiTotal.dsHuy += item.dsHuy;
+                        kpiTotal.soDonSauHuy += item.soDonSauHuy;
+                        kpiTotal.dsSauHuy += item.dsSauHuy;
+                        kpiTotal.soDonDi += item.soDonDi;
+                        kpiTotal.dsDi += item.dsDi;
+                        kpiTotal.soDonTC += item.soDonTC;
+                        kpiTotal.dThuTC += item.dThuTC;
+                        kpiTotal.ship += item.ship;
+                        kpiTotal.dThuTinhKPI += item.dThuTinhKPI;
+                    });
+                    kpiTotal.tyLeThuTien = kpiTotal.dsChot > 0 ? kpiTotal.dThuTinhKPI / kpiTotal.dsChot : 0;
+                }
+
                 setKpiReportData({ kpiData, kpiTotal });
             } catch (err) {
                 console.error('❌ Error calculating KPI report:', err);
@@ -3329,7 +3520,7 @@ export default function BaoCaoSale() {
         };
 
         calculateKPI();
-    }, [activeTab, filters.startDate, filters.endDate, kpiFilters]);
+    }, [activeTab, filters.startDate, filters.endDate, kpiFilters, employeeData]);
 
     // --- Vận đơn Report Calculation ---
     const [vanDonReportData, setVanDonReportData] = useState({ vanDonData: [], vanDonTotal: null });
@@ -4194,130 +4385,124 @@ export default function BaoCaoSale() {
                         </div>
 
                         {/* KPI Table */}
-                        {kpiReportData.kpiData.length > 0 && (
-                            <div className="table-responsive-container">
-                                <table>
-                                    <thead>
-                                        <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
-                                            <th>STT</th>
-                                            <th>Nhân viên</th>
-                                            <th>Team</th>
-                                            {kpiColumnVisibility.soDonDSChot && (
-                                                <>
-                                                    <th colSpan="2">Số đơn và DS chốt</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.soDonDSHuy && (
-                                                <>
-                                                    <th colSpan="2">Số đơn và DS hủy</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.soDonDSSauHuy && (
-                                                <>
-                                                    <th colSpan="2">Số đơn và DS sau hủy</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.soDonDSDi && (
-                                                <>
-                                                    <th colSpan="2">Số đơn và DS đi</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.soDonDThuTC && (
-                                                <>
-                                                    <th colSpan="2">Số đơn và DThu thành công</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.ship && <th>Ship</th>}
-                                            {kpiColumnVisibility.dThuTinhKPI && <th>DThu tính KPI</th>}
-                                            {kpiColumnVisibility.tyLeThuTien && <th>Tỷ lệ thu tiền</th>}
-                                        </tr>
-                                        <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
-                                            <th></th>
-                                            <th></th>
-                                            <th></th>
-                                            {kpiColumnVisibility.soDonDSChot && (
-                                                <>
-                                                    <th>Số đơn</th>
-                                                    <th>DS chốt</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.soDonDSHuy && (
-                                                <>
-                                                    <th>Số đơn</th>
-                                                    <th>DS hủy</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.soDonDSSauHuy && (
-                                                <>
-                                                    <th>Số đơn</th>
-                                                    <th>DS sau hủy</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.soDonDSDi && (
-                                                <>
-                                                    <th>Số đơn</th>
-                                                    <th>DS đi</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.soDonDThuTC && (
-                                                <>
-                                                    <th>Số đơn</th>
-                                                    <th>DThu TC</th>
-                                                </>
-                                            )}
-                                            {kpiColumnVisibility.ship && <th></th>}
-                                            {kpiColumnVisibility.dThuTinhKPI && <th></th>}
-                                            {kpiColumnVisibility.tyLeThuTien && <th></th>}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {/* Total Row */}
-                                        {kpiReportData.kpiTotal && (
-                                            <tr className="total-row" style={{ backgroundColor: '#fffacd' }}>
-                                                <td className="total-label" colSpan={3} style={{ fontWeight: 'bold' }}>TỔNG CỘNG</td>
-                                                {kpiColumnVisibility.soDonDSChot && (
-                                                    <>
-                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonChot)}</td>
-                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsChot)}</td>
-                                                    </>
-                                                )}
-                                                {kpiColumnVisibility.soDonDSHuy && (
-                                                    <>
-                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonHuy)}</td>
-                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsHuy)}</td>
-                                                    </>
-                                                )}
-                                                {kpiColumnVisibility.soDonDSSauHuy && (
-                                                    <>
-                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonSauHuy)}</td>
-                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsSauHuy)}</td>
-                                                    </>
-                                                )}
-                                                {kpiColumnVisibility.soDonDSDi && (
-                                                    <>
-                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonDi)}</td>
-                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsDi)}</td>
-                                                    </>
-                                                )}
-                                                {kpiColumnVisibility.soDonDThuTC && (
-                                                    <>
-                                                        <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonTC)}</td>
-                                                        <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dThuTC)}</td>
-                                                    </>
-                                                )}
-                                                {kpiColumnVisibility.ship && (
-                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.ship)}</td>
-                                                )}
-                                                {kpiColumnVisibility.dThuTinhKPI && (
-                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dThuTinhKPI)}</td>
-                                                )}
-                                                {kpiColumnVisibility.tyLeThuTien && (
-                                                    <td className="total-value">{formatPercent(kpiReportData.kpiTotal.tyLeThuTien)}</td>
-                                                )}
-                                            </tr>
+                        <div className="table-responsive-container">
+                            <table>
+                                <thead>
+                                    <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
+                                        <th rowSpan={2} style={{ verticalAlign: 'middle' }}>STT</th>
+                                        <th rowSpan={2} style={{ verticalAlign: 'middle' }}>Nhân viên</th>
+                                        <th rowSpan={2} style={{ verticalAlign: 'middle' }}>Team</th>
+                                        {kpiColumnVisibility.soDonDSChot && (
+                                            <>
+                                                <th colSpan="2" className="text-center">Số đơn và DS chốt</th>
+                                            </>
                                         )}
-                                        {/* Data Rows */}
-                                        {kpiReportData.kpiData.map((item, index) => (
+                                        {kpiColumnVisibility.soDonDSHuy && (
+                                            <>
+                                                <th colSpan="2" className="text-center">Số đơn và DS hủy</th>
+                                            </>
+                                        )}
+                                        {kpiColumnVisibility.soDonDSSauHuy && (
+                                            <>
+                                                <th colSpan="2" className="text-center">Số đơn và DS sau hủy</th>
+                                            </>
+                                        )}
+                                        {kpiColumnVisibility.soDonDSDi && (
+                                            <>
+                                                <th colSpan="2" className="text-center">Số đơn và DS đi</th>
+                                            </>
+                                        )}
+                                        {kpiColumnVisibility.soDonDThuTC && (
+                                            <>
+                                                <th colSpan="2" className="text-center">Số đơn và DThu thành công</th>
+                                            </>
+                                        )}
+                                        {kpiColumnVisibility.ship && <th rowSpan={2} style={{ verticalAlign: 'middle', minWidth: '150px' }}>Ship</th>}
+                                        {kpiColumnVisibility.dThuTinhKPI && <th rowSpan={2} style={{ verticalAlign: 'middle' }}>DThu tính KPI</th>}
+                                        {kpiColumnVisibility.tyLeThuTien && <th rowSpan={2} style={{ verticalAlign: 'middle' }}>Tỷ lệ thu tiền</th>}
+                                    </tr>
+                                    <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
+                                        {kpiColumnVisibility.soDonDSChot && (
+                                            <>
+                                                <th>Số đơn</th>
+                                                <th>DS chốt</th>
+                                            </>
+                                        )}
+                                        {kpiColumnVisibility.soDonDSHuy && (
+                                            <>
+                                                <th>Số đơn</th>
+                                                <th>DS hủy</th>
+                                            </>
+                                        )}
+                                        {kpiColumnVisibility.soDonDSSauHuy && (
+                                            <>
+                                                <th>Số đơn</th>
+                                                <th>DS sau hủy</th>
+                                            </>
+                                        )}
+                                        {kpiColumnVisibility.soDonDSDi && (
+                                            <>
+                                                <th>Số đơn</th>
+                                                <th>DS đi</th>
+                                            </>
+                                        )}
+                                        {kpiColumnVisibility.soDonDThuTC && (
+                                            <>
+                                                <th>Số đơn</th>
+                                                <th>DThu TC</th>
+                                            </>
+                                        )}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {/* Total Row */}
+                                    {kpiReportData.kpiTotal && (
+                                        <tr className="total-row" style={{ backgroundColor: '#fffacd' }}>
+                                            <td className="total-label" colSpan={3} style={{ fontWeight: 'bold' }}>TỔNG CỘNG</td>
+                                            {kpiColumnVisibility.soDonDSChot && (
+                                                <>
+                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonChot)}</td>
+                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsChot)}</td>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSHuy && (
+                                                <>
+                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonHuy)}</td>
+                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsHuy)}</td>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSSauHuy && (
+                                                <>
+                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonSauHuy)}</td>
+                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsSauHuy)}</td>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDSDi && (
+                                                <>
+                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonDi)}</td>
+                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsDi)}</td>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.soDonDThuTC && (
+                                                <>
+                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonTC)}</td>
+                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dThuTC)}</td>
+                                                </>
+                                            )}
+                                            {kpiColumnVisibility.ship && (
+                                                <td className="total-value" style={{ whiteSpace: 'nowrap' }}>{formatCurrency(kpiReportData.kpiTotal.ship)}</td>
+                                            )}
+                                            {kpiColumnVisibility.dThuTinhKPI && (
+                                                <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dThuTinhKPI)}</td>
+                                            )}
+                                            {kpiColumnVisibility.tyLeThuTien && (
+                                                <td className="total-value">{formatPercent(kpiReportData.kpiTotal.tyLeThuTien)}</td>
+                                            )}
+                                        </tr>
+                                    )}
+                                    {/* Data Rows */}
+                                    {kpiReportData.kpiData.length > 0 ? (
+                                        kpiReportData.kpiData.map((item, index) => (
                                             <tr key={index}>
                                                 <td className="text-center">{index + 1}</td>
                                                 <td className="text-left">{item.name}</td>
@@ -4353,7 +4538,7 @@ export default function BaoCaoSale() {
                                                     </>
                                                 )}
                                                 {kpiColumnVisibility.ship && (
-                                                    <td>{formatCurrency(item.ship)}</td>
+                                                    <td style={{ whiteSpace: 'nowrap' }}>{formatCurrency(item.ship)}</td>
                                                 )}
                                                 {kpiColumnVisibility.dThuTinhKPI && (
                                                     <td>{formatCurrency(item.dThuTinhKPI)}</td>
@@ -4362,11 +4547,16 @@ export default function BaoCaoSale() {
                                                     <td className={getRateClass(item.tyLeThuTien)}>{formatPercent(item.tyLeThuTien)}</td>
                                                 )}
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={20} className="text-center py-4 text-gray-500">
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                         {!kpiLoading && kpiReportData.kpiData.length === 0 && (
                             <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
                                 Không có dữ liệu để hiển thị
