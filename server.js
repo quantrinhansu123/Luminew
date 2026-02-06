@@ -369,86 +369,88 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
 
     console.log('🔑 Key prefix:', SUPABASE_SERVICE_ROLE_KEY.substring(0, 20) + '...');
 
-    // Try selecting all first, then filter in memory if needed
-    // Note: Column name "Ngày" has special character, need to use double quotes in PostgREST
-    let query = supabaseAdmin
-      .from('detail_reports')
-      .select('*');
-
-    // Apply date filters if provided
-    // Convert date strings to proper format for Supabase DATE comparison
-    if (startDate) {
-      console.log('📅 Filtering by startDate:', startDate);
-      // Ensure date is in YYYY-MM-DD format
-      const startDateFormatted = startDate.split('T')[0]; // Remove time if present
-      query = query.gte('Ngày', startDateFormatted);
-    }
-    if (endDate) {
-      console.log('📅 Filtering by endDate:', endDate);
-      // Ensure date is in YYYY-MM-DD format
-      const endDateFormatted = endDate.split('T')[0]; // Remove time if present
-      query = query.lte('Ngày', endDateFormatted);
-    }
-
-    // Order by date - column name with special character
-    query = query.order('Ngày', { ascending: false });
-
-    // Apply limit
-    query = query.limit(parseInt(limit));
-
-    console.log('🔍 Executing query...');
-    console.log('📋 Query params:', { startDate, endDate, limit });
+    // Sử dụng PAGINATION để lấy tất cả records (Supabase mặc định giới hạn 1000 rows/request)
+    const PAGE_SIZE = 1000;
+    let allData = [];
+    let hasMore = true;
+    let offset = 0;
+    let totalCount = 0;
 
     try {
-      const { data, error } = await query;
+      while (hasMore) {
+        let query = supabaseAdmin
+          .from('detail_reports')
+          .select('*', { count: 'exact' });
 
-      if (error) {
-        console.error('❌ Error fetching detail_reports:', error);
-        console.error('❌ Error code:', error.code);
-        console.error('❌ Error message:', error.message);
-        console.error('❌ Error details:', JSON.stringify(error, null, 2));
-        console.error('❌ Full error object:', error);
+        // Apply date filters if provided
+        if (startDate) {
+          const startDateFormatted = startDate.split('T')[0];
+          query = query.gte('Ngày', startDateFormatted);
+        }
+        if (endDate) {
+          const endDateFormatted = endDate.split('T')[0];
+          query = query.lte('Ngày', endDateFormatted);
+        }
 
-        // Check if it's an RLS error
-        if (error.message && (error.message.includes('row-level security') || error.message.includes('RLS') || error.message.includes('permission denied'))) {
+        // Order by date
+        query = query.order('Ngày', { ascending: false });
+
+        // Pagination
+        query = query.range(offset, offset + PAGE_SIZE - 1);
+
+        const { data: pageData, error, count } = await query;
+
+        if (error) {
+          console.error('❌ Error fetching detail_reports:', error);
+          console.error('❌ Error code:', error.code);
+          console.error('❌ Error message:', error.message);
+
+          // Check if it's an RLS error
+          if (error.message && (error.message.includes('row-level security') || error.message.includes('RLS') || error.message.includes('permission denied'))) {
+            return res.status(500).json({
+              success: false,
+              error: `RLS Policy Error: ${error.message}. Please configure SUPABASE_SERVICE_ROLE_KEY in .env file to bypass RLS.`,
+              data: [],
+              hint: 'The current key may not have permission to bypass RLS. You need a service role key.',
+              errorCode: error.code,
+              errorMessage: error.message
+            });
+          }
+
           return res.status(500).json({
             success: false,
-            error: `RLS Policy Error: ${error.message}. Please configure SUPABASE_SERVICE_ROLE_KEY in .env file to bypass RLS.`,
-            data: [],
-            hint: 'The current key may not have permission to bypass RLS. You need a service role key.',
+            error: error.message || 'Unknown error',
             errorCode: error.code,
-            errorMessage: error.message
+            errorMessage: error.message,
+            data: []
           });
         }
 
-        // Check if column doesn't exist
-        if (error.message && (error.message.includes('column') || error.message.includes('does not exist') || error.message.includes('Ngày'))) {
-          return res.status(500).json({
-            success: false,
-            error: `Column Error: ${error.message}. Please check if column 'Ngày' exists in detail_reports table.`,
-            data: [],
-            hint: 'The column name might be different. Check your database schema.',
-            errorCode: error.code,
-            errorMessage: error.message
-          });
+        if (count !== null && totalCount === 0) {
+          totalCount = count;
+          console.log(`📊 Detail Reports: Tổng số records cần lấy: ${totalCount}`);
         }
 
-        return res.status(500).json({
-          success: false,
-          error: error.message || 'Unknown error',
-          errorCode: error.code,
-          errorMessage: error.message,
-          errorDetails: JSON.stringify(error),
-          data: []
-        });
+        if (pageData && pageData.length > 0) {
+          allData = [...allData, ...pageData];
+          offset += PAGE_SIZE;
+          console.log(`📊 Detail Reports: Đã lấy ${allData.length}/${totalCount} records...`);
+
+          // Kiểm tra còn dữ liệu không
+          if (pageData.length < PAGE_SIZE) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
+      console.log(`✅ Fetched ${allData.length} records from detail_reports (không giới hạn 1000)`);
 
       return res.json({
         success: true,
-        data: data || [],
-        count: data?.length || 0
+        data: allData,
+        count: allData.length
       });
     } catch (queryError) {
       console.error('❌ Query execution error:', queryError);
