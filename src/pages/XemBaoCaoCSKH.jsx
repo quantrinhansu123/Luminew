@@ -551,10 +551,15 @@ export default function XemBaoCaoCSKH() {
     const enrichWithTotalOrdersFromOrders = async (transformedData, startDate, endDate) => {
         try {
             // Helper function để normalize date format - Database lưu ở định dạng YYYY-MM-DD
+            // IMPORTANT: Sử dụng LOCAL date, KHÔNG dùng toISOString() vì nó chuyển sang UTC
             const normalizeDate = (date) => {
                 if (!date) return '';
                 if (date instanceof Date) {
-                    return date.toISOString().split('T')[0];
+                    // Sử dụng LOCAL date để tránh lỗi timezone
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
                 }
                 if (typeof date === 'string') {
                     const trimmed = date.trim();
@@ -584,7 +589,11 @@ export default function XemBaoCaoCSKH() {
                     }
                     const parsed = new Date(trimmed);
                     if (!isNaN(parsed.getTime())) {
-                        return parsed.toISOString().split('T')[0];
+                        // Sử dụng LOCAL date
+                        const year = parsed.getFullYear();
+                        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+                        const day = String(parsed.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
                     }
                     return trimmed;
                 }
@@ -997,10 +1006,15 @@ export default function XemBaoCaoCSKH() {
     const enrichWithTotalRevenueFromOrders = async (transformedData, startDate, endDate) => {
         try {
             // Helper function để normalize date format - Database lưu ở định dạng YYYY-MM-DD
+            // IMPORTANT: Sử dụng LOCAL date, KHÔNG dùng toISOString() vì nó chuyển sang UTC
             const normalizeDate = (date) => {
                 if (!date) return '';
                 if (date instanceof Date) {
-                    return date.toISOString().split('T')[0];
+                    // Sử dụng LOCAL date để tránh lỗi timezone
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
                 }
                 if (typeof date === 'string') {
                     const trimmed = date.trim();
@@ -1030,7 +1044,11 @@ export default function XemBaoCaoCSKH() {
                     }
                     const parsed = new Date(trimmed);
                     if (!isNaN(parsed.getTime())) {
-                        return parsed.toISOString().split('T')[0];
+                        // Sử dụng LOCAL date
+                        const year = parsed.getFullYear();
+                        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+                        const day = String(parsed.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
                     }
                     return trimmed;
                 }
@@ -1219,10 +1237,15 @@ export default function XemBaoCaoCSKH() {
     const enrichMessAndResponseFromSalesReports = async (transformedData, startDate, endDate) => {
         try {
             // Helper function để normalize date format
+            // IMPORTANT: Sử dụng LOCAL date, KHÔNG dùng toISOString() vì nó chuyển sang UTC
             const normalizeDate = (date) => {
                 if (!date) return '';
                 if (date instanceof Date) {
-                    return date.toISOString().split('T')[0];
+                    // Sử dụng LOCAL date để tránh lỗi timezone
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
                 }
                 if (typeof date === 'string') {
                     const trimmed = date.trim();
@@ -1252,7 +1275,11 @@ export default function XemBaoCaoCSKH() {
                     }
                     const parsed = new Date(trimmed);
                     if (!isNaN(parsed.getTime())) {
-                        return parsed.toISOString().split('T')[0];
+                        // Sử dụng LOCAL date
+                        const year = parsed.getFullYear();
+                        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+                        const day = String(parsed.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
                     }
                     return trimmed;
                 }
@@ -1280,9 +1307,10 @@ export default function XemBaoCaoCSKH() {
             }
 
             // Fetch từ sales_reports với filter theo tên và khoảng ngày
+            // [UPDATED] Select thêm product, market, shift để match chính xác
             let query = supabase
                 .from('sales_reports')
-                .select('name, mess_count, response_count, date')
+                .select('name, mess_count, response_count, date, product, market, shift')
                 .gte('date', normalizedStartDate)
                 .lte('date', normalizedEndDate);
 
@@ -1305,13 +1333,16 @@ export default function XemBaoCaoCSKH() {
 
             console.log(`📊 [enrichMessAndResponseFromSalesReports] Fetch được ${salesReportsData?.length || 0} records từ sales_reports`);
 
-            // Group theo Tên + Ngày để match chính xác với từng record trong transformedData
-            // Key: "name|date" -> { mess_count, response_count }
-            const messAndResponseByPersonnelDate = new Map();
+            // [UPDATED] Group theo Tên + Ngày + Sản Phẩm + Thị Trường + Ca để match chính xác
+            // Key: "name|date|product|market|shift" -> { mess_count, response_count }
+            const messAndResponseMap = new Map();
 
             (salesReportsData || []).forEach(report => {
                 const reportName = normalizeStr(report.name);
                 const reportDate = normalizeDate(report.date);
+                const reportProduct = normalizeStr(report.product || '');
+                const reportMarket = normalizeStr(report.market || '');
+                const reportShift = normalizeStr(report.shift || ''); // Thêm shift
 
                 if (!reportName || !reportDate) return;
 
@@ -1322,41 +1353,42 @@ export default function XemBaoCaoCSKH() {
                 });
 
                 if (matchedPersonnel) {
-                    const key = `${normalizeStr(matchedPersonnel)}|${reportDate}`;
+                    const key = `${normalizeStr(matchedPersonnel)}|${reportDate}|${reportProduct}|${reportMarket}|${reportShift}`;
 
-                    // Tính tổng Số Mess và Phản hồi cho từng cặp (nhân sự, ngày)
-                    const current = messAndResponseByPersonnelDate.get(key) || { mess: 0, phanHoi: 0 };
+                    // Tính tổng Số Mess và Phản hồi cho từng unique key
+                    const current = messAndResponseMap.get(key) || { mess: 0, phanHoi: 0 };
                     current.mess += (Number(report.mess_count) || 0);
                     current.phanHoi += (Number(report.response_count) || 0);
-                    messAndResponseByPersonnelDate.set(key, current);
+                    messAndResponseMap.set(key, current);
                 }
             });
 
-            console.log(`📊 [enrichMessAndResponseFromSalesReports] Số keys (nhân sự + ngày): ${messAndResponseByPersonnelDate.size}`);
+            console.log(`📊 [enrichMessAndResponseFromSalesReports] Số keys (granular + shift): ${messAndResponseMap.size}`);
 
-            // Cập nhật transformedData với "Số Mess" và "Phản hồi" từ sales_reports (match theo Tên + Ngày)
+            // Cập nhật transformedData với "Số Mess" và "Phản hồi" từ sales_reports
             let updatedCount = 0;
             transformedData.forEach(item => {
                 const itemName = normalizeStr(item['Tên']);
                 const itemDate = normalizeDate(item['Ngày']);
+                const itemProduct = normalizeStr(item['Sản phẩm'] || '');
+                const itemMarket = normalizeStr(item['Thị trường'] || '');
+                const itemShift = normalizeStr(item['Ca'] || ''); // Thêm shift
 
                 if (!itemName || !itemDate) return;
 
-                const key = `${itemName}|${itemDate}`;
-                const data = messAndResponseByPersonnelDate.get(key);
+                // [UPDATED] Match chính xác theo cả Product, Market và Shift
+                const key = `${itemName}|${itemDate}|${itemProduct}|${itemMarket}|${itemShift}`;
+                const data = messAndResponseMap.get(key);
 
                 if (data) {
                     // Cập nhật "Số Mess" và "Phản hồi" từ sales_reports (ghi đè giá trị cũ)
                     item['Số Mess'] = data.mess;
                     item['Phản hồi'] = data.phanHoi;
                     updatedCount++;
-                } else {
-                    // Nếu không tìm thấy, giữ nguyên giá trị cũ hoặc set = 0
-                    // Không cần làm gì vì giá trị đã có sẵn từ transformedData
                 }
             });
 
-            console.log(`✅ [enrichMessAndResponseFromSalesReports] Đã cập nhật "Số Mess" và "Phản hồi" cho ${transformedData.length} records`);
+            console.log(`✅ [enrichMessAndResponseFromSalesReports] Đã cập nhật "Số Mess" và "Phản hồi" cho ${updatedCount} records (granular + shift match)`);
         } catch (err) {
             console.error('❌ Error enriching with mess_count and response_count:', err);
         }
@@ -1982,7 +2014,7 @@ export default function XemBaoCaoCSKH() {
                 try {
                     const { data: usersData, error: usersError } = await supabase
                         .from('users')
-                        .select('email, name, full_name, team, branch, position, role');
+                        .select('email, name, team');
 
                     if (usersError) {
                         console.error('❌ [BaoCaoSale] Error fetching users table:', usersError);
@@ -1993,6 +2025,12 @@ export default function XemBaoCaoCSKH() {
                         // AND Name -> User Info (fallback)
                         const userMap = new Map();
                         const nameMap = new Map();
+
+                        // Helper to normalize string
+                        const normalizeStr = (str) => {
+                            if (!str) return '';
+                            return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+                        };
 
                         (usersData || []).forEach(u => {
                             const email = u.email ? String(u.email).trim().toLowerCase() : '';

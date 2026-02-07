@@ -1,4 +1,4 @@
-import { ChevronLeft, Download, RefreshCw, Search, Settings, Upload, X } from 'lucide-react';
+import { ChevronLeft, RefreshCw, Search, Settings } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -91,7 +91,7 @@ function BaoCaoChiTiet() {
         allData.forEach(row => {
             Object.keys(row).forEach(key => {
                 // Exclude PRIMARY_KEY_COLUMN, REMOVED_COLUMNS, and technical columns
-                if (key !== PRIMARY_KEY_COLUMN && 
+                if (key !== PRIMARY_KEY_COLUMN &&
                     !REMOVED_COLUMNS.includes(key) &&
                     !key.startsWith('_')) {
                     allKeys.add(key);
@@ -117,7 +117,7 @@ function BaoCaoChiTiet() {
     const [visibleColumns, setVisibleColumns] = useState(() => {
         const saved = localStorage.getItem('baoCaoChiTiet_visibleColumns');
         let initial = {};
-        
+
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
@@ -132,7 +132,7 @@ function BaoCaoChiTiet() {
                 console.error('Error parsing saved columns:', e);
             }
         }
-        
+
         // Initialize with default columns if empty
         if (Object.keys(initial).length === 0) {
             defaultColumns.forEach(col => {
@@ -146,7 +146,7 @@ function BaoCaoChiTiet() {
                 }
             });
         }
-        
+
         return initial;
     });
 
@@ -155,7 +155,7 @@ function BaoCaoChiTiet() {
         setVisibleColumns(prev => {
             let updated = { ...prev };
             let changed = false;
-            
+
             // Remove any removed columns
             REMOVED_COLUMNS.forEach(col => {
                 if (updated[col] !== undefined) {
@@ -163,7 +163,7 @@ function BaoCaoChiTiet() {
                     changed = true;
                 }
             });
-            
+
             // Ensure default columns are present
             defaultColumns.forEach(col => {
                 if (updated[col] === undefined) {
@@ -171,7 +171,7 @@ function BaoCaoChiTiet() {
                     changed = true;
                 }
             });
-            
+
             return changed ? updated : prev;
         });
     }, []); // Only run once on mount
@@ -457,19 +457,27 @@ function BaoCaoChiTiet() {
         }
     };
 
+    // Helper to normalize string for search (remove accents)
+    const normalizeSearch = (str) => {
+        return String(str || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase();
+    };
+
     // Filter and sort data
     const filteredData = useMemo(() => {
         let data = [...allData];
 
         // Search filter (using debounced value)
         if (debouncedSearchText) {
-            const searchLower = debouncedSearchText.toLowerCase();
+            const searchNorm = normalizeSearch(debouncedSearchText);
             data = data.filter(row => {
                 return (
-                    String(row["Mã đơn hàng"] || '').toLowerCase().includes(searchLower) ||
-                    String(row["Name*"] || '').toLowerCase().includes(searchLower) ||
-                    String(row["Phone*"] || '').toLowerCase().includes(searchLower) ||
-                    String(row["Mã Tracking"] || '').toLowerCase().includes(searchLower)
+                    normalizeSearch(row["Mã đơn hàng"]).includes(searchNorm) ||
+                    normalizeSearch(row["Name*"]).includes(searchNorm) ||
+                    normalizeSearch(row["Phone*"]).includes(searchNorm) ||
+                    normalizeSearch(row["Mã Tracking"]).includes(searchNorm)
                 );
             });
         }

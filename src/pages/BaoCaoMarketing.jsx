@@ -1011,7 +1011,7 @@ export default function BaoCaoMarketing() {
                                   placeholder="--"
                                   value={row.data[header] || ''}
                                   onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-32 px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                  className="w-48 px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                                 />
                               ) : header === 'Tên' ? (
                                 <input
@@ -1029,7 +1029,7 @@ export default function BaoCaoMarketing() {
                                   placeholder="Số"
                                   value={row.data[header] ? formatNumberInput(row.data[header]) : ''}
                                   onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-12 px-1 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
+                                  className="w-28 px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                                 />
                               ) : (
                                 <input
