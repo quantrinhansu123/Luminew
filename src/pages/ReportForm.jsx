@@ -325,8 +325,8 @@ function ReportForm() {
 
       const payload = reports.map(report => {
         const reportEmail = (report.email || '').trim().toLowerCase();
-        // Priority: Team from Users Table > LocalStorage User Team > 'Sale'
-        const correctTeam = emailToTeamMap[reportEmail] || localStorage.getItem('userTeam') || 'Sale';
+        // Priority: Team from Users Table > LocalStorage User Team
+        const correctTeam = emailToTeamMap[reportEmail] || localStorage.getItem('userTeam') || '';
 
         return {
           name: report.name,

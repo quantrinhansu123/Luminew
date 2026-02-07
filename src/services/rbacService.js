@@ -131,22 +131,18 @@ export const getEmployeesByTeams = async (teams) => {
     if (!teams || teams.length === 0) return [];
     
     try {
-        // Lấy từ cả 2 bảng: users và human_resources để đảm bảo đầy đủ
-        const [usersData, hrData] = await Promise.all([
-            supabase.from('users').select('email, name, username, position, department, team').in('team', teams).order('name', { ascending: true }),
-            supabase.from('human_resources').select('"Họ Và Tên", email, "Bộ phận", "Vị trí", "Team"').in('"Team"', teams).order('"Họ Và Tên"', { ascending: true })
-        ]);
-
-        const { data: users, error: usersError } = usersData;
-        const { data: hr, error: hrError } = hrData;
+        // Chỉ lấy từ bảng users
+        const { data: users, error: usersError } = await supabase
+            .from('users')
+            .select('email, name, username, position, department, team')
+            .in('team', teams)
+            .order('name', { ascending: true });
 
         if (usersError) console.error("Error fetching users by teams:", usersError);
-        if (hrError) console.error("Error fetching human_resources by teams:", hrError);
 
-        // Tạo map từ users (ưu tiên)
+        // Tạo map từ users
         const employeesMap = new Map();
         
-        // Thêm từ users trước
         (users || []).forEach(u => {
             if (u.email) {
                 employeesMap.set(u.email.toLowerCase(), {
@@ -155,26 +151,6 @@ export const getEmployeesByTeams = async (teams) => {
                     position: u.position || 'Nhân viên',
                     department: u.department || 'Chưa phân loại',
                     team: u.team || ''
-                });
-            }
-        });
-
-        // Thêm từ human_resources nếu chưa có trong users và team khớp
-        (hr || []).forEach(hrItem => {
-            const emailKey = (hrItem.email || '').toLowerCase();
-            const hrTeam = (hrItem['Team'] || '').trim();
-            const teamMatch = teams.some(t => 
-                hrTeam.toLowerCase() === t.toLowerCase() || 
-                hrTeam === t
-            );
-            
-            if (emailKey && teamMatch && !employeesMap.has(emailKey)) {
-                employeesMap.set(emailKey, {
-                    email: hrItem.email,
-                    'Họ Và Tên': hrItem['Họ Và Tên'] || hrItem.email,
-                    position: hrItem['Vị trí'] || 'Nhân viên',
-                    department: hrItem['Bộ phận'] || 'Chưa phân loại',
-                    team: hrItem['Team'] || ''
                 });
             }
         });

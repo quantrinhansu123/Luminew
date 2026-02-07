@@ -1071,9 +1071,10 @@ export default function XemBaoCaoCSKH() {
             )];
 
             // Build query - KHÔNG filter theo check_result (lấy tất cả các đơn)
+            // Thêm order_code để tránh tính trùng trong fallback matching
             let query = supabase
                 .from('orders')
-                .select('order_date, sale_staff, product, country, total_amount_vnd', { count: 'exact' })
+                .select('order_code, order_date, sale_staff, product, country, total_amount_vnd', { count: 'exact' })
                 .gte('order_date', normalizedStartDate)
                 .lte('order_date', normalizedEndDate);
 
@@ -1117,6 +1118,10 @@ export default function XemBaoCaoCSKH() {
             });
 
             // Cập nhật transformedData với tổng doanh số từ orders (theo cùng rule như Số đơn TT)
+            // IMPORTANT: Track order_codes đã được tính để TRÁNH TÍNH TRÙNG
+            // Mỗi order chỉ được tính doanh số 1 lần duy nhất cho 1 record
+            const countedOrderCodes = new Set();
+
             transformedData.forEach((item, index) => {
                 const saleName = normalizeStr(item['Tên']);
                 const reportDateRaw = item['Ngày'];
@@ -1219,8 +1224,21 @@ export default function XemBaoCaoCSKH() {
                     }
                 }
 
-                // Tính tổng doanh số từ các đơn match được
-                const revenue = matchingOrders.reduce((sum, order) => {
+                // IMPORTANT: Filter ra các orders đã được tính trước đó
+                // Điều này đảm bảo mỗi order chỉ được tính doanh số 1 lần duy nhất
+                const uncountedMatchingOrders = matchingOrders.filter(order => {
+                    return order.order_code && !countedOrderCodes.has(order.order_code);
+                });
+
+                // Mark các orders mới được tính
+                uncountedMatchingOrders.forEach(order => {
+                    if (order.order_code) {
+                        countedOrderCodes.add(order.order_code);
+                    }
+                });
+
+                // Tính tổng doanh số từ các đơn match được (chỉ tính các đơn chưa được tính)
+                const revenue = uncountedMatchingOrders.reduce((sum, order) => {
                     return sum + (Number(order.total_amount_vnd) || 0);
                 }, 0);
 
@@ -1228,6 +1246,7 @@ export default function XemBaoCaoCSKH() {
             });
 
             console.log(`✅ Đã cập nhật doanh số cho ${transformedData.length} records`);
+            console.log(`   - Tổng số UNIQUE orders đã tính doanh số: ${countedOrderCodes.size}`);
         } catch (err) {
             console.error('❌ Error enriching with total revenue:', err);
         }
@@ -2905,11 +2924,7 @@ export default function XemBaoCaoCSKH() {
             // Bỏ filter theo Ca vì tất cả đều tự động là "Hết ca"
             // if (!filters.shifts.includes(String(r.ca))) return false;
 
-            // Team filter - chỉ filter khi filters.teams có giá trị (length > 0)
-            // Vẫn áp dụng cho cả records được thêm vào
-            if (filters.teams.length > 0 && !filters.teams.includes(String(r.team))) {
-                reasons.push(`team "${r.team}" not in filters`);
-            }
+            // Team filter - Đã bỏ
 
             if (reasons.length > 0) {
                 console.log(`  ❌ Loại bỏ record: "${r.ten}" - Lý do:`, reasons);
@@ -3012,7 +3027,7 @@ export default function XemBaoCaoCSKH() {
             s.doanhSoThanhCong += r.doanhSoThanhCong || 0;
         });
 
-        const flatList = Object.values(summary).sort((a, b) => a.team.localeCompare(b.team) || b.chot - a.chot || a.name.localeCompare(b.name));
+        const flatList = Object.values(summary).sort((a, b) => a.team.localeCompare(b.team) || b.doanhSoTT - a.doanhSoTT || a.name.localeCompare(b.name));
 
         const total = flatList.reduce((acc, item) => {
             Object.keys(initial).forEach(k => acc[k] += item[k]);
@@ -3140,44 +3155,7 @@ export default function XemBaoCaoCSKH() {
 
                     {/* Shift Filter - Đã bỏ vì tất cả đều tự động là "Hết ca" */}
 
-                    {/* Team Filter */}
-                    <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        Team
-                        <button
-                            onClick={() => setShowTeamFilter(!showTeamFilter)}
-                            style={{
-                                fontSize: '0.75em',
-                                padding: '2px 8px',
-                                background: showTeamFilter ? '#4A6E23' : '#f0f0f0',
-                                color: showTeamFilter ? '#fff' : '#666',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer',
-                                fontWeight: '500',
-                                transition: 'all 0.2s'
-                            }}
-                        >
-                            {showTeamFilter ? '▼' : '▶'}
-                        </button>
-                    </h3>
-                    {showTeamFilter && (
-                        <>
-                            <label>
-                                <input type="checkbox"
-                                    checked={filters.teams.length === options.teams.length}
-                                    onChange={(e) => handleSelectAll('teams', e.target.checked)}
-                                /> Tất cả
-                            </label>
-                            <div className="indent">
-                                {options.teams.map(opt => (
-                                    <label key={opt}>
-                                        <input type="checkbox" checked={filters.teams.includes(opt)} onChange={(e) => handleFilterChange('teams', opt, e.target.checked)} />
-                                        {opt}
-                                    </label>
-                                ))}
-                            </div>
-                        </>
-                    )}
+                    {/* Team Filter - Đã bỏ */}
 
                     {/* Market Filter */}
                     <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

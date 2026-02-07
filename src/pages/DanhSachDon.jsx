@@ -1484,25 +1484,6 @@ function DanhSachDon() {
                   }, 0).toLocaleString('vi-VN')} ₫
                 </span>
               </div>
-              {/* Chỉ Admin mới thấy nút xóa toàn bộ (không bao gồm Finance) */}
-              {isAdminOnly && (
-                <button
-                  onClick={handleDeleteAll}
-                  disabled={syncing || loading || deleting}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                >
-                  {deleting ? (
-                    <>
-                      <span className="animate-spin">⏳</span>
-                      Đang xóa...
-                    </>
-                  ) : (
-                    <>
-                      🗑️ Xóa toàn bộ dữ liệu
-                    </>
-                  )}
-                </button>
-              )}
               {/* Chỉ Admin mới thấy nút đồng bộ từ F3 (không bao gồm Finance) */}
               {isAdminOnly && (
                 <button

@@ -1032,6 +1032,15 @@ function QuanLyCSKH() {
                   {filteredData.length} / {allData.length} đơn hàng
                 </span>
               </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg border border-green-200">
+                <span className="text-sm font-semibold text-green-700">Tổng tiền:</span>
+                <span className="text-sm text-green-600 font-bold">
+                  {filteredData.reduce((sum, row) => {
+                    const amount = parseFloat(String(row["Tổng tiền VNĐ"] || 0).replace(/[^\d.-]/g, '')) || 0;
+                    return sum + amount;
+                  }, 0).toLocaleString('vi-VN')} ₫
+                </span>
+              </div>
               <button
                 onClick={loadData}
                 disabled={loading}
@@ -1166,16 +1175,26 @@ function QuanLyCSKH() {
                     <div className="p-2">
                       <div className="flex items-center justify-between mb-2 pb-2 border-b">
                         <span className="text-xs font-semibold text-gray-700">Chọn NV Sale:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFilterSale([]);
-                            setShowSaleFilter(false);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Bỏ chọn tất cả
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterSale([...uniqueSale]);
+                            }}
+                            className="text-xs text-green-600 hover:text-green-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterSale([]);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
                       </div>
                       {uniqueSale.map(sale => {
                         const isChecked = filterSale.includes(sale);

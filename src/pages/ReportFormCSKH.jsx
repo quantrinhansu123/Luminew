@@ -270,21 +270,51 @@ function ReportFormCSKH() {
 
     setLoading(true);
     try {
-      const payload = reports.map(report => ({
-        name: report.name,
-        email: report.email,
-        date: report.date,
-        shift: report.shift,
-        product: report.product,
-        market: report.market,
-        mess_count: Number(cleanNumberInput(String(report.mess_cmt || ''))) || 0,
-        response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
-        order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
-        revenue_mess: Number(cleanNumberInput(String(report.revenue || ''))) || 0,
-        team: localStorage.getItem('userTeam') || 'Sale',
-        branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
-        created_at: new Date().toISOString(),
-      }));
+      // Fetch teams for all emails in the reports to ensure accuracy
+      const emails = [...new Set(reports.map(r => r.email).filter(e => e && e.trim()))];
+      let emailToTeamMap = {};
+
+      if (emails.length > 0) {
+        try {
+          const { data: usersData, error: usersError } = await supabase
+            .from('users')
+            .select('email, team')
+            .in('email', emails);
+
+          if (!usersError && usersData) {
+            usersData.forEach(u => {
+              if (u.email && u.team) {
+                emailToTeamMap[u.email.trim().toLowerCase()] = u.team;
+              }
+            });
+            console.log('✅ Fetched teams for emails:', emailToTeamMap);
+          }
+        } catch (fetchTeamError) {
+          console.error('⚠️ Error fetching teams from users table:', fetchTeamError);
+        }
+      }
+
+      const payload = reports.map(report => {
+        const reportEmail = (report.email || '').trim().toLowerCase();
+        // Priority: Team from Users Table > LocalStorage User Team
+        const correctTeam = emailToTeamMap[reportEmail] || localStorage.getItem('userTeam') || '';
+
+        return {
+          name: report.name,
+          email: report.email,
+          date: report.date,
+          shift: report.shift,
+          product: report.product,
+          market: report.market,
+          mess_count: Number(cleanNumberInput(String(report.mess_cmt || ''))) || 0,
+          response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
+          order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
+          revenue_mess: Number(cleanNumberInput(String(report.revenue || ''))) || 0,
+          team: correctTeam,
+          branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
+          created_at: new Date().toISOString(),
+        };
+      });
 
       const { error } = await supabase
         .from('sales_reports')

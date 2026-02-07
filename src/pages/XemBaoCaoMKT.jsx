@@ -324,7 +324,7 @@ export default function XemBaoCaoMKT() {
 
       console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`);
 
-      // Enrich Team từ bảng users/human_resources nếu thiếu
+      // Enrich Team từ bảng users nếu thiếu
       await enrichTeamFromUsers(dateFilteredReports);
 
       // Enrich với số đơn TT từ bảng orders
@@ -805,7 +805,7 @@ export default function XemBaoCaoMKT() {
     }
   };
 
-  // Enrich Team từ bảng users/human_resources nếu thiếu trong detail_reports
+  // Enrich Team từ bảng users nếu thiếu trong detail_reports
   const enrichTeamFromUsers = async (reports) => {
     try {
       // Helper function để normalize string
@@ -849,26 +849,7 @@ export default function XemBaoCaoMKT() {
         }
       }
 
-      // Tạo map từ human_resources table (fallback)
-      if (namesFromReports.length > 0) {
-        const { data: hrData, error: hrError } = await supabase
-          .from('human_resources')
-          .select('"Họ Và Tên", email, "Team"')
-          .or(namesFromReports.map(name => `"Họ Và Tên".ilike.%${name}%`).join(','));
-
-        if (hrError) {
-          console.warn('⚠️ Error fetching human_resources for Team enrichment:', hrError);
-        } else if (hrData) {
-          hrData.forEach(hr => {
-            if (hr.email && hr['Team']) {
-              teamMapByEmail.set(normalizeStr(hr.email), hr['Team']);
-            }
-            if (hr['Họ Và Tên'] && hr['Team']) {
-              teamMapByName.set(normalizeStr(hr['Họ Và Tên']), hr['Team']);
-            }
-          });
-        }
-      }
+      // Bỏ lấy Team từ human_resources - chỉ lấy từ users
 
       // Enrich Team cho các reports thiếu Team
       let enrichedCount = 0;
@@ -894,7 +875,7 @@ export default function XemBaoCaoMKT() {
       });
 
       if (enrichedCount > 0) {
-        console.log(`✅ Enriched Team for ${enrichedCount} reports from users/human_resources`);
+        console.log(`✅ Enriched Team for ${enrichedCount} reports from users`);
       }
     } catch (err) {
       console.error('❌ Error enriching Team from users:', err);

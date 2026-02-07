@@ -634,17 +634,28 @@ export default function NhapDonMoi({ isEdit = false }) {
         const fetchBranchFromUsers = async () => {
             setIsCheckingTeam(true);
             try {
-                const saleName = selectedSale.trim();
+                // Helper function để normalize tên (xử lý dấu cách thừa, lowercase)
+                const normalizeStr = (str) => {
+                    if (!str) return '';
+                    return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+                };
 
-                // Query từ bảng users theo tên (name) để lấy branch
-                // Thử match chính xác trước, nếu không có thì thử ilike
+                const saleName = selectedSale.trim();
+                const saleNameNormalized = normalizeStr(saleName);
+                let foundBranch = null;
+                let source = '';
+                let matchedName = '';
+
+                console.log(`🔍 Đang tìm branch cho nhân viên: "${saleName}" (normalized: "${saleNameNormalized}")`);
+
+                // BƯỚC 1: Ưu tiên lấy từ bảng users (match chính xác)
                 let { data: userData, error } = await supabase
                     .from('users')
                     .select('branch, name')
                     .eq('name', saleName)
                     .limit(1);
 
-                // Nếu không tìm thấy với match chính xác, thử ilike
+                // BƯỚC 2: Nếu không tìm thấy, thử ilike (partial match)
                 if ((!userData || userData.length === 0) && error === null) {
                     const { data: userDataLike, error: errorLike } = await supabase
                         .from('users')
@@ -658,29 +669,126 @@ export default function NhapDonMoi({ isEdit = false }) {
                     }
                 }
 
-                if (error) {
-                    console.error('❌ Lỗi khi lấy branch từ users:', error);
-                    // On error, DO NOT clear existing team to prevent data loss
-                    return;
+                // BƯỚC 3: Nếu tìm thấy user và có branch
+                if (!error && userData && userData.length > 0) {
+                    const branch = userData[0].branch;
+                    if (branch && String(branch).trim()) {
+                        foundBranch = String(branch).trim();
+                        source = 'users';
+                        matchedName = userData[0].name;
+                        console.log(`  ✅ Match trong users: "${matchedName}" → branch: "${foundBranch}"`);
+                    } else {
+                        console.log(`  ⚠️ Tìm thấy user "${userData[0].name}" nhưng không có branch`);
+                    }
                 }
 
-                if (userData && userData.length > 0) {
-                    const branch = userData[0].branch;
-                    if (branch) {
-                        setFormData((prev) => ({ ...prev, team: String(branch).trim() }));
-                        console.log(`✅ Tự động điền Chi nhánh: "${branch}" cho nhân viên "${selectedSale}"`);
-                    } else {
-                        console.log(`⚠️ Không tìm thấy branch cho nhân viên "${selectedSale}"`);
-                        // Reset team nếu tìm thấy user nhưng không có branch
-                        setFormData((prev) => ({ ...prev, team: "" }));
+                // BƯỚC 4: Fallback - Fetch nhiều users và so sánh normalized (xử lý dấu cách thừa)
+                if (!foundBranch) {
+                    const { data: allUsers, error: allUsersError } = await supabase
+                        .from('users')
+                        .select('branch, name')
+                        .not('branch', 'is', null)
+                        .neq('branch', '');
+
+                    if (!allUsersError && allUsers && allUsers.length > 0) {
+                        // So sánh normalized để tìm match chính xác (xử lý dấu cách thừa)
+                        const matchedUser = allUsers.find(user => {
+                            const userNameNormalized = normalizeStr(user.name);
+                            return userNameNormalized === saleNameNormalized;
+                        });
+
+                        if (matchedUser) {
+                            foundBranch = String(matchedUser.branch).trim();
+                            source = 'users (normalized match)';
+                            matchedName = matchedUser.name;
+                            console.log(`  ✅ Match normalized trong users: "${matchedName}" → branch: "${foundBranch}"`);
+                        }
                     }
+                }
+
+                // BƯỚC 5: Fallback - Nếu không tìm thấy trong users, thử lấy từ orders (đơn hàng gần nhất)
+                if (!foundBranch) {
+                    const { data: orderData, error: orderError } = await supabase
+                        .from('orders')
+                        .select('team, sale_staff')
+                        .eq('sale_staff', saleName)
+                        .not('team', 'is', null)
+                        .neq('team', '')
+                        .order('created_at', { ascending: false })
+                        .limit(1);
+
+                    if (!orderError && orderData && orderData.length > 0) {
+                        const team = orderData[0].team;
+                        if (team && String(team).trim()) {
+                            foundBranch = String(team).trim();
+                            source = 'orders';
+                            matchedName = orderData[0].sale_staff;
+                            console.log(`  ✅ Match trong orders: "${matchedName}" → team: "${foundBranch}"`);
+                        }
+                    }
+                }
+
+                // BƯỚC 6: Fallback - Thử ilike trong orders
+                if (!foundBranch) {
+                    const { data: orderDataLike, error: orderErrorLike } = await supabase
+                        .from('orders')
+                        .select('team, sale_staff')
+                        .ilike('sale_staff', `%${saleName}%`)
+                        .not('team', 'is', null)
+                        .neq('team', '')
+                        .order('created_at', { ascending: false })
+                        .limit(1);
+
+                    if (!orderErrorLike && orderDataLike && orderDataLike.length > 0) {
+                        const team = orderDataLike[0].team;
+                        if (team && String(team).trim()) {
+                            foundBranch = String(team).trim();
+                            source = 'orders (ilike)';
+                            matchedName = orderDataLike[0].sale_staff;
+                            console.log(`  ✅ Match ilike trong orders: "${matchedName}" → team: "${foundBranch}"`);
+                        }
+                    }
+                }
+
+                // BƯỚC 7: Fallback cuối cùng - Fetch nhiều orders và so sánh normalized
+                if (!foundBranch) {
+                    const { data: recentOrders, error: recentOrdersError } = await supabase
+                        .from('orders')
+                        .select('team, sale_staff')
+                        .not('team', 'is', null)
+                        .neq('team', '')
+                        .not('sale_staff', 'is', null)
+                        .neq('sale_staff', '')
+                        .order('created_at', { ascending: false })
+                        .limit(500); // Lấy 500 đơn hàng gần nhất
+
+                    if (!recentOrdersError && recentOrders && recentOrders.length > 0) {
+                        // So sánh normalized để tìm match chính xác
+                        const matchedOrder = recentOrders.find(order => {
+                            const orderSaleNameNormalized = normalizeStr(order.sale_staff);
+                            return orderSaleNameNormalized === saleNameNormalized;
+                        });
+
+                        if (matchedOrder) {
+                            foundBranch = String(matchedOrder.team).trim();
+                            source = 'orders (normalized match)';
+                            matchedName = matchedOrder.sale_staff;
+                            console.log(`  ✅ Match normalized trong orders: "${matchedName}" → team: "${foundBranch}"`);
+                        }
+                    }
+                }
+
+                // BƯỚC 8: Cập nhật form
+                if (foundBranch) {
+                    setFormData((prev) => ({ ...prev, team: foundBranch }));
+                    console.log(`✅ Tự động điền Chi nhánh: "${foundBranch}" cho nhân viên "${selectedSale}" (matched: "${matchedName}", từ ${source})`);
                 } else {
-                    console.log(`⚠️ Không tìm thấy nhân viên "${selectedSale}" trong bảng users`);
-                    // Reset team nếu không tìm thấy nhân viên
-                    setFormData((prev) => ({ ...prev, team: "" }));
+                    console.log(`⚠️ Không tìm thấy branch cho nhân viên "${selectedSale}" (normalized: "${saleNameNormalized}") trong cả users và orders`);
+                    console.log(`   💡 Kiểm tra: Tên có dấu cách thừa? Tên có khác với database?`);
+                    // Giữ nguyên giá trị hiện tại thay vì reset về "" để tránh mất dữ liệu
                 }
             } catch (err) {
-                console.error('❌ Lỗi khi fetch branch từ users:', err);
+                console.error('❌ Lỗi khi fetch branch:', err);
             } finally {
                 setIsCheckingTeam(false);
             }
