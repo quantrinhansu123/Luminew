@@ -117,7 +117,7 @@ function ReportFormCSKH() {
       fetchDropdownData();
     };
     window.addEventListener('storage', handleStorageChange);
-    
+
     // Also listen for custom event dispatched from AdminTools
     window.addEventListener('settingsUpdated', handleStorageChange);
 
@@ -176,8 +176,7 @@ function ReportFormCSKH() {
         mess_cmt: '',
         response: '',
         orders: '',
-        revenue: '',
-        revenue_cancel: ''
+        revenue: ''
       }]);
     };
 
@@ -231,8 +230,7 @@ function ReportFormCSKH() {
       mess_cmt: '',
       response: '',
       orders: '',
-      revenue: '',
-      revenue_cancel: lastReport.revenue_cancel || ''
+      revenue: ''
     };
     setReports(prev => [...prev, newReport]);
   };
@@ -283,7 +281,6 @@ function ReportFormCSKH() {
         response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
         order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
         revenue_mess: Number(cleanNumberInput(String(report.revenue || ''))) || 0,
-        revenue_cancel: Number(cleanNumberInput(String(report.revenue_cancel || ''))) || 0, // Doanh số hủy
         team: localStorage.getItem('userTeam') || 'Sale',
         branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
         created_at: new Date().toISOString(),
@@ -309,8 +306,7 @@ function ReportFormCSKH() {
         mess_cmt: '',
         response: '',
         orders: '',
-        revenue: '',
-        revenue_cancel: ''
+        revenue: ''
       }]);
       setErrors({});
     } catch (err) {
@@ -335,7 +331,7 @@ function ReportFormCSKH() {
               />
               <div>
                 <h1 className="text-3xl font-bold bg-green-500 bg-clip-text text-transparent">
-                  Báo Cáo Sale
+                  Báo Cáo CSKH
                 </h1>
                 <p className="text-gray-500 mt-1">LumiGlobal Report System</p>
               </div>
@@ -369,7 +365,6 @@ function ReportFormCSKH() {
                   <th className="p-3 min-w-[100px]">Phản hồi <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[100px]">Số đơn <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[140px]">Doanh số <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[140px]">Doanh số hủy</th>
                   <th className="p-3 w-16 text-center">Xóa</th>
                 </tr>
               </thead>
@@ -497,18 +492,7 @@ function ReportFormCSKH() {
                         placeholder="0"
                       />
                     </td>
-                    <td className="p-3">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        name="revenue_cancel"
-                        value={report.revenue_cancel || ''}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all"
-                        placeholder="0"
-                        title="Tổng VNĐ các đơn Hủy"
-                      />
-                    </td>
+
                     <td className="p-3 text-center">
                       <button
                         onClick={() => {
@@ -516,11 +500,10 @@ function ReportFormCSKH() {
                             deleteReport(idx);
                           }
                         }}
-                        className={`flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                          reports.length <= 1
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
-                        }`}
+                        className={`flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${reports.length <= 1
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
+                          }`}
                         title="Xóa dòng"
                         disabled={reports.length <= 1}
                       >
@@ -560,8 +543,7 @@ function ReportFormCSKH() {
                     mess_cmt: '',
                     response: '',
                     orders: '',
-                    revenue: '',
-                    revenue_cancel: ''
+                    revenue: ''
                   }]);
                   setErrors({});
                   toast.info('Đã xóa tất cả các dòng báo cáo', { position: 'top-right', autoClose: 2000 });

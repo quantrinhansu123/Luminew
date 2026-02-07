@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
-import { supabase } from '../services/supabaseClient';
 import * as rbacService from '../services/rbacService';
+import { supabase } from '../services/supabaseClient';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -25,7 +25,7 @@ export default function DanhSachBaoCaoTay() {
     // Permission Logic
     const { canView, role } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_MANUAL' : 'SALE_MANUAL';
-    
+
     // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút xóa)
     const roleFromHook = (role || '').toUpperCase();
     const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
@@ -35,26 +35,26 @@ export default function DanhSachBaoCaoTay() {
 
     const roleFromHookLower = (roleFromHook || '').toLowerCase();
     const isAdmin = roleFromHookLower === 'admin' ||
-                   roleFromHookLower === 'super_admin' ||
-                   roleFromHookLower === 'finance' ||
-                   roleFromStorage === 'admin' ||
-                   roleFromStorage === 'super_admin' ||
-                   roleFromStorage === 'finance' ||
-                   roleFromUserObj === 'admin' ||
-                   roleFromUserObj === 'super_admin' ||
-                   roleFromUserObj === 'finance';
-    
+        roleFromHookLower === 'super_admin' ||
+        roleFromHookLower === 'finance' ||
+        roleFromStorage === 'admin' ||
+        roleFromStorage === 'super_admin' ||
+        roleFromStorage === 'finance' ||
+        roleFromUserObj === 'admin' ||
+        roleFromUserObj === 'super_admin' ||
+        roleFromUserObj === 'finance';
+
     // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
     const isAdminOnly = roleFromHookLower === 'admin' ||
-                        roleFromHookLower === 'super_admin' ||
-                        roleFromStorage === 'admin' ||
-                        roleFromStorage === 'super_admin' ||
-                        roleFromUserObj === 'admin' ||
-                        roleFromUserObj === 'super_admin';
+        roleFromHookLower === 'super_admin' ||
+        roleFromStorage === 'admin' ||
+        roleFromStorage === 'super_admin' ||
+        roleFromUserObj === 'admin' ||
+        roleFromUserObj === 'super_admin';
 
     // Get user email for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
-    
+
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
 
@@ -69,7 +69,7 @@ export default function DanhSachBaoCaoTay() {
     const [deleting, setDeleting] = useState(false);
     const [sortColumn, setSortColumn] = useState(null);
     const [sortDirection, setSortDirection] = useState('asc');
-    
+
     // Available options for filters
     const [availableOptions, setAvailableOptions] = useState({
         products: [],
@@ -81,7 +81,7 @@ export default function DanhSachBaoCaoTay() {
     const [editForm, setEditForm] = useState({});
     const [saving, setSaving] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
-    
+
     // Options for edit form
     const [editOptions, setEditOptions] = useState({
         products: [],
@@ -107,7 +107,7 @@ export default function DanhSachBaoCaoTay() {
                     const nameStr = String(name).trim();
                     return nameStr.length > 0 && !nameStr.includes('@');
                 });
-                
+
                 console.log('📝 [DanhSachBaoCaoTay] Valid personnel names:', validNames);
                 setSelectedPersonnelNames(validNames);
             } catch (error) {
@@ -183,7 +183,7 @@ export default function DanhSachBaoCaoTay() {
                             allData = allData.concat(data);
                             hasMore = data.length === pageSize && allData.length < maxRecordsToLoad;
                             page++;
-                            
+
                             // Chỉ log mỗi 5 pages để giảm spam
                             if (page % 5 === 0 || !hasMore) {
                                 console.log(`📄 Loaded ${allData.length} records từ sales_reports (để lấy unique products/markets)`);
@@ -196,7 +196,7 @@ export default function DanhSachBaoCaoTay() {
                     // Extract unique products and markets
                     const productsFromReports = [...new Set(allData.map(r => r.product).filter(Boolean))];
                     const marketsFromReports = [...new Set(allData.map(r => r.market).filter(Boolean))];
-                    
+
                     console.log(`📦 Extracted ${productsFromReports.length} unique products và ${marketsFromReports.length} unique markets từ ${allData.length} records`);
 
                     // Merge sản phẩm từ báo cáo vào set (để đảm bảo có cả sản phẩm cũ không có trong system_settings)
@@ -210,16 +210,16 @@ export default function DanhSachBaoCaoTay() {
 
                 const finalProducts = Array.from(productsSet).sort();
                 const finalMarkets = Array.from(marketsSet).sort();
-                
+
                 setAvailableOptions({
                     products: finalProducts,
                     markets: finalMarkets
                 });
 
                 console.log(`📦 Total products available: ${productsSet.size}, Total markets: ${marketsSet.size}`);
-                
+
                 // Debug: Kiểm tra xem "Brusko coffe" có trong danh sách cuối cùng không
-                const bruskoInFinal = finalProducts.filter(p => 
+                const bruskoInFinal = finalProducts.filter(p =>
                     p && (p.toLowerCase().includes('brusko') || p.toLowerCase().includes('bruso'))
                 );
                 if (bruskoInFinal.length > 0) {
@@ -417,7 +417,7 @@ export default function DanhSachBaoCaoTay() {
 
         try {
             setDeleting(true);
-            
+
             // Delete all records from sales_reports
             const { error } = await supabase
                 .from('sales_reports')
@@ -443,7 +443,7 @@ export default function DanhSachBaoCaoTay() {
                             .from('sales_reports')
                             .delete()
                             .in('id', batch);
-                        
+
                         if (batchError) {
                             console.error(`Batch ${i / batchSize + 1} error:`, batchError);
                             throw batchError;
@@ -473,26 +473,26 @@ export default function DanhSachBaoCaoTay() {
                     .select('name')
                     .neq('type', 'test')
                     .order('name');
-                
+
                 const products = productsData?.map(p => p.name) || [];
-                
+
                 // Load markets from sales_reports
                 const { data: marketsData } = await supabase
                     .from('sales_reports')
                     .select('market')
                     .not('market', 'is', null)
                     .limit(1000);
-                
+
                 const markets = [...new Set(marketsData?.map(m => m.market).filter(Boolean))].sort();
-                
+
                 // Load branches from users
                 const { data: branchesData } = await supabase
                     .from('users')
                     .select('branch')
                     .not('branch', 'is', null);
-                
+
                 const branches = [...new Set(branchesData?.map(b => b.branch).filter(Boolean))].sort();
-                
+
                 setEditOptions({
                     products,
                     markets,
@@ -503,7 +503,7 @@ export default function DanhSachBaoCaoTay() {
                 console.error('Error loading edit options:', error);
             }
         };
-        
+
         loadEditOptions();
     }, []);
 
@@ -514,16 +514,16 @@ export default function DanhSachBaoCaoTay() {
     // Delete single report
     const handleDeleteReport = async (reportId) => {
         if (!window.confirm('Bạn có chắc chắn muốn xóa báo cáo này?')) return;
-        
+
         setDeletingId(reportId);
         try {
             const { error } = await supabase
                 .from('sales_reports')
                 .delete()
                 .eq('id', reportId);
-            
+
             if (error) throw error;
-            
+
             alert('Đã xóa báo cáo thành công!');
             fetchData();
         } catch (error) {
@@ -656,7 +656,7 @@ export default function DanhSachBaoCaoTay() {
                 {/* Filter Section */}
                 <div className="sidebar" style={{ width: '280px', minWidth: '280px', padding: '15px', overflowY: 'auto', maxHeight: '100vh' }}>
                     <h3 style={{ marginBottom: '15px', fontSize: '18px', fontWeight: 'bold' }}>Bộ lọc</h3>
-                    
+
                     {/* Quick Date Filters */}
                     <div style={{ marginBottom: '20px' }}>
                         <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '10px', color: '#333' }}>Lọc nhanh ngày:</h4>
@@ -717,18 +717,18 @@ export default function DanhSachBaoCaoTay() {
                         <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '10px', color: '#333' }}>Khoảng thời gian:</h4>
                         <label style={{ display: 'block', marginBottom: '10px' }}>
                             <span style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Từ ngày:</span>
-                            <input 
-                                type="date" 
-                                value={filters.startDate} 
+                            <input
+                                type="date"
+                                value={filters.startDate}
                                 onChange={e => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
                                 style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px' }}
                             />
                         </label>
                         <label style={{ display: 'block' }}>
                             <span style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Đến ngày:</span>
-                            <input 
-                                type="date" 
-                                value={filters.endDate} 
+                            <input
+                                type="date"
+                                value={filters.endDate}
                                 onChange={e => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
                                 style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px' }}
                             />
@@ -831,7 +831,7 @@ export default function DanhSachBaoCaoTay() {
                             <thead>
                                 <tr>
                                     <th>STT</th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Ngày')}
                                         style={{ userSelect: 'none' }}
@@ -845,7 +845,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Ca')}
                                         style={{ userSelect: 'none' }}
@@ -859,7 +859,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Người báo cáo')}
                                         style={{ userSelect: 'none' }}
@@ -873,7 +873,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Team')}
                                         style={{ userSelect: 'none' }}
@@ -887,7 +887,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Sản phẩm')}
                                         style={{ userSelect: 'none' }}
@@ -901,7 +901,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Thị trường')}
                                         style={{ userSelect: 'none' }}
@@ -915,7 +915,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Số mess')}
                                         style={{ userSelect: 'none' }}
@@ -929,7 +929,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Phản hồi')}
                                         style={{ userSelect: 'none' }}
@@ -943,7 +943,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Số đơn')}
                                         style={{ userSelect: 'none' }}
@@ -957,7 +957,7 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
-                                    <th 
+                                    <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Doanh số')}
                                         style={{ userSelect: 'none' }}
@@ -1001,13 +1001,15 @@ export default function DanhSachBaoCaoTay() {
                                                     >
                                                         Sửa
                                                     </button>
-                                                    <button
-                                                        className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
-                                                        onClick={() => handleDeleteReport(item.id)}
-                                                        disabled={deletingId === item.id}
-                                                    >
-                                                        {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
-                                                    </button>
+                                                    {isAdmin && (
+                                                        <button
+                                                            className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
+                                                            onClick={() => handleDeleteReport(item.id)}
+                                                            disabled={deletingId === item.id}
+                                                        >
+                                                            {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>

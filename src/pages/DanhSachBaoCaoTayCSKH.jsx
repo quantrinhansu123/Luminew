@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
-import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
+import { supabase } from '../supabase/config';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -26,11 +26,11 @@ export default function DanhSachBaoCaoTayCSKH() {
     // Permission Logic
     const { canView, role, team: userTeam, permissions } = usePermissions();
     const permissionCode = 'CSKH_VIEW'; // CSKH uses CSKH_VIEW permission (same as XemBaoCaoCSKH)
-    
+
     // Get user email and name for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
     const userName = localStorage.getItem('username') || '';
-    
+
     // Debug: Log permissions
     useEffect(() => {
         console.log('🔐 User Permissions:', {
@@ -43,6 +43,32 @@ export default function DanhSachBaoCaoTayCSKH() {
             userTeam
         });
     }, [role, permissionCode, permissions, userEmail, userName, userTeam]);
+
+    // Kiểm tra xem user có phải Admin không (logic giống DanhSachDon.jsx)
+    const roleFromHook = (role || '').toUpperCase();
+    const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
+    const userJson = localStorage.getItem("user");
+    const userObj = userJson ? JSON.parse(userJson) : null;
+    const roleFromUserObj = (userObj?.role || '').toLowerCase();
+
+    const roleFromHookLower = (roleFromHook || '').toLowerCase();
+    const isAdmin = roleFromHookLower === 'admin' ||
+        roleFromHookLower === 'super_admin' ||
+        roleFromHookLower === 'finance' ||
+        roleFromStorage === 'admin' ||
+        roleFromStorage === 'super_admin' ||
+        roleFromStorage === 'finance' ||
+        roleFromUserObj === 'admin' ||
+        roleFromUserObj === 'super_admin' ||
+        roleFromUserObj === 'finance';
+
+    // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
+    const isAdminOnly = roleFromHookLower === 'admin' ||
+        roleFromHookLower === 'super_admin' ||
+        roleFromStorage === 'admin' ||
+        roleFromStorage === 'super_admin' ||
+        roleFromUserObj === 'admin' ||
+        roleFromUserObj === 'super_admin';
 
     const [loading, setLoading] = useState(true);
     const [manualReports, setManualReports] = useState([]);
@@ -60,14 +86,14 @@ export default function DanhSachBaoCaoTayCSKH() {
     const [syncing, setSyncing] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
-    
+
     // Available options for filters
     const [availableOptions, setAvailableOptions] = useState({
         products: [],
         markets: [],
         personnel: []
     });
-    
+
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(50);
@@ -76,7 +102,7 @@ export default function DanhSachBaoCaoTayCSKH() {
     const [editingReport, setEditingReport] = useState(null);
     const [editForm, setEditForm] = useState({});
     const [saving, setSaving] = useState(false);
-    
+
     // Options for edit form
     const [editOptions, setEditOptions] = useState({
         products: [],
@@ -87,7 +113,7 @@ export default function DanhSachBaoCaoTayCSKH() {
 
     // Map tên nhân sự -> email (lấy từ bảng nhân sự)
     const [hrEmailMap, setHrEmailMap] = useState({});
-    
+
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
 
@@ -141,7 +167,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                     const nameStr = String(name).trim();
                     return nameStr.length > 0 && !nameStr.includes('@');
                 });
-                
+
                 console.log('📝 [DanhSachBaoCaoTayCSKH] Valid personnel names:', validNames);
                 setSelectedPersonnelNames(validNames);
             } catch (error) {
@@ -166,14 +192,14 @@ export default function DanhSachBaoCaoTayCSKH() {
                 startDate: formatDateForInput(threeDaysAgo),
                 endDate: formatDateForInput(today)
             }));
-            
+
             console.log('📅 [DanhSachBaoCaoTayCSKH] Khởi tạo filters với 3 ngày gần nhất:', {
                 startDate: formatDateForInput(threeDaysAgo),
                 endDate: formatDateForInput(today)
             });
         }
     }, []); // Chỉ chạy một lần khi mount
-    
+
     // Load available options for filters
     useEffect(() => {
         const loadAvailableOptions = async () => {
@@ -189,7 +215,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                         .select('name')
                         .neq('type', 'test')
                         .order('name');
-                    
+
                     if (productsData) {
                         productsData.forEach(item => {
                             if (item.name?.trim()) productsSet.add(item.name.trim());
@@ -231,7 +257,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                     const productsFromReports = [...new Set(allData.map(r => r.product).filter(Boolean))];
                     const marketsFromReports = [...new Set(allData.map(r => r.market).filter(Boolean))];
                     const personnelFromReports = [...new Set(allData.map(r => r.name).filter(Boolean))];
-                    
+
                     productsFromReports.forEach(p => productsSet.add(p));
                     marketsFromReports.forEach(m => marketsSet.add(m));
                     personnelFromReports.forEach(p => personnelSet.add(p));
@@ -253,7 +279,7 @@ export default function DanhSachBaoCaoTayCSKH() {
             loadAvailableOptions();
         }
     }, [selectedPersonnelNames]);
-    
+
     // Load options for edit form
     useEffect(() => {
         const loadEditOptions = async () => {
@@ -263,24 +289,24 @@ export default function DanhSachBaoCaoTayCSKH() {
                     .select('name')
                     .neq('type', 'test')
                     .order('name');
-                
+
                 const products = productsData?.map(p => p.name) || [];
-                
+
                 const { data: marketsData } = await supabase
                     .from('sales_reports')
                     .select('market')
                     .not('market', 'is', null)
                     .limit(1000);
-                
+
                 const markets = [...new Set(marketsData?.map(m => m.market).filter(Boolean))].sort();
-                
+
                 const { data: branchesData } = await supabase
                     .from('users')
                     .select('branch')
                     .not('branch', 'is', null);
-                
+
                 const branches = [...new Set(branchesData?.map(b => b.branch).filter(Boolean))].sort();
-                
+
                 setEditOptions({
                     products,
                     markets,
@@ -291,7 +317,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                 console.error('Error loading edit options:', error);
             }
         };
-        
+
         loadEditOptions();
     }, []);
 
@@ -320,7 +346,7 @@ export default function DanhSachBaoCaoTayCSKH() {
 
             // Filter by shift/ca
             const shiftValue = String(reportShift || '').trim();
-            
+
             if (shiftValue === 'Hết ca' || shiftValue.toLowerCase() === 'hết ca') {
                 query = query.ilike('shift', '%Hết ca%');
             } else if (shiftValue === 'Giữa ca' || shiftValue.toLowerCase() === 'giữa ca') {
@@ -358,7 +384,7 @@ export default function DanhSachBaoCaoTayCSKH() {
 
             // Calculate values
             const totalOrders = orders.length;
-            
+
             // Doanh số thực tế: tổng total_amount_vnd của tất cả đơn khớp điều kiện
             const doanhSoThucTe = orders.reduce((sum, o) => {
                 const amount = o.total_amount_vnd || o.total_vnd || 0;
@@ -381,36 +407,36 @@ export default function DanhSachBaoCaoTayCSKH() {
     // Calculate real values for all reports (PARALLEL - tối ưu tốc độ)
     const calculateRealValuesForReports = async (reports) => {
         if (!reports || reports.length === 0) return;
-        
+
         setCalculatingRealValues(true);
-        
+
         try {
             // Chạy song song tất cả queries thay vì tuần tự
             // Giới hạn batch size để tránh quá tải
             const BATCH_SIZE = 10; // Chạy 10 queries cùng lúc
             const valuesMap = {};
-            
+
             for (let i = 0; i < reports.length; i += BATCH_SIZE) {
                 const batch = reports.slice(i, i + BATCH_SIZE);
-                
+
                 // Chạy song song trong batch này
-                const batchPromises = batch.map(report => 
+                const batchPromises = batch.map(report =>
                     calculateRealValues(report).then(result => ({
                         id: report.id,
                         values: result
                     }))
                 );
-                
+
                 const batchResults = await Promise.all(batchPromises);
-                
+
                 // Merge kết quả
                 batchResults.forEach(({ id, values }) => {
                     valuesMap[id] = values;
                 });
-                
+
                 console.log(`⚡ Calculated batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(reports.length / BATCH_SIZE)}: ${batch.length} reports`);
             }
-            
+
             setRealValuesMap(valuesMap);
             console.log(`✅ Calculated real values for ${reports.length} reports (parallel)`);
         } catch (error) {
@@ -446,7 +472,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                         const normalizedName = normalizeNameForQuery(name);
                         return `name.ilike.%${normalizedName}%`;
                     });
-                
+
                 if (orConditions.length > 0) {
                     query = query.or(orConditions.join(','));
                 } else {
@@ -462,7 +488,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                         const normalizedName = normalizeNameForQuery(name);
                         return `name.ilike.%${normalizedName}%`;
                     });
-                
+
                 if (personnelConditions.length > 0) {
                     query = query.or(personnelConditions.join(','));
                 }
@@ -512,7 +538,7 @@ export default function DanhSachBaoCaoTayCSKH() {
             fetchData();
         }
     }, [fetchData]);
-    
+
     // Quick date filter handlers
     const handleQuickDateSelect = (period) => {
         const today = new Date();
@@ -596,20 +622,20 @@ export default function DanhSachBaoCaoTayCSKH() {
             [type]: checked ? availableOptions[type] : []
         }));
     };
-    
+
     // Delete single report
     const handleDeleteReport = async (reportId) => {
         if (!window.confirm('Bạn có chắc chắn muốn xóa báo cáo này?')) return;
-        
+
         setDeletingId(reportId);
         try {
             const { error } = await supabase
                 .from('sales_reports')
                 .delete()
                 .eq('id', reportId);
-            
+
             if (error) throw error;
-            
+
             alert('Đã xóa báo cáo thành công!');
             fetchData();
         } catch (error) {
@@ -619,7 +645,7 @@ export default function DanhSachBaoCaoTayCSKH() {
             setDeletingId(null);
         }
     };
-    
+
     // Calculate pagination
     const totalPages = Math.ceil(allReports.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -662,7 +688,7 @@ export default function DanhSachBaoCaoTayCSKH() {
 
         try {
             setDeleting(true);
-            
+
             // Delete all records from sales_reports
             const { error } = await supabase
                 .from('sales_reports')
@@ -688,7 +714,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                             .from('sales_reports')
                             .delete()
                             .in('id', batch);
-                        
+
                         if (batchError) {
                             console.error(`Batch ${i / batchSize + 1} error:`, batchError);
                             throw batchError;
@@ -712,31 +738,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
     }
 
-    // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút xóa)
-    const roleFromHook = (role || '').toUpperCase();
-    const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
-    const userJson = localStorage.getItem('user');
-    const user = userJson ? JSON.parse(userJson) : null;
-    const roleFromUser = (user?.role || user?.Role || '').toLowerCase();
-    
-    const roleFromHookLower = (roleFromHook || '').toLowerCase();
-    const isAdmin = roleFromHookLower === 'admin' || 
-                   roleFromHookLower === 'super_admin' ||
-                   roleFromHookLower === 'finance' ||
-                   roleFromStorage === 'admin' ||
-                   roleFromStorage === 'super_admin' ||
-                   roleFromStorage === 'finance' ||
-                   roleFromUser === 'admin' ||
-                   roleFromUser === 'super_admin' ||
-                   roleFromUser === 'finance';
-    
-    // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
-    const isAdminOnly = roleFromHookLower === 'admin' || 
-                        roleFromHookLower === 'super_admin' ||
-                        roleFromStorage === 'admin' ||
-                        roleFromStorage === 'super_admin' ||
-                        roleFromUser === 'admin' ||
-                        roleFromUser === 'super_admin';
+
 
     // Edit Handlers
     const handleEditClick = (report) => {
@@ -803,7 +805,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                 {/* Filter Section */}
                 <div className="sidebar" style={{ width: '280px', minWidth: '280px', padding: '15px', overflowY: 'auto', maxHeight: '100vh' }}>
                     <h3 style={{ marginBottom: '15px', fontSize: '18px', fontWeight: 'bold' }}>Bộ lọc</h3>
-                    
+
                     {/* Quick Date Filters */}
                     <div style={{ marginBottom: '20px' }}>
                         <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '10px', color: '#333' }}>Lọc nhanh ngày:</h4>
@@ -914,22 +916,22 @@ export default function DanhSachBaoCaoTayCSKH() {
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                             {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
                             {isAdminOnly && (
-                        <button
-                            onClick={handleDeleteAll}
+                                <button
+                                    onClick={handleDeleteAll}
                                     disabled={syncing || loading || deleting}
-                            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                        >
-                            {deleting ? (
-                                <>
-                                    <span className="animate-spin">⏳</span>
-                                    Đang xóa...
-                                </>
-                            ) : (
-                                <>
-                                    🗑️ Xóa toàn bộ dữ liệu
-                                </>
-                            )}
-                        </button>
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                >
+                                    {deleting ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang xóa...
+                                        </>
+                                    ) : (
+                                        <>
+                                            🗑️ Xóa toàn bộ dữ liệu
+                                        </>
+                                    )}
+                                </button>
                             )}
                         </div>
                     </div>
@@ -963,19 +965,19 @@ export default function DanhSachBaoCaoTayCSKH() {
                                             order_count_actual: item.order_count_actual || 0,
                                             revenue_actual: item.revenue_actual || 0
                                         };
-                                        
+
                                         return (
-                                        <tr key={item.id || index}>
+                                            <tr key={item.id || index}>
                                                 <td className="text-center">{startIndex + index + 1}</td>
                                                 <td>{formatDate(item.date)}</td>
-                                            <td>{item.shift}</td>
+                                                <td>{item.shift}</td>
                                                 <td>{item.name}</td>
                                                 <td>{item.team}</td>
-                                            <td>{item.product}</td>
-                                            <td>{item.market}</td>
-                                            <td>{formatNumber(item.mess_count)}</td>
-                                            <td>{formatNumber(item.response_count)}</td>
-                                            <td>{formatNumber(item.order_count)}</td>
+                                                <td>{item.product}</td>
+                                                <td>{item.market}</td>
+                                                <td>{formatNumber(item.mess_count)}</td>
+                                                <td>{formatNumber(item.response_count)}</td>
+                                                <td>{formatNumber(item.order_count)}</td>
                                                 <td>{formatCurrency(item.revenue_mess)}</td>
                                                 <td className="text-center">
                                                     <div className="flex gap-2 justify-center">
@@ -985,16 +987,18 @@ export default function DanhSachBaoCaoTayCSKH() {
                                                         >
                                                             Sửa
                                                         </button>
-                                                        <button
-                                                            className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
-                                                            onClick={() => handleDeleteReport(item.id)}
-                                                            disabled={deletingId === item.id}
-                                                        >
-                                                            {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
-                                                        </button>
+                                                        {isAdmin && (
+                                                            <button
+                                                                className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
+                                                                onClick={() => handleDeleteReport(item.id)}
+                                                                disabled={deletingId === item.id}
+                                                            >
+                                                                {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </td>
-                                        </tr>
+                                            </tr>
                                         );
                                     })
                                 )}

@@ -150,6 +150,137 @@ export default function BaoCaoSale() {
     // handleSyncF3Report was removed.
 
 
+
+    // Hàm fetch các dòng báo cáo còn thiếu từ bảng orders (cho các Sale có đơn nhưng chưa điền báo cáo)
+    const fetchMissingReportRowsFromOrders = async (currentData, startDate, endDate) => {
+        try {
+            // Helper function để normalize date format - Database lưu ở định dạng YYYY-MM-DD
+            const normalizeDate = (date) => {
+                if (!date) return '';
+                if (date instanceof Date) {
+                    return date.toISOString().split('T')[0];
+                }
+                if (typeof date === 'string') {
+                    const trimmed = date.trim();
+                    if (trimmed.includes('T')) {
+                        return trimmed.split('T')[0];
+                    }
+                    if (trimmed.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        return trimmed.split('T')[0]; // Handle cases like "2026-02-05 00:00:00" if any, or just return
+                    }
+                    // Basic date parsing fallback
+                    const parsed = new Date(trimmed);
+                    if (!isNaN(parsed.getTime())) {
+                        return parsed.toISOString().split('T')[0];
+                    }
+                    return trimmed;
+                }
+                return String(date);
+            };
+
+            // Helper to normalize string
+            const normalizeStr = (str) => {
+                if (!str) return '';
+                return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+            };
+
+            const normalizedStartDate = normalizeDate(startDate);
+            const normalizedEndDate = normalizeDate(endDate);
+
+            console.log(`🔄 [fetchMissingReportRowsFromOrders] Checking for missing rows in range ${normalizedStartDate} to ${normalizedEndDate}...`);
+
+            // 1. Get distinct sale_staff and order_date from orders in range
+            // Note: We fetch distinct pairs roughly. Using .select with distinct is tricky in supabase js sdk simple syntax,
+            // so we fetch relevant columns and dedupe in JS (limit 10000 should be enough for a date range of view)
+            const { data: orders, error } = await supabase
+                .from('orders')
+                .select('sale_staff, order_date')
+                .gte('order_date', normalizedStartDate)
+                .lte('order_date', normalizedEndDate)
+                .limit(10000);
+
+            if (error) {
+                console.error("Error fetching orders for missing rows check:", error);
+                return [];
+            }
+
+            // 2. Identify pairs existing in currentData (from sales_reports)
+            const existingPairs = new Set();
+            currentData.forEach(item => {
+                const name = normalizeStr(item['Tên']);
+                // item['Ngày'] comes from sales_reports, usually YYYY-MM-DD
+                const date = normalizeDate(item['Ngày']);
+                if (name && date) {
+                    existingPairs.add(`${name}|${date}`);
+                }
+            });
+
+            // 3. Find missing
+            const missingRowsMap = new Map(); // Use Map to dedupe (Sale|Date) -> Row
+            let missingCount = 0;
+
+            orders.forEach(o => {
+                if (o.sale_staff && o.order_date) {
+                    const nameRaw = o.sale_staff;
+                    const dateRaw = o.order_date;
+                    const nameNorm = normalizeStr(nameRaw);
+                    const dateNorm = normalizeDate(dateRaw);
+                    const key = `${nameNorm}|${dateNorm}`;
+
+                    if (!existingPairs.has(key)) {
+                        if (!missingRowsMap.has(key)) {
+                            // Create new "real data" row placeholder
+                            missingRowsMap.set(key, {
+                                'Tên': nameRaw, // Use original name from order
+                                'Ngày': dateNorm,
+                                'Email': '', // Unknown initially
+                                'Team': '', // Will be enriched
+                                'Chi nhánh': '', // Will be enriched
+                                'Chức vụ': 'Sale Member', // Default
+                                'Sản phẩm': '', // Unknown
+                                'Thị trường': '', // Unknown
+
+                                // Metrics 0 initially, will be populated by enrichment functions
+                                'Số Mess': 0,
+                                'Phản hồi': 0,
+                                'Đơn Mess': 0,
+                                'Doanh số Mess': 0,
+                                'Số đơn thực tế': 0,
+                                'Doanh thu chốt thực tế': 0,
+                                'Số đơn Hoàn huỷ': 0,
+                                'Doanh số hoàn huỷ': 0,
+                                'Số đơn thành công': 0,
+                                'Doanh số thành công': 0,
+                                'Doanh số đi': 0,
+                                'Doanh số đi thực tế': 0,
+                                'Số đơn hoàn hủy thực tế': 0,
+                                'Doanh số hoàn hủy thực tế': 0,
+                                'Số đơn TT': 0,
+                                'Doanh số': 0,
+
+                                'is_generated': true // Marker for debugging
+                            });
+                            missingCount++;
+                        }
+                    }
+                }
+            });
+
+            const missingRows = Array.from(missingRowsMap.values());
+            if (missingRows.length > 0) {
+                console.log(`✅ [fetchMissingReportRowsFromOrders] Found ${missingRows.length} missing (Sale+Date) pairs from Orders. Adding them to report...`);
+            } else {
+                console.log(`✅ [fetchMissingReportRowsFromOrders] No missing report rows found. All Sales with orders have reports.`);
+            }
+
+            return missingRows;
+
+        } catch (e) {
+            console.error("Error in fetchMissingReportRowsFromOrders:", e);
+            return [];
+        }
+    };
+
     // --- Delete All Logic ---
     const handleDeleteAll = async () => {
         if (!window.confirm("⚠️ CẢNH BÁO: Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu báo cáo sale không?\n\nHành động này KHÔNG THỂ khôi phục!")) return;
@@ -185,6 +316,7 @@ export default function BaoCaoSale() {
     };
 
     // --- Helper Functions ---
+
 
     // Fetch số đơn hoàn hủy từ bảng orders theo filter:
     // 1. check_result = "Hủy" hoặc "Huỷ"
@@ -509,6 +641,21 @@ export default function BaoCaoSale() {
                 const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
                 let matchingOrders = cancelOrdersBySaleDateProductMarket.get(key) || [];
 
+                // [LOGIC IMPROVED] Fallback for Generality
+                if (matchingOrders.length === 0 && (!reportProduct && !reportMarket)) {
+                    const prefix = `${saleName}|${reportDate}|`;
+                    for (const mapKey of cancelOrdersBySaleDateProductMarket.keys()) {
+                        if (mapKey.startsWith(prefix)) {
+                            const orders = cancelOrdersBySaleDateProductMarket.get(mapKey);
+                            matchingOrders = [...matchingOrders, ...orders];
+                        }
+                    }
+
+                    if (matchingOrders.length > 0 && isPhamTuyetTrinh) {
+                        console.log(`ℹ️ [enrichWithCancelOrdersFromOrders] Broad Match via Sale+Date for "${item['Tên']}" (${reportDateRaw}): ${matchingOrders.length} orders`);
+                    }
+                }
+
                 // Nếu không match được với key đầy đủ, thử match với key không có product/market
                 // (cho trường hợp đơn hàng có product/market empty) - cùng rule như Số đơn TT
                 if (matchingOrders.length === 0) {
@@ -783,6 +930,21 @@ export default function BaoCaoSale() {
 
                 const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
                 let matchingOrders = ordersBySaleDateProductMarket.get(key) || [];
+
+                // [LOGIC IMPROVED] Fallback for Generality
+                if (matchingOrders.length === 0 && (!reportProduct && !reportMarket)) {
+                    const prefix = `${saleName}|${reportDate}|`;
+                    for (const mapKey of ordersBySaleDateProductMarket.keys()) {
+                        if (mapKey.startsWith(prefix)) {
+                            const orders = ordersBySaleDateProductMarket.get(mapKey);
+                            matchingOrders = [...matchingOrders, ...orders];
+                        }
+                    }
+
+                    if (matchingOrders.length > 0) {
+                        console.log(`ℹ️ [enrichWithTotalOrdersFromOrders] Broad Match via Sale+Date for "${item['Tên']}" (${reportDateRaw}): ${matchingOrders.length} orders`);
+                    }
+                }
 
                 // Nếu không match được với key đầy đủ, thử match với key chỉ có Tên + Ngày
                 // (cho trường hợp đơn hàng có product/market empty hoặc không khớp)
@@ -1148,7 +1310,7 @@ export default function BaoCaoSale() {
             });
 
             // Cập nhật transformedData với tổng doanh số từ orders (theo cùng rule như Số đơn TT)
-            transformedData.forEach((item) => {
+            transformedData.forEach((item, index) => {
                 const saleName = normalizeStr(item['Tên']);
                 const reportDateRaw = item['Ngày'];
                 const reportDate = normalizeDate(reportDateRaw);
@@ -1163,91 +1325,35 @@ export default function BaoCaoSale() {
                 const key = `${saleName}|${reportDate}|${reportProduct}|${reportMarket}`;
                 let matchingOrders = ordersBySaleDateProductMarket.get(key) || [];
 
-                // Nếu không match được với key đầy đủ, thử match với key không có product/market
-                // (cho trường hợp đơn hàng có product/market empty) - cùng rule như Số đơn TT
-                if (matchingOrders.length === 0) {
-                    const keyWithoutProductMarket = `${saleName}|${reportDate}||`;
-                    const ordersWithoutProductMarket = ordersBySaleDateProductMarket.get(keyWithoutProductMarket) || [];
+                // [LOGIC IMPROVED] Fallback for Generality
+                // If we didn't match specific Product/Market, AND the Report Row has empty Product/Market,
+                // it implies this row represents "Total" or is a Generated Row.
+                // We should collect ALL orders for this Sale+Date.
+                if (matchingOrders.length === 0 && (!reportProduct && !reportMarket)) {
+                    // Iterate keys to find matches for Sale + Date
+                    // Optimized: We could have built a secondary map, but iterating keys is okay if not too many...
+                    // actually, let's build the secondary map ONCE outside the loop for performance.
+                    // But for now, since I can't edit outside easily in this chunk, I'll allow iterating or rely on the fallback I'm about to write.
+                    // BETTER: use secondary matching logic.
 
-                    // Chỉ lấy các đơn hàng có product hoặc market empty
-                    const emptyProductMarketOrders = ordersWithoutProductMarket.filter(order => {
-                        const orderProduct = normalizeStr(order.product || '');
-                        const orderMarket = normalizeStr(order.country || '');
-                        return orderProduct === '' || orderMarket === '';
-                    });
+                    // Find any key that starts with `${saleName}|${reportDate}|`
+                    const prefix = `${saleName}|${reportDate}|`;
+                    for (const mapKey of ordersBySaleDateProductMarket.keys()) {
+                        if (mapKey.startsWith(prefix)) {
+                            const orders = ordersBySaleDateProductMarket.get(mapKey);
+                            matchingOrders = [...matchingOrders, ...orders];
+                        }
+                    }
 
-                    if (emptyProductMarketOrders.length > 0) {
-                        matchingOrders = emptyProductMarketOrders;
-                        console.log(`ℹ️ [enrichWithTotalRevenueFromOrders] Match với key không có product/market cho "${item['Tên']}" ngày ${reportDateRaw}: ${matchingOrders.length} đơn`);
+                    if (matchingOrders.length > 0) {
+                        console.log(`ℹ️ [enrichWithTotalRevenueFromOrders] Broad Match via Sale+Date for "${item['Tên']}" (${reportDateRaw}): ${matchingOrders.length} orders`);
                     }
                 }
 
-                // FALLBACK: Nếu vẫn không match được, thử match theo Tên + Ngày (bỏ qua product/market)
-                // Để lấy đủ doanh số hơn (tránh thiếu doanh số do product/market không khớp)
-                // LƯU Ý: Chỉ dùng fallback này khi không có record nào khác cùng Sale + Ngày đã match được
-                // để tránh tính trùng
+                // If still no match, fallback to key without Product/Market (legacy check)
                 if (matchingOrders.length === 0) {
-                    // Kiểm tra xem có record nào khác cùng Sale + Ngày đã match được chưa
-                    const otherRecordsSameSaleDate = transformedData.filter((otherItem, otherIdx) => {
-                        if (otherIdx === index) return false; // Bỏ qua chính record này
-                        const otherSaleName = normalizeStr(otherItem['Tên']);
-                        const otherReportDate = normalizeDate(otherItem['Ngày']);
-                        return otherSaleName === saleName && otherReportDate === reportDate;
-                    });
-
-                    // Kiểm tra xem các records khác đã match được bao nhiêu đơn
-                    let totalMatchedByOthers = 0;
-                    otherRecordsSameSaleDate.forEach(otherItem => {
-                        const otherKey = `${saleName}|${reportDate}|${normalizeStr(otherItem['Sản phẩm'] || '')}|${normalizeStr(otherItem['Thị trường'] || '')}`;
-                        const otherMatching = ordersBySaleDateProductMarket.get(otherKey) || [];
-                        totalMatchedByOthers += otherMatching.length;
-                    });
-
-                    // Tìm tất cả orders của Sale này ngày này
-                    const allSaleOrdersOnDate = (allOrders || []).filter(order => {
-                        const orderSaleName = normalizeStr(order.sale_staff);
-                        const orderDateStr = normalizeDate(order.order_date);
-                        return orderSaleName === saleName && orderDateStr === reportDate;
-                    });
-
-                    // Chỉ dùng fallback nếu:
-                    // 1. Có orders của Sale này ngày này
-                    // 2. Tổng số orders > số đơn đã match bởi các records khác (còn đơn chưa match)
-                    if (allSaleOrdersOnDate.length > totalMatchedByOthers) {
-                        // Lấy các đơn chưa được match bởi records khác
-                        const unmatchedOrders = allSaleOrdersOnDate.filter(order => {
-                            // Kiểm tra xem order này đã được match bởi record khác chưa
-                            const orderKey = `${saleName}|${reportDate}|${normalizeStr(order.product || '')}|${normalizeStr(order.country || '')}`;
-                            const orderKeyWithoutPM = `${saleName}|${reportDate}||`;
-
-                            // Kiểm tra trong các records khác
-                            for (const otherItem of otherRecordsSameSaleDate) {
-                                const otherKey = `${saleName}|${reportDate}|${normalizeStr(otherItem['Sản phẩm'] || '')}|${normalizeStr(otherItem['Thị trường'] || '')}`;
-                                const otherMatching = ordersBySaleDateProductMarket.get(otherKey) || [];
-                                if (otherMatching.some(o => o.order_code === order.order_code)) {
-                                    return false; // Đã được match
-                                }
-
-                                // Kiểm tra key không có product/market
-                                const otherMatchingWithoutPM = ordersBySaleDateProductMarket.get(orderKeyWithoutPM) || [];
-                                const emptyPMOrders = otherMatchingWithoutPM.filter(o => {
-                                    const oProduct = normalizeStr(o.product || '');
-                                    const oMarket = normalizeStr(o.country || '');
-                                    return (oProduct === '' || oMarket === '') &&
-                                        (normalizeStr(otherItem['Sản phẩm'] || '') === '' || normalizeStr(otherItem['Thị trường'] || '') === '');
-                                });
-                                if (emptyPMOrders.some(o => o.order_code === order.order_code)) {
-                                    return false; // Đã được match
-                                }
-                            }
-                            return true; // Chưa được match
-                        });
-
-                        if (unmatchedOrders.length > 0) {
-                            matchingOrders = unmatchedOrders;
-                            console.log(`ℹ️ [enrichWithTotalRevenueFromOrders] Fallback match theo Tên + Ngày cho "${item['Tên']}" ngày ${reportDateRaw}: ${matchingOrders.length} đơn chưa match (tổng ${allSaleOrdersOnDate.length} đơn, ${totalMatchedByOthers} đã match bởi records khác)`);
-                        }
-                    }
+                    const keyWithoutProductMarket = `${saleName}|${reportDate}||`;
+                    matchingOrders = ordersBySaleDateProductMarket.get(keyWithoutProductMarket) || [];
                 }
 
                 // Tính tổng doanh số từ các đơn match được
@@ -1278,7 +1384,7 @@ export default function BaoCaoSale() {
             // Fetch users từ supabase
             const { data: users, error } = await supabase
                 .from('users')
-                .select('email, team');
+                .select('email, name, team');
 
             if (error) {
                 console.error('❌ Error fetching users for team enrichment:', error);
@@ -1286,24 +1392,47 @@ export default function BaoCaoSale() {
             }
 
             const teamMap = new Map();
+            const nameMap = new Map(); // [NEW] Map for name lookup
+
+            // Helper to normalize string
+            const normalizeStr = (str) => {
+                if (!str) return '';
+                return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+            };
+
             users.forEach(u => {
-                if (u.email && u.team) {
-                    teamMap.set(u.email.trim().toLowerCase(), u.team);
+                if (u.team) {
+                    if (u.email) {
+                        teamMap.set(u.email.trim().toLowerCase(), u.team);
+                    }
+                    if (u.name) {
+                        nameMap.set(normalizeStr(u.name), u.team);
+                    }
                 }
             });
 
             let updatedCount = 0;
             transformedData.forEach(item => {
                 const email = (item['Email'] || '').trim().toLowerCase();
+                const name = normalizeStr(item['Tên']);
+
+                let foundTeam = null;
+
+                // 1. Try Email Lookup
                 if (teamMap.has(email)) {
-                    const foundTeam = teamMap.get(email);
-                    if (item['Team'] !== foundTeam) {
-                        item['Team'] = foundTeam;
-                        updatedCount++;
-                    }
+                    foundTeam = teamMap.get(email);
+                }
+                // 2. Fallback to Name Lookup if Email fails or not found
+                else if (name && nameMap.has(name)) {
+                    foundTeam = nameMap.get(name);
+                }
+
+                if (foundTeam && item['Team'] !== foundTeam) {
+                    item['Team'] = foundTeam;
+                    updatedCount++;
                 }
             });
-            console.log(`✅ [enrichTeamFromUsers] Đã cập nhật Team cho ${updatedCount} records từ bảng users`);
+            console.log(`✅ [enrichTeamFromUsers] Đã cập nhật Team cho ${updatedCount} records từ bảng users (Email + Name fallback)`);
 
         } catch (err) {
             console.error('❌ Error in enrichTeamFromUsers:', err);
@@ -1375,9 +1504,10 @@ export default function BaoCaoSale() {
             }
 
             // Fetch từ sales_reports với filter theo tên và khoảng ngày
+            // [UPDATED] Select thêm product, market để match chính xác
             let query = supabase
                 .from('sales_reports')
-                .select('name, mess_count, response_count, date')
+                .select('name, mess_count, response_count, date, product, market')
                 .gte('date', normalizedStartDate)
                 .lte('date', normalizedEndDate);
 
@@ -1400,13 +1530,15 @@ export default function BaoCaoSale() {
 
             console.log(`📊 [enrichMessAndResponseFromSalesReports] Fetch được ${salesReportsData?.length || 0} records từ sales_reports`);
 
-            // Group theo Tên + Ngày để match chính xác với từng record trong transformedData
-            // Key: "name|date" -> { mess_count, response_count }
-            const messAndResponseByPersonnelDate = new Map();
+            // [UPDATED] Group theo Tên + Ngày + Sản Phẩm + Thị Trường để match chính xác
+            // Key: "name|date|product|market" -> { mess_count, response_count }
+            const messAndResponseMap = new Map();
 
             (salesReportsData || []).forEach(report => {
                 const reportName = normalizeStr(report.name);
                 const reportDate = normalizeDate(report.date);
+                const reportProduct = normalizeStr(report.product || '');
+                const reportMarket = normalizeStr(report.market || '');
 
                 if (!reportName || !reportDate) return;
 
@@ -1417,41 +1549,41 @@ export default function BaoCaoSale() {
                 });
 
                 if (matchedPersonnel) {
-                    const key = `${normalizeStr(matchedPersonnel)}|${reportDate}`;
+                    const key = `${normalizeStr(matchedPersonnel)}|${reportDate}|${reportProduct}|${reportMarket}`;
 
-                    // Tính tổng Số Mess và Phản hồi cho từng cặp (nhân sự, ngày)
-                    const current = messAndResponseByPersonnelDate.get(key) || { mess: 0, phanHoi: 0 };
+                    // Tính tổng Số Mess và Phản hồi cho từng unique key
+                    const current = messAndResponseMap.get(key) || { mess: 0, phanHoi: 0 };
                     current.mess += (Number(report.mess_count) || 0);
                     current.phanHoi += (Number(report.response_count) || 0);
-                    messAndResponseByPersonnelDate.set(key, current);
+                    messAndResponseMap.set(key, current);
                 }
             });
 
-            console.log(`📊 [enrichMessAndResponseFromSalesReports] Số keys (nhân sự + ngày): ${messAndResponseByPersonnelDate.size}`);
+            console.log(`📊 [enrichMessAndResponseFromSalesReports] Số keys (granular): ${messAndResponseMap.size}`);
 
-            // Cập nhật transformedData với "Số Mess" và "Phản hồi" từ sales_reports (match theo Tên + Ngày)
+            // Cập nhật transformedData với "Số Mess" và "Phản hồi" từ sales_reports
             let updatedCount = 0;
             transformedData.forEach(item => {
                 const itemName = normalizeStr(item['Tên']);
                 const itemDate = normalizeDate(item['Ngày']);
+                const itemProduct = normalizeStr(item['Sản phẩm'] || '');
+                const itemMarket = normalizeStr(item['Thị trường'] || '');
 
                 if (!itemName || !itemDate) return;
 
-                const key = `${itemName}|${itemDate}`;
-                const data = messAndResponseByPersonnelDate.get(key);
+                // [UPDATED] Match chính xác theo cả Product và Market
+                const key = `${itemName}|${itemDate}|${itemProduct}|${itemMarket}`;
+                const data = messAndResponseMap.get(key);
 
                 if (data) {
                     // Cập nhật "Số Mess" và "Phản hồi" từ sales_reports (ghi đè giá trị cũ)
                     item['Số Mess'] = data.mess;
                     item['Phản hồi'] = data.phanHoi;
                     updatedCount++;
-                } else {
-                    // Nếu không tìm thấy, giữ nguyên giá trị cũ hoặc set = 0
-                    // Không cần làm gì vì giá trị đã có sẵn từ transformedData
                 }
             });
 
-            console.log(`✅ [enrichMessAndResponseFromSalesReports] Đã cập nhật "Số Mess" và "Phản hồi" cho ${transformedData.length} records`);
+            console.log(`✅ [enrichMessAndResponseFromSalesReports] Đã cập nhật "Số Mess" và "Phản hồi" cho ${updatedCount} records (granular match)`);
         } catch (err) {
             console.error('❌ Error enriching with mess_count and response_count:', err);
         }
@@ -2070,7 +2202,7 @@ export default function BaoCaoSale() {
                 if (error) throw error;
 
                 // Transform data to match existing component logic
-                const transformedData = (data || []).map(item => ({
+                let transformedData = (data || []).map(item => ({
                     'Tên': item["Tên"],
                     'Chức vụ': item["Chức vụ"],
                     'Email': item["Email"],
@@ -2100,6 +2232,12 @@ export default function BaoCaoSale() {
                     'Doanh số hoàn hủy thực tế': item["Doanh số hoàn hủy thực tế"]
                     // Note: "Doanh số sau hoàn hủy thực tế" sẽ được tính toán từ orders table
                 }));
+
+                // [NEW] Fetch missing rows from Orders (for Sales who haven't reported yet)
+                const missingRows = await fetchMissingReportRowsFromOrders(transformedData, filters.startDate, filters.endDate);
+                if (missingRows.length > 0) {
+                    transformedData = [...transformedData, ...missingRows];
+                }
 
                 // Enrich Team from users BEFORE creating employee list to ensure permissions are correct
                 await enrichTeamFromUsers(transformedData);
@@ -2147,25 +2285,15 @@ export default function BaoCaoSale() {
                 // Fetch dữ liệu từ nhiều bảng - ƯU TIÊN "Số đơn TT" trước để đảm bảo tính đúng
                 // Sau đó chạy song song các operations khác
                 try {
+
                     // BƯỚC 1: Tính "Số đơn TT" TRƯỚC (quan trọng nhất, cần đảm bảo tính đúng)
-                    // console.log(`🔄 [BaoCaoSale] Bước 1: Tính "Số đơn TT" từ bảng orders...`);
-                    // await enrichWithTotalOrdersFromOrders(transformedData, filters.startDate, filters.endDate);
-                    // console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalOrdersFromOrders`);
+                    console.log(`🔄 [BaoCaoSale] Bước 1: Tính "Số đơn TT" từ bảng orders...`);
+                    await enrichWithTotalOrdersFromOrders(transformedData, filters.startDate, filters.endDate);
+                    console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalOrdersFromOrders`);
 
                     // Log để kiểm tra sau khi enrich
-                    // const recordsWithSoDonTT = transformedData.filter(r => r['Số đơn TT'] > 0);
-                    // console.log(`📊 [BaoCaoSale] Sau enrichWithTotalOrdersFromOrders: ${recordsWithSoDonTT.length}/${transformedData.length} records có Số đơn TT > 0`);
-                    // if (recordsWithSoDonTT.length > 0) {
-                    //     console.log(`📊 [BaoCaoSale] Sample records có Số đơn TT:`, recordsWithSoDonTT.slice(0, 5).map(r => ({
-                    //         ten: r['Tên'],
-                    //         ngay: r['Ngày'],
-                    //         sanPham: r['Sản phẩm'],
-                    //         thiTruong: r['Thị trường'],
-                    //         soDonTT: r['Số đơn TT']
-                    //     })));
-                    // } else {
-                    //     console.warn(`⚠️ [BaoCaoSale] KHÔNG CÓ records nào có Số đơn TT > 0!`);
-                    // }
+                    const recordsWithSoDonTT = transformedData.filter(r => r['Số đơn TT'] > 0);
+                    console.log(`📊 [BaoCaoSale] Sau enrichWithTotalOrdersFromOrders: ${recordsWithSoDonTT.length}/${transformedData.length} records có Số đơn TT > 0`);
 
                     // BƯỚC 2: Chạy SONG SONG các operations còn lại từ bảng orders và sales_reports
                     console.log(`🔄 [BaoCaoSale] Bước 2: Chạy song song các operations khác...`);
@@ -2174,15 +2302,10 @@ export default function BaoCaoSale() {
                             .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithCancelOrdersFromOrders`))
                             .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithCancelOrdersFromOrders:`, err)),
 
-                        // enrichWithTotalRevenueFromOrders(transformedData, filters.startDate, filters.endDate)
-                        //     .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalRevenueFromOrders`))
-                        //     .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithTotalRevenueFromOrders:`, err)),
+                        enrichWithTotalRevenueFromOrders(transformedData, filters.startDate, filters.endDate)
+                            .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithTotalRevenueFromOrders`))
+                            .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithTotalRevenueFromOrders:`, err)),
 
-                        // enrichWithRevenueAfterCancelFromOrders(transformedData, filters.startDate, filters.endDate)
-                        //     .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichWithRevenueAfterCancelFromOrders`))
-                        //     .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichWithRevenueAfterCancelFromOrders:`, err)),
-
-                        // Từ bảng sales_reports (độc lập với orders)
                         enrichMessAndResponseFromSalesReports(transformedData, filters.startDate, filters.endDate)
                             .then(() => console.log(`✅ [BaoCaoSale] Hoàn thành enrichMessAndResponseFromSalesReports`))
                             .catch(err => console.error(`❌ [BaoCaoSale] Lỗi trong enrichMessAndResponseFromSalesReports:`, err))
