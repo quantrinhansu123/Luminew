@@ -1,5 +1,82 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { DROPDOWN_OPTIONS } from '../types';
+
+// Helper function để format date thành dd/mm/yyyy
+const formatDateToDDMMYYYY = (dateValue) => {
+    if (!dateValue) return '';
+    
+    // Nếu là string dd/mm/yyyy, giữ nguyên
+    if (typeof dateValue === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(dateValue.trim())) {
+        return dateValue.trim();
+    }
+    
+    // Nếu là Date object hoặc string có thể parse
+    try {
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime())) {
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+    } catch (e) {
+        // Ignore
+    }
+    
+    // Nếu là format khác (yyyy-mm-dd), convert
+    if (typeof dateValue === 'string') {
+        const parts = dateValue.split(/[-\/]/);
+        if (parts.length === 3) {
+            // Nếu là yyyy-mm-dd hoặc yyyy/mm/dd
+            if (parts[0].length === 4) {
+                return `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+            // Nếu là dd-mm-yyyy hoặc dd/mm/yyyy
+            return `${parts[0]}/${parts[1]}/${parts[2]}`;
+        }
+    }
+    
+    return dateValue;
+};
+
+// Helper function để parse date từ nhiều format
+const parseDateValue = (value) => {
+    if (!value || value.trim() === '') return '';
+    
+    const trimmed = value.trim();
+    
+    // Nếu đã là dd/mm/yyyy, giữ nguyên
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+        return trimmed;
+    }
+    
+    // Thử parse các format khác
+    try {
+        // Format yyyy-mm-dd
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+            const parts = trimmed.split('-');
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        
+        // Format dd-mm-yyyy
+        if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
+            return trimmed.replace(/-/g, '/');
+        }
+        
+        // Thử parse như Date object
+        const date = new Date(trimmed);
+        if (!isNaN(date.getTime())) {
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+    } catch (e) {
+        // Ignore
+    }
+    
+    return trimmed;
+};
 
 // Các cột cho bảng Thêm nhanh - đồng bộ với bảng chính
 const COLUMNS = [
@@ -72,7 +149,10 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
     const handleMouseDown = (rowIdx, colIdx, e) => {
         if (e.button !== 0) return;
         const target = e.target;
-        if (target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
+        // Không prevent default nếu click vào input, select, hoặc các phần tử tương tác
+        if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'OPTION' || target.closest('input') || target.closest('select')) {
+            return;
+        }
         e.preventDefault();
         isSelecting.current = true;
         setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
@@ -80,7 +160,12 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
 
     const handleMouseEnter = (rowIdx, colIdx) => {
         if (isSelecting.current) {
-            setSelection(prev => prev ? { ...prev, endRow: rowIdx, endCol: colIdx } : null);
+            setSelection(prev => {
+                if (!prev) return null;
+                const newSelection = { ...prev, endRow: rowIdx, endCol: colIdx };
+                console.log('🖱️ [MouseEnter] Update selection:', newSelection);
+                return newSelection;
+            });
         }
     };
 
@@ -103,18 +188,109 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
         e.clipboardData.setData('text/plain', data);
     };
 
-    // Handle paste (Ctrl+V)
-    const handlePaste = (e) => {
+    // Handle paste (Ctrl+V) - xử lý paste từ container hoặc input
+    const handlePaste = useCallback((e, rowIdx = null, colIdx = null) => {
         e.preventDefault();
         e.stopPropagation();
 
         const clipboardData = e.clipboardData.getData('text');
-        if (!clipboardData) return;
+        if (!clipboardData || !clipboardData.trim()) return;
 
-        const pastedRows = clipboardData.trim().split(/\r\n|\n/).map(row => row.split('\t'));
-        const startRow = selection?.startRow ?? 0;
-        const startCol = selection?.startCol ?? 0;
+        // Parse dữ liệu paste
+        const pastedRows = clipboardData.trim().split(/\r\n|\n/).filter(row => row.trim()).map(row => row.split('\t'));
+        if (pastedRows.length === 0) return;
+        
+        // Lấy selection hiện tại từ closure (đã được capture trong useCallback)
+        const currentSelection = selection;
+        
+        // Debug: log selection hiện tại
+        console.log('🔍 [Paste] Current Selection:', currentSelection, 'rowIdx:', rowIdx, 'colIdx:', colIdx);
+        
+        // Xác định điểm bắt đầu paste và vùng đã chọn
+        let startRow, startCol, endRow, endCol;
+        
+        if (rowIdx !== null && colIdx !== null) {
+            // Paste từ input cụ thể - dùng vị trí input
+            startRow = rowIdx;
+            startCol = colIdx;
+            endRow = rowIdx + pastedRows.length - 1;
+            endCol = Math.min(colIdx + (pastedRows[0]?.length || 1) - 1, COLUMNS.length - 1);
+        } else if (currentSelection && currentSelection.startRow !== undefined && currentSelection.startCol !== undefined) {
+            // Paste từ container - dùng selection hiện tại
+            startRow = Math.min(currentSelection.startRow, currentSelection.endRow);
+            startCol = Math.min(currentSelection.startCol, currentSelection.endCol);
+            endRow = Math.max(currentSelection.startRow, currentSelection.endRow);
+            endCol = Math.max(currentSelection.startCol, currentSelection.endCol);
+            
+            // Tính số hàng và cột đã chọn
+            const selectedRowCount = endRow - startRow + 1;
+            const selectedColCount = endCol - startCol + 1;
+            const totalSelectedCells = selectedRowCount * selectedColCount;
+            
+            // Flatten dữ liệu paste thành mảng 1 chiều
+            const flatPastedData = [];
+            for (let i = 0; i < pastedRows.length; i++) {
+                for (let j = 0; j < (pastedRows[i]?.length || 0); j++) {
+                    flatPastedData.push(pastedRows[i][j] || '');
+                }
+            }
+            
+            // Số giá trị sẽ điền = min(số ô đã chọn, số giá trị paste)
+            const valuesToFill = Math.min(totalSelectedCells, flatPastedData.length);
+            
+            console.log('📋 Paste vào selection:', { 
+                startRow, startCol, endRow, endCol,
+                selectedRowCount, selectedColCount, totalSelectedCells,
+                pastedRows: pastedRows.length, 
+                pastedCols: pastedRows[0]?.length,
+                flatPastedData: flatPastedData.length,
+                valuesToFill
+            });
 
+            // Paste dữ liệu vào TẤT CẢ các ô đã chọn (theo thứ tự từ trái sang phải, trên xuống dưới)
+            setRows(prev => {
+                const newRows = prev.map(r => [...r]);
+                const neededRows = endRow + 1;
+                while (newRows.length < neededRows) {
+                    newRows.push(Array(COLUMNS.length).fill(""));
+                }
+
+                // Điền dữ liệu vào các ô đã chọn theo thứ tự
+                let dataIndex = 0;
+                for (let r = startRow; r <= endRow && dataIndex < valuesToFill; r++) {
+                    for (let c = startCol; c <= endCol && dataIndex < valuesToFill; c++) {
+                        if (c < COLUMNS.length) {
+                            const colName = COLUMNS[c];
+                            let value = flatPastedData[dataIndex] || '';
+                            
+                            // Xử lý format date cho các cột ngày
+                            if (colName === 'Ngày đóng hàng' || colName === 'Thời gian giao dự kiến') {
+                                value = parseDateValue(value);
+                            }
+                            
+                            newRows[r][c] = value;
+                            dataIndex++;
+                        }
+                    }
+                }
+                return newRows;
+            });
+            
+            // Giữ nguyên selection sau khi paste
+            const finalSelection = { startRow, startCol, endRow, endCol };
+            setSelection(finalSelection);
+            return;
+        } else {
+            // Fallback: paste vào ô đầu tiên
+            startRow = 0;
+            startCol = 0;
+            endRow = startRow + pastedRows.length - 1;
+            endCol = Math.min(startCol + (pastedRows[0]?.length || 1) - 1, COLUMNS.length - 1);
+        }
+
+        console.log('📋 Paste:', { startRow, startCol, pastedRows: pastedRows.length });
+
+        // Paste dữ liệu (không có selection)
         setRows(prev => {
             const newRows = prev.map(r => [...r]);
             const neededRows = startRow + pastedRows.length;
@@ -127,13 +303,24 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
                 for (let j = 0; j < pastedRows[i].length; j++) {
                     const targetCol = startCol + j;
                     if (targetCol < COLUMNS.length) {
-                        newRows[targetRow][targetCol] = pastedRows[i][j];
+                        const colName = COLUMNS[targetCol];
+                        let value = pastedRows[i][j] || '';
+                        
+                        // Xử lý format date cho các cột ngày
+                        if (colName === 'Ngày đóng hàng' || colName === 'Thời gian giao dự kiến') {
+                            value = parseDateValue(value);
+                        }
+                        
+                        newRows[targetRow][targetCol] = value;
                     }
                 }
             }
             return newRows;
         });
-    };
+        
+        // Cập nhật selection sau khi paste
+        setSelection({ startRow, startCol, endRow, endCol });
+    }, [selection]);
 
     // Handle keyboard
     const handleKeyDown = (e) => {
@@ -190,20 +377,21 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
         onClose();
     };
 
+
     const addMoreRows = () => {
         setRows(prev => [...prev, ...Array(5).fill(null).map(() => Array(COLUMNS.length).fill(""))]);
     };
 
     // Get cell class - giống bảng chính
     const getCellClass = (col, rIdx, cIdx) => {
-        let classes = "px-3 py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap ";
+        let classes = "px-3 py-2.5 border-r border-b border-gray-200 text-sm h-[42px] whitespace-nowrap transition-all duration-150 ";
 
-        // Editable cell style - giống bảng chính
-        classes += "bg-[#e8f5e9] border-l-4 border-l-[#66bb6a] hover:bg-gray-50 ";
+        // Editable cell style - chuyên nghiệp hơn
+        classes += "bg-white border-l-4 border-l-emerald-400 hover:bg-emerald-50/30 hover:border-l-emerald-500 ";
 
-        // Selection - giống bảng chính
+        // Selection - highlight đẹp hơn
         if (isSelected(rIdx, cIdx)) {
-            classes += "!bg-[#a7ffeb] outline outline-2 outline-[#00bfa5] -outline-offset-2 ";
+            classes += "!bg-blue-100 !border-l-blue-500 outline outline-2 outline-blue-400 -outline-offset-2 shadow-sm ";
         }
 
         return classes;
@@ -211,18 +399,79 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
 
     // Render cell content - giống bảng chính (dropdown/input trực tiếp)
     const renderCell = (col, rowIdx, colIdx, value) => {
-        // Dropdown columns
-        if (DROPDOWN_OPTIONS[col]) {
+        // Date columns - hiển thị và nhập dạng dd/mm/yyyy
+        if (col === 'Ngày đóng hàng' || col === 'Thời gian giao dự kiến') {
+            // Lưu giá trị thô để cho phép nhập tự do
+            const rawValue = value || '';
             return (
-                <select
-                    className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
-                    value={value}
-                    onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
-                    onFocus={() => setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx })}
-                >
-                    <option value="">-- Chọn --</option>
-                    {DROPDOWN_OPTIONS[col].map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
+                    <input
+                        type="text"
+                        value={rawValue}
+                        onChange={(e) => {
+                            const inputValue = e.target.value;
+                            // Cho phép nhập tự do
+                            handleCellChange(rowIdx, colIdx, inputValue);
+                        }}
+                        onPaste={(e) => {
+                            // Cho phép paste nhiều giá trị từ input
+                            handlePaste(e, rowIdx, colIdx);
+                        }}
+                        onBlur={(e) => {
+                            // Format lại khi blur nếu có giá trị
+                            if (e.target.value.trim()) {
+                                const formatted = parseDateValue(e.target.value);
+                                if (formatted !== e.target.value) {
+                                    handleCellChange(rowIdx, colIdx, formatted);
+                                }
+                            }
+                        }}
+                        onClick={(e) => {
+                            // Ngăn event bubble để không trigger selection
+                            e.stopPropagation();
+                        }}
+                        onMouseDown={(e) => {
+                            // Ngăn event bubble để không trigger selection khi click vào input
+                            e.stopPropagation();
+                        }}
+                        onFocus={(e) => {
+                            e.stopPropagation();
+                            setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
+                        }}
+                        className="w-full h-full outline-none bg-transparent border-none p-0 text-sm font-medium text-gray-700 placeholder:text-gray-400"
+                        placeholder="dd/mm/yyyy"
+                        maxLength={10}
+                    />
+            );
+        }
+
+        // Dropdown columns - cho phép paste nhiều giá trị
+        if (DROPDOWN_OPTIONS[col]) {
+            // Sử dụng input với datalist để cho phép paste và tự do nhập
+            const options = DROPDOWN_OPTIONS[col] || [];
+            const listId = `datalist-${colIdx}-${rowIdx}`;
+            
+            return (
+                <>
+                    <input
+                        type="text"
+                        list={listId}
+                        value={value}
+                        onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
+                        onPaste={(e) => handlePaste(e, rowIdx, colIdx)}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onFocus={(e) => {
+                            e.stopPropagation();
+                            setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
+                        }}
+                        className="w-full h-full outline-none bg-transparent border-none p-0 text-sm cursor-pointer"
+                        placeholder="Nhập hoặc chọn..."
+                    />
+                    <datalist id={listId}>
+                        <option value="">-- Chọn --</option>
+                        {options.map(o => <option key={o} value={o}>{o}</option>)}
+                    </datalist>
+                </>
             );
         }
 
@@ -232,48 +481,94 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
                 type="text"
                 value={value}
                 onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
-                onFocus={() => setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx })}
-                className="w-full h-full outline-none bg-transparent border-none p-0 text-sm"
+                onPaste={(e) => handlePaste(e, rowIdx, colIdx)}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onFocus={(e) => {
+                    e.stopPropagation();
+                    setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
+                }}
+                className="w-full h-full outline-none bg-transparent border-none p-0 text-sm font-medium text-gray-700 placeholder:text-gray-400"
                 placeholder={colIdx === 0 ? "Nhập mã đơn..." : ""}
             />
         );
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-[1060] flex justify-center items-center p-4" onClick={onClose}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1060] flex justify-center items-center p-4" onClick={onClose}>
             <div
-                className="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col"
+                className="bg-white rounded-xl shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col border border-gray-200 overflow-hidden"
                 onClick={e => e.stopPropagation()}
             >
-                <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-gray-50 rounded-t-lg">
-                    <div>
-                        <h4 className="text-lg font-bold text-gray-800">Thêm nhanh / Cập nhật hàng loạt</h4>
-                        <p className="text-sm text-gray-500 mt-1">
-                            Nhập trực tiếp hoặc <b>Ctrl+V</b> để paste từ Excel. <b>Ctrl+C</b> để copy vùng chọn.
-                        </p>
-                        <p className="text-xs text-blue-600 mt-1">
-                            💡 Kéo chuột để chọn nhiều ô. Mũi tên để di chuyển. Delete để xóa.
-                        </p>
+                {/* Header với gradient và icon */}
+                <div className="flex justify-between items-start p-5 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                    <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-md">
+                                <span className="text-white text-xl font-bold">⚡</span>
+                            </div>
+                            <div>
+                                <h4 className="text-xl font-bold text-gray-800">Thêm nhanh / Cập nhật hàng loạt</h4>
+                                <p className="text-xs text-gray-500 mt-0.5">Bulk data entry & update</p>
+                            </div>
+                        </div>
+                        <div className="mt-3 space-y-1.5">
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                                <span>Nhập trực tiếp hoặc <kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded text-xs font-mono">Ctrl+V</kbd> để paste từ Excel</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
+                                <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded text-xs font-mono">Ctrl+C</kbd> để copy vùng chọn</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-blue-600">
+                                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                                <span>💡 Kéo chuột để chọn nhiều ô • Mũi tên để di chuyển • Delete để xóa</span>
+                            </div>
+                        </div>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl font-bold px-2">&times;</button>
+                    <button 
+                        onClick={onClose} 
+                        className="ml-4 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all duration-200 text-xl font-light"
+                        aria-label="Đóng"
+                    >
+                        ×
+                    </button>
                 </div>
 
                 <div
-                    className="p-0 overflow-auto flex-1 relative bg-white min-h-[400px] select-none"
+                    className="p-0 overflow-auto flex-1 relative bg-gradient-to-br from-gray-50 to-white min-h-[400px] select-none"
                     ref={containerRef}
                     tabIndex={0}
-                    onPaste={handlePaste}
+                    data-quick-add-modal="true"
+                    onPaste={(e) => {
+                        // Paste vào container - không truyền rowIdx/colIdx để sử dụng selection
+                        console.log('📋 [Container] Paste event, selection:', selection);
+                        handlePaste(e);
+                    }}
                     onCopy={handleCopy}
                     onKeyDown={handleKeyDown}
+                    onClick={(e) => {
+                        // Đảm bảo container có focus khi click vào cell (không phải input)
+                        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+                            containerRef.current?.focus();
+                        }
+                    }}
+                    style={{ outline: 'none' }}
                 >
                     <table className="w-full border-collapse min-w-[1800px] text-sm">
-                        <thead className="sticky top-0 z-30">
-                            <tr className="bg-gray-100 h-12">
-                                <th className="p-1.5 border-b-2 border-r border-gray-300 min-w-[50px] bg-[#f8f9fa] font-semibold text-gray-700">#</th>
+                        <thead className="sticky top-0 z-30 shadow-sm">
+                            <tr className="bg-gradient-to-r from-gray-800 to-gray-700 h-12">
+                                <th className="p-3 border-b-2 border-r border-gray-600 min-w-[60px] font-bold text-white text-center">
+                                    <div className="flex items-center justify-center">
+                                        <span className="text-xs">#</span>
+                                    </div>
+                                </th>
                                 {COLUMNS.map((col, idx) => (
-                                    <th key={idx} className="p-1.5 border-b-2 border-r border-gray-300 min-w-[120px] bg-[#f8f9fa] text-left">
-                                        <div className="font-semibold text-gray-700">
-                                            {col} {idx === 0 && <span className="text-red-500">*</span>}
+                                    <th key={idx} className="p-3 border-b-2 border-r border-gray-600 min-w-[140px] text-left">
+                                        <div className="font-bold text-white flex items-center gap-1.5">
+                                            <span>{col}</span>
+                                            {idx === 0 && <span className="text-red-400 text-xs">*</span>}
                                         </div>
                                     </th>
                                 ))}
@@ -281,9 +576,13 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
                         </thead>
                         <tbody>
                             {rows.map((row, rIdx) => (
-                                <tr key={rIdx} className="hover:bg-[#E8EAF6] transition-colors">
-                                    <td className="px-2 py-2 border border-gray-200 text-center text-gray-400 text-xs bg-gray-50">
-                                        {rIdx + 1}
+                                <tr key={rIdx} className="hover:bg-blue-50/50 transition-colors border-b border-gray-100 group">
+                                    <td className="px-3 py-3 border-r border-gray-200 text-center text-gray-500 text-xs font-medium bg-gray-50/80 group-hover:bg-gray-100/80 transition-colors">
+                                        <div className="flex items-center justify-center">
+                                            <span className="w-6 h-6 flex items-center justify-center rounded bg-white border border-gray-200 group-hover:border-blue-300 group-hover:bg-blue-50 transition-colors">
+                                                {rIdx + 1}
+                                            </span>
+                                        </div>
                                     </td>
                                     {COLUMNS.map((col, cIdx) => (
                                         <td
@@ -301,25 +600,30 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
                     </table>
                 </div>
 
-                <div className="p-4 border-t border-gray-200 flex justify-between items-center bg-gray-50 rounded-b-lg">
+                <div className="p-5 border-t border-gray-200 flex justify-between items-center bg-gradient-to-r from-gray-50 to-white">
                     <button
                         onClick={addMoreRows}
-                        className="px-3 py-1 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition"
+                        className="px-4 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-all duration-200 flex items-center gap-2 border border-indigo-200 hover:border-indigo-300"
                     >
-                        + Thêm 5 hàng
+                        <span className="text-lg">+</span>
+                        <span>Thêm 5 hàng</span>
                     </button>
                     <div className="flex gap-3">
                         <button
                             onClick={() => setRows(Array(15).fill(null).map(() => Array(COLUMNS.length).fill("")))}
-                            className="px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-100 transition"
+                            className="px-5 py-2.5 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-100 hover:border-gray-400 transition-all duration-200 shadow-sm hover:shadow"
                         >
                             Xóa bảng
                         </button>
                         <button
                             onClick={handleSyncClick}
-                            className="px-6 py-2 bg-success text-white font-bold rounded hover:bg-successHover transition shadow-sm"
+                            className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg flex items-center gap-2"
                         >
-                            Đồng bộ ({rows.filter(r => r.length > 0 && r[0] && r[0].trim() !== "").length})
+                            <span>🔄</span>
+                            <span>Đồng bộ</span>
+                            <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
+                                {rows.filter(r => r.length > 0 && r[0] && r[0].trim() !== "").length}
+                            </span>
                         </button>
                     </div>
                 </div>

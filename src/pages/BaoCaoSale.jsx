@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
@@ -9,6 +9,7 @@ import { isDateInRange } from '../utils/dateParsing';
 import './BaoCaoSale.css';
 
 import { supabase } from '../services/supabaseClient';
+import MultiSelect from '../components/MultiSelect';
 
 const formatCurrency = (value) => Number(value || 0).toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
 const formatNumber = (value) => Number(value || 0).toLocaleString('vi-VN');
@@ -144,6 +145,9 @@ export default function BaoCaoSale() {
     const [showShiftFilter, setShowShiftFilter] = useState(true);
     const [showTeamFilter, setShowTeamFilter] = useState(true);
     const [showMarketFilter, setShowMarketFilter] = useState(true);
+    
+    // Collapse state for KPI filter panel
+    const [isKpiFilterExpanded, setIsKpiFilterExpanded] = useState(false);
 
     // --- Sync F3 Logic DISABLED ---
     // User requested to remove Firebase integration.
@@ -3418,11 +3422,11 @@ export default function BaoCaoSale() {
 
                 let query = supabase
                     .from('orders')
-                    .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, team')
+                    .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, team, tracking_code, reconciled_vnd, reconciled_amount')
                     .gte('order_date', normalizedStartDate)
                     .lte('order_date', normalizedEndDate);
 
-                // Apply filters
+                // Apply filters ở database level để tối ưu performance
                 if (kpiFilters.products.length > 0) {
                     const productConditions = kpiFilters.products.map(p => `product.ilike.%${p}%`).join(',');
                     query = query.or(productConditions);
@@ -3435,8 +3439,14 @@ export default function BaoCaoSale() {
                     const teamConditions = kpiFilters.team.map(t => `team.ilike.%${t}%`).join(',');
                     query = query.or(teamConditions);
                 }
+                
+                // Filter by ship = 0 ở database level nếu có thể
+                if (!kpiFilters.includeShipZero) {
+                    query = query.gt('shipping_fee', 0);
+                }
 
-                const { data: allOrders, error } = await query.limit(50000);
+                // Giảm limit để tối ưu performance
+                const { data: allOrders, error } = await query.limit(10000);
 
                 if (error) {
                     console.error('❌ Error fetching orders for KPI:', error);
@@ -3444,30 +3454,30 @@ export default function BaoCaoSale() {
                     return;
                 }
 
-                console.log(`📊 [KPI] Fetched ${allOrders?.length || 0} orders.`);
-
-                // Filter orders
+                // Filter orders by personnel (phải filter client-side vì cần normalize)
+                const normalizedPersonnel = kpiFilters.personnel.length > 0 
+                    ? kpiFilters.personnel.map(p => normalizeStr(p))
+                    : [];
+                
                 let filteredOrders = (allOrders || []).filter(order => {
                     // Filter by personnel
-                    if (kpiFilters.personnel.length > 0) {
-                        const orderName = normalizeStr(order.sale_staff);
-                        if (!kpiFilters.personnel.some(p => orderName.includes(normalizeStr(p)))) {
+                    if (normalizedPersonnel.length > 0) {
+                        const orderName = normalizeStr(order.sale_staff || '');
+                        if (!normalizedPersonnel.some(p => orderName.includes(p))) {
                             return false;
                         }
                     }
-
-                    // Filter by ship = 0
-                    if (!kpiFilters.includeShipZero && (Number(order.shipping_fee) || 0) === 0) {
-                        return false;
-                    }
-
                     return true;
                 });
 
-                // Group by personnel
+                // Group by personnel - Tối ưu performance
                 const kpiByPersonnel = {};
-                filteredOrders.forEach(order => {
+                
+                // Pre-calculate values để tránh tính toán lặp lại
+                for (let i = 0; i < filteredOrders.length; i++) {
+                    const order = filteredOrders[i];
                     const personnelName = order.sale_staff || 'Không xác định';
+                    
                     if (!kpiByPersonnel[personnelName]) {
                         kpiByPersonnel[personnelName] = {
                             name: personnelName,
@@ -3488,54 +3498,82 @@ export default function BaoCaoSale() {
                     }
 
                     const kpi = kpiByPersonnel[personnelName];
+                    
+                    // Tính toán một lần
                     const amount = Number(order.total_amount_vnd) || 0;
                     const shipFee = Number(order.shipping_fee) || 0;
-                    const checkResult = String(order.check_result || '').trim();
+                    const checkResult = (order.check_result || '').trim();
                     const isHuy = checkResult === 'Hủy' || checkResult === 'Huỷ';
-                    const isThanhCong = checkResult === 'Thành công' || checkResult === 'OK';
-                    const isDi = String(order.delivery_status || '').toLowerCase().includes('đi') ||
-                        String(order.delivery_status || '').toLowerCase().includes('di');
+                    
+                    // Số đơn và DS đi: Điều kiện là Mã Tracking ≠ Rỗng
+                    const trackingCode = (order.tracking_code || '').trim();
+                    const isDi = trackingCode !== '';
+                    
+                    // Tiền Việt đã đối soát: Ưu tiên reconciled_vnd, nếu không có thì dùng reconciled_amount
+                    const reconciledVnd = order.reconciled_vnd != null ? Number(order.reconciled_vnd) : null;
+                    const reconciledAmount = order.reconciled_amount != null ? Number(order.reconciled_amount) : null;
+                    const reconciledAmountFinal = (reconciledVnd != null && reconciledVnd > 0) ? reconciledVnd : 
+                                                  (reconciledAmount != null && reconciledAmount > 0) ? reconciledAmount : 0;
+                    const hasReconciledAmount = reconciledAmountFinal > 0;
+                    
+                    // Debug: Log một vài đơn đầu tiên để kiểm tra
+                    if (i < 5 && (reconciledVnd != null || reconciledAmount != null)) {
+                        console.log(`🔍 [KPI Debug Order ${i}]`, {
+                            order_code: order.order_code,
+                            reconciled_vnd: order.reconciled_vnd,
+                            reconciled_amount: order.reconciled_amount,
+                            reconciledVnd: reconciledVnd,
+                            reconciledAmount: reconciledAmount,
+                            reconciledAmountFinal: reconciledAmountFinal,
+                            hasReconciledAmount: hasReconciledAmount
+                        });
+                    }
 
-                    // Số đơn và DS chốt (tất cả đơn)
+                    // Tính toán tất cả metrics
                     kpi.soDonChot++;
                     kpi.dsChot += amount;
 
-                    // Số đơn và DS hủy
                     if (isHuy) {
                         kpi.soDonHuy++;
                         kpi.dsHuy += amount;
-                    }
-
-                    // Số đơn và DS sau hủy (tất cả trừ hủy)
-                    if (!isHuy) {
+                    } else {
                         kpi.soDonSauHuy++;
                         kpi.dsSauHuy += amount;
                     }
 
-                    // Số đơn và DS đi
                     if (isDi) {
                         kpi.soDonDi++;
                         kpi.dsDi += amount;
                     }
 
-                    // Số đơn và DThu thành công
-                    if (isThanhCong) {
+                    if (hasReconciledAmount) {
                         kpi.soDonTC++;
-                        kpi.dThuTC += amount;
+                        kpi.dThuTC += reconciledAmountFinal;
                     }
 
-                    // Ship
                     kpi.ship += shipFee;
-
-                    // DThu tính KPI (total_amount_vnd - shipping_fee)
                     kpi.dThuTinhKPI += (amount - shipFee);
-                });
+                }
 
                 // Convert to array and calculate tỷ lệ thu tiền
                 const kpiData = Object.values(kpiByPersonnel).map(kpi => {
                     const tyLeThuTien = kpi.dsChot > 0 ? kpi.dThuTinhKPI / kpi.dsChot : 0;
                     return { ...kpi, tyLeThuTien };
                 }).sort((a, b) => a.team.localeCompare(b.team) || b.dsChot - a.dsChot || a.name.localeCompare(b.name));
+                
+                // Debug: Log tổng hợp
+                console.log(`📊 [KPI Summary] Total orders processed: ${filteredOrders.length}`);
+                console.log(`📊 [KPI Summary] Personnel count: ${kpiData.length}`);
+                const totalSoDonTC = kpiData.reduce((sum, k) => sum + (k.soDonTC || 0), 0);
+                const totalDThuTC = kpiData.reduce((sum, k) => sum + (k.dThuTC || 0), 0);
+                console.log(`📊 [KPI Summary] Total soDonTC: ${totalSoDonTC}, Total dThuTC: ${totalDThuTC}`);
+                if (kpiData.length > 0) {
+                    console.log(`📊 [KPI Sample] First personnel:`, {
+                        name: kpiData[0].name,
+                        soDonTC: kpiData[0].soDonTC,
+                        dThuTC: kpiData[0].dThuTC
+                    });
+                }
 
                 // Calculate total
                 const kpiTotal = kpiData.reduce((acc, item) => {
@@ -3753,7 +3791,7 @@ export default function BaoCaoSale() {
                 // Fetch orders với tất cả các trường cần thiết
                 let query = supabase
                     .from('orders')
-                    .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, payment_status, payment_status_detail, tracking_code, team')
+                    .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, payment_status, payment_status_detail, tracking_code, team, reconciled_vnd, reconciled_amount')
                     .gte('order_date', normalizedStartDate)
                     .lte('order_date', normalizedEndDate);
 
@@ -4125,25 +4163,6 @@ export default function BaoCaoSale() {
                             {/* <button className="btn-excel">
                                 <FileSpreadsheet size={16} /> Xuất Excel
                             </button> */}
-                            {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
-                            {isAdminOnly && (
-                                <button
-                                    onClick={handleDeleteAll}
-                                    disabled={deleting}
-                                    className="btn-delete-all"
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '5px',
-                                        background: '#dc2626', color: 'white', border: 'none',
-                                        padding: '8px 12px', borderRadius: '4px', cursor: 'pointer',
-                                        opacity: deleting ? 0.7 : 1,
-                                        fontWeight: '500',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                    }}
-                                >
-                                    <Trash2 size={16} />
-                                    {deleting ? "Đang xóa..." : "Xóa hết dữ liệu"}
-                                </button>
-                            )}
                         </div>
                     </div>
 
@@ -4339,152 +4358,223 @@ export default function BaoCaoSale() {
                     <div className={`tab-content ${activeTab === 'bao-cao-kpis' ? 'active' : ''}`}>
                         {kpiLoading && <div className="loading-overlay">Đang tải dữ liệu KPIs...</div>}
 
-                        {/* KPI Filters */}
-                        <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
-                            <h3 style={{ marginBottom: '15px', color: '#2d5016' }}>Chỉ số vận đơn của MKT</h3>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '15px' }}>
-                                <div>
-                                    <label>Bộ lọc nhanh:</label>
-                                    <select style={{ width: '100%', padding: '5px' }}>
-                                        <option>Tất cả</option>
-                                    </select>
+                        {/* KPI Filters - Collapsible */}
+                        <div style={{ 
+                            marginBottom: '20px', 
+                            backgroundColor: '#f5f5f5', 
+                            borderRadius: '8px',
+                            border: '1px solid #e0e0e0',
+                            overflow: 'hidden',
+                            transition: 'all 0.3s ease'
+                        }}>
+                            {/* Header - Clickable */}
+                            <div 
+                                onClick={() => setIsKpiFilterExpanded(!isKpiFilterExpanded)}
+                                style={{ 
+                                    padding: '12px 15px',
+                                    backgroundColor: '#2d5016',
+                                    color: 'white',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    userSelect: 'none'
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <Filter size={18} />
+                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Chỉ số vận đơn của MKT</h3>
                                 </div>
-                                <div>
-                                    <label>Từ ngày:</label>
-                                    <input
-                                        type="date"
-                                        value={filters.startDate}
-                                        onChange={e => handleDateFilterChange('startDate', e.target.value)}
-                                        style={{ width: '100%', padding: '5px' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label>Đến ngày:</label>
-                                    <input
-                                        type="date"
-                                        value={filters.endDate}
-                                        onChange={e => handleDateFilterChange('endDate', e.target.value)}
-                                        style={{ width: '100%', padding: '5px' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label>Team:</label>
-                                    <select
-                                        style={{ width: '100%', padding: '5px' }}
-                                        multiple
-                                        value={kpiFilters.teams}
-                                        onChange={e => {
-                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
-                                            setKpiFilters({ ...kpiFilters, teams: selected });
-                                        }}
-                                    >
-                                        <option value="">Tất cả</option>
-                                        {options.teams.map(team => (
-                                            <option key={team} value={team}>{team}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label>Tìm tên:</label>
-                                    <select
-                                        style={{ width: '100%', padding: '5px' }}
-                                        multiple
-                                        value={kpiFilters.personnel}
-                                        onChange={e => {
-                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
-                                            setKpiFilters({ ...kpiFilters, personnel: selected });
-                                        }}
-                                    >
-                                        <option value="">Tất cả</option>
-                                        {summaryList.map(item => (
-                                            <option key={item.name} value={item.name}>{item.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label>Sản phẩm:</label>
-                                    <select
-                                        style={{ width: '100%', padding: '5px' }}
-                                        multiple
-                                        value={kpiFilters.products}
-                                        onChange={e => {
-                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
-                                            setKpiFilters({ ...kpiFilters, products: selected });
-                                        }}
-                                    >
-                                        <option value="">Tất cả</option>
-                                        {options.products.map(product => (
-                                            <option key={product} value={product}>{product}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label>Thị trường:</label>
-                                    <select
-                                        style={{ width: '100%', padding: '5px' }}
-                                        multiple
-                                        value={kpiFilters.markets}
-                                        onChange={e => {
-                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
-                                            setKpiFilters({ ...kpiFilters, markets: selected });
-                                        }}
-                                    >
-                                        <option value="">Tất cả</option>
-                                        {options.markets.map(market => (
-                                            <option key={market} value={market}>{market}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label>Chi nhánh:</label>
-                                    <select
-                                        style={{ width: '100%', padding: '5px' }}
-                                        multiple
-                                        value={kpiFilters.branches}
-                                        onChange={e => {
-                                            const selected = Array.from(e.target.selectedOptions, option => option.value);
-                                            setKpiFilters({ ...kpiFilters, branches: selected });
-                                        }}
-                                    >
-                                        <option value="">Tất cả</option>
-                                    </select>
-                                </div>
+                                {isKpiFilterExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                             </div>
 
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={kpiFilters.includeShipZero}
-                                        onChange={e => setKpiFilters({ ...kpiFilters, includeShipZero: e.target.checked })}
-                                    />
-                                    Bao gồm đơn ship = 0
-                                </label>
-                                <button
-                                    onClick={() => {
-                                        setKpiFilters({
-                                            team: [],
-                                            personnel: [],
-                                            products: [],
-                                            markets: [],
-                                            branches: [],
-                                            includeShipZero: false
-                                        });
-                                    }}
-                                    style={{ padding: '8px 15px', backgroundColor: '#2d5016', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                                >
-                                    Hiện tất cả
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        // Trigger recalculation
-                                        setKpiFilters({ ...kpiFilters });
-                                    }}
-                                    style={{ padding: '8px 15px', backgroundColor: '#2d5016', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                                >
-                                    Làm mới
-                                </button>
+                            {/* Collapsible Content */}
+                            <div 
+                                style={{ 
+                                    maxHeight: isKpiFilterExpanded ? '2000px' : '0',
+                                    overflow: 'hidden',
+                                    transition: 'max-height 0.3s ease-out',
+                                    padding: isKpiFilterExpanded ? '15px' : '0 15px'
+                                }}
+                            >
+                                {/* Quick Filters Row */}
+                                <div style={{ 
+                                    display: 'grid', 
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', 
+                                    gap: '10px', 
+                                    marginBottom: '15px' 
+                                }}>
+                                    <div>
+                                        <label style={{ fontSize: '12px', fontWeight: '500', display: 'block', marginBottom: '4px' }}>Bộ lọc nhanh:</label>
+                                        <select style={{ width: '100%', padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }}>
+                                            <option>Tất cả</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', fontWeight: '500', display: 'block', marginBottom: '4px' }}>Từ ngày:</label>
+                                        <input
+                                            type="date"
+                                            value={filters.startDate}
+                                            onChange={e => handleDateFilterChange('startDate', e.target.value)}
+                                            style={{ width: '100%', padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', fontWeight: '500', display: 'block', marginBottom: '4px' }}>Đến ngày:</label>
+                                        <input
+                                            type="date"
+                                            value={filters.endDate}
+                                            onChange={e => handleDateFilterChange('endDate', e.target.value)}
+                                            style={{ width: '100%', padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Main Filters Row */}
+                                <div style={{ 
+                                    display: 'grid', 
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', 
+                                    gap: '10px', 
+                                    marginBottom: '15px' 
+                                }}>
+                                    <div>
+                                        <label style={{ fontSize: '12px', fontWeight: '500', display: 'block', marginBottom: '4px' }}>Team:</label>
+                                        <div style={{ position: 'relative', zIndex: 1002 }}>
+                                            <MultiSelect
+                                                label="Chọn Team..."
+                                                options={(options.teams || []).filter(t => t && t.trim() !== '')}
+                                                selected={kpiFilters.team || []}
+                                                onChange={(vals) => {
+                                                    setKpiFilters({ ...kpiFilters, team: vals });
+                                                }}
+                                                placeholder="Chọn Team..."
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', fontWeight: '500', display: 'block', marginBottom: '4px' }}>Tìm tên:</label>
+                                        <div style={{ position: 'relative', zIndex: 1002 }}>
+                                            <MultiSelect
+                                                label="Chọn tên..."
+                                                options={(summaryList || []).map(item => item.name).filter(name => name && name.trim() !== '')}
+                                                selected={kpiFilters.personnel || []}
+                                                onChange={(vals) => {
+                                                    setKpiFilters({ ...kpiFilters, personnel: vals });
+                                                }}
+                                                placeholder="Chọn tên..."
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', fontWeight: '500', display: 'block', marginBottom: '4px' }}>Sản phẩm:</label>
+                                        <div style={{ position: 'relative', zIndex: 1002 }}>
+                                            <MultiSelect
+                                                label="Chọn sản phẩm..."
+                                                options={(options.products || []).filter(p => p && p.trim() !== '')}
+                                                selected={kpiFilters.products || []}
+                                                onChange={(vals) => {
+                                                    setKpiFilters({ ...kpiFilters, products: vals });
+                                                }}
+                                                placeholder="Chọn sản phẩm..."
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', fontWeight: '500', display: 'block', marginBottom: '4px' }}>Thị trường:</label>
+                                        <div style={{ position: 'relative', zIndex: 1002 }}>
+                                            <MultiSelect
+                                                label="Chọn thị trường..."
+                                                options={(options.markets || []).filter(m => m && m.trim() !== '')}
+                                                selected={kpiFilters.markets || []}
+                                                onChange={(vals) => {
+                                                    setKpiFilters({ ...kpiFilters, markets: vals });
+                                                }}
+                                                placeholder="Chọn thị trường..."
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', fontWeight: '500', display: 'block', marginBottom: '4px' }}>Chi nhánh:</label>
+                                        <div style={{ position: 'relative', zIndex: 1002 }}>
+                                            <MultiSelect
+                                                label="Chọn chi nhánh..."
+                                                options={[]}
+                                                selected={kpiFilters.branches || []}
+                                                onChange={(vals) => {
+                                                    setKpiFilters({ ...kpiFilters, branches: vals });
+                                                }}
+                                                placeholder="Chọn chi nhánh..."
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div style={{ 
+                                    display: 'flex', 
+                                    gap: '10px', 
+                                    alignItems: 'center', 
+                                    marginBottom: '15px',
+                                    flexWrap: 'wrap'
+                                }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={kpiFilters.includeShipZero}
+                                            onChange={e => setKpiFilters({ ...kpiFilters, includeShipZero: e.target.checked })}
+                                            style={{ cursor: 'pointer' }}
+                                        />
+                                        Bao gồm đơn ship = 0
+                                    </label>
+                                    <button
+                                        onClick={() => {
+                                            setKpiFilters({
+                                                team: [],
+                                                personnel: [],
+                                                products: [],
+                                                markets: [],
+                                                branches: [],
+                                                includeShipZero: false
+                                            });
+                                        }}
+                                        style={{ 
+                                            padding: '6px 12px', 
+                                            backgroundColor: '#2d5016', 
+                                            color: 'white', 
+                                            border: 'none', 
+                                            borderRadius: '4px', 
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500',
+                                            transition: 'background-color 0.2s'
+                                        }}
+                                        onMouseOver={(e) => e.target.style.backgroundColor = '#1f3a0f'}
+                                        onMouseOut={(e) => e.target.style.backgroundColor = '#2d5016'}
+                                    >
+                                        Hiện tất cả
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            // Trigger recalculation
+                                            setKpiFilters({ ...kpiFilters });
+                                        }}
+                                        style={{ 
+                                            padding: '6px 12px', 
+                                            backgroundColor: '#2d5016', 
+                                            color: 'white', 
+                                            border: 'none', 
+                                            borderRadius: '4px', 
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500',
+                                            transition: 'background-color 0.2s'
+                                        }}
+                                        onMouseOver={(e) => e.target.style.backgroundColor = '#1f3a0f'}
+                                        onMouseOut={(e) => e.target.style.backgroundColor = '#2d5016'}
+                                    >
+                                        Làm mới
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Column Visibility Options */}

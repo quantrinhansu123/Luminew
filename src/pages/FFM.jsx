@@ -602,6 +602,108 @@ function FFM() {
     addToast(`Đã đồng bộ ${updatedCount} trường dữ liệu.`, 'success');
   };
 
+  const handleQuickSyncAndSave = async (rows) => {
+    const newPending = new Map(pendingChanges);
+    const COL_KEYS = [
+      'Mã đơn hàng',
+      'Mã Tracking',
+      'Ngày đóng hàng',
+      'Trạng thái giao hàng',
+      'GHI CHÚ',
+      'Thời gian giao dự kiến',
+      'Phí ship nội địa Mỹ (usd)',
+      'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+      'Kết quả Check',
+      'Ghi chú',
+      'Đơn vị vận chuyển'
+    ];
+    let updatedCount = 0;
+    let notFoundCount = 0;
+    const rowsToUpdate = [];
+
+    rows.forEach((row) => {
+      const orderId = row[0]?.trim();
+      if (!orderId) return;
+      const originalRow = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+      if (!originalRow) {
+        notFoundCount++;
+        return;
+      }
+      
+      const rowObj = { [PRIMARY_KEY_COLUMN]: orderId };
+      let hasChanges = false;
+
+      COL_KEYS.forEach((colName, idx) => {
+        if (idx === 0) return;
+        const val = row[idx];
+        if (val !== undefined && val !== '') {
+          const dataKey = COLUMN_MAPPING[colName] || colName;
+          const originalVal = originalRow[dataKey] ?? '';
+          if (String(originalVal) !== String(val)) {
+            rowObj[dataKey] = String(val);
+            hasChanges = true;
+            updatedCount++;
+          }
+        }
+      });
+
+      if (hasChanges) {
+        rowsToUpdate.push(rowObj);
+      }
+    });
+
+    if (rowsToUpdate.length === 0) {
+      if (notFoundCount > 0) {
+        addToast(`Không tìm thấy ${notFoundCount} mã đơn hàng.`, 'error');
+      } else {
+        addToast('Không có thay đổi cần lưu.', 'info');
+      }
+      return;
+    }
+
+    try {
+      const toastId = addToast(`Đang lưu ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
+      const res = await API.updateBatch(rowsToUpdate);
+      if (res.success) {
+        setAllData((prev) => {
+          let next = [...prev];
+          rowsToUpdate.forEach((updatedRow) => {
+            const idx = next.findIndex((r) => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
+            if (idx > -1) next[idx] = { ...next[idx], ...updatedRow };
+          });
+          return next;
+        });
+        
+        // Xóa các pending changes đã được lưu
+        setPendingChanges((prev) => {
+          const next = new Map(prev);
+          rowsToUpdate.forEach((r) => {
+            const oid = r[PRIMARY_KEY_COLUMN];
+            if (next.has(oid)) {
+              Object.keys(r).forEach((k) => {
+                if (k !== PRIMARY_KEY_COLUMN) next.get(oid).delete(k);
+              });
+              if (next.get(oid).size === 0) next.delete(oid);
+            }
+          });
+          savePendingToLocalStorage(next, legacyChanges);
+          return next;
+        });
+
+        removeToast(toastId);
+        if (notFoundCount > 0) {
+          addToast(`Đã lưu ${rowsToUpdate.length} đơn hàng. Không tìm thấy ${notFoundCount} mã đơn hàng.`, 'success');
+        } else {
+          addToast(`Đã lưu ${res.summary?.updated || rowsToUpdate.length} đơn hàng thành công!`, 'success');
+        }
+        return true; // Success
+      }
+    } catch (e) {
+      addToast(e.message, 'error');
+      return false; // Error
+    }
+  };
+
   const effectiveRowsPerPage = rowsPerPage;
 
   const paginatedData = useMemo(() => {
@@ -1088,40 +1190,11 @@ function FFM() {
               <option value="Ngày có mã tracking">Ngày có mã tracking</option>
             </select>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-500">Từ ngày</label>
-            <input type="date" className="px-2 py-1.5 border rounded text-sm" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-500">Tới ngày</label>
-            <input type="date" className="px-2 py-1.5 border rounded text-sm" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-          </div>
           <button onClick={refreshData} className="bg-danger text-white px-3 py-1.5 rounded text-sm hover:bg-dangerHover transition shadow-sm mb-0.5">
             🗑️ Xóa lọc
           </button>
         </div>
 
-        <div className="bg-white p-2 rounded shadow-sm flex flex-wrap gap-2">
-          <button
-            className={`px-3 py-1.5 text-sm rounded border transition ${omActiveTeam === 'all'
-              ? 'bg-primary text-white border-primaryHover font-bold'
-              : 'bg-gray-100 hover:bg-gray-200 border-gray-300'
-              }`}
-            onClick={() => setOmActiveTeam('all')}
-          >
-            Tất cả
-          </button>
-          {teams.map((t) => (
-            <button
-              key={t}
-              className={`px-3 py-1.5 text-sm rounded border transition ${omActiveTeam === t ? 'bg-primary text-white border-primaryHover font-bold' : 'bg-gray-100 hover:bg-gray-200 border-gray-300'
-                }`}
-              onClick={() => setOmActiveTeam(t)}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
       </div>
 
 
@@ -1444,7 +1517,11 @@ function FFM() {
       </Suspense>
 
       <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div></div>}>
-        <QuickAddModal isOpen={quickAddModalOpen} onClose={() => setQuickAddModalOpen(false)} onSync={handleQuickSync} />
+        <QuickAddModal 
+          isOpen={quickAddModalOpen} 
+          onClose={() => setQuickAddModalOpen(false)} 
+          onSync={handleQuickSync}
+        />
       </Suspense>
     </div>
   );

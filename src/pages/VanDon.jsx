@@ -32,7 +32,8 @@ const BULK_THRESHOLD = 1;
 
 function VanDon() {
   const { canView, role } = usePermissions();
-  const isAdmin = ['admin', 'super_admin'].includes((role || '').toLowerCase());
+  const roleLower = (role || '').toLowerCase();
+  const isAdmin = ['admin', 'super_admin', 'director', 'manager'].includes(roleLower);
 
 
 
@@ -249,7 +250,8 @@ function VanDon() {
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
-      const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
+      // Admin luôn được coi là Manager để có full quyền
+      const isManager = isAdmin || ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
 
       let allAllowedNames = [];
 
@@ -528,6 +530,13 @@ function VanDon() {
   useEffect(() => {
     const loadCanDayFFMPermission = async () => {
       try {
+        // Admin luôn có quyền xem tab Hà Nội
+        if (isAdmin) {
+          console.log('🔐 [VanDon] Admin - luôn có quyền xem Đẩy đơn Hà Nội');
+          setCanViewHaNoi(true);
+          return;
+        }
+
         const userEmail = localStorage.getItem('userEmail') || '';
         const userId = localStorage.getItem('userId') || '';
 
@@ -564,7 +573,7 @@ function VanDon() {
     };
 
     loadCanDayFFMPermission();
-  }, []);
+  }, [isAdmin]);
 
   // Tự động chuyển về 'all' nếu user đang ở tab hanoi nhưng không có quyền
   useEffect(() => {
@@ -1654,9 +1663,9 @@ function VanDon() {
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
                 { id: 'hanoi', label: 'Đẩy đơn Hà Nội', icon: '🏛️' }
               ].filter(tab => {
-                // Chỉ hiển thị tab "Đẩy đơn Hà Nội" nếu user có quyền
+                // Admin luôn thấy tất cả tabs, user thường chỉ thấy tab "Đẩy đơn Hà Nội" nếu có quyền
                 if (tab.id === 'hanoi') {
-                  return canViewHaNoi;
+                  return isAdmin || canViewHaNoi;
                 }
                 return true;
               }).map(tab => (
