@@ -4,11 +4,11 @@ export const TEAM_COLUMN_NAME = "Team";
 
 // --- VIEW 1: ORDER MANAGEMENT COLUMNS (Original) ---
 export const ORDER_MGMT_COLUMNS = [
-    "STT", "Mã đơn hàng", "Ngày lên đơn", "Name*", "Phone*", "Add", "City", "State",
+    "STT", "Mã đơn hàng", "Mã Tracking", "Ngày lên đơn", "Name*", "Phone*", "Add", "City", "State",
     "Khu vực", "Zipcode", "Mặt hàng", "Tên mặt hàng 1", "Số lượng mặt hàng 1",
     "Tên mặt hàng 2", "Số lượng mặt hàng 2", "Quà tặng", "Số lượng quà kèm", "Giá bán",
     "Loại tiền thanh toán", "Tổng tiền VNĐ", "Hình thức thanh toán", "Ghi chú",
-    "Ghi chú vận đơn", "Kết quả Check", "Mã Tracking", "Ngày đóng hàng",
+    "Ghi chú vận đơn", "Kết quả Check", "Ngày đóng hàng",
     "Trạng thái giao hàng", "GHI CHÚ", "Thời gian giao dự kiến",
     "Ngày Kế toán đối soát với FFM lần 2", "Ngày đẩy đơn", "Ngày có mã tracking",
     "Phí ship nội địa Mỹ (usd)", "Phí xử lý đơn đóng hàng-Lưu kho(usd)"

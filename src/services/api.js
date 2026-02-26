@@ -247,16 +247,14 @@ export const fetchFFMOrders = async () => {
             throw error;
         }
 
-        // Filter ở client-side: Mã Tracking trống VÀ Kết quả Check="OK"
+        // Filter ở client-side: Chỉ filter Kết quả Check="OK" (không filter tracking_code để có thể xem cả đơn có mã và không có mã)
         const filteredData = data.filter(row => {
-            const trackingCode = String(row.tracking_code || '').trim();
             const checkResult = String(row.check_result || '').trim();
-            const isTrackingEmpty = !trackingCode || trackingCode === '';
             const isCheckOK = checkResult.toUpperCase() === 'OK';
-            return isTrackingEmpty && isCheckOK;
+            return isCheckOK;
         });
 
-        console.log(`Loaded ${filteredData.length}/${data.length} FFM orders from Supabase (filtered: MGT, empty tracking, Check=OK)`);
+        console.log(`Loaded ${filteredData.length}/${data.length} FFM orders from Supabase (filtered: MGT, Check=OK, tracking code không filter)`);
 
         // Map to App Format
         return filteredData.map(mapSupabaseOrderToApp);

@@ -16,6 +16,7 @@ import { rafThrottle } from '../utils/throttle';
 
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
 const QuickAddModal = lazy(() => import('../components/QuickAddModal'));
+const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal'));
 
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
@@ -34,6 +35,25 @@ function FFM() {
   const [pendingChanges, setPendingChanges] = useState(new Map());
   const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
   const [quickAddModalOpen, setQuickAddModalOpen] = useState(false);
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+
+  // Column visibility state
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    const saved = localStorage.getItem('ffm_visibleColumns');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Error parsing saved columns:', e);
+      }
+    }
+    // Initialize with default columns
+    const initial = {};
+    ORDER_MGMT_COLUMNS.forEach(col => {
+      initial[col] = true;
+    });
+    return initial;
+  });
 
   const [filterValues, setFilterValues] = useState({
     market: [],
@@ -56,8 +76,8 @@ function FFM() {
 
   const [omActiveTeam, setOmActiveTeam] = useState('all');
   const [omDateType, setOmDateType] = useState('Ngày đóng hàng');
-  const [omShowTracking, setOmShowTracking] = useState(false);
-  const [omShowDuplicateTracking, setOmShowDuplicateTracking] = useState(false);
+  const [trackingFilter, setTrackingFilter] = useState('all'); // 'all' | 'with_tracking' | 'without_tracking'
+  const [showFilters, setShowFilters] = useState(true); // Collapse/expand filters
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -170,14 +190,42 @@ function FFM() {
   const formatDate = (dateString) => {
     if (!dateString) return '';
     try {
-      const date = new Date(dateString.includes('Z') ? dateString : dateString + 'Z');
-      if (isNaN(date.getTime())) return dateString;
+      let date;
+      const str = String(dateString).trim();
+      
+      // Xử lý định dạng dd/mm/yyyy hoặc d/m/yyyy
+      if (str.includes('/')) {
+        const parts = str.split('/');
+        if (parts.length === 3) {
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(parts[2], 10);
+          date = new Date(year, month, day);
+        } else {
+          date = new Date(str);
+        }
+      }
+      // Xử lý định dạng yyyy-mm-dd
+      else if (str.includes('-')) {
+        date = new Date(str);
+      }
+      // Xử lý ISO string hoặc các định dạng khác
+      else {
+        date = new Date(str.includes('Z') ? str : str + 'Z');
+      }
+      
+      if (isNaN(date.getTime())) {
+        // Thử parse lại với các định dạng khác
+        date = new Date(str);
+        if (isNaN(date.getTime())) return str; // Trả về nguyên bản nếu không parse được
+      }
+      
       const day = String(date.getDate()).padStart(2, '0');
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const year = date.getFullYear();
       return `${day}/${month}/${year}`;
     } catch (e) {
-      return dateString;
+      return String(dateString);
     }
   };
 
@@ -185,6 +233,18 @@ function FFM() {
     setLoading(true);
     try {
       const data = await API.fetchFFMOrders?.() || await API.fetchOrders();
+      // Debug: Kiểm tra dữ liệu tracking_code
+      if (data.length > 0) {
+        const sample = data[0];
+        console.log('🔍 [FFM] Sample data keys:', Object.keys(sample));
+        console.log('🔍 [FFM] Sample tracking_code:', sample.tracking_code);
+        console.log('🔍 [FFM] Sample Mã Tracking:', sample['Mã Tracking']);
+        const withTracking = data.filter(row => {
+          const tc = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
+          return tc !== '' && tc !== 'null' && tc !== 'undefined';
+        });
+        console.log(`📊 [FFM] Tổng ${data.length} đơn, trong đó ${withTracking.length} đơn có tracking code`);
+      }
       setAllData(data);
 
       if (data.length === 2 && data[0][PRIMARY_KEY_COLUMN] === 'DEMO001') {
@@ -216,7 +276,17 @@ function FFM() {
     await loadData();
   };
 
-  const currentColumns = ORDER_MGMT_COLUMNS;
+  // Filter columns based on visibility
+  const currentColumns = useMemo(() => {
+    return ORDER_MGMT_COLUMNS.filter(col => visibleColumns[col] === true);
+  }, [visibleColumns]);
+
+  // Save column visibility to localStorage
+  useEffect(() => {
+    if (Object.keys(visibleColumns).length > 0) {
+      localStorage.setItem('ffm_visibleColumns', JSON.stringify(visibleColumns));
+    }
+  }, [visibleColumns]);
 
   const getFilteredData = useMemo(() => {
     let data = [...allData];
@@ -225,7 +295,7 @@ function FFM() {
       const orderId = row[PRIMARY_KEY_COLUMN];
       let rowCopy = { ...row };
 
-      rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(row['Ngày Kế toán đối soát với FFM lần 2']);
+      rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(row['time_dayon'] || row.time_dayon || row['Ngày Kế toán đối soát với FFM lần 2']);
       rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(row['Ngày Kế toán đối soát với FFM lần 1']);
 
       const legacy = legacyChanges.get(orderId);
@@ -245,8 +315,8 @@ function FFM() {
 
     // ORDER_MANAGEMENT filtering
     {
-      // FFM đẩy vận hành: Đã filter ở API level (MGT, Mã Tracking trống, Kết quả Check="OK")
-      // Không cần filter lại vì đã filter ở API
+      // FFM đẩy vận hành: Đã filter ở API level (MGT, Kết quả Check="OK")
+      // Tracking code được filter ở client-side theo tab đã chọn
 
       if (omActiveTeam === 'mgt_noi_bo') {
         const orderedIds = new Set(mgtNoiBoOrder);
@@ -274,7 +344,11 @@ function FFM() {
       const d = new Date(dateFrom);
       d.setHours(0, 0, 0, 0);
       data = data.filter((row) => {
-        const val = row[activeDateType];
+        let val = row[activeDateType];
+        // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
+        if (activeDateType === 'Ngày đẩy đơn') {
+          val = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
+        }
         if (!val) return false;
         return new Date(val).getTime() >= d.getTime();
       });
@@ -283,7 +357,11 @@ function FFM() {
       const d = new Date(dateTo);
       d.setHours(23, 59, 59, 999);
       data = data.filter((row) => {
-        const val = row[activeDateType];
+        let val = row[activeDateType];
+        // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
+        if (activeDateType === 'Ngày đẩy đơn') {
+          val = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
+        }
         if (!val) return false;
         return new Date(val).getTime() <= d.getTime();
       });
@@ -309,6 +387,10 @@ function FFM() {
 
         if (['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key)) {
           if (!cellValue) return false;
+          // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
+          if (key === 'Ngày đẩy đơn') {
+            cellValue = row['time_dayon'] || row.time_dayon || cellValue;
+          }
           const dVal = new Date(cellValue);
           dVal.setHours(0, 0, 0, 0);
           const fVal = new Date(val);
@@ -324,7 +406,8 @@ function FFM() {
       const inc = filterValues.tracking_include.toLowerCase();
       const exc = filterValues.tracking_exclude.toLowerCase();
       data = data.filter((row) => {
-        const code = String(row['Mã Tracking'] || '').trim().toLowerCase();
+        // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
+        const code = String(row['tracking_code'] || row['Mã Tracking'] || '').trim().toLowerCase();
         if (exc && code.includes(exc)) return false;
         if (inc) {
           if (inc.includes('\n')) {
@@ -338,8 +421,29 @@ function FFM() {
       });
     }
 
+    // Filter by tracking code status
+    if (trackingFilter === 'with_tracking') {
+      data = data.filter((row) => {
+        // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
+        const trackingCode = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
+        const hasTracking = trackingCode !== '' && trackingCode !== 'null' && trackingCode !== 'undefined';
+        if (hasTracking) {
+          console.log('✅ [Filter] Đơn có tracking:', row['Mã đơn hàng'] || row.order_code, 'tracking:', trackingCode);
+        }
+        return hasTracking;
+      });
+      console.log(`📊 [Filter] Tab "Có mã": ${data.length} đơn có tracking code`);
+    } else if (trackingFilter === 'without_tracking') {
+      data = data.filter((row) => {
+        // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
+        const trackingCode = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
+        return trackingCode === '' || trackingCode === 'null' || trackingCode === 'undefined';
+      });
+    }
+    // 'all' - không lọc, hiển thị tất cả
+
     return data;
-  }, [allData, legacyChanges, pendingChanges, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, filterValues, dateFrom, dateTo, mgtNoiBoOrder]);
+  }, [allData, legacyChanges, pendingChanges, omActiveTeam, omDateType, trackingFilter, filterValues, dateFrom, dateTo, mgtNoiBoOrder]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
@@ -1068,14 +1172,15 @@ function FFM() {
       else if (v === 'vận đơn xl') classes += 'bg-yellow-100 text-yellow-800 ';
     }
 
-    if (viewMode === 'BILL_OF_LADING' && LONG_TEXT_COLS.includes(col)) {
-      classes = classes.replace(
-        'whitespace-nowrap',
-        isLongTextExpanded
-          ? 'whitespace-pre-wrap max-w-xs break-words bg-yellow-50'
-          : 'whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] cursor-pointer'
-      );
-    }
+    // Removed BILL_OF_LADING mode - viewMode is now always ORDER_MANAGEMENT
+    // if (viewMode === 'BILL_OF_LADING' && LONG_TEXT_COLS.includes(col)) {
+    //   classes = classes.replace(
+    //     'whitespace-nowrap',
+    //     isLongTextExpanded
+    //       ? 'whitespace-pre-wrap max-w-xs break-words bg-yellow-50'
+    //       : 'whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] cursor-pointer'
+    //   );
+    // }
 
     const isEditable = EDITABLE_COLS.includes(col);
     if (isEditable) {
@@ -1126,132 +1231,159 @@ function FFM() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col p-5 font-sans text-gray-800 bg-[#f8f9fa]">
-      <div className="flex justify-center items-center gap-4 mb-6">
-        <img
-          src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
-          alt="Header"
-          className="h-12 object-contain"
-        />
-        <h2 className="text-2xl font-bold text-gray-700 uppercase">HỆ THỐNG QUẢN LÝ SPEEGO</h2>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadData}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-          >
-            {loading ? (
-              <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-            ) : (
-              <span>🔄</span>
-            )}
-            {loading ? 'Đang tải...' : 'Tải lại dữ liệu'}
-          </button>
-
-          <div className="flex items-center gap-1 text-xs">
-            <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
-            <span className="text-gray-600">
-              {allData.length > 0 ? `${allData.length} đơn hàng` : 'Chưa có dữ liệu'}
-            </span>
+    <div className="min-h-screen flex flex-col p-4 font-sans text-gray-800 bg-[#f8f9fa]">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img
+              src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
+              alt="Header"
+              className="h-10 object-contain"
+            />
+            <h2 className="text-xl font-bold text-gray-700">HỆ THỐNG QUẢN LÝ SPEEGO</h2>
+            <div className="flex items-center gap-2 text-sm">
+              <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
+              <span className="text-gray-600">{allData.length} đơn hàng</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ORDER_MANAGEMENT Controls */}
-      <div className="space-y-4 mb-4">
-        <div className="bg-white p-4 rounded shadow-sm flex flex-wrap gap-4 items-end">
-          <div className="flex flex-col gap-1 w-48">
-            <label className="text-xs font-semibold text-gray-500">Thị trường</label>
-            <MultiSelect
-              label="Tất cả Thị trường"
-              mainFilter={true}
-              options={getUniqueValues('Khu vực')}
-              selected={filterValues.market}
-              onChange={(vals) => setFilterValues((prev) => ({ ...prev, market: vals }))}
-            />
+      {/* Filters Section - Collapsible */}
+      <div className="bg-white rounded-lg shadow-sm mb-4">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors rounded-t-lg"
+        >
+          <span className="font-semibold text-gray-700">🔍 Bộ lọc</span>
+          <span className="text-gray-500">{showFilters ? '▲' : '▼'}</span>
+        </button>
+        {showFilters && (
+          <div className="px-4 pb-4 border-t border-gray-200">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-500">Thị trường</label>
+                <MultiSelect
+                  label="Tất cả"
+                  mainFilter={true}
+                  options={getUniqueValues('Khu vực')}
+                  selected={filterValues.market}
+                  onChange={(vals) => setFilterValues((prev) => ({ ...prev, market: vals }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-500">Sản phẩm</label>
+                <MultiSelect
+                  label="Tất cả"
+                  mainFilter={true}
+                  options={getUniqueValues('Mặt hàng')}
+                  selected={filterValues.product}
+                  onChange={(vals) => setFilterValues((prev) => ({ ...prev, product: vals }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-500">Loại ngày</label>
+                <select className="px-2 py-1.5 border rounded text-sm bg-white" value={omDateType} onChange={(e) => setOmDateType(e.target.value)}>
+                  <option value="Ngày lên đơn">Ngày lên đơn</option>
+                  <option value="Ngày đóng hàng">Ngày đóng hàng</option>
+                  <option value="Ngày đẩy đơn">Ngày đẩy đơn</option>
+                  <option value="Ngày có mã tracking">Ngày có mã tracking</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-500">Từ ngày</label>
+                <input
+                  type="date"
+                  className="px-2 py-1.5 border rounded text-sm bg-white"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-500">Tới ngày</label>
+                <input
+                  type="date"
+                  className="px-2 py-1.5 border rounded text-sm bg-white"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1 justify-end">
+                <button onClick={refreshData} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm transition shadow-sm">
+                  🗑️ Xóa lọc
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="flex flex-col gap-1 w-48">
-            <label className="text-xs font-semibold text-gray-500">Sản phẩm</label>
-            <MultiSelect
-              label="Tất cả Sản phẩm"
-              mainFilter={true}
-              options={getUniqueValues('Mặt hàng')}
-              selected={filterValues.product}
-              onChange={(vals) => setFilterValues((prev) => ({ ...prev, product: vals }))}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-500">Loại ngày</label>
-            <select className="px-2 py-1.5 border rounded text-sm bg-white" value={omDateType} onChange={(e) => setOmDateType(e.target.value)}>
-              <option value="Ngày lên đơn">Ngày lên đơn</option>
-              <option value="Ngày đóng hàng">Ngày đóng hàng</option>
-              <option value="Ngày đẩy đơn">Ngày đẩy đơn</option>
-              <option value="Ngày có mã tracking">Ngày có mã tracking</option>
-            </select>
-          </div>
-          <button onClick={refreshData} className="bg-danger text-white px-3 py-1.5 rounded text-sm hover:bg-dangerHover transition shadow-sm mb-0.5">
-            🗑️ Xóa lọc
-          </button>
-        </div>
-
+        )}
       </div>
 
-
-      <div className="sticky top-0 z-[40] bg-white p-4 rounded-md shadow-md border border-gray-200 mb-6 flex justify-between items-center flex-wrap gap-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={loadData} disabled={loading} className="bg-success hover:bg-successHover text-white px-3 py-1.5 rounded shadow-sm font-medium transition-transform active:scale-95">
-            {loading ? '...' : '↻ Load'}
-          </button>
-          <button onClick={() => setSyncPopoverOpen(true)} className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1.5 rounded shadow-sm font-medium relative transition-all">
-            Trạng thái cập nhật
-            {legacyChanges.size + pendingChanges.size > 0 && (
-              <span className="ml-2 bg-white text-[#F37021] text-xs font-bold px-1.5 py-0.5 rounded-full border border-[#F37021]">
-                {legacyChanges.size + pendingChanges.size}
-              </span>
-            )}
-          </button>
-          <button onClick={handleUpdateAll} className="bg-primary hover:bg-primaryHover text-white px-3 py-1.5 rounded shadow-sm font-medium transition-transform active:scale-95">
-            Cập nhật
-          </button>
-          <button onClick={() => setQuickAddModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded shadow-sm font-medium">
-            ⚡ Thêm nhanh
-          </button>
-          <button onClick={handleDownloadExcel} className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded shadow-sm font-medium">
-            Excel
-          </button>
-
-          <div className="flex items-center gap-1 ml-2 text-sm bg-gray-100 p-1.5 rounded">
-            <span>Cột cố định:</span>
-            <input type="number" min="0" className="w-12 p-1 border rounded" value={fixedColumns} onChange={(e) => setFixedColumns(Number(e.target.value))} />
+      {/* Action Bar */}
+      <div className="sticky top-0 z-[40] bg-white rounded-lg shadow-sm border border-gray-200 mb-4 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Left: Action Buttons */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={loadData} disabled={loading} className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm font-medium transition disabled:opacity-50">
+              {loading ? '...' : '↻ Load'}
+            </button>
+            <button onClick={() => setSyncPopoverOpen(true)} className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm font-medium relative">
+              Trạng thái
+              {legacyChanges.size + pendingChanges.size > 0 && (
+                <span className="ml-1.5 bg-white text-orange-500 text-xs font-bold px-1.5 py-0.5 rounded-full">
+                  {legacyChanges.size + pendingChanges.size}
+                </span>
+              )}
+            </button>
+            <button onClick={handleUpdateAll} className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium">
+              Cập nhật
+            </button>
+            <button onClick={() => setQuickAddModalOpen(true)} className="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1.5 rounded text-sm font-medium">
+              ⚡ Thêm nhanh
+            </button>
+            <button onClick={() => setShowColumnSettings(true)} className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded text-sm font-medium transition flex items-center gap-1">
+              ⚙️ Cài đặt cột
+            </button>
           </div>
 
-          <div className="bg-[#E8EAF6] text-[#1D2F5F] px-3 py-1.5 rounded border border-[#c9d1e9] text-sm font-bold">
-            Tổng đơn: {getFilteredData.length} | Tổng tiền: <span className="text-success">{totalMoney.toLocaleString('vi-VN')} ₫</span>
+          {/* Right: Summary & Tracking Filters */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="bg-blue-50 text-blue-700 px-3 py-1.5 rounded text-sm font-semibold border border-blue-200">
+              {getFilteredData.length} đơn | {totalMoney.toLocaleString('vi-VN')} ₫
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setTrackingFilter('with_tracking')}
+                className={`px-2.5 py-1 text-xs rounded border font-medium transition ${
+                  trackingFilter === 'with_tracking' 
+                    ? 'bg-blue-600 text-white border-blue-600' 
+                    : 'bg-white text-blue-600 border-blue-600 hover:bg-blue-50'
+                }`}
+              >
+                Có mã
+              </button>
+              <button
+                onClick={() => setTrackingFilter('without_tracking')}
+                className={`px-2.5 py-1 text-xs rounded border font-medium transition ${
+                  trackingFilter === 'without_tracking' 
+                    ? 'bg-orange-600 text-white border-orange-600' 
+                    : 'bg-white text-orange-600 border-orange-600 hover:bg-orange-50'
+                }`}
+              >
+                Không mã
+              </button>
+              <button
+                onClick={() => setTrackingFilter('all')}
+                className={`px-2.5 py-1 text-xs rounded border font-medium transition ${
+                  trackingFilter === 'all' 
+                    ? 'bg-gray-600 text-white border-gray-600' 
+                    : 'bg-white text-gray-600 border-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Tất cả
+              </button>
+            </div>
           </div>
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              setOmShowTracking(!omShowTracking);
-              setOmShowDuplicateTracking(false);
-            }}
-            className={`px-3 py-1.5 text-sm rounded border ${omShowTracking ? 'bg-dangerHover text-white' : 'bg-danger text-white'
-              } transition`}
-          >
-            {omShowTracking ? 'Đơn không Tracking' : 'Đơn có Tracking'}
-          </button>
-          <button
-            onClick={() => {
-              setOmShowDuplicateTracking(!omShowDuplicateTracking);
-              setOmShowTracking(false);
-            }}
-            className={`px-3 py-1.5 text-sm rounded border ${omShowDuplicateTracking ? 'bg-dangerHover text-white' : 'bg-danger text-white'
-              } transition`}
-          >
-            {omShowDuplicateTracking ? 'Tất cả đơn' : 'Trùng Tracking'}
-          </button>
         </div>
       </div>
 
@@ -1332,8 +1464,17 @@ function FFM() {
                   <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
                     {currentColumns.map((col, cIdx) => {
                       const key = COLUMN_MAPPING[col] || col;
-                      const val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
-                      const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)
+                      // Đặc biệt xử lý cho "Mã Tracking" - kiểm tra cả tracking_code (DB) và Mã Tracking (mapped)
+                      let val = '';
+                      if (col === 'Mã Tracking') {
+                        val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
+                      } else if (col === 'Ngày đẩy đơn') {
+                        // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
+                        val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
+                      } else {
+                        val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
+                      }
+                      const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Thời gian giao dự kiến'].includes(col)
                         ? formatDate(val)
                         : col === 'Tổng tiền VNĐ'
                           ? Number(String(val).replace(/[^\d.-]/g, '')).toLocaleString('vi-VN')
@@ -1521,6 +1662,32 @@ function FFM() {
           isOpen={quickAddModalOpen} 
           onClose={() => setQuickAddModalOpen(false)} 
           onSync={handleQuickSync}
+        />
+      </Suspense>
+
+      <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div></div>}>
+        <ColumnSettingsModal
+          isOpen={showColumnSettings}
+          onClose={() => setShowColumnSettings(false)}
+          allColumns={ORDER_MGMT_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggleColumn={(col) => setVisibleColumns(prev => ({ ...prev, [col]: !prev[col] }))}
+          onSelectAll={() => {
+            const all = {};
+            ORDER_MGMT_COLUMNS.forEach(col => { all[col] = true; });
+            setVisibleColumns(all);
+          }}
+          onDeselectAll={() => {
+            const none = {};
+            ORDER_MGMT_COLUMNS.forEach(col => { none[col] = false; });
+            setVisibleColumns(none);
+          }}
+          onResetDefault={() => {
+            const defaultCols = {};
+            ORDER_MGMT_COLUMNS.forEach(col => { defaultCols[col] = true; });
+            setVisibleColumns(defaultCols);
+          }}
+          defaultColumns={ORDER_MGMT_COLUMNS}
         />
       </Suspense>
     </div>

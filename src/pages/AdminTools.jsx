@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Key, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import PermissionManager from '../components/admin/PermissionManager';
@@ -142,6 +142,13 @@ const AdminTools = () => {
             }
         }
     }, [searchQuery, visibleTabs, activeTab]);
+
+    // Auto-load accounts when entering account management tab
+    useEffect(() => {
+        if (activeTab === 'account_management' && authAccounts.length === 0 && !accountLoading) {
+            loadAuthAccounts();
+        }
+    }, [activeTab]);
 
     // --- VERIFICATION STATE ---
     const [verifyResult, setVerifyResult] = useState(null);
@@ -2415,7 +2422,7 @@ const AdminTools = () => {
     const loadAuthAccounts = async () => {
         setAccountLoading(true);
         try {
-            // Lấy danh sách từ bảng users (bao gồm can_day_ffm)
+            // Lấy danh sách từ bảng users (bao gồm can_day_ffm và password)
             const { data, error } = await supabase
                 .from('users')
                 .select('id, username, email, password, name, role, team, department, position, branch, shift, created_at, can_day_ffm')
@@ -2425,18 +2432,20 @@ const AdminTools = () => {
                 throw error;
             }
 
-            const affectedCount = data?.length || 0;
-            console.log(`✅ [Xóa CSKH] Đã xóa CSKH của ${affectedCount} đơn hàng`);
+            // Map dữ liệu và thêm thông tin has_password
+            const accounts = (data || []).map(user => ({
+                ...user,
+                has_password: !!user.password,
+                status: user.password ? 'active' : 'inactive',
+                user_id: user.id // Để tương thích với auth_accounts structure
+            }));
 
-            toast.success(`✅ Đã xóa dữ liệu CSKH của ${affectedCount} đơn hàng!`);
-
-            // Refresh page hoặc reload data nếu cần
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
+            setAuthAccounts(accounts);
+            console.log(`✅ Đã tải ${accounts.length} tài khoản từ bảng users`);
         } catch (error) {
             console.error('Error loading users:', error);
             toast.error('Lỗi khi tải danh sách tài khoản: ' + error.message);
+            setAuthAccounts([]);
         } finally {
             setAccountLoading(false);
         }
@@ -4068,7 +4077,7 @@ const AdminTools = () => {
                                                             <>
                                                                 <input
                                                                     type="text"
-                                                                    value={passwordInputs[account.id] !== undefined ? passwordInputs[account.id] : (account.password ? '••••••••' : '')}
+                                                                    value={passwordInputs[account.id] !== undefined ? passwordInputs[account.id] : ''}
                                                                     onChange={(e) => setPasswordInputs({ ...passwordInputs, [account.id]: e.target.value })}
                                                                     className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
                                                                     placeholder="Nhập mật khẩu mới"
@@ -4101,8 +4110,8 @@ const AdminTools = () => {
                                                             </>
                                                         ) : (
                                                             <>
-                                                                <span className="text-xs text-gray-600">
-                                                                    {account.has_password ? '••••••••' : 'Chưa có'}
+                                                                <span className="text-xs text-gray-600 font-mono max-w-xs truncate" title={account.password || 'Chưa có mật khẩu'}>
+                                                                    {account.password ? account.password.substring(0, 30) + '...' : 'Chưa có'}
                                                                 </span>
                                                                 <button
                                                                     onClick={() => {
@@ -4110,7 +4119,7 @@ const AdminTools = () => {
                                                                         setPasswordInputs({ ...passwordInputs, [account.id]: '' });
                                                                     }}
                                                                     className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200"
-                                                                    title="Đặt mật khẩu"
+                                                                    title="Đặt mật khẩu mới"
                                                                 >
                                                                     <Key className="w-3 h-3" />
                                                                 </button>
