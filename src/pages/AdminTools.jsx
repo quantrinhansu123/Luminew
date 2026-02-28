@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, Database, Download, FileJson, GitCompare, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, GitCompare, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import PermissionManager from '../components/admin/PermissionManager';
@@ -253,6 +253,287 @@ const AdminTools = () => {
         } catch (err) {
             console.error(err);
             toast.error(`Lỗi tải bảng ${tableName}: ${err.message}`);
+        }
+    };
+
+    const handleUploadToDrive = async (tableId, event) => {
+        // Prevent card click event from firing
+        event.stopPropagation();
+        
+        const tableName = getRealTableName(tableId);
+
+        let confirmMsg = `Bạn có muốn đẩy dữ liệu [${tableId}] lên Google Drive không?`;
+        if (dateFrom || dateTo) {
+            confirmMsg += `\n(Bộ lọc: ${dateFrom || '...'} đến ${dateTo || '...'})`;
+        }
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            toast.info(`Đang tải dữ liệu [${tableId}]...`);
+
+            // Custom logic for filtered downloads can go here
+            let query = supabase.from(tableName).select('*');
+
+            // --- DATE FILTER LOGIC ---
+            if (dateFrom || dateTo) {
+                // Determine date column based on table
+                let dateCol = 'created_at';
+                if (tableName === 'orders') {
+                    // EXCLUDE R&D DATA for Admin Tools/General Reporting
+                    query = query.neq('team', 'RD');
+
+                    if (dateFrom) query = query.gte('order_date', dateFrom);
+                    if (dateTo) query = query.lte('order_date', dateTo);
+                } else if (tableName === 'sales_reports') {
+                    if (dateFrom) query = query.gte('date', dateFrom);
+                    if (dateTo) query = query.lte('date', dateTo);
+                } else if (tableName === 'detail_reports') {
+                    if (dateFrom) query = query.gte('Ngày', dateFrom);
+                    if (dateTo) query = query.lte('Ngày', dateTo);
+                } else {
+                    if (dateFrom) query = query.gte('created_at', dateFrom);
+                    if (dateTo) query = query.lte('created_at', dateTo);
+                }
+            } else {
+                // Default limit if no filter
+                query = query.limit(10000);
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+
+            // Format file name: table name + date + time
+            const tableInfo = AVAILABLE_TABLES.find(t => t.id === tableId);
+            const tableDisplayName = tableInfo ? tableInfo.name.replace(/\//g, '-') : tableId;
+            
+            // Get current date/time in Vietnam timezone (UTC+7)
+            const now = new Date();
+            const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC+7
+            const year = vietnamTime.getUTCFullYear();
+            const month = String(vietnamTime.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(vietnamTime.getUTCDate()).padStart(2, '0');
+            const hours = String(vietnamTime.getUTCHours()).padStart(2, '0');
+            const minutes = String(vietnamTime.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(vietnamTime.getUTCSeconds()).padStart(2, '0');
+            
+            const dateStr = `${year}${month}${day}`;
+            const timeStr = `${hours}${minutes}${seconds}`;
+            const fileName = `${tableDisplayName}_${dateStr}_${timeStr}.json`;
+
+            const jsonString = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonString], { type: "application/json" });
+
+            // Upload to Google Drive using Google Apps Script or backend endpoint
+            // Folder ID: 1Jg0XAV5-5FFosEbl6FK2kZ-M_7-Qro_5
+            const DRIVE_FOLDER_ID = '1Jg0XAV5-5FFosEbl6FK2kZ-M_7-Qro_5';
+            
+            // Convert blob to base64
+            toast.info(`Đang đẩy file [${fileName}] lên Google Drive...`);
+            
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                try {
+                    const base64Data = reader.result.split(',')[1];
+                    
+                    // Try to use Google Apps Script web app if available
+                    const appsScriptUrl = import.meta.env.VITE_GOOGLE_DRIVE_UPLOAD_URL || 'https://script.google.com/macros/s/AKfycbw-y-vLK1sDH15ski_IgTY31AletNjknER04FcZTtZDql36pHWTg1YsIGQ4Gl72U6ow3Q/exec';
+                    
+                    if (appsScriptUrl) {
+                        // Use Google Apps Script web app
+                        try {
+                            // Check if file is too large (Google Apps Script has ~6MB limit for POST)
+                            if (base64Data.length > 5000000) {
+                                toast.warn('File khá lớn, có thể mất thời gian upload...');
+                            }
+                            
+                            console.log('Starting upload to Google Drive...', {
+                                fileName,
+                                base64Length: base64Data.length,
+                                url: appsScriptUrl
+                            });
+                            
+                            // Try using fetch with proper error handling
+                            const payload = {
+                                folderId: DRIVE_FOLDER_ID,
+                                fileName: fileName,
+                                fileContent: base64Data,
+                                mimeType: 'application/json'
+                            };
+                            
+                            console.log('Sending request...');
+                            
+                            // Try multiple methods to ensure compatibility
+                            let response;
+                            let lastError;
+                            
+                            // Method 1: Try fetch with no-cors mode (may not read response but upload might work)
+                            try {
+                                console.log('Attempting Method 1: fetch with no-cors...');
+                                const testResponse = await fetch(appsScriptUrl, {
+                                    method: 'POST',
+                                    mode: 'no-cors', // This bypasses CORS but we can't read response
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify(payload)
+                                });
+                                
+                                // With no-cors, response is opaque, but request might have succeeded
+                                // Wait a bit and assume success (user can check Drive folder)
+                                console.log('No-cors request sent (response opaque)');
+                                toast.success(`Đã gửi yêu cầu đẩy file [${fileName}] lên Google Drive. Vui lòng kiểm tra folder Google Drive để xác nhận file đã được upload.`);
+                                return; // Exit early since we can't verify with no-cors
+                                
+                            } catch (noCorsError) {
+                                console.warn('Method 1 (no-cors) failed:', noCorsError);
+                                lastError = noCorsError;
+                            }
+                            
+                            // Method 2: Try XMLHttpRequest with proper error handling
+                            try {
+                                console.log('Attempting Method 2: XMLHttpRequest...');
+                                response = await new Promise((resolve, reject) => {
+                                    const xhr = new XMLHttpRequest();
+                                    
+                                    xhr.addEventListener('load', function() {
+                                        console.log('XHR load event:', {
+                                            status: xhr.status,
+                                            statusText: xhr.statusText,
+                                            responseText: xhr.responseText.substring(0, 200)
+                                        });
+                                        
+                                        if (xhr.status === 200 || xhr.status === 0) {
+                                            resolve({
+                                                ok: true,
+                                                status: xhr.status,
+                                                text: () => Promise.resolve(xhr.responseText)
+                                            });
+                                        } else {
+                                            reject(new Error(`XHR HTTP error: ${xhr.status} ${xhr.statusText}`));
+                                        }
+                                    });
+                                    
+                                    xhr.addEventListener('error', function(e) {
+                                        console.error('XHR error event:', e);
+                                        reject(new Error('XMLHttpRequest network error'));
+                                    });
+                                    
+                                    xhr.addEventListener('timeout', function() {
+                                        reject(new Error('XMLHttpRequest timeout'));
+                                    });
+                                    
+                                    xhr.addEventListener('abort', function() {
+                                        reject(new Error('XMLHttpRequest aborted'));
+                                    });
+                                    
+                                    xhr.open('POST', appsScriptUrl, true);
+                                    xhr.setRequestHeader('Content-Type', 'application/json');
+                                    xhr.timeout = 120000; // 2 minutes for large files
+                                    
+                                    console.log('XHR sending payload, size:', JSON.stringify(payload).length);
+                                    xhr.send(JSON.stringify(payload));
+                                });
+                                
+                                console.log('Method 2 (XHR) succeeded');
+                                
+                            } catch (xhrError) {
+                                console.warn('Method 2 (XHR) failed:', xhrError);
+                                lastError = xhrError;
+                                
+                                // Method 3: Try fetch with cors as last resort
+                                try {
+                                    console.log('Attempting Method 3: fetch with cors...');
+                                    response = await fetch(appsScriptUrl, {
+                                        method: 'POST',
+                                        mode: 'cors',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify(payload),
+                                        redirect: 'follow'
+                                    });
+                                    console.log('Method 3 (fetch cors) succeeded');
+                                } catch (fetchError) {
+                                    console.error('All methods failed:', { xhrError, fetchError });
+                                    throw new Error(`Tất cả phương thức upload đều thất bại. Lỗi cuối cùng: ${lastError?.message || fetchError.message}. Vui lòng kiểm tra:\n1. Kết nối internet\n2. Google Apps Script đã được deploy với quyền "Anyone"\n3. Thử lại sau vài giây`);
+                                }
+                            }
+                            
+                            console.log('Response received:', {
+                                status: response.status,
+                                statusText: response.statusText,
+                                ok: response.ok
+                            });
+                            
+                            // Get response text first to see what we got
+                            const responseText = await response.text();
+                            console.log('Response text:', responseText.substring(0, 200)); // First 200 chars
+                            
+                            if (!response.ok && response.status !== 0) {
+                                throw new Error(`HTTP error! status: ${response.status}, response: ${responseText.substring(0, 100)}`);
+                            }
+                            
+                            // Try to parse as JSON
+                            let result;
+                            try {
+                                result = JSON.parse(responseText);
+                            } catch (parseError) {
+                                // If not JSON, check if it contains success indicators
+                                if (responseText.includes('success') || response.status === 200 || response.status === 0) {
+                                    result = { success: true, message: 'Upload may have succeeded (unable to parse response)' };
+                                } else {
+                                    throw new Error('Response is not valid JSON: ' + responseText.substring(0, 200));
+                                }
+                            }
+                            
+                            if (result.success) {
+                                toast.success(`Đã đẩy file [${fileName}] lên Google Drive thành công!`);
+                                if (result.fileUrl) {
+                                    console.log('File URL:', result.fileUrl);
+                                }
+                            } else {
+                                throw new Error(result.error || 'Lỗi không xác định từ server');
+                            }
+                            
+                        } catch (fetchError) {
+                            console.error('Upload error details:', {
+                                error: fetchError,
+                                message: fetchError.message,
+                                stack: fetchError.stack
+                            });
+                            
+                            // More specific error messages
+                            if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
+                                throw new Error('Không thể kết nối đến Google Apps Script. Vui lòng kiểm tra:\n1. URL có đúng không\n2. Script đã được deploy với quyền "Anyone"\n3. Kết nối internet của bạn');
+                            } else if (fetchError.message.includes('timeout')) {
+                                throw new Error('Request timeout. File có thể quá lớn hoặc server mất quá nhiều thời gian xử lý.');
+                            } else {
+                                throw new Error(`Lỗi đẩy file: ${fetchError.message}`);
+                            }
+                        }
+                    } else {
+                        // Fallback: Show helpful error message
+                        toast.error('Vui lòng cấu hình VITE_GOOGLE_DRIVE_UPLOAD_URL trong file .env để sử dụng tính năng đẩy lên Google Drive. Xem file scripts/google-drive-upload-handler.gs để biết cách setup.');
+                        console.log('File data ready for upload:', {
+                            fileName,
+                            size: blob.size,
+                            folderId: DRIVE_FOLDER_ID,
+                            base64Length: base64Data.length
+                        });
+                    }
+                } catch (err) {
+                    console.error('Upload error:', err);
+                    toast.error(`Lỗi đẩy file lên Google Drive: ${err.message}`);
+                }
+            };
+            reader.onerror = () => {
+                toast.error('Lỗi đọc file để upload');
+            };
+            reader.readAsDataURL(blob);
+
+        } catch (err) {
+            console.error(err);
+            toast.error(`Lỗi tải dữ liệu bảng ${tableName}: ${err.message}`);
         }
     };
 
@@ -3121,45 +3402,40 @@ const AdminTools = () => {
                                 Chọn bảng dữ liệu cần tải về (JSON)
                             </h3>
 
-                            {/* DATE FILTER INPUTS */}
+                            {/* ACTION BUTTONS */}
                             <div className="flex flex-wrap items-center gap-4 mb-6 bg-blue-50 p-4 rounded-lg border border-blue-100">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-gray-700">Từ ngày:</span>
-                                    <input
-                                        type="date"
-                                        value={dateFrom}
-                                        onChange={(e) => setDateFrom(e.target.value)}
-                                        className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500"
-                                    />
+                                <div className="text-sm text-gray-600">
+                                    Hệ thống sẽ tự động đẩy dữ liệu của ngày hôm nay lên Google Drive vào 23h hàng ngày.
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-gray-700">Đến ngày:</span>
-                                    <input
-                                        type="date"
-                                        value={dateTo}
-                                        onChange={(e) => setDateTo(e.target.value)}
-                                        className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500"
-                                    />
-                                </div>
-                                <div className="text-xs text-gray-500 italic">
-                                    (Để trống để tải 10,000 dòng mới nhất)
-                                </div>
-                                {(dateFrom || dateTo) && (
-                                    <button
-                                        onClick={() => { setDateFrom(''); setDateTo(''); }}
-                                        className="text-xs text-blue-600 hover:text-blue-800 underline"
-                                    >
-                                        Xóa lọc
-                                    </button>
-                                )}
-
-                                <div className="ml-auto">
+                                <div className="ml-auto flex gap-2">
                                     <button
                                         onClick={handleDownloadAll}
                                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg shadow flex items-center gap-2 font-medium transition-colors"
                                     >
                                         <Download size={18} />
                                         Tải Tất Cả (Backup)
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (!window.confirm('Bạn có muốn đẩy dữ liệu ngày hôm nay lên Google Drive không?\n\nHệ thống sẽ tự động đẩy tất cả các bảng với dữ liệu của ngày hôm nay.')) return;
+                                            try {
+                                                toast.info('Đang đẩy dữ liệu ngày hôm nay lên Google Drive...');
+                                                const { performDailyDriveUpload } = await import('../services/dailyDriveUploadService');
+                                                const result = await performDailyDriveUpload('manual');
+                                                if (result.success) {
+                                                    toast.success(`Đã đẩy thành công ${result.tablesSucceeded}/${result.tablesProcessed} bảng (${result.totalRecords} bản ghi) lên Google Drive!`);
+                                                } else {
+                                                    toast.error('Có lỗi xảy ra khi đẩy dữ liệu');
+                                                }
+                                            } catch (err) {
+                                                console.error(err);
+                                                toast.error(`Lỗi: ${err.message}`);
+                                            }
+                                        }}
+                                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow flex items-center gap-2 font-medium transition-colors"
+                                    >
+                                        <CloudUpload size={18} />
+                                        Đẩy Hôm Nay
                                     </button>
                                 </div>
                             </div>
@@ -3168,17 +3444,31 @@ const AdminTools = () => {
                                 {AVAILABLE_TABLES.map(table => (
                                     <div
                                         key={table.id}
-                                        onClick={() => handleDownloadTable(table.id)}
-                                        className="bg-gray-50 border border-gray-200 rounded-lg p-4 cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all hover:shadow-md group"
+                                        className="bg-gray-50 border border-gray-200 rounded-lg p-4 hover:bg-blue-50 hover:border-blue-300 transition-all hover:shadow-md group"
                                     >
                                         <div className="flex items-start justify-between mb-2">
                                             <div className="p-2 bg-white rounded-md border border-gray-100 group-hover:border-blue-200">
                                                 <Database size={20} className="text-gray-500 group-hover:text-blue-600" />
                                             </div>
-                                            <Download size={16} className="text-gray-400 group-hover:text-blue-500" />
                                         </div>
-                                        <h4 className="font-bold text-gray-700 group-hover:text-blue-700">{table.name}</h4>
-                                        <p className="text-xs text-gray-500 mt-1">{table.desc}</p>
+                                        <h4 className="font-bold text-gray-700 group-hover:text-blue-700 mb-2">{table.name}</h4>
+                                        <p className="text-xs text-gray-500 mb-3">{table.desc}</p>
+                                        <div className="flex gap-2 mt-3">
+                                            <button
+                                                onClick={() => handleDownloadTable(table.id)}
+                                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                                            >
+                                                <Download size={14} />
+                                                Tải về
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleUploadToDrive(table.id, e)}
+                                                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                                            >
+                                                <CloudUpload size={14} />
+                                                Đẩy Drive
+                                            </button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
