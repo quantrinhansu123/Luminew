@@ -9,12 +9,32 @@ function verifyApiKey(req) {
   const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '') || req.query.api_key;
   const validApiKey = process.env.ORDERS_API_KEY || process.env.VITE_ORDERS_API_KEY;
   
+  // Debug logging
+  console.log('🔐 API Key Verification:');
+  console.log(`   Received key: ${apiKey ? apiKey.substring(0, 8) + '...' + apiKey.substring(apiKey.length - 4) : 'NOT PROVIDED'}`);
+  console.log(`   Valid key exists: ${validApiKey ? 'YES (' + validApiKey.substring(0, 8) + '...)' : 'NO'}`);
+  console.log(`   Key source: ${req.headers['x-api-key'] ? 'X-API-Key header' : req.headers['authorization'] ? 'Authorization header' : req.query.api_key ? 'Query param' : 'NOT FOUND'}`);
+  
   if (!validApiKey) {
     console.warn('⚠️ ORDERS_API_KEY not set in environment variables');
+    console.warn('   Check Vercel Dashboard → Settings → Environment Variables');
     return false;
   }
   
-  return apiKey === validApiKey;
+  if (!apiKey) {
+    console.warn('⚠️ No API key provided in request');
+    return false;
+  }
+  
+  const isValid = apiKey === validApiKey;
+  console.log(`   Match: ${isValid ? '✅ VALID' : '❌ INVALID'}`);
+  
+  if (!isValid) {
+    console.warn('⚠️ API key mismatch!');
+    console.warn('   Make sure the API key in your request matches the one in Vercel environment variables');
+  }
+  
+  return isValid;
 }
 
 // Helper function để setup CORS
