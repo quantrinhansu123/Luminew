@@ -1,7 +1,14 @@
 // Vercel Serverless Function for /api/orders
 // API với API key authentication để lấy tất cả các cột trong bảng orders
 
-const { createClient } = require('@supabase/supabase-js');
+let createClient;
+try {
+  const supabaseModule = require('@supabase/supabase-js');
+  createClient = supabaseModule.createClient;
+} catch (error) {
+  console.error('❌ Failed to load @supabase/supabase-js:', error);
+  // Will be handled in the handler function
+}
 
 // Helper function để verify API key
 function verifyApiKey(req) {
@@ -68,34 +75,58 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Verify API key
-    if (!verifyApiKey(req)) {
+    // Check if @supabase/supabase-js is available
+    if (!createClient) {
+      console.error('❌ @supabase/supabase-js module not available');
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: '@supabase/supabase-js package is not installed. Please ensure it is in package.json dependencies.'
+      });
+    }
+
+    // Check if Supabase client can be initialized
+    let supabase;
+    try {
+      const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!supabaseUrl || !supabaseKey) {
+        console.error('❌ Supabase credentials not configured');
+        console.error('   SUPABASE_URL:', supabaseUrl ? 'SET' : 'MISSING');
+        console.error('   SUPABASE_SERVICE_ROLE_KEY:', supabaseKey ? 'SET' : 'MISSING');
+        return res.status(500).json({
+          error: 'Server configuration error',
+          message: 'Supabase credentials are not configured. Please check Vercel environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY'
+        });
+      }
+
+      supabase = createClient(supabaseUrl, supabaseKey);
+      console.log('✅ Supabase client initialized');
+    } catch (initError) {
+      console.error('❌ Error initializing Supabase client:', initError);
+      return res.status(500).json({
+        error: 'Server initialization error',
+        message: `Failed to initialize Supabase client: ${initError.message}`
+      });
+    }
+
+    // Verify API key (only if API key is configured)
+    const validApiKey = process.env.ORDERS_API_KEY || process.env.VITE_ORDERS_API_KEY;
+    if (validApiKey && !verifyApiKey(req)) {
       console.warn('❌ Invalid or missing API key');
-      res.status(401).json({
+      return res.status(401).json({
         error: 'Unauthorized',
         message: 'Invalid or missing API key. Please provide a valid API key in X-API-Key header or api_key query parameter.'
       });
-      return;
     }
 
-    console.log('✅ API key verified');
+    if (validApiKey) {
+      console.log('✅ API key verified');
+    } else {
+      console.log('⚠️ API key not configured, skipping authentication');
+    }
     console.log('GET /api/orders - Request received');
     console.log('Query params:', req.query);
-
-    // Initialize Supabase client
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('❌ Supabase credentials not configured');
-      res.status(500).json({
-        error: 'Server configuration error',
-        message: 'Supabase credentials are not configured'
-      });
-      return;
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Parse query parameters
     const {

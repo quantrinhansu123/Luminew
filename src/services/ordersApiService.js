@@ -3,7 +3,9 @@
  * Replaces direct Supabase queries with optimized API calls
  */
 
-const ORDERS_API_URL = import.meta.env.VITE_ORDERS_API_URL || 'http://localhost:8000';
+// Use relative path for Vercel deployment, or absolute URL for local dev
+const ORDERS_API_URL = import.meta.env.VITE_ORDERS_API_URL || '/api/orders';
+const ORDERS_API_KEY = import.meta.env.VITE_ORDERS_API_KEY || '';
 
 /**
  * Fetch orders from Orders API with filters
@@ -58,11 +60,41 @@ export const fetchOrders = async (filters = {}, options = {}) => {
     params.append('sort_by', sort_by);
     params.append('sort_order', sort_order);
 
+    // Add API key to query params if not in headers (fallback)
+    if (ORDERS_API_KEY && !ORDERS_API_URL.includes('localhost')) {
+        params.append('api_key', ORDERS_API_KEY);
+    }
+
     try {
-        const response = await fetch(`${ORDERS_API_URL}/?${params.toString()}`);
+        // Build headers with API key
+        const headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        // Add API key to headers if available
+        if (ORDERS_API_KEY) {
+            headers['X-API-Key'] = ORDERS_API_KEY;
+        }
+
+        const url = ORDERS_API_URL.startsWith('http') 
+            ? `${ORDERS_API_URL}/?${params.toString()}`
+            : `${ORDERS_API_URL}?${params.toString()}`;
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: headers
+        });
         
         if (!response.ok) {
-            throw new Error(`Orders API error: ${response.status} ${response.statusText}`);
+            const errorText = await response.text();
+            let errorData;
+            try {
+                errorData = JSON.parse(errorText);
+            } catch {
+                errorData = { message: errorText };
+            }
+            throw new Error(errorData.message || `Orders API error: ${response.status} ${response.statusText}`);
         }
 
         const result = await response.json();
