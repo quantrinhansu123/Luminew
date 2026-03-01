@@ -141,14 +141,14 @@ EXPLAIN ANALYZE SELECT * FROM orders WHERE order_date >= '2024-01-01' AND order_
   "version": 2,
   "builds": [
     {
-      "src": "api/orders/orders_api.py",
+      "src": "api/orders/orders_api_legacy.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/api/orders/(.*)",
-      "dest": "api/orders/orders_api.py"
+      "dest": "api/orders/orders_api_legacy.py"
     }
   ]
 }
