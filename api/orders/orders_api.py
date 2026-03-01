@@ -10,7 +10,8 @@ from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 import os
-from supabase import create_client, Client
+from postgrest import SyncPostgrestClient
+from httpx import Client as HTTPClient
 import logging
 
 # Setup logging
@@ -33,14 +34,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Supabase connection
+# Supabase connection using direct PostgREST
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # Use service role key for admin operations
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Create PostgREST client directly (simpler, no extra dependencies)
+http_client = HTTPClient(base_url=f"{SUPABASE_URL}/rest/v1", headers={
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+})
 
 # Response models
 class OrderResponse(BaseModel):

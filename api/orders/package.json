@@ -2,10 +2,10 @@
   "name": "orders-api",
   "version": "1.0.0",
   "description": "Orders API using Node.js/Express",
-  "main": "orders_api.js",
+  "main": "orders_api_standalone.js",
   "scripts": {
-    "start": "node orders_api.js",
-    "dev": "nodemon orders_api.js"
+    "start": "node orders_api_standalone.js",
+    "dev": "nodemon orders_api_standalone.js"
   },
   "keywords": ["orders", "api", "supabase"],
   "author": "",
