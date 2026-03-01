@@ -10,6 +10,7 @@ import './BaoCaoSale.css';
 
 import { supabase } from '../services/supabaseClient';
 import MultiSelect from '../components/MultiSelect';
+import { fetchAllOrders, checkApiHealth } from '../services/ordersApiService';
 
 const formatCurrency = (value) => Number(value || 0).toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
 const formatNumber = (value) => Number(value || 0).toLocaleString('vi-VN');
@@ -3788,28 +3789,82 @@ export default function BaoCaoSale() {
                 const normalizedStartDate = normalizeDate(filters.startDate);
                 const normalizedEndDate = normalizeDate(filters.endDate);
 
-                // Fetch orders với tất cả các trường cần thiết
-                let query = supabase
-                    .from('orders')
-                    .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, payment_status, payment_status_detail, tracking_code, team, reconciled_vnd, reconciled_amount')
-                    .gte('order_date', normalizedStartDate)
-                    .lte('order_date', normalizedEndDate);
+                // Try to use Orders API first, fallback to Supabase if API is not available
+                let allOrders = [];
+                let error = null;
+                
+                try {
+                    const isApiAvailable = await checkApiHealth();
+                    if (isApiAvailable) {
+                        console.log('✅ Using Orders API for optimized query...');
+                        
+                        // Build filters for API
+                        const apiFilters = {
+                            order_date_from: normalizedStartDate,
+                            order_date_to: normalizedEndDate
+                        };
+                        
+                        // Note: API only supports exact match, so we'll fetch all and filter client-side
+                        // for complex filters (products, markets, teams with ilike)
+                        allOrders = await fetchAllOrders(apiFilters, { page_size: 100 });
+                        
+                        console.log(`📊 Fetched ${allOrders.length} orders from API`);
+                        
+                        // Apply client-side filters for products, markets, teams
+                        if (kpiFilters.products.length > 0 || kpiFilters.markets.length > 0 || kpiFilters.teams.length > 0) {
+                            allOrders = allOrders.filter(order => {
+                                if (kpiFilters.products.length > 0) {
+                                    const orderProduct = normalizeStr(order.product);
+                                    if (!kpiFilters.products.some(p => orderProduct.includes(normalizeStr(p)))) {
+                                        return false;
+                                    }
+                                }
+                                if (kpiFilters.markets.length > 0) {
+                                    const orderCountry = normalizeStr(order.country);
+                                    if (!kpiFilters.markets.some(m => orderCountry.includes(normalizeStr(m)))) {
+                                        return false;
+                                    }
+                                }
+                                if (kpiFilters.teams.length > 0) {
+                                    const orderTeam = normalizeStr(order.team);
+                                    if (!kpiFilters.teams.some(t => orderTeam.includes(normalizeStr(t)))) {
+                                        return false;
+                                    }
+                                }
+                                return true;
+                            });
+                        }
+                    } else {
+                        throw new Error('API not available, using Supabase fallback');
+                    }
+                } catch (apiError) {
+                    console.warn('⚠️ Orders API not available, falling back to Supabase:', apiError);
+                    
+                    // Fallback to Supabase query
+                    let query = supabase
+                        .from('orders')
+                        .select('order_code, order_date, sale_staff, product, country, total_amount_vnd, shipping_fee, check_result, delivery_status, payment_status, payment_status_detail, tracking_code, team, reconciled_vnd, reconciled_amount')
+                        .gte('order_date', normalizedStartDate)
+                        .lte('order_date', normalizedEndDate);
 
-                // Apply filters tương tự như KPI
-                if (kpiFilters.products.length > 0) {
-                    const productConditions = kpiFilters.products.map(p => `product.ilike.%${p}%`).join(',');
-                    query = query.or(productConditions);
-                }
-                if (kpiFilters.markets.length > 0) {
-                    const marketConditions = kpiFilters.markets.map(m => `country.ilike.%${m}%`).join(',');
-                    query = query.or(marketConditions);
-                }
-                if (kpiFilters.teams.length > 0) {
-                    const teamConditions = kpiFilters.teams.map(t => `team.ilike.%${t}%`).join(',');
-                    query = query.or(teamConditions);
-                }
+                    // Apply filters tương tự như KPI
+                    if (kpiFilters.products.length > 0) {
+                        const productConditions = kpiFilters.products.map(p => `product.ilike.%${p}%`).join(',');
+                        query = query.or(productConditions);
+                    }
+                    if (kpiFilters.markets.length > 0) {
+                        const marketConditions = kpiFilters.markets.map(m => `country.ilike.%${m}%`).join(',');
+                        query = query.or(marketConditions);
+                    }
+                    if (kpiFilters.teams.length > 0) {
+                        const teamConditions = kpiFilters.teams.map(t => `team.ilike.%${t}%`).join(',');
+                        query = query.or(teamConditions);
+                    }
 
-                const { data: allOrders, error } = await query.limit(50000);
+                    const result = await query.limit(50000);
+                    allOrders = result.data || [];
+                    error = result.error;
+                }
 
                 if (error) {
                     console.error('❌ Error fetching orders for Vận đơn:', error);
