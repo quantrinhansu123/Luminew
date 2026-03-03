@@ -17,6 +17,7 @@ import { rafThrottle } from '../utils/throttle';
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
 const QuickAddModal = lazy(() => import('../components/QuickAddModal'));
 const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal'));
+const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
 
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
@@ -1471,6 +1472,12 @@ function FFM() {
                       } else if (col === 'Ngày đẩy đơn') {
                         // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
                         val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
+                      } else if (col === 'Payment Bill') {
+                        // Lấy từ cả tên hiển thị và database
+                        val = row['Payment Bill'] ?? row.payment_bill ?? row[key] ?? '';
+                      } else if (col === 'Payment Image') {
+                        // Lấy từ cả tên hiển thị và database
+                        val = row['Payment Image'] ?? row.payment_image ?? row[key] ?? '';
                       } else {
                         val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
                       }
@@ -1518,6 +1525,31 @@ function FFM() {
                                   </option>
                                 ))}
                             </select>
+                          ) : col === 'Payment Bill' ? (
+                            <select
+                              className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
+                              value={String(val)}
+                              onChange={(e) => handleCellChange(orderId, key, e.target.value)}
+                            >
+                              {DROPDOWN_OPTIONS['Payment Bill']?.map((o) => (
+                                <option key={o} value={o}>
+                                  {o || '-- Chọn --'}
+                                </option>
+                              )) || (
+                                <>
+                                  <option value="">-- Chọn --</option>
+                                  <option value="Có bill">Có bill</option>
+                                  <option value="Bill một phần">Bill một phần</option>
+                                </>
+                              )}
+                            </select>
+                          ) : col === 'Payment Image' ? (
+                            <Suspense fallback={<span className="text-gray-400">...</span>}>
+                              <BillImageViewer 
+                                paymentImage={val || row['Payment Image'] || row.payment_image || ''}
+                                orderCode={orderId}
+                              />
+                            </Suspense>
                           ) : EDITABLE_COLS.includes(col) ? (
                             <input
                               type="text"

@@ -733,6 +733,14 @@ function Home() {
           permission: 'ORDERS_FFM',
         },
         {
+          title: "Điền bill",
+          icon: <FileText className="w-8 h-8" />,
+          color: "bg-emerald-500",
+          path: "/dien-bill",
+          status: "Mở ứng dụng",
+          permission: 'ORDERS_FFM',
+        },
+        {
           title: "Lịch sử thay đổi",
           icon: <ClipboardList className="w-8 h-8" />,
           color: "bg-gray-500", // Choosing a neutral color or distinct color

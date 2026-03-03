@@ -33,6 +33,7 @@ import DonChiaCSKH from './pages/DonChiaCSKH';
 import ExternalView from './pages/ExternalView';
 import F3Report from './pages/F3Report';
 import FFM from './pages/FFM';
+import DienBill from './pages/DienBill';
 import FinanceDashboard from './pages/FinanceDashboard';
 import HieuQuaMarketing from './pages/HieuQuaMarketing';
 import Home from './pages/Home';
@@ -51,6 +52,7 @@ import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import XemBaoCaoMKT from './pages/XemBaoCaoMKT';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
+import TestMKT from './pages/TestMKT';
 
 /* Header component extracted to `src/components/Header.jsx` */
 
@@ -102,7 +104,9 @@ function App() {
             <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
             <Route path="/xem-bao-cao-mkt" element={<ProtectedRoute><XemBaoCaoMKT /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-tay-mkt" element={<ProtectedRoute><DanhSachBaoCaoTayMKT /></ProtectedRoute>} />
+            <Route path="/test-mkt" element={<ProtectedRoute><TestMKT /></ProtectedRoute>} />
             <Route path="/ffm" element={<ProtectedRoute><FFM /></ProtectedRoute>} />
+            <Route path="/dien-bill" element={<ProtectedRoute><DienBill /></ProtectedRoute>} />
             <Route path="/lenh-san-xuat" element={<ProtectedRoute><LenHSanXuat /></ProtectedRoute>} />
 
             {/* RD Module Routes */}

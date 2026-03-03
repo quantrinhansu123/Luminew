@@ -376,7 +376,11 @@ export const DB_TO_APP_MAPPING = {
     "warehouse_fee": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
     "note_caps": "GHI CHÚ",
     "accounting_check_date": "Ngày Kế toán đối soát với FFM lần 2",
-    "reconciled_amount": "Số tiền của đơn hàng đã về TK Cty"
+    "reconciled_amount": "Số tiền của đơn hàng đã về TK Cty",
+    
+    // Payment Bill columns
+    "payment_bill": "Payment Bill",
+    "payment_image": "Payment Image"
 };
 
 // Helper to map Supabase row to App Format
@@ -404,6 +408,10 @@ const mapSupabaseOrderToApp = (sOrder) => {
     // Explicitly set these for VanDon.jsx logic
     // Nếu trong DB có delivery_status_nb thì dùng, nếu không thì fallback về delivery_status cũ (hoặc để trống)
     appOrder["Trạng thái giao hàng NB"] = sOrder.delivery_status_nb || sOrder.delivery_status;
+
+    // Payment Bill mapping
+    if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;
+    if (sOrder.payment_image) appOrder["Payment Image"] = sOrder.payment_image;
 
     return appOrder;
 };

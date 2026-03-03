@@ -1,9 +1,10 @@
 import { Eye, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
+const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
 import usePermissions from '../hooks/usePermissions';
 import { logDataChange } from '../services/logging';
 import * as rbacService from '../services/rbacService';
@@ -277,7 +278,9 @@ function DanhSachDon() {
     "Trạng thái thu tiền": item.payment_status_detail,
     "Lý do": item.reason,
     "Page": item.page_name, // Map Page Name
-    "Ca": item.shift // Map shift to Ca
+    "Ca": item.shift, // Map shift to Ca
+    "Payment Bill": item.payment_bill, // Trạng thái bill
+    "Payment Image": item.payment_image // Link hình ảnh bill
     // Note: _id and _source are excluded from mapSupabaseToUI to prevent them from appearing in column settings
   });
 
@@ -1942,6 +1945,53 @@ function DanhSachDon() {
                         if (col === 'Tổng tiền VNĐ') {
                           const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
                           value = num.toLocaleString('vi-VN') + ' ₫';
+                        }
+
+                        // Special rendering for Payment Bill and Payment Image
+                        if (col === 'Payment Bill') {
+                          return (
+                            <td
+                              key={col}
+                              className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <select
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                value={value || ''}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  // Handle update if needed
+                                  const newValue = e.target.value;
+                                  if (newValue !== value) {
+                                    // TODO: Add update logic here if needed
+                                    console.log('Update Payment Bill:', row['Mã đơn hàng'], newValue);
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <option value="">-- Chọn --</option>
+                                <option value="Có bill">Có bill</option>
+                                <option value="Bill một phần">Bill một phần</option>
+                              </select>
+                            </td>
+                          );
+                        }
+
+                        if (col === 'Payment Image') {
+                          return (
+                            <td
+                              key={col}
+                              className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Suspense fallback={<span className="text-gray-400">...</span>}>
+                                <BillImageViewer 
+                                  paymentImage={value || row['Payment Image'] || row.payment_image || ''}
+                                  orderCode={row['Mã đơn hàng'] || row.order_code || ''}
+                                />
+                              </Suspense>
+                            </td>
+                          );
                         }
 
                         return (

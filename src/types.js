@@ -11,7 +11,8 @@ export const ORDER_MGMT_COLUMNS = [
     "Ghi chú vận đơn", "Kết quả Check", "Ngày đóng hàng",
     "Trạng thái giao hàng", "GHI CHÚ", "Thời gian giao dự kiến",
     "Ngày Kế toán đối soát với FFM lần 2", "Ngày đẩy đơn", "Ngày có mã tracking",
-    "Phí ship nội địa Mỹ (usd)", "Phí xử lý đơn đóng hàng-Lưu kho(usd)"
+    "Phí ship nội địa Mỹ (usd)", "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
+    "Payment Bill", "Payment Image"
 ];
 
 // --- VIEW 2: BILL OF LADING COLUMNS (New) ---
@@ -39,7 +40,8 @@ export const DROPDOWN_OPTIONS = {
     "Kết quả Check": ["", "OK", "Huỷ", "Treo", "Vận đơn XL", "Đợi hàng", "Khách hẹn", "Chờ check lại", "Sai SĐT", "Sai địa chỉ", "Khác"],
     "Trạng thái giao hàng NB": ["", "Giao Thành Công", "Đang Giao", "Chưa Giao", "Hủy", "Hoàn", "chờ check", "Giao không thành công", "Bom_Thất Lạc"],
     "Trạng thái thu tiền": ["", "Có bill", "Có bill 1 phần", "Bom_bùng_chặn", "Hẹn Thanh Toán", "Hoàn Hàng", "Khó Đòi", "Không nhận được hàng", "Không PH dưới 3N", "Thanh toán phí hoàn", "KPH nhiều ngày"],
-    "Trạng thái giao hàng": ["", "NHÃN", "ĐANG GIAO", "ĐÃ GIAO", "HOÀN"]
+    "Trạng thái giao hàng": ["", "NHÃN", "ĐANG GIAO", "ĐÃ GIAO", "HOÀN"],
+    "Payment Bill": ["", "Có bill", "Bill một phần"]
 };
 
 // Columns that are editable directly
@@ -53,7 +55,9 @@ export const EDITABLE_COLS = [
     "Name*", "Phone*", "Add", "City", "State", "Zipcode", "Khu vực", "Mặt hàng",
     "Tên mặt hàng 1", "Số lượng mặt hàng 1", "Tên mặt hàng 2", "Số lượng mặt hàng 2",
     "Quà tặng", "Số lượng quà kèm", "Giá bán", "Loại tiền thanh toán", "Tổng tiền VNĐ",
-    "Hình thức thanh toán"
+    "Hình thức thanh toán",
+    // Cột bill
+    "Payment Bill", "Payment Image"
 ];
 
 // Columns that expand with Ctrl+Enter
@@ -62,5 +66,7 @@ export const LONG_TEXT_COLS = ["Lý do", "Ghi chú của VĐ", "Ghi chú", "GHI 
 export const COLUMN_MAPPING = {
     "Ghi chú vận đơn": "Ghi chú của VĐ",
     "Kết quả check": "Kết quả Check",
-    "khu vực": "Khu vực"
+    "khu vực": "Khu vực",
+    "Payment Bill": "payment_bill",
+    "Payment Image": "payment_image"
 };

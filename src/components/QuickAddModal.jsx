@@ -98,14 +98,21 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
     const [selection, setSelection] = useState(null);
     const isSelecting = useRef(false);
     const containerRef = useRef(null);
+    const selectionRef = useRef(null);
 
     useEffect(() => {
         if (isOpen) {
             setRows(Array(15).fill(null).map(() => Array(COLUMNS.length).fill("")));
             setSelection(null);
+            selectionRef.current = null;
             setTimeout(() => containerRef.current?.focus(), 100);
         }
     }, [isOpen]);
+
+    // Keep selectionRef in sync with selection state
+    useEffect(() => {
+        selectionRef.current = selection;
+    }, [selection]);
 
     // Mouse up listener
     useEffect(() => {
@@ -142,8 +149,6 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
         }
         return selectedRows.join('\n');
     };
-
-    if (!isOpen) return null;
 
     // Selection handlers - giống bảng chính
     const handleMouseDown = (rowIdx, colIdx, e) => {
@@ -200,8 +205,8 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
         const pastedRows = clipboardData.trim().split(/\r\n|\n/).filter(row => row.trim()).map(row => row.split('\t'));
         if (pastedRows.length === 0) return;
         
-        // Lấy selection hiện tại từ closure (đã được capture trong useCallback)
-        const currentSelection = selection;
+        // Lấy selection hiện tại từ ref (luôn có giá trị mới nhất)
+        const currentSelection = selectionRef.current;
         
         // Debug: log selection hiện tại
         console.log('🔍 [Paste] Current Selection:', currentSelection, 'rowIdx:', rowIdx, 'colIdx:', colIdx);
@@ -319,8 +324,10 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
         });
         
         // Cập nhật selection sau khi paste
-        setSelection({ startRow, startCol, endRow, endCol });
-    }, [selection]);
+        const newSelection = { startRow, startCol, endRow, endCol };
+        setSelection(newSelection);
+        selectionRef.current = newSelection;
+    }, []);
 
     // Handle keyboard
     const handleKeyDown = (e) => {
@@ -493,6 +500,8 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
             />
         );
     };
+
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1060] flex justify-center items-center p-4" onClick={onClose}>
