@@ -53,6 +53,18 @@ export default defineConfig({
             console.log('proxy error', err);
           });
         },
+      },
+      // Proxy for local API server to bypass CORS
+      '/api/local': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/local/, ''),
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('local API proxy error', err);
+          });
+        },
       }
     }
   }

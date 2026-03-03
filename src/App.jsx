@@ -52,7 +52,7 @@ import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import XemBaoCaoMKT from './pages/XemBaoCaoMKT';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
-import TestMKT from './pages/TestMKT';
+import TestMKT from './pages/TestMKT.jsx';
 
 /* Header component extracted to `src/components/Header.jsx` */
 
