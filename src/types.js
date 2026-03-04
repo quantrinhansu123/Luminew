@@ -41,7 +41,8 @@ export const DROPDOWN_OPTIONS = {
     "Trạng thái giao hàng NB": ["", "Giao Thành Công", "Đang Giao", "Chưa Giao", "Hủy", "Hoàn", "chờ check", "Giao không thành công", "Bom_Thất Lạc"],
     "Trạng thái thu tiền": ["", "Có bill", "Có bill 1 phần", "Bom_bùng_chặn", "Hẹn Thanh Toán", "Hoàn Hàng", "Khó Đòi", "Không nhận được hàng", "Không PH dưới 3N", "Thanh toán phí hoàn", "KPH nhiều ngày"],
     "Trạng thái giao hàng": ["", "NHÃN", "ĐANG GIAO", "ĐÃ GIAO", "HOÀN"],
-    "Payment Bill": ["", "Có bill", "Bill một phần"]
+    "Payment Bill": ["", "Có bill", "Bill một phần"],
+    "Trạng thái cskh": ["", "chặn", "đã có người xử lý", "đã lên đơn mới", "Đã xử lý", "Khách chặn", "không thấy mess"]
 };
 
 // Columns that are editable directly
@@ -57,7 +58,9 @@ export const EDITABLE_COLS = [
     "Quà tặng", "Số lượng quà kèm", "Giá bán", "Loại tiền thanh toán", "Tổng tiền VNĐ",
     "Hình thức thanh toán",
     // Cột bill
-    "Payment Bill", "Payment Image"
+    "Payment Bill", "Payment Image",
+    // Cột CSKH
+    "Trạng thái cskh"
 ];
 
 // Columns that expand with Ctrl+Enter

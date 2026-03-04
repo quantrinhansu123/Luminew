@@ -8,7 +8,7 @@ import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
-import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
+import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN, EDITABLE_COLS, DROPDOWN_OPTIONS } from '../types';
 
 // Helper Functions
 const getRowValue = (row, ...keys) => {
@@ -47,6 +47,7 @@ function DonChiaCSKH() {
   const { canView, canEdit, canDelete, role } = usePermissions();
 
   const [allData, setAllData] = useState([]);
+  const [allMappedData, setAllMappedData] = useState([]); // Lưu tất cả dữ liệu đã map (trước khi filter CSKH) để lấy unique CSKH
   const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
 
   const [loading, setLoading] = useState(false);
@@ -56,11 +57,21 @@ function DonChiaCSKH() {
   const [filterProduct, setFilterProduct] = useState([]);
   const [filterStatus, setFilterStatus] = useState([]);
   const [filterCheckResult, setFilterCheckResult] = useState([]);
-  const [filterPersonnel, setFilterPersonnel] = useState(''); // Filter by personnel name
+  const [filterPersonnel, setFilterPersonnel] = useState([]); // Filter by personnel name - array
   const [filterMonth, setFilterMonth] = useState('');
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
-  const [filterCSKH, setFilterCSKH] = useState('');
-  const [filterTrangThai, setFilterTrangThai] = useState('');
+  const [filterCSKH, setFilterCSKH] = useState([]); // Array for multiple selection
+  const [filterTrangThai, setFilterTrangThai] = useState([]); // Array for multiple selection
+  
+  // State for dropdown open/close
+  const [openDropdowns, setOpenDropdowns] = useState({
+    market: false,
+    product: false,
+    status: false,
+    checkResult: false,
+    cskh: false,
+    trangThai: false
+  });
 
   // Date state - default to last 3 days
   const [startDate, setStartDate] = useState(() => {
@@ -105,6 +116,8 @@ function DonChiaCSKH() {
     'Khu vực',
     'Mặt hàng',
     'Mã Tracking',
+    'CSKH',
+    'Trạng thái cskh',
     'Trạng thái giao hàng',
     'Tổng tiền VNĐ',
   ];
@@ -131,6 +144,7 @@ function DonChiaCSKH() {
     'delivery_status': 'Trạng thái giao hàng',
     'total_amount_vnd': 'Tổng tiền VNĐ',
     'cskh': 'CSKH',
+    'cskh_status': 'Trạng thái cskh',
     'team': 'Team',
     'sale_staff': 'Nhân viên Sale',
     'marketing_staff': 'Nhân viên Marketing',
@@ -220,21 +234,25 @@ function DonChiaCSKH() {
 
   // Get all available columns from data - chỉ lấy cột tiếng Việt
   const allAvailableColumns = useMemo(() => {
-    if (allData.length === 0) return [];
-
     // Get all potential keys from data - chỉ lấy cột tiếng Việt
     const allKeys = new Set();
-    allData.forEach(row => {
-      Object.keys(row).forEach(key => {
-        // Exclude PRIMARY_KEY_COLUMN, English columns, removed columns, and technical columns
-        if (key !== PRIMARY_KEY_COLUMN && 
-            !isEnglishColumn(key) && 
-            !REMOVED_COLUMNS.includes(key) &&
-            !key.startsWith('_')) {
-          allKeys.add(key);
-        }
+    
+    // Luôn thêm các cột mặc định vào danh sách (để đảm bảo chúng luôn có trong cài đặt)
+    defaultColumns.forEach(col => allKeys.add(col));
+    
+    if (allData.length > 0) {
+      allData.forEach(row => {
+        Object.keys(row).forEach(key => {
+          // Exclude PRIMARY_KEY_COLUMN, English columns, removed columns, and technical columns
+          if (key !== PRIMARY_KEY_COLUMN && 
+              !isEnglishColumn(key) && 
+              !REMOVED_COLUMNS.includes(key) &&
+              !key.startsWith('_')) {
+            allKeys.add(key);
+          }
+        });
       });
-    });
+    }
 
     // Strategy:
     // 1. Start Defaults: Defaults excluding pinned ones
@@ -297,6 +315,26 @@ function DonChiaCSKH() {
     return allAvailableColumns.filter(col => visibleColumns[col] === true);
   }, [allAvailableColumns, visibleColumns]);
 
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest('.relative')) {
+        setOpenDropdowns({
+          market: false,
+          product: false,
+          status: false,
+          checkResult: false,
+          cskh: false,
+          trangThai: false
+        });
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   // Clean up removed columns from visibleColumns on mount
   useEffect(() => {
     setVisibleColumns(prev => {
@@ -311,13 +349,19 @@ function DonChiaCSKH() {
         }
       });
       
-      // Ensure default columns are present
+      // Ensure default columns are present (including "Trạng thái")
       defaultColumns.forEach(col => {
         if (updated[col] === undefined) {
           updated[col] = true;
           changed = true;
         }
       });
+      
+      // Đảm bảo cột "Trạng thái cskh" luôn được bật
+      if (updated['Trạng thái cskh'] === false || updated['Trạng thái cskh'] === undefined) {
+        updated['Trạng thái cskh'] = true;
+        changed = true;
+      }
       
       return changed ? updated : prev;
     });
@@ -365,6 +409,7 @@ function DonChiaCSKH() {
       let query = supabase.from('orders').select('*');
 
       // Filter: Chỉ lấy đơn có CSKH không trống (loại bỏ null, rỗng, và khoảng trắng)
+      // Tất cả user (kể cả Admin) chỉ xem đơn có CSKH không trống
       query = query.not('cskh', 'is', null);
       query = query.neq('cskh', '');
       query = query.neq('cskh', ' ');
@@ -394,8 +439,9 @@ function DonChiaCSKH() {
       // => Dùng các field trong bảng orders: sale_staff, marketing_staff, delivery_staff
       if (!isManager) {
         // Nếu có filterPersonnel được chọn: chỉ lấy đơn mà người đó xuất hiện
-        if (filterPersonnel && filterPersonnel.trim().length > 0) {
-          const name = filterPersonnel.trim();
+        // filterPersonnel giờ là array
+        if (filterPersonnel && filterPersonnel.length > 0 && typeof filterPersonnel[0] === 'string') {
+          const name = filterPersonnel[0].trim();
           const pattern = `%${name}%`;
           console.log('🔍 [DonChiaCSKH] Filtering by selected personnel (Sale/MKT/Vận đơn):', name);
 
@@ -456,8 +502,9 @@ function DonChiaCSKH() {
         }
       } else {
         // Admin/Manager: có thể filter theo nhân sự nếu được chọn
-        if (filterPersonnel && filterPersonnel.trim().length > 0) {
-          const name = filterPersonnel.trim();
+        // filterPersonnel giờ là array
+        if (filterPersonnel && filterPersonnel.length > 0 && typeof filterPersonnel[0] === 'string') {
+          const name = filterPersonnel[0].trim();
           const pattern = `%${name}%`;
           console.log('🔍 [DonChiaCSKH] Admin filtering by selected personnel (Sale/MKT/Vận đơn):', name);
 
@@ -513,6 +560,7 @@ function DonChiaCSKH() {
       const mappedData = (data || []).map(item => {
         // Tạo object với các cột friendly name (đầy đủ như BaoCaoChiTiet)
         const friendlyData = {
+          id: item.id, // Giữ lại id để có thể update/delete
           "Mã đơn hàng": item.order_code,
           "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
           "Name*": item.customer_name,
@@ -535,6 +583,7 @@ function DonChiaCSKH() {
           "Kết quả Check": item.payment_status,
           "Ghi chú": item.note,
           "CSKH": item.cskh ? String(item.cskh).trim() : '', // Chỉ lấy từ cột cskh, không fallback
+          "Trạng thái cskh": item.cskh_status || '',
           // Giữ lại cột gốc để debug
           _cskh_raw: item.cskh,
           "NV Vận đơn": item.delivery_staff,
@@ -553,6 +602,7 @@ function DonChiaCSKH() {
       });
 
       // Lọc thêm ở client-side để đảm bảo chỉ hiển thị đơn có CSKH không trống
+      // Tất cả user (kể cả Admin) chỉ xem đơn có CSKH không trống
       // Loại bỏ: null, undefined, chuỗi rỗng, và chuỗi chỉ có khoảng trắng
       const filteredData = mappedData.filter(row => {
         const cskh = row['CSKH'];
@@ -562,6 +612,8 @@ function DonChiaCSKH() {
         return trimmed !== '' && trimmed.length > 0;
       });
 
+      // Lưu mappedData để lấy unique CSKH từ tất cả dữ liệu (không chỉ đơn đã filter)
+      setAllMappedData(mappedData);
       setAllData(filteredData);
       console.log(`✅ [DonChiaCSKH] Loaded ${mappedData.length} orders from DB`);
       console.log(`🔍 [DonChiaCSKH] After CSKH filter: ${filteredData.length} orders`);
@@ -695,14 +747,29 @@ function DonChiaCSKH() {
     return Array.from(statuses).sort();
   }, [allData]);
 
+  // Unique values từ cột "Trạng thái cskh" (cskh_status)
+  const uniqueTrangThaiCSKH = useMemo(() => {
+    const statuses = new Set();
+    allData.forEach(row => {
+      const status = row["Trạng thái cskh"];
+      if (status && String(status).trim() !== '') {
+        statuses.add(String(status).trim());
+      }
+    });
+    return Array.from(statuses).sort();
+  }, [allData]);
+
   const uniqueCSKH = useMemo(() => {
     const cskhSet = new Set();
-    allData.forEach(row => {
+    // Lấy từ allMappedData (tất cả dữ liệu) thay vì allData (đã filter) để hiển thị đầy đủ các CSKH
+    allMappedData.forEach(row => {
       const cskh = row["CSKH"];
-      if (cskh) cskhSet.add(String(cskh).trim());
+      if (cskh && String(cskh).trim() !== '') {
+        cskhSet.add(String(cskh).trim());
+      }
     });
     return Array.from(cskhSet).sort();
-  }, [allData]);
+  }, [allMappedData]);
 
   const uniqueCheckResults = useMemo(() => {
     const checkResults = new Set();
@@ -844,35 +911,50 @@ function DonChiaCSKH() {
       });
     }
 
-    // Personnel filter (client-side filter for additional filtering - full match)
-    if (filterPersonnel && filterPersonnel.trim().length > 0) {
+    // Personnel filter (array - multiple selection)
+    if (filterPersonnel.length > 0) {
       data = data.filter(row => {
         const cskh = String(row["CSKH"] || '').trim();
-        const filterName = filterPersonnel.trim();
-        // Match chính xác tên đầy đủ (case-insensitive)
-        return cskh.toLowerCase() === filterName.toLowerCase() || 
-               cskh.toLowerCase().includes(filterName.toLowerCase());
+        return filterPersonnel.some(filterName => {
+          const name = String(filterName).trim();
+          return cskh.toLowerCase() === name.toLowerCase() || 
+                 cskh.toLowerCase().includes(name.toLowerCase());
+        });
       });
     }
 
-    // CSKH filter
-    if (filterCSKH && filterCSKH !== '__EMPTY__') {
+    // CSKH filter - Lọc theo cột CSKH (array - multiple selection)
+    if (filterCSKH.length > 0) {
       data = data.filter(row => {
         const cskh = String(row["CSKH"] || '').trim();
-        return cskh === filterCSKH;
+        // Check if any selected value matches
+        return filterCSKH.some(filterValue => {
+          if (filterValue === '__EMPTY__') {
+            // Match empty CSKH
+            return !cskh || cskh === '';
+          } else {
+            // Match non-empty CSKH
+            return cskh.toLowerCase() === String(filterValue).trim().toLowerCase();
+          }
+        });
       });
-    } else if (filterCSKH === '__EMPTY__') {
-      data = data.filter(row => !row["CSKH"]);
     }
 
-    // Trạng thái filter
-    if (filterTrangThai && filterTrangThai !== '__EMPTY__') {
+    // Trạng thái CSKH filter - Lọc theo cột "Trạng thái cskh" (array - multiple selection)
+    if (filterTrangThai.length > 0) {
       data = data.filter(row => {
-        const status = String(row["Trạng thái giao hàng"] || '').trim();
-        return status === filterTrangThai;
+        const status = String(row["Trạng thái cskh"] || '').trim();
+        // Check if any selected value matches
+        return filterTrangThai.some(filterValue => {
+          if (filterValue === '__EMPTY__') {
+            // Match empty status
+            return !status || status === '';
+          } else {
+            // Match non-empty status
+            return status === String(filterValue).trim();
+          }
+        });
       });
-    } else if (filterTrangThai === '__EMPTY__') {
-      data = data.filter(row => !row["Trạng thái giao hàng"]);
     }
 
     // Date filter (already applied on server-side, but double check if needed or just skip)
@@ -1012,6 +1094,51 @@ function DonChiaCSKH() {
     } else {
       setSortColumn(column);
       setSortDirection('asc');
+    }
+  };
+
+  // Handle cell change for editable columns
+  const handleCellChange = async (orderId, columnName, newValue) => {
+    if (!orderId) {
+      toast.error("Không tìm thấy ID đơn hàng");
+      return;
+    }
+
+    try {
+      // Map column name to database column
+      const dbColumnMap = {
+        'Trạng thái cskh': 'cskh_status',
+      };
+      
+      const dbColumn = dbColumnMap[columnName] || columnName.toLowerCase().replace(/\s+/g, '_');
+      
+      const { error } = await supabase
+        .from('orders')
+        .update({ [dbColumn]: newValue })
+        .eq('id', orderId);
+
+      if (error) throw error;
+
+      // Update local state
+      setAllData(prev => prev.map(item => {
+        if (item.id === orderId) {
+          return { ...item, [columnName]: newValue };
+        }
+        return item;
+      }));
+      
+      // Also update allMappedData
+      setAllMappedData(prev => prev.map(item => {
+        if (item.id === orderId) {
+          return { ...item, [columnName]: newValue };
+        }
+        return item;
+      }));
+
+      toast.success("✅ Đã cập nhật thành công!");
+    } catch (error) {
+      console.error("Update cell error:", error);
+      toast.error("❌ Lỗi cập nhật: " + error.message);
     }
   };
 
@@ -1298,96 +1425,334 @@ function DonChiaCSKH() {
                 />
               </div>
 
-              {/* Market Filter */}
-              <div className="min-w-[150px]">
+              {/* Market Filter - Checkbox */}
+              <div className="min-w-[180px] relative">
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Khu vực</label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                  value={filterMarket[0] || ''}
-                  onChange={(e) => setFilterMarket(e.target.value ? [e.target.value] : [])}
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdowns({...openDropdowns, market: !openDropdowns.market})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
-                  <option value="">Tất cả</option>
-                  {uniqueMarkets.map(market => (
-                    <option key={market} value={market}>{market}</option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {filterMarket.length === 0 ? 'Tất cả' : `${filterMarket.length} đã chọn`}
+                  </span>
+                  <span className="ml-2">{openDropdowns.market ? '▲' : '▼'}</span>
+                </button>
+                {openDropdowns.market && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      {uniqueMarkets.map(market => (
+                        <label key={market} className="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer rounded">
+                          <input
+                            type="checkbox"
+                            checked={filterMarket.includes(market)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFilterMarket([...filterMarket, market]);
+                              } else {
+                                setFilterMarket(filterMarket.filter(v => v !== market));
+                              }
+                            }}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">{market}</span>
+                        </label>
+                      ))}
+                      <div className="border-t mt-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterMarket([]);
+                            setOpenDropdowns({...openDropdowns, market: false});
+                          }}
+                          className="w-full text-xs text-blue-600 hover:text-blue-800 py-1"
+                        >
+                          Xóa tất cả
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Product Filter */}
-              <div className="min-w-[150px]">
+              {/* Product Filter - Checkbox */}
+              <div className="min-w-[180px] relative">
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Mặt hàng</label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                  value={filterProduct[0] || ''}
-                  onChange={(e) => setFilterProduct(e.target.value ? [e.target.value] : [])}
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdowns({...openDropdowns, product: !openDropdowns.product})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
-                  <option value="">Tất cả</option>
-                  {uniqueProducts.map(product => (
-                    <option key={product} value={product}>{product}</option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {filterProduct.length === 0 ? 'Tất cả' : `${filterProduct.length} đã chọn`}
+                  </span>
+                  <span className="ml-2">{openDropdowns.product ? '▲' : '▼'}</span>
+                </button>
+                {openDropdowns.product && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      {uniqueProducts.map(product => (
+                        <label key={product} className="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer rounded">
+                          <input
+                            type="checkbox"
+                            checked={filterProduct.includes(product)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFilterProduct([...filterProduct, product]);
+                              } else {
+                                setFilterProduct(filterProduct.filter(v => v !== product));
+                              }
+                            }}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">{product}</span>
+                        </label>
+                      ))}
+                      <div className="border-t mt-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterProduct([]);
+                            setOpenDropdowns({...openDropdowns, product: false});
+                          }}
+                          className="w-full text-xs text-blue-600 hover:text-blue-800 py-1"
+                        >
+                          Xóa tất cả
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Status Filter */}
-              <div className="min-w-[150px]">
+              {/* Status Filter - Checkbox */}
+              <div className="min-w-[180px] relative">
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái</label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                  value={filterStatus[0] || ''}
-                  onChange={(e) => setFilterStatus(e.target.value ? [e.target.value] : [])}
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdowns({...openDropdowns, status: !openDropdowns.status})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
-                  <option value="">Tất cả</option>
-                  {uniqueStatuses.map(status => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {filterStatus.length === 0 ? 'Tất cả' : `${filterStatus.length} đã chọn`}
+                  </span>
+                  <span className="ml-2">{openDropdowns.status ? '▲' : '▼'}</span>
+                </button>
+                {openDropdowns.status && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      {uniqueStatuses.map(status => (
+                        <label key={status} className="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer rounded">
+                          <input
+                            type="checkbox"
+                            checked={filterStatus.includes(status)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFilterStatus([...filterStatus, status]);
+                              } else {
+                                setFilterStatus(filterStatus.filter(v => v !== status));
+                              }
+                            }}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">{status}</span>
+                        </label>
+                      ))}
+                      <div className="border-t mt-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterStatus([]);
+                            setOpenDropdowns({...openDropdowns, status: false});
+                          }}
+                          className="w-full text-xs text-blue-600 hover:text-blue-800 py-1"
+                        >
+                          Xóa tất cả
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Check Result Filter */}
-              <div className="min-w-[150px]">
+              {/* Check Result Filter - Checkbox */}
+              <div className="min-w-[180px] relative">
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Kết quả Check</label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                  value={filterCheckResult[0] || ''}
-                  onChange={(e) => setFilterCheckResult(e.target.value ? [e.target.value] : [])}
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdowns({...openDropdowns, checkResult: !openDropdowns.checkResult})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
-                  <option value="">Tất cả</option>
-                  {uniqueCheckResults.map(checkResult => (
-                    <option key={checkResult} value={checkResult}>{checkResult}</option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {filterCheckResult.length === 0 ? 'Tất cả' : `${filterCheckResult.length} đã chọn`}
+                  </span>
+                  <span className="ml-2">{openDropdowns.checkResult ? '▲' : '▼'}</span>
+                </button>
+                {openDropdowns.checkResult && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      {uniqueCheckResults.map(checkResult => (
+                        <label key={checkResult} className="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer rounded">
+                          <input
+                            type="checkbox"
+                            checked={filterCheckResult.includes(checkResult)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFilterCheckResult([...filterCheckResult, checkResult]);
+                              } else {
+                                setFilterCheckResult(filterCheckResult.filter(v => v !== checkResult));
+                              }
+                            }}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">{checkResult}</span>
+                        </label>
+                      ))}
+                      <div className="border-t mt-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterCheckResult([]);
+                            setOpenDropdowns({...openDropdowns, checkResult: false});
+                          }}
+                          className="w-full text-xs text-blue-600 hover:text-blue-800 py-1"
+                        >
+                          Xóa tất cả
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* CSKH Filter */}
-              <div className="min-w-[180px]">
-                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">CSKH (Team Lý)</label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                  value={filterCSKH}
-                  onChange={(e) => setFilterCSKH(e.target.value)}
+              {/* CSKH Filter - Checkbox */}
+              <div className="min-w-[180px] relative">
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">CSKH</label>
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdowns({...openDropdowns, cskh: !openDropdowns.cskh})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white text-left flex items-center justify-between"
                 >
-                  <option value="">Tất cả</option>
-                  <option value="__EMPTY__">Trống</option>
-                  {uniqueCSKH.map(cskh => (
-                    <option key={cskh} value={cskh}>{cskh}</option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {filterCSKH.length === 0 ? 'Tất cả' : `${filterCSKH.length} đã chọn`}
+                  </span>
+                  <span className="ml-2">{openDropdowns.cskh ? '▲' : '▼'}</span>
+                </button>
+                {openDropdowns.cskh && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <label className="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer rounded">
+                        <input
+                          type="checkbox"
+                          checked={filterCSKH.includes('__EMPTY__')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFilterCSKH([...filterCSKH, '__EMPTY__']);
+                            } else {
+                              setFilterCSKH(filterCSKH.filter(v => v !== '__EMPTY__'));
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">Trống</span>
+                      </label>
+                      {uniqueCSKH.map(cskh => (
+                        <label key={cskh} className="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer rounded">
+                          <input
+                            type="checkbox"
+                            checked={filterCSKH.includes(cskh)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFilterCSKH([...filterCSKH, cskh]);
+                              } else {
+                                setFilterCSKH(filterCSKH.filter(v => v !== cskh));
+                              }
+                            }}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">{cskh}</span>
+                        </label>
+                      ))}
+                      <div className="border-t mt-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterCSKH([]);
+                            setOpenDropdowns({...openDropdowns, cskh: false});
+                          }}
+                          className="w-full text-xs text-blue-600 hover:text-blue-800 py-1"
+                        >
+                          Xóa tất cả
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Trạng thái Filter */}
-              <div className="min-w-[150px]">
-                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái cuối cùng</label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                  value={filterTrangThai}
-                  onChange={(e) => setFilterTrangThai(e.target.value)}
+              {/* Trạng thái CSKH Filter - Checkbox */}
+              <div className="min-w-[180px] relative">
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái CSKH</label>
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdowns({...openDropdowns, trangThai: !openDropdowns.trangThai})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white text-left flex items-center justify-between"
                 >
-                  <option value="">Tất cả</option>
-                  <option value="__EMPTY__">Trống</option>
-                  {uniqueStatuses.map(status => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {filterTrangThai.length === 0 ? 'Tất cả' : `${filterTrangThai.length} đã chọn`}
+                  </span>
+                  <span className="ml-2">{openDropdowns.trangThai ? '▲' : '▼'}</span>
+                </button>
+                {openDropdowns.trangThai && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <label className="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer rounded">
+                        <input
+                          type="checkbox"
+                          checked={filterTrangThai.includes('__EMPTY__')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFilterTrangThai([...filterTrangThai, '__EMPTY__']);
+                            } else {
+                              setFilterTrangThai(filterTrangThai.filter(v => v !== '__EMPTY__'));
+                            }
+                          }}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">Trống</span>
+                      </label>
+                      {uniqueTrangThaiCSKH.map(status => (
+                        <label key={status} className="flex items-center px-2 py-1 hover:bg-gray-100 cursor-pointer rounded">
+                          <input
+                            type="checkbox"
+                            checked={filterTrangThai.includes(status)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFilterTrangThai([...filterTrangThai, status]);
+                              } else {
+                                setFilterTrangThai(filterTrangThai.filter(v => v !== status));
+                              }
+                            }}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">{status}</span>
+                        </label>
+                      ))}
+                      <div className="border-t mt-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterTrangThai([]);
+                            setOpenDropdowns({...openDropdowns, trangThai: false});
+                          }}
+                          className="w-full text-xs text-blue-600 hover:text-blue-800 py-1"
+                        >
+                          Xóa tất cả
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Settings Button */}
@@ -1530,13 +1895,10 @@ function DonChiaCSKH() {
                         // This prevents COLUMN_MAPPING from overriding our manually mapped friendly keys.
                         let value = row[col];
 
-                        // Đặc biệt: CSKH chỉ lấy từ cột cskh, không fallback
+                        // Đặc biệt: CSKH chỉ lấy từ cột cskh trong database (đã được map trong mappedData)
                         if (col === 'CSKH') {
+                          // row['CSKH'] đã được map từ item.cskh trong database
                           value = row['CSKH'];
-                          // Nếu không có, thử lấy từ cột gốc cskh
-                          if (value === undefined || value === null || value === '') {
-                            value = row['cskh'];
-                          }
                           // Đảm bảo là string và trim
                           value = value ? String(value).trim() : '';
                         } else if (value === undefined || value === null) {
@@ -1555,6 +1917,33 @@ function DonChiaCSKH() {
                         if (['Tổng tiền VNĐ', 'Tiền Hàng', 'Phí ship', 'Phí Chung'].includes(col)) {
                           const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
                           value = num.toLocaleString('vi-VN') + ' ₫';
+                        }
+
+                        // Render editable cell for "Trạng thái cskh" with dropdown
+                        if (col === 'Trạng thái cskh' && EDITABLE_COLS.includes(col)) {
+                          const dropdownOptions = DROPDOWN_OPTIONS[col] || [];
+                          return (
+                            <td
+                              key={col}
+                              className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <select
+                                value={value || ''}
+                                onChange={(e) => {
+                                  const newValue = e.target.value;
+                                  handleCellChange(row.id, col, newValue);
+                                }}
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                              >
+                                {dropdownOptions.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option || '(Trống)'}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                          );
                         }
 
                         return (
