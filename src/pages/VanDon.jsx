@@ -91,6 +91,10 @@ function VanDon() {
   const [dateFrom, setDateFrom] = useState(isAdmin ? '' : getThreeDaysAgo());
   const [dateTo, setDateTo] = useState(isAdmin ? '' : getToday());
   const [enableDateFilter, setEnableDateFilter] = useState(!isAdmin);
+  // Bộ lọc Ngày up bill
+  const [dateFromUpBill, setDateFromUpBill] = useState('');
+  const [dateToUpBill, setDateToUpBill] = useState('');
+  const [enableUpBillFilter, setEnableUpBillFilter] = useState(false);
   const [quickFilter, setQuickFilter] = useState('');
   const [fixedColumns, setFixedColumns] = useState(2);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -229,8 +233,35 @@ function VanDon() {
   const formatDate = (dateString) => {
     if (!dateString) return '';
     try {
-      const date = new Date(dateString.includes('Z') ? dateString : dateString + 'Z');
-      if (isNaN(date.getTime())) return dateString;
+      const str = String(dateString).trim();
+      let date;
+      
+      // Xử lý định dạng yyyy-mm-dd (như "2026-01-25")
+      if (str.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const [year, month, day] = str.split('-').map(Number);
+        date = new Date(year, month - 1, day);
+      }
+      // Xử lý định dạng dd/mm/yyyy
+      else if (str.includes('/')) {
+        const parts = str.split('/');
+        if (parts.length === 3) {
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(parts[2], 10);
+          date = new Date(year, month, day);
+        } else {
+          date = new Date(str);
+        }
+      }
+      // Xử lý ISO string hoặc các định dạng khác
+      else {
+        date = new Date(str.includes('Z') || str.includes('T') ? str : str);
+      }
+      
+      if (isNaN(date.getTime())) {
+        return dateString; // Trả về nguyên bản nếu không parse được
+      }
+      
       const day = String(date.getDate()).padStart(2, '0');
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const year = date.getFullYear();
@@ -312,16 +343,20 @@ function VanDon() {
 
       // --- 2. FETCH DATA WITH BACKEND PERMISSIONS ---
       if (useBackendPagination) {
-        const activeTeam = bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined);
-        const activeStatus = enableDateFilter ? undefined : (filterValues.status || undefined);
+        // Admin: xem tất cả dữ liệu, KHÔNG bị filter bởi bất kỳ filter nào
+        const activeTeam = isAdmin ? undefined : (bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined));
+        const activeStatus = isAdmin ? undefined : (enableDateFilter ? undefined : (filterValues.status || undefined));
         const isJapanTab = bolActiveTab === 'japan';
-        const marketFilter = isJapanTab ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market;
+        // Admin: KHÔNG filter theo market/product/date (xem tất cả)
+        const marketFilter = isAdmin ? undefined : (isJapanTab ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market);
+        const productFilter = isAdmin ? undefined : filterValues.product;
         const shouldApplyDateFilter = enableDateFilter && !isAdmin;
+        
+        // Admin/Manager: không filter theo nhân sự (luôn xem tất cả)
+        // Pass allowedStaff to API ONLY if not Manager AND Not Japan Tab AND Not Admin
+        const apiAllowedStaff = (!isManager && !isJapanTab && !isAdmin) ? allAllowedNames : undefined;
 
-        // Pass allowedStaff to API ONLY if not Manager AND Not Japan Tab
-        const apiAllowedStaff = (!isManager && !isJapanTab) ? allAllowedNames : undefined;
-
-        console.log('🚀 [VanDon] Fetching API with allowedStaff:', apiAllowedStaff);
+        console.log('🚀 [VanDon] Fetching API - isAdmin:', isAdmin, 'allowedStaff:', apiAllowedStaff, 'activeTeam:', activeTeam, 'marketFilter:', marketFilter);
 
         const result = await API.fetchVanDon({
           page: currentPage,
@@ -329,7 +364,7 @@ function VanDon() {
           team: activeTeam,
           status: activeStatus,
           market: marketFilter,
-          product: filterValues.product,
+          product: productFilter,
           dateFrom: shouldApplyDateFilter ? dateFrom : undefined,
           dateTo: shouldApplyDateFilter ? dateTo : undefined,
           allowedStaff: apiAllowedStaff
@@ -340,8 +375,8 @@ function VanDon() {
 
         // --- 3. CLIENT SIDE POST-PROCESSING (Hanoi Tab, etc) ---
 
-        // Tab "Đẩy đơn Hà Nội": extra client restrictions
-        if (bolActiveTab === 'hanoi') {
+        // Tab "Đẩy đơn Hà Nội": extra client restrictions (Admin không bị filter)
+        if (bolActiveTab === 'hanoi' && !isAdmin) {
           filteredData = result.data.filter(row => {
             const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
             const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
@@ -358,6 +393,8 @@ function VanDon() {
           });
           filteredTotal = filteredData.length;
           console.log('🏛️ [VanDon Backend] Tab Hà Nội - Filtered by Check="Ok", empty Tracking and empty Đơn vị vận chuyển:', filteredData.length, 'orders');
+        } else if (bolActiveTab === 'hanoi' && isAdmin) {
+          console.log('👑 [VanDon Backend] Admin - Tab Hà Nội: Hiển thị tất cả dữ liệu (không filter)');
         }
 
         // Tab "Đơn Nhật": không filter theo selectedPersonnelNames (đã filter ở API level)
@@ -369,6 +406,69 @@ function VanDon() {
         } else {
           // Standard tabs - already filtered by backend
           // No extra client filtering needed
+        }
+
+        // Debug: Kiểm tra đơn hàng cụ thể
+        const debugOrderCode = 'Kemb5a90cf6';
+        const debugOrder = result.data.find(row => {
+          const orderCode = row['Mã đơn hàng'] || row.order_code || row['order_code'];
+          return orderCode === debugOrderCode;
+        });
+        
+        if (debugOrder) {
+          console.log('🔍 [DEBUG] Tìm thấy đơn hàng', debugOrderCode, 'trong result.data:');
+          console.log('  - Team:', debugOrder.team || debugOrder['Team']);
+          console.log('  - Country:', debugOrder.country || debugOrder['Khu vực']);
+          console.log('  - Sale staff:', debugOrder.sale_staff || debugOrder['Nhân viên Sale']);
+          console.log('  - Marketing staff:', debugOrder.marketing_staff);
+          console.log('  - Delivery staff:', debugOrder.delivery_staff || debugOrder['NV Vận đơn']);
+          console.log('  - Check result:', debugOrder.check_result || debugOrder['Kết quả Check']);
+          console.log('  - Tracking:', debugOrder.tracking_code || debugOrder['Mã Tracking']);
+          
+          const inFiltered = filteredData.find(row => {
+            const orderCode = row['Mã đơn hàng'] || row.order_code || row['order_code'];
+            return orderCode === debugOrderCode;
+          });
+          
+          if (!inFiltered) {
+            console.log('⚠️ [DEBUG] Đơn hàng', debugOrderCode, 'bị loại bỏ sau client-side filter');
+            if (bolActiveTab === 'hanoi') {
+              const checkResult = String(debugOrder['Kết quả Check'] || debugOrder['Kết quả check'] || '').trim();
+              const tracking = String(debugOrder['Mã Tracking'] || debugOrder['Mã tracking'] || '').trim();
+              const deliveryUnit = String(debugOrder['Đơn vị vận chuyển'] || debugOrder['Đơn vị Vận chuyển'] || '').trim();
+              console.log('  - Tab Hà Nội filter:');
+              console.log('    - Check = OK?', checkResult.toLowerCase() === 'ok');
+              console.log('    - Tracking trống?', !tracking || tracking === '' || tracking === 'null');
+              console.log('    - Đơn vị vận chuyển trống?', !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null');
+            }
+          } else {
+            console.log('✅ [DEBUG] Đơn hàng', debugOrderCode, 'có trong filteredData');
+          }
+        } else {
+          console.log('⚠️ [DEBUG] Không tìm thấy đơn hàng', debugOrderCode, 'trong result.data từ API');
+          console.log('  - Có thể bị filter ở backend bởi:');
+          console.log('    - Team filter:', activeTeam);
+          console.log('    - Market filter:', marketFilter);
+          console.log('    - Product filter:', filterValues.product);
+          console.log('    - Date filter:', shouldApplyDateFilter ? `${dateFrom} - ${dateTo}` : 'không áp dụng');
+          console.log('    - Allowed staff filter:', apiAllowedStaff);
+        }
+
+        // Debug: Kiểm tra đơn hàng trong allData và getFilteredData
+        const debugOrderCode = 'Kemb5a90cf6';
+        const debugInAllData = filteredData.find(row => {
+          const orderCode = row['Mã đơn hàng'] || row.order_code || row['order_code'];
+          return orderCode === debugOrderCode;
+        });
+        console.log('🔍 [DEBUG Step 2] Sau khi setAllData:');
+        if (debugInAllData) {
+          console.log('✅ Đơn hàng', debugOrderCode, 'có trong allData (filteredData)');
+        } else {
+          console.log('❌ Đơn hàng', debugOrderCode, 'KHÔNG có trong allData (filteredData)');
+          console.log('  - Total records:', filteredTotal);
+          console.log('  - Current page:', result.page);
+          console.log('  - Total pages:', result.totalPages);
+          console.log('  - Có thể đơn hàng ở trang khác hoặc bị filter');
         }
 
         setAllData(filteredData);
@@ -929,44 +1029,52 @@ function VanDon() {
     } else {
       // --- BILL OF LADING FILTERING LOGIC ---
 
-      // Filter: Chỉ hiển thị đơn có ít nhất một tên nhân sự (không trống)
-      const initialDataLength = data.length;
-      data = data.filter(row => {
-        const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
-        const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').trim();
-        const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim();
-        return saleStaff.length > 0 || mktStaff.length > 0 || deliveryStaff.length > 0;
-      });
-      console.log('🔍 [VanDon Client-side] Filtered out orders with empty personnel names:', initialDataLength - data.length, 'orders removed');
-
-      // Tab Logic - use early filtering to reduce dataset size
-      if (bolActiveTab === 'japan') {
-        // Tab "Đơn Nhật": hiển thị full các đơn có country="Nhật Bản" hoặc "CĐ Nhật Bản"
+      // Filter: Chỉ hiển thị đơn có ít nhất một tên nhân sự (không trống) - Admin không bị filter này
+      if (!isAdmin) {
+        const initialDataLength = data.length;
         data = data.filter(row => {
-          const country = String(row['country'] || row['Country'] || '').trim();
-          return country === 'Nhật Bản' || country === 'CĐ Nhật Bản' ||
-            country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
+          const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
+          const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').trim();
+          const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim();
+          return saleStaff.length > 0 || mktStaff.length > 0 || deliveryStaff.length > 0;
         });
-      } else if (bolActiveTab === 'hanoi') {
-        // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn có Team="Hà Nội", Kết quả Check="Ok", Mã Tracking trống/null và Đơn vị vận chuyển trống/null
-        data = data.filter(row => {
-          const team = String(row['Team'] || '').trim();
-          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-          const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
-          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+        console.log('🔍 [VanDon Client-side] Filtered out orders with empty personnel names:', initialDataLength - data.length, 'orders removed');
+      } else {
+        console.log('👑 [VanDon Client-side] Admin - Không filter theo nhân sự (hiển thị tất cả)');
+      }
 
-          // Team phải là "Hà Nội"
-          const isTeamHanoi = team === 'Hà Nội';
-          // Kết quả Check phải là "Ok" hoặc "OK"
-          const isCheckOk = checkResult.toLowerCase() === 'ok';
-          // Mã Tracking phải trống hoặc null
-          const isTrackingEmpty = !tracking || tracking === '' || tracking === 'null';
-          // Đơn vị vận chuyển phải trống hoặc null
-          const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
+      // Tab Logic - use early filtering to reduce dataset size (Admin không bị filter)
+      if (!isAdmin) {
+        if (bolActiveTab === 'japan') {
+          // Tab "Đơn Nhật": hiển thị full các đơn có country="Nhật Bản" hoặc "CĐ Nhật Bản"
+          data = data.filter(row => {
+            const country = String(row['country'] || row['Country'] || '').trim();
+            return country === 'Nhật Bản' || country === 'CĐ Nhật Bản' ||
+              country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
+          });
+        } else if (bolActiveTab === 'hanoi') {
+          // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn có Team="Hà Nội", Kết quả Check="Ok", Mã Tracking trống/null và Đơn vị vận chuyển trống/null
+          data = data.filter(row => {
+            const team = String(row['Team'] || '').trim();
+            const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+            const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
+            const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
 
-          return isTeamHanoi && isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
-        });
-        console.log('🏛️ [VanDon Fallback] Tab Hà Nội - Filtered by Team="Hà Nội", Check="Ok", empty Tracking and empty Đơn vị vận chuyển:', data.length, 'orders');
+            // Team phải là "Hà Nội"
+            const isTeamHanoi = team === 'Hà Nội';
+            // Kết quả Check phải là "Ok" hoặc "OK"
+            const isCheckOk = checkResult.toLowerCase() === 'ok';
+            // Mã Tracking phải trống hoặc null
+            const isTrackingEmpty = !tracking || tracking === '' || tracking === 'null';
+            // Đơn vị vận chuyển phải trống hoặc null
+            const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
+
+            return isTeamHanoi && isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
+          });
+          console.log('🏛️ [VanDon Fallback] Tab Hà Nội - Filtered by Team="Hà Nội", Check="Ok", empty Tracking and empty Đơn vị vận chuyển:', data.length, 'orders');
+        }
+      } else {
+        console.log('👑 [VanDon Client-side] Admin - Không filter theo tab (hiển thị tất cả)');
       }
 
       // Sort by Date Desc - optimized with cached date parsing
@@ -980,18 +1088,22 @@ function VanDon() {
     // --- COMMON FILTERS ---
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : bolDateType;
 
-    // Market & Product
-    if (filterValues.market.length > 0) {
-      const set = new Set(filterValues.market);
-      data = data.filter(row => set.has(row["Khu vực"] || row["khu vực"]));
-    }
-    if (filterValues.product.length > 0) {
-      const set = new Set(filterValues.product);
-      data = data.filter(row => set.has(row["Mặt hàng"]));
+    // Market & Product (Admin không bị filter)
+    if (!isAdmin) {
+      if (filterValues.market.length > 0) {
+        const set = new Set(filterValues.market);
+        data = data.filter(row => set.has(row["Khu vực"] || row["khu vực"]));
+      }
+      if (filterValues.product.length > 0) {
+        const set = new Set(filterValues.product);
+        data = data.filter(row => set.has(row["Mặt hàng"]));
+      }
+    } else {
+      console.log('👑 [VanDon Client-side] Admin - Không filter theo Market/Product (hiển thị tất cả)');
     }
 
-    // Date Range (only if enabled)
-    if (enableDateFilter) {
+    // Date Range (only if enabled) - Admin không bị filter
+    if (enableDateFilter && !isAdmin) {
       if (dateFrom) {
         const d = new Date(dateFrom);
         d.setHours(0, 0, 0, 0);
@@ -1008,6 +1120,53 @@ function VanDon() {
           const val = row[activeDateType];
           if (!val) return false;
           return new Date(val).getTime() <= d.getTime();
+        });
+      }
+    }
+
+    // Ngày up bill filter (only if enabled) - Admin không bị filter
+    if (enableUpBillFilter && !isAdmin) {
+      const upBillKey = COLUMN_MAPPING["Ngày up bill"] || "ngayupbill";
+      if (dateFromUpBill) {
+        const filterDate = new Date(dateFromUpBill);
+        filterDate.setHours(0, 0, 0, 0);
+        const filterTime = filterDate.getTime();
+        data = data.filter(row => {
+          const val = row[upBillKey] || row["Ngày up bill"];
+          if (!val) return false;
+          // Xử lý format yyyy-mm-dd
+          let rowDate;
+          const str = String(val).trim();
+          if (str.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            const [year, month, day] = str.split('-').map(Number);
+            rowDate = new Date(year, month - 1, day);
+          } else {
+            rowDate = new Date(str);
+          }
+          if (isNaN(rowDate.getTime())) return false;
+          rowDate.setHours(0, 0, 0, 0);
+          return rowDate.getTime() >= filterTime;
+        });
+      }
+      if (dateToUpBill) {
+        const filterDate = new Date(dateToUpBill);
+        filterDate.setHours(23, 59, 59, 999);
+        const filterTime = filterDate.getTime();
+        data = data.filter(row => {
+          const val = row[upBillKey] || row["Ngày up bill"];
+          if (!val) return false;
+          // Xử lý format yyyy-mm-dd
+          let rowDate;
+          const str = String(val).trim();
+          if (str.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            const [year, month, day] = str.split('-').map(Number);
+            rowDate = new Date(year, month - 1, day);
+          } else {
+            rowDate = new Date(str);
+          }
+          if (isNaN(rowDate.getTime())) return false;
+          rowDate.setHours(23, 59, 59, 999);
+          return rowDate.getTime() <= filterTime;
         });
       }
     }
@@ -1066,8 +1225,24 @@ function VanDon() {
       });
     }
 
+    // Debug: Kiểm tra đơn hàng trong getFilteredData
+    const debugOrderCode = 'Kemb5a90cf6';
+    const debugInFiltered = data.find(row => {
+      const orderId = row[PRIMARY_KEY_COLUMN];
+      return orderId === debugOrderCode;
+    });
+    if (debugInFiltered) {
+      console.log('✅ [DEBUG Step 3] Đơn hàng', debugOrderCode, 'có trong getFilteredData');
+    } else {
+      console.log('❌ [DEBUG Step 3] Đơn hàng', debugOrderCode, 'KHÔNG có trong getFilteredData');
+      console.log('  - Total data length:', data.length);
+      console.log('  - isAdmin:', isAdmin);
+      console.log('  - bolActiveTab:', bolActiveTab);
+      console.log('  - filterValues:', filterValues);
+    }
+
     return data;
-  }, [allData, legacyChanges, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, mgtNoiBoOrder]);
+  }, [allData, legacyChanges, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, enableDateFilter, dateFromUpBill, dateToUpBill, enableUpBillFilter, mgtNoiBoOrder, isAdmin]);
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
@@ -1756,6 +1931,46 @@ function VanDon() {
             </div>
           </div>
 
+          {/* Ngày up bill Filter */}
+          <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📄 Lọc Ngày up bill:</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dateFromUpBill || ''}
+                onChange={(e) => {
+                  setDateFromUpBill(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                placeholder="Từ ngày"
+              />
+              <span className="text-xs text-gray-500 font-bold">→</span>
+              <input
+                type="date"
+                value={dateToUpBill || ''}
+                onChange={(e) => {
+                  setDateToUpBill(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                placeholder="Đến ngày"
+              />
+              <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enableUpBillFilter}
+                  onChange={(e) => {
+                    setEnableUpBillFilter(e.target.checked);
+                    setCurrentPage(1);
+                  }}
+                  className="w-3 h-3 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <span>Áp dụng</span>
+              </label>
+            </div>
+          </div>
+
           {/* Market & Product Filters */}
           <div className="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200">
             <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🌍 Thị trường:</label>
@@ -1973,7 +2188,14 @@ function VanDon() {
                         )}
                         {currentColumns.map((col, cIdx) => {
                           const key = COLUMN_MAPPING[col] || col;
-                          const val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
+                          // Try multiple key variations for ngayupbill and reconciled_vnd
+                          let val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
+                          if (!val && col === "Ngày up bill") {
+                            val = row["ngayupbill"] ?? row["ngay_up_bill"] ?? '';
+                          }
+                          if (!val && col === "Tiền đã thanh toán") {
+                            val = row["reconciled_vnd"] ?? row["reconciled_vnd"] ?? '';
+                          }
                           // Use formatDate for dates
                           const displayVal = ["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2", "Ngày up bill"].includes(col)
                             ? formatDate(val)

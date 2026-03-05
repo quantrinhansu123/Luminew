@@ -413,6 +413,18 @@ const mapSupabaseOrderToApp = (sOrder) => {
     if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;
     if (sOrder.payment_image) appOrder["Payment Image"] = sOrder.payment_image;
 
+    // Ngày up bill mapping - map từ database column ngayupbill
+    if (sOrder.ngayupbill !== undefined && sOrder.ngayupbill !== null) {
+        appOrder["ngayupbill"] = sOrder.ngayupbill;
+        appOrder["Ngày up bill"] = sOrder.ngayupbill; // Map cả tên hiển thị
+    }
+
+    // Tiền đã thanh toán mapping - map từ database column reconciled_vnd
+    if (sOrder.reconciled_vnd !== undefined && sOrder.reconciled_vnd !== null) {
+        appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
+        appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd; // Map cả tên hiển thị
+    }
+
     return appOrder;
 };
 
@@ -530,6 +542,40 @@ export const fetchVanDon = async (options = {}) => {
         // --- PAGINATION ---
         const from = (page - 1) * limit;
         const to = from + limit - 1;
+
+        // Debug: Kiểm tra đơn hàng trước khi pagination
+        const debugOrderCode = 'Kemb5a90cf6';
+        const { data: debugCheck, error: debugError } = await supabase
+            .from('orders')
+            .select('order_code, order_date, team, country, sale_staff, marketing_staff, delivery_staff')
+            .eq('order_code', debugOrderCode)
+            .single();
+        
+        if (debugCheck && !debugError) {
+            console.log('🔍 [API DEBUG] Tìm thấy đơn hàng', debugOrderCode, 'trong database:');
+            console.log('  - Order date:', debugCheck.order_date);
+            console.log('  - Team:', debugCheck.team);
+            console.log('  - Country:', debugCheck.country);
+            console.log('  - Sale staff:', debugCheck.sale_staff);
+            console.log('  - Marketing staff:', debugCheck.marketing_staff);
+            console.log('  - Delivery staff:', debugCheck.delivery_staff);
+            
+            // Kiểm tra xem đơn hàng có pass các filter không
+            if (team && team !== 'all' && debugCheck.team !== team) {
+                console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi team filter:', team);
+            }
+            if (Array.isArray(market) && market.length > 0 && !market.includes(debugCheck.country)) {
+                console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi market filter:', market);
+            }
+            if (dateFrom && debugCheck.order_date < dateFrom) {
+                console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi dateFrom filter:', dateFrom);
+            }
+            if (dateTo && debugCheck.order_date > dateTo) {
+                console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi dateTo filter:', dateTo);
+            }
+        } else if (debugError && debugError.code !== 'PGRST116') {
+            console.log('⚠️ [API DEBUG] Lỗi khi tìm đơn hàng:', debugError);
+        }
 
         query = query.range(from, to).order('order_date', { ascending: false });
 
