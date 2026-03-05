@@ -34,6 +34,8 @@ import ExternalView from './pages/ExternalView';
 import F3Report from './pages/F3Report';
 import FFM from './pages/FFM';
 import DienBill from './pages/DienBill';
+import DoiSoatBillCuoc from './pages/DoiSoatBillCuoc';
+import QuanLyTyGia from './pages/QuanLyTyGia';
 import FinanceDashboard from './pages/FinanceDashboard';
 import HieuQuaMarketing from './pages/HieuQuaMarketing';
 import Home from './pages/Home';
@@ -109,6 +111,8 @@ function App() {
             <Route path="/test-sale-data" element={<ProtectedRoute><TestSaleData /></ProtectedRoute>} />
             <Route path="/ffm" element={<ProtectedRoute><FFM /></ProtectedRoute>} />
             <Route path="/dien-bill" element={<ProtectedRoute><DienBill /></ProtectedRoute>} />
+            <Route path="/doi-soat-bill-cuoc" element={<ProtectedRoute><DoiSoatBillCuoc /></ProtectedRoute>} />
+            <Route path="/quan-ly-ty-gia" element={<ProtectedRoute><QuanLyTyGia /></ProtectedRoute>} />
             <Route path="/lenh-san-xuat" element={<ProtectedRoute><LenHSanXuat /></ProtectedRoute>} />
 
             {/* RD Module Routes */}

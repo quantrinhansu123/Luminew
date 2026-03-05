@@ -506,6 +506,13 @@ function Home() {
           isExternal: true,
           permission: 'FINANCE_DASHBOARD',
         },
+        {
+          id: "finance-doi-soat",
+          label: "Đối soát bill cước",
+          icon: <DollarSign className="w-4 h-4" />,
+          path: "/doi-soat-bill-cuoc",
+          permission: 'FINANCE_DASHBOARD',
+        },
       ],
     },
 
@@ -1102,6 +1109,14 @@ function Home() {
           path: "https://lumi-finance-manager.vercel.app/#/f3-datasheet",
           status: "Mở ứng dụng",
           isExternal: true,
+          permission: 'FINANCE_ACCESS',
+        },
+        {
+          title: "Đối soát bill cước",
+          icon: <DollarSign className="w-8 h-8" />,
+          color: "bg-purple-600",
+          path: "/doi-soat-bill-cuoc",
+          status: "Mở ứng dụng",
           permission: 'FINANCE_ACCESS',
         },
       ],
