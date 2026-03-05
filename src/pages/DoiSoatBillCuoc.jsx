@@ -29,9 +29,7 @@ const CUOC_COLUMNS = [
   { key: 'ty_gia', label: 'Tỷ giá' },
   { key: 'tien_ship_vnd', label: 'Tiền ship (Vnđ)' },
   { key: 'thi_truong', label: 'Thị trường' },
-  { key: 'ffm', label: 'FFM' },
   { key: 'loc_trung', label: 'Lọc trùng' },
-  { key: 'san_pham', label: 'Sản phẩm' },
   { key: 'chi_nhanh', label: 'Chi nhánh' },
 ];
 
@@ -98,16 +96,70 @@ function DoiSoatBillCuoc() {
 
       if (error) throw error;
       
-      // Tự động điền tỷ giá cho các hàng có đơn vị tiền tệ nhưng chưa có tỷ giá
+      // Đếm số lần lặp lại của mỗi mã đơn hàng
+      const orderCodeCounts = {};
+      (data || []).forEach((row) => {
+        const orderCode = row.ma_don_hang;
+        if (orderCode) {
+          orderCodeCounts[orderCode] = (orderCodeCounts[orderCode] || 0) + 1;
+        }
+      });
+      
+      // Lấy danh sách mã đơn hàng để tìm chi nhánh từ bảng orders
+      const orderCodes = [...new Set((data || []).map(row => row.ma_don_hang).filter(Boolean))];
+      
+      // Load orders data để lấy chi nhánh
+      const ordersMap = new Map();
+      if (orderCodes.length > 0) {
+        // Supabase có giới hạn 1000 rows, nên cần chia nhỏ query nếu có nhiều mã
+        const batchSize = 1000;
+        for (let i = 0; i < orderCodes.length; i += batchSize) {
+          const batch = orderCodes.slice(i, i + batchSize);
+          const { data: ordersData, error: ordersError } = await supabase
+            .from('orders')
+            .select('order_code, team')
+            .in('order_code', batch);
+          
+          if (!ordersError && ordersData) {
+            ordersData.forEach(order => {
+              if (order.order_code && order.team) {
+                ordersMap.set(order.order_code, order.team);
+              }
+            });
+          }
+        }
+      }
+      
+      // Tự động điền tỷ giá và tính lọc trùng
       const processedData = (data || []).map((row) => {
+        let updatedRow = { ...row };
+        
+        // Tự động điền tỷ giá cho các hàng có đơn vị tiền tệ nhưng chưa có tỷ giá
         if (row.don_vi_tien_te && (!row.ty_gia || row.ty_gia === null || row.ty_gia === '')) {
           const currency = String(row.don_vi_tien_te).toUpperCase();
           const rate = exchangeRates[currency];
           if (rate !== null && rate !== undefined) {
-            return { ...row, ty_gia: rate };
+            updatedRow.ty_gia = rate;
           }
         }
-        return row;
+        
+        // Tính số lần lặp lại cho cột Lọc trùng
+        const orderCode = row.ma_don_hang;
+        if (orderCode && orderCodeCounts[orderCode] > 1) {
+          updatedRow.loc_trung = orderCodeCounts[orderCode];
+        } else {
+          updatedRow.loc_trung = null;
+        }
+        
+        // Tự động điền Chi nhánh từ bảng orders
+        if (orderCode && !updatedRow.chi_nhanh) {
+          const branch = ordersMap.get(orderCode);
+          if (branch) {
+            updatedRow.chi_nhanh = branch;
+          }
+        }
+        
+        return updatedRow;
       });
       
       setCuocData(processedData);
@@ -250,7 +302,7 @@ function DoiSoatBillCuoc() {
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [handleMouseUp]);
 
-  // Copy handler
+  // Copy handler - supports up to 200 rows for mã đơn hàng
   const handleCopy = useCallback(() => {
     if (selection.startRow === null || !selectionBounds) return;
 
@@ -286,7 +338,7 @@ function DoiSoatBillCuoc() {
       });
   }, [selection, selectionBounds, pendingChanges]);
 
-  // Paste handler
+  // Paste handler - supports up to 200 rows for mã đơn hàng
   const handlePaste = useCallback((e) => {
     const active = document.activeElement;
     
@@ -352,7 +404,7 @@ function DoiSoatBillCuoc() {
         const colKey = col.key;
         
         // Skip read-only fields
-        if (colKey === 'id' || colKey === 'created_at' || colKey === 'updated_at') continue;
+        if (colKey === 'id' || colKey === 'created_at' || colKey === 'updated_at' || colKey === 'loc_trung') continue;
 
         // Determine source col:
         // - If data has 1 col, use it for all target cols (repeat value)
@@ -381,6 +433,27 @@ function DoiSoatBillCuoc() {
           }
           newPending.get(rowId).set(colKey, processedValue);
           updatedCount++;
+          
+          // Auto-fill chi_nhanh when ma_don_hang is pasted (only for cuoc tab)
+          if (activeTab === 'cuoc' && colKey === 'ma_don_hang' && processedValue) {
+            getChiNhanhFromOrder(processedValue).then((branch) => {
+              if (branch) {
+                setPendingChanges((current) => {
+                  const updated = new Map(current);
+                  if (!updated.has(rowId)) {
+                    updated.set(rowId, new Map());
+                  }
+                  const rowChanges = updated.get(rowId);
+                  // Only set if chi_nhanh is empty or not set
+                  const currentRow = getCurrentData().find((r) => r.id === rowId);
+                  if (!currentRow?.chi_nhanh) {
+                    rowChanges.set('chi_nhanh', branch);
+                  }
+                  return updated;
+                });
+              }
+            });
+          }
         }
       }
     }
@@ -391,7 +464,7 @@ function DoiSoatBillCuoc() {
     } else {
       alert('Không có dữ liệu mới để dán');
     }
-  }, [selection, selectionBounds, pendingChanges]);
+  }, [selection, selectionBounds, pendingChanges, activeTab]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -484,8 +557,26 @@ function DoiSoatBillCuoc() {
       .filter((line) => line.length > 0);
   };
 
+  // Helper function to get chi_nhanh from orders table
+  const getChiNhanhFromOrder = async (orderCode) => {
+    if (!orderCode) return null;
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('team')
+        .eq('order_code', orderCode)
+        .single();
+      
+      if (error || !data) return null;
+      return data.team || null;
+    } catch (err) {
+      console.error('Error fetching chi_nhanh:', err);
+      return null;
+    }
+  };
+
   // Handle cell change - lưu vào pending changes
-  const handleCellChange = (rowId, columnKey, newValue) => {
+  const handleCellChange = async (rowId, columnKey, newValue) => {
     setPendingChanges((prev) => {
       const next = new Map(prev);
       if (!next.has(rowId)) {
@@ -524,6 +615,28 @@ function DoiSoatBillCuoc() {
         }
       }
 
+      // Auto-fill chi_nhanh when ma_don_hang changes (only for cuoc tab)
+      if (activeTab === 'cuoc' && columnKey === 'ma_don_hang' && newValue) {
+        // Fetch chi_nhanh asynchronously
+        getChiNhanhFromOrder(newValue).then((branch) => {
+          if (branch) {
+            setPendingChanges((current) => {
+              const updated = new Map(current);
+              if (!updated.has(rowId)) {
+                updated.set(rowId, new Map());
+              }
+              const rowChanges = updated.get(rowId);
+              // Only set if chi_nhanh is empty or not set
+              const currentRow = getCurrentData().find((r) => r.id === rowId);
+              if (!currentRow?.chi_nhanh) {
+                rowChanges.set('chi_nhanh', branch);
+              }
+              return updated;
+            });
+          }
+        });
+      }
+
       return next;
     });
   };
@@ -544,7 +657,10 @@ function DoiSoatBillCuoc() {
       pendingChanges.forEach((rowChanges, rowId) => {
         const updateObj = { id: rowId };
         rowChanges.forEach((value, columnKey) => {
-          updateObj[columnKey] = value;
+          // Skip loc_trung as it's a calculated field
+          if (columnKey !== 'loc_trung') {
+            updateObj[columnKey] = value;
+          }
         });
         updates.push(updateObj);
       });
@@ -795,7 +911,7 @@ function DoiSoatBillCuoc() {
                       <tr key={rowId || rowIdx} className={`hover:bg-gray-50 ${hasPendingChanges ? 'bg-yellow-50' : ''}`}>
                         {columns.map((col, colIdx) => {
                           // Bỏ qua các trường không cho phép chỉnh sửa
-                          const isReadOnly = col.key === 'id' || col.key === 'created_at' || col.key === 'updated_at';
+                          const isReadOnly = col.key === 'id' || col.key === 'created_at' || col.key === 'updated_at' || col.key === 'loc_trung';
                           
                           // Lấy giá trị hiện tại (ưu tiên pending changes)
                           let originalValue = row[col.key] ?? '';
