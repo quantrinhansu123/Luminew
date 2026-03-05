@@ -1975,9 +1975,9 @@ function VanDon() {
                           const key = COLUMN_MAPPING[col] || col;
                           const val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
                           // Use formatDate for dates
-                          const displayVal = ["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(col)
+                          const displayVal = ["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2", "Ngày up bill"].includes(col)
                             ? formatDate(val)
-                            : (col === "Tổng tiền VNĐ" ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : val);
+                            : (col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán" ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : val);
 
                           const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
                           const cellStyle = cIdx < fixedColumns ?

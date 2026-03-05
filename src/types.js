@@ -25,7 +25,8 @@ export const BILL_LADING_COLUMNS = [
     "Ngày đóng hàng", "Trạng thái giao hàng", "Thời gian giao dự kiến",
     "Phí ship nội địa Mỹ (usd)", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
     "Nhân viên Sale", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
-    "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2"
+    "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
+    "Ngày up bill", "Tiền đã thanh toán"
 ];
 
 // --- DEFAULT COLUMNS (Bill of Lading) ---
@@ -71,5 +72,7 @@ export const COLUMN_MAPPING = {
     "Kết quả check": "Kết quả Check",
     "khu vực": "Khu vực",
     "Payment Bill": "payment_bill",
-    "Payment Image": "payment_image"
+    "Payment Image": "payment_image",
+    "Ngày up bill": "ngayupbill",
+    "Tiền đã thanh toán": "reconciled_vnd"
 };
