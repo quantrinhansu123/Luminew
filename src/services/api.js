@@ -543,38 +543,42 @@ export const fetchVanDon = async (options = {}) => {
         const from = (page - 1) * limit;
         const to = from + limit - 1;
 
-        // Debug: Kiểm tra đơn hàng trước khi pagination
-        const debugOrderCode = 'Kemb5a90cf6';
-        const { data: debugCheck, error: debugError } = await supabase
-            .from('orders')
-            .select('order_code, order_date, team, country, sale_staff, marketing_staff, delivery_staff')
-            .eq('order_code', debugOrderCode)
-            .single();
-        
-        if (debugCheck && !debugError) {
-            console.log('🔍 [API DEBUG] Tìm thấy đơn hàng', debugOrderCode, 'trong database:');
-            console.log('  - Order date:', debugCheck.order_date);
-            console.log('  - Team:', debugCheck.team);
-            console.log('  - Country:', debugCheck.country);
-            console.log('  - Sale staff:', debugCheck.sale_staff);
-            console.log('  - Marketing staff:', debugCheck.marketing_staff);
-            console.log('  - Delivery staff:', debugCheck.delivery_staff);
+        // Debug: Kiểm tra đơn hàng trước khi pagination (không block query chính)
+        try {
+            const debugOrderCode = 'Kemb5a90cf6';
+            const { data: debugCheck, error: debugError } = await supabase
+                .from('orders')
+                .select('order_code, order_date, team, country, sale_staff, marketing_staff, delivery_staff')
+                .eq('order_code', debugOrderCode)
+                .maybeSingle(); // Dùng maybeSingle thay vì single để không throw error nếu không tìm thấy
             
-            // Kiểm tra xem đơn hàng có pass các filter không
-            if (team && team !== 'all' && debugCheck.team !== team) {
-                console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi team filter:', team);
+            if (debugCheck && !debugError) {
+                console.log('🔍 [API DEBUG] Tìm thấy đơn hàng', debugOrderCode, 'trong database:');
+                console.log('  - Order date:', debugCheck.order_date);
+                console.log('  - Team:', debugCheck.team);
+                console.log('  - Country:', debugCheck.country);
+                console.log('  - Sale staff:', debugCheck.sale_staff);
+                console.log('  - Marketing staff:', debugCheck.marketing_staff);
+                console.log('  - Delivery staff:', debugCheck.delivery_staff);
+                
+                // Kiểm tra xem đơn hàng có pass các filter không
+                if (team && team !== 'all' && debugCheck.team !== team) {
+                    console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi team filter:', team);
+                }
+                if (Array.isArray(market) && market.length > 0 && !market.includes(debugCheck.country)) {
+                    console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi market filter:', market);
+                }
+                if (dateFrom && debugCheck.order_date < dateFrom) {
+                    console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi dateFrom filter:', dateFrom);
+                }
+                if (dateTo && debugCheck.order_date > dateTo) {
+                    console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi dateTo filter:', dateTo);
+                }
+            } else if (debugError && debugError.code !== 'PGRST116') {
+                console.log('⚠️ [API DEBUG] Lỗi khi tìm đơn hàng:', debugError);
             }
-            if (Array.isArray(market) && market.length > 0 && !market.includes(debugCheck.country)) {
-                console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi market filter:', market);
-            }
-            if (dateFrom && debugCheck.order_date < dateFrom) {
-                console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi dateFrom filter:', dateFrom);
-            }
-            if (dateTo && debugCheck.order_date > dateTo) {
-                console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi dateTo filter:', dateTo);
-            }
-        } else if (debugError && debugError.code !== 'PGRST116') {
-            console.log('⚠️ [API DEBUG] Lỗi khi tìm đơn hàng:', debugError);
+        } catch (debugErr) {
+            console.warn('⚠️ [API DEBUG] Lỗi trong debug code (không ảnh hưởng query chính):', debugErr);
         }
 
         query = query.range(from, to).order('order_date', { ascending: false });

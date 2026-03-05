@@ -95,6 +95,7 @@ function VanDon() {
   const [dateFromUpBill, setDateFromUpBill] = useState('');
   const [dateToUpBill, setDateToUpBill] = useState('');
   const [enableUpBillFilter, setEnableUpBillFilter] = useState(false);
+  const [filterUpBillNotEmpty, setFilterUpBillNotEmpty] = useState(false);
   const [quickFilter, setQuickFilter] = useState('');
   const [fixedColumns, setFixedColumns] = useState(2);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -408,67 +409,21 @@ function VanDon() {
           // No extra client filtering needed
         }
 
-        // Debug: Kiểm tra đơn hàng cụ thể
-        const debugOrderCode = 'Kemb5a90cf6';
-        const debugOrder = result.data.find(row => {
-          const orderCode = row['Mã đơn hàng'] || row.order_code || row['order_code'];
-          return orderCode === debugOrderCode;
-        });
-        
-        if (debugOrder) {
-          console.log('🔍 [DEBUG] Tìm thấy đơn hàng', debugOrderCode, 'trong result.data:');
-          console.log('  - Team:', debugOrder.team || debugOrder['Team']);
-          console.log('  - Country:', debugOrder.country || debugOrder['Khu vực']);
-          console.log('  - Sale staff:', debugOrder.sale_staff || debugOrder['Nhân viên Sale']);
-          console.log('  - Marketing staff:', debugOrder.marketing_staff);
-          console.log('  - Delivery staff:', debugOrder.delivery_staff || debugOrder['NV Vận đơn']);
-          console.log('  - Check result:', debugOrder.check_result || debugOrder['Kết quả Check']);
-          console.log('  - Tracking:', debugOrder.tracking_code || debugOrder['Mã Tracking']);
-          
-          const inFiltered = filteredData.find(row => {
-            const orderCode = row['Mã đơn hàng'] || row.order_code || row['order_code'];
-            return orderCode === debugOrderCode;
-          });
-          
-          if (!inFiltered) {
-            console.log('⚠️ [DEBUG] Đơn hàng', debugOrderCode, 'bị loại bỏ sau client-side filter');
-            if (bolActiveTab === 'hanoi') {
-              const checkResult = String(debugOrder['Kết quả Check'] || debugOrder['Kết quả check'] || '').trim();
-              const tracking = String(debugOrder['Mã Tracking'] || debugOrder['Mã tracking'] || '').trim();
-              const deliveryUnit = String(debugOrder['Đơn vị vận chuyển'] || debugOrder['Đơn vị Vận chuyển'] || '').trim();
-              console.log('  - Tab Hà Nội filter:');
-              console.log('    - Check = OK?', checkResult.toLowerCase() === 'ok');
-              console.log('    - Tracking trống?', !tracking || tracking === '' || tracking === 'null');
-              console.log('    - Đơn vị vận chuyển trống?', !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null');
+        // Debug: Kiểm tra đơn hàng cụ thể (chỉ log, không block)
+        if (isAdmin) {
+          const debugCodes = ['Bonb11bf9db', 'Kemb5a90cf6'];
+          debugCodes.forEach(debugCode => {
+            const found = result.data.find(row => {
+              const orderCode = row['Mã đơn hàng'] || row.order_code || row['order_code'];
+              return orderCode === debugCode;
+            });
+            if (found) {
+              console.log('✅ [DEBUG] Tìm thấy đơn hàng', debugCode, 'trong result.data');
+            } else {
+              console.log('❌ [DEBUG] KHÔNG tìm thấy đơn hàng', debugCode, 'trong result.data');
+              console.log('  - Total:', result.total, 'Page:', result.page, '/', result.totalPages);
             }
-          } else {
-            console.log('✅ [DEBUG] Đơn hàng', debugOrderCode, 'có trong filteredData');
-          }
-        } else {
-          console.log('⚠️ [DEBUG] Không tìm thấy đơn hàng', debugOrderCode, 'trong result.data từ API');
-          console.log('  - Có thể bị filter ở backend bởi:');
-          console.log('    - Team filter:', activeTeam);
-          console.log('    - Market filter:', marketFilter);
-          console.log('    - Product filter:', filterValues.product);
-          console.log('    - Date filter:', shouldApplyDateFilter ? `${dateFrom} - ${dateTo}` : 'không áp dụng');
-          console.log('    - Allowed staff filter:', apiAllowedStaff);
-        }
-
-        // Debug: Kiểm tra đơn hàng trong allData và getFilteredData
-        const debugOrderCode = 'Kemb5a90cf6';
-        const debugInAllData = filteredData.find(row => {
-          const orderCode = row['Mã đơn hàng'] || row.order_code || row['order_code'];
-          return orderCode === debugOrderCode;
-        });
-        console.log('🔍 [DEBUG Step 2] Sau khi setAllData:');
-        if (debugInAllData) {
-          console.log('✅ Đơn hàng', debugOrderCode, 'có trong allData (filteredData)');
-        } else {
-          console.log('❌ Đơn hàng', debugOrderCode, 'KHÔNG có trong allData (filteredData)');
-          console.log('  - Total records:', filteredTotal);
-          console.log('  - Current page:', result.page);
-          console.log('  - Total pages:', result.totalPages);
-          console.log('  - Có thể đơn hàng ở trang khác hoặc bị filter');
+          });
         }
 
         setAllData(filteredData);
@@ -1088,22 +1043,28 @@ function VanDon() {
     // --- COMMON FILTERS ---
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : bolDateType;
 
-    // Market & Product (Admin không bị filter)
-    if (!isAdmin) {
-      if (filterValues.market.length > 0) {
+    // Market & Product - Áp dụng cho tất cả users
+    try {
+      if (filterValues.market && Array.isArray(filterValues.market) && filterValues.market.length > 0) {
         const set = new Set(filterValues.market);
-        data = data.filter(row => set.has(row["Khu vực"] || row["khu vực"]));
+        data = data.filter(row => {
+          const market = row["Khu vực"] || row["khu vực"] || '';
+          return set.has(market);
+        });
       }
-      if (filterValues.product.length > 0) {
+      if (filterValues.product && Array.isArray(filterValues.product) && filterValues.product.length > 0) {
         const set = new Set(filterValues.product);
-        data = data.filter(row => set.has(row["Mặt hàng"]));
+        data = data.filter(row => {
+          const product = row["Mặt hàng"] || '';
+          return set.has(product);
+        });
       }
-    } else {
-      console.log('👑 [VanDon Client-side] Admin - Không filter theo Market/Product (hiển thị tất cả)');
+    } catch (err) {
+      console.warn('⚠️ [Filter Error] Lỗi khi xử lý Market/Product filter:', err);
     }
 
-    // Date Range (only if enabled) - Admin không bị filter
-    if (enableDateFilter && !isAdmin) {
+    // Date Range (only if enabled) - Áp dụng cho tất cả users
+    if (enableDateFilter) {
       if (dateFrom) {
         const d = new Date(dateFrom);
         d.setHours(0, 0, 0, 0);
@@ -1124,15 +1085,35 @@ function VanDon() {
       }
     }
 
-    // Ngày up bill filter (only if enabled) - Admin không bị filter
-    if (enableUpBillFilter && !isAdmin) {
-      const upBillKey = COLUMN_MAPPING["Ngày up bill"] || "ngayupbill";
+    // Ngày up bill filter - Áp dụng cho tất cả users
+    // Helper function để lấy giá trị Ngày up bill từ row (thử nhiều key)
+    const getUpBillValue = (row) => {
+      return row["ngayupbill"] ?? 
+             row["Ngày up bill"] ?? 
+             row["ngay_up_bill"] ?? 
+             row[COLUMN_MAPPING["Ngày up bill"]] ?? 
+             '';
+    };
+    
+    // Filter "không trống" - lọc các dòng có Ngày up bill không trống
+    if (filterUpBillNotEmpty) {
+      data = data.filter(row => {
+        const val = getUpBillValue(row);
+        if (!val) return false;
+        const str = String(val).trim();
+        // Kiểm tra nếu là giá trị hợp lệ (không rỗng, không null, không undefined)
+        return str !== '' && str !== 'null' && str !== 'undefined' && str !== 'NaN';
+      });
+    }
+    
+    // Filter theo khoảng thời gian (only if enabled)
+    if (enableUpBillFilter) {
       if (dateFromUpBill) {
         const filterDate = new Date(dateFromUpBill);
         filterDate.setHours(0, 0, 0, 0);
         const filterTime = filterDate.getTime();
         data = data.filter(row => {
-          const val = row[upBillKey] || row["Ngày up bill"];
+          const val = getUpBillValue(row);
           if (!val) return false;
           // Xử lý format yyyy-mm-dd
           let rowDate;
@@ -1153,7 +1134,7 @@ function VanDon() {
         filterDate.setHours(23, 59, 59, 999);
         const filterTime = filterDate.getTime();
         data = data.filter(row => {
-          const val = row[upBillKey] || row["Ngày up bill"];
+          const val = getUpBillValue(row);
           if (!val) return false;
           // Xử lý format yyyy-mm-dd
           let rowDate;
@@ -1171,78 +1152,122 @@ function VanDon() {
       }
     }
 
-    // Column Filters (Text & Dropdown)
+    // Column Filters (Text & Dropdown) - Áp dụng cho tất cả users (bao gồm Admin nếu họ muốn filter)
     Object.entries(filterValues).forEach(([key, val]) => {
+      // Skip các filter đặc biệt đã được xử lý riêng
       if (['market', 'product', 'tracking_include', 'tracking_exclude'].includes(key)) return;
+      
+      // Skip nếu giá trị rỗng
+      if (val === null || val === undefined) return;
       if (Array.isArray(val) && val.length === 0) return;
       if (typeof val === 'string' && val.trim() === '') return;
 
       // Tìm data key chính xác cho column này
       const dataKey = COLUMN_MAPPING[key] || key;
 
-      data = data.filter(row => {
-        // Thử nhiều cách lấy giá trị từ row
-        let cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
-        cellValue = String(cellValue).trim();
+      try {
+        data = data.filter(row => {
+          try {
+            // Thử nhiều cách lấy giá trị từ row
+            // Đặc biệt cho "Mã đơn hàng", cần check cả order_code
+            let cellValue = '';
+            if (key === 'Mã đơn hàng') {
+              cellValue = row['Mã đơn hàng'] ?? row['order_code'] ?? row['orderCode'] ?? row[PRIMARY_KEY_COLUMN] ?? '';
+            } else {
+              cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+            }
+            cellValue = String(cellValue).trim();
 
-        // Use exact match for dropdown columns in Bill of Lading, or specific cols in Order Mgmt
-        if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(dataKey)) {
-          const selected = val;
-          if (selected.length === 0) return true;
-          if (cellValue === '' && selected.includes('__EMPTY__')) return true;
-          return selected.includes(cellValue);
-        }
+            // Use exact match for dropdown columns in Bill of Lading, or specific cols in Order Mgmt
+            if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(dataKey)) {
+              // Đảm bảo val là array
+              if (!Array.isArray(val)) return true;
+              const selected = val;
+              if (selected.length === 0) return true;
+              if (cellValue === '' && selected.includes('__EMPTY__')) return true;
+              return selected.includes(cellValue);
+            }
 
-        // Date columns logic
-        if (["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking"].includes(key)) {
-          if (!cellValue) return false;
-          const dVal = new Date(cellValue); dVal.setHours(0, 0, 0, 0);
-          const fVal = new Date(val); fVal.setHours(0, 0, 0, 0);
-          return dVal >= fVal;
-        }
+            // Date columns logic
+            if (["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(key)) {
+              if (!cellValue) return false;
+              if (typeof val !== 'string') return true; // Skip nếu không phải string
+              const dVal = new Date(cellValue);
+              if (isNaN(dVal.getTime())) return false;
+              dVal.setHours(0, 0, 0, 0);
+              const fVal = new Date(val);
+              if (isNaN(fVal.getTime())) return true; // Skip nếu date không hợp lệ
+              fVal.setHours(0, 0, 0, 0);
+              return dVal >= fVal;
+            }
 
-        // Text search - case insensitive, partial match
-        return cellValue.toLowerCase().includes(val.toLowerCase());
-      });
-    });
-
-    // Tracking Filters
-    if (filterValues.tracking_include || filterValues.tracking_exclude) {
-      const inc = filterValues.tracking_include.toLowerCase();
-      const exc = filterValues.tracking_exclude.toLowerCase();
-      data = data.filter(row => {
-        const code = String(row['Mã Tracking'] || '').trim().toLowerCase();
-        if (exc && code.includes(exc)) return false;
-        if (inc) {
-          if (inc.includes('\n')) {
-            const codes = new Set(inc.split('\n').map(t => t.trim()).filter(Boolean));
-            if (!codes.has(code)) return false;
-          } else {
-            if (!code.includes(inc)) return false;
+            // Text search - case insensitive, partial match
+            if (typeof val !== 'string') return true; // Skip nếu không phải string
+            const searchVal = val.toLowerCase().trim();
+            if (!searchVal) return true; // Nếu filter rỗng, hiển thị tất cả
+            return cellValue.toLowerCase().includes(searchVal);
+          } catch (err) {
+            console.warn(`⚠️ [Filter Error] Lỗi khi filter column "${key}":`, err);
+            return true; // Nếu có lỗi, giữ lại row
           }
-        }
-        return true;
-      });
+        });
+      } catch (err) {
+        console.warn(`⚠️ [Filter Error] Lỗi khi xử lý filter cho key "${key}":`, err);
+        // Nếu có lỗi, không filter gì cả
+      }
+    });
+
+    // Tracking Filters - Áp dụng cho tất cả users
+    try {
+      if (filterValues.tracking_include || filterValues.tracking_exclude) {
+        const inc = filterValues.tracking_include ? String(filterValues.tracking_include).toLowerCase() : '';
+        const exc = filterValues.tracking_exclude ? String(filterValues.tracking_exclude).toLowerCase() : '';
+        data = data.filter(row => {
+          try {
+            const code = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim().toLowerCase();
+            if (exc && exc.trim() && code.includes(exc)) return false;
+            if (inc && inc.trim()) {
+              if (inc.includes('\n')) {
+                const codes = new Set(inc.split('\n').map(t => t.trim()).filter(Boolean));
+                if (!codes.has(code)) return false;
+              } else {
+                if (!code.includes(inc)) return false;
+              }
+            }
+            return true;
+          } catch (err) {
+            console.warn('⚠️ [Filter Error] Lỗi khi filter tracking:', err);
+            return true; // Nếu có lỗi, giữ lại row
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('⚠️ [Filter Error] Lỗi khi xử lý tracking filter:', err);
     }
 
-    // Debug: Kiểm tra đơn hàng trong getFilteredData
-    const debugOrderCode = 'Kemb5a90cf6';
-    const debugInFiltered = data.find(row => {
-      const orderId = row[PRIMARY_KEY_COLUMN];
-      return orderId === debugOrderCode;
-    });
-    if (debugInFiltered) {
-      console.log('✅ [DEBUG Step 3] Đơn hàng', debugOrderCode, 'có trong getFilteredData');
-    } else {
-      console.log('❌ [DEBUG Step 3] Đơn hàng', debugOrderCode, 'KHÔNG có trong getFilteredData');
-      console.log('  - Total data length:', data.length);
-      console.log('  - isAdmin:', isAdmin);
-      console.log('  - bolActiveTab:', bolActiveTab);
-      console.log('  - filterValues:', filterValues);
-    }
+    // Debug: Kiểm tra đơn hàng trong getFilteredData (tạm thời comment để fix lỗi)
+    /* try {
+      const debugOrderCode = 'Kemb5a90cf6';
+      const debugInFiltered = data.find(row => {
+        const orderId = row[PRIMARY_KEY_COLUMN];
+        return orderId === debugOrderCode;
+      });
+      if (debugInFiltered) {
+        console.log('✅ [DEBUG Step 3] Đơn hàng', debugOrderCode, 'có trong getFilteredData');
+      } else {
+        console.log('❌ [DEBUG Step 3] Đơn hàng', debugOrderCode, 'KHÔNG có trong getFilteredData');
+        console.log('  - Total data length:', data.length);
+        console.log('  - isAdmin:', isAdmin);
+        console.log('  - bolActiveTab:', bolActiveTab);
+        console.log('  - filterValues market:', filterValues?.market);
+        console.log('  - filterValues product:', filterValues?.product);
+      }
+    } catch (debugErr) {
+      console.warn('⚠️ [DEBUG] Lỗi trong debug code:', debugErr);
+    } */
 
     return data;
-  }, [allData, legacyChanges, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, enableDateFilter, dateFromUpBill, dateToUpBill, enableUpBillFilter, mgtNoiBoOrder, isAdmin]);
+  }, [allData, legacyChanges, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, enableDateFilter, dateFromUpBill, dateToUpBill, enableUpBillFilter, filterUpBillNotEmpty, mgtNoiBoOrder, isAdmin]);
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
@@ -1440,31 +1465,71 @@ function VanDon() {
   const handleMouseDown = (rowIdx, colIdx, e) => {
     if (e.button !== 0) return; // Only left click
 
-    // If click on input/select, don't start selection drag immediately?
-    // Actually we want click to select the cell.
+    // Nếu click vào input/select/textarea, vẫn cho phép selection nhưng không bắt đầu drag ngay
+    const target = e.target;
+    const isInputElement = target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA';
+    
+    // Nếu click vào input/select, chỉ select cell đó, không bắt đầu drag
+    if (isInputElement) {
+      setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
+      isSelecting.current = false;
+      return;
+    }
 
+    // Bắt đầu selection drag
     isSelecting.current = true;
 
-    if (e.ctrlKey) {
-      // Add to selection? Complex. Let's stick to single contiguous selection for now google sheets style
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl/Cmd click: thêm vào selection (multi-select)
+      // Tạm thời chỉ select cell đó, có thể mở rộng sau
       setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
-    } else if (e.shiftKey && selection.startRow !== null) {
+    } else if (e.shiftKey && selection.startRow !== null && selection.startCol !== null) {
+      // Shift click: mở rộng selection từ điểm bắt đầu
       setSelection(prev => ({ ...prev, endRow: rowIdx, endCol: colIdx }));
     } else {
+      // Click thường: bắt đầu selection mới
       setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
     }
   };
 
   const handleMouseEnter = (rowIdx, colIdx) => {
     if (isSelecting.current) {
-      setSelection(prev => ({ ...prev, endRow: rowIdx, endCol: colIdx }));
+      setSelection(prev => {
+        if (prev.startRow === null || prev.startCol === null) {
+          return { startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx };
+        }
+        return { ...prev, endRow: rowIdx, endCol: colIdx };
+      });
     }
   };
 
   useEffect(() => {
-    const handleMouseUp = () => { isSelecting.current = false; };
+    const handleMouseUp = () => { 
+      isSelecting.current = false; 
+    };
+    
+    // Clear selection khi click ra ngoài table (nhưng không clear khi click vào control buttons)
+    const handleClickOutside = (e) => {
+      if (tableRef.current && !tableRef.current.contains(e.target)) {
+        // Chỉ clear nếu không phải đang click vào các control buttons
+        const isControlButton = e.target.closest('button') || 
+                                 e.target.closest('.pagination') || 
+                                 e.target.closest('.filter') ||
+                                 e.target.closest('.toolbar') ||
+                                 e.target.closest('[role="dialog"]') ||
+                                 e.target.closest('.modal');
+        if (!isControlButton) {
+          setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
+        }
+      }
+    };
+    
     document.addEventListener('mouseup', handleMouseUp);
-    return () => document.removeEventListener('mouseup', handleMouseUp);
+    document.addEventListener('click', handleClickOutside);
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('click', handleClickOutside);
+    };
   }, []);
 
   // Save to history when pendingChanges or legacyChanges change (debounced)
@@ -1791,15 +1856,19 @@ function VanDon() {
       classes += "sticky z-10 left-0 bg-gray-50 ";
     }
 
-    // Selection
+    // Selection - Highlight cell nếu nằm trong vùng selection
     if (selectionBounds && rIdx >= selectionBounds.minRow && rIdx <= selectionBounds.maxRow &&
       cIdx >= selectionBounds.minCol && cIdx <= selectionBounds.maxCol) {
       classes += "!bg-[#e3f2fd] ";
+      // Thêm border cho các cạnh của vùng selection
       if (rIdx === selectionBounds.minRow) classes += "selection-border-top ";
       if (rIdx === selectionBounds.maxRow) classes += "selection-border-bottom ";
       if (cIdx === selectionBounds.minCol) classes += "selection-border-left ";
       if (cIdx === selectionBounds.maxCol) classes += "selection-border-right ";
     }
+    
+    // Cursor style - hiển thị cursor cell khi hover (trừ khi đang trong input/select)
+    classes += "cursor-cell ";
 
     return classes;
   };
@@ -1968,6 +2037,18 @@ function VanDon() {
                 />
                 <span>Áp dụng</span>
               </label>
+              <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={filterUpBillNotEmpty}
+                  onChange={(e) => {
+                    setFilterUpBillNotEmpty(e.target.checked);
+                    setCurrentPage(1);
+                  }}
+                  className="w-3 h-3 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <span>Không trống</span>
+              </label>
             </div>
           </div>
 
@@ -2090,7 +2171,7 @@ function VanDon() {
         {/* Table Area - Optimized for Height */}
         <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col">
           <div className="overflow-auto relative select-none flex-1" style={{ overflowX: 'auto', overflowY: 'auto' }}>
-            <table className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
+            <table ref={tableRef} className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
               <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
 
                 <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
