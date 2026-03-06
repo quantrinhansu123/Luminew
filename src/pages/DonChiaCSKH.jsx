@@ -93,6 +93,10 @@ function DonChiaCSKH() {
   const [isViewing, setIsViewing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // --- Permission State ---
+  const [currentUserEmail, setCurrentUserEmail] = useState('');
+  const [cskhPersonnelCache, setCSKHPersonnelCache] = useState({}); // Cache để lưu selected_personnel của mỗi CSKH
+
   // List of columns that should be hidden/removed (no longer needed)
   const REMOVED_COLUMNS = [
     'Phí ship',
@@ -203,6 +207,27 @@ function DonChiaCSKH() {
     return roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
   };
 
+  const normalizePersonnelList = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item || '').trim()).filter(Boolean);
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+      if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          return normalizePersonnelList(parsed);
+        } catch (e) {
+          // Fall back to comma-separated format if JSON parsing fails.
+        }
+      }
+      return trimmed.split(',').map((item) => item.trim()).filter(Boolean);
+    }
+    return [];
+  };
+
   // Debounce search text for better performance
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -211,6 +236,19 @@ function DonChiaCSKH() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchText]);
+
+  // Extract current user email on mount
+  useEffect(() => {
+    const userEmail = localStorage.getItem("userEmail") || 
+                     (localStorage.getItem("user") 
+                       ? JSON.parse(localStorage.getItem("user"))?.Email || 
+                         JSON.parse(localStorage.getItem("user"))?.email || '' 
+                       : '');
+    if (userEmail) {
+      setCurrentUserEmail(userEmail.trim().toLowerCase());
+      console.log('👤 [DonChiaCSKH] Current user email:', userEmail.trim().toLowerCase());
+    }
+  }, []);
 
   // Helper function để kiểm tra xem tên cột có phải là tiếng Anh không (cột DB gốc)
   const isEnglishColumn = (columnName) => {
@@ -408,6 +446,17 @@ function DonChiaCSKH() {
       const roleLower = (role || '').toLowerCase();
       const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
 
+      console.log('🔐 [DonChiaCSKH] Permission check:', { 
+        userEmail, 
+        userName, 
+        boPhan, 
+        viTri, 
+        role, 
+        isAdmin, 
+        isLeader, 
+        isManager 
+      });
+
       let query = supabase.from('orders').select('*');
 
       // Filter: Chỉ lấy đơn có CSKH không trống (loại bỏ null, rỗng, và khoảng trắng)
@@ -437,25 +486,42 @@ function DonChiaCSKH() {
       query = query.order('order_date', { ascending: false });
 
       // --- USER ISOLATION FILTER (CSKH) ---
-      // Khớp với các cột: Nhân viên Sale, Nhân viên MKT, Nhân viên Vận đơn
-      // => Dùng các field trong bảng orders: sale_staff, marketing_staff, delivery_staff
+      // Non-manager: Only view orders where cskh is in selected_personnel list from users table
+      // Manager/Admin: View all orders (or with optional personnel filter)
       if (!isManager) {
-        const ownName = (userName || '').trim();
-        console.log('👤 [DonChiaCSKH] Current user name extracted:', { userName, ownName, isManager });
-        if (ownName) {
-          console.log('🔍 [DonChiaCSKH] Filtering by CSKH column (current user):', ownName);
-          try {
-            // Use ilike for case-insensitive exact match
-            query = query.ilike('cskh', ownName);
-            console.log('✅ [DonChiaCSKH] Applied CSKH ilike filter:', ownName);
-          } catch (orError) {
-            console.error('❌ [DonChiaCSKH] Error applying CSKH filter:', orError);
-            query = query.ilike('cskh', ownName);
+        const normalizedEmail = (userEmail || '').trim().toLowerCase();
+        console.log('👤 [DonChiaCSKH] Non-manager user email:', normalizedEmail);
+        
+        if (normalizedEmail) {
+          // Fetch selected_personnel from users table
+          const { data: userPermissionData, error: userPermissionError } = await supabase
+            .from('users')
+            .select('selected_personnel')
+            .eq('email', normalizedEmail)
+            .maybeSingle();
+
+          if (userPermissionError) {
+            console.error('❌ [DonChiaCSKH] Error loading selected_personnel:', userPermissionError);
+          }
+
+          // Parse selected_personnel list
+          const selectedPersonnel = normalizePersonnelList(userPermissionData?.selected_personnel);
+          console.log('🔐 [DonChiaCSKH] Allowed CSKH names from selected_personnel:', selectedPersonnel);
+          
+          if (selectedPersonnel.length > 0) {
+            // Build OR conditions for multiple CSKH names
+            const orConditions = selectedPersonnel.map(name => `cskh.ilike.${name}`).join(',');
+            query = query.or(orConditions);
+            console.log('✅ [DonChiaCSKH] Applied selected_personnel filter:', selectedPersonnel);
+          } else {
+            // No selected_personnel: return no results
+            console.warn('⚠️ [DonChiaCSKH] No selected_personnel found, returning empty result');
+            query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Return no results
           }
         } else {
-          // Không lấy được tên user hiện tại: không hiển thị đơn nào để tránh lộ dữ liệu
-          console.warn('⚠️ [DonChiaCSKH] Missing current user name, returning empty result');
-          query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Return no results
+          // No email: return no results
+          console.warn('⚠️ [DonChiaCSKH] Missing user email, returning empty result');
+          query = query.eq('id', '00000000-0000-0000-0000-000000000000');
         }
       } else {
         // Admin/Manager: có thể filter theo nhân sự nếu được chọn
@@ -484,18 +550,35 @@ function DonChiaCSKH() {
         }
       }
 
-      const { data, error } = await query;
+      let { data, error } = await query;
 
       if (error) throw error;
+
+      // Fallback: if query returns 0 results and user is non-manager, fetch ALL to verify and debug
+      if (!isManager && (!data || data.length === 0)) {
+        console.warn('⚠️ [DonChiaCSKH] Non-manager query returned 0 results. Fetching ALL orders to debug...');
+        const { data: allOrders, error: allError } = await supabase
+          .from('orders')
+          .select('order_code, cskh, order_date')
+          .not('cskh', 'is', null)
+          .neq('cskh', '')
+          .neq('cskh', ' ');
+        
+        if (!allError && allOrders) {
+          const uniqueCSKH = [...new Set(allOrders.map(o => String(o.cskh).trim()))];
+          console.log('🔍 [DonChiaCSKH] All unique CSKH values in DB:', uniqueCSKH);
+          console.log('🔍 [DonChiaCSKH] Total orders with CSKH:', allOrders.length);
+        }
+      }
 
       console.log(`📦 [DonChiaCSKH] Raw data from DB: ${data?.length || 0} orders`);
       
       // Debug: get ALL CSKH values from unfiltered query to see what's in DB
       if (data?.length === 0 && !isManager) {
         console.log('⚠️ [DonChiaCSKH] No data found with CSKH filter. Fetching ALL orders to see available CSKH values...');
-        const { data: allOrders } = await supabase.from('orders').select('order_code, cskh').limit(100);
+        const { data: allOrders } = await supabase.from('orders').select('order_code, cskh').not('cskh', 'is', null).neq('cskh', '').neq('cskh', ' ');
         const cskhValues = allOrders?.map(o => ({ order_code: o.order_code, cskh: o.cskh, cskh_trimmed: String(o.cskh).trim() })) || [];
-        console.log('📊 [DonChiaCSKH] All CSKH values in first 100 orders:', cskhValues);
+        console.log('📊 [DonChiaCSKH] All CSKH values in DB (total ' + cskhValues.length + ' orders):', cskhValues);
         console.log('🔍 [DonChiaCSKH] Unique CSKH values:', [...new Set(cskhValues.map(v => v.cskh_trimmed))]);
       }
       
@@ -526,6 +609,7 @@ function DonChiaCSKH() {
         'id'
       ]);
 
+      // Data is already filtered by DB query (IN clause for non-manager, all for manager)
       const mappedData = (data || []).map(item => {
         // Tạo object với các cột friendly name (đầy đủ như BaoCaoChiTiet)
         const friendlyData = {
@@ -879,19 +963,38 @@ function DonChiaCSKH() {
 
     // Trạng thái CSKH filter - Lọc theo cột "Trạng thái cskh" (array - multiple selection)
     if (filterTrangThai.length > 0) {
+      console.log('🔍 [Filter Debug] filterTrangThai:', filterTrangThai);
+      console.log('🔍 [Filter Debug] Data before filter:', data.length);
+      console.log('🔍 [Filter Debug] Sample data statuses:', data.slice(0, 5).map(r => ({
+        code: r["Mã đơn hàng"],
+        status: r["Trạng thái cskh"],
+        status_type: typeof r["Trạng thái cskh"]
+      })));
+      
       data = data.filter(row => {
         const status = String(row["Trạng thái cskh"] || '').trim();
+        const statusLower = status.toLowerCase();
+        
         // Check if any selected value matches
-        return filterTrangThai.some(filterValue => {
+        const matches = filterTrangThai.some(filterValue => {
           if (filterValue === '__EMPTY__') {
             // Match empty status
             return !status || status === '';
           } else {
-            // Match non-empty status
-            return status === String(filterValue).trim();
+            // Match non-empty status (case-insensitive)
+            const filterValueTrimmed = String(filterValue).trim().toLowerCase();
+            const isMatch = statusLower === filterValueTrimmed;
+            return isMatch;
           }
         });
+        return matches;
       });
+      
+      console.log('🔍 [Filter Debug] Data after filter:', data.length);
+      console.log('🔍 [Filter Debug] Filtered data statuses:', data.slice(0, 5).map(r => ({
+        code: r["Mã đơn hàng"],
+        status: r["Trạng thái cskh"]
+      })));
     }
 
     // Date filter (already applied on server-side, but double check if needed or just skip)
@@ -1134,12 +1237,93 @@ function DonChiaCSKH() {
     setVisibleColumns(defaultCols);
   };
 
-  // Open Edit modal - Chỉ Admin mới được phép
-  const openEditModal = (order) => {
-    if (!isAdmin()) {
-      toast.error("Chỉ Admin mới có quyền sửa đơn hàng!");
+  // Check if current user has permission to edit/delete based on selected_personnel or admin role
+  const canEditDeleteOrder = async (cskhName) => {
+    // Admin can always edit/delete
+    if (isAdmin()) {
+      console.log('🔐 [DonChiaCSKH] User is admin, granting edit/delete permission');
+      return true;
+    }
+
+    // Non-admin: check if current user is in CSKH person's selected_personnel
+    if (!cskhName || !currentUserEmail) {
+      console.log('⚠️ [DonChiaCSKH] Missing CSKH name or current user email');
+      return false;
+    }
+
+    try {
+      // Check cache first
+      if (cskhPersonnelCache[cskhName]) {
+        const selectedPersonnel = cskhPersonnelCache[cskhName];
+        const hasPermission = isUserInPersonnelList(selectedPersonnel);
+        console.log(`🔍 [DonChiaCSKH] Checking permission for CSKH "${cskhName}" (cached):`, { 
+          selectedPersonnel, 
+          currentUserEmail, 
+          hasPermission 
+        });
+        return hasPermission;
+      }
+
+      // Fetch CSKH person's data from users table
+      const { data, error } = await supabase
+        .from('users')
+        .select('selected_personnel')
+        .ilike('name', cskhName)
+        .single();
+
+      if (error) {
+        console.error('❌ [DonChiaCSKH] Error fetching CSKH data:', error);
+        return false;
+      }
+
+      if (!data) {
+        console.warn(`⚠️ [DonChiaCSKH] No user found for CSKH name: ${cskhName}`);
+        return false;
+      }
+
+      // Cache the result
+      setCSKHPersonnelCache(prev => ({
+        ...prev,
+        [cskhName]: data.selected_personnel
+      }));
+
+      const hasPermission = isUserInPersonnelList(data.selected_personnel);
+      console.log(`🔍 [DonChiaCSKH] Checking permission for CSKH "${cskhName}":`, { 
+        selectedPersonnel: data.selected_personnel, 
+        currentUserEmail, 
+        hasPermission 
+      });
+      return hasPermission;
+    } catch (err) {
+      console.error('❌ [DonChiaCSKH] Error checking permission:', err);
+      return false;
+    }
+  };
+
+  // Helper function to check if current user email is in personnel list
+  const isUserInPersonnelList = (selectedPersonnel) => {
+    if (!selectedPersonnel) return false;
+    
+    let personnelEmails = [];
+    if (Array.isArray(selectedPersonnel)) {
+      personnelEmails = selectedPersonnel;
+    } else if (typeof selectedPersonnel === 'string') {
+      personnelEmails = selectedPersonnel.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    }
+
+    return personnelEmails.some(email => email.toLowerCase() === currentUserEmail.toLowerCase());
+  };
+
+  // Open Edit modal - Chỉ Admin hoặc người trong selected_personnel của CSKH mới được phép
+  const openEditModal = async (order) => {
+    const cskhName = order['CSKH'] || '';
+    const hasPermission = await canEditDeleteOrder(cskhName);
+    
+    if (!hasPermission) {
+      toast.error("❌ Bạn không có quyền sửa đơn hàng này! Chỉ Admin hoặc nhân sự được chọn của CSKH mới được phép.");
       return;
     }
+    
     setEditingOrder({ ...order });
     setIsViewing(false);
     setIsEditModalOpen(true);
@@ -1203,12 +1387,23 @@ function DonChiaCSKH() {
     }
   };
 
-  // Handle Delete - Chỉ Admin mới được phép
+  // Handle Delete - Chỉ Admin hoặc người trong selected_personnel của CSKH mới được phép
   const handleDelete = async (id) => {
-    if (!isAdmin()) {
-      toast.error("Chỉ Admin mới có quyền xóa đơn hàng!");
+    // Find the order to get CSKH name
+    const order = allData.find(item => item.id === id);
+    if (!order) {
+      toast.error("Không tìm thấy đơn hàng!");
       return;
     }
+
+    const cskhName = order['CSKH'] || '';
+    const hasPermission = await canEditDeleteOrder(cskhName);
+    
+    if (!hasPermission) {
+      toast.error("❌ Bạn không có quyền xóa đơn hàng này! Chỉ Admin hoặc nhân sự được chọn của CSKH mới được phép.");
+      return;
+    }
+    
     if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác!")) return;
 
     try {
@@ -1886,7 +2081,7 @@ function DonChiaCSKH() {
                         return (
                           <td
                             key={col}
-                            className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50"
+                            className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap hover:bg-blue-50 select-text"
                             title={`${value || '-'} (Double-click để copy)`}
                             onDoubleClick={(e) => handleCellClick(e, value)}
                           >
