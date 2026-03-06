@@ -5,7 +5,6 @@ import { toast } from 'react-toastify';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
-import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 
@@ -15,7 +14,6 @@ function QuanLyCSKH() {
   const { canView, canEdit, canDelete, role } = usePermissions();
 
   const [allData, setAllData] = useState([]);
-  const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
 
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -340,8 +338,10 @@ function QuanLyCSKH() {
       // Get user info for permission
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
-      const userEmail = (user?.Email || user?.email || "").toString().toLowerCase().trim();
-      const userName = (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || "").toString().trim();
+      
+      // Fetch username from multiple possible sources
+      const userEmail = localStorage.getItem("userEmail") || (user?.Email || user?.email || "").toString().toLowerCase().trim();
+      const userName = localStorage.getItem("username") || (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.name || user?.fullName || "").toString().trim();
       const boPhan = (user?.['Bộ_phận'] || user?.['Bộ phận'] || "").toString().trim().toLowerCase();
       const viTri = (user?.['Vị_trí'] || user?.['Vị trí'] || "").toString().trim().toLowerCase();
 
@@ -368,54 +368,26 @@ function QuanLyCSKH() {
       // Khớp với các cột: Nhân viên Sale, Nhân viên MKT, Nhân viên Vận đơn
       // => Dùng các field trong bảng orders: sale_staff, marketing_staff, delivery_staff
       if (!isManager) {
-        // Có danh sách nhân sự được tích trong phân quyền:
-        if (selectedPersonnelNames.length > 0) {
-          // Có danh sách nhân sự được tích trong phân quyền:
-          // Lấy đơn mà bất kỳ người nào trong danh sách xuất hiện ở Sale/MKT/Vận đơn
-          console.log('🔍 [CSKH] Filtering by selected personnel list (Sale/MKT/Vận đơn):', selectedPersonnelNames);
+        const ownName = (userName || '').trim();
+        if (ownName) {
+          const pattern = `%${ownName}%`;
+          const orConditions = [
+            `sale_staff.ilike.${pattern}`,
+            `marketing_staff.ilike.${pattern}`,
+            `delivery_staff.ilike.${pattern}`
+          ];
 
-          // Helper function to normalize name (remove extra spaces)
-          const normalizeNameForQuery = (str) => {
-            if (!str) return '';
-            return String(str).trim().replace(/\s+/g, ' ');
-          };
-
-          const orConditions = [];
-          selectedPersonnelNames
-            .filter(name => name && name.trim().length > 0)
-            .forEach(name => {
-              // Normalize tên trước khi query để match tốt hơn
-              const normalizedName = normalizeNameForQuery(name);
-              const pattern = `%${normalizedName}%`;
-              orConditions.push(`sale_staff.ilike.${pattern}`);
-              orConditions.push(`marketing_staff.ilike.${pattern}`);
-              orConditions.push(`delivery_staff.ilike.${pattern}`);
-            });
-
-          if (orConditions.length > 0) {
-            try {
-              query = query.or(orConditions.join(','));
-              console.log('✅ [CSKH] Applied OR filter for selected personnel list:', orConditions.join(','));
-            } catch (orError) {
-              console.error('❌ [CSKH] Error applying OR filter for list, falling back to first name:', orError);
-              const first = selectedPersonnelNames[0]?.trim();
-              if (first) {
-                const pattern = `%${first}%`;
-                query = query.or([
-                  `sale_staff.ilike.${pattern}`,
-                  `marketing_staff.ilike.${pattern}`,
-                  `delivery_staff.ilike.${pattern}`
-                ].join(','));
-              }
-            }
-          } else {
-            // Không có tên hợp lệ -> không trả về đơn nào
-            console.warn('⚠️ [CSKH] No valid selected personnel names after trim, returning empty result');
-            query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+          console.log('🔍 [CSKH] Filtering by current user name (Sale/MKT/Vận đơn):', ownName);
+          try {
+            query = query.or(orConditions.join(','));
+            console.log('✅ [CSKH] Applied current user OR filter:', orConditions.join(','));
+          } catch (orError) {
+            console.error('❌ [CSKH] Error applying current user OR filter, falling back to sale_staff:', orError);
+            query = query.ilike('sale_staff', pattern);
           }
         } else {
-          // Không có nhân sự được tích trong phân quyền: không hiển thị đơn nào
-          console.warn('⚠️ [CSKH] No selected personnel found in permission table, returning empty result');
+          // Không lấy được tên user hiện tại: không hiển thị đơn nào để tránh lộ dữ liệu
+          console.warn('⚠️ [CSKH] Missing current user name, returning empty result');
           query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Return no results
         }
       } else {
@@ -488,7 +460,6 @@ function QuanLyCSKH() {
         startDate,
         endDate,
         isManager,
-        selectedPersonnelNames,
         userName
       });
 
@@ -509,40 +480,9 @@ function QuanLyCSKH() {
     }
   };
 
-  // Load selected personnel names for current user
-  useEffect(() => {
-    const loadSelectedPersonnel = async () => {
-      try {
-        const userEmail = localStorage.getItem("userEmail") || "";
-
-        if (!userEmail) {
-          setSelectedPersonnelNames([]);
-          return;
-        }
-
-        const userEmailLower = userEmail.toLowerCase().trim();
-        const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
-        const personnelNames = personnelMap[userEmailLower] || [];
-
-        const validNames = personnelNames.filter(name => {
-          const nameStr = String(name).trim();
-          return nameStr.length > 0 && !nameStr.includes('@');
-        });
-
-        console.log('📝 [QuanLyCSKH] Valid personnel names:', validNames);
-        setSelectedPersonnelNames(validNames);
-      } catch (error) {
-        console.error('❌ [QuanLyCSKH] Error loading selected personnel:', error);
-        setSelectedPersonnelNames([]);
-      }
-    };
-
-    loadSelectedPersonnel();
-  }, []);
-
   useEffect(() => {
     loadData();
-  }, [startDate, endDate, role, selectedPersonnelNames]);
+  }, [startDate, endDate, role]);
 
 
 

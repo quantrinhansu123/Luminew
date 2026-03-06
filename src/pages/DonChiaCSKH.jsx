@@ -6,7 +6,6 @@ import * as XLSX from 'xlsx';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
-import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN, EDITABLE_COLS, DROPDOWN_OPTIONS } from '../types';
 
@@ -48,7 +47,6 @@ function DonChiaCSKH() {
 
   const [allData, setAllData] = useState([]);
   const [allMappedData, setAllMappedData] = useState([]); // Lưu tất cả dữ liệu đã map (trước khi filter CSKH) để lấy unique CSKH
-  const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
 
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -395,10 +393,14 @@ function DonChiaCSKH() {
       // Get user info for permission
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
-      const userEmail = (user?.Email || user?.email || "").toString().toLowerCase().trim();
-      const userName = (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || "").toString().trim();
+      
+      // Fetch username from multiple possible sources
+      const userEmail = localStorage.getItem("userEmail") || (user?.Email || user?.email || "").toString().toLowerCase().trim();
+      const userName = localStorage.getItem("username") || (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.name || user?.fullName || "").toString().trim();
       const boPhan = (user?.['Bộ_phận'] || user?.['Bộ phận'] || "").toString().trim().toLowerCase();
       const viTri = (user?.['Vị_trí'] || user?.['Vị trí'] || "").toString().trim().toLowerCase();
+      
+      console.log('👤 [DonChiaCSKH] User info from localStorage:', { userEmail, userName, from: 'localStorage' });
 
       const ADMIN_MAIL = "admin@marketing.com";
       const isAdmin = userEmail === ADMIN_MAIL || boPhan === 'admin';
@@ -438,71 +440,27 @@ function DonChiaCSKH() {
       // Khớp với các cột: Nhân viên Sale, Nhân viên MKT, Nhân viên Vận đơn
       // => Dùng các field trong bảng orders: sale_staff, marketing_staff, delivery_staff
       if (!isManager) {
-        // Nếu có filterPersonnel được chọn: chỉ lấy đơn mà người đó xuất hiện
-        // filterPersonnel giờ là array
-        if (filterPersonnel && filterPersonnel.length > 0 && typeof filterPersonnel[0] === 'string') {
-          const name = filterPersonnel[0].trim();
-          const pattern = `%${name}%`;
-          console.log('🔍 [DonChiaCSKH] Filtering by selected personnel (Sale/MKT/Vận đơn):', name);
-
-          const orConditions = [
-            `sale_staff.ilike.${pattern}`,
-            `marketing_staff.ilike.${pattern}`,
-            `delivery_staff.ilike.${pattern}`
-          ];
-
+        const ownName = (userName || '').trim();
+        console.log('👤 [DonChiaCSKH] Current user name extracted:', { userName, ownName, isManager });
+        if (ownName) {
+          console.log('🔍 [DonChiaCSKH] Filtering by CSKH column (current user):', ownName);
           try {
-            query = query.or(orConditions.join(','));
-            console.log('✅ [DonChiaCSKH] Applied personnel OR filter:', orConditions.join(','));
+            // Use ilike for case-insensitive exact match
+            query = query.ilike('cskh', ownName);
+            console.log('✅ [DonChiaCSKH] Applied CSKH ilike filter:', ownName);
           } catch (orError) {
-            console.error('❌ [DonChiaCSKH] Error applying personnel OR filter, falling back to single column:', orError);
-            // Fallback: dùng sale_staff
-            query = query.ilike('sale_staff', pattern);
-          }
-        } else if (selectedPersonnelNames.length > 0) {
-          // Có danh sách nhân sự được tích trong phân quyền:
-          // Lấy đơn mà bất kỳ người nào trong danh sách xuất hiện ở Sale/MKT/Vận đơn
-          console.log('🔍 [DonChiaCSKH] Filtering by selected personnel list (Sale/MKT/Vận đơn):', selectedPersonnelNames);
-
-          const orConditions = [];
-          selectedPersonnelNames
-            .filter(name => name && name.trim().length > 0)
-            .forEach(name => {
-              const pattern = `%${name.trim()}%`;
-              orConditions.push(`sale_staff.ilike.${pattern}`);
-              orConditions.push(`marketing_staff.ilike.${pattern}`);
-              orConditions.push(`delivery_staff.ilike.${pattern}`);
-            });
-
-          if (orConditions.length > 0) {
-            try {
-              query = query.or(orConditions.join(','));
-              console.log('✅ [DonChiaCSKH] Applied OR filter for selected personnel list:', orConditions.join(','));
-            } catch (orError) {
-              console.error('❌ [DonChiaCSKH] Error applying OR filter for list, falling back to first name:', orError);
-              const first = selectedPersonnelNames[0]?.trim();
-              if (first) {
-                const pattern = `%${first}%`;
-                query = query.or([
-                  `sale_staff.ilike.${pattern}`,
-                  `marketing_staff.ilike.${pattern}`,
-                  `delivery_staff.ilike.${pattern}`
-                ].join(','));
-              }
-            }
-          } else {
-            // Không có tên hợp lệ -> không trả về đơn nào
-            console.warn('⚠️ [DonChiaCSKH] No valid selected personnel names after trim, returning empty result');
-            query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+            console.error('❌ [DonChiaCSKH] Error applying CSKH filter:', orError);
+            query = query.ilike('cskh', ownName);
           }
         } else {
-          // Không có nhân sự được tích trong phân quyền: không hiển thị đơn nào
-          console.warn('⚠️ [DonChiaCSKH] No selected personnel found in permission table, returning empty result');
+          // Không lấy được tên user hiện tại: không hiển thị đơn nào để tránh lộ dữ liệu
+          console.warn('⚠️ [DonChiaCSKH] Missing current user name, returning empty result');
           query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Return no results
         }
       } else {
         // Admin/Manager: có thể filter theo nhân sự nếu được chọn
         // filterPersonnel giờ là array
+        console.log('👤 [DonChiaCSKH] Admin/Manager user, viewing all orders');
         if (filterPersonnel && filterPersonnel.length > 0 && typeof filterPersonnel[0] === 'string') {
           const name = filterPersonnel[0].trim();
           const pattern = `%${name}%`;
@@ -531,6 +489,17 @@ function DonChiaCSKH() {
       if (error) throw error;
 
       console.log(`📦 [DonChiaCSKH] Raw data from DB: ${data?.length || 0} orders`);
+      
+      // Debug: get ALL CSKH values from unfiltered query to see what's in DB
+      if (data?.length === 0 && !isManager) {
+        console.log('⚠️ [DonChiaCSKH] No data found with CSKH filter. Fetching ALL orders to see available CSKH values...');
+        const { data: allOrders } = await supabase.from('orders').select('order_code, cskh').limit(100);
+        const cskhValues = allOrders?.map(o => ({ order_code: o.order_code, cskh: o.cskh, cskh_trimmed: String(o.cskh).trim() })) || [];
+        console.log('📊 [DonChiaCSKH] All CSKH values in first 100 orders:', cskhValues);
+        console.log('🔍 [DonChiaCSKH] Unique CSKH values:', [...new Set(cskhValues.map(v => v.cskh_trimmed))]);
+      }
+      
+      console.log('🔍 [DonChiaCSKH] Sample CSKH values in raw data:', data?.slice(0, 3).map(item => ({ order_code: item.order_code, cskh: item.cskh, cskh_length: String(item.cskh).length })) || []);
       
       // Debug: Kiểm tra CSKH trong raw data
       if (data && data.length > 0) {
@@ -663,7 +632,6 @@ function DonChiaCSKH() {
         startDate,
         endDate,
         isManager,
-        selectedPersonnelNames,
         userName
       });
       
@@ -684,40 +652,9 @@ function DonChiaCSKH() {
     }
   };
 
-  // Load selected personnel names for current user
-  useEffect(() => {
-    const loadSelectedPersonnel = async () => {
-      try {
-        const userEmail = localStorage.getItem("userEmail") || "";
-        
-        if (!userEmail) {
-          setSelectedPersonnelNames([]);
-          return;
-        }
-
-        const userEmailLower = userEmail.toLowerCase().trim();
-        const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
-        const personnelNames = personnelMap[userEmailLower] || [];
-
-        const validNames = personnelNames.filter(name => {
-          const nameStr = String(name).trim();
-          return nameStr.length > 0 && !nameStr.includes('@');
-        });
-        
-        console.log('📝 [DonChiaCSKH] Valid personnel names:', validNames);
-        setSelectedPersonnelNames(validNames);
-      } catch (error) {
-        console.error('❌ [DonChiaCSKH] Error loading selected personnel:', error);
-        setSelectedPersonnelNames([]);
-      }
-    };
-
-    loadSelectedPersonnel();
-  }, []);
-
   useEffect(() => {
     loadData();
-  }, [startDate, endDate, role, selectedPersonnelNames]);
+  }, [startDate, endDate, role]);
 
   // Get unique values for filters
   const uniqueMarkets = useMemo(() => {
