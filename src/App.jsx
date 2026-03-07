@@ -56,6 +56,7 @@ import XemBaoCaoMKT from './pages/XemBaoCaoMKT';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import TestMKT from './pages/TestMKT.jsx';
 import TestSaleData from './pages/TestSaleData.jsx';
+import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
 
 /* Header component extracted to `src/components/Header.jsx` */
 
@@ -109,6 +110,7 @@ function App() {
             <Route path="/danh-sach-bao-cao-tay-mkt" element={<ProtectedRoute><DanhSachBaoCaoTayMKT /></ProtectedRoute>} />
             <Route path="/test-mkt" element={<ProtectedRoute><TestMKT /></ProtectedRoute>} />
             <Route path="/test-sale-data" element={<ProtectedRoute><TestSaleData /></ProtectedRoute>} />
+            <Route path="/test-bao-cao-orders" element={<ProtectedRoute><TestBaoCaoOrders /></ProtectedRoute>} />
             <Route path="/ffm" element={<ProtectedRoute><FFM /></ProtectedRoute>} />
             <Route path="/dien-bill" element={<ProtectedRoute><DienBill /></ProtectedRoute>} />
             <Route path="/doi-soat-bill-cuoc" element={<ProtectedRoute><DoiSoatBillCuoc /></ProtectedRoute>} />
