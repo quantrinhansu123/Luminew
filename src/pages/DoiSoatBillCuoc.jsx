@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { ArrowLeft, RefreshCw, Plus, X, Settings } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Plus, X, Settings, RotateCw } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 
@@ -15,7 +15,6 @@ const BILL_TIEN_COLUMNS = [
   { key: 'ty_gia', label: 'Tỷ giá' },
   { key: 'tien_viet', label: 'Tiền Việt' },
   { key: 'dem_lan_thanh_toan', label: 'Đếm lần thanh toán' },
-  { key: 'khu_vuc', label: 'Khu vực' },
   { key: 'ngay_update', label: 'Ngày Update' },
   { key: 'note', label: 'Note' },
   { key: 'note_2', label: 'Note 2' },
@@ -52,6 +51,7 @@ function DoiSoatBillCuoc() {
   const [selection, setSelection] = useState({ startRow: null, startCol: null, endRow: null, endCol: null });
   const isSelecting = useRef(false);
   const [exchangeRates, setExchangeRates] = useState({ AUD: null, CAD: null, USD: null, YEN: null });
+  const [syncing, setSyncing] = useState(false);
 
   // Load data từ chi_tiet_bill_tien
   const loadBillData = async () => {
@@ -206,6 +206,46 @@ function DoiSoatBillCuoc() {
       loadCuocData();
     }
   }, [activeTab, exchangeRates]);
+
+  // Tự động cập nhật tỷ giá cho các hàng có đơn vị tiền tệ nhưng tỷ giá trống
+  useEffect(() => {
+    if (Object.values(exchangeRates).every(rate => rate === null)) return; // Chưa load xong
+    
+    const data = activeTab === 'bill' ? billData : cuocData;
+    if (!data || data.length === 0) return;
+    
+    setPendingChanges((prevPending) => {
+      const newPending = new Map(prevPending);
+      let hasUpdates = false;
+      
+      data.forEach((row) => {
+        const currencyKey = activeTab === 'bill' ? 'don_vi_tien' : 'don_vi_tien_te';
+        const currency = row[currencyKey];
+        const currentTyGia = row.ty_gia;
+        
+        // Chỉ cập nhật nếu có đơn vị tiền tệ và tỷ giá trống
+        if (currency && (!currentTyGia || currentTyGia === '' || currentTyGia === null)) {
+          const currencyUpper = String(currency).toUpperCase();
+          const rate = exchangeRates[currencyUpper];
+          
+          if (rate !== null && rate !== undefined) {
+            // Kiểm tra xem đã có pending change cho ty_gia chưa
+            const rowPending = newPending.get(row.id);
+            if (!rowPending || !rowPending.has('ty_gia')) {
+              if (!newPending.has(row.id)) {
+                newPending.set(row.id, new Map());
+              }
+              const rowChanges = newPending.get(row.id);
+              rowChanges.set('ty_gia', rate);
+              hasUpdates = true;
+            }
+          }
+        }
+      });
+      
+      return hasUpdates ? newPending : prevPending;
+    });
+  }, [exchangeRates, activeTab, billData, cuocData]);
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -549,6 +589,128 @@ function DoiSoatBillCuoc() {
     }
   };
 
+  // Hàm đồng bộ dữ liệu từ bill/cuoc sang orders
+  const handleSync = async () => {
+    if (!window.confirm('Bạn có chắc chắn muốn đồng bộ dữ liệu? Hành động này sẽ cập nhật bảng orders.')) {
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      // 1. Lấy tất cả dữ liệu từ chitiet_cuoc để tính tổng tien_ship_vnd theo ma_don_hang
+      const { data: cuocData, error: cuocError } = await supabase
+        .from('chitiet_cuoc')
+        .select('ma_don_hang, tien_ship_vnd');
+
+      if (cuocError) throw cuocError;
+
+      // 2. Lấy tất cả dữ liệu từ chi_tiet_bill_tien để tính tổng tien_viet theo ma_don_hang
+      const { data: billData, error: billError } = await supabase
+        .from('chi_tiet_bill_tien')
+        .select('ma_don_hang, tien_viet');
+
+      if (billError) throw billError;
+
+      // 3. Tính tổng shipping_cost từ chitiet_cuoc theo ma_don_hang
+      const shippingCostMap = new Map();
+      if (cuocData) {
+        cuocData.forEach((row) => {
+          if (row.ma_don_hang && row.tien_ship_vnd) {
+            const orderCode = row.ma_don_hang;
+            const currentTotal = shippingCostMap.get(orderCode) || 0;
+            shippingCostMap.set(orderCode, currentTotal + (parseFloat(row.tien_ship_vnd) || 0));
+          }
+        });
+      }
+
+      // 4. Tính tổng total_vnd từ chi_tiet_bill_tien theo ma_don_hang
+      const totalVndMap = new Map();
+      if (billData) {
+        billData.forEach((row) => {
+          if (row.ma_don_hang && row.tien_viet) {
+            const orderCode = row.ma_don_hang;
+            const currentTotal = totalVndMap.get(orderCode) || 0;
+            totalVndMap.set(orderCode, currentTotal + (parseFloat(row.tien_viet) || 0));
+          }
+        });
+      }
+
+      // 5. Tính order_count_actual (số lượng records trong chitiet_cuoc theo ma_don_hang)
+      const orderCountMap = new Map();
+      if (cuocData) {
+        cuocData.forEach((row) => {
+          if (row.ma_don_hang) {
+            const orderCode = row.ma_don_hang;
+            orderCountMap.set(orderCode, (orderCountMap.get(orderCode) || 0) + 1);
+          }
+        });
+      }
+
+      // 6. Tính revenue_actual (tổng total_vnd từ chi_tiet_bill_tien theo ma_don_hang)
+      // revenue_actual = total_vnd (đã tính ở trên)
+
+      // 7. Lấy tất cả order codes cần update
+      const allOrderCodes = new Set([
+        ...Array.from(shippingCostMap.keys()),
+        ...Array.from(totalVndMap.keys()),
+        ...Array.from(orderCountMap.keys())
+      ]);
+
+      // 8. Update orders table
+      let updateCount = 0;
+      for (const orderCode of allOrderCodes) {
+        const updateData = {};
+        
+        // Update shipping_cost
+        if (shippingCostMap.has(orderCode)) {
+          updateData.shipping_cost = shippingCostMap.get(orderCode);
+        }
+        
+        // Update total_vnd
+        if (totalVndMap.has(orderCode)) {
+          updateData.total_vnd = totalVndMap.get(orderCode);
+        }
+        
+        // Update order_count_actual
+        if (orderCountMap.has(orderCode)) {
+          updateData.order_count_actual = orderCountMap.get(orderCode);
+        }
+        
+        // Update revenue_actual = total_vnd
+        if (totalVndMap.has(orderCode)) {
+          updateData.revenue_actual = totalVndMap.get(orderCode);
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          const { error: updateError } = await supabase
+            .from('orders')
+            .update(updateData)
+            .eq('order_code', orderCode);
+
+          if (updateError) {
+            console.error(`Error updating order ${orderCode}:`, updateError);
+          } else {
+            updateCount++;
+          }
+        }
+      }
+
+      alert(`Đã đồng bộ thành công ${updateCount} đơn hàng!`);
+      
+      // Reload data
+      if (activeTab === 'bill') {
+        await loadBillData();
+      } else {
+        await loadCuocData();
+      }
+    } catch (error) {
+      console.error('Error syncing data:', error);
+      alert('Lỗi khi đồng bộ dữ liệu: ' + error.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Parse mã đơn hàng từ text input
   const parseOrderCodes = (text) => {
     return text
@@ -571,6 +733,24 @@ function DoiSoatBillCuoc() {
       return data.team || null;
     } catch (err) {
       console.error('Error fetching chi_nhanh:', err);
+      return null;
+    }
+  };
+
+  // Helper function to get payment_type from orders table
+  const getPaymentTypeFromOrder = async (orderCode) => {
+    if (!orderCode) return null;
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('payment_type')
+        .eq('order_code', orderCode)
+        .single();
+      
+      if (error || !data) return null;
+      return data.payment_type || null;
+    } catch (err) {
+      console.error('Error fetching payment_type:', err);
       return null;
     }
   };
@@ -610,8 +790,27 @@ function DoiSoatBillCuoc() {
           // Determine the exchange rate column key
           const rateColumnKey = activeTab === 'bill' ? 'ty_gia' : 'ty_gia';
           
-          // LUÔN tự động điền tỷ giá khi chọn đơn vị tiền tệ
+          // LUÔN tự động điền tỷ giá khi chọn đơn vị tiền tệ (không phụ thuộc vào giá trị hiện tại)
           rowChanges.set(rateColumnKey, rate);
+        }
+      }
+      
+      // Auto-fill exchange rate when ty_gia is empty but currency exists
+      // Nếu user xóa tỷ giá hoặc tỷ giá trống, tự động điền lại từ exchangeRates
+      if (columnKey === 'ty_gia' && (!newValue || newValue === '' || newValue === null)) {
+        const currentData = getCurrentData();
+        const currentRow = currentData.find((r) => r.id === rowId);
+        const currencyKey = activeTab === 'bill' ? 'don_vi_tien' : 'don_vi_tien_te';
+        const currency = currentRow?.[currencyKey];
+        
+        if (currency) {
+          const currencyUpper = String(currency).toUpperCase();
+          const rate = exchangeRates[currencyUpper];
+          
+          if (rate !== null && rate !== undefined) {
+            // Tự động điền lại tỷ giá từ cài đặt
+            rowChanges.set('ty_gia', rate);
+          }
         }
       }
 
@@ -637,6 +836,46 @@ function DoiSoatBillCuoc() {
         });
       }
 
+      // Auto-fill don_vi_tien from payment_type when ma_don_hang changes (only for bill tab)
+      if (activeTab === 'bill' && columnKey === 'ma_don_hang' && newValue) {
+        // Fetch payment_type asynchronously and map to don_vi_tien
+        getPaymentTypeFromOrder(newValue).then((paymentType) => {
+          if (paymentType) {
+            setPendingChanges((current) => {
+              const updated = new Map(current);
+              if (!updated.has(rowId)) {
+                updated.set(rowId, new Map());
+              }
+              const rowChanges = updated.get(rowId);
+              // Map payment_type to currency code
+              // Có thể cần mapping: Zelle -> USD, COD -> USD, etc.
+              // Tạm thời dùng trực tiếp payment_type nếu nó là currency code
+              const currencyMap = {
+                'USD': 'USD',
+                'AUD': 'AUD',
+                'CAD': 'CAD',
+                'JPY': 'YEN',
+                'YEN': 'YEN',
+                'Zelle': 'USD',
+                'COD': 'USD',
+              };
+              const currency = currencyMap[paymentType.toUpperCase()] || paymentType.toUpperCase();
+              if (CURRENCY_OPTIONS.includes(currency)) {
+                rowChanges.set('don_vi_tien', currency);
+              }
+              return updated;
+            });
+          }
+        });
+      }
+
+      // Tự động cập nhật ngay_update = today khi có bất kỳ thay đổi nào
+      // (trừ khi chính ngay_update được thay đổi)
+      if (columnKey !== 'ngay_update') {
+        const today = new Date().toISOString();
+        rowChanges.set('ngay_update', today);
+      }
+
       return next;
     });
   };
@@ -654,6 +893,7 @@ function DoiSoatBillCuoc() {
       const updates = [];
 
       // Tạo danh sách các update
+      const today = new Date().toISOString();
       pendingChanges.forEach((rowChanges, rowId) => {
         const updateObj = { id: rowId };
         rowChanges.forEach((value, columnKey) => {
@@ -662,6 +902,8 @@ function DoiSoatBillCuoc() {
             updateObj[columnKey] = value;
           }
         });
+        // Đảm bảo ngay_update luôn = today khi có thay đổi
+        updateObj.ngay_update = today;
         updates.push(updateObj);
       });
 
@@ -770,6 +1012,23 @@ function DoiSoatBillCuoc() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+            >
+              {syncing ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Đang đồng bộ...
+                </>
+              ) : (
+                <>
+                  <RotateCw className="w-4 h-4" />
+                  Đồng bộ
+                </>
+              )}
+            </button>
             <button
               onClick={() => navigate('/quan-ly-ty-gia')}
               className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm font-medium transition"
@@ -911,7 +1170,7 @@ function DoiSoatBillCuoc() {
                       <tr key={rowId || rowIdx} className={`hover:bg-gray-50 ${hasPendingChanges ? 'bg-yellow-50' : ''}`}>
                         {columns.map((col, colIdx) => {
                           // Bỏ qua các trường không cho phép chỉnh sửa
-                          const isReadOnly = col.key === 'id' || col.key === 'created_at' || col.key === 'updated_at' || col.key === 'loc_trung';
+                          const isReadOnly = col.key === 'id' || col.key === 'created_at' || col.key === 'updated_at' || col.key === 'loc_trung' || col.key === 'ngay_update';
                           
                           // Lấy giá trị hiện tại (ưu tiên pending changes)
                           let originalValue = row[col.key] ?? '';
@@ -920,6 +1179,35 @@ function DoiSoatBillCuoc() {
                           // Nếu có pending change, dùng giá trị pending
                           if (rowPendingChanges.has(col.key)) {
                             displayValue = rowPendingChanges.get(col.key);
+                          }
+                          
+                          // Hiển thị tỷ giá tự động từ cài đặt nếu:
+                          // - Đây là cột ty_gia
+                          // - Tỷ giá trống hoặc null
+                          // - Có đơn vị tiền tệ
+                          // - Chưa có pending change cho ty_gia
+                          if (col.key === 'ty_gia' && !rowPendingChanges.has('ty_gia')) {
+                            const currencyKey = activeTab === 'bill' ? 'don_vi_tien' : 'don_vi_tien_te';
+                            const currency = row[currencyKey];
+                            
+                            // Kiểm tra pending change cho currency
+                            const currencyPending = rowPendingChanges.get(currencyKey);
+                            const finalCurrency = currencyPending !== undefined ? currencyPending : currency;
+                            
+                            if (finalCurrency && (!displayValue || displayValue === '' || displayValue === null)) {
+                              const currencyUpper = String(finalCurrency).toUpperCase();
+                              const rate = exchangeRates[currencyUpper];
+                              
+                              if (rate !== null && rate !== undefined) {
+                                // Hiển thị tỷ giá tự động từ cài đặt (sẽ được lưu qua useEffect)
+                                displayValue = rate;
+                              }
+                            }
+                          }
+                          
+                          // Tự động hiển thị ngay_update = today nếu trống
+                          if (col.key === 'ngay_update' && (!displayValue || displayValue === '' || displayValue === null)) {
+                            displayValue = new Date().toISOString();
                           }
                           
                           // Format dựa trên loại dữ liệu (chỉ format khi hiển thị, không format khi edit)

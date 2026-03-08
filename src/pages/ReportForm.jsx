@@ -202,9 +202,7 @@ function ReportForm() {
         branch: userBranch, // Tự động điền chi nhánh từ users
         mess_cmt: '',
         response: '',
-        orders: '',
-        revenue: '',
-        revenue_cancel: ''
+        orders: ''
       }]);
     };
 
@@ -222,7 +220,7 @@ function ReportForm() {
 
   const handleReportChange = (e, reportIndex) => {
     const { name, value } = e.target;
-    const numberFields = ['cpqc', 'mess_cmt', 'response', 'orders', 'revenue'];
+    const numberFields = ['cpqc', 'mess_cmt', 'response', 'orders'];
 
     const newReports = [...reports];
     if (numberFields.includes(name)) {
@@ -257,9 +255,7 @@ function ReportForm() {
       branch: lastReport.branch || defaultInfo.branch || '',
       mess_cmt: '',
       response: '',
-      orders: '',
-      revenue: '',
-      revenue_cancel: lastReport.revenue_cancel || ''
+      orders: ''
     };
     setReports(prev => [...prev, newReport]);
   };
@@ -284,7 +280,6 @@ function ReportForm() {
       if (!report.mess_cmt) newErrors[`${index}-mess_cmt`] = 'Required';
       if (!report.response) newErrors[`${index}-response`] = 'Required';
       if (!report.orders) newErrors[`${index}-orders`] = 'Required';
-      if (!report.revenue) newErrors[`${index}-revenue`] = 'Required';
     });
 
     setErrors(newErrors);
@@ -338,21 +333,49 @@ function ReportForm() {
           mess_count: Number(cleanNumberInput(String(report.mess_cmt || ''))) || 0,
           response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
           order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
-          revenue_mess: Number(cleanNumberInput(String(report.revenue || ''))) || 0,
-          revenue_cancel: Number(cleanNumberInput(String(report.revenue_cancel || ''))) || 0, // Doanh số hủy
           team: correctTeam,
           branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
           created_at: new Date().toISOString(),
         };
       });
 
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('sales_reports')
-        .insert(payload);
+        .insert(payload)
+        .select('id');
 
       if (error) throw error;
 
       toast.success(`Đã lưu thành công ${reports.length} báo cáo!`, { position: 'top-right', autoClose: 3000 });
+
+      // Gọi API calculate-order-count cho mỗi record vừa insert
+      if (insertedData && insertedData.length > 0) {
+        try {
+          const apiCalls = insertedData.map(record => {
+            const apiUrl = `https://lumidataapi.vercel.app/api/calculate-order-count?recordId=${record.id}`;
+            return fetch(apiUrl, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            }).catch(err => {
+              console.error(`❌ Error calling calculate-order-count for record ${record.id}:`, err);
+              return null;
+            });
+          });
+
+          // Gọi tất cả API calls song song (không cần đợi kết quả)
+          Promise.all(apiCalls).then(results => {
+            const successCount = results.filter(r => r && r.ok).length;
+            if (successCount > 0) {
+              console.log(`✅ Đã tính toán order_count cho ${successCount}/${insertedData.length} báo cáo`);
+            }
+          });
+        } catch (apiError) {
+          console.error('❌ Error calling calculate-order-count API:', apiError);
+          // Không hiển thị lỗi cho user vì đây là background task
+        }
+      }
 
       // Reset but keep user info settings for next entry
       setReports([{
@@ -365,9 +388,7 @@ function ReportForm() {
         branch: defaultInfo.branch || '', // Giữ chi nhánh
         mess_cmt: '',
         response: '',
-        orders: '',
-        revenue: '',
-        revenue_cancel: ''
+        orders: ''
       }]);
       setErrors({});
     } catch (err) {
@@ -425,8 +446,6 @@ function ReportForm() {
                   <th className="p-3 min-w-[100px]">Số mess <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[100px]">Phản hồi <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[100px]">Số đơn <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[140px]">Doanh số <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[140px]">Doanh số hủy</th>
                   <th className="p-3 w-16 text-center">Xóa</th>
                 </tr>
               </thead>
@@ -543,29 +562,6 @@ function ReportForm() {
                         placeholder="0"
                       />
                     </td>
-                    <td className="p-3">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        name="revenue"
-                        value={report.revenue}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-revenue`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="p-3">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        name="revenue_cancel"
-                        value={report.revenue_cancel || ''}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all"
-                        placeholder="0"
-                        title="Tổng VNĐ các đơn Hủy"
-                      />
-                    </td>
                     <td className="p-3 text-center">
                       <button
                         onClick={() => {
@@ -615,9 +611,7 @@ function ReportForm() {
                     branch: defaultInfo.branch || '',
                     mess_cmt: '',
                     response: '',
-                    orders: '',
-                    revenue: '',
-                    revenue_cancel: ''
+                    orders: ''
                   }]);
                   setErrors({});
                   toast.info('Đã xóa tất cả các dòng báo cáo', { position: 'top-right', autoClose: 2000 });

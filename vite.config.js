@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 3001,
     host: '0.0.0.0', // Listen on all interfaces (IPv4 and IPv6)
     open: true,
     proxy: {

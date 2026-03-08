@@ -309,7 +309,6 @@ function ReportFormCSKH() {
           mess_count: Number(cleanNumberInput(String(report.mess_cmt || ''))) || 0,
           response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
           order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
-          revenue_mess: Number(cleanNumberInput(String(report.revenue || ''))) || 0,
           team: correctTeam,
           branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
           created_at: new Date().toISOString(),

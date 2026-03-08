@@ -26,7 +26,7 @@ import {
   Users,
   XCircle
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ChangePasswordModal } from "../components/modals/ChangePasswordModal";
 
@@ -44,6 +44,7 @@ function Home() {
   const [expandedMenus, setExpandedMenus] = useState({});
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState(null); // Track selected group
 
   const toggleMenu = (id) => {
     setExpandedMenus(prev => ({
@@ -1183,8 +1184,26 @@ function Home() {
     return true;
   };
 
+  // Mapping between section titles and menu item ids
+  const sectionToMenuIdMap = {
+    "DASHBOARD ĐIỀU HÀNH": "dashboard",
+    "CSKH & CRM": "crm",
+    "QUẢN LÝ SALE & ORDER": "sale",
+    "QUẢN LÝ GIAO HÀNG": "delivery",
+    "QUẢN LÝ MARKETING": "marketing",
+    "QUẢN LÝ R&D": "rnd",
+    "QUẢN LÝ NHÂN SỰ": "hr",
+    "QUẢN LÝ TÀI CHÍNH": "finance",
+    "CÀI ĐẶT HỆ THỐNG": "settings"
+  };
+
+  // Reverse mapping: menu item id to section title
+  const menuIdToSectionTitleMap = Object.fromEntries(
+    Object.entries(sectionToMenuIdMap).map(([title, id]) => [id, title])
+  );
+
   // Filter Menu Items
-  const filteredMenuItems = allMenuItems
+  let filteredMenuItems = allMenuItems
     .map(item => {
       // Clone item to avoid mutating original
       const newItem = { ...item };
@@ -1199,17 +1218,40 @@ function Home() {
       return isItemVisible(item);
     });
 
-  // Filter Dashboard Cards (Sections)
-  const filteredSections = allContentSections
-    .map(section => {
-      // Filter items in section
-      const visibleItems = section.items.filter(item => {
-        const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase());
-        return isItemVisible(item) && matchesSearch;
+  // Filter sidebar by selected group
+  if (selectedGroup) {
+    const menuId = sectionToMenuIdMap[selectedGroup];
+    if (menuId) {
+      filteredMenuItems = filteredMenuItems.filter(item => item.id === menuId || item.id === "home");
+    }
+  }
+
+  // Filter Dashboard Cards (Sections) - use useMemo to recalculate when selectedGroup or searchQuery changes
+  const filteredSections = useMemo(() => {
+    let sections = allContentSections
+      .map(section => {
+        // Filter items in section
+        const visibleItems = section.items.filter(item => {
+          const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase());
+          return isItemVisible(item) && matchesSearch;
+        });
+        return { ...section, items: visibleItems };
+      })
+      .filter(section => section.items.length > 0);
+
+    // Filter sections by selected group
+    if (selectedGroup) {
+      sections = sections.filter(section => {
+        const matches = section.title === selectedGroup;
+        console.log(`🔍 Comparing: "${section.title}" === "${selectedGroup}" = ${matches}`);
+        return matches;
       });
-      return { ...section, items: visibleItems };
-    })
-    .filter(section => section.items.length > 0);
+      console.log('🔍 Filtering sections by:', selectedGroup);
+      console.log('📋 Filtered sections:', sections.map(s => s.title));
+    }
+
+    return sections;
+  }, [selectedGroup, searchQuery, isAdminOrLeadership, canView]);
 
   // --- NEWS FEED LOGIC ---
   const [news, setNews] = useState([]);
@@ -1383,6 +1425,18 @@ function Home() {
                     if (item.subItems) {
                       e.preventDefault(); // Prevent navigation for parent items with submenus
                       toggleMenu(item.id);
+                      
+                      // Set selectedGroup khi click vào menu item trong sidebar
+                      const sectionTitle = menuIdToSectionTitleMap[item.id];
+                      if (sectionTitle) {
+                        console.log('🖱️ Sidebar click - menuId:', item.id, '→ sectionTitle:', sectionTitle);
+                        setSelectedGroup(selectedGroup === sectionTitle ? null : sectionTitle);
+                        // Scroll to top khi filter
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    } else if (item.id === "home") {
+                      // Click vào "Menu chức năng" thì hiển thị tất cả
+                      setSelectedGroup(null);
                     }
                   }}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 transition-colors cursor-pointer ${item.active
@@ -1680,24 +1734,68 @@ function Home() {
 
           {/* Header */}
           <div className="mb-8">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-green-500 rounded flex items-center justify-center">
-                <div className="grid grid-cols-2 gap-1 w-6 h-6">
-                  <div className="bg-white rounded-sm"></div>
-                  <div className="bg-white rounded-sm"></div>
-                  <div className="bg-white rounded-sm"></div>
-                  <div className="bg-white rounded-sm"></div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-500 rounded flex items-center justify-center">
+                  <div className="grid grid-cols-2 gap-1 w-6 h-6">
+                    <div className="bg-white rounded-sm"></div>
+                    <div className="bg-white rounded-sm"></div>
+                    <div className="bg-white rounded-sm"></div>
+                    <div className="bg-white rounded-sm"></div>
+                  </div>
                 </div>
+                <h1 className="text-2xl font-bold text-gray-900">Menu chức năng</h1>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900">Menu chức năng</h1>
+              {selectedGroup && (
+                <button
+                  onClick={() => {
+                    setSelectedGroup(null);
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-2"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Hiển thị tất cả
+                </button>
+              )}
             </div>
           </div>
 
+          {(() => {
+            console.log('🎨 Rendering sections. selectedGroup:', selectedGroup);
+            console.log('📊 Total sections to render:', filteredSections.length);
+            console.log('📋 Section titles:', filteredSections.map(s => s.title));
+            return null;
+          })()}
           {filteredSections.map((section, sectionIndex) => (
             section.items.length > 0 && (
               <div key={sectionIndex} className="mb-8">
-                <h2 className="text-sm font-bold text-gray-700 uppercase mb-4">
+                <h2 
+                  className={`text-sm font-bold uppercase mb-4 cursor-pointer transition-colors ${
+                    selectedGroup === section.title 
+                      ? "text-red-600 underline" 
+                      : "text-gray-700 hover:text-red-500"
+                  }`}
+                  onClick={() => {
+                    // Toggle: nếu đã chọn thì bỏ chọn, nếu chưa chọn thì chọn
+                    const newSelectedGroup = selectedGroup === section.title ? null : section.title;
+                    console.log('🖱️ Clicked on section:', section.title);
+                    console.log('📌 Setting selectedGroup to:', newSelectedGroup);
+                    setSelectedGroup(newSelectedGroup);
+                    
+                    // Tự động expand menu item tương ứng trong sidebar
+                    if (newSelectedGroup) {
+                      const menuId = sectionToMenuIdMap[newSelectedGroup];
+                      console.log('🔗 Mapped menuId:', menuId);
+                      if (menuId && !expandedMenus[menuId]) {
+                        setExpandedMenus(prev => ({ ...prev, [menuId]: true }));
+                      }
+                      // Scroll to top khi filter
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                  }}
+                >
                   {section.title}
+                  {selectedGroup === section.title && " ✓"}
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {section.items.map((item, itemIndex) => renderCard(item, itemIndex))}
