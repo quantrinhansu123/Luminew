@@ -74,10 +74,10 @@ const MultiSelect = ({
                 <button
                     ref={buttonRef}
                     onClick={handleToggle}
-                    className={`w-full text-left px-2 py-1.5 border rounded text-sm bg-white overflow-hidden text-ellipsis whitespace-nowrap shadow-sm ${mainFilter ? 'border-gray-300 min-w-[180px] text-gray-700' : 'border-gray-300 text-gray-500'
+                    className={`w-full text-left px-2 py-1.5 border rounded text-sm bg-white overflow-hidden text-ellipsis whitespace-nowrap shadow-sm ${mainFilter ? 'border-gray-300 min-w-[120px] text-gray-700' : 'border-gray-300 text-gray-500'
                         }`}
                     title={displayText}
-                    style={{ width: '100%', margin: 0, textAlign: 'left' }}
+                    style={{ width: '100%', margin: 0, textAlign: 'left', fontSize: '12px', padding: '6px 8px' }}
                 >
                     {displayText}
                 </button>

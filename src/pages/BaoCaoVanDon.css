@@ -146,34 +146,38 @@
 
 .bcvd-controls {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     margin-bottom: 15px;
     align-items: center;
     background: #fff;
-    padding: 15px;
+    padding: 8px 12px;
     border-radius: 8px;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
     position: sticky;
     top: 0;
     z-index: 30;
-    /* Adjusted z-index */
-    flex-wrap: wrap;
-    gap: 15px;
+    flex-wrap: nowrap;
+    gap: 8px;
     transition: box-shadow 0.3s ease;
+    overflow-x: auto;
+    overflow-y: visible;
 }
 
 .bcvd-controls .left-controls,
 .bcvd-controls .right-controls {
     display: flex;
     align-items: center;
-    gap: 15px;
-    flex-wrap: wrap;
+    gap: 8px;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    overflow: visible;
 }
 
 .bcvd-controls .date-filter {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
 .bcvd-btn {
@@ -311,7 +315,8 @@
     border-radius: 5px;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
     overflow: hidden;
-    font-size: 13px;
+    font-size: 15px;
+    font-weight: 600;
 }
 
 .bcvd-summary-table th {
@@ -319,14 +324,20 @@
     position: sticky;
     top: 0;
     color: white;
-    padding: 8px;
+    padding: 12px 10px;
     z-index: 20;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
 }
 
 .bcvd-summary-table td {
     text-align: center !important;
-    padding: 8px;
+    padding: 12px 10px;
     border: 1px solid #e0e0e0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #2c3e50;
 }
 
 .bcvd-text-positive {
@@ -341,22 +352,37 @@
 
 .bcvd-summary-staff-header td {
     background-color: #ecf0f1 !important;
-    font-weight: bold;
+    font-weight: 700 !important;
     text-align: left !important;
     color: #2c3e50;
+    font-size: 16px !important;
+    padding: 12px 15px !important;
 }
 
 .bcvd-summary-staff-total {
     background-color: #fff9c4 !important;
-    font-size: 1.1em !important;
-    font-weight: 700 !important;
+    font-size: 17px !important;
+    font-weight: 800 !important;
+}
+
+.bcvd-summary-staff-total td {
+    font-size: 17px !important;
+    font-weight: 800 !important;
+    padding: 14px 10px !important;
+    color: #1a237e !important;
 }
 
 .bcvd-summary-grand-total {
-    font-size: 1.25em !important;
+    font-size: 17px !important;
     background-color: #fff176 !important;
     color: #1a237e !important;
     font-weight: 900 !important;
+}
+
+.bcvd-summary-grand-total td {
+    font-size: 17px !important;
+    font-weight: 900 !important;
+    padding: 14px 10px !important;
 }
 
 /* Custom Scrollbar */
@@ -403,7 +429,7 @@
     background-color: #f9f9f9;
     min-width: 200px;
     box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
-    z-index: 101;
+    z-index: 10001;
     border: 1px solid #ddd;
     border-radius: 5px;
     max-height: 300px;

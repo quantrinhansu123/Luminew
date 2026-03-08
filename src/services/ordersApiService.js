@@ -20,16 +20,50 @@ export const fetchOrdersFromAPI = async (filters = {}) => {
     try {
         const params = new URLSearchParams();
         
-        // Thêm các filter vào params
-        if (filters.from_date) {
-            params.append('from_date', filters.from_date);
-        }
-        if (filters.to_date) {
-            params.append('to_date', filters.to_date);
-        }
+        // Thêm các filter vào params - dates LUÔN được truyền vào URL API
+        // Luôn thêm from_date và to_date vào URL, kể cả khi rỗng
+        params.append('from_date', filters.from_date || '');
+        params.append('to_date', filters.to_date || '');
+        
+        // Các filter khác chỉ thêm nếu có giá trị
+        // Map theo tài liệu API BE
         if (filters.team) {
             params.append('team', filters.team);
         }
+        if (filters.shift) {
+            params.append('shift', filters.shift);
+        }
+        if (filters.product) {
+            params.append('product', filters.product);
+        }
+        if (filters.country) {
+            params.append('country', filters.country);
+        }
+        if (filters.delivery_staff) {
+            params.append('delivery_staff', filters.delivery_staff);
+        }
+        if (filters.marketing_staff) {
+            params.append('marketing_staff', filters.marketing_staff);
+        }
+        if (filters.sale_staff) {
+            params.append('sale_staff', filters.sale_staff);
+        }
+        if (filters.delivery_status) {
+            params.append('delivery_status', filters.delivery_status);
+        }
+        if (filters.payment_status) {
+            params.append('payment_status', filters.payment_status);
+        }
+        if (filters.check_result) {
+            params.append('check_result', filters.check_result);
+        }
+        if (filters.tracking_code) {
+            params.append('tracking_code', filters.tracking_code);
+        }
+        if (filters.shipping_unit) {
+            params.append('shipping_unit', filters.shipping_unit);
+        }
+        // Giữ lại các filter cũ để backward compatibility
         if (filters.ca) {
             params.append('ca', filters.ca);
         }
@@ -39,9 +73,36 @@ export const fetchOrdersFromAPI = async (filters = {}) => {
         if (filters.thi_truong) {
             params.append('thi_truong', filters.thi_truong);
         }
+        if (filters.nhan_su) {
+            params.append('nhan_su', filters.nhan_su);
+        }
+        
+        // Chỉ thêm limit và page nếu được cung cấp (API có thể không hỗ trợ)
+        // Không thêm mặc định để tránh lỗi 422
+        if (filters.limit) {
+            params.append('limit', filters.limit.toString());
+        }
+        
+        if (filters.page) {
+            params.append('page', filters.page.toString());
+        }
+        
+        // Cursor-based pagination với next_after_id
+        if (filters.next_after_id) {
+            params.append('next_after_id', filters.next_after_id);
+        }
 
         const url = `${ORDERS_API_BASE_URL}/orders?${params.toString()}`;
-        console.log('📡 Fetching orders from:', url);
+        console.log('📡 [ordersApiService] Fetching orders from:', url);
+        console.log('📋 [ordersApiService] API Request params:', {
+            from_date: filters.from_date || '',
+            to_date: filters.to_date || '',
+            team: filters.team || '(not set)',
+            delivery_staff: filters.delivery_staff || '(not set)',
+            product: filters.product || '(not set)',
+            country: filters.country || '(not set)',
+            full_url: url
+        });
 
         const response = await fetch(url, {
             method: 'GET',
@@ -53,8 +114,29 @@ export const fetchOrdersFromAPI = async (filters = {}) => {
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('API Error Response:', errorText);
-            throw new Error(`API Error ${response.status}: ${response.statusText}`);
+            console.error('❌ API Error Response:', {
+                status: response.status,
+                statusText: response.statusText,
+                url: url,
+                errorText: errorText,
+                params: Object.fromEntries(params)
+            });
+            
+            // Parse error message nếu có
+            let errorMessage = `API Error ${response.status}: ${response.statusText}`;
+            try {
+                const errorJson = JSON.parse(errorText);
+                if (errorJson.message || errorJson.error) {
+                    errorMessage = errorJson.message || errorJson.error || errorMessage;
+                }
+            } catch (e) {
+                // Nếu không parse được JSON, dùng errorText trực tiếp
+                if (errorText) {
+                    errorMessage = `${errorMessage}\n\nChi tiết: ${errorText}`;
+                }
+            }
+            
+            throw new Error(errorMessage);
         }
 
         const data = await response.json();
@@ -64,13 +146,40 @@ export const fetchOrdersFromAPI = async (filters = {}) => {
         const countriesInData = [...new Set(data.data?.map(o => o.country).filter(Boolean) || [])];
         const teamsInData = [...new Set(data.data?.map(o => o.team).filter(Boolean) || [])];
         
-        console.log('✅ Orders API Response:', {
+        const actualDataCount = data.data?.length || 0;
+        const expectedCount = data.count || data.statistics?.total_orders;
+        const hasNextPage = !!data.next_after_id;
+        
+        // Kiểm tra team filter
+        if (filters.team) {
+            console.log('🏢 [ordersApiService] Team filter was applied:', filters.team);
+            console.log('🏢 [ordersApiService] Teams found in response:', teamsInData);
+            if (teamsInData.length === 0) {
+                console.warn('⚠️ [ordersApiService] WARNING: Team filter applied but no teams found in response!');
+            } else {
+                const requestedTeams = filters.team.split(',').map(t => t.trim());
+                const matchedTeams = teamsInData.filter(t => requestedTeams.includes(t));
+                console.log('🏢 [ordersApiService] Requested teams:', requestedTeams);
+                console.log('🏢 [ordersApiService] Matched teams in response:', matchedTeams);
+                if (matchedTeams.length === 0) {
+                    console.warn('⚠️ [ordersApiService] WARNING: No teams in response match the filter!');
+                }
+            }
+        }
+        
+        console.log('✅ [ordersApiService] Orders API Response:', {
             count: data.count,
             totalOrders: data.statistics?.total_orders,
             totalRevenue: data.statistics?.total_revenue_vnd,
-            actualDataCount: data.data?.length || 0,
+            actualDataCount: actualDataCount,
+            expectedCount: expectedCount,
+            hasNextPage: hasNextPage,
+            next_after_id: data.next_after_id,
+            next_after_id_length: data.next_after_id ? data.next_after_id.length : 0,
+            isComplete: expectedCount ? actualDataCount >= expectedCount : 'unknown',
             countriesInData: countriesInData,
             teamsInData: teamsInData,
+            limit_param: filters.limit || 'not set',
             sampleOrders: sampleOrders.map(o => ({
                 country: o.country,
                 team: o.team,
@@ -78,6 +187,16 @@ export const fetchOrdersFromAPI = async (filters = {}) => {
                 shift: o.shift
             }))
         });
+        
+        // Cảnh báo nếu API trả về đúng 1000 records nhưng không có next_after_id
+        if (actualDataCount === 1000 && !hasNextPage && expectedCount && expectedCount > 1000) {
+            console.warn('⚠️ WARNING: API returned exactly 1000 records but no next_after_id. There may be more data!');
+        }
+        
+        // Cảnh báo nếu thiếu data
+        if (expectedCount && actualDataCount < expectedCount && !hasNextPage) {
+            console.warn(`⚠️ API Response: Got ${actualDataCount} orders but expected ${expectedCount}. Missing ${expectedCount - actualDataCount} orders.`);
+        }
 
         return data;
     } catch (error) {
