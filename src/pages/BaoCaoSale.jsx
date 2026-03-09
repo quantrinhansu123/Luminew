@@ -829,135 +829,6 @@ export default function BaoCaoSale() {
 
     return (
         <div className="bao-cao-sale-container">
-            {/* FILTERS BAR - Top Horizontal */}
-            <div className="filters-bar">
-                <div className="filters-row">
-                    {/* Quick Date Filter */}
-                    <div className="filter-group dropdown-group">
-                        <button 
-                            className="filter-dropdown-btn"
-                            onClick={() => setShowQuickFilter(!showQuickFilter)}
-                        >
-                            Lọc nhanh
-                            <span className="dropdown-arrow">{showQuickFilter ? '▼' : '▶'}</span>
-                        </button>
-                        {showQuickFilter && (
-                            <div className="filter-dropdown-content">
-                                <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('today'); setShowQuickFilter(false); }}>Hôm nay</button>
-                                <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('yesterday'); setShowQuickFilter(false); }}>Hôm qua</button>
-                                <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('thisWeek'); setShowQuickFilter(false); }}>Tuần này</button>
-                                <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('lastWeek'); setShowQuickFilter(false); }}>Tuần trước</button>
-                                <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('thisMonth'); setShowQuickFilter(false); }}>Tháng này</button>
-                                <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('lastMonth'); setShowQuickFilter(false); }}>Tháng trước</button>
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className="filter-group date-group">
-                        <label>Từ ngày</label>
-                        <input type="date" value={filters.startDate} onChange={e => handleDateFilterChange('startDate', e.target.value)} />
-                    </div>
-                    <div className="filter-group date-group">
-                        <label>Đến ngày</label>
-                        <input type="date" value={filters.endDate} onChange={e => handleDateFilterChange('endDate', e.target.value)} />
-                    </div>
-                    
-                    <div className="filter-group dropdown-group">
-                        <button 
-                            className="filter-dropdown-btn"
-                            onClick={() => setShowProductFilter(!showProductFilter)}
-                        >
-                            Sản phẩm {filters.products.length > 0 && filters.products.length < options.products.length ? `(${filters.products.length})` : ''}
-                            <span className="dropdown-arrow">{showProductFilter ? '▼' : '▶'}</span>
-                        </button>
-                        {showProductFilter && (
-                            <div className="filter-dropdown-content">
-                                <label className="select-all-label">
-                                    <input type="checkbox"
-                                        checked={filters.products.length === options.products.length}
-                                        onChange={(e) => handleSelectAll('products', e.target.checked)}
-                                    /> Tất cả
-                                </label>
-                                {options.products.map(opt => (
-                                    <label key={opt}>
-                                        <input type="checkbox" checked={filters.products.includes(opt)} onChange={(e) => handleFilterChange('products', opt, e.target.checked)} />
-                                        {opt}
-                                    </label>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className="filter-group dropdown-group">
-                        <button 
-                            className="filter-dropdown-btn"
-                            onClick={() => setShowTeamFilter(!showTeamFilter)}
-                        >
-                            Team {filters.teams.length > 0 && filters.teams.length < options.teams.length ? `(${filters.teams.length})` : ''}
-                            <span className="dropdown-arrow">{showTeamFilter ? '▼' : '▶'}</span>
-                        </button>
-                        {showTeamFilter && (
-                            <div className="filter-dropdown-content">
-                                <label className="select-all-label">
-                                    <input type="checkbox"
-                                        checked={filters.teams.length === options.teams.length}
-                                        onChange={(e) => handleSelectAll('teams', e.target.checked)}
-                                    /> Tất cả
-                                </label>
-                                {options.teams.map(opt => (
-                                    <label key={opt}>
-                                        <input type="checkbox" checked={filters.teams.includes(opt)} onChange={(e) => handleFilterChange('teams', opt, e.target.checked)} />
-                                        {opt}
-                                    </label>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className="filter-group dropdown-group">
-                        <button 
-                            className="filter-dropdown-btn"
-                            onClick={() => setShowMarketFilter(!showMarketFilter)}
-                        >
-                            Thị trường {filters.markets.length > 0 && filters.markets.length < options.markets.length ? `(${filters.markets.length})` : ''}
-                            <span className="dropdown-arrow">{showMarketFilter ? '▼' : '▶'}</span>
-                        </button>
-                        {showMarketFilter && (
-                            <div className="filter-dropdown-content">
-                                <label className="select-all-label">
-                                    <input type="checkbox"
-                                        checked={filters.markets.length === options.markets.length}
-                                        onChange={(e) => handleSelectAll('markets', e.target.checked)}
-                                    /> Tất cả
-                                </label>
-                                {options.markets.map(opt => (
-                                    <label key={opt}>
-                                        <input type="checkbox" checked={filters.markets.includes(opt)} onChange={(e) => handleFilterChange('markets', opt, e.target.checked)} />
-                                        {opt}
-                                    </label>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className="filter-group btn-group">
-                        <button
-                            onClick={() => {
-                                if (filters.startDate && filters.endDate) {
-                                    fetchData();
-                                } else {
-                                    alert('Vui lòng chọn khoảng thời gian');
-                                }
-                            }}
-                            disabled={loading || !filters.startDate || !filters.endDate}
-                            className="btn-view"
-                        >
-                            {loading ? 'Đang tải...' : '🔍 Xem'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-
             <div className="report-container">
                 {/* MAIN CONTENT */}
                 <div className="main-detailed" style={{ width: '100%' }}>
@@ -987,6 +858,192 @@ export default function BaoCaoSale() {
 
                     {/* Tab 1: Sau Huy */}
                     <div className={`tab-content ${activeTab === 'sau-huy' ? 'active' : ''}`}>
+                        {/* FILTERS BAR - Only in this tab */}
+                        <div className="filters-bar">
+                            <div className="filters-row">
+                                {/* Quick Date Filter */}
+                                <div className="filter-group dropdown-group">
+                                    <button 
+                                        className="filter-dropdown-btn"
+                                        onClick={() => setShowQuickFilter(!showQuickFilter)}
+                                    >
+                                        Lọc nhanh
+                                        <span className="dropdown-arrow">{showQuickFilter ? '▼' : '▶'}</span>
+                                    </button>
+                                    {showQuickFilter && (
+                                        <div className="filter-dropdown-content">
+                                            <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('today'); setShowQuickFilter(false); }}>Hôm nay</button>
+                                            <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('yesterday'); setShowQuickFilter(false); }}>Hôm qua</button>
+                                            <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('thisWeek'); setShowQuickFilter(false); }}>Tuần này</button>
+                                            <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('lastWeek'); setShowQuickFilter(false); }}>Tuần trước</button>
+                                            <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('thisMonth'); setShowQuickFilter(false); }}>Tháng này</button>
+                                            <button className="quick-filter-btn" onClick={() => { handleQuickDateFilter('lastMonth'); setShowQuickFilter(false); }}>Tháng trước</button>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div className="filter-group date-group">
+                                    <label>Từ ngày</label>
+                                    <input type="date" value={filters.startDate} onChange={e => handleDateFilterChange('startDate', e.target.value)} />
+                                </div>
+                                <div className="filter-group date-group">
+                                    <label>Đến ngày</label>
+                                    <input type="date" value={filters.endDate} onChange={e => handleDateFilterChange('endDate', e.target.value)} />
+                                </div>
+                                
+                                <div className="filter-group dropdown-group">
+                                    <button 
+                                        className="filter-dropdown-btn"
+                                        onClick={() => setShowProductFilter(!showProductFilter)}
+                                    >
+                                        Sản phẩm {filters.products.length > 0 && filters.products.length < options.products.length ? `(${filters.products.length})` : ''}
+                                        <span className="dropdown-arrow">{showProductFilter ? '▼' : '▶'}</span>
+                                    </button>
+                                    {showProductFilter && (
+                                        <div className="filter-dropdown-content">
+                                            <label className="select-all-label">
+                                                <input type="checkbox"
+                                                    checked={filters.products.length === options.products.length}
+                                                    onChange={(e) => handleSelectAll('products', e.target.checked)}
+                                                /> Tất cả
+                                            </label>
+                                            {options.products.map(opt => (
+                                                <label key={opt}>
+                                                    <input type="checkbox" checked={filters.products.includes(opt)} onChange={(e) => handleFilterChange('products', opt, e.target.checked)} />
+                                                    {opt}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div className="filter-group dropdown-group">
+                                    <button 
+                                        className="filter-dropdown-btn"
+                                        onClick={() => setShowTeamFilter(!showTeamFilter)}
+                                    >
+                                        Team {filters.teams.length > 0 && filters.teams.length < options.teams.length ? `(${filters.teams.length})` : ''}
+                                        <span className="dropdown-arrow">{showTeamFilter ? '▼' : '▶'}</span>
+                                    </button>
+                                    {showTeamFilter && (
+                                        <div className="filter-dropdown-content">
+                                            <label className="select-all-label">
+                                                <input type="checkbox"
+                                                    checked={filters.teams.length === options.teams.length}
+                                                    onChange={(e) => handleSelectAll('teams', e.target.checked)}
+                                                /> Tất cả
+                                            </label>
+                                            {options.teams.map(opt => (
+                                                <label key={opt}>
+                                                    <input type="checkbox" checked={filters.teams.includes(opt)} onChange={(e) => handleFilterChange('teams', opt, e.target.checked)} />
+                                                    {opt}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div className="filter-group dropdown-group">
+                                    <button 
+                                        className="filter-dropdown-btn"
+                                        onClick={() => setShowMarketFilter(!showMarketFilter)}
+                                    >
+                                        Thị trường {filters.markets.length > 0 && filters.markets.length < options.markets.length ? `(${filters.markets.length})` : ''}
+                                        <span className="dropdown-arrow">{showMarketFilter ? '▼' : '▶'}</span>
+                                    </button>
+                                    {showMarketFilter && (
+                                        <div className="filter-dropdown-content">
+                                            <label className="select-all-label">
+                                                <input type="checkbox"
+                                                    checked={filters.markets.length === options.markets.length}
+                                                    onChange={(e) => handleSelectAll('markets', e.target.checked)}
+                                                /> Tất cả
+                                            </label>
+                                            {options.markets.map(opt => (
+                                                <label key={opt}>
+                                                    <input type="checkbox" checked={filters.markets.includes(opt)} onChange={(e) => handleFilterChange('markets', opt, e.target.checked)} />
+                                                    {opt}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div className="filter-group btn-group">
+                                    <button
+                                        onClick={() => {
+                                            if (filters.startDate && filters.endDate) {
+                                                fetchData();
+                                            } else {
+                                                alert('Vui lòng chọn khoảng thời gian');
+                                            }
+                                        }}
+                                        disabled={loading || !filters.startDate || !filters.endDate}
+                                        className="btn-view"
+                                    >
+                                        {loading ? 'Đang tải...' : '🔍 Xem'}
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            {/* API Link Display */}
+                            {filters.startDate && filters.endDate && (
+                                <div style={{
+                                    marginTop: '15px',
+                                    padding: '12px',
+                                    backgroundColor: '#f8f9fa',
+                                    border: '1px solid #dee2e6',
+                                    borderRadius: '6px',
+                                    fontSize: '13px'
+                                }}>
+                                    <div style={{ fontWeight: '600', marginBottom: '8px', color: '#495057' }}>
+                                        🔗 Link API:
+                                    </div>
+                                    <div style={{
+                                        wordBreak: 'break-all',
+                                        padding: '8px',
+                                        backgroundColor: '#fff',
+                                        border: '1px solid #ced4da',
+                                        borderRadius: '4px',
+                                        fontFamily: 'monospace',
+                                        fontSize: '12px',
+                                        color: '#0066cc',
+                                        cursor: 'pointer',
+                                        userSelect: 'all'
+                                    }}
+                                    onClick={(e) => {
+                                        e.target.select();
+                                        navigator.clipboard.writeText(e.target.textContent);
+                                        alert('Đã copy link API!');
+                                    }}
+                                    title="Click để copy"
+                                    >
+                                        {(() => {
+                                            const params = new URLSearchParams();
+                                            const fromDate = convertDateToAPIFormat(filters.startDate);
+                                            const toDate = convertDateToAPIFormat(filters.endDate);
+                                            params.append('from_date', fromDate);
+                                            params.append('to_date', toDate);
+                                            
+                                            // Thêm các filter khác nếu có
+                                            if (filters.products.length > 0) {
+                                                filters.products.forEach(product => {
+                                                    params.append('product', product);
+                                                });
+                                            }
+                                            if (filters.markets.length > 0) {
+                                                filters.markets.forEach(market => {
+                                                    params.append('country', market);
+                                                });
+                                            }
+                                            
+                                            return `https://lumidataapi.vercel.app/sale_report?${params.toString()}`;
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        
                         <div className="table-responsive-container">
                             <table>
                                 <thead>

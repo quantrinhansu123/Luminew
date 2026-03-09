@@ -416,9 +416,7 @@ function ReportForm() {
               if (report.name && report.name.trim()) {
                 params.append('nhanvien_sale', report.name.trim());
               }
-              if (report.shift && report.shift.trim()) {
-                params.append('shift', report.shift.trim());
-              }
+              // Shift filter removed - không lọc theo shift nữa
               if (report.product && report.product.trim()) {
                 params.append('product', report.product.trim());
               }
@@ -446,19 +444,7 @@ function ReportForm() {
                 });
               }
 
-              if (report.shift && report.shift.trim()) {
-                const reportShift = normalizeNameForMatch(report.shift || '');
-                matchingOrders = matchingOrders.filter(order => {
-                  const orderShift = normalizeNameForMatch(order.shift || '');
-                  
-                  if (reportShift === 'hết ca') {
-                    return orderShift.includes('hết ca');
-                  } else if (reportShift === 'giữa ca') {
-                    return orderShift.includes('giữa ca');
-                  }
-                  return true;
-                });
-              }
+              // Shift filtering removed - không lọc theo shift nữa
 
               if (report.product && report.product.trim()) {
                 matchingOrders = matchingOrders.filter(order => {

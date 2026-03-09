@@ -22,13 +22,14 @@ https://lumidataapi.vercel.app/orders
 - `from_date`: Ngày bắt đầu (format: `DD/MM/YYYY`)
 - `to_date`: Ngày kết thúc (format: `DD/MM/YYYY`)
 - `nhanvien_sale`: Tên nhân viên sale
-- `shift`: Ca làm việc
 - `product`: Sản phẩm
 - `country`: Thị trường
 
+**Lưu ý:** Không lọc theo `shift` (Ca) nữa - đã bỏ điều kiện này.
+
 ### Ví dụ URL:
 ```
-https://lumidataapi.vercel.app/orders?from_date=07/03/2026&to_date=07/03/2026&nhanvien_sale=Phạm Thị Yến&shift=Hết ca&product=Bonavita Coffee&country=US
+https://lumidataapi.vercel.app/orders?from_date=07/03/2026&to_date=07/03/2026&nhanvien_sale=Phạm Thị Yến&product=Bonavita Coffee&country=US
 ```
 
 ---
@@ -41,7 +42,7 @@ const params = new URLSearchParams();
 params.append('from_date', apiDate);      // Ngày của báo cáo
 params.append('to_date', apiDate);        // Cùng ngày
 params.append('nhanvien_sale', report.name);
-params.append('shift', report.shift);
+// Shift filter removed - không lọc theo shift nữa
 params.append('product', report.product);
 params.append('country', report.market);
 ```
@@ -62,29 +63,7 @@ matchingOrders = matchingOrders.filter(order => {
 - Chuẩn hóa tên: loại bỏ dấu, chuyển chữ hoa, xóa khoảng trắng thừa
 - So sánh: tên khớp hoàn toàn hoặc một tên chứa tên kia
 
-#### B. Lọc theo Ca (shift)
-```javascript
-const reportShift = normalizeNameForMatch(report.shift || '');
-matchingOrders = matchingOrders.filter(order => {
-    const orderShift = normalizeNameForMatch(order.shift || '');
-    
-    if (reportShift === 'hết ca') {
-        // Chỉ lấy đơn có chứa "hết ca" (có thể là "Hết ca" hoặc "Hết ca,Giữa ca")
-        return orderShift.includes('hết ca');
-    } else if (reportShift === 'giữa ca') {
-        // Chỉ lấy đơn có chứa "giữa ca"
-        return orderShift.includes('giữa ca');
-    }
-    // Các ca khác: so khớp chính xác
-    return true;
-});
-```
-
-**Lưu ý:** 
-- Đơn có `shift = "Hết ca,Giữa ca"` sẽ khớp với cả báo cáo "Hết ca" và "Giữa ca"
-- Điều này cho phép đếm đúng khi đơn có nhiều ca
-
-#### C. Lọc theo Sản phẩm (product)
+#### B. Lọc theo Sản phẩm (product)
 ```javascript
 matchingOrders = matchingOrders.filter(order => {
     const orderProduct = (order.product || '').trim();
@@ -93,7 +72,7 @@ matchingOrders = matchingOrders.filter(order => {
 });
 ```
 
-#### D. Lọc theo Thị trường (market/country)
+#### C. Lọc theo Thị trường (market/country)
 ```javascript
 matchingOrders = matchingOrders.filter(order => {
     const orderCountry = (order.country || '').trim();
@@ -274,20 +253,15 @@ if (error && error.code === 'PGRST204') {
    - Bước 1: Gọi API với filter → giảm dữ liệu
    - Bước 2: Lọc client-side → đảm bảo chính xác
 
-2. **Shift Matching đặc biệt:**
-   - "Hết ca" chỉ khớp đơn có chứa "hết ca"
-   - "Giữa ca" chỉ khớp đơn có chứa "giữa ca"
-   - Đơn "Hết ca,Giữa ca" khớp với cả 2
-
-3. **Fuzzy Matching cho tên:**
+2. **Fuzzy Matching cho tên:**
    - Xử lý trường hợp tên có thể viết khác nhau
    - Ví dụ: "Phạm Thị Yến" vs "Pham Thi Yen"
 
-4. **Xử lý lỗi graceful:**
+3. **Xử lý lỗi graceful:**
    - Nếu cột không tồn tại → bỏ qua, không crash
    - Log lỗi để debug
 
-5. **Đa dạng tên trường revenue:**
+4. **Đa dạng tên trường revenue:**
    - Thử nhiều tên trường vì API có thể trả về khác nhau
    - Ưu tiên: `total_amount_vnd` > `total_vnd` > `tongtien` > ...
 
@@ -297,10 +271,11 @@ if (error && error.code === 'PGRST204') {
 
 ### Báo cáo:
 - **Ngày:** 07/03/2026
-- **Ca:** Hết ca
 - **Người báo cáo:** Phạm Thị Yến
 - **Sản phẩm:** Bonavita Coffee
 - **Thị trường:** US
+
+**Lưu ý:** Không lọc theo Ca (shift) nữa.
 
 ### Đơn hàng từ API:
 1. Đơn A: `nhanvien_sale="Phạm Thị Yến"`, `shift="Hết ca"`, `product="Bonavita Coffee"`, `country="US"`, `check_result="Thành công"`, `total_amount_vnd=1000000`
@@ -308,7 +283,7 @@ if (error && error.code === 'PGRST204') {
 3. Đơn C: `nhanvien_sale="Nguyễn Văn A"`, `shift="Hết ca"`, `product="Bonavita Coffee"`, `country="US"`, `check_result="Thành công"`, `total_amount_vnd=800000`
 
 ### Kết quả:
-- **Số đơn (`order_count`):** 2 (Đơn A và Đơn B - Đơn C không khớp tên)
+- **Số đơn (`order_count`):** 2 (Đơn A và Đơn B - Đơn C không khớp tên, không quan tâm shift)
 - **Số đơn hủy (`order_cancel_count`):** 1 (Đơn B)
 - **Số đơn go (`order_go`):** 1 (Đơn A - có tracking và không hủy)
 - **Doanh số (`revenue_actual`):** 1,500,000 VNĐ (1,000,000 + 500,000)

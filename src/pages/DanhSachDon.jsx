@@ -1487,17 +1487,6 @@ function DanhSachDon() {
                   }, 0).toLocaleString('vi-VN')} ₫
                 </span>
               </div>
-              {/* Chỉ Admin mới thấy nút đồng bộ từ F3 (không bao gồm Finance) */}
-              {isAdminOnly && (
-                <button
-                  onClick={handleSyncF3}
-                  disabled={loading || syncing || isFixingTeams}
-                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 h-10 disabled:opacity-50 cursor-pointer"
-                >
-                  <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                  Sync F3
-                </button>
-              )}
               {isAdmin && (
                 <button
                   onClick={handleFixMissingTeams}
