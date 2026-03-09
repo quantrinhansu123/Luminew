@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { Calculator, Eye, RefreshCw, X } from 'lucide-react';
+import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../services/supabaseClient';
@@ -81,6 +83,16 @@ export default function DanhSachBaoCaoTay() {
     const [editForm, setEditForm] = useState({});
     const [saving, setSaving] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
+
+    // Calculate Orders Modal
+    const [updatingOrders, setUpdatingOrders] = useState(false);
+    const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
+
+    // View Orders Modal
+    const [showViewOrdersModal, setShowViewOrdersModal] = useState(false);
+    const [viewingReport, setViewingReport] = useState(null);
+    const [viewingOrders, setViewingOrders] = useState([]);
+    const [loadingOrders, setLoadingOrders] = useState(false);
 
     // Options for edit form
     const [editOptions, setEditOptions] = useState({
@@ -546,7 +558,11 @@ export default function DanhSachBaoCaoTay() {
             mess_count: report.mess_count,
             response_count: report.response_count,
             order_count: report.order_count,
-            revenue_mess: report.revenue_mess
+            order_cancel_count: report.order_cancel_count || 0,
+            order_go: report.order_go || 0,
+            revenue_actual: report.revenue_actual,
+            revenue_cancel_actual: report.revenue_cancel_actual || 0,
+            revenue_go_actual: report.revenue_go_actual || 0
         });
     };
 
@@ -575,7 +591,11 @@ export default function DanhSachBaoCaoTay() {
                     mess_count: Number(editForm.mess_count) || 0,
                     response_count: Number(editForm.response_count) || 0,
                     order_count: Number(editForm.order_count) || 0,
-                    revenue_mess: Number(editForm.revenue_mess) || 0
+                    order_cancel_count: Number(editForm.order_cancel_count) || 0,
+                    order_go: Number(editForm.order_go) || 0,
+                    revenue_actual: Number(editForm.revenue_actual) || 0,
+                    revenue_cancel_actual: Number(editForm.revenue_cancel_actual) || 0,
+                    revenue_go_actual: Number(editForm.revenue_go_actual) || 0
                 })
                 .eq('id', editingReport.id);
 
@@ -601,6 +621,446 @@ export default function DanhSachBaoCaoTay() {
         }
     };
 
+    // Convert date from YYYY-MM-DD to DD/MM/YYYY for API
+    const convertDateToAPIFormat = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+    };
+
+    // Normalize date to YYYY-MM-DD format
+    const normalizeDate = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return '';
+        return date.toISOString().split('T')[0];
+    };
+
+    // Normalize name for matching (remove extra spaces, lowercase)
+    const normalizeNameForMatch = (str) => {
+        if (!str) return '';
+        return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
+    // Check if two names match (fuzzy matching)
+    const namesMatch = (name1, name2) => {
+        const n1 = normalizeNameForMatch(name1);
+        const n2 = normalizeNameForMatch(name2);
+        return n1 === n2 || n1.includes(n2) || n2.includes(n1);
+    };
+
+    // View orders for a specific report
+    const handleViewOrders = async (report) => {
+        setViewingReport(report);
+        setShowViewOrdersModal(true);
+        setViewingOrders([]);
+        setLoadingOrders(true);
+
+        try {
+            // Get report date normalized
+            const reportDate = normalizeDate(report.date);
+            if (!reportDate) {
+                toast.error('Báo cáo không có ngày hợp lệ!');
+                setLoadingOrders(false);
+                return;
+            }
+
+            // Convert date to API format
+            const apiDate = convertDateToAPIFormat(reportDate);
+
+            console.log('🔍 [DanhSachBaoCaoTay] Viewing orders for report:', {
+                id: report.id,
+                date: reportDate,
+                shift: report.shift,
+                name: report.name,
+                product: report.product,
+                market: report.market
+            });
+
+            // Fetch orders from API with filters
+            const params = new URLSearchParams();
+            params.append('from_date', apiDate);
+            params.append('to_date', apiDate);
+            
+            // Add filter parameters if report has them
+            if (report.name && report.name.trim()) {
+                params.append('nhanvien_sale', report.name.trim());
+            }
+            if (report.shift && report.shift.trim()) {
+                params.append('shift', report.shift.trim());
+            }
+            if (report.product && report.product.trim()) {
+                params.append('product', report.product.trim());
+            }
+            if (report.market && report.market.trim()) {
+                params.append('country', report.market.trim());
+            }
+
+            const url = `https://lumidataapi.vercel.app/orders?${params.toString()}`;
+            console.log('📡 [DanhSachBaoCaoTay] Fetching orders from:', url);
+
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+            let matchingOrders = result.data || [];
+            console.log(`✅ [DanhSachBaoCaoTay] Fetched ${matchingOrders.length} orders from API`);
+
+            // Additional filtering for nhanvien_sale if report has name
+            // API filter might not match exactly, so we do fuzzy matching
+            if (report.name && report.name.trim()) {
+                matchingOrders = matchingOrders.filter(order => {
+                    const orderSaleStaff = (order.nhanvien_sale || order.sale_staff || '').trim();
+                    if (!orderSaleStaff) return false;
+                    return namesMatch(orderSaleStaff, report.name);
+                });
+            }
+
+            // Additional filtering for shift logic (hết ca, giữa ca) if needed
+            if (report.shift && report.shift.trim()) {
+                const reportShift = normalizeNameForMatch(report.shift || '');
+                matchingOrders = matchingOrders.filter(order => {
+                    const orderShift = normalizeNameForMatch(order.shift || '');
+                    
+                    if (reportShift === 'hết ca') {
+                        return orderShift.includes('hết ca');
+                    } else if (reportShift === 'giữa ca') {
+                        return orderShift.includes('giữa ca');
+                    }
+                    return true;
+                });
+            }
+
+            // Additional filtering for product if needed
+            if (report.product && report.product.trim()) {
+                matchingOrders = matchingOrders.filter(order => {
+                    const orderProduct = (order.product || '').trim();
+                    if (!orderProduct) return false;
+                    return orderProduct === report.product.trim();
+                });
+            }
+
+            // Additional filtering for market/country if needed
+            if (report.market && report.market.trim()) {
+                matchingOrders = matchingOrders.filter(order => {
+                    const orderCountry = (order.country || '').trim();
+                    if (!orderCountry) return false;
+                    return orderCountry === report.market.trim();
+                });
+            }
+
+            console.log(`✅ [DanhSachBaoCaoTay] Found ${matchingOrders.length} matching orders after filtering`);
+            setViewingOrders(matchingOrders);
+        } catch (error) {
+            console.error('❌ [DanhSachBaoCaoTay] Error fetching orders:', error);
+            toast.error('Lỗi khi lấy danh sách đơn: ' + error.message);
+        } finally {
+            setLoadingOrders(false);
+        }
+    };
+
+    // Calculate and update order_count for all reports
+    const handleCalculateAndUpdateOrders = async () => {
+        if (!filters.startDate || !filters.endDate) {
+            toast.error('Vui lòng chọn khoảng thời gian trước khi tính toán!');
+            return;
+        }
+
+        if (manualReports.length === 0) {
+            toast.error('Không có dữ liệu báo cáo để tính toán!');
+            return;
+        }
+
+        const confirm = window.confirm(
+            `Bạn có chắc chắn muốn tính và cập nhật số đơn cho ${manualReports.length} báo cáo?\n\n` +
+            `Khoảng thời gian: ${filters.startDate} đến ${filters.endDate}\n\n` +
+            `Quá trình này có thể mất vài phút tùy vào số lượng dữ liệu.`
+        );
+
+        if (!confirm) return;
+
+        setUpdatingOrders(true);
+        setUpdateProgress({ current: 0, total: manualReports.length });
+
+        try {
+            // Process each report
+            let updatedCount = 0;
+            let errorCount = 0;
+
+            for (let i = 0; i < manualReports.length; i++) {
+                const report = manualReports[i];
+                setUpdateProgress({ current: i + 1, total: manualReports.length });
+
+                try {
+                    // Get report date normalized
+                    const reportDate = normalizeDate(report.date);
+                    if (!reportDate) {
+                        console.warn(`⚠️ Report ${report.id} has invalid date, skipping`);
+                        continue;
+                    }
+
+                    // Convert date to API format
+                    const apiDate = convertDateToAPIFormat(reportDate);
+
+                    // Fetch orders from API with filters for this specific report
+                    const params = new URLSearchParams();
+                    params.append('from_date', apiDate);
+                    params.append('to_date', apiDate);
+                    
+                    // Add filter parameters if report has them
+                    if (report.name && report.name.trim()) {
+                        params.append('nhanvien_sale', report.name.trim());
+                    }
+                    if (report.shift && report.shift.trim()) {
+                        params.append('shift', report.shift.trim());
+                    }
+                    if (report.product && report.product.trim()) {
+                        params.append('product', report.product.trim());
+                    }
+                    if (report.market && report.market.trim()) {
+                        params.append('country', report.market.trim());
+                    }
+
+                    const url = `https://lumidataapi.vercel.app/orders?${params.toString()}`;
+                    console.log(`📡 [DanhSachBaoCaoTay] Fetching orders for report ${report.id}:`, url);
+
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    let matchingOrders = result.data || [];
+
+                    // Additional filtering for nhanvien_sale if report has name
+                    // API filter might not match exactly, so we do fuzzy matching
+                    if (report.name && report.name.trim()) {
+                        matchingOrders = matchingOrders.filter(order => {
+                            const orderSaleStaff = (order.nhanvien_sale || order.sale_staff || '').trim();
+                            if (!orderSaleStaff) return false;
+                            return namesMatch(orderSaleStaff, report.name);
+                        });
+                    }
+
+                    // Additional filtering for shift logic (hết ca, giữa ca) if needed
+                    if (report.shift && report.shift.trim()) {
+                        const reportShift = normalizeNameForMatch(report.shift || '');
+                        matchingOrders = matchingOrders.filter(order => {
+                            const orderShift = normalizeNameForMatch(order.shift || '');
+                            
+                            if (reportShift === 'hết ca') {
+                                return orderShift.includes('hết ca');
+                            } else if (reportShift === 'giữa ca') {
+                                return orderShift.includes('giữa ca');
+                            }
+                            return true; // For other shifts, API should handle it
+                        });
+                    }
+
+                    // Additional filtering for product if needed
+                    if (report.product && report.product.trim()) {
+                        matchingOrders = matchingOrders.filter(order => {
+                            const orderProduct = (order.product || '').trim();
+                            if (!orderProduct) return false;
+                            return orderProduct === report.product.trim();
+                        });
+                    }
+
+                    // Additional filtering for market/country if needed
+                    if (report.market && report.market.trim()) {
+                        matchingOrders = matchingOrders.filter(order => {
+                            const orderCountry = (order.country || '').trim();
+                            if (!orderCountry) return false;
+                            return orderCountry === report.market.trim();
+                        });
+                    }
+
+                    const orderCount = matchingOrders.length;
+                    
+                    // Calculate number of cancelled orders (check_result = "Hủy")
+                    const cancelledOrders = matchingOrders.filter(order => {
+                        const checkResult = (order.check_result || '').trim();
+                        return checkResult === 'Hủy';
+                    });
+                    const orderCancelCount = cancelledOrders.length;
+                    
+                    // Calculate number of "go" orders (có Mã Tracking khác rỗng và không hủy)
+                    const goOrders = matchingOrders.filter(order => {
+                        const trackingCode = (order.tracking_code || order.trackingCode || order.tracking || order.ma_tracking || order.maTracking || '').trim();
+                        const checkResult = (order.check_result || '').trim();
+                        return trackingCode !== '' && checkResult !== 'Hủy';
+                    });
+                    const orderGoCount = goOrders.length;
+                    
+                    // Calculate total revenue from cancelled orders (revenue_cancel_actual)
+                    const revenueCancelActual = cancelledOrders.reduce((sum, order) => {
+                        const revenue = parseFloat(
+                            order.total_amount_vnd || 
+                            order.total_vnd || 
+                            order.tongtien || 
+                            order.revenue_vnd ||
+                            order.total_amount ||
+                            order.amount ||
+                            0
+                        );
+                        return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
+                    }, 0);
+                    
+                    // Calculate total revenue from "go" orders (revenue_go_actual)
+                    const revenueGoActual = goOrders.reduce((sum, order) => {
+                        const revenue = parseFloat(
+                            order.total_amount_vnd || 
+                            order.total_vnd || 
+                            order.tongtien || 
+                            order.revenue_vnd ||
+                            order.total_amount ||
+                            order.amount ||
+                            0
+                        );
+                        return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
+                    }, 0);
+                    
+                    // Calculate total revenue from all matching orders
+                    // Try multiple field names that API might return
+                    const totalRevenue = matchingOrders.reduce((sum, order) => {
+                        const revenue = parseFloat(
+                            order.total_amount_vnd || 
+                            order.total_vnd || 
+                            order.tongtien || 
+                            order.revenue_vnd ||
+                            order.total_amount ||
+                            order.amount ||
+                            0
+                        );
+                        return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
+                    }, 0);
+
+                    // Ensure revenue is a valid number (not NaN, Infinity, etc.)
+                    const validRevenue = isNaN(totalRevenue) || !isFinite(totalRevenue) ? 0 : Number(totalRevenue);
+                    const validRevenueCancel = isNaN(revenueCancelActual) || !isFinite(revenueCancelActual) ? 0 : Number(revenueCancelActual);
+                    const validRevenueGo = isNaN(revenueGoActual) || !isFinite(revenueGoActual) ? 0 : Number(revenueGoActual);
+                    const validOrderCount = Number(orderCount) || 0;
+                    const validOrderCancelCount = Number(orderCancelCount) || 0;
+                    const validOrderGoCount = Number(orderGoCount) || 0;
+
+                    console.log(`📊 [DanhSachBaoCaoTay] Report ${report.id}: ${validOrderCount} orders, ${validOrderCancelCount} cancelled, ${validOrderGoCount} go, revenue: ${validRevenue}, revenue_cancel: ${validRevenueCancel}, revenue_go: ${validRevenueGo}`);
+
+                    // Update order_count, order_cancel_count, order_go, revenue_actual, revenue_cancel_actual and revenue_go_actual in database
+                    const updateData = { 
+                        order_count: validOrderCount,
+                        order_cancel_count: validOrderCancelCount,
+                        order_go: validOrderGoCount,
+                        revenue_actual: validRevenue,
+                        revenue_cancel_actual: validRevenueCancel,
+                        revenue_go_actual: validRevenueGo
+                    };
+                    
+                    // Try to update all fields, handle missing columns gracefully
+                    let { error } = await supabase
+                        .from('sales_reports')
+                        .update(updateData)
+                        .eq('id', report.id);
+
+                    // If error is about missing column, try with fewer fields
+                    if (error && error.code === 'PGRST204') {
+                        const missingColumn = error.message?.match(/column '(\w+)'/)?.[1];
+                        console.log(`⚠️ [DanhSachBaoCaoTay] Column '${missingColumn}' not found, trying with fewer fields`);
+                        
+                        // Try with only order_count and order_cancel_count
+                        const { error: retryError } = await supabase
+                            .from('sales_reports')
+                            .update({ 
+                                order_count: validOrderCount,
+                                order_cancel_count: validOrderCancelCount
+                            })
+                            .eq('id', report.id);
+                        
+                        if (retryError) {
+                            // Last resort: only order_count
+                            const { error: finalError } = await supabase
+                                .from('sales_reports')
+                                .update({ order_count: validOrderCount })
+                                .eq('id', report.id);
+                            
+                            if (finalError) {
+                                console.error(`❌ Error updating report ${report.id}:`, finalError);
+                                errorCount++;
+                            } else {
+                                updatedCount++;
+                                console.log(`✅ Updated report ${report.id}: ${validOrderCount} orders`);
+                            }
+                        } else {
+                            // Try to update revenue_actual and revenue_cancel_actual separately if columns exist
+                            const { error: revenueError } = await supabase
+                                .from('sales_reports')
+                                .update({ revenue_actual: validRevenue })
+                                .eq('id', report.id);
+                            
+                            if (revenueError && revenueError.code !== 'PGRST204') {
+                                console.error(`❌ Error updating revenue_actual for report ${report.id}:`, revenueError);
+                            }
+                            
+                            const { error: revenueCancelError } = await supabase
+                                .from('sales_reports')
+                                .update({ revenue_cancel_actual: validRevenueCancel })
+                                .eq('id', report.id);
+                            
+                            if (revenueCancelError && revenueCancelError.code !== 'PGRST204') {
+                                console.error(`❌ Error updating revenue_cancel_actual for report ${report.id}:`, revenueCancelError);
+                            }
+                            
+                            const { error: revenueGoError } = await supabase
+                                .from('sales_reports')
+                                .update({ revenue_go_actual: validRevenueGo })
+                                .eq('id', report.id);
+                            
+                            if (revenueGoError && revenueGoError.code !== 'PGRST204') {
+                                console.error(`❌ Error updating revenue_go_actual for report ${report.id}:`, revenueGoError);
+                            }
+                            
+                            updatedCount++;
+                            console.log(`✅ Updated report ${report.id}: ${validOrderCount} orders, ${validOrderCancelCount} cancelled, ${validOrderGoCount} go`);
+                        }
+                    } else if (error) {
+                        console.error(`❌ Error updating report ${report.id}:`, error);
+                        errorCount++;
+                    } else {
+                        updatedCount++;
+                        console.log(`✅ Updated report ${report.id}: ${validOrderCount} orders, ${validOrderCancelCount} cancelled, ${validOrderGoCount} go, revenue: ${validRevenue} VNĐ, revenue_cancel: ${validRevenueCancel} VNĐ, revenue_go: ${validRevenueGo} VNĐ`);
+                    }
+
+                    // Small delay to avoid overwhelming the database
+                    if (i % 10 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                } catch (error) {
+                    console.error(`❌ Error processing report ${report.id}:`, error);
+                    errorCount++;
+                }
+            }
+
+            toast.success(
+                `Đã cập nhật thành công ${updatedCount}/${manualReports.length} báo cáo!` +
+                (errorCount > 0 ? ` (${errorCount} lỗi)` : '')
+            );
+
+            // Refresh data
+            fetchData();
+        } catch (error) {
+            console.error('❌ [DanhSachBaoCaoTay] Error calculating orders:', error);
+            toast.error('Lỗi khi tính toán số đơn: ' + error.message);
+        } finally {
+            setUpdatingOrders(false);
+            setUpdateProgress({ current: 0, total: 0 });
+        }
+    };
+
+
     // Sort data
     const sortedReports = [...manualReports].sort((a, b) => {
         if (!sortColumn) return 0;
@@ -618,7 +1078,11 @@ export default function DanhSachBaoCaoTay() {
             'Số mess': 'mess_count',
             'Phản hồi': 'response_count',
             'Số đơn': 'order_count',
-            'Doanh số': 'revenue_mess'
+            'Số đơn hủy': 'order_cancel_count',
+            'Số đơn go': 'order_go',
+            'Doanh số': 'revenue_actual',
+            'Doanh số hủy': 'revenue_cancel_actual',
+            'Doanh số go': 'revenue_go_actual'
         };
 
         const field = columnMap[sortColumn];
@@ -635,7 +1099,7 @@ export default function DanhSachBaoCaoTay() {
         }
 
         // Handle number sorting
-        if (['mess_count', 'response_count', 'order_count', 'revenue_mess'].includes(field)) {
+        if (['mess_count', 'response_count', 'order_count', 'order_cancel_count', 'order_go', 'revenue_actual', 'revenue_cancel_actual', 'revenue_go_actual'].includes(field)) {
             const numA = Number(aVal) || 0;
             const numB = Number(bVal) || 0;
             return sortDirection === 'asc' ? numA - numB : numB - numA;
@@ -805,25 +1269,45 @@ export default function DanhSachBaoCaoTay() {
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY SALE</h2>
-                        {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
-                        {isAdminOnly && (
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                             <button
-                                onClick={handleDeleteAll}
-                                disabled={deleting || loading}
-                                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                onClick={handleCalculateAndUpdateOrders}
+                                disabled={updatingOrders || loading || manualReports.length === 0}
+                                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                title="Tính và cập nhật số đơn cho tất cả báo cáo trong khoảng thời gian đã chọn"
                             >
-                                {deleting ? (
+                                {updatingOrders ? (
                                     <>
-                                        <span className="animate-spin">⏳</span>
-                                        Đang xóa...
+                                        <RefreshCw className="w-4 h-4 animate-spin" />
+                                        Đang tính... ({updateProgress.current}/{updateProgress.total})
                                     </>
                                 ) : (
                                     <>
-                                        🗑️ Xóa toàn bộ dữ liệu
+                                        <Calculator className="w-4 h-4" />
+                                        Tính số đơn
                                     </>
                                 )}
                             </button>
-                        )}
+                            {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
+                            {isAdminOnly && (
+                                <button
+                                    onClick={handleDeleteAll}
+                                    disabled={deleting || loading}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                >
+                                    {deleting ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang xóa...
+                                        </>
+                                    ) : (
+                                        <>
+                                            🗑️ Xóa toàn bộ dữ liệu
+                                        </>
+                                    )}
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     <div className="table-responsive-container">
@@ -959,6 +1443,20 @@ export default function DanhSachBaoCaoTay() {
                                     </th>
                                     <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Số đơn hủy')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Số đơn hủy
+                                            {sortColumn === 'Số đơn hủy' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Doanh số')}
                                         style={{ userSelect: 'none' }}
                                     >
@@ -971,13 +1469,55 @@ export default function DanhSachBaoCaoTay() {
                                             )}
                                         </div>
                                     </th>
+                                    <th
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Doanh số hủy')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Doanh số hủy
+                                            {sortColumn === 'Doanh số hủy' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Số đơn go')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Số đơn go
+                                            {sortColumn === 'Số đơn go' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
+                                    <th
+                                        className="cursor-pointer hover:bg-gray-100 select-none"
+                                        onClick={() => handleSort('Doanh số go')}
+                                        style={{ userSelect: 'none' }}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Doanh số go
+                                            {sortColumn === 'Doanh số go' && (
+                                                <span className="text-[#F37021]">
+                                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </th>
                                     <th>Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {sortedReports.length === 0 ? (
                                     <tr>
-                                        <td colSpan="12" className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td colSpan="16" className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
                                     sortedReports.map((item, index) => (
@@ -992,9 +1532,21 @@ export default function DanhSachBaoCaoTay() {
                                             <td>{formatNumber(item.mess_count)}</td>
                                             <td>{formatNumber(item.response_count)}</td>
                                             <td>{formatNumber(item.order_count)}</td>
-                                            <td>{formatCurrency(item.revenue_mess)}</td>
+                                            <td>{formatNumber(item.order_cancel_count || 0)}</td>
+                                            <td>{formatCurrency(item.revenue_actual || 0)}</td>
+                                            <td>{formatCurrency(item.revenue_cancel_actual || 0)}</td>
+                                            <td>{formatNumber(item.order_go || 0)}</td>
+                                            <td>{formatCurrency(item.revenue_go_actual || 0)}</td>
                                             <td className="text-center">
                                                 <div className="flex gap-2 justify-center">
+                                                    <button
+                                                        className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs transition flex items-center gap-1"
+                                                        onClick={() => handleViewOrders(item)}
+                                                        title="Xem danh sách đơn hàng thỏa mãn điều kiện"
+                                                    >
+                                                        <Eye className="w-3 h-3" />
+                                                        Xem
+                                                    </button>
                                                     <button
                                                         className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition"
                                                         onClick={() => handleEditClick(item)}
@@ -1130,11 +1682,51 @@ export default function DanhSachBaoCaoTay() {
                                 />
                             </div>
                             <div>
+                                <label className="block text-sm font-medium mb-1">Số đơn hủy:</label>
+                                <input
+                                    type="number"
+                                    name="order_cancel_count"
+                                    value={editForm.order_cancel_count || 0}
+                                    onChange={handleInputChange}
+                                    className="w-full border rounded px-2 py-1"
+                                />
+                            </div>
+                            <div>
                                 <label className="block text-sm font-medium mb-1">Doanh số:</label>
                                 <input
                                     type="number"
-                                    name="revenue_mess"
-                                    value={editForm.revenue_mess}
+                                    name="revenue_actual"
+                                    value={editForm.revenue_actual}
+                                    onChange={handleInputChange}
+                                    className="w-full border rounded px-2 py-1"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Doanh số hủy:</label>
+                                <input
+                                    type="number"
+                                    name="revenue_cancel_actual"
+                                    value={editForm.revenue_cancel_actual || 0}
+                                    onChange={handleInputChange}
+                                    className="w-full border rounded px-2 py-1"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Số đơn go:</label>
+                                <input
+                                    type="number"
+                                    name="order_go"
+                                    value={editForm.order_go || 0}
+                                    onChange={handleInputChange}
+                                    className="w-full border rounded px-2 py-1"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Doanh số go:</label>
+                                <input
+                                    type="number"
+                                    name="revenue_go_actual"
+                                    value={editForm.revenue_go_actual || 0}
                                     onChange={handleInputChange}
                                     className="w-full border rounded px-2 py-1"
                                 />
@@ -1155,6 +1747,136 @@ export default function DanhSachBaoCaoTay() {
                                 disabled={saving}
                             >
                                 {saving ? 'Đang lưu...' : 'Lưu Thay Đổi'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Calculate Orders Modal */}
+
+            {/* View Orders Modal */}
+            {showViewOrdersModal && viewingReport && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-800">Danh sách đơn hàng</h2>
+                                <p className="text-sm text-gray-600 mt-1">
+                                    {viewingReport.name} - {formatDate(viewingReport.date)} - {viewingReport.shift || 'Không có ca'} - {viewingReport.product || 'Tất cả SP'} - {viewingReport.market || 'Tất cả TT'}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowViewOrdersModal(false);
+                                    setViewingReport(null);
+                                    setViewingOrders([]);
+                                }}
+                                className="text-gray-400 hover:text-gray-600 transition-colors"
+                            >
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        <div className="p-6">
+                            {loadingOrders ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
+                                    <span className="ml-2 text-gray-600">Đang tải danh sách đơn...</span>
+                                </div>
+                            ) : viewingOrders.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">
+                                    Không tìm thấy đơn hàng nào thỏa mãn điều kiện.
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                        <p className="text-sm text-gray-600">Tổng số đơn:</p>
+                                        <p className="text-2xl font-bold text-blue-600">
+                                            {viewingOrders.length} đơn
+                                        </p>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm border-collapse">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">STT</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Mã đơn</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Tên</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Ngày</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Ca</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Sale</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Sản phẩm</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Thị trường</th>
+                                                    <th className="px-4 py-3 text-right border border-gray-200">Doanh thu (VNĐ)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {viewingOrders.map((order, index) => (
+                                                    <tr key={order.id || index} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-2 border border-gray-200">{index + 1}</td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            <div className="font-mono text-sm font-semibold text-blue-600">
+                                                                {order.order_code || order.id || '-'}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            {order.customer_name || '-'}
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            {formatDate(order.order_date)}
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            {order.shift || '-'}
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            <div className="font-medium text-gray-900">
+                                                                {order.nhanvien_sale || order.sale_staff || '-'}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            {order.product || '-'}
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            {order.country || '-'}
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200 text-right">
+                                                            {formatCurrency(order.total_amount_vnd || order.total_vnd || 0)}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot className="bg-gray-50 font-semibold">
+                                                <tr>
+                                                    <td colSpan="8" className="px-4 py-3 text-right border border-gray-200">
+                                                        Tổng doanh thu:
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right border border-gray-200 text-blue-600">
+                                                        {formatCurrency(
+                                                            viewingOrders.reduce((sum, order) => 
+                                                                sum + (parseFloat(order.total_amount_vnd || order.total_vnd) || 0), 0
+                                                            )
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-end">
+                            <button
+                                onClick={() => {
+                                    setShowViewOrdersModal(false);
+                                    setViewingReport(null);
+                                    setViewingOrders([]);
+                                }}
+                                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                            >
+                                Đóng
                             </button>
                         </div>
                     </div>

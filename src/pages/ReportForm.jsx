@@ -201,8 +201,7 @@ function ReportForm() {
         market: '',
         branch: userBranch, // Tự động điền chi nhánh từ users
         mess_cmt: '',
-        response: '',
-        orders: ''
+        response: ''
       }]);
     };
 
@@ -279,7 +278,6 @@ function ReportForm() {
       if (!report.market?.trim()) newErrors[`${index}-market`] = 'Required';
       if (!report.mess_cmt) newErrors[`${index}-mess_cmt`] = 'Required';
       if (!report.response) newErrors[`${index}-response`] = 'Required';
-      if (!report.orders) newErrors[`${index}-orders`] = 'Required';
     });
 
     setErrors(newErrors);
@@ -318,7 +316,7 @@ function ReportForm() {
         }
       }
 
-      const payload = reports.map(report => {
+      const payload = reports.map((report, index) => {
         const reportEmail = (report.email || '').trim().toLowerCase();
         // Priority: Team from Users Table > LocalStorage User Team
         const correctTeam = emailToTeamMap[reportEmail] || localStorage.getItem('userTeam') || '';
@@ -332,47 +330,286 @@ function ReportForm() {
           market: report.market,
           mess_count: Number(cleanNumberInput(String(report.mess_cmt || ''))) || 0,
           response_count: Number(cleanNumberInput(String(report.response || ''))) || 0,
-          order_count: Number(cleanNumberInput(String(report.orders || ''))) || 0,
+          order_count: 0, // Sẽ được tính tự động sau khi lưu
           team: correctTeam,
           branch: report.branch || defaultInfo.branch || '', // Chi nhánh từ form hoặc tự động điền
           created_at: new Date().toISOString(),
         };
       });
 
+      // Remove _originalIndex before inserting
+      const payloadToInsert = payload.map(({ _originalIndex, ...rest }) => rest);
+
       const { data: insertedData, error } = await supabase
         .from('sales_reports')
-        .insert(payload)
+        .insert(payloadToInsert)
         .select('id');
 
       if (error) throw error;
 
       toast.success(`Đã lưu thành công ${reports.length} báo cáo!`, { position: 'top-right', autoClose: 3000 });
 
-      // Gọi API calculate-order-count cho mỗi record vừa insert
+      // Tự động tính toán order_count và revenue_actual cho mỗi record vừa insert
       if (insertedData && insertedData.length > 0) {
         try {
-          const apiCalls = insertedData.map(record => {
-            const apiUrl = `https://lumidataapi.vercel.app/api/calculate-order-count?recordId=${record.id}`;
-            return fetch(apiUrl, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json'
-              }
-            }).catch(err => {
-              console.error(`❌ Error calling calculate-order-count for record ${record.id}:`, err);
-              return null;
-            });
-          });
+          // Helper functions
+          const convertDateToAPIFormat = (dateStr) => {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+          };
 
-          // Gọi tất cả API calls song song (không cần đợi kết quả)
-          Promise.all(apiCalls).then(results => {
-            const successCount = results.filter(r => r && r.ok).length;
-            if (successCount > 0) {
-              console.log(`✅ Đã tính toán order_count cho ${successCount}/${insertedData.length} báo cáo`);
+          const normalizeDate = (dateStr) => {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            if (isNaN(date.getTime())) return '';
+            return date.toISOString().split('T')[0];
+          };
+
+          const normalizeNameForMatch = (str) => {
+            if (!str) return '';
+            return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+          };
+
+          const namesMatch = (name1, name2) => {
+            const n1 = normalizeNameForMatch(name1);
+            const n2 = normalizeNameForMatch(name2);
+            return n1 === n2 || n1.includes(n2) || n2.includes(n1);
+          };
+
+          // Tính toán tuần tự cho từng record (không song song)
+          // Map insertedData với reports theo thứ tự (vì insert giữ nguyên thứ tự)
+          for (let idx = 0; idx < insertedData.length; idx++) {
+            const record = insertedData[idx];
+            try {
+              // Lấy thông tin report từ reports state (theo thứ tự)
+              const originalReport = reports[idx];
+              if (!originalReport) {
+                console.warn(`⚠️ Không tìm thấy report tương ứng cho record ${record.id}`);
+                continue;
+              }
+
+              const report = {
+                name: originalReport.name,
+                date: originalReport.date,
+                shift: originalReport.shift,
+                product: originalReport.product,
+                market: originalReport.market
+              };
+
+              const reportDate = normalizeDate(report.date);
+              if (!reportDate) {
+                console.warn(`⚠️ Report ${record.id} có ngày không hợp lệ`);
+                continue;
+              }
+
+              const apiDate = convertDateToAPIFormat(reportDate);
+
+              // Fetch orders from API with filters
+              const params = new URLSearchParams();
+              params.append('from_date', apiDate);
+              params.append('to_date', apiDate);
+              
+              if (report.name && report.name.trim()) {
+                params.append('nhanvien_sale', report.name.trim());
+              }
+              if (report.shift && report.shift.trim()) {
+                params.append('shift', report.shift.trim());
+              }
+              if (report.product && report.product.trim()) {
+                params.append('product', report.product.trim());
+              }
+              if (report.market && report.market.trim()) {
+                params.append('country', report.market.trim());
+              }
+
+              const url = `https://lumidataapi.vercel.app/orders?${params.toString()}`;
+              console.log(`📡 [ReportForm] Fetching orders for report ${record.id}:`, url);
+
+              const response = await fetch(url);
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+
+              const result = await response.json();
+              let matchingOrders = result.data || [];
+
+              // Additional filtering
+              if (report.name && report.name.trim()) {
+                matchingOrders = matchingOrders.filter(order => {
+                  const orderSaleStaff = (order.nhanvien_sale || order.sale_staff || '').trim();
+                  if (!orderSaleStaff) return false;
+                  return namesMatch(orderSaleStaff, report.name);
+                });
+              }
+
+              if (report.shift && report.shift.trim()) {
+                const reportShift = normalizeNameForMatch(report.shift || '');
+                matchingOrders = matchingOrders.filter(order => {
+                  const orderShift = normalizeNameForMatch(order.shift || '');
+                  
+                  if (reportShift === 'hết ca') {
+                    return orderShift.includes('hết ca');
+                  } else if (reportShift === 'giữa ca') {
+                    return orderShift.includes('giữa ca');
+                  }
+                  return true;
+                });
+              }
+
+              if (report.product && report.product.trim()) {
+                matchingOrders = matchingOrders.filter(order => {
+                  const orderProduct = (order.product || '').trim();
+                  if (!orderProduct) return false;
+                  return orderProduct === report.product.trim();
+                });
+              }
+
+              if (report.market && report.market.trim()) {
+                matchingOrders = matchingOrders.filter(order => {
+                  const orderCountry = (order.country || '').trim();
+                  if (!orderCountry) return false;
+                  return orderCountry === report.market.trim();
+                });
+              }
+
+              const orderCount = matchingOrders.length;
+              
+              // Calculate number of cancelled orders (check_result = "Hủy")
+              const cancelledOrders = matchingOrders.filter(order => {
+                const checkResult = (order.check_result || '').trim();
+                return checkResult === 'Hủy';
+              });
+              const orderCancelCount = cancelledOrders.length;
+              
+              // Calculate number of "go" orders (có Mã Tracking khác rỗng và không hủy)
+              const goOrders = matchingOrders.filter(order => {
+                const trackingCode = (order.tracking_code || order.trackingCode || order.tracking || order.ma_tracking || order.maTracking || '').trim();
+                const checkResult = (order.check_result || '').trim();
+                return trackingCode !== '' && checkResult !== 'Hủy';
+              });
+              const orderGoCount = goOrders.length;
+              
+              // Calculate total revenue from cancelled orders (revenue_cancel_actual)
+              const revenueCancelActual = cancelledOrders.reduce((sum, order) => {
+                const revenue = parseFloat(
+                  order.total_amount_vnd || 
+                  order.total_vnd || 
+                  order.tongtien || 
+                  order.revenue_vnd ||
+                  order.total_amount ||
+                  order.amount ||
+                  0
+                );
+                return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
+              }, 0);
+              
+              // Calculate total revenue from "go" orders (revenue_go_actual)
+              const revenueGoActual = goOrders.reduce((sum, order) => {
+                const revenue = parseFloat(
+                  order.total_amount_vnd || 
+                  order.total_vnd || 
+                  order.tongtien || 
+                  order.revenue_vnd ||
+                  order.total_amount ||
+                  order.amount ||
+                  0
+                );
+                return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
+              }, 0);
+              
+              // Calculate total revenue from all matching orders
+              const totalRevenue = matchingOrders.reduce((sum, order) => {
+                const revenue = parseFloat(
+                  order.total_amount_vnd || 
+                  order.total_vnd || 
+                  order.tongtien || 
+                  order.revenue_vnd ||
+                  order.total_amount ||
+                  order.amount ||
+                  0
+                );
+                return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
+              }, 0);
+
+              const validRevenue = isNaN(totalRevenue) || !isFinite(totalRevenue) ? 0 : Number(totalRevenue);
+              const validRevenueCancel = isNaN(revenueCancelActual) || !isFinite(revenueCancelActual) ? 0 : Number(revenueCancelActual);
+              const validRevenueGo = isNaN(revenueGoActual) || !isFinite(revenueGoActual) ? 0 : Number(revenueGoActual);
+              const validOrderCancelCount = Number(orderCancelCount) || 0;
+              const validOrderGoCount = Number(orderGoCount) || 0;
+
+              // Update order_count, order_cancel_count, order_go and revenue_actual in database
+              const updateData = { 
+                order_count: Number(orderCount) || 0,
+                order_cancel_count: validOrderCancelCount,
+                order_go: validOrderGoCount
+              };
+
+              // Try to update all fields, handle missing columns gracefully
+              let { error } = await supabase
+                .from('sales_reports')
+                .update(updateData)
+                .eq('id', record.id);
+
+              if (error && error.code === 'PGRST204') {
+                const missingColumn = error.message?.match(/column '(\w+)'/)?.[1];
+                console.log(`⚠️ [ReportForm] Column '${missingColumn}' not found, trying with fewer fields`);
+                
+                // Try with only order_count
+                const { error: retryError } = await supabase
+                  .from('sales_reports')
+                  .update({ order_count: Number(orderCount) || 0 })
+                  .eq('id', record.id);
+                
+                if (retryError) {
+                  console.error(`❌ Error updating report ${record.id}:`, retryError);
+                } else {
+                  console.log(`✅ Updated report ${record.id}: ${orderCount} orders`);
+                }
+              } else if (error) {
+                console.error(`❌ Error updating report ${record.id}:`, error);
+              } else {
+                // Try to update revenue_actual and revenue_cancel_actual separately if columns exist
+                const { error: revenueError } = await supabase
+                  .from('sales_reports')
+                  .update({ revenue_actual: validRevenue })
+                  .eq('id', record.id);
+                
+                if (revenueError && revenueError.code !== 'PGRST204') {
+                  console.error(`❌ Error updating revenue_actual for report ${record.id}:`, revenueError);
+                }
+                
+                const { error: revenueCancelError } = await supabase
+                  .from('sales_reports')
+                  .update({ revenue_cancel_actual: validRevenueCancel })
+                  .eq('id', record.id);
+                
+                if (revenueCancelError && revenueCancelError.code !== 'PGRST204') {
+                  console.error(`❌ Error updating revenue_cancel_actual for report ${record.id}:`, revenueCancelError);
+                }
+                
+                const { error: revenueGoError } = await supabase
+                  .from('sales_reports')
+                  .update({ revenue_go_actual: validRevenueGo })
+                  .eq('id', record.id);
+                
+                if (revenueGoError && revenueGoError.code !== 'PGRST204') {
+                  console.error(`❌ Error updating revenue_go_actual for report ${record.id}:`, revenueGoError);
+                } else {
+                  console.log(`✅ Updated report ${record.id}: ${orderCount} orders, ${validOrderCancelCount} cancelled, ${validOrderGoCount} go, revenue: ${validRevenue} VNĐ, revenue_cancel: ${validRevenueCancel} VNĐ, revenue_go: ${validRevenueGo} VNĐ`);
+                }
+              }
+            } catch (err) {
+              console.error(`❌ Error calculating for report ${record.id}:`, err);
             }
-          });
+          }
+
+          console.log(`✅ Đã tính toán order_count và revenue_actual cho ${insertedData.length} báo cáo`);
         } catch (apiError) {
-          console.error('❌ Error calling calculate-order-count API:', apiError);
+          console.error('❌ Error in calculation process:', apiError);
           // Không hiển thị lỗi cho user vì đây là background task
         }
       }
@@ -387,8 +624,7 @@ function ReportForm() {
         market: '',
         branch: defaultInfo.branch || '', // Giữ chi nhánh
         mess_cmt: '',
-        response: '',
-        orders: ''
+        response: ''
       }]);
       setErrors({});
     } catch (err) {
@@ -445,7 +681,6 @@ function ReportForm() {
                   <th className="p-3 min-w-[140px]">Thị trường <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[100px]">Số mess <span className="text-red-500">*</span></th>
                   <th className="p-3 min-w-[100px]">Phản hồi <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[100px]">Số đơn <span className="text-red-500">*</span></th>
                   <th className="p-3 w-16 text-center">Xóa</th>
                 </tr>
               </thead>
@@ -548,17 +783,6 @@ function ReportForm() {
                         value={report.response}
                         onChange={(e) => handleReportChange(e, idx)}
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-response`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="p-3">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        name="orders"
-                        value={report.orders}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-orders`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                         placeholder="0"
                       />
                     </td>
