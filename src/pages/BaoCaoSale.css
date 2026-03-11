@@ -31,6 +31,9 @@
     line-height: 1.6;
     min-height: 100vh;
     overflow: visible;
+    position: relative;
+    /* Ensure filters and table stay on same page */
+    page-break-inside: avoid;
 }
 
 /* --- TABS --- */
@@ -68,10 +71,14 @@
 
 .bao-cao-sale-container .tab-content {
     display: none;
+    position: relative;
+    z-index: 1;
 }
 
 .bao-cao-sale-container .tab-content.active {
     display: block;
+    position: relative;
+    z-index: 1;
 }
 
 .bao-cao-sale-container iframe {
@@ -89,14 +96,25 @@
     align-items: flex-start;
     max-width: 2400px;
     margin: 0 auto;
+    position: relative;
+    z-index: 1;
+    overflow: visible;
+    /* Keep filters and table together */
+    page-break-inside: avoid;
+    break-inside: avoid;
 }
 
 /* --- TABLE STYLES --- */
 .bao-cao-sale-container .table-responsive-container {
     overflow-x: auto;
+    overflow-y: visible;
     margin-bottom: 30px;
     border-radius: 8px;
     box-shadow: 0 2px 15px rgba(0, 0, 0, 0.05);
+    position: relative;
+    z-index: 1;
+    /* Table should be below filters bar and dropdowns */
+    margin-top: 0;
 }
 
 .bao-cao-sale-container table {
@@ -110,6 +128,9 @@
     overflow: hidden;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     font-size: 0.95em;
+    position: relative;
+    z-index: 1;
+    /* Table should be below filters bar */
 }
 
 .bao-cao-sale-container th,
@@ -131,7 +152,8 @@
     letter-spacing: 0.5px;
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 10;
+    /* Table header should be below filters bar and dropdowns */
 }
 
 .bao-cao-sale-container td {
@@ -236,8 +258,15 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     margin-bottom: 20px;
     position: relative;
-    z-index: 1;
-    overflow: visible;
+    z-index: 1000;
+    overflow-x: auto;
+    overflow-y: visible;
+    isolation: isolate;
+    /* Keep filters with table on same page */
+    page-break-inside: avoid;
+    break-inside: avoid;
+    /* Allow dropdowns to overflow */
+    /* Ensure filters bar appears above table */
 }
 
 .bao-cao-sale-container .filters-row {
@@ -245,11 +274,16 @@
     flex-wrap: nowrap;
     gap: 12px;
     align-items: center;
-    overflow-x: auto;
+    position: relative;
+    z-index: 10000;
+    /* No overflow here to prevent clipping dropdowns */
 }
 
 .bao-cao-sale-container .filter-group {
     position: relative;
+    z-index: 10001;
+    overflow: visible;
+    flex-shrink: 0;
 }
 
 .bao-cao-sale-container .filter-group.date-group {
@@ -282,6 +316,10 @@
 
 .bao-cao-sale-container .filter-group.dropdown-group {
     min-width: 140px;
+    position: relative;
+    z-index: 10002;
+    overflow: visible;
+    /* Allow dropdown to overflow and appear above table */
 }
 
 .bao-cao-sale-container .filter-dropdown-btn {
@@ -313,19 +351,26 @@
 
 .bao-cao-sale-container .filter-dropdown-content {
     position: absolute;
-    top: 100%;
+    top: calc(100% + 4px);
     left: 0;
-    right: 0;
-    margin-top: 4px;
+    right: auto;
     background: #fff;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 9999;
+    z-index: 99999 !important;
     max-height: 300px;
     overflow-y: auto;
+    overflow-x: visible;
     padding: 8px;
     min-width: 200px;
+    width: max-content;
+    /* Force render above everything including table */
+    transform: translateZ(0);
+    will-change: transform;
+    /* Ensure it's above all other content including table */
+    isolation: isolate;
+    /* Allow overflow outside container and above table */
 }
 
 .bao-cao-sale-container .filter-dropdown-content label {
@@ -426,6 +471,12 @@
     flex-grow: 1;
     min-width: 0;
     width: calc(100% - 300px);
+    position: relative;
+    z-index: 1;
+    overflow: visible;
+    /* Keep content together */
+    page-break-inside: avoid;
+    break-inside: avoid;
 }
 
 .bao-cao-sale-container .sidebar h3 {

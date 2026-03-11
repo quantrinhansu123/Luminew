@@ -1288,6 +1288,101 @@ function VanDon() {
     ? Math.ceil(totalRecords / effectiveRowsPerPage)
     : Math.ceil(getFilteredData.length / effectiveRowsPerPage);
 
+  // Hàm lưu vào bảng shipping_reports
+  const saveToShippingReports = useCallback(async (updatedRows, currentData = null) => {
+    if (!updatedRows || updatedRows.length === 0) return;
+
+    try {
+      const currentUsername = localStorage.getItem('username') || 'Unknown';
+      const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+      // Sử dụng currentData nếu có, nếu không thì dùng allData
+      const dataSource = currentData || allData;
+
+      // Lấy dữ liệu đầy đủ từ dataSource cho các rows đã update
+      const reportsToSave = [];
+      
+      for (const updatedRow of updatedRows) {
+        const orderId = updatedRow[PRIMARY_KEY_COLUMN];
+        const fullRow = dataSource.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
+        if (!fullRow) continue;
+
+        // Lấy các giá trị từ row (ưu tiên giá trị mới từ updatedRow, fallback về fullRow)
+        const product = (updatedRow['Mặt hàng'] || fullRow['Mặt hàng'] || '').trim();
+        const market = (updatedRow['Khu vực'] || fullRow['Khu vực'] || '').trim();
+        const checkResult = (updatedRow['Kết quả Check'] || updatedRow['Kết quả check'] || fullRow['Kết quả Check'] || fullRow['Kết quả check'] || '').trim();
+        const status = (updatedRow['Trạng thái giao hàng NB'] || fullRow['Trạng thái giao hàng NB'] || '').trim();
+        const deliveryStatus = (updatedRow['Trạng thái giao hàng'] || fullRow['Trạng thái giao hàng'] || '').trim();
+        const billStatus = (updatedRow['Trạng thái thu tiền'] || fullRow['Trạng thái thu tiền'] || '').trim();
+
+        // Chỉ lưu nếu có ít nhất một trong các trường quan trọng
+        if (product || market || checkResult || status || deliveryStatus || billStatus) {
+          reportsToSave.push({
+            name: currentUsername,
+            date: currentDate,
+            product: product || null,
+            market: market || null,
+            check_result: checkResult || null,
+            status: status || null,
+            delivery_status: deliveryStatus || null,
+            bill_status: billStatus || null,
+            created_by: currentUsername,
+            updated_by: currentUsername
+          });
+        }
+      }
+
+      if (reportsToSave.length === 0) return;
+
+      // Kiểm tra và insert/update từng record
+      for (const report of reportsToSave) {
+        // Lấy tất cả records có cùng name và date
+        const { data: candidates, error: queryError } = await supabase
+          .from('shipping_reports')
+          .select('*')
+          .eq('name', report.name)
+          .eq('date', report.date);
+
+        if (queryError) {
+          console.error('Error querying shipping_reports:', queryError);
+          continue;
+        }
+
+        // So sánh các trường khác để tìm record trùng khớp
+        const existing = candidates?.find(candidate => {
+          const normalize = (val) => (val || '').trim();
+          return (
+            normalize(candidate.product) === normalize(report.product) &&
+            normalize(candidate.market) === normalize(report.market) &&
+            normalize(candidate.check_result) === normalize(report.check_result) &&
+            normalize(candidate.status) === normalize(report.status) &&
+            normalize(candidate.delivery_status) === normalize(report.delivery_status) &&
+            normalize(candidate.bill_status) === normalize(report.bill_status)
+          );
+        });
+
+        if (existing) {
+          // Update nếu đã tồn tại
+          await supabase
+            .from('shipping_reports')
+            .update({
+              ...report,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existing.id);
+        } else {
+          // Insert nếu chưa tồn tại
+          await supabase
+            .from('shipping_reports')
+            .insert([report]);
+        }
+      }
+    } catch (error) {
+      console.error('Error saving to shipping_reports:', error);
+      // Không hiển thị lỗi cho user để không làm gián đoạn flow chính
+    }
+  }, [allData]);
+
   // --- Change Management (Shared) ---
   const processUpdateQueue = useCallback(async (forceBulk) => {
     const queue = updateQueue.current;
@@ -1312,15 +1407,14 @@ function VanDon() {
         const toastId = addToast('Đang cập nhật...', 'loading', 0);
         const currentUsername = localStorage.getItem('username') || 'Unknown';
         await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername);
-        setAllData(prev => {
-          const idx = prev.findIndex(r => r[PRIMARY_KEY_COLUMN] === row[PRIMARY_KEY_COLUMN]);
-          if (idx > -1) {
-            const next = [...prev];
-            next[idx] = { ...next[idx], [col]: row[col] };
-            return next;
-          }
-          return prev;
-        });
+        // Tính toán updatedData trước
+        const updatedData = [...allData];
+        const idx = updatedData.findIndex(r => r[PRIMARY_KEY_COLUMN] === row[PRIMARY_KEY_COLUMN]);
+        if (idx > -1) {
+          updatedData[idx] = { ...updatedData[idx], [col]: row[col] };
+        }
+        
+        setAllData(updatedData);
         setPendingChanges((prev) => {
           const next = new Map(prev);
           if (next.has(row[PRIMARY_KEY_COLUMN])) {
@@ -1330,8 +1424,12 @@ function VanDon() {
           savePendingToLocalStorage(next, legacyChanges);
           return next;
         });
+        
         removeToast(toastId);
         addToast('Cập nhật thành công!', 'success');
+        
+        // Lưu vào shipping_reports sau khi update thành công (dùng updatedData)
+        await saveToShippingReports([row], updatedData);
       } catch (e) {
         addToast(e.message, 'error');
       }
@@ -1341,14 +1439,14 @@ function VanDon() {
         const currentUsername = localStorage.getItem('username') || 'Unknown';
         const res = await API.updateBatch(rowsToUpdate, currentUsername);
         if (res.success) {
-          setAllData(prev => {
-            let next = [...prev];
-            rowsToUpdate.forEach(updatedRow => {
-              const idx = next.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
-              if (idx > -1) next[idx] = { ...next[idx], ...updatedRow };
-            });
-            return next;
+          // Tính toán updatedData trước
+          const updatedData = [...allData];
+          rowsToUpdate.forEach(updatedRow => {
+            const idx = updatedData.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
+            if (idx > -1) updatedData[idx] = { ...updatedData[idx], ...updatedRow };
           });
+          
+          setAllData(updatedData);
           setPendingChanges((prev) => {
             const next = new Map(prev);
             rowsToUpdate.forEach(r => {
@@ -1361,14 +1459,18 @@ function VanDon() {
             savePendingToLocalStorage(next, legacyChanges);
             return next;
           });
+          
           removeToast(toastId);
           addToast(`Đã cập nhật ${res.summary?.updated || rowsToUpdate.length} đơn hàng.`, 'success');
+          
+          // Lưu vào shipping_reports sau khi update thành công (dùng updatedData)
+          await saveToShippingReports(rowsToUpdate, updatedData);
         }
       } catch (e) {
         addToast(e.message, 'error');
       }
     }
-  }, [addToast, removeToast, legacyChanges, savePendingToLocalStorage]);
+  }, [addToast, removeToast, legacyChanges, savePendingToLocalStorage, saveToShippingReports]);
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
@@ -1437,20 +1539,23 @@ function VanDon() {
       const currentUsername = localStorage.getItem('username') || 'Unknown';
       const res = await API.updateBatch(rowsToSend, currentUsername);
       if (res.success) {
-        setAllData(prev => {
-          let next = [...prev];
-          rowsToSend.forEach(updatedRow => {
-            const idx = next.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
-            if (idx > -1) next[idx] = { ...next[idx], ...updatedRow };
-          });
-          return next;
+        // Tính toán updatedData trước
+        const updatedData = [...allData];
+        rowsToSend.forEach(updatedRow => {
+          const idx = updatedData.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
+          if (idx > -1) updatedData[idx] = { ...updatedData[idx], ...updatedRow };
         });
+        
+        setAllData(updatedData);
         setLegacyChanges(new Map());
         setPendingChanges(new Map());
         savePendingToLocalStorage(new Map(), new Map());
         setSyncPopoverOpen(false);
         removeToast(toastId);
         addToast('Cập nhật thành công!', 'success');
+        
+        // Lưu vào shipping_reports sau khi update thành công (dùng updatedData)
+        await saveToShippingReports(rowsToSend, updatedData);
       }
     } catch (e) {
       addToast(e.message, 'error');

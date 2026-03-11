@@ -63,17 +63,74 @@ function DoiSoatBillCuoc() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+
+      // Lấy shipping_unit và payment_type từ bảng orders để map vào FFM và Đơn vị tiền
+      const orderCodes = [...new Set((data || []).map((row) => row.ma_don_hang).filter(Boolean))];
+      const shippingUnitMap = new Map();
+      const paymentTypeMap = new Map();
+
+      if (orderCodes.length > 0) {
+        const batchSize = 1000;
+        for (let i = 0; i < orderCodes.length; i += batchSize) {
+          const batch = orderCodes.slice(i, i + batchSize);
+          const { data: ordersData, error: ordersError } = await supabase
+            .from('orders')
+            .select('order_code, shipping_unit, payment_type')
+            .in('order_code', batch);
+
+          if (!ordersError && ordersData) {
+            ordersData.forEach((order) => {
+              if (order.order_code) {
+                if (order.shipping_unit) {
+                  shippingUnitMap.set(order.order_code, order.shipping_unit);
+                }
+                if (order.payment_type) {
+                  paymentTypeMap.set(order.order_code, order.payment_type);
+                }
+              }
+            });
+          }
+        }
+      }
       
       // Tự động điền tỷ giá cho các hàng có đơn vị tiền tệ nhưng chưa có tỷ giá
       const processedData = (data || []).map((row) => {
-        if (row.don_vi_tien && (!row.ty_gia || row.ty_gia === null || row.ty_gia === '')) {
-          const currency = String(row.don_vi_tien).toUpperCase();
-          const rate = exchangeRates[currency];
-          if (rate !== null && rate !== undefined) {
-            return { ...row, ty_gia: rate };
+        const updatedRow = { ...row };
+
+        // FFM lấy theo orders.shipping_unit khi ma_don_hang khớp orders.order_code
+        if (row.ma_don_hang) {
+          const shippingUnit = shippingUnitMap.get(row.ma_don_hang);
+          if (shippingUnit) {
+            updatedRow.ffm = shippingUnit;
+          }
+
+          const paymentType = paymentTypeMap.get(row.ma_don_hang);
+          if (paymentType) {
+            const currencyMap = {
+              USD: 'USD',
+              AUD: 'AUD',
+              CAD: 'CAD',
+              JPY: 'YEN',
+              YEN: 'YEN',
+              ZELLE: 'USD',
+              COD: 'USD',
+            };
+            const mappedCurrency = currencyMap[String(paymentType).toUpperCase()] || String(paymentType).toUpperCase();
+            if (CURRENCY_OPTIONS.includes(mappedCurrency)) {
+              updatedRow.don_vi_tien = mappedCurrency;
+            }
           }
         }
-        return row;
+
+        if (updatedRow.don_vi_tien && (!updatedRow.ty_gia || updatedRow.ty_gia === null || updatedRow.ty_gia === '')) {
+          const currency = String(updatedRow.don_vi_tien).toUpperCase();
+          const rate = exchangeRates[currency];
+          if (rate !== null && rate !== undefined) {
+            updatedRow.ty_gia = rate;
+          }
+        }
+
+        return updatedRow;
       });
       
       setBillData(processedData);

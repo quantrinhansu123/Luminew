@@ -337,8 +337,7 @@ function QuanLyCSKH() {
 
       // Get user info for permission
       const userJson = localStorage.getItem("user");
-      const user = userJson ? JSON.parse(userJson) : null;
-      
+      const user = userJson ? JSON.parse(userJson) : null;      
       // Fetch username from multiple possible sources
       const userEmail = localStorage.getItem("userEmail") || (user?.Email || user?.email || "").toString().toLowerCase().trim();
       const userName = localStorage.getItem("username") || (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.name || user?.fullName || "").toString().trim();
@@ -1388,14 +1387,15 @@ function QuanLyCSKH() {
                       {/* Action Column - Chỉ Admin mới thấy */}
                       {isAdmin() && (
                         <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap border-l border-gray-200 sticky right-0 bg-white z-10 text-center">
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="flex items-center justify-center gap-1.5">
                             {/* View - Open Modal Read Only */}
                             <button
                               onClick={() => openViewModal(row)}
-                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded transition-colors"
                               title="Xem chi tiết"
                             >
-                              <Eye className="w-4 h-4" />
+                              <Eye className="w-3.5 h-3.5" />
+                              Xem
                             </button>
 
                             {/* Edit - Chỉnh sửa đầy đủ trong form NhapDonMoi */}
@@ -1410,22 +1410,23 @@ function QuanLyCSKH() {
                                     toast.error('Không tìm thấy mã đơn hàng');
                                   }
                                 }}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-green-600 bg-green-50 hover:bg-green-100 border border-green-200 rounded transition-colors"
                                 title="Chỉnh sửa đầy đủ thông tin đơn hàng"
                               >
-                                <Edit className="w-4 h-4" />
+                                <Edit className="w-3.5 h-3.5" />
+                                Sửa
                               </button>
                             )}
-
 
                             {/* Delete - Chỉ Admin mới thấy */}
                             {isAdmin() && (
                               <button
                                 onClick={() => handleDelete(row.id)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded transition-colors"
                                 title="Xóa đơn hàng"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Xóa
                               </button>
                             )}
                           </div>

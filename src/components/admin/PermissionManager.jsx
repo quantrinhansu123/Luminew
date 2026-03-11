@@ -738,6 +738,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
     // Filter State
     const [filterDepartment, setFilterDepartment] = useState(''); // Filter by department
     const [filterTeam, setFilterTeam] = useState(''); // Filter by team
+    const [nameSearchQuery, setNameSearchQuery] = useState(''); // Search by name
 
     // Edit User State
     const [editingUser, setEditingUser] = useState(null); // { email, name, department, position, team, role_code }
@@ -1061,11 +1062,20 @@ const PermissionManager = ({ searchQuery = "" }) => {
 
     const filteredUserRoles = userRoles.filter(ur => {
         const q = searchQuery.toLowerCase();
+        const nameQ = nameSearchQuery.toLowerCase();
+        const emp = employees.find(e => e.email === ur.email);
+        const empName = emp ? (emp['Họ Và Tên'] || emp.name || '').toLowerCase() : '';
+        
+        // Search by email, role_code, or name
         const matchesSearch = ur.email.toLowerCase().includes(q) || ur.role_code.toLowerCase().includes(q);
+        
+        // Search by name (if nameSearchQuery is provided)
+        if (nameSearchQuery && !empName.includes(nameQ)) {
+            return false;
+        }
         
         // Filter by department
         if (filterDepartment) {
-            const emp = employees.find(e => e.email === ur.email);
             const departmentFromHR = departmentsMap[ur.email] || emp?.department || '';
             if (departmentFromHR !== filterDepartment) {
                 return false;
@@ -1074,7 +1084,6 @@ const PermissionManager = ({ searchQuery = "" }) => {
         
         // Filter by team
         if (filterTeam) {
-            const emp = employees.find(e => e.email === ur.email);
             const userTeam = emp?.team || '';
             const leaderTeams = leaderTeamsMap[ur.email] || [];
             
@@ -1288,6 +1297,20 @@ const PermissionManager = ({ searchQuery = "" }) => {
                             </button>
                         </div>
 
+                        {/* Search by Name */}
+                        <div className="mb-4">
+                            <div className="relative max-w-md">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                                <input
+                                    type="text"
+                                    placeholder="Tìm kiếm theo tên nhân viên..."
+                                    value={nameSearchQuery}
+                                    onChange={(e) => setNameSearchQuery(e.target.value)}
+                                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                        </div>
+
                         {/* Filter by Department and Team */}
                         <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-gray-50 rounded-lg">
                             <div className="flex items-center gap-2">
@@ -1322,11 +1345,12 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                 </select>
                             </div>
                             
-                            {(filterDepartment || filterTeam) && (
+                            {(filterDepartment || filterTeam || nameSearchQuery) && (
                                 <button
                                     onClick={() => {
                                         setFilterDepartment('');
                                         setFilterTeam('');
+                                        setNameSearchQuery('');
                                     }}
                                     className="text-xs text-gray-500 hover:text-gray-700 underline whitespace-nowrap"
                                 >

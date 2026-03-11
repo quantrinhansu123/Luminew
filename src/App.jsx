@@ -49,9 +49,11 @@ import NhapBaoCaoSale from './pages/NhapBaoCaoSale';
 import NhapDonMoi from './pages/NhapDonMoi';
 import Profile from './pages/Profile';
 import QuanLyCSKH from './pages/QuanLyCSKH';
+import QuanLyXe from './pages/QuanLyXe';
 import ReportDashboard from './pages/ReportDashboard';
 import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
+import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
 import XemBaoCaoMKT from './pages/XemBaoCaoMKT';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import TestMKT from './pages/TestMKT.jsx';
@@ -95,6 +97,7 @@ function App() {
             <Route path="/van-don" element={<ProtectedRoute><VanDon /></ProtectedRoute>} />
             <Route path="/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-van-don" element={<ProtectedRoute><DanhSachVanDon /></ProtectedRoute>} />
+            <Route path="/danh-sach-bao-cao-van-don" element={<ProtectedRoute><DanhSachBaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-don" element={<ProtectedRoute><DanhSachDon /></ProtectedRoute>} />
             <Route path="/danh-sach-page" element={<ProtectedRoute><DanhSachPage /></ProtectedRoute>} />
             <Route path="/nhap-don" element={<ProtectedRoute><NhapDonMoi /></ProtectedRoute>} />
@@ -102,6 +105,7 @@ function App() {
             <Route path="/chinh-sua-don" element={<ProtectedRoute><NhapDonMoi isEdit={true} /></ProtectedRoute>} />
 
             <Route path="/quan-ly-cskh" element={<ProtectedRoute><QuanLyCSKH /></ProtectedRoute>} />
+            <Route path="/quan-ly-xe" element={<ProtectedRoute><QuanLyXe /></ProtectedRoute>} />
             <Route path="/don-chia-cskh" element={<ProtectedRoute><DonChiaCSKH /></ProtectedRoute>} />
             <Route path="/xem-bao-cao-cskh" element={<ProtectedRoute><XemBaoCaoCSKH /></ProtectedRoute>} />
             <Route path="/nhap-bao-cao-cskh" element={<ProtectedRoute><NhapBaoCaoCSKH /></ProtectedRoute>} />

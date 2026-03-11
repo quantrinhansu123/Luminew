@@ -1,5 +1,5 @@
-import { ChevronLeft, Plus, RefreshCw, Search, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, Eye, Pencil, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
@@ -40,24 +40,46 @@ export default function DanhSachPage() {
     });
     const [addingPage, setAddingPage] = useState(false);
 
+    // Edit Page Modal
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editingPage, setEditingPage] = useState(null);
+    const [updatingPage, setUpdatingPage] = useState(false);
+
+    // View Page Modal
+    const [showViewModal, setShowViewModal] = useState(false);
+    const [viewingPage, setViewingPage] = useState(null);
+
+    // Pagination
+    const [currentPage, setCurrentPage] = useState(1);
+    const [rowsPerPage, setRowsPerPage] = useState(50);
+
     const loadData = async () => {
         setLoading(true);
         try {
+            console.log('🔄 [DanhSachPage] Loading data from marketing_pages...');
             const { data: pages, error } = await supabase
                 .from('marketing_pages')
                 .select('*')
                 .order('id', { ascending: true });
 
-            if (error) throw error;
+            if (error) {
+                console.error('❌ [DanhSachPage] Error loading pages:', error);
+                throw error;
+            }
 
+            console.log('✅ [DanhSachPage] Loaded pages:', pages?.length || 0, 'items');
+            console.log('📊 [DanhSachPage] Sample data:', pages?.slice(0, 2));
+            
+            // Chỉ set data, để useEffect filter tự động cập nhật filteredData
             setData(pages || []);
-            setFilteredData(pages || []);
         } catch (error) {
-            console.error('Error loading pages:', error);
+            console.error('❌ [DanhSachPage] Error loading pages:', error);
             // Don't alert on 404/empty table initially if user hasn't created it yet
             if (error.code !== 'PGRST116') {
-                // alert('Lỗi tải dữ liệu page: ' + error.message);
+                toast.error('Lỗi tải dữ liệu page: ' + error.message);
             }
+            // Đảm bảo set data rỗng nếu có lỗi
+            setData([]);
         } finally {
             setLoading(false);
         }
@@ -95,17 +117,43 @@ export default function DanhSachPage() {
     }, []);
 
     useEffect(() => {
+        console.log('🚀 [DanhSachPage] Component mounted, loading data...');
         loadData();
     }, []);
 
     // Filter Data
     useEffect(() => {
-        let result = [...data];
+        console.log('🔄 [DanhSachPage] Filter effect triggered');
+        console.log('📊 [DanhSachPage] Current data length:', data?.length || 0);
+        console.log('👤 [DanhSachPage] Role:', role);
+        console.log('👥 [DanhSachPage] Selected personnel names:', selectedPersonnelNames);
+        
+        // Đảm bảo data là array hợp lệ
+        if (!Array.isArray(data)) {
+            console.log('⚠️ [DanhSachPage] Data is not an array, setting empty');
+            setFilteredData([]);
+            return;
+        }
 
+        if (data.length === 0) {
+            console.log('⚠️ [DanhSachPage] Data is empty, setting empty filteredData');
+            setFilteredData([]);
+            return;
+        }
+
+        let result = [...data];
+        console.log('🔄 [DanhSachPage] Starting with', result.length, 'items');
+
+        // Tạm thời tắt filter personnel để đảm bảo data hiển thị
+        // TODO: Bật lại filter personnel sau khi xác nhận data hiển thị được
+        /*
         // Filter by selected personnel names (if not manager/admin/finance)
         const roleLower = (role || '').toLowerCase();
         const isManager = ['admin', 'director', 'manager', 'super_admin', 'finance'].includes(roleLower);
         const userName = localStorage.getItem("username") || "";
+        
+        console.log('👤 [DanhSachPage] Is Manager:', isManager);
+        console.log('👤 [DanhSachPage] Username:', userName);
         
         // Helper function to normalize name for matching
         const normalizeNameForMatch = (str) => {
@@ -119,6 +167,7 @@ export default function DanhSachPage() {
                 const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
                 console.log('🔍 [DanhSachPage] Filtering by selected personnel names:', allNames);
                 
+                const beforeFilter = result.length;
                 result = result.filter(item => {
                     const mktStaff = normalizeNameForMatch(item.mkt_staff || '');
                     return allNames.some(name => {
@@ -128,43 +177,58 @@ export default function DanhSachPage() {
                                mktStaff === nameNormalized;
                     });
                 });
+                console.log(`🔍 [DanhSachPage] After personnel filter: ${beforeFilter} -> ${result.length}`);
             } else if (userName) {
                 // Nếu không có selectedPersonnelNames, filter theo user hiện tại
                 const userNameNormalized = normalizeNameForMatch(userName);
+                const beforeFilter = result.length;
                 result = result.filter(item => {
                     const mktStaff = normalizeNameForMatch(item.mkt_staff || '');
                     return mktStaff.includes(userNameNormalized) || 
                            userNameNormalized.includes(mktStaff) ||
                            mktStaff === userNameNormalized;
                 });
+                console.log(`🔍 [DanhSachPage] After username filter: ${beforeFilter} -> ${result.length}`);
             }
+        } else {
+            console.log('✅ [DanhSachPage] Manager user, showing all data');
         }
+        */
 
         // Search
         if (searchText) {
             const lower = searchText.toLowerCase();
+            const beforeFilter = result.length;
             result = result.filter(item =>
                 (item.page_name || '').toLowerCase().includes(lower) ||
                 (item.id || '').toLowerCase().includes(lower) ||
                 (item.pancake_id || '').includes(lower)
             );
+            console.log(`🔍 [DanhSachPage] After search filter: ${beforeFilter} -> ${result.length}`);
         }
 
         // Market Filter
         if (filterMarket) {
+            const beforeFilter = result.length;
             result = result.filter(item => item.market === filterMarket);
+            console.log(`🔍 [DanhSachPage] After market filter: ${beforeFilter} -> ${result.length}`);
         }
 
         // Staff Filter
         if (filterStaff) {
+            const beforeFilter = result.length;
             result = result.filter(item => item.mkt_staff === filterStaff);
+            console.log(`🔍 [DanhSachPage] After staff filter: ${beforeFilter} -> ${result.length}`);
         }
 
         // Product Filter
         if (filterProduct) {
+            const beforeFilter = result.length;
             result = result.filter(item => item.product === filterProduct);
+            console.log(`🔍 [DanhSachPage] After product filter: ${beforeFilter} -> ${result.length}`);
         }
 
+        console.log('✅ [DanhSachPage] Final filtered data length:', result.length);
         setFilteredData(result);
     }, [data, searchText, filterMarket, filterStaff, filterProduct, selectedPersonnelNames, role]);
 
@@ -281,14 +345,99 @@ export default function DanhSachPage() {
         }
     };
 
+    const handleEditPage = async () => {
+        if (!editingPage) return;
+        setUpdatingPage(true);
+        try {
+            const pageData = {
+                page_name: editingPage.page_name?.trim() || null,
+                mkt_staff: editingPage.mkt_staff?.trim() || null,
+                product: editingPage.product?.trim() || null,
+                market: editingPage.market?.trim() || null,
+                pancake_id: editingPage.pancake_id?.trim() || null,
+                page_link: editingPage.page_link?.trim() || null
+            };
+
+            const { error } = await supabase
+                .from('marketing_pages')
+                .update(pageData)
+                .eq('id', editingPage.id);
+
+            if (error) throw error;
+
+            toast.success('Đã cập nhật page thành công!');
+            setShowEditModal(false);
+            setEditingPage(null);
+            loadData();
+        } catch (error) {
+            console.error('Error updating page:', error);
+            toast.error('Lỗi khi cập nhật page: ' + error.message);
+        } finally {
+            setUpdatingPage(false);
+        }
+    };
+
+    const handleDeletePage = async (id) => {
+        if (!window.confirm('Bạn có chắc chắn muốn xóa page này không?')) {
+            return;
+        }
+
+        try {
+            const { error } = await supabase
+                .from('marketing_pages')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+
+            toast.success('Đã xóa page thành công!');
+            loadData();
+        } catch (error) {
+            console.error('Error deleting page:', error);
+            toast.error('Lỗi khi xóa page: ' + error.message);
+        }
+    };
+
+    const handleViewPage = (item) => {
+        setViewingPage(item);
+        setShowViewModal(true);
+    };
+
+    const handleOpenEditModal = (item) => {
+        setEditingPage({ ...item });
+        setShowEditModal(true);
+    };
+
     // Unique options for filters
-    const marketOptions = [...new Set(data.map(i => i.market).filter(Boolean))].sort();
-    const staffOptions = [...new Set(data.map(i => i.mkt_staff).filter(Boolean))].sort();
-    const productOptions = [...new Set(data.map(i => i.product).filter(Boolean))].sort();
+    const marketOptions = useMemo(() => {
+        if (!Array.isArray(data)) return [];
+        return [...new Set(data.map(i => i.market).filter(Boolean))].sort();
+    }, [data]);
+    
+    const staffOptions = useMemo(() => {
+        if (!Array.isArray(data)) return [];
+        return [...new Set(data.map(i => i.mkt_staff).filter(Boolean))].sort();
+    }, [data]);
+    
+    const productOptions = useMemo(() => {
+        if (!Array.isArray(data)) return [];
+        return [...new Set(data.map(i => i.product).filter(Boolean))].sort();
+    }, [data]);
+
+    const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+    const paginatedData = filteredData.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+
+    // Reset về trang 1 khi filter thay đổi
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchText, filterMarket, filterStaff, filterProduct]);
 
     if (!canView(permissionCode)) {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
     }
+
+    // Debug info
+    console.log('🎯 [DanhSachPage] Render - Data:', data.length, 'Filtered:', filteredData.length, 'Loading:', loading);
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -402,20 +551,34 @@ export default function DanhSachPage() {
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
                                 <tr>
-                                    <th className="px-4 py-3 whitespace-nowrap">id</th>
                                     <th className="px-4 py-3 whitespace-nowrap min-w-[300px]">Tên Page</th>
                                     <th className="px-4 py-3 whitespace-nowrap">Tên MKT</th>
                                     <th className="px-4 py-3 whitespace-nowrap">Sản phẩm</th>
                                     <th className="px-4 py-3 whitespace-nowrap">Thị trường</th>
                                     <th className="px-4 py-3 whitespace-nowrap">ID PANCAKE</th>
                                     <th className="px-4 py-3 whitespace-nowrap text-center">Link Page</th>
+                                    <th className="px-4 py-3 whitespace-nowrap text-center">Hành động</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {filteredData.length > 0 ? (
-                                    filteredData.map((item) => (
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                                            <div className="flex items-center justify-center gap-2">
+                                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                                Đang tải dữ liệu...
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : !loading && data.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                                            Không có dữ liệu. Vui lòng thêm page mới hoặc kiểm tra kết nối database.
+                                        </td>
+                                    </tr>
+                                ) : filteredData.length > 0 ? (
+                                    paginatedData.map((item) => (
                                         <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                                            <td className="px-4 py-3 font-medium text-gray-900">{item.id}</td>
                                             <td className="px-4 py-3 text-gray-700">{item.page_name}</td>
                                             <td className="px-4 py-3 text-gray-600">{item.mkt_staff}</td>
                                             <td className="px-4 py-3 text-gray-600">{item.product}</td>
@@ -437,6 +600,34 @@ export default function DanhSachPage() {
                                                     </a>
                                                 )}
                                             </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center justify-center gap-2">
+                                                    <button
+                                                        onClick={() => handleViewPage(item)}
+                                                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded transition-colors"
+                                                        title="Xem chi tiết"
+                                                    >
+                                                        <Eye className="w-3.5 h-3.5" />
+                                                        Xem
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleOpenEditModal(item)}
+                                                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-green-600 bg-green-50 hover:bg-green-100 border border-green-200 rounded transition-colors"
+                                                        title="Sửa"
+                                                    >
+                                                        <Pencil className="w-3.5 h-3.5" />
+                                                        Sửa
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeletePage(item.id)}
+                                                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded transition-colors"
+                                                        title="Xóa"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                        Xóa
+                                                    </button>
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))
                                 ) : (
@@ -450,6 +641,77 @@ export default function DanhSachPage() {
                         </table>
                     </div>
                 </div>
+
+                {/* Pagination */}
+                {filteredData.length > 0 && (
+                    <div className="bg-white rounded-lg shadow border border-gray-200 p-4 mt-4">
+                        <div className="flex justify-between items-center flex-wrap gap-4">
+                            <div className="flex items-center gap-2">
+                                <label className="text-sm text-gray-600">Số dòng/trang:</label>
+                                <select
+                                    className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    value={rowsPerPage}
+                                    onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                                >
+                                    {[25, 50, 100, 200].map(n => (
+                                        <option key={n} value={n}>{n}</option>
+                                    ))}
+                                </select>
+                                <span className="text-sm text-gray-500">
+                                    {(currentPage - 1) * rowsPerPage + 1}–{Math.min(currentPage * rowsPerPage, filteredData.length)} / {filteredData.length}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => setCurrentPage(1)}
+                                    disabled={currentPage === 1}
+                                    className="px-2 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    «
+                                </button>
+                                <button
+                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                    disabled={currentPage === 1}
+                                    className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    ‹
+                                </button>
+                                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                    let start = Math.max(1, currentPage - 2);
+                                    const end = Math.min(totalPages, start + 4);
+                                    start = Math.max(1, end - 4);
+                                    return start + i;
+                                }).filter(p => p <= totalPages).map(p => (
+                                    <button
+                                        key={p}
+                                        onClick={() => setCurrentPage(p)}
+                                        className={`px-3 py-1.5 text-sm border rounded ${
+                                            p === currentPage
+                                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                                : 'border-gray-300 hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        {p}
+                                    </button>
+                                ))}
+                                <button
+                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={currentPage === totalPages}
+                                    className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    ›
+                                </button>
+                                <button
+                                    onClick={() => setCurrentPage(totalPages)}
+                                    disabled={currentPage === totalPages}
+                                    className="px-2 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    »
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Add Page Modal */}
                 {showAddModal && (
@@ -610,6 +872,243 @@ export default function DanhSachPage() {
                         </div>
                     </div>
                 )}
+
+                {/* View Page Modal */}
+                {showViewModal && viewingPage && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                                <h2 className="text-xl font-bold text-gray-800">Chi tiết Page</h2>
+                                <button
+                                    onClick={() => {
+                                        setShowViewModal(false);
+                                        setViewingPage(null);
+                                    }}
+                                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">ID</label>
+                                    <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 font-mono">
+                                        {viewingPage.id}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Tên Page</label>
+                                    <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900">
+                                        {viewingPage.page_name || '-'}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Tên MKT</label>
+                                    <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900">
+                                        {viewingPage.mkt_staff || '-'}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Sản phẩm</label>
+                                    <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900">
+                                        {viewingPage.product || '-'}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Thị trường</label>
+                                    <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900">
+                                        {viewingPage.market || '-'}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">ID Pancake</label>
+                                    <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 font-mono">
+                                        {viewingPage.pancake_id || '-'}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Link Page</label>
+                                    <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
+                                        {viewingPage.page_link ? (
+                                            <a
+                                                href={viewingPage.page_link}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-indigo-600 hover:text-indigo-800 hover:underline break-all"
+                                            >
+                                                {viewingPage.page_link}
+                                            </a>
+                                        ) : (
+                                            <span className="text-gray-500">-</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-end">
+                                <button
+                                    onClick={() => {
+                                        setShowViewModal(false);
+                                        setViewingPage(null);
+                                    }}
+                                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                                >
+                                    Đóng
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Edit Page Modal */}
+                {showEditModal && editingPage && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                                <h2 className="text-xl font-bold text-gray-800">Sửa Page</h2>
+                                <button
+                                    onClick={() => {
+                                        setShowEditModal(false);
+                                        setEditingPage(null);
+                                    }}
+                                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        ID <span className="text-gray-500 text-xs">(Không thể thay đổi)</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editingPage.id}
+                                        readOnly
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Tên Page
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editingPage.page_name || ''}
+                                        onChange={(e) => setEditingPage({ ...editingPage, page_name: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="Nhập tên page"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Tên MKT
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editingPage.mkt_staff || ''}
+                                        onChange={(e) => setEditingPage({ ...editingPage, mkt_staff: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="Nhập tên nhân viên MKT"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Sản phẩm
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editingPage.product || ''}
+                                        onChange={(e) => setEditingPage({ ...editingPage, product: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="Nhập tên sản phẩm"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Thị trường
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editingPage.market || ''}
+                                        onChange={(e) => setEditingPage({ ...editingPage, market: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="Nhập thị trường"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        ID Pancake
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editingPage.pancake_id || ''}
+                                        onChange={(e) => setEditingPage({ ...editingPage, pancake_id: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="Nhập ID Pancake"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Link Page
+                                    </label>
+                                    <input
+                                        type="url"
+                                        value={editingPage.page_link || ''}
+                                        onChange={(e) => setEditingPage({ ...editingPage, page_link: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="https://..."
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-end gap-3">
+                                <button
+                                    onClick={() => {
+                                        setShowEditModal(false);
+                                        setEditingPage(null);
+                                    }}
+                                    className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                                    disabled={updatingPage}
+                                >
+                                    Hủy
+                                </button>
+                                <button
+                                    onClick={handleEditPage}
+                                    disabled={updatingPage}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    {updatingPage ? (
+                                        <>
+                                            <RefreshCw className="w-4 h-4 animate-spin" />
+                                            Đang cập nhật...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Pencil className="w-4 h-4" />
+                                            Cập nhật
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
             </div>
         </div>
     );

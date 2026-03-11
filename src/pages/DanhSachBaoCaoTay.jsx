@@ -680,25 +680,16 @@ export default function DanhSachBaoCaoTay() {
                 market: report.market
             });
 
-            // Fetch orders from API with filters
+            // Fetch orders from API - CHỈ filter theo ngày, các filter khác sẽ làm ở client-side
+            // Lý do: API filter có thể quá chặt, dẫn đến không trả về dữ liệu
             const params = new URLSearchParams();
             params.append('from_date', apiDate);
             params.append('to_date', apiDate);
-            
-            // Add filter parameters if report has them
-            if (report.name && report.name.trim()) {
-                params.append('nhanvien_sale', report.name.trim());
-            }
-            // Shift filter removed - không lọc theo shift nữa
-            if (report.product && report.product.trim()) {
-                params.append('product', report.product.trim());
-            }
-            if (report.market && report.market.trim()) {
-                params.append('country', report.market.trim());
-            }
+            // KHÔNG thêm filter nhanvien_sale, product, country ở API level
+            // Sẽ filter ở client-side để đảm bảo có dữ liệu để xử lý
 
             const url = `https://lumidataapi.vercel.app/orders?${params.toString()}`;
-            console.log('📡 [DanhSachBaoCaoTay] Fetching orders from:', url);
+            console.log('📡 [DanhSachBaoCaoTay] Fetching orders from (date only):', url);
 
             const response = await fetch(url);
             if (!response.ok) {
@@ -708,6 +699,68 @@ export default function DanhSachBaoCaoTay() {
             const result = await response.json();
             let matchingOrders = result.data || [];
             console.log(`✅ [DanhSachBaoCaoTay] Fetched ${matchingOrders.length} orders from API`);
+            console.log(`📅 [DanhSachBaoCaoTay] Report date (normalized): ${reportDate}`);
+
+            // Filter by order_date (must match report date)
+            const beforeDateFilter = matchingOrders.length;
+            matchingOrders = matchingOrders.filter(order => {
+                const orderDate = order.order_date;
+                if (!orderDate) {
+                    console.log(`⚠️ [DanhSachBaoCaoTay] Order ${order.order_code || order.id} has no order_date`);
+                    return false;
+                }
+                
+                // Normalize order_date to YYYY-MM-DD format for comparison
+                let normalizedOrderDate = '';
+                try {
+                    if (orderDate instanceof Date) {
+                        normalizedOrderDate = orderDate.toISOString().split('T')[0];
+                    } else if (typeof orderDate === 'string') {
+                        // Handle different date formats
+                        if (orderDate.includes('/')) {
+                            // DD/MM/YYYY or MM/DD/YYYY
+                            const parts = orderDate.split('/');
+                            if (parts.length === 3) {
+                                // Assume DD/MM/YYYY
+                                normalizedOrderDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                            }
+                        } else if (orderDate.includes('-')) {
+                            // Already in YYYY-MM-DD format or similar
+                            normalizedOrderDate = orderDate.split('T')[0]; // Remove time if present
+                        } else {
+                            // Try to parse as Date
+                            const dateObj = new Date(orderDate);
+                            if (!isNaN(dateObj.getTime())) {
+                                normalizedOrderDate = dateObj.toISOString().split('T')[0];
+                            }
+                        }
+                    } else {
+                        // Try to parse as Date
+                        const dateObj = new Date(orderDate);
+                        if (!isNaN(dateObj.getTime())) {
+                            normalizedOrderDate = dateObj.toISOString().split('T')[0];
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`⚠️ [DanhSachBaoCaoTay] Error normalizing order_date for order ${order.order_code || order.id}:`, orderDate, error);
+                    return false;
+                }
+                
+                if (!normalizedOrderDate) {
+                    console.log(`⚠️ [DanhSachBaoCaoTay] Could not normalize order_date: ${orderDate} for order ${order.order_code || order.id}`);
+                    return false;
+                }
+                
+                // Compare with report date (already normalized to YYYY-MM-DD)
+                const matches = normalizedOrderDate === reportDate;
+                if (!matches && beforeDateFilter <= 10) {
+                    // Log first 10 mismatches for debugging
+                    console.log(`🔍 [DanhSachBaoCaoTay] Order ${order.order_code || order.id}: order_date="${orderDate}" → normalized="${normalizedOrderDate}" vs reportDate="${reportDate}" → ${matches ? 'MATCH' : 'NO MATCH'}`);
+                }
+                return matches;
+            });
+            
+            console.log(`📊 [DanhSachBaoCaoTay] After order_date filter: ${matchingOrders.length} / ${beforeDateFilter} orders`);
 
             // Additional filtering for nhanvien_sale if report has name
             // API filter might not match exactly, so we do fuzzy matching
@@ -792,25 +845,16 @@ export default function DanhSachBaoCaoTay() {
                     // Convert date to API format
                     const apiDate = convertDateToAPIFormat(reportDate);
 
-                    // Fetch orders from API with filters for this specific report
+                    // Fetch orders from API - CHỈ filter theo ngày, các filter khác sẽ làm ở client-side
+                    // Lý do: API filter có thể quá chặt, dẫn đến không trả về dữ liệu
                     const params = new URLSearchParams();
                     params.append('from_date', apiDate);
                     params.append('to_date', apiDate);
-                    
-                    // Add filter parameters if report has them
-                    if (report.name && report.name.trim()) {
-                        params.append('nhanvien_sale', report.name.trim());
-                    }
-                    // Shift filter removed - không lọc theo shift nữa
-                    if (report.product && report.product.trim()) {
-                        params.append('product', report.product.trim());
-                    }
-                    if (report.market && report.market.trim()) {
-                        params.append('country', report.market.trim());
-                    }
+                    // KHÔNG thêm filter nhanvien_sale, product, country ở API level
+                    // Sẽ filter ở client-side để đảm bảo có dữ liệu để xử lý
 
                     const url = `https://lumidataapi.vercel.app/orders?${params.toString()}`;
-                    console.log(`📡 [DanhSachBaoCaoTay] Fetching orders for report ${report.id}:`, url);
+                    console.log(`📡 [DanhSachBaoCaoTay] Fetching orders for report ${report.id} (date only):`, url);
 
                     const response = await fetch(url);
                     if (!response.ok) {
@@ -819,6 +863,70 @@ export default function DanhSachBaoCaoTay() {
 
                     const result = await response.json();
                     let matchingOrders = result.data || [];
+
+                    console.log(`📊 [DanhSachBaoCaoTay] Report ${report.id}: Fetched ${matchingOrders.length} orders from API`);
+                    console.log(`📅 [DanhSachBaoCaoTay] Report date (normalized): ${reportDate}`);
+
+                    // Filter by order_date (must match report date)
+                    const beforeDateFilter = matchingOrders.length;
+                    matchingOrders = matchingOrders.filter(order => {
+                        const orderDate = order.order_date;
+                        if (!orderDate) {
+                            console.log(`⚠️ [DanhSachBaoCaoTay] Order ${order.order_code || order.id} has no order_date`);
+                            return false;
+                        }
+                        
+                        // Normalize order_date to YYYY-MM-DD format for comparison
+                        let normalizedOrderDate = '';
+                        try {
+                            if (orderDate instanceof Date) {
+                                normalizedOrderDate = orderDate.toISOString().split('T')[0];
+                            } else if (typeof orderDate === 'string') {
+                                // Handle different date formats
+                                if (orderDate.includes('/')) {
+                                    // DD/MM/YYYY or MM/DD/YYYY
+                                    const parts = orderDate.split('/');
+                                    if (parts.length === 3) {
+                                        // Assume DD/MM/YYYY
+                                        normalizedOrderDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                                    }
+                                } else if (orderDate.includes('-')) {
+                                    // Already in YYYY-MM-DD format or similar
+                                    normalizedOrderDate = orderDate.split('T')[0]; // Remove time if present
+                                } else {
+                                    // Try to parse as Date
+                                    const dateObj = new Date(orderDate);
+                                    if (!isNaN(dateObj.getTime())) {
+                                        normalizedOrderDate = dateObj.toISOString().split('T')[0];
+                                    }
+                                }
+                            } else {
+                                // Try to parse as Date
+                                const dateObj = new Date(orderDate);
+                                if (!isNaN(dateObj.getTime())) {
+                                    normalizedOrderDate = dateObj.toISOString().split('T')[0];
+                                }
+                            }
+                        } catch (error) {
+                            console.warn(`⚠️ [DanhSachBaoCaoTay] Error normalizing order_date for order ${order.order_code || order.id}:`, orderDate, error);
+                            return false;
+                        }
+                        
+                        if (!normalizedOrderDate) {
+                            console.log(`⚠️ [DanhSachBaoCaoTay] Could not normalize order_date: ${orderDate} for order ${order.order_code || order.id}`);
+                            return false;
+                        }
+                        
+                        // Compare with report date (already normalized to YYYY-MM-DD)
+                        const matches = normalizedOrderDate === reportDate;
+                        if (!matches && beforeDateFilter <= 10) {
+                            // Log first 10 mismatches for debugging
+                            console.log(`🔍 [DanhSachBaoCaoTay] Order ${order.order_code || order.id}: order_date="${orderDate}" → normalized="${normalizedOrderDate}" vs reportDate="${reportDate}" → ${matches ? 'MATCH' : 'NO MATCH'}`);
+                        }
+                        return matches;
+                    });
+                    
+                    console.log(`📊 [DanhSachBaoCaoTay] After order_date filter: ${matchingOrders.length} / ${beforeDateFilter} orders`);
 
                     // Additional filtering for nhanvien_sale if report has name
                     // API filter might not match exactly, so we do fuzzy matching

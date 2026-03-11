@@ -97,6 +97,7 @@ const AdminTools = () => {
     const [showLoginHistory, setShowLoginHistory] = useState(false);
     const [showPasswords, setShowPasswords] = useState({}); // Track which passwords are visible
     const [passwordInputs, setPasswordInputs] = useState({}); // Store password inputs for quick edit
+    const [nameSearchQuery, setNameSearchQuery] = useState(''); // Search query for account name
 
     // --- AUTO FILL TEAM STATE ---
     const [isFillingTeam, setIsFillingTeam] = useState(false);
@@ -4328,6 +4329,20 @@ const AdminTools = () => {
                             </button>
                         </div>
 
+                        {/* Search by Name */}
+                        <div className="mb-4">
+                            <div className="relative max-w-md">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                                <input
+                                    type="text"
+                                    placeholder="Tìm kiếm theo tên..."
+                                    value={nameSearchQuery}
+                                    onChange={(e) => setNameSearchQuery(e.target.value)}
+                                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                            </div>
+                        </div>
+
                         {/* Accounts List */}
                         {accountLoading ? (
                             <div className="text-center py-8">
@@ -4339,24 +4354,47 @@ const AdminTools = () => {
                                 <Key className="w-12 h-12 mx-auto mb-3 opacity-50" />
                                 <p>Chưa có tài khoản nào. Nhấn "Tạo tài khoản mới" để bắt đầu.</p>
                             </div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full border-collapse border border-gray-300">
-                                    <thead>
-                                        <tr className="bg-gray-100">
-                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Email</th>
-                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Username</th>
-                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Tên</th>
-                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Password</th>
-                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Role</th>
-                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Team</th>
-                                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold">Đẩy FFM</th>
-                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Trạng thái</th>
-                                            <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Thao tác</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {authAccounts.map((account) => (
+                        ) : (() => {
+                            // Filter accounts by name search query
+                            const filteredAccounts = authAccounts.filter(account => {
+                                if (!nameSearchQuery.trim()) return true;
+                                const searchLower = nameSearchQuery.toLowerCase();
+                                const name = (account.name || '').toLowerCase();
+                                const email = (account.email || '').toLowerCase();
+                                const username = (account.username || '').toLowerCase();
+                                return name.includes(searchLower) || email.includes(searchLower) || username.includes(searchLower);
+                            });
+
+                            if (filteredAccounts.length === 0) {
+                                return (
+                                    <div className="text-center py-8 text-gray-500">
+                                        <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                        <p>Không tìm thấy tài khoản nào với từ khóa "{nameSearchQuery}"</p>
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <div className="overflow-x-auto">
+                                    <div className="mb-2 text-sm text-gray-600">
+                                        Hiển thị {filteredAccounts.length} / {authAccounts.length} tài khoản
+                                    </div>
+                                    <table className="min-w-full border-collapse border border-gray-300">
+                                        <thead>
+                                            <tr className="bg-gray-100">
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Email</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Username</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Tên</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Password</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Role</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Team</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-center font-semibold">Đẩy FFM</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Trạng thái</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Thao tác</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredAccounts.map((account) => (
                                             <tr key={account.id} className="hover:bg-gray-50">
                                                 <td className="border border-gray-300 px-4 py-3">{account.email}</td>
                                                 <td className="border border-gray-300 px-4 py-3">{account.username || '-'}</td>
@@ -4539,7 +4577,8 @@ const AdminTools = () => {
                                     </tbody>
                                 </table>
                             </div>
-                        )}
+                            );
+                        })()}
 
                         {/* Account Modal */}
                         {showAccountModal && (
