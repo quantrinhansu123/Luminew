@@ -1,5 +1,7 @@
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
+import { supabase } from './supabase/config';
 import 'react-toastify/dist/ReactToastify.css';
 import Header from './components/Header';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -64,10 +66,41 @@ import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
 import ErrorBoundary from './components/ErrorBoundary';
 
 function ExternalIdRedirect({ baseUrl }) {
-  const idAppsheet = localStorage.getItem('idAppsheet') || '';
-  const fullUrl = idAppsheet ? `${baseUrl}?id=${encodeURIComponent(idAppsheet)}` : baseUrl;
-  const encoded = `/external-view?url=${encodeURIComponent(fullUrl)}`;
-  return <Navigate to={encoded} replace />;
+  const [redirectTo, setRedirectTo] = useState(null);
+
+  useEffect(() => {
+    const resolve = async () => {
+      // Try localStorage first (fast path)
+      let idAppsheet = localStorage.getItem('idAppsheet') || '';
+
+      // If empty, fetch from DB using stored userId
+      if (!idAppsheet) {
+        const userId = localStorage.getItem('userId');
+        const userEmail = localStorage.getItem('userEmail');
+        if (userId || userEmail) {
+          try {
+            let query = supabase.from('users').select('id_appsheet');
+            if (userId) query = query.eq('id', userId);
+            else query = query.eq('email', userEmail);
+            const { data } = await query.single();
+            if (data?.id_appsheet) {
+              idAppsheet = data.id_appsheet;
+              localStorage.setItem('idAppsheet', idAppsheet);
+            }
+          } catch (_) {}
+        }
+      }
+
+      const fullUrl = idAppsheet
+        ? `${baseUrl}?id=${encodeURIComponent(idAppsheet)}`
+        : baseUrl;
+      setRedirectTo(`/external-view?url=${encodeURIComponent(fullUrl)}`);
+    };
+    resolve();
+  }, [baseUrl]);
+
+  if (!redirectTo) return null;
+  return <Navigate to={redirectTo} replace />;
 }
 
 function App() {
