@@ -1,4 +1,4 @@
-import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import Header from './components/Header';
@@ -84,7 +84,17 @@ function App() {
             <Route path="/bao-cao-marketing" element={<ProtectedRoute><BaoCaoMarketing /></ProtectedRoute>} />
             <Route path="/bao-cao-sale" element={<ProtectedRoute><BaoCaoSale /></ProtectedRoute>} />
             <Route path="/sale-nhap-bao-cao" element={<ProtectedRoute><NhapBaoCaoSale /></ProtectedRoute>} />
-            <Route path="/xem-bao-cao-sale" element={<ProtectedRoute><BaoCaoSale /></ProtectedRoute>} />
+            <Route
+              path="/xem-bao-cao-sale"
+              element={
+                <ProtectedRoute>
+                  <Navigate
+                    to="/external-view?url=https%3A%2F%2Fnguyenbatyads37.github.io%2Fstatic-html-show-data%2FnhanSuSaleLumiMoi.html"
+                    replace
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/danh-sach-bao-cao-tay" element={<ProtectedRoute><DanhSachBaoCaoTay /></ProtectedRoute>} />
             <Route path="/bao-cao-f3" element={<ProtectedRoute><F3Report /></ProtectedRoute>} />
             <Route path="/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
@@ -106,10 +116,30 @@ function App() {
             <Route path="/quan-ly-cskh" element={<ProtectedRoute><QuanLyCSKH /></ProtectedRoute>} />
             <Route path="/quan-ly-xe" element={<ProtectedRoute><QuanLyXe /></ProtectedRoute>} />
             <Route path="/don-chia-cskh" element={<ProtectedRoute><DonChiaCSKH /></ProtectedRoute>} />
-            <Route path="/xem-bao-cao-cskh" element={<ProtectedRoute><XemBaoCaoCSKH /></ProtectedRoute>} />
+            <Route
+              path="/xem-bao-cao-cskh"
+              element={
+                <ProtectedRoute>
+                  <Navigate
+                    to="/external-view?url=https%3A%2F%2Fnguyenbatyads37.github.io%2Fstatic-html-show-data%2FnhanSuSaleLumiMoi.html"
+                    replace
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/nhap-bao-cao-cskh" element={<ProtectedRoute><NhapBaoCaoCSKH /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
-            <Route path="/xem-bao-cao-mkt" element={<ProtectedRoute><XemBaoCaoMKT /></ProtectedRoute>} />
+            <Route
+              path="/xem-bao-cao-mkt"
+              element={
+                <ProtectedRoute>
+                  <Navigate
+                    to="/external-view?url=https%3A%2F%2Fnguyenbatyads37.github.io%2Fstatic-html-show-data%2FviewNsMoiNhanh.html"
+                    replace
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/danh-sach-bao-cao-tay-mkt" element={<ProtectedRoute><DanhSachBaoCaoTayMKT /></ProtectedRoute>} />
             <Route path="/test-mkt" element={<ProtectedRoute><TestMKT /></ProtectedRoute>} />
             <Route path="/test-bao-cao-orders" element={<ProtectedRoute><TestBaoCaoOrders /></ProtectedRoute>} />
