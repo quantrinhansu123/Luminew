@@ -102,7 +102,7 @@ const MultiSelect = ({
                             type="checkbox"
                             checked={isAllSelected}
                             readOnly
-                            className="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                            className="mr-2 h-[13px] w-[13px] text-primary focus:ring-primary border-gray-300 rounded"
                         />
                         <span className="font-bold">Tất cả</span>
                     </div>
@@ -116,7 +116,7 @@ const MultiSelect = ({
                                 type="checkbox"
                                 checked={selected.includes(option)}
                                 readOnly
-                                className="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                                className="mr-2 h-[13px] w-[13px] text-primary focus:ring-primary border-gray-300 rounded"
                             />
                             <span className="text-gray-700">{option}</span>
                         </div>

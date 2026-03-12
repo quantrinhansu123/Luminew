@@ -206,8 +206,8 @@ function BaoCaoChiTiet() {
         "State": item.state,
         "Khu vực": item.country, // Lấy từ country
         "Zipcode": item.zipcode,
-        "Mặt hàng": item.product_main || item.product,
-        "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
+        "Mặt hàng": item.product,
+        "Tên mặt hàng 1": item.product_name_1 || item.product,
         "Tổng tiền VNĐ": item.total_amount_vnd,
         "Hình thức thanh toán": item.payment_method_text || item.payment_method, // payment_method_text is new
         "Mã Tracking": item.tracking_code,

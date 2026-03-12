@@ -71,6 +71,12 @@ function DanhSachDon() {
   const [showStatusFilter, setShowStatusFilter] = useState(false);
   const [filterCheckResult, setFilterCheckResult] = useState([]);
   const [showCheckResultFilter, setShowCheckResultFilter] = useState(false);
+  const [filterSaleStaff, setFilterSaleStaff] = useState([]);
+  const [showSaleStaffFilter, setShowSaleStaffFilter] = useState(false);
+  const [filterMktStaff, setFilterMktStaff] = useState([]);
+  const [showMktStaffFilter, setShowMktStaffFilter] = useState(false);
+  const [filterDeliveryStaff, setFilterDeliveryStaff] = useState([]);
+  const [showDeliveryStaffFilter, setShowDeliveryStaffFilter] = useState(false);
   // Initialize dates with "Last 3 Days"
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -259,8 +265,8 @@ function DanhSachDon() {
     "State": item.state,
     "Khu vực": item.country, // Lấy từ country
     "Zipcode": item.zipcode,
-    "Mặt hàng": item.product_main || item.product,
-    "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
+    "Mặt hàng": item.product,
+    "Tên mặt hàng 1": item.product_name_1 || item.product,
     "Tổng tiền VNĐ": item.total_amount_vnd,
     "Hình thức thanh toán": item.payment_method_text || item.payment_method, // payment_method_text is new
     "Mã Tracking": item.tracking_code,
@@ -1113,6 +1119,33 @@ function DanhSachDon() {
     return sortedCheckResults;
   }, [allData]);
 
+  const uniqueSaleStaff = useMemo(() => {
+    const vals = new Set();
+    allData.forEach(row => {
+      const v = row["Nhân viên Sale"];
+      if (v && String(v).trim()) vals.add(String(v).trim());
+    });
+    return Array.from(vals).sort();
+  }, [allData]);
+
+  const uniqueMktStaff = useMemo(() => {
+    const vals = new Set();
+    allData.forEach(row => {
+      const v = row["Nhân viên Marketing"];
+      if (v && String(v).trim()) vals.add(String(v).trim());
+    });
+    return Array.from(vals).sort();
+  }, [allData]);
+
+  const uniqueDeliveryStaff = useMemo(() => {
+    const vals = new Set();
+    allData.forEach(row => {
+      const v = row["NV Vận đơn"];
+      if (v && String(v).trim()) vals.add(String(v).trim());
+    });
+    return Array.from(vals).sort();
+  }, [allData]);
+
 
 
   // Filter and sort data
@@ -1259,7 +1292,29 @@ function DanhSachDon() {
       });
     }
 
+    // Sale Staff filter
+    if (filterSaleStaff.length > 0) {
+      data = data.filter(row => {
+        const val = row["Nhân viên Sale"] ? String(row["Nhân viên Sale"]).trim() : '';
+        return filterSaleStaff.includes(val);
+      });
+    }
 
+    // MKT Staff filter
+    if (filterMktStaff.length > 0) {
+      data = data.filter(row => {
+        const val = row["Nhân viên Marketing"] ? String(row["Nhân viên Marketing"]).trim() : '';
+        return filterMktStaff.includes(val);
+      });
+    }
+
+    // Delivery Staff filter
+    if (filterDeliveryStaff.length > 0) {
+      data = data.filter(row => {
+        const val = row["NV Vận đơn"] ? String(row["NV Vận đơn"]).trim() : '';
+        return filterDeliveryStaff.includes(val);
+      });
+    }
 
 
 
@@ -1286,7 +1341,7 @@ function DanhSachDon() {
     }
 
     return data;
-  }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterCheckResult, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
+  }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSaleStaff, filterMktStaff, filterDeliveryStaff, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
 
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
@@ -1850,10 +1905,149 @@ function DanhSachDon() {
               )}
             </div>
 
+            {/* Sale Staff Filter */}
+            <div className="min-w-[200px] relative">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên Sale</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSaleStaffFilter(!showSaleStaffFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterSaleStaff.length === 0
+                      ? 'Tất cả'
+                      : filterSaleStaff.length === 1
+                        ? filterSaleStaff[0]
+                        : `Đã chọn ${filterSaleStaff.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+                {showSaleStaffFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn NV Sale:</span>
+                        <button type="button" onClick={() => { setFilterSaleStaff([]); setShowSaleStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
+                      </div>
+                      {uniqueSaleStaff.map(name => (
+                        <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={filterSaleStaff.includes(name)}
+                            onChange={(e) => {
+                              if (e.target.checked) setFilterSaleStaff([...filterSaleStaff, name]);
+                              else setFilterSaleStaff(filterSaleStaff.filter(v => v !== name));
+                            }}
+                            className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">{name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {showSaleStaffFilter && (
+                <div className="fixed inset-0 z-40" onClick={() => setShowSaleStaffFilter(false)} />
+              )}
+            </div>
 
+            {/* MKT Staff Filter */}
+            <div className="min-w-[200px] relative">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên MKT</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowMktStaffFilter(!showMktStaffFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterMktStaff.length === 0
+                      ? 'Tất cả'
+                      : filterMktStaff.length === 1
+                        ? filterMktStaff[0]
+                        : `Đã chọn ${filterMktStaff.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+                {showMktStaffFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn NV MKT:</span>
+                        <button type="button" onClick={() => { setFilterMktStaff([]); setShowMktStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
+                      </div>
+                      {uniqueMktStaff.map(name => (
+                        <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={filterMktStaff.includes(name)}
+                            onChange={(e) => {
+                              if (e.target.checked) setFilterMktStaff([...filterMktStaff, name]);
+                              else setFilterMktStaff(filterMktStaff.filter(v => v !== name));
+                            }}
+                            className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">{name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {showMktStaffFilter && (
+                <div className="fixed inset-0 z-40" onClick={() => setShowMktStaffFilter(false)} />
+              )}
+            </div>
 
-
-
+            {/* Delivery Staff Filter */}
+            <div className="min-w-[200px] relative">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên vận đơn</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowDeliveryStaffFilter(!showDeliveryStaffFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterDeliveryStaff.length === 0
+                      ? 'Tất cả'
+                      : filterDeliveryStaff.length === 1
+                        ? filterDeliveryStaff[0]
+                        : `Đã chọn ${filterDeliveryStaff.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+                {showDeliveryStaffFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn NV vận đơn:</span>
+                        <button type="button" onClick={() => { setFilterDeliveryStaff([]); setShowDeliveryStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
+                      </div>
+                      {uniqueDeliveryStaff.map(name => (
+                        <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={filterDeliveryStaff.includes(name)}
+                            onChange={(e) => {
+                              if (e.target.checked) setFilterDeliveryStaff([...filterDeliveryStaff, name]);
+                              else setFilterDeliveryStaff(filterDeliveryStaff.filter(v => v !== name));
+                            }}
+                            className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">{name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {showDeliveryStaffFilter && (
+                <div className="fixed inset-0 z-40" onClick={() => setShowDeliveryStaffFilter(false)} />
+              )}
+            </div>
 
             {/* Settings Button - Tất cả người dùng đều có thể sử dụng */}
             <button

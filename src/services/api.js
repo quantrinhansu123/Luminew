@@ -339,7 +339,6 @@ export const DB_TO_APP_MAPPING = {
     "country": "Khu vực", // Mapping 'country' col to 'Khu vực' (or check if 'region' exists)
     "zipcode": "Zipcode",
     "product": "Mặt hàng",
-    "product_main": "Mặt hàng", // Added to support NhapDonMoi payload
     "total_amount_vnd": "Tổng tiền VNĐ",
     "payment_method": "Hình thức thanh toán",
     "tracking_code": "Mã Tracking",

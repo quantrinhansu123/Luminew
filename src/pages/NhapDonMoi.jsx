@@ -1114,7 +1114,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 country: formData.country, // Lưu vào country
 
                 // Products
-                product_main: formData.productMain,
+                product: formData.productMain,
                 product_name_1: formData.mathang1,
                 quantity_1: parseFloat(formData.sl1) || 0,
                 product_name_2: formData.mathang2,

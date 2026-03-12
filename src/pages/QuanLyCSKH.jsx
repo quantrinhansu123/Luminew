@@ -418,8 +418,8 @@ function QuanLyCSKH() {
           "State": item.state,
           "Khu vực": item.country,
           "Zipcode": item.zipcode,
-          "Mặt hàng": item.product_main || item.product,
-          "Tên mặt hàng 1": item.product_name_1 || item.product_main || item.product,
+          "Mặt hàng": item.product,
+          "Tên mặt hàng 1": item.product_name_1 || item.product,
           "Tổng tiền VNĐ": item.total_amount_vnd,
           "Loại tiền": item.payment_type,
           "Hình thức thanh toán": item.payment_method_text || item.payment_method,
@@ -898,7 +898,7 @@ function QuanLyCSKH() {
           note: editingOrder.note,
 
           // Extended fields
-          product_main: editingOrder.product_main,
+          product: editingOrder.product,
           payment_method: editingOrder.payment_method, // or payment_method_text if needed, check schema
           delivery_status: editingOrder.delivery_status,
           total_amount_vnd: parseFloat(editingOrder.total_amount_vnd) || 0,
@@ -1578,8 +1578,8 @@ function QuanLyCSKH() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Mặt hàng chính</label>
                     <input
-                      name="product_main"
-                      value={editingOrder.product_main || ''}
+                      name="product"
+                      value={editingOrder.product || ''}
                       onChange={handleEditChange}
                       readOnly={isViewing}
                       disabled={isViewing}

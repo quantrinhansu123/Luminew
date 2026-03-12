@@ -27,14 +27,19 @@ const formatDate = (dateValue) => {
     return `${day} /${month}/${year} `;
 };
 
-export default function BaoCaoSale() {
+export default function BaoCaoSale({ reportType = 'sale' } = {}) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const teamFilter = searchParams.get('team'); // Context: 'RD' or null
+    const normalizedReportType = String(reportType || 'sale').toLowerCase();
+    const isCSKHReport = normalizedReportType === 'cskh';
+    const teamKeyword = isCSKHReport ? 'cskh' : 'sale';
+    const selectedPersonnelStorageKey = isCSKHReport ? 'baoCaoCSKH_selectedPersonnelNames' : 'baoCaoSale_selectedPersonnelNames';
+    const reportLabel = isCSKHReport ? 'CSKH' : 'Sale';
 
     // Permission Logic
     const { canView, role } = usePermissions();
-    const permissionCode = teamFilter === 'RD' ? 'RND_VIEW' : 'SALE_VIEW';
+    const permissionCode = isCSKHReport ? 'CSKH_VIEW' : (teamFilter === 'RD' ? 'RND_VIEW' : 'SALE_VIEW');
 
     // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút xóa)
     const roleFromHook = (role || '').toUpperCase();
@@ -160,7 +165,7 @@ export default function BaoCaoSale() {
 
     // --- Delete All Logic ---
     const handleDeleteAll = async () => {
-        if (!window.confirm("⚠️ CẢNH BÁO: Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu báo cáo sale không?\n\nHành động này KHÔNG THỂ khôi phục!")) return;
+        if (!window.confirm(`⚠️ CẢNH BÁO: Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu báo cáo ${reportLabel.toLowerCase()} không?\n\nHành động này KHÔNG THỂ khôi phục!`)) return;
 
         // Double Check
         const confirmation = prompt("Để xác nhận xóa, vui lòng nhập chính xác chữ: XOA DU LIEU");
@@ -348,9 +353,14 @@ export default function BaoCaoSale() {
                     }
                 }
 
+                // Chỉ giữ records thuộc team của view hiện tại
+                const teamScopedData = allData.filter(item =>
+                    String(item?.team || '').toLowerCase().includes(teamKeyword)
+                );
+
                 // Extract unique names from API data
                 const uniqueNames = [...new Set(
-                    allData
+                    teamScopedData
                         .map(item => item.ten)
                         .filter(name => name && typeof name === 'string' && name.trim().length > 0)
                         .map(name => name.trim())
@@ -361,7 +371,7 @@ export default function BaoCaoSale() {
                 if (userEmail) {
                     const userEmailLower = userEmail.toLowerCase().trim();
                     // Find names where email matches
-                    const namesByEmail = allData
+                    const namesByEmail = teamScopedData
                         .filter(item => item.email && item.email.toLowerCase().trim() === userEmailLower)
                         .map(item => item.ten)
                         .filter(name => name && typeof name === 'string' && name.trim().length > 0)
@@ -372,16 +382,16 @@ export default function BaoCaoSale() {
                     }
                 }
 
-                console.log('📝 [BaoCaoSale] Names loaded from API:', validNames);
+                console.log(`📝 [BaoCao${reportLabel}] Names loaded from API:`, validNames);
                 setSelectedPersonnelNames(validNames.length > 0 ? validNames : []); // Empty array nếu không có
             } catch (error) {
-                console.error('❌ [BaoCaoSale] Error loading selected personnel from API:', error);
+                console.error(`❌ [BaoCao${reportLabel}] Error loading selected personnel from API:`, error);
                 setSelectedPersonnelNames([]); // Empty array nếu có lỗi
             }
         };
 
         loadSelectedPersonnel();
-    }, [userEmail, isAdmin]);
+    }, [userEmail, isAdmin, teamKeyword, reportLabel]);
 
     // 3. Fetch Data from API
     const fetchData = async () => {
@@ -396,54 +406,43 @@ export default function BaoCaoSale() {
             const fromDate = convertDateToAPIFormat(filters.startDate);
             const toDate = convertDateToAPIFormat(filters.endDate);
 
-            // Fetch data with date filtering from API (much faster!)
+            // Fetch data with date filtering from API
             let allData = [];
             let nextAfterId = null;
             let hasMore = true;
             let fetchCount = 0;
-            const maxFetches = 100; // Safety limit to prevent infinite loops
+            const maxFetches = 100;
 
             while (hasMore && fetchCount < maxFetches) {
                 fetchCount++;
                 const params = new URLSearchParams();
                 params.append('from_date', fromDate);
                 params.append('to_date', toDate);
+                params.append('limit', '1000');
                 if (nextAfterId) {
                     params.append('after_id', nextAfterId);
                 }
-                // Add limit to reduce response size
-                params.append('limit', '1000');
 
                 const url = `https://lumidataapi.vercel.app/sales_reports?${params.toString()}`;
-                
                 const response = await fetch(url);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
                 const result = await response.json();
-                if (result.data && Array.isArray(result.data)) {
-                    allData = [...allData, ...result.data];
-                }
+                const items = Array.isArray(result) ? result : (result.data || []);
+                allData = [...allData, ...items];
 
-                // Check if there's more data
-                if (result.next_after_id && result.data && result.data.length > 0) {
+                if (!Array.isArray(result) && result.next_after_id && items.length > 0) {
                     nextAfterId = result.next_after_id;
                 } else {
                     hasMore = false;
                 }
             }
 
-            // Data is already filtered by date from API, but we can do a final check
-            const filteredByDate = allData.filter(item => {
-                if (!item.date) return false;
-                const itemDate = new Date(item.date);
-                const startDate = new Date(filters.startDate);
-                const endDate = new Date(filters.endDate);
-                startDate.setHours(0, 0, 0, 0);
-                endDate.setHours(23, 59, 59, 999);
-                return itemDate >= startDate && itemDate <= endDate;
-            });
+            const filteredByDate = allData.filter(item =>
+                String(item?.team || '').toLowerCase().includes(teamKeyword)
+            );
 
             // Map API data to component format
             const processed = filteredByDate.map(item => ({
@@ -488,7 +487,7 @@ export default function BaoCaoSale() {
                 teams: uniqueTeams
             }));
 
-            console.log('✅ [BaoCaoSale] Data fetched successfully:', {
+            console.log(`✅ [BaoCao${reportLabel}] Data fetched successfully:`, {
                 totalRecords: processed.length,
                 sampleRecords: processed.slice(0, 3).map(r => ({
                     ten: r.ten,
@@ -500,7 +499,7 @@ export default function BaoCaoSale() {
             setRawData(processed);
             setLoading(false);
         } catch (error) {
-            console.error('❌ [BaoCaoSale] Error fetching data from API:', error);
+            console.error(`❌ [BaoCao${reportLabel}] Error fetching data from API:`, error);
             alert('Lỗi khi tải dữ liệu: ' + error.message);
             setLoading(false);
         }
@@ -511,11 +510,11 @@ export default function BaoCaoSale() {
         // Chỉ kiểm tra điều kiện, không fetch tự động
         // Fetch chỉ khi user click nút "Xem"
         if (!isAdmin && selectedPersonnelNames === null) {
-            console.log('⏳ [BaoCaoSale] Đợi selectedPersonnelNames được load...');
+            console.log(`⏳ [BaoCao${reportLabel}] Đợi selectedPersonnelNames được load...`);
             return;
         }
 
-        console.log('✅ [BaoCaoSale] selectedPersonnelNames đã sẵn sàng:', {
+        console.log(`✅ [BaoCao${reportLabel}] selectedPersonnelNames đã sẵn sàng:`, {
             isAdmin,
             selectedPersonnelNames,
             hasSelectedPersonnel: selectedPersonnelNames && selectedPersonnelNames.length > 0
@@ -528,16 +527,16 @@ export default function BaoCaoSale() {
     // Lưu selectedPersonnelNames vào localStorage để giữ lại khi component re-render hoặc filter thay đổi
     useEffect(() => {
         if (selectedPersonnelNames !== null && selectedPersonnelNames.length > 0) {
-            localStorage.setItem('baoCaoSale_selectedPersonnelNames', JSON.stringify(selectedPersonnelNames));
-            console.log('💾 [BaoCaoSale] Đã lưu selectedPersonnelNames vào localStorage:', selectedPersonnelNames);
+            localStorage.setItem(selectedPersonnelStorageKey, JSON.stringify(selectedPersonnelNames));
+            console.log(`💾 [BaoCao${reportLabel}] Đã lưu selectedPersonnelNames vào localStorage:`, selectedPersonnelNames);
         }
-    }, [selectedPersonnelNames]);
+    }, [selectedPersonnelNames, selectedPersonnelStorageKey, reportLabel]);
 
     // Khôi phục selectedPersonnelNames từ localStorage khi filter thay đổi
     // Đảm bảo selectedPersonnelNames không bị mất khi ngày thay đổi
     useEffect(() => {
         if (!isAdmin) {
-            const saved = localStorage.getItem('baoCaoSale_selectedPersonnelNames');
+            const saved = localStorage.getItem(selectedPersonnelStorageKey);
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved);
@@ -546,18 +545,18 @@ export default function BaoCaoSale() {
                         // Nếu đã có giá trị, giữ nguyên để không bị mất khi filter thay đổi
                         if (selectedPersonnelNames === null || (Array.isArray(selectedPersonnelNames) && selectedPersonnelNames.length === 0)) {
                             setSelectedPersonnelNames(parsed);
-                            console.log('📝 [BaoCaoSale] Khôi phục selectedPersonnelNames từ localStorage:', parsed);
+                            console.log(`📝 [BaoCao${reportLabel}] Khôi phục selectedPersonnelNames từ localStorage:`, parsed);
                         } else if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                             // Đảm bảo selectedPersonnelNames không bị reset
-                            console.log('✅ [BaoCaoSale] selectedPersonnelNames đã được giữ lại:', selectedPersonnelNames);
+                            console.log(`✅ [BaoCao${reportLabel}] selectedPersonnelNames đã được giữ lại:`, selectedPersonnelNames);
                         }
                     }
                 } catch (e) {
-                    console.warn('⚠️ [BaoCaoSale] Lỗi parse selectedPersonnelNames từ localStorage:', e);
+                    console.warn(`⚠️ [BaoCao${reportLabel}] Lỗi parse selectedPersonnelNames từ localStorage:`, e);
                 }
             }
         }
-    }, [filters.startDate, filters.endDate, isAdmin]); // Chạy lại khi filter thay đổi
+    }, [filters.startDate, filters.endDate, isAdmin, selectedPersonnelStorageKey, reportLabel]); // Chạy lại khi filter thay đổi
 
     // --- Filtering Logic ---
     const filteredData = useMemo(() => {
@@ -903,14 +902,14 @@ export default function BaoCaoSale() {
                                         <div className="filter-dropdown-content">
                                             <label className="select-all-label">
                                                 <input type="checkbox"
-                                                    checked={filters.products.length === options.products.length}
+                                                    checked={filters.products.length === options.products.filter(opt => opt && String(opt).trim() !== '').length}
                                                     onChange={(e) => handleSelectAll('products', e.target.checked)}
-                                                /> Tất cả
+                                                /> <span className="filter-option-text">Tất cả</span>
                                             </label>
-                                            {options.products.map(opt => (
+                                            {options.products.filter(opt => opt && String(opt).trim() !== '').map(opt => (
                                                 <label key={opt}>
                                                     <input type="checkbox" checked={filters.products.includes(opt)} onChange={(e) => handleFilterChange('products', opt, e.target.checked)} />
-                                                    {opt}
+                                                    <span className="filter-option-text">{opt}</span>
                                                 </label>
                                             ))}
                                         </div>
@@ -929,14 +928,14 @@ export default function BaoCaoSale() {
                                         <div className="filter-dropdown-content">
                                             <label className="select-all-label">
                                                 <input type="checkbox"
-                                                    checked={filters.teams.length === options.teams.length}
+                                                    checked={filters.teams.length === options.teams.filter(opt => opt && String(opt).trim() !== '').length}
                                                     onChange={(e) => handleSelectAll('teams', e.target.checked)}
-                                                /> Tất cả
+                                                /> <span className="filter-option-text">Tất cả</span>
                                             </label>
-                                            {options.teams.map(opt => (
+                                            {options.teams.filter(opt => opt && String(opt).trim() !== '').map(opt => (
                                                 <label key={opt}>
                                                     <input type="checkbox" checked={filters.teams.includes(opt)} onChange={(e) => handleFilterChange('teams', opt, e.target.checked)} />
-                                                    {opt}
+                                                    <span className="filter-option-text">{opt}</span>
                                                 </label>
                                             ))}
                                         </div>
@@ -955,14 +954,14 @@ export default function BaoCaoSale() {
                                         <div className="filter-dropdown-content">
                                             <label className="select-all-label">
                                                 <input type="checkbox"
-                                                    checked={filters.markets.length === options.markets.length}
+                                                    checked={filters.markets.length === options.markets.filter(opt => opt && String(opt).trim() !== '').length}
                                                     onChange={(e) => handleSelectAll('markets', e.target.checked)}
-                                                /> Tất cả
+                                                /> <span className="filter-option-text">Tất cả</span>
                                             </label>
-                                            {options.markets.map(opt => (
+                                            {options.markets.filter(opt => opt && String(opt).trim() !== '').map(opt => (
                                                 <label key={opt}>
                                                     <input type="checkbox" checked={filters.markets.includes(opt)} onChange={(e) => handleFilterChange('markets', opt, e.target.checked)} />
-                                                    {opt}
+                                                    <span className="filter-option-text">{opt}</span>
                                                 </label>
                                             ))}
                                         </div>
@@ -1116,7 +1115,7 @@ export default function BaoCaoSale() {
                                                 </thead>
                                                 <tbody>
                                                     <tr className="total-row">
-                                                        <td className="total-label" colSpan={5}>TỔNG NGÀY {dayItem.date}</td>
+                                                        <td className="total-label" colSpan={4}>TỔNG NGÀY {dayItem.date}</td>
                                                         <td className="total-value">{formatNumber(total.mess)}</td>
                                                         <td className="total-value">{formatNumber(total.phanHoi)}</td>
                                                         <td className="total-value text-red-600">{formatNumber(total.soDonHoanHuyThucTe)}</td>

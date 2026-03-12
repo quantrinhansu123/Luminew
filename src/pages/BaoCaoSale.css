@@ -315,7 +315,8 @@
 }
 
 .bao-cao-sale-container .filter-group.dropdown-group {
-    min-width: 140px;
+    min-width: 118px;
+    max-width: 130px;
     position: relative;
     z-index: 10002;
     overflow: visible;
@@ -327,11 +328,11 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    padding: 8px 12px;
+    padding: 6px 8px;
     background: #fff;
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    font-size: 0.9em;
+    font-size: 0.84em;
     font-weight: 500;
     color: var(--text-dark);
     cursor: pointer;
@@ -359,12 +360,13 @@
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     z-index: 99999 !important;
-    max-height: 300px;
+    max-height: 220px;
     overflow-y: auto;
-    overflow-x: visible;
-    padding: 8px;
-    min-width: 200px;
-    width: max-content;
+    overflow-x: hidden;
+    padding: 6px;
+    min-width: 100%;
+    width: 100%;
+    max-width: 100%;
     /* Force render above everything including table */
     transform: translateZ(0);
     will-change: transform;
@@ -374,11 +376,13 @@
 }
 
 .bao-cao-sale-container .filter-dropdown-content label {
-    display: flex;
+    display: grid;
+    grid-template-columns: 13px minmax(0, 1fr);
     align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    font-size: 0.85em;
+    column-gap: 0;
+    padding: 3px 6px;
+    font-size: 0.82em;
+    line-height: 1.2;
     font-weight: 500;
     cursor: pointer;
     border-radius: 4px;
@@ -398,14 +402,25 @@
 
 .bao-cao-sale-container .filter-dropdown-content input[type="checkbox"] {
     margin: 0;
-    transform: scale(1.1);
+    width: 13px;
+    height: 13px;
+    transform: none;
+    justify-self: start;
+    margin-left: 2px;
+}
+
+.bao-cao-sale-container .filter-dropdown-content .filter-option-text {
+    display: inline-block;
+    margin-left: 0;
+    padding-left: 0;
+    white-space: nowrap;
 }
 
 .bao-cao-sale-container .filter-dropdown-content .quick-filter-btn {
     width: 100%;
-    padding: 8px 12px;
+    padding: 6px 10px;
     margin: 2px 0;
-    font-size: 0.85em;
+    font-size: 0.82em;
     font-weight: 500;
     background: #fff;
     border: 1px solid var(--border-color);
