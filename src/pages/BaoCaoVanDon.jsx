@@ -276,66 +276,6 @@ export default function BaoCaoVanDon() {
     const uniqueDeliveryStatuses = useMemo(() => [...new Set(rawData.map(r => r["Trạng thái giao hàng NB"]).filter(Boolean))].sort(), [rawData]);
     const uniquePaymentStatuses = useMemo(() => [...new Set(rawData.map(r => r["Trạng thái thu tiền"]).filter(Boolean))].sort(), [rawData]);
 
-    // Tính toán API URL từ filters để hiển thị
-    const apiUrl = useMemo(() => {
-        // Chỉ hiển thị URL nếu có dates
-        if (!reportFilters.startDate || !reportFilters.endDate) {
-            return null;
-        }
-
-        const fromDate = convertDateToAPIFormat(reportFilters.startDate);
-        const toDate = convertDateToAPIFormat(reportFilters.endDate);
-
-        const urlParams = new URLSearchParams();
-        urlParams.append('from_date', fromDate);
-        urlParams.append('to_date', toDate);
-        
-        if (reportFilters.product && reportFilters.product.length > 0) {
-            urlParams.append('product', Array.isArray(reportFilters.product) 
-                ? reportFilters.product.join(',') 
-                : reportFilters.product);
-        }
-        if (reportFilters.market && reportFilters.market.length > 0) {
-            urlParams.append('country', Array.isArray(reportFilters.market) 
-                ? reportFilters.market.join(',') 
-                : reportFilters.market);
-        }
-        
-        // Staff filter: Logic giống fetchData
-        // Nếu không phải admin, chỉ dùng selected_personnel
-        // Nếu là admin, kết hợp selected_personnel và manual filter
-        const staffFilters = [];
-        if (isAdmin) {
-            // Admin: kết hợp selected_personnel và manual filter
-            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                staffFilters.push(...selectedPersonnelNames);
-            }
-            if (reportFilters.staff && reportFilters.staff.length > 0) {
-                const manualStaff = Array.isArray(reportFilters.staff) 
-                    ? reportFilters.staff 
-                    : [reportFilters.staff];
-                staffFilters.push(...manualStaff);
-            }
-        } else {
-            // Non-admin: CHỈ dùng selected_personnel
-            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                staffFilters.push(...selectedPersonnelNames);
-            }
-        }
-        if (staffFilters.length > 0) {
-            const uniqueStaff = [...new Set(staffFilters)];
-            urlParams.append('delivery_staff', uniqueStaff.join(','));
-        }
-        
-        if (reportFilters.team && reportFilters.team.length > 0) {
-            urlParams.append('team', Array.isArray(reportFilters.team) 
-                ? reportFilters.team.join(',') 
-                : reportFilters.team);
-        }
-
-        return `${ORDERS_API_BASE_URL}/orders?${urlParams.toString()}`;
-    }, [reportFilters, selectedPersonnelNames, isAdmin]);
-
     // --- LOAD SELECTED PERSONNEL ---
     // Load selected_personnel từ tài khoản đăng nhập
     useEffect(() => {
@@ -1634,45 +1574,6 @@ export default function BaoCaoVanDon() {
                             </button>
                         </div>
                     </div>
-
-                    {/* API URL Display */}
-                    {apiUrl && (
-                        <div style={{ 
-                            marginTop: '10px', 
-                            marginBottom: '10px', 
-                            padding: '8px 12px', 
-                            backgroundColor: '#f5f5f5', 
-                            borderRadius: '4px',
-                            fontSize: '11px',
-                            wordBreak: 'break-all',
-                            border: '1px solid #ddd'
-                        }}>
-                            <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#333' }}>
-                                🔗 Link API:
-                            </div>
-                            <div style={{ color: '#0066cc', fontFamily: 'monospace' }}>
-                                {apiUrl}
-                            </div>
-                            <button
-                                onClick={() => {
-                                    navigator.clipboard.writeText(apiUrl);
-                                    alert('Đã copy link API vào clipboard!');
-                                }}
-                                style={{
-                                    marginTop: '6px',
-                                    padding: '4px 8px',
-                                    fontSize: '10px',
-                                    backgroundColor: '#20744a',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '3px',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                📋 Copy Link
-                            </button>
-                        </div>
-                    )}
 
                     {/* REFUND / RETURN SECTION */}
                     <div className="bcvd-refund-section">

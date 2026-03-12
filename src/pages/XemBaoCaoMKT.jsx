@@ -5,6 +5,7 @@ import { useLocation } from 'react-router-dom';
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
+import { fetchSalesReportsFromAPI, convertDateToAPIFormat } from '../services/ordersApiService';
 import { parseSmartDate } from '../utils/dateParsing';
 import './XemBaoCaoMKT.css';
 
@@ -67,6 +68,7 @@ export default function XemBaoCaoMKT() {
     return formatLocalDate(new Date());
   });
   const [selectedTeam, setSelectedTeam] = useState('ALL');
+  const [selectedTeams, setSelectedTeams] = useState([]); // Multi-select Team filter for Detailed Report
   const [teams, setTeams] = useState([]);
 
   // Column Settings Modal State
@@ -114,6 +116,11 @@ export default function XemBaoCaoMKT() {
   const [selectedShifts, setSelectedShifts] = useState([]); // Array for Ca filter
   const [selectedMarkets, setSelectedMarkets] = useState([]); // Array for Thị trường filter
   const [shifts, setShifts] = useState([]); // Unique shifts from data
+  const [showQuickFilter, setShowQuickFilter] = useState(false);
+  const [showTeamFilter, setShowTeamFilter] = useState(false);
+  const [showProductFilter, setShowProductFilter] = useState(false);
+  const [showShiftFilter, setShowShiftFilter] = useState(false);
+  const [showMarketFilter, setShowMarketFilter] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'DetailedReport' || activeTab === 'KpiReport' || activeTab === 'MarketReport') {
@@ -126,19 +133,20 @@ export default function XemBaoCaoMKT() {
     if (activeTab === 'DetailedReport' && products.length > 0 && selectedProducts.length === 0) {
       setSelectedProducts([...products]);
     }
+    if (activeTab === 'DetailedReport' && teams.length > 0 && selectedTeams.length === 0) {
+      setSelectedTeams([...teams]);
+    }
     if (activeTab === 'DetailedReport' && shifts.length > 0 && selectedShifts.length === 0) {
       setSelectedShifts([...shifts]);
     }
     if (activeTab === 'DetailedReport' && markets.length > 0 && selectedMarkets.length === 0) {
       setSelectedMarkets([...markets]);
     }
-  }, [products, shifts, markets, activeTab]);
+  }, [products, teams, shifts, markets, activeTab, selectedTeams.length, selectedProducts.length, selectedShifts.length, selectedMarkets.length]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch Detail Reports
-
       // --- TESTING MODE CHECK ---
       try {
         const settings = localStorage.getItem('system_settings');
@@ -204,62 +212,42 @@ export default function XemBaoCaoMKT() {
       }
       // --------------------------
 
-      // Fetch trực tiếp từ Supabase (thay vì qua backend API - để deploy được trên Vercel)
-      // Sử dụng PAGINATION để lấy tất cả records (Supabase mặc định giới hạn 1000 rows/request)
-      const PAGE_SIZE = 1000;
-      let allReports = [];
-      let hasMore = true;
-      let offset = 0;
-      let totalCount = 0;
-
-      console.log(`📡 Fetching detail_reports trực tiếp từ Supabase...`);
+      console.log(`📡 Fetching detail_reports từ API...`);
       console.log(`📅 Date range: ${startDate} đến ${endDate}`);
 
-      while (hasMore) {
-        let query = supabase
-          .from('detail_reports')
-          .select('*', { count: 'exact' });
+      const apiResponse = await fetchSalesReportsFromAPI({
+        from_date: convertDateToAPIFormat(startDate),
+        to_date: convertDateToAPIFormat(endDate)
+      });
 
-        // Apply date filters if provided
-        if (startDate) {
-          query = query.gte('Ngày', startDate);
-        }
-        if (endDate) {
-          query = query.lte('Ngày', endDate);
-        }
+      const normalizeApiRow = (item) => ({
+        ...item,
+        'Ngày': item['Ngày'] || item.ngay || item.date || '',
+        'Team': item['Team'] || item.team || '',
+        'Tên': item['Tên'] || item.ten || item.name || '',
+        'Email': item['Email'] || item.email || '',
+        'Sản_phẩm': item['Sản_phẩm'] || item['Sản phẩm'] || item.san_pham || item.product || '',
+        'Thị_trường': item['Thị_trường'] || item['Thị trường'] || item.thi_truong || item.market || '',
+        'CPQC': item['CPQC'] || item.cpqc || 0,
+        'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
+        'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
+        'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
+        'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
+        'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
+        'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
+        'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] || item.so_don_hoan_huy_thuc_te || item.order_cancel_count_actual || 0,
+        'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] || item.doanh_so_hoan_huy_thuc_te || item.revenue_cancel_actual || 0,
+        'DS sau hoàn hủy': item['DS sau hoàn hủy'] || item.ds_sau_hoan_huy || 0,
+        'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] || item.doanh_so_sau_hoan_huy_thuc_te || 0,
+        'Doanh số sau ship': item['Doanh số sau ship'] || item.doanh_so_sau_ship || 0,
+        'Doanh số TC': item['Doanh số TC'] || item.doanh_so_tc || 0,
+        'KPIs': item['KPIs'] || item.kpis || 0,
+        'ca': item['ca'] || item['Ca'] || item.ca || item.shift || ''
+      });
 
-        // Order by date descending (mới nhất trước)
-        query = query.order('Ngày', { ascending: false });
+      const allReports = (apiResponse?.data || []).map(normalizeApiRow);
 
-        // Pagination
-        query = query.range(offset, offset + PAGE_SIZE - 1);
-
-        const { data: pageData, error, count } = await query;
-
-        if (error) {
-          console.error('❌ Error fetching detail_reports:', error);
-          throw new Error(`Lỗi truy vấn Supabase: ${error.message}`);
-        }
-
-        if (count !== null && totalCount === 0) {
-          totalCount = count;
-          console.log(`📊 Detail Reports: Tổng số records: ${totalCount}`);
-        }
-
-        if (pageData && pageData.length > 0) {
-          allReports = [...allReports, ...pageData];
-          offset += PAGE_SIZE;
-          console.log(`📊 Detail Reports: Đã lấy ${allReports.length}/${totalCount}...`);
-
-          if (pageData.length < PAGE_SIZE) {
-            hasMore = false;
-          }
-        } else {
-          hasMore = false;
-        }
-      }
-
-      console.log(`✅ Fetched ${allReports.length} records từ detail_reports`);
+      console.log(`✅ Fetched ${allReports.length} records từ /detail_reports`);
 
       // Debug: Log sample date format từ database
       if (allReports.length > 0) {
@@ -268,21 +256,25 @@ export default function XemBaoCaoMKT() {
         console.log(`📅 Date format check: startDate=${startDate}, endDate=${endDate}`);
       }
 
-      // Supabase đã filter theo date ở query, nhưng vẫn filter lại ở client để đảm bảo chính xác
+      // API đã lọc theo date, nhưng vẫn lọc lại ở client bằng parse date để tránh sai format
       let dateFilteredReports = allReports.filter(r => {
-        const reportDate = r['Ngày'];
+        const reportDate = parseSmartDate(r['Ngày']);
         if (!reportDate) return false;
 
-        // Normalize date to YYYY-MM-DD for comparison
-        let dateStr = reportDate;
-        if (reportDate.includes('T')) {
-          // If it's ISO format with time, extract just the date part
-          dateStr = reportDate.split('T')[0];
+        reportDate.setHours(0, 0, 0, 0);
+        const start = startDate ? parseSmartDate(startDate) : null;
+        const end = endDate ? parseSmartDate(endDate) : null;
+
+        if (start) {
+          start.setHours(0, 0, 0, 0);
+          if (reportDate < start) return false;
         }
 
-        // Compare as strings (YYYY-MM-DD format sorts correctly)
-        if (startDate && dateStr < startDate) return false;
-        if (endDate && dateStr > endDate) return false;
+        if (end) {
+          end.setHours(0, 0, 0, 0);
+          if (reportDate > end) return false;
+        }
+
         return true;
       });
 
@@ -336,22 +328,32 @@ export default function XemBaoCaoMKT() {
       // Tất cả dữ liệu đều lấy từ bảng detail_reports
       const uniqueTeams = [...new Set(dateFilteredReports.map(r => r['Team']).filter(Boolean))].sort();
       setTeams(uniqueTeams);
+      setSelectedTeams(prev => {
+        const next = prev.filter(v => uniqueTeams.includes(v));
+        return next.length > 0 ? next : uniqueTeams;
+      });
 
       const uniqueProducts = [...new Set(dateFilteredReports.map(r => r['Sản_phẩm']).filter(Boolean))].sort();
       setProducts(uniqueProducts);
-      // Auto-select tất cả sản phẩm để tránh filter sai
-      setSelectedProducts(uniqueProducts);
+      setSelectedProducts(prev => {
+        const next = prev.filter(v => uniqueProducts.includes(v));
+        return next.length > 0 ? next : uniqueProducts;
+      });
 
       const uniqueMarkets = [...new Set(dateFilteredReports.map(r => r['Thị_trường']).filter(Boolean))].sort();
       setMarkets(uniqueMarkets);
-      // Auto-select tất cả thị trường
-      setSelectedMarkets(uniqueMarkets);
+      setSelectedMarkets(prev => {
+        const next = prev.filter(v => uniqueMarkets.includes(v));
+        return next.length > 0 ? next : uniqueMarkets;
+      });
 
       // Extract unique shifts (Ca) from detail_reports
       const uniqueShifts = [...new Set(dateFilteredReports.map(r => r['ca']).filter(Boolean))].sort();
       setShifts(uniqueShifts);
-      // Auto-select tất cả ca
-      setSelectedShifts(uniqueShifts);
+      setSelectedShifts(prev => {
+        const next = prev.filter(v => uniqueShifts.includes(v));
+        return next.length > 0 ? next : uniqueShifts;
+      });
 
     } catch (err) {
       console.error('❌ Error fetching data:', err);
@@ -387,7 +389,7 @@ export default function XemBaoCaoMKT() {
       // - Tên MKT (Marketing): từ cột "Tên" trong detail_reports
       // - CPQC: từ cột "CPQC" trong detail_reports
       // - Số mess: từ cột "Số_Mess_Cmt" trong detail_reports
-      if (selectedTeam !== 'ALL' && row['Team'] !== selectedTeam) return;
+      if (selectedTeams.length > 0 && !selectedTeams.includes(row['Team'])) return;
 
       // Filter by Product (if any selected, must match; if none selected, show all)
       if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return;
@@ -521,7 +523,7 @@ export default function XemBaoCaoMKT() {
       data.forEach(row => {
         debugFilterStats.total++;
         // Tất cả dữ liệu lấy từ detail_reports
-        if (selectedTeam !== 'ALL' && row['Team'] !== selectedTeam) return;
+        if (selectedTeams.length > 0 && !selectedTeams.includes(row['Team'])) return;
         debugFilterStats.passedTeam++;
         if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return;
         debugFilterStats.passedProduct++;
@@ -614,7 +616,7 @@ export default function XemBaoCaoMKT() {
     });
 
     return { rows, total: { ...total, ...totalRates }, dailyData };
-  }, [data, selectedTeam, selectedProducts, selectedShifts, selectedMarkets, activeTab]);
+  }, [data, selectedTeams, selectedProducts, selectedShifts, selectedMarkets, activeTab]);
 
   // Logic for Market Report (Tab 4)
   const processMarketData = useMemo(() => {
@@ -776,9 +778,22 @@ export default function XemBaoCaoMKT() {
     setEndDate(formatLocalDate(end));
   };
 
+  const handleDateInputChange = (setter, value) => {
+    setter(value);
+    setQuickSelect('');
+  };
+
   // Handle filter checkbox changes
   const handleFilterChange = (filterType, value, isChecked) => {
-    if (filterType === 'product') {
+    if (filterType === 'team') {
+      if (value === 'ALL') {
+        setSelectedTeams(isChecked ? teams : []);
+      } else {
+        setSelectedTeams(prev =>
+          isChecked ? [...prev, value] : prev.filter(t => t !== value)
+        );
+      }
+    } else if (filterType === 'product') {
       if (value === 'ALL') {
         setSelectedProducts(isChecked ? products : []);
       } else {
@@ -803,6 +818,10 @@ export default function XemBaoCaoMKT() {
         );
       }
     }
+  };
+
+  const handleSelectAll = (filterType, isChecked) => {
+    handleFilterChange(filterType, 'ALL', isChecked);
   };
 
   // Enrich Team từ bảng users nếu thiếu trong detail_reports
@@ -1231,128 +1250,188 @@ export default function XemBaoCaoMKT() {
       {
         activeTab === 'DetailedReport' && (
           <div id="DetailedReport" className={`tab-content ${activeTab === 'DetailedReport' ? 'active' : ''}`}>
-            <div className="report-container">
-              <div className="sidebar">
-                <h3>Bộ lọc</h3>
-                <label>Chọn nhanh:</label>
-                <select
-                  value={quickSelect}
-                  onChange={e => handleQuickDateSelect(e.target.value)}
-                >
-                  <option value="">-- Chọn nhanh --</option>
-                  <option value="today">Hôm nay</option>
-                  <option value="yesterday">Hôm qua</option>
-                  <option value="thisWeek">Tuần này</option>
-                  <option value="lastWeek">Tuần trước</option>
-                  <option value="thisMonth">Tháng này</option>
-                  <option value="lastMonth">Tháng trước</option>
-                  <option value="last7Days">7 ngày qua</option>
-                  <option value="last30Days">30 ngày qua</option>
-                </select>
-                <label>Từ ngày:</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={e => {
-                    setStartDate(e.target.value);
-                    setQuickSelect('');
-                  }}
-                />
-                <label>Đến ngày:</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={e => {
-                    setEndDate(e.target.value);
-                    setQuickSelect('');
-                  }}
-                />
+            <div className="main-content-area detailed-report-main">
+              <div className="filters-bar mkt-sale-filters">
+                <div className="filters-row">
+                  <div className="filter-group dropdown-group">
+                    <button
+                      className="filter-dropdown-btn"
+                      onClick={() => setShowQuickFilter(!showQuickFilter)}
+                    >
+                      Lọc nhanh
+                      <span className="dropdown-arrow">{showQuickFilter ? '▼' : '▶'}</span>
+                    </button>
+                    {showQuickFilter && (
+                      <div className="filter-dropdown-content">
+                        <button className="quick-filter-btn" onClick={() => { handleQuickDateSelect('today'); setShowQuickFilter(false); }}>Hôm nay</button>
+                        <button className="quick-filter-btn" onClick={() => { handleQuickDateSelect('yesterday'); setShowQuickFilter(false); }}>Hôm qua</button>
+                        <button className="quick-filter-btn" onClick={() => { handleQuickDateSelect('thisWeek'); setShowQuickFilter(false); }}>Tuần này</button>
+                        <button className="quick-filter-btn" onClick={() => { handleQuickDateSelect('lastWeek'); setShowQuickFilter(false); }}>Tuần trước</button>
+                        <button className="quick-filter-btn" onClick={() => { handleQuickDateSelect('thisMonth'); setShowQuickFilter(false); }}>Tháng này</button>
+                        <button className="quick-filter-btn" onClick={() => { handleQuickDateSelect('lastMonth'); setShowQuickFilter(false); }}>Tháng trước</button>
+                        <button className="quick-filter-btn" onClick={() => { handleQuickDateSelect('last7Days'); setShowQuickFilter(false); }}>7 ngày qua</button>
+                        <button className="quick-filter-btn" onClick={() => { handleQuickDateSelect('last30Days'); setShowQuickFilter(false); }}>30 ngày qua</button>
+                      </div>
+                    )}
+                  </div>
 
-                <h3>Sản phẩm</h3>
-                <div className="indent">
-                  <label style={{ cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedProducts.length === products.length && products.length > 0}
-                      onChange={e => handleFilterChange('product', 'ALL', e.target.checked)}
-                      style={{ marginRight: '8px' }}
-                    />
-                    Tất cả
-                  </label>
-                  {products.map(p => (
-                    <label key={p} style={{ cursor: 'pointer', display: 'block', marginLeft: '16px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedProducts.includes(p)}
-                        onChange={e => handleFilterChange('product', p, e.target.checked)}
-                        style={{ marginRight: '8px' }}
-                      />
-                      {p}
-                    </label>
-                  ))}
-                </div>
+                  <div className="filter-group date-group">
+                    <label>Từ ngày</label>
+                    <input type="date" value={startDate} onChange={e => handleDateInputChange(setStartDate, e.target.value)} />
+                  </div>
 
-                <h3>Ca</h3>
-                <div className="indent">
-                  <label style={{ cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedShifts.length === shifts.length && shifts.length > 0}
-                      onChange={e => handleFilterChange('shift', 'ALL', e.target.checked)}
-                      style={{ marginRight: '8px' }}
-                    />
-                    Tất cả
-                  </label>
-                  {shifts.map(s => (
-                    <label key={s} style={{ cursor: 'pointer', display: 'block', marginLeft: '16px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedShifts.includes(s)}
-                        onChange={e => handleFilterChange('shift', s, e.target.checked)}
-                        style={{ marginRight: '8px' }}
-                      />
-                      {s}
-                    </label>
-                  ))}
-                </div>
+                  <div className="filter-group date-group">
+                    <label>Đến ngày</label>
+                    <input type="date" value={endDate} onChange={e => handleDateInputChange(setEndDate, e.target.value)} />
+                  </div>
 
-                <h3>Team</h3>
-                <div className="indent">
-                  <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>
-                    <option value="ALL">Tất cả</option>
-                    {teams.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
+                  <div className="filter-group dropdown-group">
+                    <button
+                      className="filter-dropdown-btn"
+                      onClick={() => setShowTeamFilter(!showTeamFilter)}
+                    >
+                      Team {selectedTeams.length > 0 && selectedTeams.length < teams.length ? `(${selectedTeams.length})` : ''}
+                      <span className="dropdown-arrow">{showTeamFilter ? '▼' : '▶'}</span>
+                    </button>
+                    {showTeamFilter && (
+                      <div className="filter-dropdown-content">
+                        <label className="select-all-label">
+                          <input
+                            type="checkbox"
+                            checked={teams.length > 0 && selectedTeams.length === teams.length}
+                            onChange={e => handleSelectAll('team', e.target.checked)}
+                          />
+                          <span className="filter-option-text">Tất cả</span>
+                        </label>
+                        {teams.map(team => (
+                          <label key={team}>
+                            <input
+                              type="checkbox"
+                              checked={selectedTeams.includes(team)}
+                              onChange={e => handleFilterChange('team', team, e.target.checked)}
+                            />
+                            <span className="filter-option-text">{team}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-                <h3>Thị trường</h3>
-                <div className="indent">
-                  <label style={{ cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedMarkets.length === markets.length && markets.length > 0}
-                      onChange={e => handleFilterChange('market', 'ALL', e.target.checked)}
-                      style={{ marginRight: '8px' }}
-                    />
-                    Tất cả
-                  </label>
-                  {markets.map(m => (
-                    <label key={m} style={{ cursor: 'pointer', display: 'block', marginLeft: '16px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedMarkets.includes(m)}
-                        onChange={e => handleFilterChange('market', m, e.target.checked)}
-                        style={{ marginRight: '8px' }}
-                      />
-                      {m}
-                    </label>
-                  ))}
+                  <div className="filter-group dropdown-group">
+                    <button
+                      className="filter-dropdown-btn"
+                      onClick={() => setShowProductFilter(!showProductFilter)}
+                    >
+                      Sản phẩm {selectedProducts.length > 0 && selectedProducts.length < products.length ? `(${selectedProducts.length})` : ''}
+                      <span className="dropdown-arrow">{showProductFilter ? '▼' : '▶'}</span>
+                    </button>
+                    {showProductFilter && (
+                      <div className="filter-dropdown-content">
+                        <label className="select-all-label">
+                          <input
+                            type="checkbox"
+                            checked={products.length > 0 && selectedProducts.length === products.length}
+                            onChange={e => handleSelectAll('product', e.target.checked)}
+                          />
+                          <span className="filter-option-text">Tất cả</span>
+                        </label>
+                        {products.map(product => (
+                          <label key={product}>
+                            <input
+                              type="checkbox"
+                              checked={selectedProducts.includes(product)}
+                              onChange={e => handleFilterChange('product', product, e.target.checked)}
+                            />
+                            <span className="filter-option-text">{product}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="filter-group dropdown-group">
+                    <button
+                      className="filter-dropdown-btn"
+                      onClick={() => setShowShiftFilter(!showShiftFilter)}
+                    >
+                      Ca {selectedShifts.length > 0 && selectedShifts.length < shifts.length ? `(${selectedShifts.length})` : ''}
+                      <span className="dropdown-arrow">{showShiftFilter ? '▼' : '▶'}</span>
+                    </button>
+                    {showShiftFilter && (
+                      <div className="filter-dropdown-content">
+                        <label className="select-all-label">
+                          <input
+                            type="checkbox"
+                            checked={shifts.length > 0 && selectedShifts.length === shifts.length}
+                            onChange={e => handleSelectAll('shift', e.target.checked)}
+                          />
+                          <span className="filter-option-text">Tất cả</span>
+                        </label>
+                        {shifts.map(shift => (
+                          <label key={shift}>
+                            <input
+                              type="checkbox"
+                              checked={selectedShifts.includes(shift)}
+                              onChange={e => handleFilterChange('shift', shift, e.target.checked)}
+                            />
+                            <span className="filter-option-text">{shift}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="filter-group dropdown-group">
+                    <button
+                      className="filter-dropdown-btn"
+                      onClick={() => setShowMarketFilter(!showMarketFilter)}
+                    >
+                      Thị trường {selectedMarkets.length > 0 && selectedMarkets.length < markets.length ? `(${selectedMarkets.length})` : ''}
+                      <span className="dropdown-arrow">{showMarketFilter ? '▼' : '▶'}</span>
+                    </button>
+                    {showMarketFilter && (
+                      <div className="filter-dropdown-content">
+                        <label className="select-all-label">
+                          <input
+                            type="checkbox"
+                            checked={markets.length > 0 && selectedMarkets.length === markets.length}
+                            onChange={e => handleSelectAll('market', e.target.checked)}
+                          />
+                          <span className="filter-option-text">Tất cả</span>
+                        </label>
+                        {markets.map(market => (
+                          <label key={market}>
+                            <input
+                              type="checkbox"
+                              checked={selectedMarkets.includes(market)}
+                              onChange={e => handleFilterChange('market', market, e.target.checked)}
+                            />
+                            <span className="filter-option-text">{market}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="filter-group btn-group">
+                    <button
+                      className="btn-view"
+                      onClick={() => {
+                        if (startDate && endDate) {
+                          fetchData();
+                        } else {
+                          alert('Vui lòng chọn khoảng thời gian');
+                        }
+                      }}
+                      disabled={loading || !startDate || !endDate}
+                    >
+                      {loading ? 'Đang tải...' : 'Xem'}
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div className="main-content-area">
-                <div className="header">
-                  <div style={{ width: 60, height: 60, borderRadius: '50%', backgroundColor: '#2d7c2d', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '24px', fontWeight: 'bold' }}>MKT</div>
-                  <h2 id="report-title-tab1">DỮ LIỆU CHI PHÍ ADS</h2>
-                </div>
+
+              <div>
                 <div className="table-responsive-container">
                   {/* Column Settings Button */}
                   <div className="mb-4">

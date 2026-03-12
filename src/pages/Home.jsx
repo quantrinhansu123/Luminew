@@ -220,13 +220,6 @@ function Home() {
           path: "/lich-su-sale-order",
           permission: 'SALE_HISTORY',
         },
-        {
-          id: "test-sale-data",
-          label: "Test Sale Data",
-          icon: <Activity className="w-4 h-4" />,
-          path: "/test-sale-data",
-          permission: null,
-        },
       ],
     },
     {
@@ -715,14 +708,6 @@ function Home() {
           path: "/lich-su-sale-order",
           status: "Mở ứng dụng",
           permission: 'SALE_HISTORY',
-        },
-        {
-          title: "Test Sale Data",
-          icon: <Activity className="w-8 h-8" />,
-          color: "bg-indigo-600",
-          path: "/test-sale-data",
-          status: "Mở ứng dụng",
-          permission: null, // No permission required for testing
         },
       ],
     },

@@ -195,6 +195,23 @@ export default function BaoCaoMarketing() {
     return cleanValue ? new Intl.NumberFormat('de-DE').format(cleanValue) : '';
   };
 
+  const parseVietnameseNumberInput = (value) => {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    const str = String(value || '').trim();
+    if (!str) return 0;
+
+    // Keep digits (and optional leading minus), drop separators like . , spaces
+    const negative = str.startsWith('-');
+    const digitsOnly = str.replace(/[^0-9]/g, '');
+    if (!digitsOnly) return 0;
+
+    const parsed = Number((negative ? '-' : '') + digitsOnly);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
   const getToday = () => {
     const today = new Date();
     return today.toLocaleDateString('en-CA');
@@ -802,13 +819,7 @@ export default function BaoCaoMarketing() {
           // Process numeric fields
           const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số', 'Doanh số đi', 'Số đơn hoàn hủy', 'DS chốt', 'DS sau hoàn hủy', 'Doanh số sau ship', 'Doanh số TC', 'KPIs'];
           if (numberFields.includes(key)) {
-            if (typeof value === 'string') {
-              // Extract numbers, signs and dots for floats
-              const cleaned = value.replace(/[^0-9.-]/g, '');
-              value = parseFloat(cleaned) || 0;
-            } else if (typeof value !== 'number') {
-              value = 0;
-            }
+            value = parseVietnameseNumberInput(value);
           }
           rowObject[key] = value;
         });

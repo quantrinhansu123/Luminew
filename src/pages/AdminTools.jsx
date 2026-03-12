@@ -648,8 +648,70 @@ const AdminTools = () => {
                 let successCount = 0;
                 let errorCount = 0;
 
+                const salesReportsIntegerFields = new Set([
+                    'mess_count', 'response_count', 'order_count',
+                    'order_count_actual', 'order_cancel_count_actual',
+                    'order_cancel_count', 'order_success_count',
+                    'customer_old', 'customer_new', 'cross_sale'
+                ]);
+
+                const salesReportsNumericFields = new Set([
+                    'revenue_mess', 'revenue_actual', 'revenue_go_actual',
+                    'revenue_cancel_actual', 'revenue_after_cancel_actual',
+                    'revenue_go', 'revenue_cancel', 'revenue_success'
+                ]);
+
+                const normalizeSalesReportsRow = (row) => {
+                    const normalized = { ...row };
+
+                    Object.keys(normalized).forEach((key) => {
+                        const rawValue = normalized[key];
+
+                        if (salesReportsIntegerFields.has(key) || salesReportsNumericFields.has(key)) {
+                            if (rawValue === '' || rawValue === null || rawValue === undefined) {
+                                normalized[key] = 0;
+                                return;
+                            }
+
+                            if (typeof rawValue === 'string') {
+                                // Handle values like "1.234.567" or "1,234,567"
+                                const sign = rawValue.trim().startsWith('-') ? '-' : '';
+                                const digits = rawValue.replace(/[^0-9]/g, '');
+                                normalized[key] = digits ? Number(sign + digits) : 0;
+                                return;
+                            }
+
+                            const parsed = Number(rawValue);
+                            normalized[key] = Number.isFinite(parsed) ? parsed : 0;
+                        }
+                    });
+
+                    return normalized;
+                };
+
+                const normalizeDetailReportsRow = (row) => {
+                    const normalized = { ...row };
+
+                    // Prevent invalid date syntax: "" -> null for DATE columns
+                    ['Ngày', 'ngay', 'date'].forEach((dateKey) => {
+                        if (Object.prototype.hasOwnProperty.call(normalized, dateKey)) {
+                            const val = normalized[dateKey];
+                            if (val === '' || val === undefined) {
+                                normalized[dateKey] = null;
+                            }
+                        }
+                    });
+
+                    return normalized;
+                };
+
                 for (let i = 0; i < json.length; i += CHUNK_SIZE) {
-                    const chunk = json.slice(i, i + CHUNK_SIZE);
+                    const chunkRaw = json.slice(i, i + CHUNK_SIZE);
+                    const chunk = tableName === 'sales_reports'
+                        ? chunkRaw.map(normalizeSalesReportsRow)
+                        : tableName === 'detail_reports'
+                            ? chunkRaw.map(normalizeDetailReportsRow)
+                            : chunkRaw;
                     // Sanitizing data: Remove implicit fields if necessary, or let Supabase handle it.
                     // Ideally we should strip 'id' if we want auto-increment, but usually we keep it for sync.
 

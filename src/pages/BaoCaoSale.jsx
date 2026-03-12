@@ -985,62 +985,6 @@ export default function BaoCaoSale({ reportType = 'sale' } = {}) {
                                 </div>
                             </div>
                             
-                            {/* API Link Display */}
-                            {filters.startDate && filters.endDate && (
-                                <div style={{
-                                    marginTop: '15px',
-                                    padding: '12px',
-                                    backgroundColor: '#f8f9fa',
-                                    border: '1px solid #dee2e6',
-                                    borderRadius: '6px',
-                                    fontSize: '13px'
-                                }}>
-                                    <div style={{ fontWeight: '600', marginBottom: '8px', color: '#495057' }}>
-                                        🔗 Link API:
-                                    </div>
-                                    <div style={{
-                                        wordBreak: 'break-all',
-                                        padding: '8px',
-                                        backgroundColor: '#fff',
-                                        border: '1px solid #ced4da',
-                                        borderRadius: '4px',
-                                        fontFamily: 'monospace',
-                                        fontSize: '12px',
-                                        color: '#0066cc',
-                                        cursor: 'pointer',
-                                        userSelect: 'all'
-                                    }}
-                                    onClick={(e) => {
-                                        e.target.select();
-                                        navigator.clipboard.writeText(e.target.textContent);
-                                        alert('Đã copy link API!');
-                                    }}
-                                    title="Click để copy"
-                                    >
-                                        {(() => {
-                                            const params = new URLSearchParams();
-                                            const fromDate = convertDateToAPIFormat(filters.startDate);
-                                            const toDate = convertDateToAPIFormat(filters.endDate);
-                                            params.append('from_date', fromDate);
-                                            params.append('to_date', toDate);
-                                            
-                                            // Thêm các filter khác nếu có
-                                            if (filters.products.length > 0) {
-                                                filters.products.forEach(product => {
-                                                    params.append('product', product);
-                                                });
-                                            }
-                                            if (filters.markets.length > 0) {
-                                                filters.markets.forEach(market => {
-                                                    params.append('country', market);
-                                                });
-                                            }
-                                            
-                                            return `https://lumidataapi.vercel.app/sale_report?${params.toString()}`;
-                                        })()}
-                                    </div>
-                                </div>
-                            )}
                         </div>
                         
                         <div className="table-responsive-container">
