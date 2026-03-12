@@ -927,7 +927,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 "zipcode": data.zipcode || "",
                 "country": data.country || "", // Lấy từ country
 
-                "productMain": data.product_main || "",
+                "productMain": data.product || "", // Bỏ qua product_main, chỉ lấy từ product
                 "mathang1": data.product_name_1 || "", "sl1": data.quantity_1 || 1,
                 "mathang2": data.product_name_2 || "", "sl2": data.quantity_2 || 0,
                 "quatang": data.gift || "", "slq": data.gift_quantity || 0,
