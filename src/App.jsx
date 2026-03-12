@@ -63,6 +63,13 @@ import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
 
 import ErrorBoundary from './components/ErrorBoundary';
 
+function ExternalIdRedirect({ baseUrl }) {
+  const idAppsheet = localStorage.getItem('idAppsheet') || '';
+  const fullUrl = idAppsheet ? `${baseUrl}?id=${encodeURIComponent(idAppsheet)}` : baseUrl;
+  const encoded = `/external-view?url=${encodeURIComponent(fullUrl)}`;
+  return <Navigate to={encoded} replace />;
+}
+
 function App() {
   console.log('📱 App component rendering...');
   return (
@@ -88,10 +95,7 @@ function App() {
               path="/xem-bao-cao-sale"
               element={
                 <ProtectedRoute>
-                  <Navigate
-                    to="/external-view?url=https%3A%2F%2Fnguyenbatyads37.github.io%2Fstatic-html-show-data%2FnhanSuSaleLumiMoi.html"
-                    replace
-                  />
+                  <ExternalIdRedirect baseUrl="https://nguyenbatyads37.github.io/static-html-show-data/nhanSuSaleLumiMoi.html" />
                 </ProtectedRoute>
               }
             />
@@ -120,10 +124,7 @@ function App() {
               path="/xem-bao-cao-cskh"
               element={
                 <ProtectedRoute>
-                  <Navigate
-                    to="/external-view?url=https%3A%2F%2Fnguyenbatyads37.github.io%2Fstatic-html-show-data%2FnhanSuSaleLumiMoi.html"
-                    replace
-                  />
+                  <ExternalIdRedirect baseUrl="https://nguyenbatyads37.github.io/static-html-show-data/nhanSuSaleLumiMoi.html" />
                 </ProtectedRoute>
               }
             />
@@ -133,10 +134,7 @@ function App() {
               path="/xem-bao-cao-mkt"
               element={
                 <ProtectedRoute>
-                  <Navigate
-                    to="/external-view?url=https%3A%2F%2Fnguyenbatyads37.github.io%2Fstatic-html-show-data%2FviewNsMoiNhanh.html"
-                    replace
-                  />
+                  <ExternalIdRedirect baseUrl="https://nguyenbatyads37.github.io/static-html-show-data/viewNsMoiNhanh.html" />
                 </ProtectedRoute>
               }
             />

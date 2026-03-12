@@ -90,6 +90,7 @@ function Login() {
           localStorage.setItem('userEmail', userEmail);
           // Supabase 'users' table has 'team' column based on UserManagementTab
           localStorage.setItem('userTeam', userData.team || '');
+          localStorage.setItem('idAppsheet', userData.id_appsheet || '');
 
           toast.success('Đăng nhập thành công!', {
             position: "top-right",
