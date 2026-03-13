@@ -1753,14 +1753,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                 <PopoverAnchor asChild>
                                                                     <div className="relative">
                                                                         <Input
-                                                                            placeholder="Chọn hoặc nhập mặt hàng..."
-                                                                            value={productSearch}
-                                                                            onChange={(e) => {
-                                                                                const val = e.target.value;
-                                                                                setProductSearch(val);
-                                                                                setFormData(prev => ({ ...prev, productMain: val }));
-                                                                                setIsProductOpen(true);
-                                                                            }}
+                                                                            placeholder="Chọn mặt hàng..."
+                                                                            value={formData.productMain || ""}
+                                                                            readOnly
                                                                             onFocus={() => {
                                                                                 if (productRef.current) setProductPopoverWidth(productRef.current.offsetWidth);
                                                                             }}
@@ -1768,16 +1763,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                 if (productRef.current) setProductPopoverWidth(productRef.current.offsetWidth);
                                                                                 setIsProductOpen(true);
                                                                             }}
-                                                                            onKeyDown={(e) => {
-                                                                                if (e.key === 'Enter') {
-                                                                                    e.preventDefault();
-                                                                                    if (productSearch.trim()) {
-                                                                                        setFormData(prev => ({ ...prev, productMain: productSearch.trim() }));
-                                                                                        setIsProductOpen(false);
-                                                                                    }
-                                                                                }
-                                                                            }}
-                                                                            className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
+                                                                            className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] bg-white cursor-pointer"
                                                                         />
                                                                         <ChevronDown className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none" />
                                                                     </div>
@@ -1807,7 +1793,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                 ))
                                                                             ) : (
                                                                                 <div className="p-2 text-sm text-gray-500">
-                                                                                    Nhấn Enter để thêm mới "{productSearch}".
+                                                                                    Không có sản phẩm nào.
                                                                                 </div>
                                                                             )}
                                                                         </div>
