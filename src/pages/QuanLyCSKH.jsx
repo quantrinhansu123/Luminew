@@ -1577,14 +1577,20 @@ function QuanLyCSKH() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Mặt hàng chính</label>
-                    <input
+                    <select
                       name="product"
                       value={editingOrder.product || ''}
                       onChange={handleEditChange}
-                      readOnly={isViewing}
                       disabled={isViewing}
-                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
-                    />
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 bg-white ${isViewing ? 'bg-gray-100' : ''}`}
+                    >
+                      <option value="">-- Chọn mặt hàng --</option>
+                      {uniqueProducts.map(product => (
+                        <option key={product} value={product}>
+                          {product}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Tổng tiền (VNĐ)</label>
