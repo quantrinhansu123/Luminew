@@ -22,6 +22,15 @@ const DEFAULT_SETTINGS = {
     dataSource: 'prod' // 'prod' | 'test'
 };
 
+const CURRENCY_OPTIONS = [
+    { key: 'usd', label: 'USD', symbol: '$' },
+    { key: 'jpy', label: 'JPY (YEN)', symbol: '¥' },
+    { key: 'cad', label: 'CAD', symbol: 'C$' },
+    { key: 'aud', label: 'AUD', symbol: 'A$' },
+    { key: 'gbp', label: 'GBP', symbol: '£' },
+    { key: 'krw', label: 'KRW', symbol: '₩' },
+];
+
 // Helper to get settings
 export const getSystemSettings = () => {
 
@@ -59,6 +68,13 @@ const AdminTools = () => {
 
     // State để lưu danh sách sản phẩm từ database (bảng system_settings với 2 cột)
     const [dbProducts, setDbProducts] = useState([]); // [{id, name, type}, ...]
+
+    // --- EXCHANGE RATES (TỶ GIÁ) STATE ---
+    const [exchangeRates, setExchangeRates] = useState([]); // [{id, ti_gia, gia_tri}, ...]
+    const [exchangeLoading, setExchangeLoading] = useState(false);
+    const [exchangeSaving, setExchangeSaving] = useState(false);
+    const [editingRateId, setEditingRateId] = useState(null); // ID của dòng đang được edit
+    const [editValues, setEditValues] = useState({}); // {rateId: {ti_gia: '', gia_tri: ''}} để lưu giá trị đang edit
 
     // --- AUTO ASSIGN STATE ---
     const [autoAssignLoading, setAutoAssignLoading] = useState(false);
@@ -160,6 +176,13 @@ const AdminTools = () => {
     useEffect(() => {
         if (activeTab === 'account_management' && authAccounts.length === 0 && !accountLoading) {
             loadAuthAccounts();
+        }
+    }, [activeTab]);
+
+    // Auto-load exchange rates when entering settings tab
+    useEffect(() => {
+        if (activeTab === 'settings' && exchangeRates.length === 0 && !exchangeLoading) {
+            loadExchangeRates();
         }
     }, [activeTab]);
 
@@ -864,6 +887,130 @@ const AdminTools = () => {
             setAvailableMarkets(["US", "Nhật Bản", "Hàn Quốc", "Canada", "Úc", "Anh"]);
         } finally {
             setLoadingData(false);
+        }
+    };
+
+    // Load tỷ giá từ database
+    const loadExchangeRates = async () => {
+        setExchangeLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('exchange_rates')
+                .select('*')
+                .order('ti_gia', { ascending: true });
+
+            if (error) {
+                throw error;
+            } else if (data && data.length > 0) {
+                setExchangeRates(data);
+            } else {
+                // Nếu chưa có dữ liệu, insert dữ liệu mặc định vào database
+                const defaultRates = [
+                    { ti_gia: 'USD', gia_tri: 25000 },
+                    { ti_gia: 'JPY', gia_tri: 180 },
+                    { ti_gia: 'CAD', gia_tri: 19000 },
+                    { ti_gia: 'AUD', gia_tri: 18000 },
+                    { ti_gia: 'GBP', gia_tri: 32000 },
+                    { ti_gia: 'KRW', gia_tri: 20 },
+                ];
+                
+                const { data: insertedData, error: insertError } = await supabase
+                    .from('exchange_rates')
+                    .insert(defaultRates)
+                    .select();
+
+                if (insertError) {
+                    console.error('Error inserting default rates:', insertError);
+                    // Nếu insert lỗi, vẫn set vào state để hiển thị
+                    setExchangeRates(defaultRates);
+                } else {
+                    setExchangeRates(insertedData || defaultRates);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading exchange rates:', error);
+            toast.error('Lỗi khi tải tỷ giá: ' + error.message);
+        } finally {
+            setExchangeLoading(false);
+        }
+    };
+
+    // Save tỷ giá đơn lẻ vào database (khi edit từng dòng)
+    const handleSaveSingleRate = async (rateId) => {
+        try {
+            const rateData = exchangeRates.find(r => r.id === rateId);
+            if (!rateData) {
+                toast.error('Không tìm thấy tỷ giá cần cập nhật');
+                return;
+            }
+
+            const editData = editValues[rateId];
+            if (!editData) {
+                toast.error('Không có dữ liệu để lưu');
+                return;
+            }
+
+            const updateData = {
+                gia_tri: parseFloat(editData.gia_tri) || 0,
+                updated_at: new Date().toISOString(),
+            };
+
+            // Nếu ti_gia thay đổi, cập nhật cả ti_gia
+            if (editData.ti_gia && editData.ti_gia.trim() !== rateData.ti_gia) {
+                updateData.ti_gia = editData.ti_gia.trim().toUpperCase();
+            }
+
+            const { error } = await supabase
+                .from('exchange_rates')
+                .update(updateData)
+                .eq('id', rateId);
+
+            if (error) throw error;
+            
+            // Reload để đảm bảo đồng bộ với database
+            await loadExchangeRates();
+            setEditingRateId(null);
+            setEditValues(prev => {
+                const newVals = { ...prev };
+                delete newVals[rateId];
+                return newVals;
+            });
+            toast.success('Đã cập nhật tỷ giá thành công!');
+        } catch (error) {
+            console.error('Error saving exchange rate:', error);
+            toast.error('Lỗi khi lưu tỷ giá: ' + error.message);
+        }
+    };
+
+    // Save tất cả tỷ giá vào database (khi nhấn nút Lưu tỷ giá)
+    const handleSaveExchangeRates = async () => {
+        setExchangeSaving(true);
+        try {
+            // Upsert tất cả các tỷ giá
+            const updates = exchangeRates.map(rate => ({
+                ti_gia: rate.ti_gia,
+                gia_tri: rate.gia_tri,
+                updated_at: new Date().toISOString(),
+            }));
+
+            // Sử dụng upsert với onConflict để update nếu đã tồn tại
+            const { error } = await supabase
+                .from('exchange_rates')
+                .upsert(updates, {
+                    onConflict: 'ti_gia',
+                    ignoreDuplicates: false
+                });
+
+            if (error) throw error;
+            
+            // Reload để lấy ID mới nếu có
+            await loadExchangeRates();
+            toast.success('Đã lưu tất cả tỷ giá thành công!');
+        } catch (error) {
+            console.error('Error saving exchange rates:', error);
+            toast.error('Lỗi khi lưu tỷ giá: ' + error.message);
+        } finally {
+            setExchangeSaving(false);
         }
     };
 
@@ -4598,99 +4745,217 @@ const AdminTools = () => {
                             </div>
                         )}
 
-                        {/* 5. Auto Fill Team */}
-                        {isSectionVisible('Tự động điền Team', ['team', 'tự động', 'điền', 'auto fill']) && (
+                        {/* 4. Exchange Rates Management */}
+                        {isSectionVisible('Quản lý tỷ giá', ['tỷ giá', 'exchange', 'rate', 'tiền tệ', 'currency']) && (
                             <div className="space-y-4">
                                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                                    <Users className="w-5 h-5 text-indigo-600" />
-                                    4. Tự động điền Team vào đơn hàng
+                                    <Package className="w-5 h-5 text-blue-600" />
+                                    4. Quản lý tỷ giá
                                 </h3>
                                 <p className="text-sm text-gray-500">
-                                    Tự động điền Team cho các đơn hàng chưa có team dựa trên tên nhân viên sale từ bảng nhân sự.
+                                    Cài đặt tỷ giá quy đổi các loại tiền tệ sang VNĐ. Tỷ giá sẽ được tự động áp dụng khi chọn đơn vị tiền tệ trong bảng đối soát bill cước.
                                 </p>
-                                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="text-sm text-gray-700 mb-2">
-                                                <strong>Chức năng:</strong> Tự động điền Team (Chi nhánh) vào cột team của orders dựa trên tên nhân viên sale.
-                                            </p>
-                                            <p className="text-xs text-gray-600">
-                                                • Lấy dữ liệu từ bảng users (cột branch) và human_resources (cột "chi nhánh")<br />
-                                                • Chỉ điền cho các đơn hàng chưa có team (team = null hoặc rỗng)<br />
-                                                • Match theo tên nhân viên sale (sale_staff)
-                                            </p>
+
+                                <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+                                    <div className="p-4 border-b border-gray-200 bg-gray-50">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-gray-800">Tỷ giá quy đổi (1 đơn vị = ? VNĐ)</h4>
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    Nhập tỷ giá quy đổi từ các loại tiền tệ sang VNĐ. Ví dụ: 1 USD = 25,000 VNĐ
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={loadExchangeRates}
+                                                    disabled={exchangeLoading}
+                                                    className="flex items-center gap-2 px-3 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+                                                >
+                                                    <RefreshCw className={`w-4 h-4 ${exchangeLoading ? 'animate-spin' : ''}`} />
+                                                    {exchangeLoading ? 'Đang tải...' : 'Tải lại'}
+                                                </button>
+                                                <button
+                                                    onClick={handleSaveExchangeRates}
+                                                    disabled={exchangeSaving}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+                                                >
+                                                    <Save className="w-4 h-4" />
+                                                    {exchangeSaving ? 'Đang lưu...' : 'Lưu tỷ giá'}
+                                                </button>
+                                            </div>
                                         </div>
-                                        <button
-                                            onClick={handleAutoFillTeam}
-                                            disabled={isFillingTeam}
-                                            className="px-6 py-3 bg-indigo-600 text-white rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                                            title="Tự động điền Team từ bảng nhân sự vào đơn hàng"
-                                        >
-                                            {isFillingTeam ? (
-                                                <>
-                                                    <RefreshCw className="w-5 h-5 animate-spin" />
-                                                    <span>Đang điền...</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Users className="w-5 h-5" />
-                                                    <span>Tự động điền Team</span>
-                                                </>
-                                            )}
-                                        </button>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead className="bg-gray-100">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">
+                                                        Loại tiền tệ
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">
+                                                        Ký hiệu
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">
+                                                        Tỷ giá (VNĐ)
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">
+                                                        Ví dụ
+                                                    </th>
+                                                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-700 uppercase border-b border-gray-200 w-32">
+                                                        Hành động
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {exchangeRates.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                                                            {exchangeLoading ? 'Đang tải...' : 'Chưa có dữ liệu tỷ giá'}
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    exchangeRates.map((rateData) => {
+                                                        const rateValue = rateData?.gia_tri || 0;
+                                                        const isEditing = editingRateId === rateData?.id;
+                                                        const editData = editValues[rateData?.id] || { ti_gia: rateData.ti_gia, gia_tri: rateValue.toString() };
+                                                        
+                                                        // Tìm currency option để lấy symbol và label
+                                                        const currencyOption = CURRENCY_OPTIONS.find(c => c.key.toUpperCase() === rateData.ti_gia.toUpperCase());
+                                                        const currencyLabel = currencyOption?.label || rateData.ti_gia;
+                                                        const currencySymbol = currencyOption?.symbol || '';
+
+                                                        return (
+                                                            <tr key={rateData.id} className="hover:bg-gray-50">
+                                                                <td className="px-6 py-4">
+                                                                    {isEditing ? (
+                                                                        <input
+                                                                            type="text"
+                                                                            value={editData.ti_gia || ''}
+                                                                            onChange={(e) => {
+                                                                                setEditValues(prev => ({
+                                                                                    ...prev,
+                                                                                    [rateData.id]: {
+                                                                                        ...prev[rateData.id],
+                                                                                        ti_gia: e.target.value
+                                                                                    }
+                                                                                }));
+                                                                            }}
+                                                                            className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                            placeholder="USD, JPY, CAD..."
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="text-sm font-medium text-gray-900">
+                                                                            {rateData.ti_gia}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-sm text-gray-700">
+                                                                    {currencySymbol || '-'}
+                                                                </td>
+                                                                <td className="px-6 py-4">
+                                                                    {isEditing ? (
+                                                                        <input
+                                                                            type="number"
+                                                                            step="0.01"
+                                                                            value={editData.gia_tri || ''}
+                                                                            onChange={(e) => {
+                                                                                setEditValues(prev => ({
+                                                                                    ...prev,
+                                                                                    [rateData.id]: {
+                                                                                        ...prev[rateData.id],
+                                                                                        gia_tri: e.target.value
+                                                                                    }
+                                                                                }));
+                                                                            }}
+                                                                            className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                            placeholder="0.00"
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="text-sm text-gray-700 font-medium">
+                                                                            {rateValue > 0 ? rateValue.toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-sm text-gray-600">
+                                                                    {rateValue > 0 ? (
+                                                                        <>
+                                                                            1 {rateData.ti_gia} = {rateValue.toLocaleString('vi-VN')} VNĐ
+                                                                        </>
+                                                                    ) : (
+                                                                        <span className="text-gray-400">-</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-center">
+                                                                    {isEditing ? (
+                                                                        <div className="flex items-center justify-center gap-2">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    if (rateData?.id) {
+                                                                                        handleSaveSingleRate(rateData.id);
+                                                                                    }
+                                                                                }}
+                                                                                className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded text-xs font-medium transition"
+                                                                            >
+                                                                                Lưu
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setEditingRateId(null);
+                                                                                    setEditValues(prev => {
+                                                                                        const newVals = { ...prev };
+                                                                                        delete newVals[rateData.id];
+                                                                                        return newVals;
+                                                                                    });
+                                                                                }}
+                                                                                className="px-3 py-1 bg-gray-500 hover:bg-gray-600 text-white rounded text-xs font-medium transition"
+                                                                            >
+                                                                                Hủy
+                                                                            </button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                if (rateData?.id) {
+                                                                                    setEditingRateId(rateData.id);
+                                                                                    setEditValues(prev => ({
+                                                                                        ...prev,
+                                                                                        [rateData.id]: {
+                                                                                            ti_gia: rateData.ti_gia,
+                                                                                            gia_tri: rateValue.toString()
+                                                                                        }
+                                                                                    }));
+                                                                                }
+                                                                            }}
+                                                                            className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs font-medium transition"
+                                                                        >
+                                                                            Edit
+                                                                        </button>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {/* Info Box */}
+                                    <div className="p-4 bg-blue-50 border-t border-gray-200">
+                                        <div className="text-sm text-blue-800">
+                                            <p className="font-semibold mb-2">📝 Lưu ý:</p>
+                                            <ul className="list-disc list-inside space-y-1 text-blue-700">
+                                                <li>Tỷ giá sẽ được tự động áp dụng khi chọn đơn vị tiền tệ trong bảng đối soát bill cước</li>
+                                                <li>Vui lòng cập nhật tỷ giá thường xuyên để đảm bảo tính chính xác</li>
+                                                <li>Sau khi thay đổi, nhấn "Lưu tỷ giá" để lưu vào database</li>
+                                            </ul>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                    </div>
-                </div>
-            )}
-
-            {/* Progress Modal for Auto Fill Team */}
-            {isFillingTeam && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-                        <div className="bg-gradient-to-r from-indigo-600 to-indigo-500 px-6 py-4 rounded-t-lg">
-                            <h3 className="text-xl font-bold text-white">🔄 Đang điền Team tự động</h3>
-                        </div>
-                        <div className="p-6">
-                            <div className="mb-4">
-                                <div className="flex justify-between text-sm text-gray-600 mb-2">
-                                    <span>Tiến trình:</span>
-                                    <span className="font-semibold">
-                                        {fillTeamProgress.current} / {fillTeamProgress.total}
-                                    </span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-3">
-                                    <div
-                                        className="bg-indigo-600 h-3 rounded-full transition-all duration-300"
-                                        style={{
-                                            width: `${fillTeamProgress.total > 0 ? (fillTeamProgress.current / fillTeamProgress.total) * 100 : 0}%`
-                                        }}
-                                    ></div>
-                                </div>
-                            </div>
-
-                            <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Đang xử lý:</span>
-                                    <span className="font-semibold text-indigo-600">{fillTeamProgress.currentUser || 'N/A'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Thành công:</span>
-                                    <span className="font-semibold text-green-600">{fillTeamProgress.success}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Thất bại:</span>
-                                    <span className="font-semibold text-red-600">{fillTeamProgress.failed}</span>
-                                </div>
-                            </div>
-
-                            <div className="mt-4 text-xs text-gray-500">
-                                <p>Đang lấy dữ liệu từ bảng nhân sự (users/human_resources) và điền vào cột team trong orders...</p>
-                            </div>
-                        </div>
                     </div>
                 </div>
             )}
