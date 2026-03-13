@@ -359,9 +359,13 @@ function VanDon() {
 
         console.log('🚀 [VanDon] Fetching API - isAdmin:', isAdmin, 'allowedStaff:', apiAllowedStaff, 'activeTeam:', activeTeam, 'marketFilter:', marketFilter);
 
+        // Admin: load tất cả đơn hàng một lần (không pagination)
+        const fetchLimit = isAdmin ? 100000 : rowsPerPage;
+        const fetchPage = isAdmin ? 1 : currentPage;
+
         const result = await API.fetchVanDon({
-          page: currentPage,
-          limit: rowsPerPage,
+          page: fetchPage,
+          limit: fetchLimit,
           team: activeTeam,
           status: activeStatus,
           market: marketFilter,
@@ -376,26 +380,21 @@ function VanDon() {
 
         // --- 3. CLIENT SIDE POST-PROCESSING (Hanoi Tab, etc) ---
 
-        // Tab "Đẩy đơn Hà Nội": extra client restrictions (Admin không bị filter)
-        if (bolActiveTab === 'hanoi' && !isAdmin) {
+        // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn OK và đơn vị vận chuyển trống (áp dụng cho cả Admin)
+        if (bolActiveTab === 'hanoi') {
           filteredData = result.data.filter(row => {
             const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-            const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
             const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
 
             // Kết quả Check phải là "Ok" hoặc "OK"
             const isCheckOk = checkResult.toLowerCase() === 'ok';
-            // Mã Tracking phải trống hoặc null
-            const isTrackingEmpty = !tracking || tracking === '' || tracking === 'null';
             // Đơn vị vận chuyển phải trống hoặc null
             const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
 
-            return isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
+            return isCheckOk && isDeliveryUnitEmpty;
           });
           filteredTotal = filteredData.length;
-          console.log('🏛️ [VanDon Backend] Tab Hà Nội - Filtered by Check="Ok", empty Tracking and empty Đơn vị vận chuyển:', filteredData.length, 'orders');
-        } else if (bolActiveTab === 'hanoi' && isAdmin) {
-          console.log('👑 [VanDon Backend] Admin - Tab Hà Nội: Hiển thị tất cả dữ liệu (không filter)');
+          console.log('🏛️ [VanDon Backend] Tab Hà Nội - Filtered by Check="OK" and empty Đơn vị vận chuyển:', filteredData.length, 'orders');
         }
 
         // Tab "Đơn Nhật": không filter theo selectedPersonnelNames (đã filter ở API level)
@@ -470,6 +469,7 @@ function VanDon() {
 
         // --- CLIENT-SIDE FILTERING ---
         const isJapanTab = bolActiveTab === 'japan';
+        const isHanoiTab = bolActiveTab === 'hanoi';
 
         if (isJapanTab) {
           data = data.filter(r => {
@@ -477,6 +477,20 @@ function VanDon() {
             return c === 'nhật bản' || c === 'cđ nhật bản';
           });
           console.log('🇯🇵 [VanDon Fallback] Japan tab - filtering by country only');
+        } else if (isHanoiTab) {
+          // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn OK và đơn vị vận chuyển trống
+          data = data.filter(r => {
+            const checkResult = String(r['Kết quả Check'] || r['Kết quả check'] || '').trim();
+            const deliveryUnit = String(r['Đơn vị vận chuyển'] || r['Đơn vị Vận chuyển'] || '').trim();
+
+            // Kết quả Check phải là "Ok" hoặc "OK"
+            const isCheckOk = checkResult.toLowerCase() === 'ok';
+            // Đơn vị vận chuyển phải trống hoặc null
+            const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
+
+            return isCheckOk && isDeliveryUnitEmpty;
+          });
+          console.log('🏛️ [VanDon Fallback] Tab Hà Nội - Filtered by Check="OK" and empty Đơn vị vận chuyển:', data.length, 'orders');
         } else {
           // Filter by personnel for non-manager and non-Japan tabs
           if (!isManager && allAllowedNamesFallback.length > 0) {

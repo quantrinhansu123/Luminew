@@ -1,4 +1,4 @@
-import { Download, Edit, Eye, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
+import { Edit, Eye, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -459,13 +459,15 @@ function DonChiaCSKH() {
 
       let query = supabase.from('orders').select('*');
 
-      // Filter: Chỉ lấy đơn có CSKH không trống (loại bỏ null, rỗng, và khoảng trắng)
-      // Tất cả user (kể cả Admin) chỉ xem đơn có CSKH không trống
-      query = query.not('cskh', 'is', null);
-      query = query.neq('cskh', '');
-      query = query.neq('cskh', ' ');
-      // Đảm bảo cskh không phải là chuỗi rỗng sau khi trim
-      // Supabase không hỗ trợ trim trong query, nên sẽ filter ở client-side
+      // Filter: Chỉ lấy đơn có CSKH không trống (chỉ áp dụng cho non-manager)
+      // Admin/Manager: xem tất cả đơn (kể cả đơn không có CSKH)
+      if (!isManager) {
+        query = query.not('cskh', 'is', null);
+        query = query.neq('cskh', '');
+        query = query.neq('cskh', ' ');
+        // Đảm bảo cskh không phải là chuỗi rỗng sau khi trim
+        // Supabase không hỗ trợ trim trong query, nên sẽ filter ở client-side
+      }
 
       // Date Filter Logic
       // Date Filter Logic (Aligned with DanhSachDon)
@@ -655,15 +657,17 @@ function DonChiaCSKH() {
       });
 
       // Lọc thêm ở client-side để đảm bảo chỉ hiển thị đơn có CSKH không trống
-      // Tất cả user (kể cả Admin) chỉ xem đơn có CSKH không trống
+      // Chỉ áp dụng cho non-manager, Admin/Manager xem tất cả đơn (kể cả đơn không có CSKH)
       // Loại bỏ: null, undefined, chuỗi rỗng, và chuỗi chỉ có khoảng trắng
-      const filteredData = mappedData.filter(row => {
-        const cskh = row['CSKH'];
-        // Kiểm tra null, undefined, và chuỗi rỗng sau khi trim
-        if (cskh === null || cskh === undefined) return false;
-        const trimmed = String(cskh).trim();
-        return trimmed !== '' && trimmed.length > 0;
-      });
+      const filteredData = isManager 
+        ? mappedData // Admin/Manager: xem tất cả đơn
+        : mappedData.filter(row => {
+            const cskh = row['CSKH'];
+            // Kiểm tra null, undefined, và chuỗi rỗng sau khi trim
+            if (cskh === null || cskh === undefined) return false;
+            const trimmed = String(cskh).trim();
+            return trimmed !== '' && trimmed.length > 0;
+          });
 
       // Lưu mappedData để lấy unique CSKH từ tất cả dữ liệu (không chỉ đơn đã filter)
       setAllMappedData(mappedData);
@@ -801,33 +805,6 @@ function DonChiaCSKH() {
     return Array.from(checkResults).sort();
   }, [allData]);
 
-  // Export to Excel
-  const handleExportExcel = () => {
-    if (filteredData.length === 0) {
-      toast.error("Không có dữ liệu để xuất Excel.");
-      return;
-    }
-
-    const dataToExport = filteredData.map(row => {
-      const newRow = {};
-      displayColumns.forEach(col => {
-        const key = COLUMN_MAPPING[col] || col;
-        newRow[col] = row[key] ?? row[col] ?? '';
-      });
-      return newRow;
-    });
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
-
-    // Auto-width columns
-    const wscols = displayColumns.map(() => ({ wch: 20 }));
-    ws['!cols'] = wscols;
-
-    XLSX.utils.book_append_sheet(wb, ws, "DonChiaCSKH");
-    XLSX.writeFile(wb, `DonChiaCSKH_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    toast.success("✅ Đã xuất Excel thành công!");
-  };
 
   // Handle quick filter
   const handleQuickFilter = (value) => {
@@ -1909,13 +1886,6 @@ function DonChiaCSKH() {
                     <RefreshCw className="w-4 h-4" />
                   )}
                   {loading ? 'Đang tải...' : 'Tải lại'}
-                </button>
-                <button
-                  onClick={handleExportExcel}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  Xuất Excel
                 </button>
               </div>
             </div>

@@ -257,24 +257,46 @@ function DoiSoatBillCuoc() {
     }
   };
 
-  // Load exchange rates from database
+  // Load exchange rates from database (schema mới: ti_gia, gia_tri)
   useEffect(() => {
     const loadExchangeRates = async () => {
       try {
         const { data, error } = await supabase
           .from('exchange_rates')
-          .select('*')
-          .eq('id', 1)
-          .single();
-
+          .select('ti_gia, gia_tri')
+          .order('ti_gia');
+        
         if (error) throw error;
-        if (data) {
-          setExchangeRates({
-            AUD: data.aud || null,
-            CAD: data.cad || null,
-            USD: data.usd || null,
-            YEN: data.jpy || null, // Map YEN to JPY
+        
+        if (data && data.length > 0) {
+          // Map từ schema mới (ti_gia, gia_tri) sang object exchangeRates
+          const ratesMap = {
+            AUD: null,
+            CAD: null,
+            USD: null,
+            YEN: null, // YEN map từ JPY trong DB
+          };
+          
+          data.forEach(rate => {
+            const currency = (rate.ti_gia || '').trim().toUpperCase();
+            const value = parseFloat(rate.gia_tri) || null;
+            
+            // Map các loại tiền tệ
+            if (currency === 'USD') {
+              ratesMap.USD = value;
+            } else if (currency === 'AUD') {
+              ratesMap.AUD = value;
+            } else if (currency === 'CAD') {
+              ratesMap.CAD = value;
+            } else if (currency === 'JPY' || currency === 'YEN') {
+              ratesMap.YEN = value; // YEN trong UI map từ JPY trong DB
+            }
           });
+          
+          setExchangeRates(ratesMap);
+          console.log('✅ [DoiSoatBillCuoc] Đã tải tỷ giá từ bảng exchange_rates:', ratesMap);
+        } else {
+          console.warn('Không có dữ liệu tỷ giá trong DB');
         }
       } catch (err) {
         console.warn('Không thể tải tỷ giá từ database:', err);

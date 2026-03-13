@@ -518,22 +518,35 @@ export default function NhapDonMoi({ isEdit = false }) {
         }
     }, [date]);
 
-    // Load DB Rates
+    // Load DB Rates từ bảng exchange_rates (schema mới: ti_gia, gia_tri)
     useEffect(() => {
         const fetchRates = async () => {
             try {
-                const { data, error } = await supabase.from('exchange_rates').select('*').eq('id', 1).single();
+                const { data, error } = await supabase
+                    .from('exchange_rates')
+                    .select('ti_gia, gia_tri')
+                    .order('ti_gia');
+                
                 if (error) throw error;
-                if (data) {
-                    setDbRates({
-                        "USD": data.usd,
-                        "JPY": data.jpy,
-                        "KRW": data.krw,
-                        "CAD": data.cad,
-                        "AUD": data.aud,
-                        "GBP": data.gbp,
-                        "VND": 1
+                
+                if (data && data.length > 0) {
+                    // Map từ schema mới (ti_gia, gia_tri) sang object dbRates
+                    const ratesMap = {};
+                    data.forEach(rate => {
+                        const currency = (rate.ti_gia || '').trim().toUpperCase();
+                        const value = parseFloat(rate.gia_tri) || 0;
+                        if (currency) {
+                            ratesMap[currency] = value;
+                        }
                     });
+                    
+                    // Đảm bảo VND luôn = 1
+                    ratesMap["VND"] = 1;
+                    
+                    setDbRates(ratesMap);
+                    console.log('✅ Đã tải tỷ giá từ bảng exchange_rates:', ratesMap);
+                } else {
+                    console.warn("Không có dữ liệu tỷ giá trong DB, sử dụng tỷ giá mặc định");
                 }
             } catch (err) {
                 console.warn("Không thể tải tỷ giá từ DB (Dùng mặc định):", err);
@@ -626,6 +639,8 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     // State to track if we are currently fetching team/branch info
     const [isCheckingTeam, setIsCheckingTeam] = useState(false);
+    // State to store the found branch temporarily (to avoid race condition)
+    const [foundBranchCache, setFoundBranchCache] = useState(null);
 
     // --- Tự động điền team (chi nhánh) theo nhân viên sale từ bảng users ---
     useEffect(() => {
@@ -778,11 +793,13 @@ export default function NhapDonMoi({ isEdit = false }) {
                     }
                 }
 
-                // BƯỚC 8: Cập nhật form
+                // BƯỚC 8: Cập nhật form và cache
                 if (foundBranch) {
+                    setFoundBranchCache(foundBranch); // Cache để tránh race condition
                     setFormData((prev) => ({ ...prev, team: foundBranch }));
                     console.log(`✅ Tự động điền Chi nhánh: "${foundBranch}" cho nhân viên "${selectedSale}" (matched: "${matchedName}", từ ${source})`);
                 } else {
+                    setFoundBranchCache(null); // Clear cache nếu không tìm thấy
                     console.log(`⚠️ Không tìm thấy branch cho nhân viên "${selectedSale}" (normalized: "${saleNameNormalized}") trong cả users và orders`);
                     console.log(`   💡 Kiểm tra: Tên có dấu cách thừa? Tên có khác với database?`);
                     // Giữ nguyên giá trị hiện tại thay vì reset về "" để tránh mất dữ liệu
@@ -1149,7 +1166,15 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // Don't overwrite created_by on edit ideally, but here we just send it if new
 
                 // FORCE R&D TAG if user is R&D
-                team: hasRndPermission ? "RD" : (formData.team || ""),
+                // Ưu tiên dùng foundBranchCache nếu có (tránh race condition), sau đó dùng formData.team
+                // Chỉ gửi team nếu có giá trị hợp lệ (không phải empty string)
+                team: hasRndPermission 
+                    ? "RD" 
+                    : (foundBranchCache && foundBranchCache.trim() 
+                        ? foundBranchCache.trim() 
+                        : (formData.team && formData.team.trim() 
+                            ? formData.team.trim() 
+                            : undefined)),
 
                 note: formData["note_sale"] || "",
             };
