@@ -82,6 +82,13 @@ const AdminTools = () => {
     const [notDividedOrders, setNotDividedOrders] = useState([]); // Danh sách đơn không được chia
     const [selectedTeam, setSelectedTeam] = useState('Hà Nội');
     const [stepLogs, setStepLogs] = useState([]); // Log từng bước để hiển thị trong UI
+    
+    // --- AUTO CHIA ĐƠN VẬN ĐƠN THEO GIỜ CHẴN ---
+    const [autoChiaDonEnabled, setAutoChiaDonEnabled] = useState(() => {
+        const saved = localStorage.getItem('autoChiaDonEnabled');
+        return saved === 'true';
+    });
+    const [lastAutoChiaHour, setLastAutoChiaHour] = useState(null); // Lưu giờ cuối cùng đã chạy
 
     // --- VIEW CHIA ĐƠN VẬN ĐƠN ---
     const [chiaDonViewDate, setChiaDonViewDate] = useState(() => {
@@ -183,6 +190,57 @@ const AdminTools = () => {
             loadExchangeRates();
         }
     }, [activeTab]);
+
+    // --- TỰ ĐỘNG CHIA ĐƠN VẬN ĐƠN VÀO GIỜ CHẴN ---
+    useEffect(() => {
+        if (!autoChiaDonEnabled) return;
+
+        const checkAndRunAutoChia = () => {
+            const now = new Date();
+            const currentHour = now.getHours();
+            const currentMinute = now.getMinutes();
+
+            // Chỉ chạy vào phút 0 của mỗi giờ (ví dụ: 1:00, 2:00, 3:00...)
+            if (currentMinute === 0) {
+                setLastAutoChiaHour(prev => {
+                    // Chỉ chạy nếu chưa chạy trong giờ này
+                    if (prev !== currentHour) {
+                        console.log(`🕐 [Tự động chia đơn] Đến giờ ${currentHour}:00, bắt đầu chia đơn vận đơn...`);
+                        
+                        // Chạy chia đơn cho cả HCM và Hà Nội
+                        // Chạy tuần tự để tránh conflict
+                        handleChiaDonVanDon('HCM').then(() => {
+                            // Đợi 2 giây trước khi chạy Hà Nội
+                            setTimeout(() => {
+                                handleChiaDonVanDon('Hà Nội').catch(err => {
+                                    console.error('❌ [Tự động chia đơn] Lỗi khi chia đơn Hà Nội:', err);
+                                });
+                            }, 2000);
+                        }).catch(err => {
+                            console.error('❌ [Tự động chia đơn] Lỗi khi chia đơn HCM:', err);
+                        });
+                        
+                        return currentHour;
+                    }
+                    return prev;
+                });
+            }
+        };
+
+        // Kiểm tra ngay lập tức
+        checkAndRunAutoChia();
+
+        // Kiểm tra mỗi phút
+        const interval = setInterval(checkAndRunAutoChia, 60000); // 60000ms = 1 phút
+
+        return () => clearInterval(interval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoChiaDonEnabled]);
+
+    // Lưu trạng thái autoChiaDonEnabled vào localStorage
+    useEffect(() => {
+        localStorage.setItem('autoChiaDonEnabled', String(autoChiaDonEnabled));
+    }, [autoChiaDonEnabled]);
 
     // --- VERIFICATION STATE ---
     const [verifyResult, setVerifyResult] = useState(null);
@@ -4936,6 +4994,44 @@ const AdminTools = () => {
                             {/* Cột phải: Chia đơn vận đơn */}
                             <div className="space-y-4">
                                 <h3 className="font-semibold text-gray-700">Chia đơn vận đơn</h3>
+                                
+                                {/* Toggle tự động chia đơn vào giờ chẵn */}
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <Clock className="w-5 h-5 text-blue-600" />
+                                            <div>
+                                                <p className="text-sm font-semibold text-gray-800">Tự động chia đơn vào giờ chẵn</p>
+                                                <p className="text-xs text-gray-600 mt-1">
+                                                    Tự động chạy chia đơn HCM và Hà Nội vào các giờ: 1h, 2h, 3h, 4h, 5h...
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={autoChiaDonEnabled}
+                                                onChange={(e) => {
+                                                    setAutoChiaDonEnabled(e.target.checked);
+                                                    if (e.target.checked) {
+                                                        toast.info('Đã bật tự động chia đơn vào giờ chẵn');
+                                                    } else {
+                                                        toast.info('Đã tắt tự động chia đơn');
+                                                        setLastAutoChiaHour(null);
+                                                    }
+                                                }}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                        </label>
+                                    </div>
+                                    {autoChiaDonEnabled && lastAutoChiaHour !== null && (
+                                        <p className="text-xs text-blue-700 mt-2">
+                                            ⏰ Lần chạy cuối: {lastAutoChiaHour}:00
+                                        </p>
+                                    )}
+                                </div>
+
                                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                     <p className="text-xs text-gray-700 mb-2"><strong>Logic chia đơn vận đơn:</strong></p>
                                     <ol className="list-decimal list-inside space-y-1 text-xs text-gray-600">
