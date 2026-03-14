@@ -70,13 +70,34 @@ function ExternalIdRedirect({ baseUrl }) {
 
   useEffect(() => {
     const resolve = async () => {
+      // Check if user role is director - if so, don't add id to link
+      let isDirector = false;
+      const userEmail = localStorage.getItem('userEmail');
+      if (userEmail) {
+        try {
+          const { data } = await supabase
+            .from('users')
+            .select('role')
+            .eq('email', userEmail)
+            .maybeSingle();
+          
+          const role = (data?.role || '').toLowerCase();
+          isDirector = role === 'director' || role === 'DIRECTOR';
+        } catch (_) {}
+      }
+
+      // If director, don't add id to link
+      if (isDirector) {
+        setRedirectTo(`/external-view?url=${encodeURIComponent(baseUrl)}`);
+        return;
+      }
+
       // Try localStorage first (fast path)
       let idAppsheet = localStorage.getItem('idAppsheet') || '';
 
       // If empty, fetch from DB using stored userId
       if (!idAppsheet) {
         const userId = localStorage.getItem('userId');
-        const userEmail = localStorage.getItem('userEmail');
         if (userId || userEmail) {
           try {
             let query = supabase.from('users').select('id_appsheet');
