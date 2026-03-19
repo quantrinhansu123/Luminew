@@ -360,11 +360,18 @@ export const DB_TO_APP_MAPPING = {
     // New Columns Mapping
     "check_result": "Kết quả Check",
     "vandon_note": "Ghi chú của VĐ",
+    // Product columns: support both old/new DB schemas
+    "product_name_1": "Tên mặt hàng 1",
+    "quantity_1": "Số lượng mặt hàng 1",
+    "product_name_2": "Tên mặt hàng 2",
+    "quantity_2": "Số lượng mặt hàng 2",
+    "gift": "Quà tặng",
+    "gift_quantity": "Số lượng quà kèm",
+    // Legacy fallback columns (some environments still have these)
     "item_name_1": "Tên mặt hàng 1",
     "item_qty_1": "Số lượng mặt hàng 1",
     "item_name_2": "Tên mặt hàng 2",
     "item_qty_2": "Số lượng mặt hàng 2",
-    "gift_item": "Quà tặng",
     "gift_item": "Quà tặng",
     "gift_qty": "Số lượng quà kèm",
 
@@ -411,6 +418,22 @@ const mapSupabaseOrderToApp = (sOrder) => {
     // Payment Bill mapping
     if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;
     if (sOrder.payment_image) appOrder["Payment Image"] = sOrder.payment_image;
+
+    // Normalize product columns across mixed schemas and legacy data.
+    // Some rows only have `product` populated, while item columns are empty.
+    const itemName1 = sOrder.product_name_1 ?? sOrder.item_name_1 ?? sOrder.product ?? '';
+    const itemQty1 = sOrder.quantity_1 ?? sOrder.item_qty_1 ?? '';
+    const itemName2 = sOrder.product_name_2 ?? sOrder.item_name_2 ?? '';
+    const itemQty2 = sOrder.quantity_2 ?? sOrder.item_qty_2 ?? '';
+    const giftItem = sOrder.gift ?? sOrder.gift_item ?? '';
+    const giftQty = sOrder.gift_quantity ?? sOrder.gift_qty ?? '';
+
+    appOrder["Tên mặt hàng 1"] = itemName1;
+    appOrder["Số lượng mặt hàng 1"] = itemQty1;
+    appOrder["Tên mặt hàng 2"] = itemName2;
+    appOrder["Số lượng mặt hàng 2"] = itemQty2;
+    appOrder["Quà tặng"] = giftItem;
+    appOrder["Số lượng quà kèm"] = giftQty;
 
     // Ngày up bill mapping - map từ database column ngayupbill
     if (sOrder.ngayupbill !== undefined && sOrder.ngayupbill !== null) {
