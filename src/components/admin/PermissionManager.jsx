@@ -3,7 +3,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Check, ChevronDown, Edit, Lock, Plus, Shield, Trash2, Users, X, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as rbacService from '../../services/rbacService';
 import PermissionTree from './PermissionTree';
@@ -751,6 +751,18 @@ const PermissionManager = ({ searchQuery = "" }) => {
         role_code: '',
         selectedPersonnel: [] // Danh sách nhân sự đã chọn
     });
+    const [editPersonnelSearch, setEditPersonnelSearch] = useState('');
+
+    const filteredEmployeesForEditPersonnel = useMemo(() => {
+        const q = editPersonnelSearch.trim().toLowerCase();
+        if (!q) return employees;
+        return employees.filter((emp) => {
+            const empName = String(emp['Họ Và Tên'] || emp.name || emp.email || '').toLowerCase();
+            const email = String(emp.email || '').toLowerCase();
+            const team = String(emp.team || '').toLowerCase();
+            return empName.includes(q) || email.includes(q) || team.includes(q);
+        });
+    }, [employees, editPersonnelSearch]);
 
     // Leader teams state
     const [leaderTeamsMap, setLeaderTeamsMap] = useState({}); // { email: [teams] }
@@ -909,6 +921,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             
             toast.success(`Đã cập nhật thông tin cho ${editingUser.email}`);
             setEditingUser(null);
+            setEditPersonnelSearch('');
             setEditFormData({ name: '', department: '', position: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
             loadData();
         } catch (error) {
@@ -1468,6 +1481,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                     position: emp?.position || '',
                                                                     team: emp?.team || ''
                                                                 });
+                                                                setEditPersonnelSearch('');
                                                                 setEditFormData({
                                                                     name: emp ? emp['Họ Và Tên'] : '',
                                                                     department: departmentsMap[ur.email] || emp?.department || '',
@@ -1532,6 +1546,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                 className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]" 
                                 onClick={() => {
                                     setEditingUser(null);
+                                    setEditPersonnelSearch('');
                                     setEditFormData({ name: '', department: '', position: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
                                 }}
                             >
@@ -1638,9 +1653,20 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Nhân sự:
                                             </label>
+                                            <div className="relative mb-2">
+                                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                                <input
+                                                    type="search"
+                                                    value={editPersonnelSearch}
+                                                    onChange={(e) => setEditPersonnelSearch(e.target.value)}
+                                                    placeholder="Tìm theo tên, email, team..."
+                                                    className="border rounded text-sm w-full pl-9 pr-3 py-2 bg-white"
+                                                    autoComplete="off"
+                                                />
+                                            </div>
                                             <div className="border rounded p-3 bg-gray-50 max-h-60 overflow-y-auto">
                                                 <div className="space-y-2">
-                                                    {employees.map(emp => {
+                                                    {filteredEmployeesForEditPersonnel.map(emp => {
                                                         const empName = emp['Họ Và Tên'] || emp.name || emp.email;
                                                         const isSelected = editFormData.selectedPersonnel.includes(empName);
                                                         return (
@@ -1673,6 +1699,11 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                             </label>
                                                         );
                                                     })}
+                                                    {filteredEmployeesForEditPersonnel.length === 0 && (
+                                                        <p className="text-sm text-gray-500 text-center py-3">
+                                                            Không tìm thấy nhân sự phù hợp
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </div>
                                             <p className="text-xs text-gray-500 mt-1">
@@ -1684,6 +1715,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                         <button
                                             onClick={() => {
                                                 setEditingUser(null);
+                                                setEditPersonnelSearch('');
                                                 setEditFormData({ name: '', department: '', position: '', team: '', role_code: '', selectedPersonnel: [] });
                                             }}
                                             className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300 text-sm"

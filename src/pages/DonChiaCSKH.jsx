@@ -1,4 +1,4 @@
-import { Edit, Eye, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
+import { Download, Edit, Eye, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -39,6 +39,140 @@ const parseMoney = (moneyString) => {
   return parseFloat(moneyString.toString().replace(/[^\d.-]/g, '')) || 0;
 };
 
+const DON_CHIA_CSKH_PAGE_SIZE = 1000;
+
+function mapDonChiaOrderToFriendly(item) {
+  return {
+    id: item.id,
+    /** Khớp cột Supabase `orders` — dùng cho xuất Excel */
+    order_code: item.order_code ?? '',
+    cskh_status: item.cskh_status != null && item.cskh_status !== '' ? String(item.cskh_status) : '',
+    "Mã đơn hàng": item.order_code,
+    "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
+    "Name*": item.customer_name,
+    "Phone*": item.customer_phone,
+    "Add": item.customer_address,
+    "City": item.city,
+    "State": item.state,
+    "Khu vực": item.country,
+    "Zipcode": item.zipcode,
+    "Mặt hàng": item.product,
+    "Tên mặt hàng 1": item.product_name_1 || item.product,
+    "Tổng tiền VNĐ": item.total_amount_vnd,
+    "Loại tiền": item.payment_type,
+    "Hình thức thanh toán": item.payment_method_text || item.payment_method,
+    "Mã Tracking": item.tracking_code,
+    "Nhân viên Marketing": item.marketing_staff,
+    "Nhân viên Sale": item.sale_staff,
+    "Team": item.team,
+    "Trạng thái giao hàng": item.delivery_status,
+    "Kết quả Check": item.payment_status,
+    "Ghi chú": item.note,
+    "CSKH": item.cskh ? String(item.cskh).trim() : '',
+    "Trạng thái cskh": item.cskh_status != null && item.cskh_status !== '' ? String(item.cskh_status) : '',
+    _cskh_raw: item.cskh,
+    "NV Vận đơn": item.delivery_staff,
+    "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount,
+    "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier,
+    "Kế toán xác nhận thu tiền về": item.accountant_confirm,
+    "Trạng thái thu tiền": item.payment_status_detail,
+    "Lý do": item.reason,
+    "Page": item.page_name,
+  };
+}
+
+function applyDonChiaNonManagerCskhGate(mappedData, isManager) {
+  if (isManager) return mappedData;
+  return mappedData.filter((row) => {
+    const cskh = row['CSKH'];
+    if (cskh === null || cskh === undefined) return false;
+    const trimmed = String(cskh).trim();
+    return trimmed !== '' && trimmed.length > 0;
+  });
+}
+
+function applyDonChiaClientTableFilters(data, ctx) {
+  let rows = [...data];
+
+  if (ctx.debouncedSearchText) {
+    const searchLower = ctx.debouncedSearchText.toLowerCase();
+    rows = rows.filter((row) =>
+      Object.values(row).some((val) => String(val || '').toLowerCase().includes(searchLower))
+    );
+  }
+
+  if (ctx.filterMarket.length > 0) {
+    rows = rows.filter((row) => {
+      const market = row["Khu vực"] || row["khu vực"];
+      return ctx.filterMarket.includes(String(market).trim());
+    });
+  }
+
+  if (ctx.filterProduct.length > 0) {
+    rows = rows.filter((row) => {
+      const product = row["Mặt hàng"];
+      return ctx.filterProduct.includes(String(product).trim());
+    });
+  }
+
+  if (ctx.filterStatus.length > 0) {
+    rows = rows.filter((row) => {
+      const status = row["Trạng thái giao hàng"];
+      return ctx.filterStatus.includes(String(status).trim());
+    });
+  }
+
+  if (ctx.filterCheckResult.length > 0) {
+    rows = rows.filter((row) => {
+      const checkResult = row["Kết quả Check"];
+      return ctx.filterCheckResult.includes(String(checkResult).trim());
+    });
+  }
+
+  if (ctx.filterPersonnel.length > 0) {
+    rows = rows.filter((row) => {
+      const cskh = String(row["CSKH"] || '').trim();
+      return ctx.filterPersonnel.some((filterName) => {
+        const name = String(filterName).trim();
+        return cskh.toLowerCase() === name.toLowerCase() ||
+          cskh.toLowerCase().includes(name.toLowerCase());
+      });
+    });
+  }
+
+  if (ctx.filterCSKH.length > 0) {
+    rows = rows.filter((row) => {
+      const cskh = String(row["CSKH"] || '').trim();
+      return ctx.filterCSKH.some((filterValue) => {
+        if (filterValue === '__EMPTY__') return !cskh || cskh === '';
+        return cskh.toLowerCase() === String(filterValue).trim().toLowerCase();
+      });
+    });
+  }
+
+  if (ctx.filterTrangThai.length > 0) {
+    rows = rows.filter((row) => {
+      const status = String(row["Trạng thái cskh"] || '').trim();
+      const statusLower = status.toLowerCase();
+      return ctx.filterTrangThai.some((filterValue) => {
+        if (filterValue === '__EMPTY__') return !status || status === '';
+        return statusLower === String(filterValue).trim().toLowerCase();
+      });
+    });
+  }
+
+  if (ctx.sortColumn) {
+    rows.sort((a, b) => {
+      const aVal = a[ctx.sortColumn] || '';
+      const bVal = b[ctx.sortColumn] || '';
+      const comparison = String(aVal).localeCompare(String(bVal), 'vi', { numeric: true });
+      return ctx.sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }
+
+  return rows;
+}
+
 
 function DonChiaCSKH() {
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
@@ -49,6 +183,7 @@ function DonChiaCSKH() {
   const [allMappedData, setAllMappedData] = useState([]); // Lưu tất cả dữ liệu đã map (trước khi filter CSKH) để lấy unique CSKH
 
   const [loading, setLoading] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [filterMarket, setFilterMarket] = useState([]);
@@ -417,141 +552,92 @@ function DonChiaCSKH() {
     }
   }, [visibleColumns]);
 
+  const getDonChiaOrdersQuery = async () => {
+    const userJson = localStorage.getItem("user");
+    const user = userJson ? JSON.parse(userJson) : null;
+
+    const userEmail = localStorage.getItem("userEmail") || (user?.Email || user?.email || "").toString().toLowerCase().trim();
+    const userName = localStorage.getItem("username") || (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.name || user?.fullName || "").toString().trim();
+    const boPhan = (user?.['Bộ_phận'] || user?.['Bộ phận'] || "").toString().trim().toLowerCase();
+    const viTri = (user?.['Vị_trí'] || user?.['Vị trí'] || "").toString().trim().toLowerCase();
+
+    const ADMIN_MAIL = "admin@marketing.com";
+    const isAdmin = userEmail === ADMIN_MAIL || boPhan === 'admin';
+    const isLeader = viTri.includes('leader') || viTri.includes('quản lý') || boPhan.includes('manager');
+    const roleLower = (role || '').toLowerCase();
+    const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
+
+    let query = supabase.from('orders').select('*');
+
+    if (!isManager) {
+      query = query.not('cskh', 'is', null);
+      query = query.neq('cskh', '');
+      query = query.neq('cskh', ' ');
+    }
+
+    if (startDate && startDate.trim() !== '') {
+      query = query.gte('order_date', startDate);
+    }
+    if (endDate && endDate.trim() !== '') {
+      query = query.lte('order_date', endDate);
+    }
+
+    query = query.order('order_date', { ascending: false });
+
+    if (!isManager) {
+      const normalizedEmail = (userEmail || '').trim().toLowerCase();
+
+      if (normalizedEmail) {
+        const { data: userPermissionData, error: userPermissionError } = await supabase
+          .from('users')
+          .select('selected_personnel')
+          .eq('email', normalizedEmail)
+          .maybeSingle();
+
+        if (userPermissionError) {
+          console.error('❌ [DonChiaCSKH] Error loading selected_personnel:', userPermissionError);
+        }
+
+        const selectedPersonnel = normalizePersonnelList(userPermissionData?.selected_personnel);
+
+        if (selectedPersonnel.length > 0) {
+          const orConditions = selectedPersonnel.map((name) => `cskh.ilike.${name}`).join(',');
+          query = query.or(orConditions);
+        } else {
+          query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+        }
+      } else {
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+      }
+    } else {
+      if (filterPersonnel && filterPersonnel.length > 0 && typeof filterPersonnel[0] === 'string') {
+        const name = filterPersonnel[0].trim();
+        const pattern = `%${name}%`;
+        const orConditions = [
+          `sale_staff.ilike.${pattern}`,
+          `marketing_staff.ilike.${pattern}`,
+          `delivery_staff.ilike.${pattern}`
+        ];
+        try {
+          query = query.or(orConditions.join(','));
+        } catch (orError) {
+          console.error('❌ [DonChiaCSKH] Admin error applying personnel OR filter, falling back to sale_staff:', orError);
+          query = query.ilike('sale_staff', pattern);
+        }
+      }
+    }
+
+    return { query, isManager };
+  };
+
   // Load data from Supabase with date filter
   const loadData = async () => {
-    // Nếu không có date range, không load (hoặc có thể load tất cả - tùy yêu cầu)
-    // Tạm thời: nếu không có date thì return
-    // if (!startDate || !endDate) return;
-
     setLoading(true);
     try {
       console.log('🔍 [DonChiaCSKH] Loading orders from Supabase...');
       console.log(`📅 [DonChiaCSKH] Date range: ${startDate || 'ALL'} to ${endDate || 'ALL'}`);
 
-      // Get user info for permission
-      const userJson = localStorage.getItem("user");
-      const user = userJson ? JSON.parse(userJson) : null;
-      
-      // Fetch username from multiple possible sources
-      const userEmail = localStorage.getItem("userEmail") || (user?.Email || user?.email || "").toString().toLowerCase().trim();
-      const userName = localStorage.getItem("username") || (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.name || user?.fullName || "").toString().trim();
-      const boPhan = (user?.['Bộ_phận'] || user?.['Bộ phận'] || "").toString().trim().toLowerCase();
-      const viTri = (user?.['Vị_trí'] || user?.['Vị trí'] || "").toString().trim().toLowerCase();
-      
-      console.log('👤 [DonChiaCSKH] User info from localStorage:', { userEmail, userName, from: 'localStorage' });
-
-      const ADMIN_MAIL = "admin@marketing.com";
-      const isAdmin = userEmail === ADMIN_MAIL || boPhan === 'admin';
-      const isLeader = viTri.includes('leader') || viTri.includes('quản lý') || boPhan.includes('manager');
-      const roleLower = (role || '').toLowerCase();
-      const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
-
-      console.log('🔐 [DonChiaCSKH] Permission check:', { 
-        userEmail, 
-        userName, 
-        boPhan, 
-        viTri, 
-        role, 
-        isAdmin, 
-        isLeader, 
-        isManager 
-      });
-
-      let query = supabase.from('orders').select('*');
-
-      // Filter: Chỉ lấy đơn có CSKH không trống (chỉ áp dụng cho non-manager)
-      // Admin/Manager: xem tất cả đơn (kể cả đơn không có CSKH)
-      if (!isManager) {
-        query = query.not('cskh', 'is', null);
-        query = query.neq('cskh', '');
-        query = query.neq('cskh', ' ');
-        // Đảm bảo cskh không phải là chuỗi rỗng sau khi trim
-        // Supabase không hỗ trợ trim trong query, nên sẽ filter ở client-side
-      }
-
-      // Date Filter Logic
-      // Date Filter Logic (Aligned with DanhSachDon)
-      // Chỉ filter theo date nếu có giá trị
-      if (startDate && startDate.trim() !== '') {
-        query = query.gte('order_date', startDate);
-        console.log(`📅 [DonChiaCSKH] Applied startDate filter: >= ${startDate}`);
-      } else {
-        console.log(`📅 [DonChiaCSKH] No startDate filter - showing all dates`);
-      }
-      if (endDate && endDate.trim() !== '') {
-        query = query.lte('order_date', endDate);
-        console.log(`📅 [DonChiaCSKH] Applied endDate filter: <= ${endDate}`);
-      } else {
-        console.log(`📅 [DonChiaCSKH] No endDate filter - showing all dates`);
-      }
-
-      query = query.order('order_date', { ascending: false });
-
-      // --- USER ISOLATION FILTER (CSKH) ---
-      // Non-manager: Only view orders where cskh is in selected_personnel list from users table
-      // Manager/Admin: View all orders (or with optional personnel filter)
-      if (!isManager) {
-        const normalizedEmail = (userEmail || '').trim().toLowerCase();
-        console.log('👤 [DonChiaCSKH] Non-manager user email:', normalizedEmail);
-        
-        if (normalizedEmail) {
-          // Fetch selected_personnel from users table
-          const { data: userPermissionData, error: userPermissionError } = await supabase
-            .from('users')
-            .select('selected_personnel')
-            .eq('email', normalizedEmail)
-            .maybeSingle();
-
-          if (userPermissionError) {
-            console.error('❌ [DonChiaCSKH] Error loading selected_personnel:', userPermissionError);
-          }
-
-          // Parse selected_personnel list
-          const selectedPersonnel = normalizePersonnelList(userPermissionData?.selected_personnel);
-          console.log('🔐 [DonChiaCSKH] Allowed CSKH names from selected_personnel:', selectedPersonnel);
-          
-          if (selectedPersonnel.length > 0) {
-            // Build OR conditions for multiple CSKH names
-            const orConditions = selectedPersonnel.map(name => `cskh.ilike.${name}`).join(',');
-            query = query.or(orConditions);
-            console.log('✅ [DonChiaCSKH] Applied selected_personnel filter:', selectedPersonnel);
-          } else {
-            // No selected_personnel: return no results
-            console.warn('⚠️ [DonChiaCSKH] No selected_personnel found, returning empty result');
-            query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Return no results
-          }
-        } else {
-          // No email: return no results
-          console.warn('⚠️ [DonChiaCSKH] Missing user email, returning empty result');
-          query = query.eq('id', '00000000-0000-0000-0000-000000000000');
-        }
-      } else {
-        // Admin/Manager: có thể filter theo nhân sự nếu được chọn
-        // filterPersonnel giờ là array
-        console.log('👤 [DonChiaCSKH] Admin/Manager user, viewing all orders');
-        if (filterPersonnel && filterPersonnel.length > 0 && typeof filterPersonnel[0] === 'string') {
-          const name = filterPersonnel[0].trim();
-          const pattern = `%${name}%`;
-          console.log('🔍 [DonChiaCSKH] Admin filtering by selected personnel (Sale/MKT/Vận đơn):', name);
-
-          const orConditions = [
-            `sale_staff.ilike.${pattern}`,
-            `marketing_staff.ilike.${pattern}`,
-            `delivery_staff.ilike.${pattern}`
-          ];
-
-          try {
-            query = query.or(orConditions.join(','));
-            console.log('✅ [DonChiaCSKH] Admin applied personnel OR filter:', orConditions.join(','));
-          } catch (orError) {
-            console.error('❌ [DonChiaCSKH] Admin error applying personnel OR filter, falling back to sale_staff:', orError);
-            query = query.ilike('sale_staff', pattern);
-          }
-        } else {
-          console.log('✅ [DonChiaCSKH] Admin/Manager: viewing all orders (no personnel filter)');
-        }
-      }
-
+      const { query, isManager } = await getDonChiaOrdersQuery();
       let { data, error } = await query;
 
       if (error) throw error;
@@ -603,71 +689,9 @@ function DonChiaCSKH() {
         }
       }
 
-      // Tự động lấy danh sách các cột DB đã được map sang tên thân thiện (để loại bỏ trùng lặp)
-      const mappedDbColumns = new Set([
-        ...Object.keys(COLUMN_DISPLAY_NAMES), // Tất cả các keys từ COLUMN_DISPLAY_NAMES
-        'created_at', // Thêm các cột khác có thể được dùng nhưng không có trong mapping
-        'updated_at',
-        'id'
-      ]);
+      const mappedData = (data || []).map((item) => mapDonChiaOrderToFriendly(item));
 
-      // Data is already filtered by DB query (IN clause for non-manager, all for manager)
-      const mappedData = (data || []).map(item => {
-        // Tạo object với các cột friendly name (đầy đủ như BaoCaoChiTiet)
-        const friendlyData = {
-          id: item.id, // Giữ lại id để có thể update/delete
-          "Mã đơn hàng": item.order_code,
-          "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
-          "Name*": item.customer_name,
-          "Phone*": item.customer_phone,
-          "Add": item.customer_address,
-          "City": item.city,
-          "State": item.state,
-          "Khu vực": item.country,
-          "Zipcode": item.zipcode,
-          "Mặt hàng": item.product,
-          "Tên mặt hàng 1": item.product_name_1 || item.product,
-          "Tổng tiền VNĐ": item.total_amount_vnd,
-          "Loại tiền": item.payment_type,
-          "Hình thức thanh toán": item.payment_method_text || item.payment_method,
-          "Mã Tracking": item.tracking_code,
-          "Nhân viên Marketing": item.marketing_staff,
-          "Nhân viên Sale": item.sale_staff,
-          "Team": item.team,
-          "Trạng thái giao hàng": item.delivery_status,
-          "Kết quả Check": item.payment_status,
-          "Ghi chú": item.note,
-          "CSKH": item.cskh ? String(item.cskh).trim() : '', // Chỉ lấy từ cột cskh, không fallback
-          "Trạng thái cskh": item.cskh_status || '',
-          // Giữ lại cột gốc để debug
-          _cskh_raw: item.cskh,
-          "NV Vận đơn": item.delivery_staff,
-          "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount,
-          "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier,
-          "Kế toán xác nhận thu tiền về": item.accountant_confirm,
-          "Trạng thái thu tiền": item.payment_status_detail,
-          "Lý do": item.reason,
-          "Page": item.page_name,
-        };
-
-        // Loại bỏ tất cả các cột tiếng Anh (snake_case, camelCase) - chỉ giữ cột tiếng Việt
-        // Không thêm bất kỳ cột nào từ DB nếu chưa được map sang tiếng Việt
-        
-        return friendlyData;
-      });
-
-      // Lọc thêm ở client-side để đảm bảo chỉ hiển thị đơn có CSKH không trống
-      // Chỉ áp dụng cho non-manager, Admin/Manager xem tất cả đơn (kể cả đơn không có CSKH)
-      // Loại bỏ: null, undefined, chuỗi rỗng, và chuỗi chỉ có khoảng trắng
-      const filteredData = isManager 
-        ? mappedData // Admin/Manager: xem tất cả đơn
-        : mappedData.filter(row => {
-            const cskh = row['CSKH'];
-            // Kiểm tra null, undefined, và chuỗi rỗng sau khi trim
-            if (cskh === null || cskh === undefined) return false;
-            const trimmed = String(cskh).trim();
-            return trimmed !== '' && trimmed.length > 0;
-          });
+      const filteredData = applyDonChiaNonManagerCskhGate(mappedData, isManager);
 
       // Lưu mappedData để lấy unique CSKH từ tất cả dữ liệu (không chỉ đơn đã filter)
       setAllMappedData(mappedData);
@@ -719,8 +743,6 @@ function DonChiaCSKH() {
         hint: error?.hint,
         startDate,
         endDate,
-        isManager,
-        userName
       });
       
       // User-friendly error message
@@ -864,132 +886,18 @@ function DonChiaCSKH() {
 
   // Filter and sort data
   const filteredData = useMemo(() => {
-    let data = [...allData];
-
-    // Search filter (using debounced value) - search in all columns
-    if (debouncedSearchText) {
-      const searchLower = debouncedSearchText.toLowerCase();
-      data = data.filter(row => {
-        // Search in all column values
-        return Object.values(row).some(val => 
-          String(val || '').toLowerCase().includes(searchLower)
-        );
-      });
-    }
-
-    // Market filter
-    if (filterMarket.length > 0) {
-      data = data.filter(row => {
-        const market = row["Khu vực"] || row["khu vực"];
-        return filterMarket.includes(String(market).trim());
-      });
-    }
-
-    // Product filter
-    if (filterProduct.length > 0) {
-      data = data.filter(row => {
-        const product = row["Mặt hàng"];
-        return filterProduct.includes(String(product).trim());
-      });
-    }
-
-    // Status filter
-    if (filterStatus.length > 0) {
-      data = data.filter(row => {
-        const status = row["Trạng thái giao hàng"];
-        return filterStatus.includes(String(status).trim());
-      });
-    }
-
-    // Check Result filter
-    if (filterCheckResult.length > 0) {
-      data = data.filter(row => {
-        const checkResult = row["Kết quả Check"];
-        return filterCheckResult.includes(String(checkResult).trim());
-      });
-    }
-
-    // Personnel filter (array - multiple selection)
-    if (filterPersonnel.length > 0) {
-      data = data.filter(row => {
-        const cskh = String(row["CSKH"] || '').trim();
-        return filterPersonnel.some(filterName => {
-          const name = String(filterName).trim();
-          return cskh.toLowerCase() === name.toLowerCase() || 
-                 cskh.toLowerCase().includes(name.toLowerCase());
-        });
-      });
-    }
-
-    // CSKH filter - Lọc theo cột CSKH (array - multiple selection)
-    if (filterCSKH.length > 0) {
-      data = data.filter(row => {
-        const cskh = String(row["CSKH"] || '').trim();
-        // Check if any selected value matches
-        return filterCSKH.some(filterValue => {
-          if (filterValue === '__EMPTY__') {
-            // Match empty CSKH
-            return !cskh || cskh === '';
-          } else {
-            // Match non-empty CSKH
-            return cskh.toLowerCase() === String(filterValue).trim().toLowerCase();
-          }
-        });
-      });
-    }
-
-    // Trạng thái CSKH filter - Lọc theo cột "Trạng thái cskh" (array - multiple selection)
-    if (filterTrangThai.length > 0) {
-      console.log('🔍 [Filter Debug] filterTrangThai:', filterTrangThai);
-      console.log('🔍 [Filter Debug] Data before filter:', data.length);
-      console.log('🔍 [Filter Debug] Sample data statuses:', data.slice(0, 5).map(r => ({
-        code: r["Mã đơn hàng"],
-        status: r["Trạng thái cskh"],
-        status_type: typeof r["Trạng thái cskh"]
-      })));
-      
-      data = data.filter(row => {
-        const status = String(row["Trạng thái cskh"] || '').trim();
-        const statusLower = status.toLowerCase();
-        
-        // Check if any selected value matches
-        const matches = filterTrangThai.some(filterValue => {
-          if (filterValue === '__EMPTY__') {
-            // Match empty status
-            return !status || status === '';
-          } else {
-            // Match non-empty status (case-insensitive)
-            const filterValueTrimmed = String(filterValue).trim().toLowerCase();
-            const isMatch = statusLower === filterValueTrimmed;
-            return isMatch;
-          }
-        });
-        return matches;
-      });
-      
-      console.log('🔍 [Filter Debug] Data after filter:', data.length);
-      console.log('🔍 [Filter Debug] Filtered data statuses:', data.slice(0, 5).map(r => ({
-        code: r["Mã đơn hàng"],
-        status: r["Trạng thái cskh"]
-      })));
-    }
-
-    // Date filter (already applied on server-side, but double check if needed or just skip)
-    // Since allData is already filtered by date from server, we might not need strict filtering here 
-    // BUT if the user changes local state `startDate` it triggers fetch. 
-    // We can skip client-side date filter or keep it for safety if `allData` contains out-of-range rows (unlikely with this logic)
-
-    // Sort
-    if (sortColumn) {
-      data.sort((a, b) => {
-        const aVal = a[sortColumn] || '';
-        const bVal = b[sortColumn] || '';
-        const comparison = String(aVal).localeCompare(String(bVal), 'vi', { numeric: true });
-        return sortDirection === 'asc' ? comparison : -comparison;
-      });
-    }
-
-    return data;
+    return applyDonChiaClientTableFilters(allData, {
+      debouncedSearchText,
+      filterMarket,
+      filterProduct,
+      filterStatus,
+      filterCheckResult,
+      filterPersonnel,
+      filterCSKH,
+      filterTrangThai,
+      sortColumn,
+      sortDirection,
+    });
   }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterCheckResult, filterPersonnel, filterCSKH, filterTrangThai, sortColumn, sortDirection]);
 
   // Calculate summary statistics
@@ -1104,6 +1012,75 @@ function DonChiaCSKH() {
     }
   };
 
+  const handleExportDonChiaExcel = async () => {
+    if (!filteredData.length) {
+      toast.warning('Không có dữ liệu để xuất (sau khi lọc).');
+      return;
+    }
+    if (exportingExcel) return;
+
+    const filterCtx = {
+      debouncedSearchText,
+      filterMarket,
+      filterProduct,
+      filterStatus,
+      filterCheckResult,
+      filterPersonnel,
+      filterCSKH,
+      filterTrangThai,
+      sortColumn,
+      sortDirection,
+    };
+
+    setExportingExcel(true);
+    const toastId = 'donchia-cskh-excel-export';
+    toast.info('Đang tải đủ đơn từ server (tự chia từng 1000 dòng nếu cần)...', { toastId, autoClose: false });
+
+    try {
+      const acc = [];
+      let from = 0;
+      let isManagerFlag = false;
+      for (;;) {
+        const { query, isManager } = await getDonChiaOrdersQuery();
+        isManagerFlag = isManager;
+        const { data, error } = await query.range(from, from + DON_CHIA_CSKH_PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data?.length) break;
+        acc.push(...data);
+        if (data.length < DON_CHIA_CSKH_PAGE_SIZE) break;
+        from += DON_CHIA_CSKH_PAGE_SIZE;
+      }
+
+      const friendly = acc.map((item) => mapDonChiaOrderToFriendly(item));
+      const afterCskhGate = applyDonChiaNonManagerCskhGate(friendly, isManagerFlag);
+      const rowsFiltered = applyDonChiaClientTableFilters(afterCskhGate, filterCtx);
+
+      if (!rowsFiltered.length) {
+        toast.dismiss(toastId);
+        toast.warning('Sau khi lọc không còn dòng để xuất.');
+        return;
+      }
+
+      const rows = rowsFiltered.map((row) => ({
+        'Mã đơn hàng': String(row.order_code ?? row['Mã đơn hàng'] ?? ''),
+        'Trạng thái CSKH': String(row.cskh_status ?? row['Trạng thái cskh'] ?? ''),
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'CSKH');
+      const stamp = `${startDate || 'all'}_${endDate || 'all'}`;
+      XLSX.writeFile(wb, `DonChiaCSKH_${stamp}.xlsx`);
+      toast.dismiss(toastId);
+      toast.success(`Đã tải ${rows.length} dòng Excel (đã gộp mọi trang từ server).`);
+    } catch (err) {
+      console.error('Export DonChia CSKH Excel:', err);
+      toast.dismiss(toastId);
+      toast.error(err?.message || 'Lỗi khi xuất Excel');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   // Handle sort
   const handleSort = (column) => {
     if (sortColumn === column) {
@@ -1139,15 +1116,22 @@ function DonChiaCSKH() {
       // Update local state
       setAllData(prev => prev.map(item => {
         if (item.id === orderId) {
-          return { ...item, [columnName]: newValue };
+          const next = { ...item, [columnName]: newValue };
+          if (columnName === 'Trạng thái cskh') {
+            next.cskh_status = newValue != null ? String(newValue) : '';
+          }
+          return next;
         }
         return item;
       }));
-      
-      // Also update allMappedData
+
       setAllMappedData(prev => prev.map(item => {
         if (item.id === orderId) {
-          return { ...item, [columnName]: newValue };
+          const next = { ...item, [columnName]: newValue };
+          if (columnName === 'Trạng thái cskh') {
+            next.cskh_status = newValue != null ? String(newValue) : '';
+          }
+          return next;
         }
         return item;
       }));
@@ -1421,6 +1405,20 @@ function DonChiaCSKH() {
                   {filteredData.length} / {allData.length} đơn hàng
                 </span>
               </div>
+              <button
+                type="button"
+                onClick={handleExportDonChiaExcel}
+                disabled={loading || exportingExcel || filteredData.length === 0}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                title="Excel: orders.order_code → Mã đơn hàng; orders.cskh_status → Trạng thái CSKH. Tải đủ trang từ server, áp dụng bộ lọc trên trang."
+              >
+                {exportingExcel ? (
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                {exportingExcel ? 'Đang xuất...' : 'Tải Excel'}
+              </button>
               <button
                 onClick={loadData}
                 disabled={loading}
@@ -1875,6 +1873,20 @@ function DonChiaCSKH() {
 
               {/* Action Buttons */}
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportDonChiaExcel}
+                  disabled={loading || exportingExcel || filteredData.length === 0}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                  title="Excel: orders.order_code → Mã đơn hàng; orders.cskh_status → Trạng thái CSKH. Tải đủ trang từ server, áp dụng bộ lọc trên trang."
+                >
+                  {exportingExcel ? (
+                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  {exportingExcel ? 'Đang xuất...' : 'Tải Excel'}
+                </button>
                 <button
                   onClick={loadData}
                   disabled={loading}
