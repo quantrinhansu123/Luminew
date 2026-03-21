@@ -6,6 +6,11 @@ import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
+import {
+  mergeUniqueRowsById,
+  orderRangeToCreatedAtIsoBounds,
+  sortOrdersByDisplayDateDesc,
+} from '../utils/dateParsing';
 
 /** Map một dòng orders (Supabase) → object hiển thị (tiếng Việt) */
 function mapOrderRowToFriendlyCSKH(item) {
@@ -41,6 +46,47 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Lý do": item.reason,
     "Page": item.page_name,
   };
+}
+
+const EMPTY_ORDER_QUERY_ID = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * Gộp mọi biến thể tên để khớp cột sale_staff / marketing_staff / delivery_staff / cskh.
+ * localStorage "username" có thể là username ngắn hoặc tên cũ; bảng users (theo email) có name đầy đủ.
+ */
+async function resolveNameVariantsForOrderFilter(userEmail) {
+  const variants = new Set();
+  const ls = localStorage.getItem('username');
+  if (ls && ls.trim()) variants.add(ls.trim());
+  const em = (userEmail || '').trim().toLowerCase();
+  if (em) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('name, username')
+      .eq('email', em)
+      .maybeSingle();
+    if (!error && data) {
+      if (data.name?.trim()) variants.add(data.name.trim());
+      if (data.username?.trim()) variants.add(data.username.trim());
+    }
+  }
+  return [...variants];
+}
+
+function applyCSKHStaffOrFilter(query, variants, isManager) {
+  if (isManager) return query;
+  if (!variants.length) return query.eq('id', EMPTY_ORDER_QUERY_ID);
+  const orParts = [];
+  for (const n of variants) {
+    const pattern = `%${n}%`;
+    orParts.push(
+      `sale_staff.ilike.${pattern}`,
+      `marketing_staff.ilike.${pattern}`,
+      `delivery_staff.ilike.${pattern}`,
+      `cskh.ilike.${pattern}`
+    );
+  }
+  return query.or(orParts.join(','));
 }
 
 /** Cùng logic lọc/sắp với bảng (sau khi đã có đủ dòng từ server). */
@@ -203,6 +249,7 @@ function QuanLyCSKH() {
     'Khu vực',
     'Mặt hàng',
     'Mã Tracking',
+    'CSKH',
     'Trạng thái giao hàng',
     'Tổng tiền VNĐ',
   ];
@@ -451,76 +498,76 @@ function QuanLyCSKH() {
     }
   }, [visibleColumns]);
 
-  const buildCSKHOrdersQuery = useCallback(() => {
-    const userJson = localStorage.getItem("user");
-    const user = userJson ? JSON.parse(userJson) : null;
-    const userEmail = localStorage.getItem("userEmail") || (user?.Email || user?.email || "").toString().toLowerCase().trim();
-    const userName = localStorage.getItem("username") || (user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.name || user?.fullName || "").toString().trim();
-    const boPhan = (user?.['Bộ_phận'] || user?.['Bộ phận'] || "").toString().trim().toLowerCase();
-    const viTri = (user?.['Vị_trí'] || user?.['Vị trí'] || "").toString().trim().toLowerCase();
-
-    const ADMIN_MAIL = "admin@marketing.com";
-    const isAdmin = userEmail === ADMIN_MAIL || boPhan === 'admin';
-    const isLeader = viTri.includes('leader') || viTri.includes('quản lý') || boPhan.includes('manager');
-    const roleLower = (role || '').toLowerCase();
-    const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
-
-    let query = supabase.from('orders').select('*');
-
-    if (startDate) {
-      query = query.gte('order_date', startDate);
-    }
-    if (endDate) {
-      query = query.lte('order_date', endDate);
-    }
-
-    query = query.order('order_date', { ascending: false });
-
-    if (!isManager) {
-      const ownName = (userName || '').trim();
-      if (ownName) {
-        const pattern = `%${ownName}%`;
-        const orConditions = [
-          `sale_staff.ilike.${pattern}`,
-          `marketing_staff.ilike.${pattern}`,
-          `delivery_staff.ilike.${pattern}`
-        ];
-
-        console.log('🔍 [CSKH] Filtering by current user name (Sale/MKT/Vận đơn):', ownName);
-        try {
-          query = query.or(orConditions.join(','));
-          console.log('✅ [CSKH] Applied current user OR filter:', orConditions.join(','));
-        } catch (orError) {
-          console.error('❌ [CSKH] Error applying current user OR filter, falling back to sale_staff:', orError);
-          query = query.ilike('sale_staff', pattern);
-        }
-      } else {
-        console.warn('⚠️ [CSKH] Missing current user name, returning empty result');
-        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
-      }
-    } else {
-      console.log('✅ [CSKH] Admin/Manager: viewing all orders (filters applied client-side)');
-    }
-
-    return query;
-  }, [startDate, endDate, role]);
-
   // Load data from Supabase with date filter
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!startDate || !endDate) return;
 
     setLoading(true);
     try {
       console.log('Loading orders from Supabase (Date Range)...');
 
-      const { data, error } = await buildCSKHOrdersQuery();
+      const userJson = localStorage.getItem("user");
+      const user = userJson ? JSON.parse(userJson) : null;
+      const userEmail = localStorage.getItem("userEmail") || (user?.Email || user?.email || "").toString().toLowerCase().trim();
+      const boPhan = (user?.['Bộ_phận'] || user?.['Bộ phận'] || "").toString().trim().toLowerCase();
+      const viTri = (user?.['Vị_trí'] || user?.['Vị trí'] || "").toString().trim().toLowerCase();
 
-      if (error) throw error;
+      const ADMIN_MAIL = "admin@marketing.com";
+      const isAdmin = userEmail === ADMIN_MAIL || boPhan === 'admin';
+      const isLeader = viTri.includes('leader') || viTri.includes('quản lý') || boPhan.includes('manager');
+      const roleLower = (role || '').toLowerCase();
+      const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
 
-      const mappedData = (data || []).map((item) => mapOrderRowToFriendlyCSKH(item));
+      let variants = [];
+      if (!isManager) {
+        variants = await resolveNameVariantsForOrderFilter(userEmail);
+        if (!variants.length) {
+          console.warn('⚠️ [CSKH] Không có tên nào để lọc (username + users.name). Trả về rỗng.');
+        } else {
+          console.log('🔍 [CSKH] Lọc theo các biến thể tên:', variants);
+        }
+      } else {
+        console.log('✅ [CSKH] Admin/Manager: viewing all orders (filters applied client-side)');
+      }
+
+      const FETCH_LIMIT = 10000;
+      const { start: createdStart, end: createdEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+
+      let q1 = supabase
+        .from('orders')
+        .select('*')
+        .gte('order_date', startDate)
+        .lte('order_date', endDate)
+        .order('order_date', { ascending: false })
+        .limit(FETCH_LIMIT);
+      q1 = applyCSKHStaffOrFilter(q1, variants, isManager);
+
+      const { data: d1, error: e1 } = await q1;
+      if (e1) throw e1;
+
+      let d2 = [];
+      if (createdStart && createdEnd) {
+        let q2 = supabase
+          .from('orders')
+          .select('*')
+          .is('order_date', null)
+          .gte('created_at', createdStart)
+          .lte('created_at', createdEnd)
+          .order('created_at', { ascending: false })
+          .limit(FETCH_LIMIT);
+        q2 = applyCSKHStaffOrFilter(q2, variants, isManager);
+        const { data: d2raw, error: e2 } = await q2;
+        if (e2) throw e2;
+        d2 = d2raw || [];
+      }
+
+      const merged = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(d1, d2));
+      const mappedData = merged.map((item) => mapOrderRowToFriendlyCSKH(item));
 
       setAllData(mappedData);
-      console.log(`✅ [CSKH] Loaded ${mappedData.length} orders`);
+      console.log(
+        `✅ [CSKH] Loaded ${mappedData.length} orders (order_date: ${(d1 || []).length}, fallback created_at: ${d2.length})`
+      );
 
     } catch (error) {
       console.error('❌ [CSKH] Load data error:', {
@@ -548,11 +595,11 @@ function QuanLyCSKH() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDate, endDate, role]);
 
   useEffect(() => {
     loadData();
-  }, [startDate, endDate, role]);
+  }, [loadData]);
 
 
 
@@ -708,7 +755,10 @@ function QuanLyCSKH() {
         const rowValues = displayColumns.map(col => {
           let value = filteredRow[col];
 
-          if (value === undefined || value === null) {
+          if (col === 'CSKH') {
+            value = filteredRow['CSKH'];
+            value = value != null && value !== '' ? String(value).trim() : '';
+          } else if (value === undefined || value === null) {
             const key = COLUMN_MAPPING[col];
             if (key) value = filteredRow[key];
           }
@@ -1339,7 +1389,10 @@ function QuanLyCSKH() {
                         // This prevents COLUMN_MAPPING from overriding our manually mapped friendly keys.
                         let value = row[col];
 
-                        if (value === undefined || value === null) {
+                        if (col === 'CSKH') {
+                          value = row['CSKH'];
+                          value = value != null && value !== '' ? String(value).trim() : '';
+                        } else if (value === undefined || value === null) {
                           const key = COLUMN_MAPPING[col];
                           if (key) value = row[key];
                         }

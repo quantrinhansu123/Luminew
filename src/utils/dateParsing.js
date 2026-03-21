@@ -65,3 +65,34 @@ export const isDateInRange = (dateVal, startDateStr, endDateStr) => {
 
     return true;
 };
+
+/**
+ * Biên đầu/cuối ngày (theo giờ trình duyệt) → ISO cho filter created_at (timestamptz).
+ * Dùng khi order_date trống nhưng đơn vẫn thuộc khoảng ngày nhờ created_at — tránh tháng sau không có dữ liệu dù UI vẫn hiện ngày.
+ */
+export function orderRangeToCreatedAtIsoBounds(startDate, endDate) {
+    if (!startDate || !endDate) return { start: null, end: null };
+    const [ys, ms, ds] = startDate.split('-').map(Number);
+    const [ye, me, de] = endDate.split('-').map(Number);
+    const start = new Date(ys, ms - 1, ds, 0, 0, 0, 0);
+    const end = new Date(ye, me - 1, de, 23, 59, 59, 999);
+    return { start: start.toISOString(), end: end.toISOString() };
+}
+
+export function mergeUniqueRowsById(rowsA, rowsB) {
+    const map = new Map();
+    for (const row of [...(rowsA || []), ...(rowsB || [])]) {
+        if (row && row.id != null) map.set(row.id, row);
+    }
+    return [...map.values()];
+}
+
+/** Giảm dần theo ngày “hiển thị”: order_date nếu có, không thì created_at */
+export function sortOrdersByDisplayDateDesc(rows) {
+    const key = (row) => {
+        const od = row.order_date;
+        if (od != null && String(od).trim() !== '') return String(od).slice(0, 10);
+        return row.created_at ? String(row.created_at) : '';
+    };
+    return [...rows].sort((a, b) => key(b).localeCompare(key(a)));
+}

@@ -8,6 +8,11 @@ import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN, EDITABLE_COLS, DROPDOWN_OPTIONS } from '../types';
+import {
+  mergeUniqueRowsById,
+  orderRangeToCreatedAtIsoBounds,
+  sortOrdersByDisplayDateDesc,
+} from '../utils/dateParsing';
 
 // Helper Functions
 const getRowValue = (row, ...keys) => {
@@ -552,7 +557,9 @@ function DonChiaCSKH() {
     }
   }, [visibleColumns]);
 
-  const getDonChiaOrdersQuery = async () => {
+  const getDonChiaOrdersQuery = async (options = {}) => {
+    const dateMode = options.dateMode === 'created_at' ? 'created_at' : 'order_date';
+
     const userJson = localStorage.getItem("user");
     const user = userJson ? JSON.parse(userJson) : null;
 
@@ -575,14 +582,24 @@ function DonChiaCSKH() {
       query = query.neq('cskh', ' ');
     }
 
-    if (startDate && startDate.trim() !== '') {
-      query = query.gte('order_date', startDate);
+    if (dateMode === 'order_date') {
+      if (startDate && startDate.trim() !== '') {
+        query = query.gte('order_date', startDate);
+      }
+      if (endDate && endDate.trim() !== '') {
+        query = query.lte('order_date', endDate);
+      }
+      query = query.order('order_date', { ascending: false });
+    } else if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '') {
+      const { start, end } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+      if (start && end) {
+        query = query.is('order_date', null);
+        query = query.gte('created_at', start).lte('created_at', end);
+        query = query.order('created_at', { ascending: false });
+      }
+    } else {
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000');
     }
-    if (endDate && endDate.trim() !== '') {
-      query = query.lte('order_date', endDate);
-    }
-
-    query = query.order('order_date', { ascending: false });
 
     if (!isManager) {
       const normalizedEmail = (userEmail || '').trim().toLowerCase();
@@ -601,10 +618,35 @@ function DonChiaCSKH() {
         const selectedPersonnel = normalizePersonnelList(userPermissionData?.selected_personnel);
 
         if (selectedPersonnel.length > 0) {
-          const orConditions = selectedPersonnel.map((name) => `cskh.ilike.${name}`).join(',');
+          const orConditions = selectedPersonnel
+            .map((name) => {
+              const pattern = `%${String(name).trim()}%`;
+              return `cskh.ilike.${pattern}`;
+            })
+            .join(',');
           query = query.or(orConditions);
         } else {
-          query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+          // Chưa cấu hình "Nhân sự" trong Admin: fallback theo tên tài khoản (users.name / username + localStorage)
+          const { data: meRow } = await supabase
+            .from('users')
+            .select('name, username')
+            .eq('email', normalizedEmail)
+            .maybeSingle();
+          const lsName = localStorage.getItem('username') || '';
+          const fallbacks = [...new Set(
+            [meRow?.name, meRow?.username, lsName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )];
+          if (fallbacks.length === 0) {
+            query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+          } else {
+            const orConditions = fallbacks
+              .map((n) => `cskh.ilike.%${n}%`)
+              .join(',');
+            query = query.or(orConditions);
+            console.log('🔍 [DonChiaCSKH] selected_personnel trống — lọc cskh theo tên tài khoản:', fallbacks);
+          }
         }
       } else {
         query = query.eq('id', '00000000-0000-0000-0000-000000000000');
@@ -637,10 +679,21 @@ function DonChiaCSKH() {
       console.log('🔍 [DonChiaCSKH] Loading orders from Supabase...');
       console.log(`📅 [DonChiaCSKH] Date range: ${startDate || 'ALL'} to ${endDate || 'ALL'}`);
 
-      const { query, isManager } = await getDonChiaOrdersQuery();
-      let { data, error } = await query;
+      const FETCH_LIMIT = 10000;
+      const { query: query1, isManager } = await getDonChiaOrdersQuery({ dateMode: 'order_date' });
+      let { data, error } = await query1.limit(FETCH_LIMIT);
 
       if (error) throw error;
+
+      if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '') {
+        const { query: query2 } = await getDonChiaOrdersQuery({ dateMode: 'created_at' });
+        const r2 = await query2.limit(FETCH_LIMIT);
+        if (r2.error) throw r2.error;
+        data = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(data, r2.data));
+        console.log(
+          `📅 [DonChiaCSKH] Gộp đơn order_date trống theo created_at: +${(r2.data || []).length} dòng`
+        );
+      }
 
       // Fallback: if query returns 0 results and user is non-manager, fetch ALL to verify and debug
       if (!isManager && (!data || data.length === 0)) {
