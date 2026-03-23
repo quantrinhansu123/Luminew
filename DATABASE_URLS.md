@@ -101,9 +101,9 @@ https://n-api-gamma.vercel.app
 - **URL**: `https://n-api-gamma.vercel.app/sheet/MGT nội bộ/rows/batch`
 - **Sử dụng trong**: `src/services/api.js` (TRANSFER_API_URL)
 
-#### f) Report Generate
-- **URL**: `https://n-api-gamma.vercel.app/report/generate?tableName=Báo cáo MKT`
-- **Sử dụng trong**: `src/pages/BaoCaoHieuSuatKPI.jsx`
+#### f) Detail reports (MKT)
+- **URL**: `https://lumidataapi.vercel.app/detail_reports`
+- **Sử dụng trong**: `src/pages/BaoCaoHieuSuatKPI.jsx`, `viewNsMoiNhanh.html`
 
 ---
 
@@ -137,7 +137,7 @@ https://n-api-gamma.vercel.app
 
 ### `src/pages/BaoCaoHieuSuatKPI.jsx`
 - `https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json`
-- `https://n-api-gamma.vercel.app/report/generate?tableName=Báo cáo MKT`
+- `https://lumidataapi.vercel.app/detail_reports`
 
 ### `src/pages/ReportForm.jsx`
 - `https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/Báo_cáo_MKT.json`

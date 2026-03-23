@@ -17,8 +17,7 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Use encodeURI to handle spaces in query parameters
-const DATA_URL = encodeURI('https://n-api-gamma.vercel.app/report/generate?tableName=Báo cáo MKT');
+const DATA_URL = 'https://lumidataapi.vercel.app/detail_reports';
 
 async function migrate() {
     console.log('Fetching data from:', DATA_URL);
@@ -26,12 +25,11 @@ async function migrate() {
         const response = await fetch(DATA_URL);
         const json = await response.json();
 
-        if (!json.success || !Array.isArray(json.data)) {
-            console.error('Invalid data format received:', json);
+        const records = Array.isArray(json?.data) ? json.data : null;
+        if (!records) {
+            console.error('Invalid data format received (expected { data: [...] }):', json);
             return;
         }
-
-        const records = json.data;
         console.log(`Fetched ${records.length} records. Preparing to insert...`);
 
         const formattedRecords = records.map(r => {
