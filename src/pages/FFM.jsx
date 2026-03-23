@@ -58,7 +58,8 @@ function FFM() {
     product: [],
     tracking_include: '',
     tracking_exclude: '',
-    tracking_status: 'Tình trạng mã'
+    tracking_status: 'Tình trạng mã',
+    ['Kết quả Check']: []
   });
   const [localFilterValues, setLocalFilterValues] = useState(filterValues);
 
@@ -281,7 +282,8 @@ function FFM() {
       product: [],
       tracking_include: '',
       tracking_exclude: '',
-      tracking_status: 'Tình trạng mã'
+      tracking_status: 'Tình trạng mã',
+      ['Kết quả Check']: []
     };
     setFilterValues(defaultFilters);
     setLocalFilterValues(defaultFilters);
@@ -1266,8 +1268,8 @@ function FFM() {
         </button>
         {showFilters && (
           <div className="px-4 pb-4 border-t border-gray-200">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-4">
-              <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-end gap-3 pt-4">
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
                 <label className="text-xs font-semibold text-gray-500">Thị trường</label>
                 <MultiSelect
                   label="Tất cả"
@@ -1277,7 +1279,7 @@ function FFM() {
                   onChange={(vals) => setFilterValues((prev) => ({ ...prev, market: vals }))}
                 />
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
                 <label className="text-xs font-semibold text-gray-500">Sản phẩm</label>
                 <MultiSelect
                   label="Tất cả"
@@ -1287,7 +1289,7 @@ function FFM() {
                   onChange={(vals) => setFilterValues((prev) => ({ ...prev, product: vals }))}
                 />
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
                 <label className="text-xs font-semibold text-gray-500">Loại ngày</label>
                 <select className="px-2 py-1.5 border rounded text-sm bg-white" value={omDateType} onChange={(e) => setOmDateType(e.target.value)}>
                   <option value="Ngày lên đơn">Ngày lên đơn</option>
@@ -1296,7 +1298,7 @@ function FFM() {
                   <option value="Ngày có mã tracking">Ngày có mã tracking</option>
                 </select>
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
                 <label className="text-xs font-semibold text-gray-500">Từ ngày</label>
                 <input
                   type="date"
@@ -1305,7 +1307,7 @@ function FFM() {
                   onChange={(e) => setDateFrom(e.target.value)}
                 />
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
                 <label className="text-xs font-semibold text-gray-500">Tới ngày</label>
                 <input
                   type="date"
@@ -1314,8 +1316,18 @@ function FFM() {
                   onChange={(e) => setDateTo(e.target.value)}
                 />
               </div>
-              <div className="flex flex-col gap-1 justify-end">
-                <button onClick={refreshData} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm transition shadow-sm">
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+                <label className="text-xs font-semibold text-gray-500">Kết quả Check</label>
+                <MultiSelect
+                  label="Tất cả"
+                  mainFilter={true}
+                  options={getMultiSelectOptions('Kết quả Check')}
+                  selected={filterValues['Kết quả Check'] || []}
+                  onChange={(vals) => setFilterValues((prev) => ({ ...prev, ['Kết quả Check']: vals }))}
+                />
+              </div>
+              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
+                <button onClick={refreshData} className="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm transition shadow-sm">
                   🗑️ Xóa lọc
                 </button>
               </div>
