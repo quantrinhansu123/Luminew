@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 export default function ExternalView() {
     const location = useLocation();
+    const navigate = useNavigate();
     const [url, setUrl] = useState("");
 
     useEffect(() => {
@@ -10,9 +11,18 @@ export default function ExternalView() {
         const queryParams = new URLSearchParams(location.search);
         const targetUrl = queryParams.get("url");
         if (targetUrl) {
-            setUrl(decodeURIComponent(targetUrl));
+            const decodedUrl = decodeURIComponent(targetUrl);
+            // Backward-compat: old MKT external links now use internal app page.
+            if (
+                decodedUrl.includes("viewNsMoiNhanh.html") ||
+                decodedUrl.includes("nhanSuSaleLumiMoi.html")
+            ) {
+                navigate("/xem-bao-cao-mkt", { replace: true });
+                return;
+            }
+            setUrl(decodedUrl);
         }
-    }, [location.search]);
+    }, [location.search, navigate]);
 
     if (!url) {
         return (

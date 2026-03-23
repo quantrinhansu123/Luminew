@@ -813,10 +813,136 @@
     /**
     * @description URL của API để lấy dữ liệu báo cáo.
     */
-    const host = 'prod'
-    const hostUse = host === 'local' ? 'http://localhost:8081' : 'https://n-api-gamma.vercel.app';
-    const API_URL_MKT = `${hostUse}/report/generate?tableName=Báo cáo MKT`;
+    const API_URL_MKT = 'https://lumidataapi.vercel.app/detail_reports';
     // Đã bỏ API_URL_SALE - chỉ dùng MKT
+
+    /** lumidataapi/detail_reports: from_date, to_date = DD/MM/YYYY — dùng theo tab đang mở */
+    function buildMktDetailReportsFetchUrl() {
+      const ymdToDmy = (ymd) => {
+        if (!ymd || typeof ymd !== 'string') return '';
+        const parts = ymd.split('-');
+        if (parts.length !== 3) return '';
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      };
+      const parseYmdInput = (v) => {
+        if (!v || typeof v !== 'string') return null;
+        const p = v.split('-');
+        if (p.length !== 3) return null;
+        const y = parseInt(p[0], 10), m = parseInt(p[1], 10) - 1, d = parseInt(p[2], 10);
+        const dt = new Date(y, m, d);
+        return isNaN(dt.getTime()) ? null : dt;
+      };
+      const visibleTab = Array.from(document.querySelectorAll('.tab-content'))
+        .find((el) => el.style.display !== 'none');
+      const tabId = visibleTab ? visibleTab.id : 'DetailedReport';
+      const dateInputMap = {
+        DetailedReport: ['start-date-tab1', 'end-date-tab1'],
+        KpiReport: ['start-date-tab3', 'end-date-tab3'],
+        MarketReport: ['start-date-mkt', 'end-date-mkt'],
+      };
+      const [startId, endId] = dateInputMap[tabId] || dateInputMap.DetailedReport;
+      const sEl = document.getElementById(startId);
+      const eEl = document.getElementById(endId);
+      const minD = sEl ? parseYmdInput(sEl.value) : null;
+      const maxD = eEl ? parseYmdInput(eEl.value) : null;
+      const fmtBack = (dt) => {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      };
+      const fromDMY = minD ? ymdToDmy(fmtBack(minD)) : '';
+      const toDMY = maxD ? ymdToDmy(fmtBack(maxD)) : '';
+      const params = new URLSearchParams();
+      if (fromDMY) params.set('from_date', fromDMY);
+      if (toDMY) params.set('to_date', toDMY);
+      const q = params.toString();
+      return q ? `${API_URL_MKT}?${q}` : API_URL_MKT;
+    }
+
+    /** Chuẩn hóa tên cột giống XemBaoCaoMKT (API có thể trả snake_case / tiếng Anh). */
+    function normalizeDetailReportRow(item) {
+      if (!item || typeof item !== 'object') return {};
+      return {
+        ...item,
+        'Ngày': item['Ngày'] || item.ngay || item.date || '',
+        'Team': item['Team'] || item.team || '',
+        'Tên': item['Tên'] || item.ten || item.name || '',
+        'Email': item['Email'] || item.email || '',
+        'Sản_phẩm': item['Sản_phẩm'] || item['Sản phẩm'] || item.san_pham || item.product || '',
+        'Thị_trường': item['Thị_trường'] || item['Thị trường'] || item.thi_truong || item.market || '',
+        'CPQC': item['CPQC'] ?? item.cpqc ?? 0,
+        'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
+        'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
+        'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
+        'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
+        'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
+        'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
+        'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] || item.so_don_hoan_huy_thuc_te || item.order_cancel_count_actual || 0,
+        'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] || item.doanh_so_hoan_huy_thuc_te || item.revenue_cancel_actual || 0,
+        'DS sau hoàn hủy': item['DS sau hoàn hủy'] || item.ds_sau_hoan_huy || 0,
+        'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] || item.doanh_so_sau_hoan_huy_thuc_te || 0,
+        'Doanh số sau ship': item['Doanh số sau ship'] || item.doanh_so_sau_ship || 0,
+        'Doanh số TC': item['Doanh số TC'] || item.doanh_so_tc || 0,
+        'KPIs': item['KPIs'] || item.kpis || 0,
+        'ca': item['ca'] || item['Ca'] || item.shift || '',
+        'id_NS': item['id_NS'] || item.id_ns || item.id_NS || '',
+        'Chức vụ': item['Chức vụ'] || item.chuc_vu || item['Vị trí'] || item.position || '',
+      };
+    }
+
+    function parseNgayToDate(ngayVal) {
+      if (ngayVal == null || ngayVal === '') return null;
+      if (ngayVal instanceof Date && !isNaN(ngayVal.getTime())) return ngayVal;
+      const s = String(ngayVal).trim();
+      const tIdx = s.indexOf('T');
+      const datePart = tIdx >= 0 ? s.slice(0, tIdx) : s.split(' ')[0];
+      const dmY = datePart.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (dmY) {
+        const d = parseInt(dmY[1], 10), mo = parseInt(dmY[2], 10) - 1, y = parseInt(dmY[3], 10);
+        const dt = new Date(y, mo, d);
+        return isNaN(dt.getTime()) ? null : dt;
+      }
+      const ymd = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (ymd) {
+        const dt = new Date(parseInt(ymd[1], 10), parseInt(ymd[2], 10) - 1, parseInt(ymd[3], 10));
+        return isNaN(dt.getTime()) ? null : dt;
+      }
+      const t = new Date(s);
+      return isNaN(t.getTime()) ? null : t;
+    }
+
+    function extractDetailReportsRows(resultMKT) {
+      if (!resultMKT) return [];
+      if (Array.isArray(resultMKT)) return resultMKT;
+      if (Array.isArray(resultMKT.data)) return resultMKT.data;
+      if (Array.isArray(resultMKT.rows)) return resultMKT.rows;
+      if (Array.isArray(resultMKT.results)) return resultMKT.results;
+      return [];
+    }
+
+    /** detail_reports không có employeeData — suy ra từ các dòng báo cáo */
+    function buildEmployeesFromDetailRows(rowsNorm) {
+      const map = new Map();
+      rowsNorm.forEach((r) => {
+        const ten = String(r['Tên'] || '').trim();
+        if (!ten) return;
+        const idnv = String(r['id_NS'] || r['id'] || '').trim();
+        const email = String(r['Email'] || '').trim();
+        const key = idnv || (email ? email : ten);
+        if (!map.has(key)) {
+          map.set(key, {
+            idnv,
+            ten,
+            email,
+            team: String(r['Team'] || 'N/A').trim(),
+            chucVu: String(r['Chức vụ'] || r['Vị trí'] || '').trim().toLowerCase(),
+            chiNhanh: 'N/A',
+          });
+        }
+      });
+      return Array.from(map.values());
+    }
 
     /**
     * @description Mảng màu sắc để sử dụng cho các biểu đồ, giúp phân biệt các danh mục.
@@ -838,12 +964,30 @@
     let masterData = [];
     let employeeData = [];
     let baseDataForReport = [];
+    const API_CACHE_TTL_MS = 120000;
+    const MAX_DAILY_BREAKDOWN_ROWS = 1500;
+    const mktApiCache = new Map();
     const charts = {};
+    let dailyRenderJobId = 0;
     const sortStates = {
       summary: { column: null, direction: 'asc' },
       kpi: { column: null, direction: 'asc' },
       daily: {}
     };
+
+    function getCachedMktResult(url) {
+      const cache = mktApiCache.get(url);
+      if (!cache) return null;
+      if (Date.now() - cache.ts > API_CACHE_TTL_MS) {
+        mktApiCache.delete(url);
+        return null;
+      }
+      return cache.data;
+    }
+
+    function setCachedMktResult(url, data) {
+      mktApiCache.set(url, { ts: Date.now(), data });
+    }
 
     /**
     * @description Cấu hình các key để sắp xếp cho từng cột trong bảng Báo cáo chi tiết.
@@ -1015,46 +1159,52 @@
     async function fetchAndProcessData() {
       showLoader();
       try {
-        // Chỉ gọi API MKT, bỏ API Sale
-        const responseMKT = await fetch(API_URL_MKT);
+        const fetchUrl = buildMktDetailReportsFetchUrl();
+        let resultMKT = getCachedMktResult(fetchUrl);
 
-        // Kiểm tra response status
-        if (!responseMKT.ok) {
-          console.error(`Lỗi tải dữ liệu MKT: HTTP ${responseMKT.status} ${responseMKT.statusText}`);
+        if (!resultMKT) {
+          const responseMKT = await fetch(fetchUrl);
+          if (!responseMKT.ok) {
+            console.error(`Lỗi tải dữ liệu MKT: HTTP ${responseMKT.status} ${responseMKT.statusText}`);
+          }
+          try {
+            resultMKT = responseMKT.ok ? await responseMKT.json() : null;
+          } catch (e) {
+            console.error('Lỗi parse JSON từ MKT:', e);
+            resultMKT = null;
+          }
+          if (resultMKT) {
+            setCachedMktResult(fetchUrl, resultMKT);
+          }
+        } else {
+          console.log('⚡ Dùng dữ liệu cache:', fetchUrl);
         }
 
-        let resultMKT = null;
+        const rawRows = extractDetailReportsRows(resultMKT);
+        const rowsNorm = rawRows.map(normalizeDetailReportRow);
 
-        try {
-          resultMKT = responseMKT.ok ? await responseMKT.json() : null;
-        } catch (e) {
-          console.error('Lỗi parse JSON từ MKT:', e);
-          resultMKT = null;
-        }
+        const employeeDataMKT = Array.isArray(resultMKT.employeeData) && resultMKT.employeeData.length
+          ? await fetchEmployeeData(resultMKT.employeeData)
+          : buildEmployeesFromDetailRows(rowsNorm);
 
-        // Lấy dữ liệu nhân sự từ API MKT
-        // Hàm fetchEmployeeData đã được sửa để xử lý nhiều định dạng (array, object với rows/data, etc.)
-        const employeeDataMKT = await fetchEmployeeData(resultMKT.employeeData || resultMKT || []);
-
-        // Chỉ dùng dữ liệu từ MKT
         employeeData = employeeDataMKT;
 
-        // Merge dữ liệu masterData từ cả 2 API
-        const masterDataMKT = (resultMKT.data || [])
+        const masterDataMKT = rowsNorm
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
           .map(r => {
             const dsChot = Number(r["Doanh số"]) || 0;
             const dsSauHoanHuy = Number(r["DS sau hoàn hủy"]) || 0;
+            const ngayParsed = parseNgayToDate(r["Ngày"]);
             return {
               idnv: (r["id_NS"] || '').trim(),
               ten: (r["Tên"] || 'N/A').trim(),
               email: (r["Email"] || '').trim(),
-              ngay: new Date(r["Ngày"]),
-              ca: (r["ca"] || 'N/A').trim(),
+              ngay: ngayParsed,
+              ca: String(r["ca"] || 'N/A').trim(),
               sanPham: (r["Sản_phẩm"] || 'N/A').trim(),
               thiTruong: (r["Thị_trường"] || 'N/A').trim(),
               team: (r["Team"] || 'Khác').trim(),
-              chucVu: (r["Chức vụ"] || '').trim().toLowerCase(),
+              chucVu: String(r["Chức vụ"] || '').trim().toLowerCase(),
               cpqc: Number(r["CPQC"]) || 0,
               soMessCmt: Number(r["Số_Mess_Cmt"]) || 0,
               soDon: Number(r["Số đơn"]) || 0,
@@ -1065,7 +1215,6 @@
               dsSauShip: Number(r["Doanh số sau ship"]) || 0,
               dsThanhCong: Number(r["Doanh số TC"]) || 0,
               kpiValue: Number(r["KPIs"]) || 0,
-              // Dữ liệu thực tế
               soDonThucTe: Number(r["Số đơn thực tế"]) || 0,
               dsChotThucTe: Number(r["Doanh thu chốt thực tế"]) || 0,
               dsHoanHuyThucTe: Number(r["Doanh số hoàn hủy thực tế"]) || 0,
@@ -1190,6 +1339,13 @@
       applyTab3Filters();
     }
 
+    const MKT_REFETCH_DATE_IDS = new Set([
+      'start-date-tab1', 'end-date-tab1',
+      'start-date-tab3', 'end-date-tab3',
+      'start-date-mkt', 'end-date-mkt',
+    ]);
+    let mktRefetchTimer = null;
+
     function handleFilterChange(e) {
       const target = e.target;
       const container = target.closest('.tab-content');
@@ -1197,6 +1353,16 @@
 
       if (target.matches('select[id^="quick-date"]')) {
         handleQuickDateChange(e);
+        return;
+      }
+
+      if (target.matches('input[type="date"]') && MKT_REFETCH_DATE_IDS.has(target.id)) {
+        if (mktRefetchTimer) {
+          clearTimeout(mktRefetchTimer);
+        }
+        mktRefetchTimer = setTimeout(() => {
+          fetchAndProcessData();
+        }, 300);
         return;
       }
 
@@ -1281,10 +1447,10 @@
       }
 
       const filteredDataResult = baseDataForReport.filter(r => {
-        const date = new Date(r.ngay);
+        const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
+        if (!dateRaw || isNaN(dateRaw.getTime())) return false;
+        const date = new Date(dateRaw);
         date.setHours(0, 0, 0, 0);
-
-        if (!r.ngay || isNaN(date)) return false;     // Loại nếu không có hoặc sai định dạng
         const isDateOk =
           (!startDate || date >= startDate) &&
           (!endDate || date <= endDate);
@@ -1594,7 +1760,13 @@
 
     function renderDailyBreakdown(filteredData) {
       const container = document.getElementById('daily-breakdown'); container.innerHTML = '';
+      dailyRenderJobId += 1;
+      const currentJobId = dailyRenderJobId;
       if (filteredData.length === 0) { container.innerHTML = '<p style="text-align:center; margin-top: 20px;">Không có dữ liệu chi tiết.</p>'; return; }
+      if (filteredData.length > MAX_DAILY_BREAKDOWN_ROWS) {
+        container.innerHTML = `<p style="text-align:center; margin-top: 20px;">Dữ liệu quá lớn (${formatNumber(filteredData.length)} dòng), tạm ẩn bảng theo ngày để tăng tốc. Hãy thu hẹp bộ lọc theo ngày/team/sản phẩm.</p>`;
+        return;
+      }
       const groupedByDate = {};
       filteredData.forEach(r => {
         const d = formatDate(r.ngay);
@@ -1603,7 +1775,13 @@
       });
       const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(b.split('/').reverse().join('-')) - new Date(a.split('/').reverse().join('-')));
       const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
-      let finalHtml = sortedDates.map(date => {
+      const loadingEl = document.createElement('p');
+      loadingEl.style.textAlign = 'center';
+      loadingEl.style.marginTop = '20px';
+      loadingEl.textContent = `Đang tải chi tiết theo ngày... (0/${sortedDates.length})`;
+      container.appendChild(loadingEl);
+
+      const renderOneDateHtml = (date) => {
         let dailyList = generateSummaryTableData(groupedByDate[date]);
         sortList(dailyList, { column: null, direction: 'asc' }, summaryColumnSortKeys, { prop: 'team', type: 'string' });
         const { bodyHtml } = generateSummaryTableHTML(dailyList, selectedMarkets);
@@ -1625,8 +1803,31 @@
         <th class="yellow-header">%CP/DS<span class="sort-icon"></span></th>
         <th class="yellow-header">Giá TB Đơn<span class="sort-icon"></span></th>
         </tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
-      }).join('');
-      container.innerHTML = finalHtml;
+      };
+
+      let idx = 0;
+      const CHUNK_SIZE = 1; // load dần từng ngày
+      const renderNextChunk = () => {
+        if (currentJobId !== dailyRenderJobId) return;
+        const start = idx;
+        const end = Math.min(idx + CHUNK_SIZE, sortedDates.length);
+        let chunkHtml = '';
+        for (let i = start; i < end; i++) {
+          chunkHtml += renderOneDateHtml(sortedDates[i]);
+        }
+        if (chunkHtml) {
+          container.insertAdjacentHTML('beforeend', chunkHtml);
+        }
+        idx = end;
+        loadingEl.textContent = `Đang tải chi tiết theo ngày... (${idx}/${sortedDates.length})`;
+        if (idx < sortedDates.length) {
+          setTimeout(renderNextChunk, 0);
+          return;
+        }
+        loadingEl.remove();
+      };
+
+      setTimeout(renderNextChunk, 0);
       sortStates.daily = {};
     }
 
@@ -1786,19 +1987,27 @@
       );
       if (currentTabButton) currentTabButton.classList.add("active");
 
-      // Xử lý tab Hiệu suất KPI: load iframe với id từ URL
+      // Tab Hiệu suất KPI: gọi lại API detail_reports rồi reload iframe (luôn dữ liệu mới)
       if (tabName === 'HieuSuatKPI') {
-        const idFromUrl = new URLSearchParams(window.location.search).get('id')?.trim();
         const iframe = document.getElementById('hieu-suat-kpi-iframe');
-        if (iframe) {
-          let url = 'baocaokpiCEO.html';
-          if (idFromUrl) {
-            url += `?id=${encodeURIComponent(idFromUrl)}`;
+        void (async () => {
+          mktApiCache.clear();
+          try {
+            await fetchAndProcessData();
+          } catch (e) {
+            console.error('Lỗi khi tải API trước tab Hiệu suất KPI:', e);
           }
-          iframe.src = url;
-          console.log('📊 Loading Hiệu suất KPI with URL:', url);
-        }
-        return; // Không cần showLoader cho iframe
+          if (iframe) {
+            const idFromUrl = new URLSearchParams(window.location.search).get('id')?.trim();
+            const params = new URLSearchParams();
+            if (idFromUrl) params.set('id', idFromUrl);
+            params.set('_cb', String(Date.now()));
+            const url = `baocaokpiCEO.html?${params.toString()}`;
+            iframe.src = url;
+            console.log('📊 Hiệu suất KPI — đã gọi API, load iframe:', url);
+          }
+        })();
+        return;
       }
 
       showLoader();

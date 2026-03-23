@@ -336,8 +336,7 @@ export default function BaoCaoHieuSuatKPI() {
 
       const F3_URL =
         "https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json";
-      const API_URL =
-        "https://n-api-gamma.vercel.app/report/generate?tableName=Báo cáo MKT";
+      const API_URL = "https://lumidataapi.vercel.app/detail_reports";
 
       // Fetch both data sources in parallel
       const [f3Response, apiResponse] = await Promise.all([
@@ -382,9 +381,13 @@ export default function BaoCaoHieuSuatKPI() {
           apiData = await apiResponse.json(); // CHỈ ĐỌC 1 LẦN
         }
 
-        // Build CPQC map from API data
-        if (apiData && apiData.success) {
-          const dataArray = apiData.data || [];
+        // Build CPQC map from API data (detail_reports: { data: [...] } hoặc mảng trực tiếp; legacy có employeeData)
+        if (apiData) {
+          const dataArray = Array.isArray(apiData.data)
+            ? apiData.data
+            : Array.isArray(apiData)
+              ? apiData
+              : [];
           const employeeDataArray = apiData.employeeData || [];
 
           // XỬ LÝ DATA ARRAY CHO CPQC VÀ TEAM

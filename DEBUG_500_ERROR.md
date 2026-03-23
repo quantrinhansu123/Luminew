@@ -32,10 +32,10 @@ Các API endpoint có thể bị lỗi trong ứng dụng:
 - **Sử dụng trong**: `src/services/api.js` → `fetchOrders()`
 - **Trang sử dụng**: Danh sách đơn, các trang báo cáo
 
-#### 2. API tạo báo cáo
-- **URL**: `https://n-api-gamma.vercel.app/report/generate?tableName=Báo cáo MKT`
-- **Sử dụng trong**: `src/pages/BaoCaoHieuSuatKPI.jsx`
-- **Trang sử dụng**: Báo cáo hiệu suất KPI
+#### 2. API detail_reports (MKT)
+- **URL**: `https://lumidataapi.vercel.app/detail_reports`
+- **Sử dụng trong**: `src/pages/BaoCaoHieuSuatKPI.jsx`, `viewNsMoiNhanh.html`
+- **Trang sử dụng**: Báo cáo hiệu suất KPI, Xem báo cáo MKT
 
 #### 3. API cập nhật dữ liệu
 - **URL**: `https://n-api-gamma.vercel.app/sheet/F3/update-single`
@@ -68,8 +68,8 @@ Nếu thấy lỗi 500 → API đang gặp vấn đề
 # Test API F3 data
 curl https://n-api-gamma.vercel.app/sheet/F3/data
 
-# Test API report generate
-curl "https://n-api-gamma.vercel.app/report/generate?tableName=Báo cáo MKT"
+# Test API detail_reports (MKT)
+curl "https://lumidataapi.vercel.app/detail_reports"
 ```
 
 ### Cách 3: Kiểm tra trong Console của trình duyệt
@@ -83,8 +83,8 @@ fetch('https://n-api-gamma.vercel.app/sheet/F3/data')
   .then(data => console.log('✅ API OK:', data))
   .catch(err => console.error('❌ API Error:', err));
 
-// Test API report
-fetch('https://n-api-gamma.vercel.app/report/generate?tableName=Báo cáo MKT')
+// Test API detail_reports
+fetch('https://lumidataapi.vercel.app/detail_reports')
   .then(r => r.json())
   .then(data => console.log('✅ API OK:', data))
   .catch(err => console.error('❌ API Error:', err));

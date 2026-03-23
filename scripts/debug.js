@@ -12,7 +12,7 @@ console.log('Fetch available:', typeof fetch);
 if (typeof fetch !== 'undefined') {
     try {
         console.log('Testing fetch...');
-        const res = await fetch('https://n-api-gamma.vercel.app/report/generate?tableName=Báo cáo MKT');
+        const res = await fetch('https://lumidataapi.vercel.app/detail_reports');
         console.log('Fetch status:', res.status);
     } catch (e) {
         console.error('Fetch error:', e.message);

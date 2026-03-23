@@ -316,12 +316,6 @@ export default function XemBaoCaoMKT() {
 
       console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`);
 
-      // Enrich Team từ bảng users nếu thiếu
-      await enrichTeamFromUsers(dateFilteredReports);
-
-      // Enrich với số đơn TT từ bảng orders
-      await enrichWithTotalOrdersFromOrders(dateFilteredReports, startDate, endDate);
-
       setData(dateFilteredReports);
 
       // Extract unique teams, products, markets from detail_reports
@@ -377,246 +371,63 @@ export default function XemBaoCaoMKT() {
   };
 
   const processData = useMemo(() => {
-    if (!data.length) return { rows: [], total: {}, dailyData: [] };
-
-    // Group by Marketing Name (+ Team)
-    const grouped = {};
-
-    data.forEach(row => {
-      // Filter by Team if selected
-      // Tất cả dữ liệu lấy từ bảng detail_reports:
-      // - Team: từ cột "Team" trong detail_reports
-      // - Tên MKT (Marketing): từ cột "Tên" trong detail_reports
-      // - CPQC: từ cột "CPQC" trong detail_reports
-      // - Số mess: từ cột "Số_Mess_Cmt" trong detail_reports
-      if (selectedTeams.length > 0 && !selectedTeams.includes(row['Team'])) return;
-
-      // Filter by Product (if any selected, must match; if none selected, show all)
-      if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return;
-
-      // Filter by Shift (Ca) (if any selected, must match; if none selected, show all)
-      if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return;
-
-      // Filter by Market (Thị trường) (if any selected, must match; if none selected, show all)
-      if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return;
-
-      const key = `${row['Team']}_${row['Tên']}`;
-      if (!grouped[key]) {
-        grouped[key] = {
-          team: row['Team'], // detail_reports."Team"
-          name: row['Tên'], // detail_reports."Tên" (Tên MKT/Marketing)
-          mess: 0,
-          cpqc: 0,
-          orders: 0,
-          ordersTT: 0, // Thực tế (mapped if available)
-          soDonTT: 0, // Số đơn TT từ bảng orders
-          dsChot: 0,
-          dsChotTT: 0, // Thực tế trước ship / doanh thu thuần
-          soDonHuy: 0,
-          soDonHuyTT: 0,
-          dsHuy: 0,
-          dsHuyTT: 0,
-          dsSauShip: 0, // Doanh số sau ship
-          dsThanhCong: 0,
-          dsThanhCongTT: 0,
-          kpiValue: 0, // KPI
-          via_log: 0
-        };
-      }
-
-      // Lấy từ detail_reports:
-      grouped[key].mess += Number(row['Số_Mess_Cmt'] || 0); // detail_reports."Số_Mess_Cmt"
-      grouped[key].cpqc += Number(row['CPQC'] || 0); // detail_reports."CPQC"
-      grouped[key].orders += Number(row['Số đơn'] || 0); // detail_reports."Số đơn"
-      grouped[key].ordersTT += Number(row['Số đơn thực tế'] || 0); // detail_reports."Số đơn thực tế"
-      const soDonTTValue = Number(row['Số đơn TT'] || 0);
-      grouped[key].soDonTT += soDonTTValue; // Số đơn TT từ bảng orders
-
-      // Debug logging cho 3 record đầu tiên
-      if (Object.keys(grouped).length <= 3 && soDonTTValue > 0) {
-        console.log(`🔍 processData: Key "${key}" - soDonTT += ${soDonTTValue} (từ row['Số đơn TT'] = ${row['Số đơn TT']})`);
-      }
-
-      grouped[key].dsChot += Number(row['Doanh số'] || 0);
-      // Doanh số chốt TT lấy từ orders (total_amount_vnd), nếu không có thì fallback về "Doanh thu chốt thực tế"
-      const dsChotTTFromOrders = Number(row['Doanh số chốt TT'] || 0);
-      grouped[key].dsChotTT += dsChotTTFromOrders > 0 ? dsChotTTFromOrders : Number(row['Doanh thu chốt thực tế'] || 0);
-
-      grouped[key].soDonHuy += Number(row['Số đơn hoàn hủy'] || 0);
-      grouped[key].soDonHuyTT += Number(row['Số đơn hoàn hủy thực tế'] || 0);
-
-      grouped[key].dsHuy += Number(row['DS sau hoàn hủy'] || 0);
-      grouped[key].dsHuyTT += Number(row['Doanh số hoàn hủy thực tế'] || 0);
-
-      grouped[key].dsSauShip += Number(row['Doanh số sau ship'] || 0);
-      grouped[key].dsThanhCong += Number(row['Doanh số TC'] || 0);
-      grouped[key].dsThanhCongTT += Number(row['Doanh số sau hoàn hủy thực tế'] || 0);
-
-      grouped[key].kpiValue += Number(row['KPIs'] || 0);
-    });
-
-    const rows = Object.values(grouped).map(item => {
-      const tiLeChot = item.mess ? (item.orders / item.mess) * 100 : 0;
-      const tiLeChotTT = item.mess ? (item.soDonTT / item.mess) * 100 : 0; // Số đơn TT / Số Mess
-      const giaMess = item.mess ? item.cpqc / item.mess : 0;
-      const cps = item.orders ? item.cpqc / item.orders : 0;
-      const cp_ds = item.dsChot ? (item.cpqc / item.dsChot) * 100 : 0;
-      const giaTBDon = item.orders ? item.dsChot / item.orders : 0;
-
-      // KPI metrics
-      const cp_ds_sau_ship = item.dsSauShip ? (item.cpqc / item.dsSauShip) * 100 : 0;
-      const kpi_percent = item.kpiValue ? (item.dsSauShip / item.kpiValue) * 100 : 0;
-
+    if (!data.length) {
       return {
-        ...item,
-        tiLeChot, tiLeChotTT, giaMess, cps, cp_ds, giaTBDon,
-        cp_ds_sau_ship, kpi_percent
+        rows: [],
+        total: {
+          mess: 0, cpqc: 0, orders: 0, soDonTT: 0, dsChot: 0, dsChotTT: 0,
+          tiLeChot: 0, tiLeChotTT: 0, giaMess: 0, cps: 0, cp_ds: 0, giaTBDon: 0
+        },
+        dailyData: []
       };
-    });
+    }
 
-    // Sort by Team then Name
-    rows.sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
+    const rows = data
+      .filter((row) => {
+        if (selectedTeams.length > 0 && !selectedTeams.includes(row['Team'])) return false;
+        if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return false;
+        if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return false;
+        if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return false;
+        return true;
+      })
+      .map((row) => ({
+        team: row['Team'] || '',
+        name: row['Tên'] || '',
+        mess: Number(row['Số_Mess_Cmt'] || 0),
+        cpqc: Number(row['CPQC'] || 0),
+        orders: Number(row['Số đơn'] || 0),
+        soDonTT: Number(row['Số đơn thực tế'] || 0),
+        dsChot: Number(row['Doanh số'] || 0),
+        dsChotTT: Number(row['Doanh thu chốt thực tế'] || 0),
+        tiLeChot: Number(row['Tỉ lệ chốt'] || 0),
+        tiLeChotTT: Number(row['Tỉ lệ chốt thực tế'] || row['Tỉ lệ chốt TT'] || 0),
+        giaMess: Number(row['Giá Mess'] || 0),
+        cps: Number(row['CPS'] || 0),
+        cp_ds: Number(row['%CP/DS'] || 0),
+        giaTBDon: Number(row['Giá TB Đơn'] || 0),
+      }))
+      .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
 
-    // Calculate Grand Total
     const total = rows.reduce((acc, cur) => ({
       mess: acc.mess + cur.mess,
       cpqc: acc.cpqc + cur.cpqc,
       orders: acc.orders + cur.orders,
-      ordersTT: acc.ordersTT + cur.ordersTT,
       soDonTT: acc.soDonTT + cur.soDonTT,
       dsChot: acc.dsChot + cur.dsChot,
       dsChotTT: acc.dsChotTT + cur.dsChotTT,
-      soDonHuy: acc.soDonHuy + cur.soDonHuy,
-      soDonHuyTT: acc.soDonHuyTT + cur.soDonHuyTT,
-      dsHuyTT: acc.dsHuyTT + cur.dsHuyTT,
-      dsSauShip: acc.dsSauShip + cur.dsSauShip,
-      dsThanhCongTT: acc.dsThanhCongTT + cur.dsThanhCongTT,
-      dsThanhCong: acc.dsThanhCong + cur.dsThanhCong,
-      kpiValue: acc.kpiValue + cur.kpiValue,
+      tiLeChot: 0,
+      tiLeChotTT: 0,
+      giaMess: 0,
+      cps: 0,
+      cp_ds: 0,
+      giaTBDon: 0,
     }), {
-      mess: 0, cpqc: 0, orders: 0, ordersTT: 0, soDonTT: 0, dsChot: 0, dsChotTT: 0,
-      soDonHuy: 0, soDonHuyTT: 0, dsHuyTT: 0, dsSauShip: 0, dsThanhCongTT: 0, dsThanhCong: 0,
-      kpiValue: 0
+      mess: 0, cpqc: 0, orders: 0, soDonTT: 0, dsChot: 0, dsChotTT: 0,
+      tiLeChot: 0, tiLeChotTT: 0, giaMess: 0, cps: 0, cp_ds: 0, giaTBDon: 0
     });
 
-    // Debug: Log total soDonTT và visibleColumns
-    console.log(`🔍 processData total.soDonTT = ${total.soDonTT}`);
-    console.log(`🔍 visibleColumns.soDonTT = ${visibleColumns.soDonTT}`);
-
-    // Calculate Total Rates
-    const totalRates = {
-      tiLeChot: total.mess ? (total.orders / total.mess) * 100 : 0,
-      tiLeChotTT: total.mess ? (total.soDonTT / total.mess) * 100 : 0, // Số đơn TT / Số Mess
-      giaMess: total.mess ? total.cpqc / total.mess : 0,
-      cps: total.orders ? total.cpqc / total.orders : 0,
-      cp_ds: total.dsChot ? (total.cpqc / total.dsChot) * 100 : 0,
-      giaTBDon: total.orders ? total.dsChot / total.orders : 0,
-      cp_ds_sau_ship: total.dsSauShip ? (total.cpqc / total.dsSauShip) * 100 : 0,
-      kpi_percent: total.kpiValue ? (total.dsSauShip / total.kpiValue) * 100 : 0,
-    };
-
-    // --- DAILY BREAKDOWN LOGIC ---
-    const dailyGroups = {};
-    let debugFilterStats = { total: 0, passedTeam: 0, passedProduct: 0, passedShift: 0, passedMarket: 0, passedDate: 0 };
-
-    if (activeTab === 'DetailedReport') {
-      data.forEach(row => {
-        debugFilterStats.total++;
-        // Tất cả dữ liệu lấy từ detail_reports
-        if (selectedTeams.length > 0 && !selectedTeams.includes(row['Team'])) return;
-        debugFilterStats.passedTeam++;
-        if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return;
-        debugFilterStats.passedProduct++;
-        if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return;
-        debugFilterStats.passedShift++;
-        if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return;
-        debugFilterStats.passedMarket++;
-        if (!row['Ngày']) return;
-
-        const dObj = parseSmartDate(row['Ngày']);
-        if (!dObj) return;
-        // Sử dụng LOCAL date để tránh lỗi timezone (toISOString trả về UTC)
-        const year = dObj.getFullYear();
-        const month = String(dObj.getMonth() + 1).padStart(2, '0');
-        const day = String(dObj.getDate()).padStart(2, '0');
-        const date = `${year}-${month}-${day}`;
-        debugFilterStats.passedDate++;
-
-        if (!dailyGroups[date]) dailyGroups[date] = [];
-        dailyGroups[date].push(row);
-      });
-
-      console.log(`🔍 Filter stats: Total=${debugFilterStats.total}, PassedTeam=${debugFilterStats.passedTeam}, PassedProduct=${debugFilterStats.passedProduct}, PassedShift=${debugFilterStats.passedShift}, PassedMarket=${debugFilterStats.passedMarket}, PassedDate=${debugFilterStats.passedDate}`);
-    }
-
-    // Sort dates desc
-    const sortedDates = Object.keys(dailyGroups).sort((a, b) => new Date(b) - new Date(a));
-    console.log(`📅 Daily dates found: ${sortedDates.length} ngày:`, sortedDates.slice(0, 10));
-
-    const dailyData = sortedDates.map(date => {
-      const dayRows = dailyGroups[date];
-      const dayGrouped = {};
-
-      dayRows.forEach(row => {
-        // Tất cả dữ liệu lấy từ detail_reports
-        const key = `${row['Team']}_${row['Tên']}`;
-        if (!dayGrouped[key]) {
-          dayGrouped[key] = {
-            team: row['Team'], // detail_reports."Team"
-            name: row['Tên'], // detail_reports."Tên" (Tên MKT/Marketing)
-            mess: 0, cpqc: 0, orders: 0, ordersTT: 0, soDonTT: 0,
-            dsChot: 0, dsChotTT: 0
-          };
-        }
-        const g = dayGrouped[key];
-        g.mess += Number(row['Số_Mess_Cmt'] || 0); // detail_reports."Số_Mess_Cmt"
-        g.cpqc += Number(row['CPQC'] || 0); // detail_reports."CPQC"
-        g.orders += Number(row['Số đơn'] || 0); // detail_reports."Số đơn"
-        g.ordersTT += Number(row['Số đơn thực tế'] || 0); // detail_reports."Số đơn thực tế"
-        g.soDonTT += Number(row['Số đơn TT'] || 0); // Số đơn TT từ bảng orders
-        g.dsChot += Number(row['Doanh số'] || 0); // detail_reports."Doanh số"
-        // Doanh số chốt TT lấy từ orders (total_amount_vnd), nếu không có thì fallback về "Doanh thu chốt thực tế"
-        const dsChotTTFromOrders = Number(row['Doanh số chốt TT'] || 0);
-        g.dsChotTT += dsChotTTFromOrders > 0 ? dsChotTTFromOrders : Number(row['Doanh thu chốt thực tế'] || 0);
-      });
-
-      const currentDayRows = Object.values(dayGrouped).map(item => {
-        const tiLeChot = item.mess ? (item.orders / item.mess) * 100 : 0;
-        const tiLeChotTT = item.mess ? (item.soDonTT / item.mess) * 100 : 0; // Số đơn TT / Số Mess
-        const giaMess = item.mess ? item.cpqc / item.mess : 0;
-        const cps = item.orders ? item.cpqc / item.orders : 0;
-        const cp_ds = item.dsChot ? (item.cpqc / item.dsChot) * 100 : 0;
-        const giaTBDon = item.orders ? item.dsChot / item.orders : 0;
-
-        return { ...item, tiLeChot, tiLeChotTT, giaMess, cps, cp_ds, giaTBDon };
-      });
-
-      currentDayRows.sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
-
-      const dTotal = currentDayRows.reduce((acc, cur) => ({
-        mess: acc.mess + cur.mess,
-        cpqc: acc.cpqc + cur.cpqc,
-        orders: acc.orders + cur.orders,
-        ordersTT: acc.ordersTT + cur.ordersTT,
-        soDonTT: acc.soDonTT + cur.soDonTT,
-        dsChot: acc.dsChot + cur.dsChot,
-        dsChotTT: acc.dsChotTT + cur.dsChotTT
-      }), { mess: 0, cpqc: 0, orders: 0, ordersTT: 0, soDonTT: 0, dsChot: 0, dsChotTT: 0 });
-
-      const dTotalRates = {
-        tiLeChot: dTotal.mess ? (dTotal.orders / dTotal.mess) * 100 : 0,
-        tiLeChotTT: dTotal.mess ? (dTotal.soDonTT / dTotal.mess) * 100 : 0, // Số đơn TT / Số Mess
-        giaMess: dTotal.mess ? dTotal.cpqc / dTotal.mess : 0,
-        cps: dTotal.orders ? dTotal.cpqc / dTotal.orders : 0,
-        cp_ds: dTotal.dsChot ? (dTotal.cpqc / dTotal.dsChot) * 100 : 0,
-        giaTBDon: dTotal.orders ? dTotal.dsChot / dTotal.orders : 0
-      };
-
-      return { date, rows: currentDayRows, total: { ...dTotal, ...dTotalRates } };
-    });
-
-    return { rows, total: { ...total, ...totalRates }, dailyData };
-  }, [data, selectedTeams, selectedProducts, selectedShifts, selectedMarkets, activeTab]);
+    return { rows, total, dailyData: [] };
+  }, [data, selectedTeams, selectedProducts, selectedShifts, selectedMarkets]);
 
   // Logic for Market Report (Tab 4)
   const processMarketData = useMemo(() => {
