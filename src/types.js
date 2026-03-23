@@ -24,7 +24,7 @@ export const BILL_LADING_COLUMNS = [
     "Loại tiền thanh toán", "Tổng tiền VNĐ", "Hình thức thanh toán", "Ghi chú",
     "Ngày đóng hàng", "Trạng thái giao hàng", "Thời gian giao dự kiến",
     "Phí ship nội địa Mỹ (usd)", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
-    "Nhân viên Sale", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
+    "Nhân viên Sale", "Nhân viên MKT", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
     "Ngày up bill", "Tiền đã thanh toán"
 ];
@@ -33,7 +33,7 @@ export const BILL_LADING_COLUMNS = [
 export const DEFAULT_BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Name*", "Phone*", "Add", "City", "State",
     "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
-    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền"
+    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT"
 ];
 
 // Specific dropdown options for columns defined in the HTML
@@ -74,5 +74,6 @@ export const COLUMN_MAPPING = {
     "Payment Bill": "payment_bill",
     "Payment Image": "payment_image",
     "Ngày up bill": "ngayupbill",
+    "Nhân viên MKT": "marketing_staff",
     "Tiền đã thanh toán": "reconciled_vnd"
 };

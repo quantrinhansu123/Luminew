@@ -31,7 +31,7 @@ const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
 
 function VanDon() {
-  const { canView, role } = usePermissions();
+  const { canView, role, loading: permissionsLoading } = usePermissions();
   const roleLower = (role || '').toLowerCase();
   const isAdmin = ['admin', 'super_admin', 'director', 'manager'].includes(roleLower);
 
@@ -47,16 +47,16 @@ function VanDon() {
   const [useBackendPagination, setUseBackendPagination] = useState(true); // Enable backend pagination
   // Always use BILL_OF_LADING view - ORDER_MANAGEMENT is hidden
   const [viewMode] = useState('BILL_OF_LADING');
+  const isLoadingDataRef = useRef(false);
 
-  // --- Change Tracking ---
-  const [legacyChanges, setLegacyChanges] = useState(new Map());
-  const [pendingChanges, setPendingChanges] = useState(new Map());
+  // --- Action Queue & History Architecture ---
+  const [pendingChanges, setPendingChanges] = useState(new Map()); // UI ONLY: yellow highlight
   const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
 
-  // --- Undo/Redo History ---
-  const [changeHistory, setChangeHistory] = useState([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-
+  const changeHistoryRef = useRef([]); // Stack for Ctrl-Z
+  const historyIndexRef = useRef(-1);
+  const dbQueueRef = useRef([]); // FIFO Queue for Backend
+  const isProcessingQueue = useRef(false);
 
   // --- Common Filter State ---
   const [filterValues, setFilterValues] = useState({
@@ -160,9 +160,7 @@ function VanDon() {
   // --- MGT Noi Bo specific ---
   const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
 
-  // --- Update Queue & Debounce ---
-  const updateQueue = useRef(new Map()); // orderId -> { changes: Map, hasDelete: boolean, timeout?: ReturnType<typeof setTimeout> }
-
+  // --- Removed Old Queue Map ---
   // --- Toasts ---
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
@@ -170,20 +168,37 @@ function VanDon() {
   // --- Initialize ---
   useEffect(() => {
     // Only load data on mount, subsequent loads handled by filter/pagination useEffect
-    loadData();
     const storedChanges = localStorage.getItem('speegoPendingChanges');
     if (storedChanges) {
       try {
         const parsed = JSON.parse(storedChanges);
         const map = new Map();
+        const startupQueue = [];
+
         for (const id in parsed) {
           const innerMap = new Map();
           for (const key in parsed[id]) {
             innerMap.set(key, parsed[id][key]);
+
+            // Push into DB Queue directly from localStorage
+            startupQueue.push({
+              orderId: id,
+              colKey: key,
+              originalValue: parsed[id][key].originalValue,
+              newValue: parsed[id][key].newValue
+            });
           }
           map.set(id, innerMap);
         }
-        setLegacyChanges(map);
+
+        // Populate UI Map
+        setPendingChanges(map);
+        // Pre-fill backend queue
+        if (startupQueue.length > 0) {
+          dbQueueRef.current.push(...startupQueue);
+          // Don't auto-start here to avoid double-loading clash, wait for interaction 
+          // (or export processDbQueue to this scope if desired)
+        }
       } catch (e) {
         console.error("Error loading pending changes", e);
       }
@@ -236,7 +251,7 @@ function VanDon() {
     try {
       const str = String(dateString).trim();
       let date;
-      
+
       // Xử lý định dạng yyyy-mm-dd (như "2026-01-25")
       if (str.match(/^\d{4}-\d{2}-\d{2}$/)) {
         const [year, month, day] = str.split('-').map(Number);
@@ -258,11 +273,11 @@ function VanDon() {
       else {
         date = new Date(str.includes('Z') || str.includes('T') ? str : str);
       }
-      
+
       if (isNaN(date.getTime())) {
         return dateString; // Trả về nguyên bản nếu không parse được
       }
-      
+
       const day = String(date.getDate()).padStart(2, '0');
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const year = date.getFullYear();
@@ -274,6 +289,8 @@ function VanDon() {
 
   // --- Data Loading ---
   const loadData = async () => {
+    if (isLoadingDataRef.current) return;
+    isLoadingDataRef.current = true;
     setLoading(true);
     try {
       console.log('Starting data load...');
@@ -352,7 +369,7 @@ function VanDon() {
         const marketFilter = isAdmin ? undefined : (isJapanTab ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market);
         const productFilter = isAdmin ? undefined : filterValues.product;
         const shouldApplyDateFilter = enableDateFilter && !isAdmin;
-        
+
         // Admin/Manager: không filter theo nhân sự (luôn xem tất cả)
         // Pass allowedStaff to API ONLY if not Manager AND Not Japan Tab AND Not Admin
         const apiAllowedStaff = (!isManager && !isJapanTab && !isAdmin) ? allAllowedNames : undefined;
@@ -374,6 +391,10 @@ function VanDon() {
           dateTo: shouldApplyDateFilter ? dateTo : undefined,
           allowedStaff: apiAllowedStaff
         });
+
+        if (result.error) {
+          throw new Error(result.error);
+        }
 
         let filteredData = result.data;
         let filteredTotal = result.total;
@@ -459,7 +480,7 @@ function VanDon() {
         const matchesPersonnelFilterFallback = (row) => {
           if (isManager || allAllowedNamesFallback.length === 0) return true;
           const s = normalizeNameForMatchFallback(row.sale_staff || row["Nhân viên Sale"]);
-          const m = normalizeNameForMatchFallback(row.marketing_staff || row["Nhân viên Sale"]);
+          const m = normalizeNameForMatchFallback(row.marketing_staff || row["Nhân viên MKT"]);
           const d = normalizeNameForMatchFallback(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"]);
           return allAllowedNamesFallback.some(n => {
             const nn = normalizeNameForMatchFallback(n);
@@ -527,6 +548,7 @@ function VanDon() {
       addToast(`❌ Lỗi tải dữ liệu: ${error.message}. Vui lòng thử lại.`, 'error', 8000);
     } finally {
       setLoading(false);
+      isLoadingDataRef.current = false;
     }
   };
 
@@ -617,7 +639,7 @@ function VanDon() {
 
         // Query user từ bảng users để kiểm tra cột can_day_ffm
         let query = supabase.from('users').select('can_day_ffm');
-        
+
         if (userId) {
           query = query.eq('id', userId);
         } else if (userEmail) {
@@ -655,119 +677,68 @@ function VanDon() {
   // Reload data when filters or pagination change (if using backend)
   // Don't skip initial mount - let it load on mount
   useEffect(() => {
-    if (useBackendPagination) {
+    if (useBackendPagination && !permissionsLoading) {
       const timeoutId = setTimeout(() => {
         loadData();
       }, 100); // Small delay to ensure state is ready
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length]);
+  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
 
-  const savePendingToLocalStorage = (newPending, newLegacy) => {
+  const savePendingToLocalStorage = (newPending) => {
     const changesToSave = {};
-    const merge = new Map([...newLegacy, ...newPending]);
-
-    merge.forEach((val, id) => {
-      changesToSave[id] = Object.fromEntries(val);
-    });
+    if (newPending && newPending.size > 0) {
+      newPending.forEach((val, id) => {
+        changesToSave[id] = Object.fromEntries(val);
+      });
+    }
     localStorage.setItem('speegoPendingChanges', JSON.stringify(changesToSave));
   };
 
-  // Save snapshot to history for undo
-  const saveToHistory = (pending, legacy) => {
-    const snapshot = {
-      pending: new Map(pending),
-      legacy: new Map(legacy),
-      timestamp: Date.now()
-    };
-
-    setChangeHistory(prev => {
-      // Remove any history after current index (when undoing then making new changes)
-      const newHistory = prev.slice(0, historyIndex + 1);
-      // Add new snapshot
-      newHistory.push(snapshot);
-      // Keep only last 50 snapshots to avoid memory issues
-      return newHistory.slice(-50);
-    });
-    setHistoryIndex(prev => Math.min(prev + 1, 49));
-  };
-
-  // Undo last change
-  const handleUndo = () => {
-    if (historyIndex < 0) {
-      addToast('Không có thay đổi nào để hoàn tác', 'info', 2000);
-      return;
+  const deepCloneMapOfMaps = useCallback((sourceMap) => {
+    const clone = new Map();
+    if (sourceMap) {
+      sourceMap.forEach((innerMap, key) => { clone.set(key, new Map(innerMap)); });
     }
-
-    const previousIndex = historyIndex - 1;
-    if (previousIndex < 0) {
-      // Undo to initial state (empty)
-      setPendingChanges(new Map());
-      setLegacyChanges(new Map());
-      savePendingToLocalStorage(new Map(), new Map());
-      setHistoryIndex(-1);
-      addToast('Đã hoàn tác tất cả thay đổi', 'success', 2000);
-      return;
-    }
-
-    const previousSnapshot = changeHistory[previousIndex];
-    setPendingChanges(new Map(previousSnapshot.pending));
-    setLegacyChanges(new Map(previousSnapshot.legacy));
-    savePendingToLocalStorage(previousSnapshot.pending, previousSnapshot.legacy);
-    setHistoryIndex(previousIndex);
-    addToast('Đã hoàn tác', 'success', 2000);
-  };
-
-  // Redo last undone change
-  const handleRedo = () => {
-    if (historyIndex >= changeHistory.length - 1) {
-      addToast('Không có thay đổi nào để làm lại', 'info', 2000);
-      return;
-    }
-
-    const nextIndex = historyIndex + 1;
-    const nextSnapshot = changeHistory[nextIndex];
-    setPendingChanges(new Map(nextSnapshot.pending));
-    setLegacyChanges(new Map(nextSnapshot.legacy));
-    savePendingToLocalStorage(nextSnapshot.pending, nextSnapshot.legacy);
-    setHistoryIndex(nextIndex);
-    addToast('Đã làm lại', 'success', 2000);
-  };
+    return clone;
+  }, []);
 
   // Handle Phân FFM - Update "Đơn vị vận chuyển" and "Ngày Kế toán đối soát với FFM lần 2" for selected rows
   const handlePhanFFM = async (carrierName) => {
     if (selectedRows.size === 0) return;
 
     const selectedCount = selectedRows.size;
-    // Use the UI column name "Đơn vị vận chuyển" directly, as it will be mapped correctly when saving
     const carrierKey = 'Đơn vị vận chuyển';
     const accountingDateKey = 'Ngày Kế toán đối soát với FFM lần 2';
 
     // Get current date/time in ISO format
     const now = new Date().toISOString();
 
-    // Update pending changes
-    const newPending = new Map(pendingChanges);
+    const historyChanges = [];
     selectedRows.forEach(orderId => {
-      if (!newPending.has(orderId)) {
-        newPending.set(orderId, new Map());
-      }
-      // Update "Đơn vị vận chuyển" - use UI column name, it will be mapped to DB field when saving
       const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
-      const originalCarrierValue = originalRow ? String(originalRow[carrierKey] || originalRow['shipping_unit'] || originalRow['Đơn vị vận chuyển'] || '') : '';
-      newPending.get(orderId).set(carrierKey, { newValue: carrierName, originalValue: originalCarrierValue });
 
-      // Update "Ngày Kế toán đối soát với FFM lần 2" với thời gian hiện tại
+      const originalCarrierValue = originalRow ? String(originalRow[carrierKey] || originalRow['shipping_unit'] || originalRow['Đơn vị vận chuyển'] || '') : '';
+      const pendingCarrierVal = pendingChanges.get(orderId)?.get(carrierKey);
+      const stepCarrierValue = pendingCarrierVal ? String(pendingCarrierVal.newValue) : originalCarrierValue;
+
+      if (String(carrierName) !== String(stepCarrierValue)) {
+        historyChanges.push({ orderId, colKey: carrierKey, originalValue: stepCarrierValue, newValue: carrierName });
+      }
+
       const originalDateValue = originalRow ? String(originalRow[accountingDateKey] || originalRow['accounting_check_date'] || '') : '';
-      newPending.get(orderId).set(accountingDateKey, { newValue: now, originalValue: originalDateValue });
+      const pendingDateVal = pendingChanges.get(orderId)?.get(accountingDateKey);
+      const stepDateValue = pendingDateVal ? String(pendingDateVal.newValue) : originalDateValue;
+
+      if (String(now) !== String(stepDateValue)) {
+        historyChanges.push({ orderId, colKey: accountingDateKey, originalValue: stepDateValue, newValue: now });
+      }
     });
 
-    setPendingChanges(newPending);
-    savePendingToLocalStorage(newPending, legacyChanges);
-
-    // Save to history for undo
-    saveToHistory(newPending, legacyChanges);
+    if (historyChanges.length > 0) {
+      pushChange(historyChanges);
+    }
 
     // Clear selection
     setSelectedRows(new Set());
@@ -937,7 +908,7 @@ function VanDon() {
   const getFilteredData = useMemo(() => {
     let data = [...allData];
 
-    // 1. Apply changes (Pending > Legacy > Original)
+    // 1. Apply changes (Pending > Original)
     data = data.map(row => {
       const orderId = row[PRIMARY_KEY_COLUMN];
       let rowCopy = { ...row };
@@ -946,10 +917,6 @@ function VanDon() {
       rowCopy["Ngày đẩy đơn"] = extractDateFromDateTime(row["Ngày Kế toán đối soát với FFM lần 2"]);
       rowCopy["Ngày có mã tracking"] = extractDateFromDateTime(row["Ngày Kế toán đối soát với FFM lần 1"]);
 
-      const legacy = legacyChanges.get(orderId);
-      if (legacy) {
-        legacy.forEach((info, key) => { rowCopy[key] = info.newValue; });
-      }
       const pending = pendingChanges.get(orderId);
       if (pending) {
         pending.forEach((info, key) => { rowCopy[key] = info.newValue; });
@@ -1102,13 +1069,13 @@ function VanDon() {
     // Ngày up bill filter - Áp dụng cho tất cả users
     // Helper function để lấy giá trị Ngày up bill từ row (thử nhiều key)
     const getUpBillValue = (row) => {
-      return row["ngayupbill"] ?? 
-             row["Ngày up bill"] ?? 
-             row["ngay_up_bill"] ?? 
-             row[COLUMN_MAPPING["Ngày up bill"]] ?? 
-             '';
+      return row["ngayupbill"] ??
+        row["Ngày up bill"] ??
+        row["ngay_up_bill"] ??
+        row[COLUMN_MAPPING["Ngày up bill"]] ??
+        '';
     };
-    
+
     // Filter "không trống" - lọc các dòng có Ngày up bill không trống
     if (filterUpBillNotEmpty) {
       data = data.filter(row => {
@@ -1119,7 +1086,7 @@ function VanDon() {
         return str !== '' && str !== 'null' && str !== 'undefined' && str !== 'NaN';
       });
     }
-    
+
     // Filter theo khoảng thời gian (only if enabled)
     if (enableUpBillFilter) {
       if (dateFromUpBill) {
@@ -1170,7 +1137,7 @@ function VanDon() {
     Object.entries(filterValues).forEach(([key, val]) => {
       // Skip các filter đặc biệt đã được xử lý riêng
       if (['market', 'product', 'tracking_include', 'tracking_exclude'].includes(key)) return;
-      
+
       // Skip nếu giá trị rỗng
       if (val === null || val === undefined) return;
       if (Array.isArray(val) && val.length === 0) return;
@@ -1281,7 +1248,7 @@ function VanDon() {
     } */
 
     return data;
-  }, [allData, legacyChanges, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, enableDateFilter, dateFromUpBill, dateToUpBill, enableUpBillFilter, filterUpBillNotEmpty, mgtNoiBoOrder, isAdmin]);
+  }, [allData, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, enableDateFilter, dateFromUpBill, dateToUpBill, enableUpBillFilter, filterUpBillNotEmpty, mgtNoiBoOrder, isAdmin]);
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
@@ -1315,7 +1282,7 @@ function VanDon() {
 
       // Lấy dữ liệu đầy đủ từ dataSource cho các rows đã update
       const reportsToSave = [];
-      
+
       for (const updatedRow of updatedRows) {
         const orderId = updatedRow[PRIMARY_KEY_COLUMN];
         const fullRow = dataSource.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
@@ -1398,182 +1365,205 @@ function VanDon() {
   }, [allData]);
 
   // --- Change Management (Shared) ---
-  const processUpdateQueue = useCallback(async (forceBulk) => {
-    const queue = updateQueue.current;
-    if (queue.size === 0) return;
+  const processDbQueue = useCallback(async () => {
+    if (isProcessingQueue.current) return;
+    if (dbQueueRef.current.length === 0) return;
 
-    const rowsToUpdate = [];
-    const queueEntries = Array.from(queue.entries());
-    queue.clear();
+    isProcessingQueue.current = true;
+    try {
+      while (dbQueueRef.current.length > 0) {
+        // Take everything currently in queue as a single batch
+        const batchToProcess = dbQueueRef.current.splice(0, dbQueueRef.current.length);
 
-    queueEntries.forEach(([orderId, data]) => {
-      const rowObj = { [PRIMARY_KEY_COLUMN]: orderId };
-      data.changes.forEach((info, key) => { rowObj[key] = info.newValue; });
-      rowsToUpdate.push(rowObj);
-    });
-
-    if (rowsToUpdate.length === 0) return;
-
-    if (!forceBulk && rowsToUpdate.length === 1 && Object.keys(rowsToUpdate[0]).length === 2) {
-      const row = rowsToUpdate[0];
-      const col = Object.keys(row).find(k => k !== PRIMARY_KEY_COLUMN);
-      try {
-        const toastId = addToast('Đang cập nhật...', 'loading', 0);
-        const currentUsername = localStorage.getItem('username') || 'Unknown';
-        await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername);
-        // Tính toán updatedData trước
-        const updatedData = [...allData];
-        const idx = updatedData.findIndex(r => r[PRIMARY_KEY_COLUMN] === row[PRIMARY_KEY_COLUMN]);
-        if (idx > -1) {
-          updatedData[idx] = { ...updatedData[idx], [col]: row[col] };
-        }
-        
-        setAllData(updatedData);
-        setPendingChanges((prev) => {
-          const next = new Map(prev);
-          if (next.has(row[PRIMARY_KEY_COLUMN])) {
-            next.get(row[PRIMARY_KEY_COLUMN]).delete(col);
-            if (next.get(row[PRIMARY_KEY_COLUMN]).size === 0) next.delete(row[PRIMARY_KEY_COLUMN]);
-          }
-          savePendingToLocalStorage(next, legacyChanges);
-          return next;
+        const rowsObjMap = new Map();
+        batchToProcess.forEach(({ orderId, colKey, newValue }) => {
+          if (!rowsObjMap.has(orderId)) rowsObjMap.set(orderId, { [PRIMARY_KEY_COLUMN]: orderId });
+          rowsObjMap.get(orderId)[colKey] = newValue;
         });
-        
-        removeToast(toastId);
-        addToast('Cập nhật thành công!', 'success');
-        
-        // Lưu vào shipping_reports sau khi update thành công (dùng updatedData)
-        await saveToShippingReports([row], updatedData);
-      } catch (e) {
-        addToast(e.message, 'error');
-      }
-    } else {
-      try {
-        const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
+
+        const rowsToUpdate = Array.from(rowsObjMap.values());
+        if (rowsToUpdate.length === 0) continue;
+
         const currentUsername = localStorage.getItem('username') || 'Unknown';
-        const res = await API.updateBatch(rowsToUpdate, currentUsername);
-        if (res.success) {
-          // Tính toán updatedData trước
-          const updatedData = [...allData];
-          rowsToUpdate.forEach(updatedRow => {
-            const idx = updatedData.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
-            if (idx > -1) updatedData[idx] = { ...updatedData[idx], ...updatedRow };
+        let success = false;
+
+        if (rowsToUpdate.length === 1 && Object.keys(rowsToUpdate[0]).length === 2) {
+          const row = rowsToUpdate[0];
+          const col = Object.keys(row).find(k => k !== PRIMARY_KEY_COLUMN);
+          const toastId = addToast('Đang cập nhật...', 'loading', 0);
+          try {
+            await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername);
+            removeToast(toastId);
+            success = true;
+          } catch (e) {
+            addToast(e.message, 'error');
+          }
+        } else {
+          const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
+          try {
+            const res = await API.updateBatch(rowsToUpdate, currentUsername);
+            removeToast(toastId);
+            if (res.success) success = true;
+          } catch (e) {
+            addToast(e.message, 'error');
+          }
+        }
+
+        if (success) {
+          let latestData;
+          setAllData(prevData => {
+            latestData = [...prevData];
+            rowsToUpdate.forEach(updatedRow => {
+              const idx = latestData.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
+              if (idx > -1) latestData[idx] = { ...latestData[idx], ...updatedRow };
+            });
+            return latestData;
           });
-          
-          setAllData(updatedData);
-          setPendingChanges((prev) => {
-            const next = new Map(prev);
-            rowsToUpdate.forEach(r => {
-              const oid = r[PRIMARY_KEY_COLUMN];
-              if (next.has(oid)) {
-                Object.keys(r).forEach(k => { if (k !== PRIMARY_KEY_COLUMN) next.get(oid).delete(k); });
-                if (next.get(oid).size === 0) next.delete(oid);
+
+          saveToShippingReports(rowsToUpdate, latestData).catch(console.error);
+
+          setPendingChanges(prev => {
+            const next = deepCloneMapOfMaps(prev);
+            batchToProcess.forEach(({ orderId, colKey }) => {
+              if (next.has(orderId)) {
+                next.get(orderId).delete(colKey);
+                if (next.get(orderId).size === 0) next.delete(orderId);
               }
             });
-            savePendingToLocalStorage(next, legacyChanges);
+            savePendingToLocalStorage(next);
             return next;
           });
-          
-          removeToast(toastId);
-          addToast(`Đã cập nhật ${res.summary?.updated || rowsToUpdate.length} đơn hàng.`, 'success');
-          
-          // Lưu vào shipping_reports sau khi update thành công (dùng updatedData)
-          await saveToShippingReports(rowsToUpdate, updatedData);
         }
-      } catch (e) {
-        addToast(e.message, 'error');
       }
+    } finally {
+      isProcessingQueue.current = false;
     }
-  }, [addToast, removeToast, legacyChanges, savePendingToLocalStorage, saveToShippingReports]);
+  }, [addToast, removeToast, saveToShippingReports, deepCloneMapOfMaps]);
+
+  // --- New Stack-Based History ---
+  const pushChange = useCallback((changesArray) => {
+    if (!changesArray || changesArray.length === 0) return;
+
+    // 1. History Stack
+    const currentIndex = historyIndexRef.current;
+    const currentHist = changeHistoryRef.current;
+    const newHistory = currentHist.slice(0, currentIndex + 1);
+
+    newHistory.push({ timestamp: Date.now(), changes: changesArray });
+    const finalHistory = newHistory.slice(-50);
+    changeHistoryRef.current = finalHistory;
+    historyIndexRef.current = finalHistory.length - 1;
+
+    // 2. Add to DB Queue & UI state
+    dbQueueRef.current.push(...changesArray);
+
+    setPendingChanges(prev => {
+      const next = deepCloneMapOfMaps(prev);
+      changesArray.forEach(({ orderId, colKey, newValue, originalValue }) => {
+        if (!next.has(orderId)) next.set(orderId, new Map());
+        next.get(orderId).set(colKey, { newValue, originalValue });
+      });
+      savePendingToLocalStorage(next);
+      return next;
+    });
+
+    // 3. Trigger worker
+    setTimeout(() => processDbQueue(), 10);
+  }, [deepCloneMapOfMaps, processDbQueue]);
+
+  // Undo last change
+  const handleUndo = useCallback(() => {
+    const currentIndex = historyIndexRef.current;
+    if (currentIndex < 0) {
+      addToast('Không có thay đổi nào để hoàn tác', 'info', 2000);
+      return;
+    }
+
+    const currentSnapshot = changeHistoryRef.current[currentIndex];
+
+    // Reverse changes
+    const undoChanges = currentSnapshot.changes.map(change => ({
+      orderId: change.orderId,
+      colKey: change.colKey,
+      newValue: change.originalValue,
+      originalValue: change.newValue
+    }));
+
+    // Add to DB queue & Update UI
+    dbQueueRef.current.push(...undoChanges);
+
+    setPendingChanges(prev => {
+      const next = deepCloneMapOfMaps(prev);
+      undoChanges.forEach(({ orderId, colKey, newValue, originalValue }) => {
+        if (!next.has(orderId)) next.set(orderId, new Map());
+        next.get(orderId).set(colKey, { newValue, originalValue });
+      });
+      savePendingToLocalStorage(next);
+      return next;
+    });
+
+    historyIndexRef.current = currentIndex - 1;
+    addToast('Đã hoàn tác', 'success', 2000);
+    setTimeout(() => processDbQueue(), 10);
+  }, [addToast, processDbQueue, deepCloneMapOfMaps]);
+
+  // Redo last undone change
+  const handleRedo = useCallback(() => {
+    const currentIndex = historyIndexRef.current;
+    const currentHist = changeHistoryRef.current;
+
+    if (currentIndex >= currentHist.length - 1) {
+      addToast('Không có thay đổi nào để làm lại', 'info', 2000);
+      return;
+    }
+
+    const nextIndex = currentIndex + 1;
+    const nextSnapshot = currentHist[nextIndex];
+
+    const redoChanges = nextSnapshot.changes.map(change => ({
+      orderId: change.orderId,
+      colKey: change.colKey,
+      newValue: change.newValue,
+      originalValue: change.originalValue
+    }));
+
+    dbQueueRef.current.push(...redoChanges);
+
+    setPendingChanges(prev => {
+      const next = deepCloneMapOfMaps(prev);
+      redoChanges.forEach(({ orderId, colKey, newValue, originalValue }) => {
+        if (!next.has(orderId)) next.set(orderId, new Map());
+        next.get(orderId).set(colKey, { newValue, originalValue });
+      });
+      savePendingToLocalStorage(next);
+      return next;
+    });
+
+    historyIndexRef.current = nextIndex;
+    addToast('Đã làm lại', 'success', 2000);
+    setTimeout(() => processDbQueue(), 10);
+  }, [addToast, processDbQueue, deepCloneMapOfMaps]);
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
-    const originalValue = originalRow ? String(originalRow[colKey] ?? '') : '';
-    const isDelete = newValue === '' && originalValue !== '';
+    const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
-    setPendingChanges((prev) => {
-      const next = new Map(prev);
-      if (!next.has(orderId)) next.set(orderId, new Map());
+    // Đảm bảo history ghi nhận đúng thao tác trung gian ngay cả khi chưa lưu server
+    const pendingVal = pendingChanges.get(orderId)?.get(colKey);
+    const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
-      if (newValue !== originalValue) {
-        next.get(orderId).set(colKey, { newValue, originalValue });
-      } else {
-        next.get(orderId).delete(colKey);
-        if (next.get(orderId).size === 0) next.delete(orderId);
-        setLegacyChanges(prevLeg => {
-          const nextLeg = new Map(prevLeg);
-          if (nextLeg.has(orderId)) {
-            nextLeg.get(orderId).delete(colKey);
-            if (nextLeg.get(orderId).size === 0) nextLeg.delete(orderId);
-          }
-          return nextLeg;
-        });
-      }
-      savePendingToLocalStorage(next, legacyChanges);
+    if (String(newValue) === String(stepOriginalValue)) return; // Không có thay đổi gì thực sự
 
-      if (!updateQueue.current.has(orderId)) {
-        updateQueue.current.set(orderId, { changes: new Map(), hasDelete: false });
-      }
-      const qEntry = updateQueue.current.get(orderId);
-      if (qEntry.timeout) clearTimeout(qEntry.timeout);
-
-      qEntry.changes.set(colKey, { newValue, originalValue });
-      if (isDelete) qEntry.hasDelete = true;
-
-      let totalChanges = 0;
-      let hasAnyDelete = false;
-      updateQueue.current.forEach(v => {
-        totalChanges += v.changes.size;
-        if (v.hasDelete) hasAnyDelete = true;
-      });
-
-      if (hasAnyDelete || totalChanges >= BULK_THRESHOLD) {
-        qEntry.timeout = setTimeout(() => processUpdateQueue(true), UPDATE_DELAY);
-      } else {
-        qEntry.timeout = setTimeout(() => processUpdateQueue(false), UPDATE_DELAY);
-      }
-      return next;
-    });
-  }, [allData, legacyChanges, processUpdateQueue, savePendingToLocalStorage]);
+    pushChange([{ orderId, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
+  }, [allData, pendingChanges, pushChange]);
 
   const handleUpdateAll = async () => {
-    const combined = new Map([...legacyChanges, ...pendingChanges]);
-    if (combined.size === 0) {
+    setSyncPopoverOpen(false);
+    if (dbQueueRef.current.length === 0) {
       addToast('Không có thay đổi cần cập nhật', 'info');
       return;
     }
-    const rowsToSend = [];
-    combined.forEach((changes, orderId) => {
-      const row = { [PRIMARY_KEY_COLUMN]: orderId };
-      changes.forEach((info, key) => { row[key] = info.newValue; });
-      rowsToSend.push(row);
-    });
-    try {
-      const toastId = addToast('Đang gửi tất cả thay đổi...', 'loading', 0);
-      const currentUsername = localStorage.getItem('username') || 'Unknown';
-      const res = await API.updateBatch(rowsToSend, currentUsername);
-      if (res.success) {
-        // Tính toán updatedData trước
-        const updatedData = [...allData];
-        rowsToSend.forEach(updatedRow => {
-          const idx = updatedData.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
-          if (idx > -1) updatedData[idx] = { ...updatedData[idx], ...updatedRow };
-        });
-        
-        setAllData(updatedData);
-        setLegacyChanges(new Map());
-        setPendingChanges(new Map());
-        savePendingToLocalStorage(new Map(), new Map());
-        setSyncPopoverOpen(false);
-        removeToast(toastId);
-        addToast('Cập nhật thành công!', 'success');
-        
-        // Lưu vào shipping_reports sau khi update thành công (dùng updatedData)
-        await saveToShippingReports(rowsToSend, updatedData);
-      }
-    } catch (e) {
-      addToast(e.message, 'error');
-    }
+    processDbQueue();
   };
 
 
@@ -1587,7 +1577,7 @@ function VanDon() {
     // Nếu click vào input/select/textarea, vẫn cho phép selection nhưng không bắt đầu drag ngay
     const target = e.target;
     const isInputElement = target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA';
-    
+
     // Nếu click vào input/select, chỉ select cell đó, không bắt đầu drag
     if (isInputElement) {
       setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
@@ -1623,26 +1613,26 @@ function VanDon() {
   };
 
   useEffect(() => {
-    const handleMouseUp = () => { 
-      isSelecting.current = false; 
+    const handleMouseUp = () => {
+      isSelecting.current = false;
     };
-    
+
     // Clear selection khi click ra ngoài table (nhưng không clear khi click vào control buttons)
     const handleClickOutside = (e) => {
       if (tableRef.current && !tableRef.current.contains(e.target)) {
         // Chỉ clear nếu không phải đang click vào các control buttons
-        const isControlButton = e.target.closest('button') || 
-                                 e.target.closest('.pagination') || 
-                                 e.target.closest('.filter') ||
-                                 e.target.closest('.toolbar') ||
-                                 e.target.closest('[role="dialog"]') ||
-                                 e.target.closest('.modal');
+        const isControlButton = e.target.closest('button') ||
+          e.target.closest('.pagination') ||
+          e.target.closest('.filter') ||
+          e.target.closest('.toolbar') ||
+          e.target.closest('[role="dialog"]') ||
+          e.target.closest('.modal');
         if (!isControlButton) {
           setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
         }
       }
     };
-    
+
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('click', handleClickOutside);
     return () => {
@@ -1651,26 +1641,7 @@ function VanDon() {
     };
   }, []);
 
-  // Save to history when pendingChanges or legacyChanges change (debounced)
-  const historyTimeoutRef = useRef(null);
-  useEffect(() => {
-    if (historyTimeoutRef.current) {
-      clearTimeout(historyTimeoutRef.current);
-    }
-
-    historyTimeoutRef.current = setTimeout(() => {
-      // Only save if there are actual changes
-      if (pendingChanges.size > 0 || legacyChanges.size > 0) {
-        saveToHistory(pendingChanges, legacyChanges);
-      }
-    }, 1000); // Debounce 1 second
-
-    return () => {
-      if (historyTimeoutRef.current) {
-        clearTimeout(historyTimeoutRef.current);
-      }
-    };
-  }, [pendingChanges, legacyChanges]);
+  // Removed debounced history save
 
   // --- Keyboard Navigation ---
   useEffect(() => {
@@ -1800,12 +1771,7 @@ function VanDon() {
       const bounds = getSelectionBounds();
       if (!bounds) return;
 
-      const newPending = new Map(pendingChanges);
-      let updatedCount = 0;
-
-      // Paste logic: repeat pattern if source smaller than selection
-      // Simply: iterate selection or data based on rules.
-      // Simplified: Paste top-left aligned to selection start
+      const historyChanges = [];
 
       // Flood Fill Logic:
       // If clipboard has only 1 cell (1x1), and selection > 1x1, fill the selection with that value.
@@ -1825,15 +1791,13 @@ function VanDon() {
             if (!EDITABLE_COLS.includes(colName)) continue;
 
             const dataKey = COLUMN_MAPPING[colName] || colName;
-            const originalValue = rowData[dataKey] ?? '';
+            const baseValue = rowData[dataKey] ?? '';
 
-            if (String(val) !== String(originalValue)) {
-              if (!newPending.has(orderId)) newPending.set(orderId, new Map());
-              newPending.get(orderId).set(dataKey, {
-                newValue: String(val),
-                originalValue: String(originalValue)
-              });
-              updatedCount++;
+            const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
+            const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
+
+            if (String(val) !== String(stepOriginalValue)) {
+              historyChanges.push({ orderId, colKey: dataKey, originalValue: String(stepOriginalValue), newValue: String(val) });
             }
           }
         }
@@ -1854,47 +1818,27 @@ function VanDon() {
             if (!EDITABLE_COLS.includes(colName)) return; // Skip read-only
 
             const dataKey = COLUMN_MAPPING[colName] || colName;
-            const originalValue = rowData[dataKey] ?? '';
+            const baseValue = rowData[dataKey] ?? '';
 
-            if (String(val) !== String(originalValue)) {
-              if (!newPending.has(orderId)) newPending.set(orderId, new Map());
-              newPending.get(orderId).set(dataKey, {
-                newValue: String(val),
-                originalValue: String(originalValue)
-              });
-              updatedCount++;
+            const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
+            const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
+
+            if (String(val) !== String(stepOriginalValue)) {
+              historyChanges.push({ orderId, colKey: dataKey, originalValue: String(stepOriginalValue), newValue: String(val) });
             }
           });
         });
       }
 
-      if (updatedCount > 0) {
-        setPendingChanges(newPending);
-        savePendingToLocalStorage(newPending, legacyChanges);
-
-        // -- Auto-save logic --
-        // Push these changes to updateQueue for immediate processing
-        newPending.forEach((changes, orderId) => {
-          if (!updateQueue.current.has(orderId)) {
-            updateQueue.current.set(orderId, { changes: new Map(), hasDelete: false });
-          }
-          const qEntry = updateQueue.current.get(orderId);
-          if (qEntry.timeout) clearTimeout(qEntry.timeout); // Clear any pending debounce
-
-          changes.forEach((val, key) => {
-            qEntry.changes.set(key, val);
-          });
-        });
-
-        // Trigger immediate bulk update
-        addToast(`Đã dán ${updatedCount} ô. Đang tự động lưu...`, 'info', 1000);
-        processUpdateQueue(true);
+      if (historyChanges.length > 0) {
+        pushChange(historyChanges);
+        addToast(`Đã dán ${historyChanges.length} ô. Đang đưa vào hàng đợi xử lý...`, 'info', 1500);
       }
     };
 
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [selection, pendingChanges, legacyChanges, paginatedData, currentColumns, getSelectionBounds, processUpdateQueue, savePendingToLocalStorage]);
+  }, [selection, pendingChanges, paginatedData, currentColumns, getSelectionBounds, pushChange, addToast]);
 
 
   // Calculated helpers for render
@@ -1985,7 +1929,7 @@ function VanDon() {
       if (cIdx === selectionBounds.minCol) classes += "selection-border-left ";
       if (cIdx === selectionBounds.maxCol) classes += "selection-border-right ";
     }
-    
+
     // Cursor style - hiển thị cursor cell khi hover (trừ khi đang trong input/select)
     classes += "cursor-cell ";
 
@@ -2218,9 +2162,9 @@ function VanDon() {
               className="p-1 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-bold transition-all flex items-center gap-1.5 relative border border-blue-100"
             >
               🔄 Trạng thái
-              {(legacyChanges.size + pendingChanges.size) > 0 && (
+              {pendingChanges.size > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] px-1 rounded-full shadow-sm">
-                  {legacyChanges.size + pendingChanges.size}
+                  {pendingChanges.size}
                 </span>
               )}
             </button>
@@ -2434,6 +2378,7 @@ function VanDon() {
                                   </select>
                                 ) : EDITABLE_COLS.includes(col) ? (
                                   <input
+                                    key={`${orderId}-${col}-${String(displayVal)}`}
                                     type="text"
                                     defaultValue={String(displayVal)}
                                     onBlur={(e) => {
@@ -2611,12 +2556,11 @@ function VanDon() {
           isOpen={syncPopoverOpen}
           onClose={() => setSyncPopoverOpen(false)}
           pendingChanges={pendingChanges}
-          legacyChanges={legacyChanges}
+          legacyChanges={new Map()}
           onApply={handleUpdateAll}
           onDiscard={() => {
             if (confirm("Hủy bỏ tất cả thay đổi?")) {
               setPendingChanges(new Map());
-              setLegacyChanges(new Map());
               localStorage.removeItem('speegoPendingChanges');
               setSyncPopoverOpen(false);
               refreshData();

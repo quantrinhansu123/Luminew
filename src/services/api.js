@@ -343,7 +343,7 @@ export const DB_TO_APP_MAPPING = {
     "payment_method": "Hình thức thanh toán",
     "tracking_code": "Mã Tracking",
     "shipping_fee": "Phí ship nội địa Mỹ (usd)", // Approx mapping
-    "marketing_staff": "Nhân viên Sale", // Approx
+    "marketing_staff": "Nhân viên MKT",
     "sale_staff": "Nhân viên Sale",
     "team": "Team",
     "delivery_staff": "NV Vận đơn",
