@@ -668,11 +668,11 @@ function VanDon() {
 
   // Tự động chuyển về 'all' nếu user đang ở tab hanoi nhưng không có quyền
   useEffect(() => {
-    if (bolActiveTab === 'hanoi' && !canViewHaNoi) {
+    if (bolActiveTab === 'hanoi' && !canViewHaNoi && !isAdmin) {
       console.log('⚠️ [VanDon] User không có quyền xem Đẩy đơn Hà Nội, chuyển về "all"');
       setBolActiveTab('all');
     }
-  }, [canViewHaNoi, bolActiveTab]);
+  }, [canViewHaNoi, bolActiveTab, isAdmin]);
 
   // Reload data when filters or pagination change (if using backend)
   // Don't skip initial mount - let it load on mount
