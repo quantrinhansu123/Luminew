@@ -1,4 +1,4 @@
-﻿import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MultiSelect from '../components/MultiSelect';
 import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
@@ -19,8 +19,6 @@ const QuickAddModal = lazy(() => import('../components/QuickAddModal'));
 const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal'));
 const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
 
-const UPDATE_DELAY = 500;
-const BULK_THRESHOLD = 1;
 
 function FFM() {
   const { canView } = usePermissions();
@@ -32,7 +30,6 @@ function FFM() {
   // Only ORDER_MANAGEMENT mode - BILL_OF_LADING removed
   const viewMode = 'ORDER_MANAGEMENT';
 
-  const [legacyChanges, setLegacyChanges] = useState(new Map());
   const [pendingChanges, setPendingChanges] = useState(new Map());
   const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
   const [quickAddModalOpen, setQuickAddModalOpen] = useState(false);
@@ -60,7 +57,8 @@ function FFM() {
     market: [],
     product: [],
     tracking_include: '',
-    tracking_exclude: ''
+    tracking_exclude: '',
+    tracking_status: 'Tình trạng mã'
   });
   const [localFilterValues, setLocalFilterValues] = useState(filterValues);
 
@@ -77,7 +75,6 @@ function FFM() {
 
   const [omActiveTeam, setOmActiveTeam] = useState('all');
   const [omDateType, setOmDateType] = useState('Ngày đóng hàng');
-  const [trackingFilter, setTrackingFilter] = useState('all'); // 'all' | 'with_tracking' | 'without_tracking'
   const [showFilters, setShowFilters] = useState(true); // Collapse/expand filters
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,7 +88,12 @@ function FFM() {
   const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Hà Nội không (dựa trên can_day_ffm)
 
-  const updateQueue = useRef(new Map());
+  const updateQueue = useRef(new Map()); // Legacy
+
+  const changeHistoryRef = useRef([]); // Stack for Ctrl-Z
+  const historyIndexRef = useRef(-1);
+  const dbQueueRef = useRef([]); // FIFO Queue for Backend
+  const isProcessingQueue = useRef(false);
 
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
@@ -142,14 +144,25 @@ function FFM() {
       try {
         const parsed = JSON.parse(storedChanges);
         const map = new Map();
+        const initialDbQueue = [];
         for (const id in parsed) {
           const innerMap = new Map();
           for (const key in parsed[id]) {
             innerMap.set(key, parsed[id][key]);
+            initialDbQueue.push({ 
+              orderId: id, 
+              colKey: key, 
+              newValue: parsed[id][key].newValue, 
+              originalValue: parsed[id][key].originalValue 
+            });
           }
           map.set(id, innerMap);
         }
-        setLegacyChanges(map);
+        setPendingChanges(map);
+        dbQueueRef.current = initialDbQueue;
+        if (initialDbQueue.length > 0) {
+          setTimeout(() => processDbQueue(), 1000);
+        }
       } catch (e) {
         console.error('Error loading pending changes', e);
       }
@@ -267,7 +280,8 @@ function FFM() {
       market: [],
       product: [],
       tracking_include: '',
-      tracking_exclude: ''
+      tracking_exclude: '',
+      tracking_status: 'Tình trạng mã'
     };
     setFilterValues(defaultFilters);
     setLocalFilterValues(defaultFilters);
@@ -276,6 +290,24 @@ function FFM() {
     setCurrentPage(1);
     await loadData();
   };
+  const savePendingToLocalStorage = (newPending, newLegacy = new Map()) => {
+    const combined = new Map([...newLegacy, ...newPending]);
+    const changesToSave = {};
+    if (combined && combined.size > 0) {
+      combined.forEach((val, id) => {
+        changesToSave[id] = Object.fromEntries(val);
+      });
+    }
+    localStorage.setItem('speegoPendingChanges', JSON.stringify(changesToSave));
+  };
+
+  const deepCloneMapOfMaps = useCallback((sourceMap) => {
+    const clone = new Map();
+    if (sourceMap) {
+      sourceMap.forEach((innerMap, key) => { clone.set(key, new Map(innerMap)); });
+    }
+    return clone;
+  }, []);
 
   // Filter columns based on visibility
   const currentColumns = useMemo(() => {
@@ -299,12 +331,6 @@ function FFM() {
       rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(row['time_dayon'] || row.time_dayon || row['Ngày Kế toán đối soát với FFM lần 2']);
       rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(row['Ngày Kế toán đối soát với FFM lần 1']);
 
-      const legacy = legacyChanges.get(orderId);
-      if (legacy) {
-        legacy.forEach((info, key) => {
-          rowCopy[key] = info.newValue;
-        });
-      }
       const pending = pendingChanges.get(orderId);
       if (pending) {
         pending.forEach((info, key) => {
@@ -369,7 +395,7 @@ function FFM() {
     }
 
     Object.entries(filterValues).forEach(([key, val]) => {
-      if (['market', 'product', 'tracking_include', 'tracking_exclude'].includes(key)) return;
+      if (['market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
       if (Array.isArray(val) && val.length === 0) return;
       if (typeof val === 'string' && val.trim() === '') return;
 
@@ -403,48 +429,60 @@ function FFM() {
       });
     });
 
-    if (filterValues.tracking_include || filterValues.tracking_exclude) {
-      const inc = filterValues.tracking_include.toLowerCase();
-      const exc = filterValues.tracking_exclude.toLowerCase();
+    if (filterValues.tracking_status || filterValues.tracking_include || filterValues.tracking_exclude) {
+      const inc = filterValues.tracking_include ? String(filterValues.tracking_include).toLowerCase() : '';
+      const exc = filterValues.tracking_exclude ? String(filterValues.tracking_exclude).toLowerCase() : '';
+      const status = filterValues.tracking_status || 'Tình trạng mã';
+
       data = data.filter((row) => {
         // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
-        const code = String(row['tracking_code'] || row['Mã Tracking'] || '').trim().toLowerCase();
-        if (exc && code.includes(exc)) return false;
-        if (inc) {
-          if (inc.includes('\n')) {
-            const codes = new Set(inc.split('\n').map((t) => t.trim()).filter(Boolean));
-            if (!codes.has(code)) return false;
-          } else {
-            if (!code.includes(inc)) return false;
+        const code = String(row['tracking_code'] || row['Mã Tracking'] || '').trim();
+        const lowerCode = code.toLowerCase();
+
+        // Status Filter Logic
+        if (status === 'Tất cả có mã' && code === '') return false;
+        if (status === 'Trống' && code !== '') return false;
+        if (status === 'Toàn số' && (code === '' || !/^\d+$/.test(code))) return false;
+
+        // Only apply include/exclude if in 'Tình trạng mã' state
+        if (status === 'Tình trạng mã') {
+          if (exc && lowerCode.includes(exc)) return false;
+          if (inc) {
+            if (inc.includes('\n')) {
+              const codes = new Set(inc.split('\n').map((t) => t.trim()).filter(Boolean).map(t => t.toLowerCase()));
+              if (!codes.has(lowerCode)) return false;
+            } else {
+              if (!lowerCode.includes(inc)) return false;
+            }
           }
         }
         return true;
       });
     }
 
-    // Filter by tracking code status
-    if (trackingFilter === 'with_tracking') {
-      data = data.filter((row) => {
-        // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
-        const trackingCode = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
-        const hasTracking = trackingCode !== '' && trackingCode !== 'null' && trackingCode !== 'undefined';
-        if (hasTracking) {
-          console.log('✅ [Filter] Đơn có tracking:', row['Mã đơn hàng'] || row.order_code, 'tracking:', trackingCode);
-        }
-        return hasTracking;
-      });
-      console.log(`📊 [Filter] Tab "Có mã": ${data.length} đơn có tracking code`);
-    } else if (trackingFilter === 'without_tracking') {
-      data = data.filter((row) => {
-        // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
-        const trackingCode = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
-        return trackingCode === '' || trackingCode === 'null' || trackingCode === 'undefined';
-      });
-    }
+    // Filter by tracking code status - This logic is now handled by filterValues.tracking_status
+    // if (trackingFilter === 'with_tracking') {
+    //   data = data.filter((row) => {
+    //     // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
+    //     const trackingCode = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
+    //     const hasTracking = trackingCode !== '' && trackingCode !== 'null' && trackingCode !== 'undefined';
+    //     if (hasTracking) {
+    //       console.log('✅ [Filter] Đơn có tracking:', row['Mã đơn hàng'] || row.order_code, 'tracking:', trackingCode);
+    //     }
+    //     return hasTracking;
+    //   });
+    //   console.log(`📊 [Filter] Tab "Có mã": ${data.length} đơn có tracking code`);
+    // } else if (trackingFilter === 'without_tracking') {
+    //   data = data.filter((row) => {
+    //     // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
+    //     const trackingCode = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
+    //     return trackingCode === '' || trackingCode === 'null' || trackingCode === 'undefined';
+    //   });
+    // }
     // 'all' - không lọc, hiển thị tất cả
 
     return data;
-  }, [allData, legacyChanges, pendingChanges, omActiveTeam, omDateType, trackingFilter, filterValues, dateFrom, dateTo, mgtNoiBoOrder]);
+  }, [allData, pendingChanges, omActiveTeam, omDateType, filterValues, dateFrom, dateTo, mgtNoiBoOrder]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
@@ -480,190 +518,202 @@ function FFM() {
     return ['__EMPTY__', ...getUniqueValues(col)];
   };
 
-  const savePendingToLocalStorage = (newPending, newLegacy) => {
-    const combined = new Map([...newLegacy, ...newPending]);
-    const obj = {};
-    combined.forEach((val, key) => {
-      const rowObj = {};
-      val.forEach((v, k) => (rowObj[k] = v));
-      obj[key] = rowObj;
+
+  const processDbQueue = useCallback(async () => {
+    if (isProcessingQueue.current) return;
+    if (dbQueueRef.current.length === 0) return;
+
+    isProcessingQueue.current = true;
+    try {
+      while (dbQueueRef.current.length > 0) {
+        // Take everything currently in queue as a single batch
+        const batchToProcess = dbQueueRef.current.splice(0, dbQueueRef.current.length);
+
+        const rowsObjMap = new Map();
+        batchToProcess.forEach(({ orderId, colKey, newValue }) => {
+          if (!rowsObjMap.has(orderId)) rowsObjMap.set(orderId, { [PRIMARY_KEY_COLUMN]: orderId });
+          rowsObjMap.get(orderId)[colKey] = newValue;
+        });
+
+        const rowsToUpdate = Array.from(rowsObjMap.values());
+        if (rowsToUpdate.length === 0) continue;
+
+        const currentUsername = localStorage.getItem('username') || 'Unknown';
+        let success = false;
+
+        if (rowsToUpdate.length === 1 && Object.keys(rowsToUpdate[0]).length === 2) {
+          const row = rowsToUpdate[0];
+          const col = Object.keys(row).find(k => k !== PRIMARY_KEY_COLUMN);
+          const toastId = addToast('Đang cập nhật...', 'loading', 0);
+          try {
+            await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername);
+            success = true;
+          } catch (e) {
+            addToast(e.message, 'error');
+          } finally {
+            removeToast(toastId);
+          }
+        } else {
+          const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
+          try {
+            const res = await API.updateBatch(rowsToUpdate, currentUsername);
+            if (res.success) success = true;
+          } catch (e) {
+            addToast(e.message, 'error');
+          } finally {
+            removeToast(toastId);
+          }
+        }
+
+        if (success) {
+          setAllData(prevData => {
+            const latestData = [...prevData];
+            rowsToUpdate.forEach(updatedRow => {
+              const idx = latestData.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
+              if (idx > -1) latestData[idx] = { ...latestData[idx], ...updatedRow };
+            });
+            return latestData;
+          });
+
+          setPendingChanges(prev => {
+            const next = deepCloneMapOfMaps(prev);
+            batchToProcess.forEach(({ orderId, colKey }) => {
+              if (next.has(orderId)) {
+                next.get(orderId).delete(colKey);
+                if (next.get(orderId).size === 0) next.delete(orderId);
+              }
+            });
+            savePendingToLocalStorage(next);
+            return next;
+          });
+        }
+      }
+    } finally {
+      isProcessingQueue.current = false;
+    }
+  }, [addToast, removeToast, deepCloneMapOfMaps]);
+
+  const pushChange = useCallback((changesArray) => {
+    if (!changesArray || changesArray.length === 0) return;
+
+    // 1. History Stack
+    const currentIndex = historyIndexRef.current;
+    const currentHist = changeHistoryRef.current;
+    const newHistory = currentHist.slice(0, currentIndex + 1);
+
+    newHistory.push({ timestamp: Date.now(), changes: changesArray });
+    const finalHistory = newHistory.slice(-50);
+    changeHistoryRef.current = finalHistory;
+    historyIndexRef.current = finalHistory.length - 1;
+
+    // 2. Add to DB Queue & UI state
+    dbQueueRef.current.push(...changesArray);
+
+    setPendingChanges(prev => {
+      const next = deepCloneMapOfMaps(prev);
+      changesArray.forEach(({ orderId, colKey, newValue, originalValue }) => {
+        if (!next.has(orderId)) next.set(orderId, new Map());
+        next.get(orderId).set(colKey, { newValue, originalValue });
+      });
+      savePendingToLocalStorage(next);
+      return next;
     });
-    localStorage.setItem('speegoPendingChanges', JSON.stringify(obj));
-  };
+
+    // 3. Trigger worker
+    setTimeout(() => processDbQueue(), 10);
+  }, [deepCloneMapOfMaps, processDbQueue]);
+
+  const handleUndo = useCallback(() => {
+    const currentIndex = historyIndexRef.current;
+    if (currentIndex < 0) {
+      addToast('Không có thay đổi nào để hoàn tác', 'info', 2000);
+      return;
+    }
+
+    const currentSnapshot = changeHistoryRef.current[currentIndex];
+
+    const undoChanges = currentSnapshot.changes.map(change => ({
+      orderId: change.orderId,
+      colKey: change.colKey,
+      newValue: change.originalValue,
+      originalValue: change.newValue
+    }));
+
+    dbQueueRef.current.push(...undoChanges);
+
+    setPendingChanges(prev => {
+      const next = deepCloneMapOfMaps(prev);
+      undoChanges.forEach(({ orderId, colKey, newValue, originalValue }) => {
+        if (!next.has(orderId)) next.set(orderId, new Map());
+        next.get(orderId).set(colKey, { newValue, originalValue });
+      });
+      savePendingToLocalStorage(next);
+      return next;
+    });
+
+    historyIndexRef.current = currentIndex - 1;
+    addToast('Đã hoàn tác', 'success', 2000);
+    setTimeout(() => processDbQueue(), 10);
+  }, [addToast, processDbQueue, deepCloneMapOfMaps]);
+
+  const handleRedo = useCallback(() => {
+    const currentIndex = historyIndexRef.current;
+    const currentHist = changeHistoryRef.current;
+
+    if (currentIndex >= currentHist.length - 1) {
+      addToast('Không có thay đổi nào để làm lại', 'info', 2000);
+      return;
+    }
+
+    const nextIndex = currentIndex + 1;
+    const nextSnapshot = currentHist[nextIndex];
+
+    const redoChanges = nextSnapshot.changes.map(change => ({
+      orderId: change.orderId,
+      colKey: change.colKey,
+      newValue: change.newValue,
+      originalValue: change.originalValue
+    }));
+
+    dbQueueRef.current.push(...redoChanges);
+
+    setPendingChanges(prev => {
+      const next = deepCloneMapOfMaps(prev);
+      redoChanges.forEach(({ orderId, colKey, newValue, originalValue }) => {
+        if (!next.has(orderId)) next.set(orderId, new Map());
+        next.get(orderId).set(colKey, { newValue, originalValue });
+      });
+      savePendingToLocalStorage(next);
+      return next;
+    });
+
+    historyIndexRef.current = nextIndex;
+    addToast('Đã làm lại', 'success', 2000);
+    setTimeout(() => processDbQueue(), 10);
+  }, [addToast, processDbQueue, deepCloneMapOfMaps]);
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     const originalRow = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
-    const originalValue = originalRow ? String(originalRow[colKey] ?? '') : '';
-    const isDelete = newValue === '' && originalValue !== '';
+    const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
-    setPendingChanges((prev) => {
-      const next = new Map(prev);
-      if (!next.has(orderId)) next.set(orderId, new Map());
+    const pendingVal = pendingChanges.get(orderId)?.get(colKey);
+    const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
-      if (newValue !== originalValue) {
-        next.get(orderId).set(colKey, { newValue, originalValue });
-      } else {
-        next.get(orderId).delete(colKey);
-        if (next.get(orderId).size === 0) next.delete(orderId);
-        setLegacyChanges((prevLeg) => {
-          const nextLeg = new Map(prevLeg);
-          if (nextLeg.has(orderId)) {
-            nextLeg.get(orderId).delete(colKey);
-            if (nextLeg.get(orderId).size === 0) nextLeg.delete(orderId);
-          }
-          return nextLeg;
-        });
-      }
-      savePendingToLocalStorage(next, legacyChanges);
+    if (String(newValue) === String(stepOriginalValue)) return;
 
-      if (!updateQueue.current.has(orderId)) {
-        updateQueue.current.set(orderId, { changes: new Map(), hasDelete: false });
-      }
-      const qEntry = updateQueue.current.get(orderId);
-      if (qEntry.timeout) clearTimeout(qEntry.timeout);
-
-      qEntry.changes.set(colKey, { newValue, originalValue });
-      if (isDelete) qEntry.hasDelete = true;
-
-      let totalChanges = 0;
-      let hasAnyDelete = false;
-      updateQueue.current.forEach((v) => {
-        totalChanges += v.changes.size;
-        if (v.hasDelete) hasAnyDelete = true;
-      });
-
-      if (hasAnyDelete || totalChanges >= BULK_THRESHOLD) {
-        qEntry.timeout = setTimeout(() => processUpdateQueue(true), UPDATE_DELAY);
-      } else {
-        qEntry.timeout = setTimeout(() => processUpdateQueue(false), UPDATE_DELAY);
-      }
-      return next;
-    });
-  }, [allData, legacyChanges]);
-
-  const processUpdateQueue = async (forceBulk) => {
-    const queue = updateQueue.current;
-    if (queue.size === 0) return;
-
-    const rowsToUpdate = [];
-    const queueEntries = Array.from(queue.entries());
-    queue.clear();
-
-    queueEntries.forEach(([orderId, data]) => {
-      const rowObj = { [PRIMARY_KEY_COLUMN]: orderId };
-      data.changes.forEach((info, key) => {
-        rowObj[key] = info.newValue;
-      });
-      rowsToUpdate.push(rowObj);
-    });
-
-    if (rowsToUpdate.length === 0) return;
-
-    if (!forceBulk && rowsToUpdate.length === 1 && Object.keys(rowsToUpdate[0]).length === 2) {
-      const row = rowsToUpdate[0];
-      const col = Object.keys(row).find((k) => k !== PRIMARY_KEY_COLUMN);
-      try {
-        const toastId = addToast('Đang cập nhật...', 'loading', 0);
-        await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col]);
-        setAllData((prev) => {
-          const idx = prev.findIndex((r) => r[PRIMARY_KEY_COLUMN] === row[PRIMARY_KEY_COLUMN]);
-          if (idx > -1) {
-            const next = [...prev];
-            next[idx] = { ...next[idx], [col]: row[col] };
-            return next;
-          }
-          return prev;
-        });
-        setPendingChanges((prev) => {
-          const next = new Map(prev);
-          if (next.has(row[PRIMARY_KEY_COLUMN])) {
-            next.get(row[PRIMARY_KEY_COLUMN]).delete(col);
-            if (next.get(row[PRIMARY_KEY_COLUMN]).size === 0) next.delete(row[PRIMARY_KEY_COLUMN]);
-          }
-          savePendingToLocalStorage(next, legacyChanges);
-          return next;
-        });
-        removeToast(toastId);
-        addToast('Cập nhật thành công!', 'success');
-      } catch (e) {
-        addToast(e.message, 'error');
-      }
-    } else {
-      try {
-        const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
-        const res = await API.updateBatch(rowsToUpdate);
-        if (res.success) {
-          setAllData((prev) => {
-            let next = [...prev];
-            rowsToUpdate.forEach((updatedRow) => {
-              const idx = next.findIndex((r) => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
-              if (idx > -1) next[idx] = { ...next[idx], ...updatedRow };
-            });
-            return next;
-          });
-          setPendingChanges((prev) => {
-            const next = new Map(prev);
-            rowsToUpdate.forEach((r) => {
-              const oid = r[PRIMARY_KEY_COLUMN];
-              if (next.has(oid)) {
-                Object.keys(r).forEach((k) => {
-                  if (k !== PRIMARY_KEY_COLUMN) next.get(oid).delete(k);
-                });
-                if (next.get(oid).size === 0) next.delete(oid);
-              }
-            });
-            savePendingToLocalStorage(next, legacyChanges);
-            return next;
-          });
-          removeToast(toastId);
-          addToast(`Đã cập nhật ${res.summary?.updated || rowsToUpdate.length} đơn hàng.`, 'success');
-        }
-      } catch (e) {
-        addToast(e.message, 'error');
-      }
-    }
-  };
+    pushChange([{ orderId, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
+  }, [allData, pendingChanges, pushChange]);
 
   const handleUpdateAll = async () => {
-    const combined = new Map([...legacyChanges, ...pendingChanges]);
-    if (combined.size === 0) {
+    setSyncPopoverOpen(false);
+    if (dbQueueRef.current.length === 0) {
       addToast('Không có thay đổi cần cập nhật', 'info');
       return;
     }
-    const rowsToSend = [];
-    combined.forEach((changes, orderId) => {
-      const row = { [PRIMARY_KEY_COLUMN]: orderId };
-      changes.forEach((info, key) => {
-        row[key] = info.newValue;
-      });
-      rowsToSend.push(row);
-    });
-    try {
-      const toastId = addToast('Đang gửi tất cả thay đổi...', 'loading', 0);
-      const res = await API.updateBatch(rowsToSend);
-      if (res.success) {
-        setAllData((prev) => {
-          let next = [...prev];
-          rowsToSend.forEach((updatedRow) => {
-            const idx = next.findIndex((r) => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
-            if (idx > -1) next[idx] = { ...next[idx], ...updatedRow };
-          });
-          return next;
-        });
-        setLegacyChanges(new Map());
-        setPendingChanges(new Map());
-        savePendingToLocalStorage(new Map(), new Map());
-        setSyncPopoverOpen(false);
-        removeToast(toastId);
-        addToast('Cập nhật thành công!', 'success');
-      }
-    } catch (e) {
-      addToast(e.message, 'error');
-    }
+    processDbQueue();
   };
-
   const handleQuickSync = (rows) => {
-    const newPending = new Map(pendingChanges);
+    const changesArray = [];
     const COL_KEYS = [
       'Mã đơn hàng',
       'Mã Tracking',
@@ -677,8 +727,8 @@ function FFM() {
       'Ghi chú',
       'Đơn vị vận chuyển'
     ];
-    let updatedCount = 0;
     let notFoundCount = 0;
+
     rows.forEach((row) => {
       const orderId = row[0]?.trim();
       if (!orderId) return;
@@ -687,127 +737,49 @@ function FFM() {
         notFoundCount++;
         return;
       }
+
       COL_KEYS.forEach((colName, idx) => {
         if (idx === 0) return;
         const val = row[idx];
         if (val !== undefined && val !== '') {
           const dataKey = COLUMN_MAPPING[colName] || colName;
-          if (!newPending.has(orderId)) newPending.set(orderId, new Map());
           const originalVal = originalRow[dataKey] ?? '';
-          if (String(originalVal) !== String(val)) {
-            newPending.get(orderId).set(dataKey, { newValue: String(val), originalValue: String(originalVal) });
-            updatedCount++;
+          
+          const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
+          const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
+
+          if (String(currentUiVal) !== String(val)) {
+            changesArray.push({
+              orderId,
+              colKey: dataKey,
+              originalValue: String(currentUiVal),
+              newValue: String(val)
+            });
           }
         }
       });
     });
-    setPendingChanges(newPending);
-    savePendingToLocalStorage(newPending, legacyChanges);
+
+    if (changesArray.length > 0) {
+      pushChange(changesArray);
+      addToast(`Đã đồng bộ ${changesArray.length} trường dữ liệu.`, 'success');
+    } else {
+      addToast('Không có thay đổi nào mới để đồng bộ.', 'info');
+    }
+
     if (notFoundCount > 0) addToast(`Không tìm thấy ${notFoundCount} mã đơn hàng.`, 'error');
-    addToast(`Đã đồng bộ ${updatedCount} trường dữ liệu.`, 'success');
   };
 
   const handleQuickSyncAndSave = async (rows) => {
-    const newPending = new Map(pendingChanges);
-    const COL_KEYS = [
-      'Mã đơn hàng',
-      'Mã Tracking',
-      'Ngày đóng hàng',
-      'Trạng thái giao hàng',
-      'GHI CHÚ',
-      'Thời gian giao dự kiến',
-      'Phí ship nội địa Mỹ (usd)',
-      'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
-      'Kết quả Check',
-      'Ghi chú',
-      'Đơn vị vận chuyển'
-    ];
-    let updatedCount = 0;
-    let notFoundCount = 0;
-    const rowsToUpdate = [];
-
-    rows.forEach((row) => {
-      const orderId = row[0]?.trim();
-      if (!orderId) return;
-      const originalRow = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
-      if (!originalRow) {
-        notFoundCount++;
-        return;
-      }
-      
-      const rowObj = { [PRIMARY_KEY_COLUMN]: orderId };
-      let hasChanges = false;
-
-      COL_KEYS.forEach((colName, idx) => {
-        if (idx === 0) return;
-        const val = row[idx];
-        if (val !== undefined && val !== '') {
-          const dataKey = COLUMN_MAPPING[colName] || colName;
-          const originalVal = originalRow[dataKey] ?? '';
-          if (String(originalVal) !== String(val)) {
-            rowObj[dataKey] = String(val);
-            hasChanges = true;
-            updatedCount++;
-          }
-        }
-      });
-
-      if (hasChanges) {
-        rowsToUpdate.push(rowObj);
-      }
-    });
-
-    if (rowsToUpdate.length === 0) {
-      if (notFoundCount > 0) {
-        addToast(`Không tìm thấy ${notFoundCount} mã đơn hàng.`, 'error');
-      } else {
-        addToast('Không có thay đổi cần lưu.', 'info');
-      }
-      return;
-    }
-
-    try {
-      const toastId = addToast(`Đang lưu ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
-      const res = await API.updateBatch(rowsToUpdate);
-      if (res.success) {
-        setAllData((prev) => {
-          let next = [...prev];
-          rowsToUpdate.forEach((updatedRow) => {
-            const idx = next.findIndex((r) => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
-            if (idx > -1) next[idx] = { ...next[idx], ...updatedRow };
-          });
-          return next;
-        });
-        
-        // Xóa các pending changes đã được lưu
-        setPendingChanges((prev) => {
-          const next = new Map(prev);
-          rowsToUpdate.forEach((r) => {
-            const oid = r[PRIMARY_KEY_COLUMN];
-            if (next.has(oid)) {
-              Object.keys(r).forEach((k) => {
-                if (k !== PRIMARY_KEY_COLUMN) next.get(oid).delete(k);
-              });
-              if (next.get(oid).size === 0) next.delete(oid);
-            }
-          });
-          savePendingToLocalStorage(next, legacyChanges);
-          return next;
-        });
-
-        removeToast(toastId);
-        if (notFoundCount > 0) {
-          addToast(`Đã lưu ${rowsToUpdate.length} đơn hàng. Không tìm thấy ${notFoundCount} mã đơn hàng.`, 'success');
-        } else {
-          addToast(`Đã lưu ${res.summary?.updated || rowsToUpdate.length} đơn hàng thành công!`, 'success');
-        }
-        return true; // Success
-      }
-    } catch (e) {
-      addToast(e.message, 'error');
-      return false; // Error
+    // Với hệ thống stack mới, ta chỉ cần gọi handleQuickSync (nó sẽ đưa vào history và queue)
+    // Sau đó gọi processDbQueue để bắt đầu lưu ngay lập tức thay vì đợi 10ms
+    const prevQueueLen = dbQueueRef.current.length;
+    handleQuickSync(rows);
+    if (dbQueueRef.current.length > prevQueueLen) {
+      processDbQueue();
     }
   };
+
 
   const effectiveRowsPerPage = rowsPerPage;
 
@@ -958,7 +930,17 @@ function FFM() {
       const active = document.activeElement;
       const isInInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
 
-      if (e.ctrlKey && e.key === 'c' && !isInInput) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        const bounds = getSelectionBounds();
+        if (!bounds) return;
+
+        // If focusing an input AND has a partial text selection inside it, let browser handle it
+        const isSingleCell = bounds.minRow === bounds.maxRow && bounds.minCol === bounds.maxCol;
+        if (isInInput && isSingleCell && active.selectionStart !== active.selectionEnd && 
+            (active.selectionEnd - active.selectionStart) < active.value.length) {
+          return; // Let browser handle partial copy
+        }
+
         e.preventDefault();
         handleCopy();
         return;
@@ -1014,11 +996,27 @@ function FFM() {
         });
         return;
       }
+
+      // Ctrl+Z - Undo
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        if (isInInput) return;
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Ctrl+Y or Ctrl+Shift+Z - Redo
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && e.shiftKey)) {
+        if (isInInput) return;
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selection, quickAddModalOpen, handleCopy, getSelectionBounds, paginatedData.length, currentColumns.length]);
+  }, [selection, quickAddModalOpen, handleCopy, getSelectionBounds, paginatedData.length, currentColumns.length, handleUndo, handleRedo, paginatedData, currentColumns]);
 
   useEffect(() => {
     const handlePaste = (e) => {
@@ -1064,13 +1062,14 @@ function FFM() {
       const bounds = getSelectionBounds();
       if (!bounds) return;
 
+      const pasteChanges = [];
       let updatedCount = 0;
       let skippedCount = 0;
+      const dataRows = rows.length;
+      const dataCols = Math.max(...rows.map((r) => r.length));
 
       const selectionRows = bounds.maxRow - bounds.minRow + 1;
       const selectionCols = bounds.maxCol - bounds.minCol + 1;
-      const dataRows = rows.length;
-      const dataCols = Math.max(...rows.map((r) => r.length));
 
       const repeatRows = selectionRows === 1 ? dataRows : dataRows === 1 ? selectionRows : Math.min(selectionRows, dataRows);
       const repeatCols = selectionCols === 1 ? dataCols : dataCols === 1 ? selectionCols : Math.min(selectionCols, dataCols);
@@ -1088,7 +1087,6 @@ function FFM() {
           if (targetColIndex >= currentColumns.length) break;
 
           const colName = currentColumns[targetColIndex];
-
           if (!EDITABLE_COLS.includes(colName)) {
             skippedCount++;
             continue;
@@ -1098,13 +1096,20 @@ function FFM() {
           const sourceCol = dataCols === 1 ? 0 : pasteCol % dataCols;
           const pasteValue = rows[sourceRow]?.[sourceCol] ?? '';
 
-          if (pasteValue === '' && dataRows > 1) continue;
+          if (pasteValue === '') continue;
 
-          const originalValue = rowData[dataKey] ?? '';
+          const originalVal = rowData[dataKey] ?? '';
+          
+          const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
+          const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
 
-          if (String(pasteValue) !== String(originalValue)) {
-            if (!newPending.has(orderId)) newPending.set(orderId, new Map());
-            newPending.get(orderId).set(dataKey, { newValue: String(pasteValue), originalValue: String(originalValue) });
+          if (String(pasteValue) !== String(currentUiVal)) {
+            pasteChanges.push({
+              orderId,
+              colKey: dataKey,
+              originalValue: String(currentUiVal),
+              newValue: String(pasteValue)
+            });
             updatedCount++;
           }
         }
@@ -1113,9 +1118,8 @@ function FFM() {
       setCopiedSelection(null);
       setCopiedData(null);
 
-      if (updatedCount > 0) {
-        setPendingChanges(newPending);
-        savePendingToLocalStorage(newPending, legacyChanges);
+      if (pasteChanges.length > 0) {
+        pushChange(pasteChanges);
         const msg = skippedCount > 0 ? `✅ Đã dán ${updatedCount} ô (${skippedCount} ô không thể sửa)` : `✅ Đã dán ${updatedCount} ô dữ liệu`;
         addToast(msg, 'success', 2500);
       } else {
@@ -1124,7 +1128,7 @@ function FFM() {
     };
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [selection, pendingChanges, legacyChanges, quickAddModalOpen, currentColumns, paginatedData, selectionBounds]);
+  }, [selection, pendingChanges, quickAddModalOpen, currentColumns, paginatedData, getSelectionBounds]);
 
   const calculatedSummary = useMemo(() => {
     if (!selectionBounds) return null;
@@ -1330,10 +1334,10 @@ function FFM() {
             </button>
             <button onClick={() => setSyncPopoverOpen(true)} className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm font-medium relative">
               Trạng thái
-              {legacyChanges.size + pendingChanges.size > 0 && (
-                <span className="ml-1.5 bg-white text-orange-500 text-xs font-bold px-1.5 py-0.5 rounded-full">
-                  {legacyChanges.size + pendingChanges.size}
-                </span>
+              {pendingChanges.size > 0 && (
+                <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center border border-white">
+                  {pendingChanges.size}
+                </div>
               )}
             </button>
             <button onClick={handleUpdateAll} className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium">
@@ -1351,38 +1355,6 @@ function FFM() {
           <div className="flex items-center gap-3 flex-wrap">
             <div className="bg-blue-50 text-blue-700 px-3 py-1.5 rounded text-sm font-semibold border border-blue-200">
               {getFilteredData.length} đơn | {totalMoney.toLocaleString('vi-VN')} ₫
-            </div>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => setTrackingFilter('with_tracking')}
-                className={`px-2.5 py-1 text-xs rounded border font-medium transition ${
-                  trackingFilter === 'with_tracking' 
-                    ? 'bg-blue-600 text-white border-blue-600' 
-                    : 'bg-white text-blue-600 border-blue-600 hover:bg-blue-50'
-                }`}
-              >
-                Có mã
-              </button>
-              <button
-                onClick={() => setTrackingFilter('without_tracking')}
-                className={`px-2.5 py-1 text-xs rounded border font-medium transition ${
-                  trackingFilter === 'without_tracking' 
-                    ? 'bg-orange-600 text-white border-orange-600' 
-                    : 'bg-white text-orange-600 border-orange-600 hover:bg-orange-50'
-                }`}
-              >
-                Không mã
-              </button>
-              <button
-                onClick={() => setTrackingFilter('all')}
-                className={`px-2.5 py-1 text-xs rounded border font-medium transition ${
-                  trackingFilter === 'all' 
-                    ? 'bg-gray-600 text-white border-gray-600' 
-                    : 'bg-white text-gray-600 border-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                Tất cả
-              </button>
             </div>
           </div>
         </div>
@@ -1403,19 +1375,33 @@ function FFM() {
                     {col === 'STT' ? (
                       <div className="text-xs text-gray-400">-</div>
                     ) : col === 'Mã Tracking' ? (
-                      <div className="flex flex-col gap-1">
-                        <input
-                          className="w-full text-xs px-1 py-0.5 border rounded"
-                          placeholder="Bao gồm..."
-                          value={localFilterValues.tracking_include}
-                          onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
-                        />
-                        <input
-                          className="w-full text-xs px-1 py-0.5 border rounded"
-                          placeholder="Loại trừ..."
-                          value={localFilterValues.tracking_exclude}
-                          onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
-                        />
+                      <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
+                        <select
+                          className="w-full text-[13px] px-2 py-1.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                          value={localFilterValues.tracking_status || 'Tình trạng mã'}
+                          onChange={e => setLocalFilterValues(p => ({ ...p, tracking_status: e.target.value }))}
+                        >
+                          <option value="Tình trạng mã">Tình trạng mã</option>
+                          <option value="Tất cả có mã">Tất cả có mã</option>
+                          <option value="Trống">Trống</option>
+                          <option value="Toàn số">Toàn số</option>
+                        </select>
+                        {(localFilterValues.tracking_status === 'Tình trạng mã' || !localFilterValues.tracking_status) && (
+                          <>
+                            <input
+                              className="w-full text-xs px-1 py-0.5 border rounded"
+                              placeholder="Bao gồm..."
+                              value={localFilterValues.tracking_include}
+                              onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
+                            />
+                            <input
+                              className="w-full text-xs px-1 py-0.5 border rounded"
+                              placeholder="Loại trừ..."
+                              value={localFilterValues.tracking_exclude}
+                              onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
+                            />
+                          </>
+                        )}
                       </div>
                     ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(col) ? (
                       <MultiSelect
@@ -1481,6 +1467,13 @@ function FFM() {
                       } else {
                         val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
                       }
+
+                      // Merge pending changes vào giá trị hiển thị
+                      const pendingInfo = pendingChanges.get(orderId)?.get(key);
+                      if (pendingInfo) {
+                        val = pendingInfo.newValue;
+                      }
+
                       const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Thời gian giao dự kiến'].includes(col)
                         ? formatDate(val)
                         : col === 'Tổng tiền VNĐ'
@@ -1553,6 +1546,7 @@ function FFM() {
                           ) : EDITABLE_COLS.includes(col) ? (
                             <input
                               type="text"
+                              key={`${orderId}-${col}-${String(displayVal)}`}
                               defaultValue={String(displayVal)}
                               onBlur={(e) => {
                                 const newValue = e.target.value;
@@ -1675,12 +1669,11 @@ function FFM() {
           isOpen={syncPopoverOpen}
           onClose={() => setSyncPopoverOpen(false)}
           pendingChanges={pendingChanges}
-          legacyChanges={legacyChanges}
           onApply={handleUpdateAll}
           onDiscard={() => {
             if (confirm('Hủy bỏ tất cả thay đổi?')) {
               setPendingChanges(new Map());
-              setLegacyChanges(new Map());
+              savePendingToLocalStorage(new Map());
               localStorage.removeItem('speegoPendingChanges');
               setSyncPopoverOpen(false);
               refreshData();

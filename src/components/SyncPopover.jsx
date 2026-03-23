@@ -3,8 +3,8 @@ import React from 'react';
 const SyncPopover = ({
     isOpen,
     onClose,
-    pendingChanges,
-    legacyChanges,
+    pendingChanges = new Map(),
+    legacyChanges = new Map(),
     onApply,
     onDiscard
 }) => {

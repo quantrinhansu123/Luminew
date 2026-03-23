@@ -56,7 +56,7 @@ import ReportDashboard from './pages/ReportDashboard';
 import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
-import XemBaoCaoMKTLegacy from './pages/XemBaoCaoMKTLegacy';
+import XemBaoCaoMKT from './pages/XemBaoCaoMKT';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import TestMKT from './pages/TestMKT.jsx';
 import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
@@ -80,10 +80,10 @@ function ExternalIdRedirect({ baseUrl }) {
             .select('role')
             .eq('email', userEmail)
             .maybeSingle();
-          
+
           const role = (data?.role || '').toLowerCase();
           isDirector = role === 'director' || role === 'DIRECTOR';
-        } catch (_) {}
+        } catch (_) { }
       }
 
       // If director, don't add id to link
@@ -108,7 +108,7 @@ function ExternalIdRedirect({ baseUrl }) {
               idAppsheet = data.id_appsheet;
               localStorage.setItem('idAppsheet', idAppsheet);
             }
-          } catch (_) {}
+          } catch (_) { }
         }
       }
 
@@ -188,7 +188,7 @@ function App() {
               path="/xem-bao-cao-mkt"
               element={
                 <ProtectedRoute>
-                  <XemBaoCaoMKTLegacy />
+                  <XemBaoCaoMKT />
                 </ProtectedRoute>
               }
             />

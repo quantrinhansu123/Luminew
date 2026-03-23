@@ -1,4 +1,96 @@
 import { PRIMARY_KEY_COLUMN, SETTINGS_KEY } from '../types';
+import { supabase } from './supabaseClient';
+
+export const DB_TO_APP_MAPPING = {
+    "order_code": "Mã đơn hàng",
+    "customer_name": "Name*",
+    "customer_phone": "Phone*",
+    "customer_address": "Add",
+    "city": "City",
+    "state": "State",
+    "country": "Khu vực", 
+    "zipcode": "Zipcode",
+    "product": "Mặt hàng",
+    "total_amount_vnd": "Tổng tiền VNĐ",
+    "payment_method": "Hình thức thanh toán",
+    "tracking_code": "Mã Tracking",
+    "shipping_fee": "Phí ship nội địa Mỹ (usd)",
+    "marketing_staff": "Nhân viên MKT",
+    "sale_staff": "Nhân viên Sale",
+    "team": "Team",
+    "delivery_staff": "NV Vận đơn",
+    "delivery_status": "Trạng thái giao hàng",
+    "payment_status": "Trạng thái thu tiền",
+    "note": "Ghi chú",
+    "reason": "Lý do",
+    "order_date": "Ngày lên đơn",
+    "goods_amount": "Giá bán",
+    "shipping_unit": "Đơn vị vận chuyển",
+    "accountant_confirm": "Kế toán xác nhận thu tiền về",
+    "created_at": "created_at",
+    "ngaydonghang": "Ngày đóng hàng",
+    "check_result": "Kết quả Check",
+    "vandon_note": "Ghi chú của VĐ",
+    "product_name_1": "Tên mặt hàng 1",
+    "quantity_1": "Số lượng mặt hàng 1",
+    "product_name_2": "Tên mặt hàng 2",
+    "quantity_2": "Số lượng mặt hàng 2",
+    "gift": "Quà tặng",
+    "gift_quantity": "Số lượng quà kèm",
+    "delivery_status_nb": "Trạng thái giao hàng NB",
+    "payment_currency": "Loại tiền thanh toán",
+    "estimated_delivery_date": "Thời gian giao dự kiến",
+    "warehouse_fee": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
+    "note_caps": "GHI CHÚ",
+    "accounting_check_date": "Ngày Kế toán đối soát với FFM lần 2",
+    "reconciled_amount": "Số tiền của đơn hàng đã về TK Cty",
+    "payment_bill": "Payment Bill",
+    "payment_image": "Payment Image"
+};
+
+const mapSupabaseOrderToApp = (sOrder) => {
+    const appOrder = {};
+    Object.keys(sOrder).forEach(k => {
+        appOrder[k] = sOrder[k];
+    });
+
+    Object.entries(DB_TO_APP_MAPPING).forEach(([dbKey, appKey]) => {
+        if (sOrder[dbKey] !== undefined) {
+            appOrder[appKey] = sOrder[dbKey];
+        }
+    });
+
+    if (!appOrder["Ngày lên đơn"] && sOrder.order_date) appOrder["Ngày lên đơn"] = sOrder.order_date;
+    if (!appOrder["Mã đơn hàng"]) appOrder["Mã đơn hàng"] = sOrder.order_code;
+    appOrder["Trạng thái giao hàng NB"] = sOrder.delivery_status_nb || sOrder.delivery_status;
+
+    if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;
+    if (sOrder.payment_image) appOrder["Payment Image"] = sOrder.payment_image;
+
+    const itemName1 = sOrder.product_name_1 ?? sOrder.item_name_1 ?? sOrder.product ?? '';
+    const itemQty1 = sOrder.quantity_1 ?? sOrder.item_qty_1 ?? '';
+    const itemName2 = sOrder.product_name_2 ?? sOrder.item_name_2 ?? '';
+    const itemQty2 = sOrder.quantity_2 ?? sOrder.item_qty_2 ?? '';
+    const giftItem = sOrder.gift ?? sOrder.gift_item ?? '';
+    const giftQty = sOrder.gift_quantity ?? sOrder.gift_qty ?? '';
+
+    appOrder["Tên mặt hàng 1"] = itemName1;
+    appOrder["Số lượng mặt hàng 1"] = itemQty1;
+    appOrder["Tên mặt hàng 2"] = itemName2;
+    appOrder["Số lượng mặt hàng 2"] = itemQty2;
+    appOrder["Quà tặng"] = giftItem;
+    appOrder["Số lượng quà kèm"] = giftQty;
+
+    if (sOrder.ngayupbill !== undefined && sOrder.ngayupbill !== null) {
+        appOrder["ngayupbill"] = sOrder.ngayupbill;
+        appOrder["Ngày up bill"] = sOrder.ngayupbill;
+    }
+    if (sOrder.reconciled_vnd !== undefined && sOrder.reconciled_vnd !== null) {
+        appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
+        appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd;
+    }
+    return appOrder;
+};
 
 const PROD_HOST = 'https://n-api-gamma.vercel.app';
 // const LOCAL_HOST = 'http://localhost:8081'; 
@@ -142,6 +234,41 @@ export const fetchOrders = async () => {
 };
 
 
+const parseDateForDB = (val) => {
+    if (!val || typeof val !== 'string') return val;
+    const trimmed = val.trim();
+    // Parse dd/mm/yyyy or d/m/yy
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(trimmed)) {
+        const [day, month, year] = trimmed.split('/');
+        const fullYear = year.length === 2 ? `20${year}` : year;
+        return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    // Parse dd/mm/yyyy HH:mm
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{1,2}/.test(trimmed)) {
+        const [datePart, timePart] = trimmed.split(/\s+/);
+        const [day, month, year] = datePart.split('/');
+        const fullYear = year.length === 2 ? `20${year}` : year;
+        return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart}:00`;
+    }
+    return val;
+};
+
+/**
+ * Prepares a value for database storage.
+ * - Converts empty strings to null (to allow clearing numeric/date fields).
+ * - Formats date fields using parseDateForDB.
+ */
+const prepareValueForDB = (dbKey, value) => {
+    // If value is explicitly an empty string, we want to save it as NULL in DB
+    // to support clearing numeric/date/text fields correctly in PostgreSQL.
+    if (value === '' || value === undefined) return null;
+
+    if (['order_date', 'created_at', 'estimated_delivery_date', 'accounting_check_date', 'ngayupbill', 'ngaydonghang'].includes(dbKey)) {
+        return parseDateForDB(value);
+    }
+    return value;
+};
+
 export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy) => {
     try {
         // Map App Key to DB Key
@@ -165,12 +292,14 @@ export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy)
 
         if (!dbKey) throw new Error(`Không tìm thấy cột tương ứng trong DB cho: ${columnKey}`);
 
+        const formattedValue = prepareValueForDB(dbKey, newValue);
+
         // Update Supabase
         // Key is order_code (unique) or id?
         // PRIMARY_KEY_COLUMN is "Mã đơn hàng" -> order_code
         // Supabase `orders` has `order_code` unique column.
 
-        const updatePayload = { [dbKey]: newValue };
+        const updatePayload = { [dbKey]: formattedValue };
         if (modifiedBy) {
             updatePayload.last_modified_by = modifiedBy;
         }
@@ -299,7 +428,7 @@ export const updateBatch = async (rows, modifiedBy) => {
                 }
 
                 if (dbKey) {
-                    updatePayload[dbKey] = row[appKey];
+                    updatePayload[dbKey] = prepareValueForDB(dbKey, row[appKey]);
                 }
             });
 
@@ -327,128 +456,8 @@ export const updateBatch = async (rows, modifiedBy) => {
 
 
 
-import { supabase } from './supabaseClient';
+// End of module
 
-export const DB_TO_APP_MAPPING = {
-    "order_code": "Mã đơn hàng",
-    "customer_name": "Name*",
-    "customer_phone": "Phone*",
-    "customer_address": "Add",
-    "city": "City",
-    "state": "State",
-    "country": "Khu vực", // Mapping 'country' col to 'Khu vực' (or check if 'region' exists)
-    "zipcode": "Zipcode",
-    "product": "Mặt hàng",
-    "total_amount_vnd": "Tổng tiền VNĐ",
-    "payment_method": "Hình thức thanh toán",
-    "tracking_code": "Mã Tracking",
-    "shipping_fee": "Phí ship nội địa Mỹ (usd)", // Approx mapping
-    "marketing_staff": "Nhân viên MKT",
-    "sale_staff": "Nhân viên Sale",
-    "team": "Team",
-    "delivery_staff": "NV Vận đơn",
-    "delivery_status": "Trạng thái giao hàng", // Or 'Trạng thái giao hàng NB' depending on context
-    "payment_status": "Trạng thái thu tiền",
-    "note": "Ghi chú",
-    "reason": "Lý do",
-    "order_date": "Ngày lên đơn",
-    "goods_amount": "Giá bán", // Approx
-    "shipping_unit": "Đơn vị vận chuyển",
-    "accountant_confirm": "Kế toán xác nhận thu tiền về",
-    "created_at": "Ngày đóng hàng", // Fallback
-
-    // New Columns Mapping
-    "check_result": "Kết quả Check",
-    "vandon_note": "Ghi chú của VĐ",
-    // Product columns: support both old/new DB schemas
-    "product_name_1": "Tên mặt hàng 1",
-    "quantity_1": "Số lượng mặt hàng 1",
-    "product_name_2": "Tên mặt hàng 2",
-    "quantity_2": "Số lượng mặt hàng 2",
-    "gift": "Quà tặng",
-    "gift_quantity": "Số lượng quà kèm",
-    // Legacy fallback columns (some environments still have these)
-    "item_name_1": "Tên mặt hàng 1",
-    "item_qty_1": "Số lượng mặt hàng 1",
-    "item_name_2": "Tên mặt hàng 2",
-    "item_qty_2": "Số lượng mặt hàng 2",
-    "gift_item": "Quà tặng",
-    "gift_qty": "Số lượng quà kèm",
-
-    // Full Mapping Round 2
-    "delivery_status_nb": "Trạng thái giao hàng NB",
-    "payment_currency": "Loại tiền thanh toán",
-    "estimated_delivery_date": "Thời gian giao dự kiến",
-    "warehouse_fee": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
-    "note_caps": "GHI CHÚ",
-    "accounting_check_date": "Ngày Kế toán đối soát với FFM lần 2",
-    "reconciled_amount": "Số tiền của đơn hàng đã về TK Cty",
-    
-    // Payment Bill columns
-    "payment_bill": "Payment Bill",
-    "payment_image": "Payment Image"
-};
-
-// Helper to map Supabase row to App Format
-const mapSupabaseOrderToApp = (sOrder) => {
-    const appOrder = {};
-    // Default copy all
-    Object.keys(sOrder).forEach(k => {
-        appOrder[k] = sOrder[k];
-    });
-
-    // Apply explicit mappings
-    Object.entries(DB_TO_APP_MAPPING).forEach(([dbKey, appKey]) => {
-        if (sOrder[dbKey] !== undefined) {
-            appOrder[appKey] = sOrder[dbKey];
-        }
-    });
-
-    // Custom logic for critical fields if missing or needing format
-    if (!appOrder["Ngày lên đơn"] && sOrder.order_date) appOrder["Ngày lên đơn"] = sOrder.order_date;
-    if (!appOrder["Mã đơn hàng"]) appOrder["Mã đơn hàng"] = sOrder.order_code;
-
-    // Status mapping if needed (Supabase might use English vs App Vietnamese)
-    // For now assuming data was migrated with Vietnamese values or UI handles it.
-
-    // Explicitly set these for VanDon.jsx logic
-    // Nếu trong DB có delivery_status_nb thì dùng, nếu không thì fallback về delivery_status cũ (hoặc để trống)
-    appOrder["Trạng thái giao hàng NB"] = sOrder.delivery_status_nb || sOrder.delivery_status;
-
-    // Payment Bill mapping
-    if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;
-    if (sOrder.payment_image) appOrder["Payment Image"] = sOrder.payment_image;
-
-    // Normalize product columns across mixed schemas and legacy data.
-    // Some rows only have `product` populated, while item columns are empty.
-    const itemName1 = sOrder.product_name_1 ?? sOrder.item_name_1 ?? sOrder.product ?? '';
-    const itemQty1 = sOrder.quantity_1 ?? sOrder.item_qty_1 ?? '';
-    const itemName2 = sOrder.product_name_2 ?? sOrder.item_name_2 ?? '';
-    const itemQty2 = sOrder.quantity_2 ?? sOrder.item_qty_2 ?? '';
-    const giftItem = sOrder.gift ?? sOrder.gift_item ?? '';
-    const giftQty = sOrder.gift_quantity ?? sOrder.gift_qty ?? '';
-
-    appOrder["Tên mặt hàng 1"] = itemName1;
-    appOrder["Số lượng mặt hàng 1"] = itemQty1;
-    appOrder["Tên mặt hàng 2"] = itemName2;
-    appOrder["Số lượng mặt hàng 2"] = itemQty2;
-    appOrder["Quà tặng"] = giftItem;
-    appOrder["Số lượng quà kèm"] = giftQty;
-
-    // Ngày up bill mapping - map từ database column ngayupbill
-    if (sOrder.ngayupbill !== undefined && sOrder.ngayupbill !== null) {
-        appOrder["ngayupbill"] = sOrder.ngayupbill;
-        appOrder["Ngày up bill"] = sOrder.ngayupbill; // Map cả tên hiển thị
-    }
-
-    // Tiền đã thanh toán mapping - map từ database column reconciled_vnd
-    if (sOrder.reconciled_vnd !== undefined && sOrder.reconciled_vnd !== null) {
-        appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
-        appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd; // Map cả tên hiển thị
-    }
-
-    return appOrder;
-};
 
 
 // Fetch Van Don data với pagination và filters từ backend (NOW SUPABASE)

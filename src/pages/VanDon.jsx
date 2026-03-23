@@ -63,7 +63,8 @@ function VanDon() {
     market: [],
     product: [],
     tracking_include: '',
-    tracking_exclude: ''
+    tracking_exclude: '',
+    tracking_status: 'Tình trạng mã'
   });
   const [localFilterValues, setLocalFilterValues] = useState(filterValues);
 
@@ -559,7 +560,8 @@ function VanDon() {
       market: [],
       product: [],
       tracking_include: '',
-      tracking_exclude: ''
+      tracking_exclude: '',
+      tracking_status: 'Tình trạng mã'
     };
     setFilterValues(defaultFilters);
     setLocalFilterValues(defaultFilters);
@@ -1136,7 +1138,7 @@ function VanDon() {
     // Column Filters (Text & Dropdown) - Áp dụng cho tất cả users (bao gồm Admin nếu họ muốn filter)
     Object.entries(filterValues).forEach(([key, val]) => {
       // Skip các filter đặc biệt đã được xử lý riêng
-      if (['market', 'product', 'tracking_include', 'tracking_exclude'].includes(key)) return;
+      if (['market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
 
       // Skip nếu giá trị rỗng
       if (val === null || val === undefined) return;
@@ -1200,25 +1202,37 @@ function VanDon() {
 
     // Tracking Filters - Áp dụng cho tất cả users
     try {
-      if (filterValues.tracking_include || filterValues.tracking_exclude) {
+      if (filterValues.tracking_status || filterValues.tracking_include || filterValues.tracking_exclude) {
         const inc = filterValues.tracking_include ? String(filterValues.tracking_include).toLowerCase() : '';
         const exc = filterValues.tracking_exclude ? String(filterValues.tracking_exclude).toLowerCase() : '';
+        const status = filterValues.tracking_status || 'Tình trạng mã';
+
         data = data.filter(row => {
           try {
-            const code = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim().toLowerCase();
-            if (exc && exc.trim() && code.includes(exc)) return false;
-            if (inc && inc.trim()) {
-              if (inc.includes('\n')) {
-                const codes = new Set(inc.split('\n').map(t => t.trim()).filter(Boolean));
-                if (!codes.has(code)) return false;
-              } else {
-                if (!code.includes(inc)) return false;
+            const code = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
+            const lowerCode = code.toLowerCase();
+
+            // Status Filter Logic
+            if (status === 'Tất cả có mã' && code === '') return false;
+            if (status === 'Trống' && code !== '') return false;
+            if (status === 'Toàn số' && (code === '' || !/^\d+$/.test(code))) return false;
+
+            // Only apply include/exclude if in 'Tình trạng mã' state
+            if (status === 'Tình trạng mã') {
+              if (exc && exc.trim() && lowerCode.includes(exc)) return false;
+              if (inc && inc.trim()) {
+                if (inc.includes('\n')) {
+                  const codes = new Set(inc.split('\n').map(t => t.trim()).filter(Boolean).map(t => t.toLowerCase()));
+                  if (!codes.has(lowerCode)) return false;
+                } else {
+                  if (!lowerCode.includes(inc)) return false;
+                }
               }
             }
             return true;
           } catch (err) {
             console.warn('⚠️ [Filter Error] Lỗi khi filter tracking:', err);
-            return true; // Nếu có lỗi, giữ lại row
+            return true;
           }
         });
       }
@@ -1393,19 +1407,21 @@ function VanDon() {
           const toastId = addToast('Đang cập nhật...', 'loading', 0);
           try {
             await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername);
-            removeToast(toastId);
             success = true;
           } catch (e) {
             addToast(e.message, 'error');
+          } finally {
+            removeToast(toastId);
           }
         } else {
           const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
           try {
             const res = await API.updateBatch(rowsToUpdate, currentUsername);
-            removeToast(toastId);
             if (res.success) success = true;
           } catch (e) {
             addToast(e.message, 'error');
+          } finally {
+            removeToast(toastId);
           }
         }
 
@@ -1647,9 +1663,25 @@ function VanDon() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Copy / Paste
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         const bounds = getSelectionBounds();
         if (!bounds) return;
+
+        // If it's a single cell and user has selected only partial text in the input,
+        // we might want to let the browser handle it. But to fix the reported issue
+        // where Ctrl+C "doesn't work" at all, we'll take over but allow browser copy
+        // if there's a specific internal selection that isn't the whole field.
+        const activeEl = document.activeElement;
+        const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+        const isSingleCell = bounds.minRow === bounds.maxRow && bounds.minCol === bounds.maxCol;
+        
+        // If user manually selected a PART of the text, let browser handle it naturally
+        if (isInput && isSingleCell && activeEl.selectionStart !== activeEl.selectionEnd && 
+            (activeEl.selectionEnd - activeEl.selectionStart) < activeEl.value.length) {
+          return;
+        }
+
+        e.preventDefault();
 
         // Prepare data for clipboard
         const rows = [];
@@ -1780,6 +1812,7 @@ function VanDon() {
 
       if (isFloodFill) {
         const val = rows[0][0];
+        if (val === '') return;
         for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
           if (r >= paginatedData.length) continue;
           const rowData = paginatedData[r];
@@ -1812,7 +1845,7 @@ function VanDon() {
 
           rowVals.forEach((val, cIdx) => {
             const targetColIdx = bounds.minCol + cIdx;
-            if (targetColIdx >= currentColumns.length) return;
+            if (targetColIdx >= currentColumns.length || val === '') return;
 
             const colName = currentColumns[targetColIdx];
             if (!EDITABLE_COLS.includes(colName)) return; // Skip read-only
@@ -2260,26 +2293,57 @@ function VanDon() {
                   {currentColumns.map((col, idx) => {
                     const key = COLUMN_MAPPING[col] || col;
                     const filterKey = col;
-                    const stickyStyle = idx < fixedColumns ?
-                      { position: 'sticky', left: idx * 100, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
                     const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
+                    const isNameCol = (col === "Name*");
+                    const isAddCol = (col === "Add");
+                    const isCityCol = (col === "City");
+                    const isProductCol = (col === "Mặt hàng");
+
+                    // Dynamic sticky offset calculation (simplified)
+                    let stickyLeft = idx * 100;
+                    if (idx > 1) {
+                      // Adjust for "Kết quả Check" if it's before this column
+                      stickyLeft += 50; 
+                    }
+
+                    const stickyStyle = idx < fixedColumns ?
+                      { position: 'sticky', left: stickyLeft, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
 
                     return (
-                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap ${isCheckCol ? 'pl-2 pr-3' : 'px-4'}`} style={{ ...stickyStyle, minWidth: isCheckCol ? '140px' : 'fit-content', maxWidth: isCheckCol ? '160px' : 'auto', width: isCheckCol ? '150px' : 'auto' }}>
+                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap ${isCheckCol ? 'pl-2 pr-3' : 'px-4'}`} style={{ 
+                        ...stickyStyle, 
+                        minWidth: isCheckCol ? '140px' : (isNameCol ? '200px' : (isAddCol ? '380px' : (isCityCol ? '130px' : (isProductCol ? '150px' : 'fit-content')))), 
+                        maxWidth: isCheckCol ? '160px' : (isNameCol ? '250px' : (isAddCol ? '450px' : (isCityCol ? '200px' : (isProductCol ? '220px' : 'auto')))), 
+                        width: isCheckCol ? '150px' : (isNameCol ? '220px' : (isAddCol ? '400px' : (isCityCol ? '140px' : (isProductCol ? '160px' : 'auto')))) 
+                      }}>
                         <div className={`font-semibold mb-2 text-gray-700 text-sm whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'text-left' : ''}`}>{col}</div>
                         {/* Render Filters based on View Mode and Column Type */}
                         {col === "STT" ? (
                           <div className="text-xs text-gray-400">-</div>
                         ) : col === "Mã Tracking" ? (
                           <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
-                            <input
-                              className="w-full text-sm px-2 py-1.5 border rounded" style={{ zIndex: 1002 }} placeholder="Bao gồm..."
-                              value={localFilterValues.tracking_include} onChange={e => setLocalFilterValues(p => ({ ...p, tracking_include: e.target.value }))}
-                            />
-                            <input
-                              className="w-full text-sm px-2 py-1.5 border rounded" style={{ zIndex: 1002 }} placeholder="Loại trừ..."
-                              value={localFilterValues.tracking_exclude} onChange={e => setLocalFilterValues(p => ({ ...p, tracking_exclude: e.target.value }))}
-                            />
+                            <select
+                              className="w-full text-[13px] px-2 py-1.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                              value={localFilterValues.tracking_status || 'Tình trạng mã'}
+                              onChange={e => setLocalFilterValues(p => ({ ...p, tracking_status: e.target.value }))}
+                            >
+                              <option value="Tình trạng mã">Tình trạng mã</option>
+                              <option value="Tất cả có mã">Tất cả có mã</option>
+                              <option value="Trống">Trống</option>
+                              <option value="Toàn số">Toàn số</option>
+                            </select>
+                            {(localFilterValues.tracking_status === 'Tình trạng mã' || !localFilterValues.tracking_status) && (
+                              <>
+                                <input
+                                  className="w-full text-sm px-2 py-1.5 border rounded" style={{ zIndex: 1002 }} placeholder="Bao gồm..."
+                                  value={localFilterValues.tracking_include} onChange={e => setLocalFilterValues(p => ({ ...p, tracking_include: e.target.value }))}
+                                />
+                                <input
+                                  className="w-full text-sm px-2 py-1.5 border rounded" style={{ zIndex: 1002 }} placeholder="Loại trừ..."
+                                  value={localFilterValues.tracking_exclude} onChange={e => setLocalFilterValues(p => ({ ...p, tracking_exclude: e.target.value }))}
+                                />
+                              </>
+                            )}
                           </div>
                         ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(col) ? (
                           <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
@@ -2340,15 +2404,39 @@ function VanDon() {
                           if (!val && col === "Tiền đã thanh toán") {
                             val = row["reconciled_vnd"] ?? row["reconciled_vnd"] ?? '';
                           }
+
+                          // Merge pending changes vào giá trị hiển thị
+                          const pendingInfo = pendingChanges.get(orderId)?.get(key);
+                          if (pendingInfo) {
+                            val = pendingInfo.newValue;
+                          }
+
                           // Use formatDate for dates
                           const displayVal = ["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2", "Ngày up bill"].includes(col)
                             ? formatDate(val)
                             : (col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán" ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : val);
 
                           const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
+                          const isNameCol = (col === "Name*");
+                          const isAddCol = (col === "Add");
+                          const isCityCol = (col === "City");
+                          const isProductCol = (col === "Mặt hàng");
+
+                          // Dynamic sticky offset calculation (simplified)
+                          let cellStickyLeft = cIdx * 100;
+                          if (cIdx > 1) {
+                            cellStickyLeft += 50; 
+                          }
+
+                          const colWidthStyles = isCheckCol ? { minWidth: '140px', maxWidth: '160px', width: '150px' } : 
+                                               (isNameCol ? { minWidth: '200px', maxWidth: '250px', width: '220px' } : 
+                                               (isAddCol ? { minWidth: '380px', maxWidth: '450px', width: '400px' } : 
+                                               (isCityCol ? { minWidth: '130px', maxWidth: '200px', width: '140px' } : 
+                                               (isProductCol ? { minWidth: '150px', maxWidth: '220px', width: '160px' } : {}))));
+
                           const cellStyle = cIdx < fixedColumns ?
-                            { position: 'sticky', left: cIdx * 100, zIndex: 10, ...(isCheckCol ? { minWidth: '140px', maxWidth: '160px', width: '150px' } : {}) } :
-                            (isCheckCol ? { minWidth: '140px', maxWidth: '160px', width: '150px' } : {});
+                            { position: 'sticky', left: cellStickyLeft, zIndex: 10, ...colWidthStyles } :
+                            colWidthStyles;
 
                           return (
                             <td
