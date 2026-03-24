@@ -3,6 +3,7 @@ import { AlertCircle, Check, ChevronDown, RefreshCcw, Save, Search, XCircle } fr
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions'; // Added missing import
+import { recalcMktSoDonAfterOrderSave } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { supabase } from '../supabase/config';
 
 const ADMIN_MAIL = import.meta.env.VITE_ADMIN_MAIL || "admin@marketing.com";
@@ -1118,6 +1119,20 @@ export default function NhapDonMoi({ isEdit = false }) {
                 return;
             }
 
+            /** Ngày đơn trước khi update — để tính lại Số đơn TT cả ngày cũ khi đổi ngày/MKT/SP/khu vực */
+            let previousOrderDate = null;
+            if (isEdit && orderCode) {
+                const { data: prevSnap, error: prevErr } = await supabase
+                    .from('orders')
+                    .select('order_date')
+                    .eq('order_code', orderCode)
+                    .maybeSingle();
+                if (!prevErr && prevSnap?.order_date != null) {
+                    const od = prevSnap.order_date;
+                    previousOrderDate = typeof od === 'string' ? od.split('T')[0] : od;
+                }
+            }
+
             // Tính ca từ thời gian lên đơn (sử dụng created_at hoặc thời gian hiện tại)
             const orderDateTime = formData["created_at"] || new Date().toISOString();
             const calculatedShift = calculateShiftFromTime(orderDateTime);
@@ -1336,6 +1351,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                 throw new Error(errorMsg);
             }
 
+            /** Chỉ tính lại Số đơn TT khi chắc chắn DB đã ghi đơn thành công */
+            let saveOkForMktSync = false;
+
             if (!savedData || savedData.length === 0) {
                 console.warn("⚠️ Warning: Update completed but no data returned.");
                 console.warn("   This could mean:");
@@ -1357,16 +1375,31 @@ export default function NhapDonMoi({ isEdit = false }) {
                     } else if (checkData) {
                         console.log("✅ Order exists after update:", checkData);
                         alert("✅ Cập nhật đơn hàng thành công!");
+                        saveOkForMktSync = true;
                     } else {
                         console.error("❌ Order not found after update!");
                         alert("⚠️ Cảnh báo: Không tìm thấy đơn hàng sau khi cập nhật. Vui lòng kiểm tra lại.");
                     }
                 } else {
                     alert("✅ Lưu đơn hàng thành công! (Không thể xác nhận do RLS policy)");
+                    saveOkForMktSync = true;
                 }
             } else {
                 console.log("✅ Update successful, returned data:", savedData);
                 alert(isEdit ? "✅ Cập nhật đơn hàng thành công!" : "✅ Lưu đơn hàng thành công!");
+                saveOkForMktSync = true;
+            }
+
+            if (saveOkForMktSync) {
+                void recalcMktSoDonAfterOrderSave({
+                    newOrderDate: orderDateValue,
+                    previousOrderDate,
+                })
+                    .then((r) => {
+                        if (r?.skipped) return;
+                        console.log('✅ Đã đồng bộ Số đơn TT (Báo cáo MKT):', r?.upserted ?? r);
+                    })
+                    .catch((err) => console.error('⚠️ Đồng bộ Số đơn TT (MKT) sau lưu đơn:', err));
             }
 
             // Optional: Reset form or Redirect

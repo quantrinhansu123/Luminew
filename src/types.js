@@ -74,6 +74,7 @@ export const COLUMN_MAPPING = {
     "Payment Bill": "payment_bill",
     "Payment Image": "payment_image",
     "Ngày up bill": "ngayupbill",
+    "Nhân viên Sale": "sale_staff",
     "Nhân viên MKT": "marketing_staff",
     "Tiền đã thanh toán": "reconciled_vnd"
 };

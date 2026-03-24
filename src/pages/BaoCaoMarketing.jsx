@@ -1,7 +1,34 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
+import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
+import { buildMktReportDedupeKey, normalizeMktReportDate } from '../utils/mktDetailReportKey';
+
+/**
+ * Họ tên cho cột "Tên": ưu tiên trường Name / name trong JSON user (localStorage),
+ * rồi các key tiếng Việt, cuối cùng username (sau đăng nhập thường trùng name từ bảng users).
+ */
+function getDisplayNameFromStoredUser() {
+  let user = null;
+  try {
+    const raw = localStorage.getItem('user');
+    if (raw) user = JSON.parse(raw);
+  } catch {
+    user = null;
+  }
+  const fromObj =
+    user?.Name ??
+    user?.name ??
+    user?.['Họ_và_tên'] ??
+    user?.['Họ và tên'] ??
+    user?.['Tên'] ??
+    user?.username ??
+    '';
+  const t = String(fromObj || '').trim();
+  if (t) return t;
+  return String(localStorage.getItem('username') || '').trim();
+}
 
 export default function BaoCaoMarketing() {
   const location = useLocation();
@@ -16,6 +43,8 @@ export default function BaoCaoMarketing() {
 
   const [appData, setAppData] = useState({
     employeeDetails: [],
+    /** Toàn bộ dòng sheet Nhân sự có tên (mọi bộ phận) — tra cứu Team/Email theo Tên, không giới hạn MKT */
+    sheetLookupEmployees: [],
     shiftList: ['Hết ca', 'Giữa ca'],
     productList: [
       'Gel Dạ Dày',
@@ -80,6 +109,10 @@ export default function BaoCaoMarketing() {
   const [deleting, setDeleting] = useState(false);
   const [realValuesMap, setRealValuesMap] = useState({}); // Map row ID to real values
   const [calculatingRealValues, setCalculatingRealValues] = useState({}); // Track which rows are calculating
+  /** Lookup email theo tên từ human_resources */
+  const [hrEmailLookup, setHrEmailLookup] = useState(() => buildEmailByNameLookup([]));
+  /** Mọi "Họ Và Tên" trong human_resources — dropdown Tên đầy đủ theo name, không lọc email */
+  const [hrAllDisplayNames, setHrAllDisplayNames] = useState([]);
   const employeeDatalistRef = useRef(null);
 
 
@@ -119,7 +152,11 @@ export default function BaoCaoMarketing() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const email = urlParams.get('email') || localStorage.getItem('userEmail') || '';
-    const hoten = urlParams.get('hoten') || localStorage.getItem('userName') || '';
+    const hoten =
+      urlParams.get('hoten') ||
+      localStorage.getItem('userName') ||
+      getDisplayNameFromStoredUser() ||
+      '';
 
     setUserEmail(email);
     setEmployeeNameFromUrl(hoten);
@@ -161,6 +198,20 @@ export default function BaoCaoMarketing() {
 
       const targetDepts = ['MKT'];
 
+      const rowToEmp = (row) => ({
+        name: row[nameCol]?.toString().trim() || '',
+        email: row[emailCol]?.toString().trim() || '',
+        team: row[teamCol]?.toString().trim() || '',
+        id_ns: row[idCol]?.toString().trim() || '',
+        branch: row[branchCol]?.toString().trim() || '',
+      });
+
+      const sheetLookupEmployees = rowObjects
+        .filter((row) => row[nameCol] && String(row[nameCol]).trim() !== '')
+        .map(rowToEmp)
+        .filter((emp) => emp.name)
+        .filter((emp, idx, arr) => arr.findIndex((e) => e.name === emp.name) === idx);
+
       const filteredEmployees = rowObjects
         .filter((row) => {
           const dept = row[deptCol];
@@ -168,21 +219,15 @@ export default function BaoCaoMarketing() {
           const deptMatch = dept && targetDepts.some((target) => dept.toString().toUpperCase().includes(target.toUpperCase()));
           return deptMatch && name && name.toString().trim() !== '';
         })
-        .map((row) => ({
-          name: row[nameCol]?.toString().trim(),
-          email: row[emailCol]?.toString().trim() || '',
-          team: row[teamCol]?.toString().trim() || '',
-          id_ns: row[idCol]?.toString().trim() || '',
-          branch: row[branchCol]?.toString().trim() || '',
-        }))
+        .map(rowToEmp)
         .filter((emp, idx, arr) => arr.findIndex((e) => e.name === emp.name) === idx);
 
-      updateStatus(`Đã tải thành công ${filteredEmployees.length} nhân viên MKT.`);
-      return filteredEmployees;
+      updateStatus(`Đã tải thành công ${filteredEmployees.length} nhân viên MKT (sheet: ${sheetLookupEmployees.length} tên để chọn).`);
+      return { mktEmployees: filteredEmployees, sheetLookupEmployees };
     } catch (error) {
       console.error('Lỗi chi tiết:', error);
       updateStatus(`Lỗi khi tải danh sách nhân viên: ${error.message}`, true);
-      return [];
+      return { mktEmployees: [], sheetLookupEmployees: [] };
     }
   };
 
@@ -217,40 +262,98 @@ export default function BaoCaoMarketing() {
     return today.toLocaleDateString('en-CA');
   };
 
+  const newRowId = () =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `row_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
   const initializeApp = async (email, hoten) => {
-    const employees = await fetchEmployeeList();
-    setAppData((prev) => ({ ...prev, employeeDetails: employees }));
-    setTableHeaders(headerMkt);
+    try {
+      const [fetchPack, hrRes] = await Promise.all([
+        fetchEmployeeList(),
+        supabase.from('human_resources').select('"Họ Và Tên", email, "Bộ phận"'),
+      ]);
 
-    // Find employee by email first, then by name
-    let employee = null;
-    if (email) {
-      employee = employees?.find((emp) => emp.email?.toLowerCase() === email.toLowerCase());
+      const employees = fetchPack.mktEmployees || [];
+      const sheetLookup = fetchPack.sheetLookupEmployees || [];
+
+      const hrRows = hrRes.data || [];
+      const hrLookup = buildEmailByNameLookup(hrRows);
+      setHrEmailLookup(hrLookup);
+
+      const allHrNames = [
+        ...new Set(hrRows.map((r) => String(r['Họ Và Tên'] || '').trim()).filter(Boolean)),
+      ];
+      setHrAllDisplayNames(allHrNames);
+
+      setAppData((prev) => ({
+        ...prev,
+        employeeDetails: employees,
+        sheetLookupEmployees: sheetLookup,
+      }));
+      setTableHeaders(headerMkt);
+
+      const lookupByName = sheetLookup.length > 0 ? sheetLookup : employees;
+      let employee = null;
+      if (hoten) {
+        employee = findEmployeeByName(lookupByName, hoten);
+      }
+      if (!employee && email) {
+        employee = lookupByName.find((emp) => emp.email?.toLowerCase() === email.toLowerCase());
+      }
+
+      const employeeName = employee?.name || hoten || '';
+      const emailFromHr = employeeName ? emailFromName(employeeName, hrLookup) : '';
+      const initialEmail = email || emailFromHr || '';
+
+      setTableRows([createRowData({ Tên: employeeName, Email: initialEmail }, employees, hrLookup, sheetLookup)]);
+      updateStatus('Ứng dụng đã sẵn sàng.');
+    } catch (err) {
+      console.error('BaoCaoMarketing initializeApp:', err);
+      updateStatus('Lỗi khởi tạo — vẫn mở form nhập (kiểm tra console).', true);
+      setTableRows([{ id: newRowId(), data: { Ngày: getToday() } }]);
     }
-    if (!employee && hoten) {
-      employee = employees?.find((emp) => emp.name?.toLowerCase() === hoten.toLowerCase());
-    }
-
-    const employeeName = employee?.name || hoten || '';
-
-    setTableRows([createRowData({ Tên: employeeName, Email: email }, employees)]);
-    updateStatus('Ứng dụng đã sẵn sàng.');
   };
 
-  const createRowData = (data = {}, employees = appData.employeeDetails) => {
+  /** Email khớp theo họ tên hiển thị: human_resources → sheet MKT → fallbackEmail */
+  const resolveEmailFromPersonName = (displayName, nameLookupEmployees, lookup, fallbackEmail = '') => {
+    const n = String(displayName || '').trim();
+    if (!n) return String(fallbackEmail || '').trim();
+    const fromHr = lookup?.list?.length ? emailFromName(n, lookup) : '';
+    if (fromHr) return fromHr;
+    const fromSheet = findEmployeeByName(nameLookupEmployees, n)?.email;
+    if (fromSheet) return String(fromSheet).trim();
+    return String(fallbackEmail || '').trim();
+  };
+
+  const createRowData = (
+    data = {},
+    employees = appData.employeeDetails,
+    lookup = hrEmailLookup,
+    sheetLookupOverride = null
+  ) => {
+    const sessionUserName = getDisplayNameFromStoredUser();
+
+    const byNameList =
+      (sheetLookupOverride && sheetLookupOverride.length > 0
+        ? sheetLookupOverride
+        : appData.sheetLookupEmployees && appData.sheetLookupEmployees.length > 0
+          ? appData.sheetLookupEmployees
+          : employees) || [];
+
     let employeeToUse = null;
 
-    // Priority: 1) Find by name if provided, 2) Find by email if provided
+    // Ưu tiên khớp theo Tên (full name), không ưu tiên email
     if (data['Tên']) {
-      employeeToUse = employees?.find((emp) => emp.name?.toLowerCase() === data['Tên'].toLowerCase());
+      employeeToUse = findEmployeeByName(byNameList, data['Tên']);
     }
 
     if (!employeeToUse && data['Email']) {
-      employeeToUse = employees?.find((emp) => emp.email?.toLowerCase() === data['Email'].toLowerCase());
+      employeeToUse = byNameList.find((emp) => emp.email?.toLowerCase() === data['Email'].toLowerCase());
     }
 
     if (!employeeToUse && userEmail) {
-      employeeToUse = employees?.find((emp) => emp.email?.toLowerCase() === userEmail.toLowerCase());
+      employeeToUse = byNameList.find((emp) => emp.email?.toLowerCase() === userEmail.toLowerCase());
     }
 
     if (employeeToUse) {
@@ -260,39 +363,46 @@ export default function BaoCaoMarketing() {
       data['id_NS'] = data['id_NS'] || employeeToUse.id_ns;
       data['Chi nhánh'] = data['Chi nhánh'] || employeeToUse.branch;
     } else {
-      // data['Email'] = data['Email'] || userEmail; // REMOVED: Don't force userEmail if not found in list
       if (employeeNameFromUrl) {
         data['Tên'] = data['Tên'] || employeeNameFromUrl;
       }
     }
 
-    // --- LOCK USER FIELDS FOR NON-ADMINS ---
-    const userJson = localStorage.getItem("user");
-    const user = userJson ? JSON.parse(userJson) : null;
-    const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
+    // Chưa có Tên → lấy tên từ user đăng nhập
+    if (!String(data['Tên'] || '').trim() && sessionUserName) {
+      data['Tên'] = sessionUserName;
+    }
+
+    // Email tự động theo Tên (human_resources → sheet theo name), chưa có mới dùng fallback
+    if (data['Tên'] && !String(data['Email'] || '').trim()) {
+      data['Email'] = resolveEmailFromPersonName(data['Tên'], byNameList, lookup, userEmail);
+    }
+
     const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
 
-    if (!isManager && userEmail) { // userEmail is set from localStorage/URL in useEffect
-      // Check if userEmail matches logged in user.
-      // Actually, relying on `userEmail` state which came from localStorage is fine.
-      // Force them:
-      data['Email'] = userEmail;
-      data['Tên'] = userName || data['Tên']; // if userName found
-
-      // Try to fill other fields if employeeToUse was null but now we forced email
+    // User thường: Tên theo profile đăng nhập; Email suy ra từ Tên (HR / sheet lookup theo name)
+    if (!isManager) {
+      if (sessionUserName) data['Tên'] = sessionUserName || data['Tên'];
+      data['Email'] = resolveEmailFromPersonName(data['Tên'], byNameList, lookup, userEmail);
       if (!employeeToUse) {
-        const forcedEmp = employees?.find((emp) => emp.email?.toLowerCase() === userEmail.toLowerCase());
+        const forcedEmp =
+          findEmployeeByName(byNameList, data['Tên']) ||
+          byNameList.find((emp) => emp.email?.toLowerCase() === String(data['Email'] || '').toLowerCase());
         if (forcedEmp) {
           data['Tên'] = forcedEmp.name;
-          data['Team'] = forcedEmp.team;
-          data['id_NS'] = forcedEmp.id_ns;
-          data['Chi nhánh'] = forcedEmp.branch;
+          data['Team'] = data['Team'] || forcedEmp.team;
+          data['id_NS'] = data['id_NS'] || forcedEmp.id_ns;
+          data['Chi nhánh'] = data['Chi nhánh'] || forcedEmp.branch;
         }
       }
     }
 
+    if (!data['Ngày']) {
+      data['Ngày'] = getToday();
+    }
+
     return {
-      id: crypto.randomUUID(),
+      id: newRowId(),
       data,
     };
   };
@@ -310,11 +420,11 @@ export default function BaoCaoMarketing() {
       }
     });
 
-    setTableRows([...tableRows, createRowData(newRowData, appData.employeeDetails)]);
+    setTableRows([...tableRows, createRowData(newRowData, appData.employeeDetails, hrEmailLookup)]);
   };
 
   const handleAddNewRow = () => {
-    setTableRows([...tableRows, createRowData({}, appData.employeeDetails)]);
+    setTableRows([...tableRows, createRowData({}, appData.employeeDetails, hrEmailLookup)]);
   };
 
   const handleRemoveRow = (index) => {
@@ -608,18 +718,24 @@ export default function BaoCaoMarketing() {
     const newRows = [...tableRows];
     newRows[index].data[field] = value;
 
+    const nameLookup =
+      appData.sheetLookupEmployees?.length > 0 ? appData.sheetLookupEmployees : appData.employeeDetails;
+
     if (field === 'Tên') {
-      const employee = appData.employeeDetails?.find((emp) => emp.name === value);
+      const employee = findEmployeeByName(nameLookup, value);
       if (employee) {
         newRows[index].data['Email'] = employee.email || '';
         newRows[index].data['Team'] = employee.team || '';
         newRows[index].data['id_NS'] = employee.id_ns || '';
         newRows[index].data['Chi nhánh'] = employee.branch || '';
+      } else {
+        const em = resolveEmailFromPersonName(value, nameLookup, hrEmailLookup, '');
+        if (em) newRows[index].data['Email'] = em;
       }
     }
 
     if (field === 'Email') {
-      const employee = appData.employeeDetails?.find((emp) => emp.email?.toLowerCase() === value.toLowerCase());
+      const employee = nameLookup?.find((emp) => emp.email?.toLowerCase() === value.toLowerCase());
       if (employee) {
         newRows[index].data['Tên'] = employee.name || '';
         newRows[index].data['Team'] = employee.team || '';
@@ -813,6 +929,10 @@ export default function BaoCaoMarketing() {
           if (excludedColumns.includes(key)) {
             return;
           }
+          // Không gửi cột id từ ô ẩn/nhầm — luôn dùng row.id (client UUID)
+          if (key === 'id') {
+            return;
+          }
 
           let value = row.data[key];
 
@@ -824,25 +944,45 @@ export default function BaoCaoMarketing() {
           rowObject[key] = value;
         });
 
-        // Ensure critical fields
-        if (!rowObject['Email']) rowObject['Email'] = userEmail;
+        rowObject.id = row.id;
+
+        // Email theo Tên (user / dòng nhập) → HR → sheet → userEmail
+        const nameLookup =
+          appData.sheetLookupEmployees?.length > 0 ? appData.sheetLookupEmployees : appData.employeeDetails;
+
+        if (!String(rowObject['Email'] || '').trim()) {
+          rowObject['Email'] = resolveEmailFromPersonName(
+            rowObject['Tên'],
+            nameLookup,
+            hrEmailLookup,
+            userEmail
+          );
+        }
         if (!rowObject['Tên']) rowObject['Tên'] = employeeNameFromUrl || userEmail;
 
         // Ensure Team - CRITICAL for 400 error fix
         // If not in row data, try to get from appData or fallback to 'MKT'
         if (!rowObject['Team']) {
-          const emp = appData.employeeDetails?.find(e => e.email?.toLowerCase() === rowObject['Email']?.toLowerCase() || e.name === rowObject['Tên']);
+          const emp =
+            findEmployeeByName(nameLookup, rowObject['Tên']) ||
+            nameLookup?.find((e) => e.email?.toLowerCase() === rowObject['Email']?.toLowerCase());
           rowObject['Team'] = emp?.team || localStorage.getItem('userTeam') || 'MKT';
         }
 
         // Ensure id_NS
         if (!rowObject['id_NS']) {
-          const emp = appData.employeeDetails?.find(e => e.email?.toLowerCase() === rowObject['Email']?.toLowerCase() || e.name === rowObject['Tên']);
+          const emp =
+            findEmployeeByName(nameLookup, rowObject['Tên']) ||
+            nameLookup?.find((e) => e.email?.toLowerCase() === rowObject['Email']?.toLowerCase());
           rowObject['id_NS'] = emp?.id_ns || '';
         }
 
         // Auto-fields if missing
         if (!rowObject['Ngày']) rowObject['Ngày'] = getToday();
+        // Ca trống → Giữa ca (giống nhập đơn / recalc chỉ xử lý Hết ca | Giữa ca)
+        if (!String(rowObject['ca'] ?? '').trim()) {
+          rowObject['ca'] = 'Giữa ca';
+        }
 
         // Note: Số đơn thực tế và Doanh số thực tế được tính tự động từ orders table sau khi insert
         // Không truyền vào payload khi submit
@@ -867,7 +1007,7 @@ export default function BaoCaoMarketing() {
               visible: true,
             });
             updateStatus('Gửi báo cáo thành công (Giả lập).');
-            setTableRows([createRowData({ Tên: employeeNameFromUrl, Email: userEmail }, appData.employeeDetails)]);
+            setTableRows([createRowData({ Tên: employeeNameFromUrl, Email: userEmail }, appData.employeeDetails, hrEmailLookup)]);
             setLoading(false);
             return; // EXIT EARLY
           }
@@ -877,23 +1017,78 @@ export default function BaoCaoMarketing() {
       }
       // --------------------------
 
-      // Insert into Supabase
-      const { data, error } = await supabase
-        .from('detail_reports')
-        .insert(rowsData)
-        .select();
+      // Cùng key với DB → UPDATE; key gồm ca (trống = Giữa ca) + Ngày + Tên + SP + TT
+      const uniqueDates = [
+        ...new Set(rowsData.map((r) => normalizeMktReportDate(r['Ngày'])).filter(Boolean)),
+      ];
 
-      if (error) throw error;
+      const keyToExistingId = new Map();
+      if (uniqueDates.length > 0) {
+        const { data: existingList, error: exErr } = await supabase
+          .from('detail_reports')
+          .select('id, "Ngày", "Tên", "Sản_phẩm", "Thị_trường", ca')
+          .in('Ngày', uniqueDates);
 
+        if (exErr) throw exErr;
+        for (const er of existingList || []) {
+          const k = buildMktReportDedupeKey(er);
+          if (!keyToExistingId.has(k)) keyToExistingId.set(k, er.id);
+        }
+      }
+
+      // Không gộp trước bằng Map (dễ mất dòng khi key trùng oan). Last-wins theo id / key mới.
+      const updateById = new Map();
+      const insertCanonicalByKey = new Map();
+      for (const row of rowsData) {
+        const k = buildMktReportDedupeKey(row);
+        const existingId = keyToExistingId.get(k);
+        if (existingId) {
+          updateById.set(existingId, { ...row, id: existingId });
+        } else {
+          insertCanonicalByKey.set(k, row);
+        }
+      }
+
+      const toInsert = [...insertCanonicalByKey.values()];
+      const toUpdate = [...updateById.values()];
+
+      if (toInsert.length > 0) {
+        const { error: insErr } = await supabase.from('detail_reports').insert(toInsert).select();
+        if (insErr) throw insErr;
+      }
+
+      const UPDATE_CHUNK = 40;
+      for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK) {
+        const chunk = toUpdate.slice(i, i + UPDATE_CHUNK);
+        const results = await Promise.all(
+          chunk.map((row) => {
+            const { id, ...rawRest } = row;
+            const rest = Object.fromEntries(
+              Object.entries(rawRest).filter(([, v]) => v !== undefined)
+            );
+            return supabase.from('detail_reports').update(rest).eq('id', id);
+          })
+        );
+        const firstErr = results.find((r) => r.error)?.error;
+        if (firstErr) throw firstErr;
+      }
+
+      const insN = toInsert.length;
+      const updN = toUpdate.length;
       setResponseMsg({
-        text: `Thành công! Đã thêm ${data.length} dòng vào hệ thống.`,
+        text:
+          insN > 0 && updN > 0
+            ? `Thành công! Đã thêm ${insN} dòng, cập nhật ${updN} dòng (trùng key).`
+            : insN > 0
+              ? `Thành công! Đã thêm ${insN} dòng vào hệ thống.`
+              : `Thành công! Đã cập nhật ${updN} dòng (đã có sẵn cùng key).`,
         isSuccess: true,
         visible: true,
       });
       updateStatus('Gửi báo cáo thành công.');
 
       // Reset form
-      setTableRows([createRowData({ Tên: employeeNameFromUrl, Email: userEmail }, appData.employeeDetails)]);
+      setTableRows([createRowData({ Tên: employeeNameFromUrl, Email: userEmail }, appData.employeeDetails, hrEmailLookup)]);
 
     } catch (error) {
       console.error('Lỗi khi gửi dữ liệu:', error);
@@ -914,6 +1109,28 @@ export default function BaoCaoMarketing() {
 
   const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số'];
   const hiddenFields = ['id', 'id phản hồi', 'id số mess', 'team', 'id_ns', 'trạng thái', 'chi nhánh', 'doanh số đi', 'số đơn hoàn huỷ', 'số đơn hoàn hủy', 'doanh số hoàn huỷ', 'số đơn thành công', 'doanh số thành công', 'khách mới', 'khách cũ', 'bán chéo', 'bán chéo team', 'ds chốt', 'ds sau hoàn hủy', 'số đơn sau hoàn hủy', 'doanh số sau ship', 'doanh số tc', 'kpis', 'cpqc theo tkqc', 'báo cáo theo page', 'cảnh báo', 'số đơn thực tế', 'doanh số thực tế'];
+
+  const isManagerRole = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
+
+  /** Dropdown Tên: toàn bộ tên trên sheet Nhân sự + mọi Họ Và Tên HR + session + dòng đang nhập */
+  const mktTenSelectOptions = useMemo(() => {
+    const set = new Set();
+    (appData.sheetLookupEmployees || []).forEach((e) => {
+      const n = String(e?.name || '').trim();
+      if (n) set.add(n);
+    });
+    (hrAllDisplayNames || []).forEach((n) => {
+      const t = String(n || '').trim();
+      if (t) set.add(t);
+    });
+    const session = getDisplayNameFromStoredUser();
+    if (session) set.add(session);
+    (tableRows || []).forEach((r) => {
+      const t = String(r?.data?.Tên || '').trim();
+      if (t) set.add(t);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  }, [appData.sheetLookupEmployees, hrAllDisplayNames, tableRows]);
 
   if (!canView(permissionCode)) {
     return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
@@ -941,7 +1158,7 @@ export default function BaoCaoMarketing() {
 
         {/* Table */}
         <form onSubmit={handleSubmit}>
-          <div className="overflow-x-auto mb-4 border border-gray-300 rounded-lg" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="overflow-x-auto mb-4 border border-gray-300 rounded-lg">
             <div className="w-full align-middle">
               <table className="w-full border-collapse bg-white text-xs table-fixed">
                 <thead>
@@ -958,24 +1175,40 @@ export default function BaoCaoMarketing() {
                   </tr>
                 </thead>
                 <tbody>
+                  {tableRows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={
+                          1 +
+                          headerMkt.filter((h) => !hiddenFields.includes(h.toLowerCase())).length
+                        }
+                        className="border px-4 py-6 text-center text-gray-600 text-sm bg-amber-50"
+                      >
+                        Chưa có dòng nhập liệu. Nhấn <strong>➕ Thêm dòng</strong> hoặc tải lại trang. Nếu vừa thấy lỗi
+                        khởi tạo, mở Console (F12) để xem chi tiết.
+                      </td>
+                    </tr>
+                  )}
                   {tableRows.map((row, rowIndex) => (
                     <tr key={row.id} className="hover:bg-gray-50 even:bg-gray-50">
-                      <td className="border px-2 py-1 flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleAddRow(rowIndex)}
-                          className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition text-xs font-semibold"
-                          title="Copy dòng này"
-                        >
-                          ➕
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveRow(rowIndex)}
-                          className="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded transition text-xs font-semibold"
-                        >
-                          ❌
-                        </button>
+                      <td className="border px-2 py-1 align-middle whitespace-nowrap">
+                        <div className="flex gap-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleAddRow(rowIndex)}
+                            className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition text-xs font-semibold"
+                            title="Copy dòng này"
+                          >
+                            ➕
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRow(rowIndex)}
+                            className="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded transition text-xs font-semibold"
+                          >
+                            ❌
+                          </button>
+                        </div>
                       </td>
                       {headerMkt.map(
                         (header) =>
@@ -1025,14 +1258,35 @@ export default function BaoCaoMarketing() {
                                   className="w-48 px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                                 />
                               ) : header === 'Tên' ? (
-                                <input
-                                  type="text"
-                                  list="employee-datalist"
-                                  placeholder="--"
-                                  value={row.data[header] || ''}
-                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                                />
+                                isManagerRole ? (
+                                  <div className="min-w-[12rem] max-w-[20rem]">
+                                    <select
+                                      value={row.data[header] || ''}
+                                      onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+                                      className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600 bg-white"
+                                      title="Chọn họ tên (theo Name / sheet / HR)"
+                                    >
+                                      <option value="">-- Chọn họ tên --</option>
+                                      {mktTenSelectOptions.map((n) => (
+                                        <option key={n} value={n}>
+                                          {n}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">
+                                      Sheet Nhân sự (mọi bộ phận) + human_resources (Họ Và Tên). Email gắn theo tên đã chọn.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    readOnly
+                                    disabled
+                                    value={row.data[header] || ''}
+                                    className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded bg-gray-100 text-gray-700"
+                                    title="Tên theo tài khoản đăng nhập"
+                                  />
+                                )
                               ) : numberFields.includes(header) ? (
                                 <input
                                   type="text"
@@ -1082,19 +1336,18 @@ export default function BaoCaoMarketing() {
 
         {/* Employee Datalist */}
         <datalist id="employee-datalist" ref={employeeDatalistRef}>
-          {appData.employeeDetails
-            ?.sort((a, b) => a.name.localeCompare(b.name, 'vi', { sensitivity: 'base' }))
-            .map((emp) => (
-              <option key={emp.name} value={emp.name} />
-            ))}
+          {mktTenSelectOptions.map((n) => (
+            <option key={n} value={n} />
+          ))}
         </datalist>
 
         {/* Email Datalist */}
         <datalist id="email-datalist">
-          {appData.employeeDetails
-            ?.sort((a, b) => a.email.localeCompare(b.email))
-            .map((emp) => (
-              <option key={emp.email} value={emp.email} />
+          {[...(appData.employeeDetails || [])]
+            .filter((emp) => String(emp?.email || '').trim())
+            .sort((a, b) => String(a.email).localeCompare(String(b.email)))
+            .map((emp, idx) => (
+              <option key={`${emp.email}-${idx}`} value={emp.email} />
             ))}
         </datalist>
 

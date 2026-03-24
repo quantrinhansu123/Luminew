@@ -469,6 +469,10 @@ export const fetchVanDon = async (options = {}) => {
         status,
         market = [],
         product = [],
+        /** Multi-select tên NV Sale (khớp cột sale_staff) */
+        nv_sale = [],
+        /** Multi-select tên NV MKT (khớp cột marketing_staff) */
+        nv_mkt = [],
         dateFrom,
         dateTo,
         allowedStaff // Array of names allowed to view
@@ -541,6 +545,19 @@ export const fetchVanDon = async (options = {}) => {
             query = query.in('product', product);
         } else if (typeof product === 'string' && product) {
             query = query.eq('product', product);
+        }
+
+        const saleStaffIn = Array.isArray(nv_sale)
+            ? nv_sale.filter((x) => x && x !== '__EMPTY__')
+            : [];
+        const mktStaffIn = Array.isArray(nv_mkt)
+            ? nv_mkt.filter((x) => x && x !== '__EMPTY__')
+            : [];
+        if (saleStaffIn.length > 0) {
+            query = query.in('sale_staff', saleStaffIn);
+        }
+        if (mktStaffIn.length > 0) {
+            query = query.in('marketing_staff', mktStaffIn);
         }
 
         if (dateFrom) {

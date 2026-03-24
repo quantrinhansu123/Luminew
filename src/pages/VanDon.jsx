@@ -62,6 +62,8 @@ function VanDon() {
   const [filterValues, setFilterValues] = useState({
     market: [],
     product: [],
+    nv_sale: [],
+    nv_mkt: [],
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã'
@@ -92,11 +94,6 @@ function VanDon() {
   const [dateFrom, setDateFrom] = useState(isAdmin ? '' : getThreeDaysAgo());
   const [dateTo, setDateTo] = useState(isAdmin ? '' : getToday());
   const [enableDateFilter, setEnableDateFilter] = useState(!isAdmin);
-  // Bộ lọc Ngày up bill
-  const [dateFromUpBill, setDateFromUpBill] = useState('');
-  const [dateToUpBill, setDateToUpBill] = useState('');
-  const [enableUpBillFilter, setEnableUpBillFilter] = useState(false);
-  const [filterUpBillNotEmpty, setFilterUpBillNotEmpty] = useState(false);
   const [quickFilter, setQuickFilter] = useState('');
   const [fixedColumns, setFixedColumns] = useState(2);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -381,6 +378,11 @@ function VanDon() {
         const fetchLimit = isAdmin ? 100000 : rowsPerPage;
         const fetchPage = isAdmin ? 1 : currentPage;
 
+        const saleStaffApi =
+          isAdmin ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale.filter((x) => x && x !== '__EMPTY__') : undefined);
+        const mktStaffApi =
+          isAdmin ? undefined : (filterValues.nv_mkt?.length ? filterValues.nv_mkt.filter((x) => x && x !== '__EMPTY__') : undefined);
+
         const result = await API.fetchVanDon({
           page: fetchPage,
           limit: fetchLimit,
@@ -388,6 +390,8 @@ function VanDon() {
           status: activeStatus,
           market: marketFilter,
           product: productFilter,
+          nv_sale: saleStaffApi?.length ? saleStaffApi : undefined,
+          nv_mkt: mktStaffApi?.length ? mktStaffApi : undefined,
           dateFrom: shouldApplyDateFilter ? dateFrom : undefined,
           dateTo: shouldApplyDateFilter ? dateTo : undefined,
           allowedStaff: apiAllowedStaff
@@ -523,7 +527,7 @@ function VanDon() {
             const uNorm = normalizeNameForMatchFallback(userName);
             data = data.filter(r => {
               const s = normalizeNameForMatchFallback(r.sale_staff || r["Nhân viên Sale"]);
-              const m = normalizeNameForMatchFallback(r.marketing_staff || r["Nhân viên Sale"]);
+              const m = normalizeNameForMatchFallback(r.marketing_staff || r["Nhân viên MKT"]);
               const d = normalizeNameForMatchFallback(r.delivery_staff || r["NV Vận đơn"] || r["Nhân viên Vận đơn"]);
               return s.includes(uNorm) || m.includes(uNorm) || d.includes(uNorm) || uNorm.includes(s) || uNorm.includes(m) || uNorm.includes(d);
             });
@@ -559,6 +563,8 @@ function VanDon() {
     const defaultFilters = {
       market: [],
       product: [],
+      nv_sale: [],
+      nv_mkt: [],
       tracking_include: '',
       tracking_exclude: '',
       tracking_status: 'Tình trạng mã'
@@ -686,7 +692,7 @@ function VanDon() {
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
+  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
 
   const savePendingToLocalStorage = (newPending) => {
     const changesToSave = {};
@@ -972,7 +978,7 @@ function VanDon() {
         const initialDataLength = data.length;
         data = data.filter(row => {
           const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
-          const mktStaff = String(row.marketing_staff || row["Nhân viên Sale"] || '').trim();
+          const mktStaff = String(row.marketing_staff || row["Nhân viên MKT"] || '').trim();
           const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim();
           return saleStaff.length > 0 || mktStaff.length > 0 || deliveryStaff.length > 0;
         });
@@ -1042,6 +1048,22 @@ function VanDon() {
           return set.has(product);
         });
       }
+      if (filterValues.nv_sale && Array.isArray(filterValues.nv_sale) && filterValues.nv_sale.length > 0) {
+        const set = new Set(filterValues.nv_sale);
+        data = data.filter((row) => {
+          const v = String(row.sale_staff || row['Nhân viên Sale'] || '').trim();
+          if (set.has('__EMPTY__') && !v) return true;
+          return v && set.has(v);
+        });
+      }
+      if (filterValues.nv_mkt && Array.isArray(filterValues.nv_mkt) && filterValues.nv_mkt.length > 0) {
+        const set = new Set(filterValues.nv_mkt);
+        data = data.filter((row) => {
+          const v = String(row.marketing_staff || row['Nhân viên MKT'] || '').trim();
+          if (set.has('__EMPTY__') && !v) return true;
+          return v && set.has(v);
+        });
+      }
     } catch (err) {
       console.warn('⚠️ [Filter Error] Lỗi khi xử lý Market/Product filter:', err);
     }
@@ -1068,77 +1090,10 @@ function VanDon() {
       }
     }
 
-    // Ngày up bill filter - Áp dụng cho tất cả users
-    // Helper function để lấy giá trị Ngày up bill từ row (thử nhiều key)
-    const getUpBillValue = (row) => {
-      return row["ngayupbill"] ??
-        row["Ngày up bill"] ??
-        row["ngay_up_bill"] ??
-        row[COLUMN_MAPPING["Ngày up bill"]] ??
-        '';
-    };
-
-    // Filter "không trống" - lọc các dòng có Ngày up bill không trống
-    if (filterUpBillNotEmpty) {
-      data = data.filter(row => {
-        const val = getUpBillValue(row);
-        if (!val) return false;
-        const str = String(val).trim();
-        // Kiểm tra nếu là giá trị hợp lệ (không rỗng, không null, không undefined)
-        return str !== '' && str !== 'null' && str !== 'undefined' && str !== 'NaN';
-      });
-    }
-
-    // Filter theo khoảng thời gian (only if enabled)
-    if (enableUpBillFilter) {
-      if (dateFromUpBill) {
-        const filterDate = new Date(dateFromUpBill);
-        filterDate.setHours(0, 0, 0, 0);
-        const filterTime = filterDate.getTime();
-        data = data.filter(row => {
-          const val = getUpBillValue(row);
-          if (!val) return false;
-          // Xử lý format yyyy-mm-dd
-          let rowDate;
-          const str = String(val).trim();
-          if (str.match(/^\d{4}-\d{2}-\d{2}$/)) {
-            const [year, month, day] = str.split('-').map(Number);
-            rowDate = new Date(year, month - 1, day);
-          } else {
-            rowDate = new Date(str);
-          }
-          if (isNaN(rowDate.getTime())) return false;
-          rowDate.setHours(0, 0, 0, 0);
-          return rowDate.getTime() >= filterTime;
-        });
-      }
-      if (dateToUpBill) {
-        const filterDate = new Date(dateToUpBill);
-        filterDate.setHours(23, 59, 59, 999);
-        const filterTime = filterDate.getTime();
-        data = data.filter(row => {
-          const val = getUpBillValue(row);
-          if (!val) return false;
-          // Xử lý format yyyy-mm-dd
-          let rowDate;
-          const str = String(val).trim();
-          if (str.match(/^\d{4}-\d{2}-\d{2}$/)) {
-            const [year, month, day] = str.split('-').map(Number);
-            rowDate = new Date(year, month - 1, day);
-          } else {
-            rowDate = new Date(str);
-          }
-          if (isNaN(rowDate.getTime())) return false;
-          rowDate.setHours(23, 59, 59, 999);
-          return rowDate.getTime() <= filterTime;
-        });
-      }
-    }
-
     // Column Filters (Text & Dropdown) - Áp dụng cho tất cả users (bao gồm Admin nếu họ muốn filter)
     Object.entries(filterValues).forEach(([key, val]) => {
       // Skip các filter đặc biệt đã được xử lý riêng
-      if (['market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
+      if (['market', 'product', 'nv_sale', 'nv_mkt', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
 
       // Skip nếu giá trị rỗng
       if (val === null || val === undefined) return;
@@ -1262,7 +1217,7 @@ function VanDon() {
     } */
 
     return data;
-  }, [allData, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, enableDateFilter, dateFromUpBill, dateToUpBill, enableUpBillFilter, filterUpBillNotEmpty, mgtNoiBoOrder, isAdmin]);
+  }, [allData, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, enableDateFilter, mgtNoiBoOrder, isAdmin]);
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
@@ -1912,6 +1867,7 @@ function VanDon() {
   const getCellClass = (row, col, val, rIdx, cIdx) => {
     const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
     const isStatusCol = (col === "Trạng thái giao hàng");
+    const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
     // Default cell sizing
     // NOTE: For select-based columns, avoid vertical padding so the select can fill the cell height cleanly.
@@ -1920,8 +1876,14 @@ function VanDon() {
     // Padding adjustment for specific columns
     if (isCheckCol) {
       classes += "pl-2 pr-3 ";
+    } else if (isQtyCol) {
+      classes += "px-1 ";
     } else {
       classes += "px-3 ";
+    }
+
+    if (isQtyCol) {
+      classes += "text-center tabular-nums text-[12px] ";
     }
 
     // Status
@@ -2096,58 +2058,6 @@ function VanDon() {
             </div>
           </div>
 
-          {/* Ngày up bill Filter */}
-          <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📄 Lọc Ngày up bill:</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={dateFromUpBill || ''}
-                onChange={(e) => {
-                  setDateFromUpBill(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                placeholder="Từ ngày"
-              />
-              <span className="text-xs text-gray-500 font-bold">→</span>
-              <input
-                type="date"
-                value={dateToUpBill || ''}
-                onChange={(e) => {
-                  setDateToUpBill(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                placeholder="Đến ngày"
-              />
-              <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={enableUpBillFilter}
-                  onChange={(e) => {
-                    setEnableUpBillFilter(e.target.checked);
-                    setCurrentPage(1);
-                  }}
-                  className="w-3 h-3 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                />
-                <span>Áp dụng</span>
-              </label>
-              <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={filterUpBillNotEmpty}
-                  onChange={(e) => {
-                    setFilterUpBillNotEmpty(e.target.checked);
-                    setCurrentPage(1);
-                  }}
-                  className="w-3 h-3 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                />
-                <span>Không trống</span>
-              </label>
-            </div>
-          </div>
-
           {/* Market & Product Filters */}
           <div className="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200">
             <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🌍 Thị trường:</label>
@@ -2173,6 +2083,36 @@ function VanDon() {
                 selected={filterValues.product || []}
                 onChange={(vals) => {
                   setFilterValues(prev => ({ ...prev, product: vals }));
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">👤 NV Sale:</label>
+            <div className="relative" style={{ minWidth: '160px', zIndex: 1001 }}>
+              <MultiSelect
+                label="Chọn NV Sale..."
+                options={getMultiSelectOptions('Nhân viên Sale')}
+                selected={filterValues.nv_sale || []}
+                onChange={(vals) => {
+                  setFilterValues((prev) => ({ ...prev, nv_sale: vals }));
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-200">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📣 NV MKT:</label>
+            <div className="relative" style={{ minWidth: '160px', zIndex: 1000 }}>
+              <MultiSelect
+                label="Chọn NV MKT..."
+                options={getMultiSelectOptions('Nhân viên MKT')}
+                selected={filterValues.nv_mkt || []}
+                onChange={(vals) => {
+                  setFilterValues((prev) => ({ ...prev, nv_mkt: vals }));
                   setCurrentPage(1);
                 }}
               />
@@ -2298,6 +2238,7 @@ function VanDon() {
                     const isAddCol = (col === "Add");
                     const isCityCol = (col === "City");
                     const isProductCol = (col === "Mặt hàng");
+                    const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
                     // Dynamic sticky offset calculation (simplified)
                     let stickyLeft = idx * 100;
@@ -2310,13 +2251,13 @@ function VanDon() {
                       { position: 'sticky', left: stickyLeft, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
 
                     return (
-                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap ${isCheckCol ? 'pl-2 pr-3' : 'px-4'}`} style={{ 
+                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : (isQtyCol ? '' : 'px-4')}`} style={{ 
                         ...stickyStyle, 
-                        minWidth: isCheckCol ? '140px' : (isNameCol ? '200px' : (isAddCol ? '380px' : (isCityCol ? '130px' : (isProductCol ? '150px' : 'fit-content')))), 
-                        maxWidth: isCheckCol ? '160px' : (isNameCol ? '250px' : (isAddCol ? '450px' : (isCityCol ? '200px' : (isProductCol ? '220px' : 'auto')))), 
-                        width: isCheckCol ? '150px' : (isNameCol ? '220px' : (isAddCol ? '400px' : (isCityCol ? '140px' : (isProductCol ? '160px' : 'auto')))) 
+                        minWidth: isQtyCol ? '48px' : (isCheckCol ? '140px' : (isNameCol ? '200px' : (isAddCol ? '380px' : (isCityCol ? '130px' : (isProductCol ? '150px' : 'fit-content'))))), 
+                        maxWidth: isQtyCol ? '58px' : (isCheckCol ? '160px' : (isNameCol ? '250px' : (isAddCol ? '450px' : (isCityCol ? '200px' : (isProductCol ? '220px' : 'auto'))))), 
+                        width: isQtyCol ? '52px' : (isCheckCol ? '150px' : (isNameCol ? '220px' : (isAddCol ? '400px' : (isCityCol ? '140px' : (isProductCol ? '160px' : 'auto'))))) 
                       }}>
-                        <div className={`font-semibold mb-2 text-gray-700 text-sm whitespace-nowrap ${(col === "Kết quả Check" || col === "Kết quả check") ? 'text-left' : ''}`}>{col}</div>
+                        <div className={`font-semibold mb-2 text-gray-700 ${isQtyCol ? 'text-[11px] leading-tight whitespace-normal break-words' : 'text-sm whitespace-nowrap'} ${(col === "Kết quả Check" || col === "Kết quả check") ? 'text-left' : ''}`}>{col}</div>
                         {/* Render Filters based on View Mode and Column Type */}
                         {col === "STT" ? (
                           <div className="text-xs text-gray-400">-</div>
@@ -2421,6 +2362,7 @@ function VanDon() {
                           const isAddCol = (col === "Add");
                           const isCityCol = (col === "City");
                           const isProductCol = (col === "Mặt hàng");
+                          const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
                           // Dynamic sticky offset calculation (simplified)
                           let cellStickyLeft = cIdx * 100;
@@ -2428,11 +2370,12 @@ function VanDon() {
                             cellStickyLeft += 50; 
                           }
 
-                          const colWidthStyles = isCheckCol ? { minWidth: '140px', maxWidth: '160px', width: '150px' } : 
+                          const colWidthStyles = isQtyCol ? { minWidth: '48px', maxWidth: '58px', width: '52px' } :
+                                               (isCheckCol ? { minWidth: '140px', maxWidth: '160px', width: '150px' } : 
                                                (isNameCol ? { minWidth: '200px', maxWidth: '250px', width: '220px' } : 
                                                (isAddCol ? { minWidth: '380px', maxWidth: '450px', width: '400px' } : 
                                                (isCityCol ? { minWidth: '130px', maxWidth: '200px', width: '140px' } : 
-                                               (isProductCol ? { minWidth: '150px', maxWidth: '220px', width: '160px' } : {}))));
+                                               (isProductCol ? { minWidth: '150px', maxWidth: '220px', width: '160px' } : {})))));
 
                           const cellStyle = cIdx < fixedColumns ?
                             { position: 'sticky', left: cellStickyLeft, zIndex: 10, ...colWidthStyles } :
