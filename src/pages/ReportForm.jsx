@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { supabase } from '../services/supabaseClient';
+import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 
 function ReportForm() {
   const navigate = useNavigate();
@@ -244,11 +245,23 @@ function ReportForm() {
     if (e && e.preventDefault) e.preventDefault();
 
     const lastReport = reports[reports.length - 1] || defaultInfo;
+    const normalizedShift = String(lastReport.shift || '').trim().toLowerCase();
+    const isGiuaCa = normalizedShift.includes('giữa ca') || normalizedShift.includes('giua ca');
+
+    // Sale only: không tự động thêm dòng khi dòng hiện tại là "Giữa ca"
+    if (isGiuaCa) {
+      toast.info('Dòng "Giữa ca" không tự động thêm. Chỉ thêm 1 lần "Hết ca".', {
+        position: 'top-right',
+        autoClose: 2500
+      });
+      return;
+    }
+
     const newReport = {
       name: lastReport.name,
       email: lastReport.email,
       date: lastReport.date,
-      shift: lastReport.shift,
+      shift: 'Hết ca',
       product: lastReport.product || '',
       market: lastReport.market || '',
       branch: lastReport.branch || defaultInfo.branch || '',
@@ -349,307 +362,27 @@ function ReportForm() {
 
       toast.success(`Đã lưu thành công ${reports.length} báo cáo!`, { position: 'top-right', autoClose: 3000 });
 
-      // Tự động tính toán order_count và revenue_actual cho mỗi record vừa insert
+      // Tự động tính Số đơn TT + Doanh số TT cho sales_reports (không tự tạo dòng Giữa ca)
       if (insertedData && insertedData.length > 0) {
         try {
-          // Helper functions
-          const convertDateToAPIFormat = (dateStr) => {
-            if (!dateStr) return '';
-            const date = new Date(dateStr);
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            return `${day}/${month}/${year}`;
-          };
-
           const normalizeDate = (dateStr) => {
             if (!dateStr) return '';
-            const date = new Date(dateStr);
-            if (isNaN(date.getTime())) return '';
-            return date.toISOString().split('T')[0];
+            const dt = new Date(dateStr);
+            if (isNaN(dt.getTime())) return '';
+            return dt.toISOString().split('T')[0];
           };
-
-          const normalizeNameForMatch = (str) => {
-            if (!str) return '';
-            return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
-          };
-
-          const namesMatch = (name1, name2) => {
-            const n1 = normalizeNameForMatch(name1);
-            const n2 = normalizeNameForMatch(name2);
-            return n1 === n2 || n1.includes(n2) || n2.includes(n1);
-          };
-
-          // Tính toán tuần tự cho từng record (không song song)
-          // Map insertedData với reports theo thứ tự (vì insert giữ nguyên thứ tự)
-          for (let idx = 0; idx < insertedData.length; idx++) {
-            const record = insertedData[idx];
-            try {
-              // Lấy thông tin report từ reports state (theo thứ tự)
-              const originalReport = reports[idx];
-              if (!originalReport) {
-                console.warn(`⚠️ Không tìm thấy report tương ứng cho record ${record.id}`);
-                continue;
-              }
-
-              const report = {
-                name: originalReport.name,
-                date: originalReport.date,
-                shift: originalReport.shift,
-                product: originalReport.product,
-                market: originalReport.market
-              };
-
-              const reportDate = normalizeDate(report.date);
-              if (!reportDate) {
-                console.warn(`⚠️ Report ${record.id} có ngày không hợp lệ`);
-                continue;
-              }
-
-              const apiDate = convertDateToAPIFormat(reportDate);
-
-              // Fetch orders from API - CHỈ filter theo ngày, các filter khác sẽ làm ở client-side
-              // Lý do: API filter có thể quá chặt, dẫn đến không trả về dữ liệu
-              const params = new URLSearchParams();
-              params.append('from_date', apiDate);
-              params.append('to_date', apiDate);
-              // KHÔNG thêm filter nhanvien_sale, product, country ở API level
-              // Sẽ filter ở client-side để đảm bảo có dữ liệu để xử lý
-
-              const url = `https://lumidataapi.vercel.app/orders?${params.toString()}`;
-              console.log(`📡 [ReportForm] Fetching orders for report ${record.id} (date only):`, url);
-
-              const response = await fetch(url);
-              if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-              }
-
-              const result = await response.json();
-              let matchingOrders = result.data || [];
-
-              console.log(`📊 [ReportForm] Report ${record.id}: Fetched ${matchingOrders.length} orders from API`);
-              console.log(`📅 [ReportForm] Report date (normalized): ${reportDate}`);
-
-              // Filter by order_date (must match report date)
-              const beforeDateFilter = matchingOrders.length;
-              matchingOrders = matchingOrders.filter(order => {
-                const orderDate = order.order_date;
-                if (!orderDate) {
-                  console.log(`⚠️ [ReportForm] Order ${order.order_code || order.id} has no order_date`);
-                  return false;
-                }
-                
-                // Normalize order_date to YYYY-MM-DD format for comparison
-                let normalizedOrderDate = '';
-                try {
-                  if (orderDate instanceof Date) {
-                    normalizedOrderDate = orderDate.toISOString().split('T')[0];
-                  } else if (typeof orderDate === 'string') {
-                    // Handle different date formats
-                    if (orderDate.includes('/')) {
-                      // DD/MM/YYYY or MM/DD/YYYY
-                      const parts = orderDate.split('/');
-                      if (parts.length === 3) {
-                        // Assume DD/MM/YYYY
-                        normalizedOrderDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                      }
-                    } else if (orderDate.includes('-')) {
-                      // Already in YYYY-MM-DD format or similar
-                      normalizedOrderDate = orderDate.split('T')[0]; // Remove time if present
-                    } else {
-                      // Try to parse as Date
-                      const dateObj = new Date(orderDate);
-                      if (!isNaN(dateObj.getTime())) {
-                        normalizedOrderDate = dateObj.toISOString().split('T')[0];
-                      }
-                    }
-                  } else {
-                    // Try to parse as Date
-                    const dateObj = new Date(orderDate);
-                    if (!isNaN(dateObj.getTime())) {
-                      normalizedOrderDate = dateObj.toISOString().split('T')[0];
-                    }
-                  }
-                } catch (error) {
-                  console.warn(`⚠️ [ReportForm] Error normalizing order_date for order ${order.order_code || order.id}:`, orderDate, error);
-                  return false;
-                }
-                
-                if (!normalizedOrderDate) {
-                  console.log(`⚠️ [ReportForm] Could not normalize order_date: ${orderDate} for order ${order.order_code || order.id}`);
-                  return false;
-                }
-                
-                // Compare with report date (already normalized to YYYY-MM-DD)
-                const matches = normalizedOrderDate === reportDate;
-                if (!matches && beforeDateFilter <= 10) {
-                  // Log first 10 mismatches for debugging
-                  console.log(`🔍 [ReportForm] Order ${order.order_code || order.id}: order_date="${orderDate}" → normalized="${normalizedOrderDate}" vs reportDate="${reportDate}" → ${matches ? 'MATCH' : 'NO MATCH'}`);
-                }
-                return matches;
-              });
-              
-              console.log(`📊 [ReportForm] After order_date filter: ${matchingOrders.length} / ${beforeDateFilter} orders`);
-
-              // Additional filtering
-              if (report.name && report.name.trim()) {
-                matchingOrders = matchingOrders.filter(order => {
-                  const orderSaleStaff = (order.nhanvien_sale || order.sale_staff || '').trim();
-                  if (!orderSaleStaff) return false;
-                  return namesMatch(orderSaleStaff, report.name);
-                });
-              }
-
-              // Shift filtering removed - không lọc theo shift nữa
-
-              if (report.product && report.product.trim()) {
-                matchingOrders = matchingOrders.filter(order => {
-                  const orderProduct = (order.product || '').trim();
-                  if (!orderProduct) return false;
-                  return orderProduct === report.product.trim();
-                });
-              }
-
-              if (report.market && report.market.trim()) {
-                matchingOrders = matchingOrders.filter(order => {
-                  const orderCountry = (order.country || '').trim();
-                  if (!orderCountry) return false;
-                  return orderCountry === report.market.trim();
-                });
-              }
-
-              const orderCount = matchingOrders.length;
-              
-              // Calculate number of cancelled orders (check_result = "Hủy")
-              const cancelledOrders = matchingOrders.filter(order => {
-                const checkResult = (order.check_result || '').trim();
-                return checkResult === 'Hủy';
-              });
-              const orderCancelCount = cancelledOrders.length;
-              
-              // Calculate number of "go" orders (có Mã Tracking khác rỗng và không hủy)
-              const goOrders = matchingOrders.filter(order => {
-                const trackingCode = (order.tracking_code || order.trackingCode || order.tracking || order.ma_tracking || order.maTracking || '').trim();
-                const checkResult = (order.check_result || '').trim();
-                return trackingCode !== '' && checkResult !== 'Hủy';
-              });
-              const orderGoCount = goOrders.length;
-              
-              // Calculate total revenue from cancelled orders (revenue_cancel_actual)
-              const revenueCancelActual = cancelledOrders.reduce((sum, order) => {
-                const revenue = parseFloat(
-                  order.total_amount_vnd || 
-                  order.total_vnd || 
-                  order.tongtien || 
-                  order.revenue_vnd ||
-                  order.total_amount ||
-                  order.amount ||
-                  0
-                );
-                return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
-              }, 0);
-              
-              // Calculate total revenue from "go" orders (revenue_go_actual)
-              const revenueGoActual = goOrders.reduce((sum, order) => {
-                const revenue = parseFloat(
-                  order.total_amount_vnd || 
-                  order.total_vnd || 
-                  order.tongtien || 
-                  order.revenue_vnd ||
-                  order.total_amount ||
-                  order.amount ||
-                  0
-                );
-                return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
-              }, 0);
-              
-              // Calculate total revenue from all matching orders
-              const totalRevenue = matchingOrders.reduce((sum, order) => {
-                const revenue = parseFloat(
-                  order.total_amount_vnd || 
-                  order.total_vnd || 
-                  order.tongtien || 
-                  order.revenue_vnd ||
-                  order.total_amount ||
-                  order.amount ||
-                  0
-                );
-                return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
-              }, 0);
-
-              const validRevenue = isNaN(totalRevenue) || !isFinite(totalRevenue) ? 0 : Number(totalRevenue);
-              const validRevenueCancel = isNaN(revenueCancelActual) || !isFinite(revenueCancelActual) ? 0 : Number(revenueCancelActual);
-              const validRevenueGo = isNaN(revenueGoActual) || !isFinite(revenueGoActual) ? 0 : Number(revenueGoActual);
-              const validOrderCancelCount = Number(orderCancelCount) || 0;
-              const validOrderGoCount = Number(orderGoCount) || 0;
-
-              // Update order_count, order_cancel_count, order_go and revenue_actual in database
-              const updateData = { 
-                order_count: Number(orderCount) || 0,
-                order_cancel_count: validOrderCancelCount,
-                order_go: validOrderGoCount
-              };
-
-              // Try to update all fields, handle missing columns gracefully
-              let { error } = await supabase
-                .from('sales_reports')
-                .update(updateData)
-                .eq('id', record.id);
-
-              if (error && error.code === 'PGRST204') {
-                const missingColumn = error.message?.match(/column '(\w+)'/)?.[1];
-                console.log(`⚠️ [ReportForm] Column '${missingColumn}' not found, trying with fewer fields`);
-                
-                // Try with only order_count
-                const { error: retryError } = await supabase
-                  .from('sales_reports')
-                  .update({ order_count: Number(orderCount) || 0 })
-                  .eq('id', record.id);
-                
-                if (retryError) {
-                  console.error(`❌ Error updating report ${record.id}:`, retryError);
-                } else {
-                  console.log(`✅ Updated report ${record.id}: ${orderCount} orders`);
-                }
-              } else if (error) {
-                console.error(`❌ Error updating report ${record.id}:`, error);
-              } else {
-                // Try to update revenue_actual and revenue_cancel_actual separately if columns exist
-                const { error: revenueError } = await supabase
-                  .from('sales_reports')
-                  .update({ revenue_actual: validRevenue })
-                  .eq('id', record.id);
-                
-                if (revenueError && revenueError.code !== 'PGRST204') {
-                  console.error(`❌ Error updating revenue_actual for report ${record.id}:`, revenueError);
-                }
-                
-                const { error: revenueCancelError } = await supabase
-                  .from('sales_reports')
-                  .update({ revenue_cancel_actual: validRevenueCancel })
-                  .eq('id', record.id);
-                
-                if (revenueCancelError && revenueCancelError.code !== 'PGRST204') {
-                  console.error(`❌ Error updating revenue_cancel_actual for report ${record.id}:`, revenueCancelError);
-                }
-                
-                const { error: revenueGoError } = await supabase
-                  .from('sales_reports')
-                  .update({ revenue_go_actual: validRevenueGo })
-                  .eq('id', record.id);
-                
-                if (revenueGoError && revenueGoError.code !== 'PGRST204') {
-                  console.error(`❌ Error updating revenue_go_actual for report ${record.id}:`, revenueGoError);
-                } else {
-                  console.log(`✅ Updated report ${record.id}: ${orderCount} orders, ${validOrderCancelCount} cancelled, ${validOrderGoCount} go, revenue: ${validRevenue} VNĐ, revenue_cancel: ${validRevenueCancel} VNĐ, revenue_go: ${validRevenueGo} VNĐ`);
-                }
-              }
-            } catch (err) {
-              console.error(`❌ Error calculating for report ${record.id}:`, err);
-            }
+          const insertedDates = reports.map((r) => normalizeDate(r.date)).filter(Boolean);
+          if (insertedDates.length > 0) {
+            const startDate = insertedDates.reduce((a, b) => (a < b ? a : b));
+            const endDate = insertedDates.reduce((a, b) => (a > b ? a : b));
+            const result = await recalcSaleOrderCountFromOrders({
+              startDate,
+              endDate,
+              createMissingForHetCa: true,
+              createMissingForGiuaCa: false,
+            });
+            console.log(`✅ Đã tự động cập nhật sales_reports TT:`, result);
           }
-
-          console.log(`✅ Đã tính toán order_count và revenue_actual cho ${insertedData.length} báo cáo`);
         } catch (apiError) {
           console.error('❌ Error in calculation process:', apiError);
           // Không hiển thị lỗi cho user vì đây là background task
@@ -705,7 +438,7 @@ function ReportForm() {
             <h4 className="font-semibold text-gray-700 flex items-center gap-2">
             </h4>
             <div className="text-sm text-gray-500 italic">
-              * Mẹo: Các dòng mới sẽ tự động sao chép Tên, Email, Ngày, Ca, Chi nhánh từ dòng trên. Tất cả các trường đều có thể chỉnh sửa.
+              * Mẹo: Dòng mới sẽ sao chép Tên, Email, Ngày, Chi nhánh từ dòng trên; Ca mặc định "Hết ca". Nếu dòng hiện tại là "Giữa ca" thì không tự động thêm dòng.
             </div>
           </div>
 

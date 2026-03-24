@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import MultiSelect from '../components/MultiSelect';
@@ -150,6 +150,7 @@ function VanDon() {
   });
   const [copiedData, setCopiedData] = useState(null);
   const [copiedSelection, setCopiedSelection] = useState(null);
+  const [stickyOffsets, setStickyOffsets] = useState([]);
   const isSelecting = useRef(false);
   const tableRef = useRef(null);
 
@@ -362,14 +363,15 @@ function VanDon() {
 
       // --- 2. FETCH DATA WITH BACKEND PERMISSIONS ---
       if (useBackendPagination) {
+        const isReadonlyAllTab = bolActiveTab === 'readonly_all';
         // Admin: xem tất cả dữ liệu, KHÔNG bị filter bởi bất kỳ filter nào
-        const activeTeam = isAdmin ? undefined : (bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined));
-        const activeStatus = isAdmin ? undefined : (enableDateFilter ? undefined : (filterValues.status || undefined));
+        const activeTeam = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined)));
+        const activeStatus = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (enableDateFilter ? undefined : (filterValues.status || undefined)));
         const isJapanTab = bolActiveTab === 'japan';
         // Admin: KHÔNG filter theo market/product/date (xem tất cả)
-        const marketFilter = isAdmin ? undefined : (isJapanTab ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market);
-        const productFilter = isAdmin ? undefined : filterValues.product;
-        const shouldApplyDateFilter = enableDateFilter && !isAdmin;
+        const marketFilter = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (isJapanTab ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market));
+        const productFilter = isReadonlyAllTab ? undefined : (isAdmin ? undefined : filterValues.product);
+        const shouldApplyDateFilter = !isReadonlyAllTab && enableDateFilter && !isAdmin;
 
         // Admin/Manager: không filter theo nhân sự (luôn xem tất cả)
         // Pass allowedStaff to API ONLY if not Manager AND Not Japan Tab AND Not Admin
@@ -382,11 +384,11 @@ function VanDon() {
         const fetchPage = isAdmin ? 1 : currentPage;
 
         const saleStaffApi =
-          isAdmin ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale.filter((x) => x && x !== '__EMPTY__') : undefined);
+          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale.filter((x) => x && x !== '__EMPTY__') : undefined);
         const mktStaffApi =
-          isAdmin ? undefined : (filterValues.nv_mkt?.length ? filterValues.nv_mkt.filter((x) => x && x !== '__EMPTY__') : undefined);
+          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_mkt?.length ? filterValues.nv_mkt.filter((x) => x && x !== '__EMPTY__') : undefined);
         const vanDonStaffApi =
-          isAdmin ? undefined : (filterValues.nv_van_don?.length ? filterValues.nv_van_don.filter((x) => x && x !== '__EMPTY__') : undefined);
+          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_van_don?.length ? filterValues.nv_van_don.filter((x) => x && x !== '__EMPTY__') : undefined);
 
         const result = await API.fetchVanDon({
           page: fetchPage,
@@ -806,6 +808,7 @@ function VanDon() {
       maxCol: Math.max(copiedSelection.startCol, copiedSelection.endCol)
     };
   }, [copiedSelection]);
+  const isReadonlyAllTab = bolActiveTab === 'readonly_all';
 
   // --- Filtering Logic ---
   // Filter out hidden columns from allColumns
@@ -837,6 +840,83 @@ function VanDon() {
   }, [fixedColumns, currentColumns.length]);
 
   const checkboxStickyPad = bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0;
+
+  /** Độ rộng cố định theo từng cột để tính offset sticky chính xác khi cuộn ngang. */
+  const getColumnWidthPx = useCallback((col) => {
+    const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
+    const isNameCol = (col === "Name*");
+    const isAddCol = (col === "Add");
+    const isCityCol = (col === "City");
+    const isProductCol = (col === "Mặt hàng");
+    const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
+    if (isQtyCol) return 52;
+    if (isCheckCol) return 150;
+    if (isNameCol) return 220;
+    if (isAddCol) return 400;
+    if (isCityCol) return 140;
+    if (isProductCol) return 160;
+    return 120;
+  }, []);
+
+  const getColumnWidthStyles = useCallback((col) => {
+    const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
+    const isNameCol = (col === "Name*");
+    const isAddCol = (col === "Add");
+    const isCityCol = (col === "City");
+    const isProductCol = (col === "Mặt hàng");
+    const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
+
+    if (isQtyCol) return { minWidth: '48px', maxWidth: '58px', width: '52px' };
+    if (isCheckCol) return { minWidth: '140px', maxWidth: '160px', width: '150px' };
+    if (isNameCol) return { minWidth: '200px', maxWidth: '250px', width: '220px' };
+    if (isAddCol) return { minWidth: '380px', maxWidth: '450px', width: '400px' };
+    if (isCityCol) return { minWidth: '130px', maxWidth: '200px', width: '140px' };
+    if (isProductCol) return { minWidth: '150px', maxWidth: '220px', width: '160px' };
+    return { minWidth: '120px', width: '120px' };
+  }, []);
+
+  /** Left offset cho cột sticky = checkboxPad + tổng width các cột trước đó. */
+  const getStickyLeftPx = useCallback((colIdx) => {
+    if (Number.isFinite(stickyOffsets[colIdx])) return stickyOffsets[colIdx];
+    let left = checkboxStickyPad;
+    for (let i = 0; i < colIdx; i += 1) {
+      left += getColumnWidthPx(currentColumns[i]);
+    }
+    return left;
+  }, [stickyOffsets, checkboxStickyPad, currentColumns, getColumnWidthPx]);
+
+  /** Đo width thực tế của header để freeze cột khớp tuyệt đối khi kéo ngang. */
+  useLayoutEffect(() => {
+    const recalcStickyOffsets = () => {
+      const tableEl = tableRef.current;
+      if (!tableEl || !currentColumns.length) {
+        setStickyOffsets([]);
+        return;
+      }
+
+      const thList = Array.from(tableEl.querySelectorAll('thead tr:first-child th[data-col-idx]'));
+      const widthByIdx = new Map();
+      thList.forEach((th) => {
+        const idx = Number(th.getAttribute('data-col-idx'));
+        if (Number.isFinite(idx)) {
+          widthByIdx.set(idx, th.getBoundingClientRect().width || 0);
+        }
+      });
+
+      const offsets = [];
+      let left = checkboxStickyPad;
+      for (let i = 0; i < currentColumns.length; i += 1) {
+        offsets[i] = left;
+        const w = widthByIdx.get(i) || getColumnWidthPx(currentColumns[i]);
+        left += w;
+      }
+      setStickyOffsets(offsets);
+    };
+
+    recalcStickyOffsets();
+    window.addEventListener('resize', recalcStickyOffsets);
+    return () => window.removeEventListener('resize', recalcStickyOffsets);
+  }, [currentColumns, checkboxStickyPad, getColumnWidthPx, filterValues, localFilterValues, isLongTextExpanded]);
 
   /** Khi ẩn bớt cột, hạ số cố định nếu đang vượt quá số cột hiển thị */
   useEffect(() => {
@@ -1549,6 +1629,7 @@ function VanDon() {
   }, [addToast, processDbQueue, deepCloneMapOfMaps]);
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
+    if (isReadonlyAllTab) return;
     const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
@@ -1559,7 +1640,7 @@ function VanDon() {
     if (String(newValue) === String(stepOriginalValue)) return; // Không có thay đổi gì thực sự
 
     pushChange([{ orderId, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
-  }, [allData, pendingChanges, pushChange]);
+  }, [allData, pendingChanges, pushChange, isReadonlyAllTab]);
 
   const handleUpdateAll = async () => {
     setSyncPopoverOpen(false);
@@ -1942,9 +2023,9 @@ function VanDon() {
       }
     }
 
-    // Fixed
+    // Fixed (sticky positioning được set bằng inline style để dùng offset chính xác)
     if (cIdx < effectiveFixedColumns) {
-      classes += "sticky z-10 left-0 bg-gray-50 ";
+      classes += "z-10 bg-gray-50 ";
     }
 
     // Selection - Highlight cell nếu nằm trong vùng selection
@@ -1995,6 +2076,7 @@ function VanDon() {
             <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200">
               {[
                 { id: 'all', label: 'Dữ liệu đơn hàng', icon: '📋' },
+                { id: 'readonly_all', label: 'Xem tất cả (khóa sửa)', icon: '👁️' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
                 { id: 'hanoi', label: 'Đẩy đơn Hà Nội', icon: '🏛️' }
               ].filter(tab => {
@@ -2189,7 +2271,12 @@ function VanDon() {
                 </span>
               )}
             </button>
-            <button onClick={handleUpdateAll} className="p-1 px-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm">
+            <button
+              onClick={handleUpdateAll}
+              disabled={isReadonlyAllTab}
+              className="p-1 px-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              title={isReadonlyAllTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Cập nhật thay đổi'}
+            >
               ✅ Cập nhật
             </button>
 
@@ -2199,9 +2286,9 @@ function VanDon() {
 
             <div
               className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100"
-              title="Số cột cố định từ trái sang phải: không cuộn theo chiều ngang. Nhập 0 để không ghim cột dữ liệu (cột checkbox tab Hà Nội vẫn ghim riêng)."
+              title="Cố định chỉ ảnh hưởng khi kéo ngang (freeze cột), KHÔNG khóa chỉnh sửa ô. Nhập 0 để không ghim cột dữ liệu (cột checkbox tab Hà Nội vẫn ghim riêng)."
             >
-              Cố định:
+              Cố định (freeze):
               <input
                 type="number"
                 min={0}
@@ -2224,6 +2311,7 @@ function VanDon() {
                 }}
               />
               <span className="text-[10px] opacity-70 tabular-nums">/ {currentColumns.length}</span>
+              <span className="text-[10px] text-gray-400 ml-1">vẫn sửa được</span>
             </div>
 
             {/* Phân FFM button - chỉ hiển thị trong tab Hà Nội */}
@@ -2260,6 +2348,11 @@ function VanDon() {
                 )}
               </div>
             )}
+            {isReadonlyAllTab && (
+              <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200 text-[11px] font-semibold text-gray-600">
+                Chế độ chỉ xem - không cho sửa
+              </span>
+            )}
           </div>
 
           {/* Stats on the far right */}
@@ -2274,7 +2367,7 @@ function VanDon() {
 
         {/* Table Area - Optimized for Height */}
         <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col">
-          <div className="overflow-auto relative select-none flex-1" style={{ overflowX: 'auto', overflowY: 'auto' }}>
+          <div className="overflow-auto relative select-none flex-1" style={{ overflowX: 'auto', overflowY: 'auto', isolation: 'isolate' }}>
             <table ref={tableRef} className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
               <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
 
@@ -2308,21 +2401,16 @@ function VanDon() {
                     const isProductCol = (col === "Mặt hàng");
                     const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
-                    // Sticky: bù cột checkbox tab Hà Nội + offset theo chỉ số cột
-                    let stickyLeft = checkboxStickyPad + idx * 100;
-                    if (idx > 1) {
-                      stickyLeft += 50;
-                    }
+                    const stickyLeft = getStickyLeftPx(idx);
 
                     const stickyStyle = idx < effectiveFixedColumns ?
                       { position: 'sticky', left: stickyLeft, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
 
                     return (
-                      <th key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : (isQtyCol ? '' : 'px-4')}`} style={{ 
+                      <th data-col-idx={idx} key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : (isQtyCol ? '' : 'px-4')}`} style={{
                         ...stickyStyle, 
-                        minWidth: isQtyCol ? '48px' : (isCheckCol ? '140px' : (isNameCol ? '200px' : (isAddCol ? '380px' : (isCityCol ? '130px' : (isProductCol ? '150px' : 'fit-content'))))), 
-                        maxWidth: isQtyCol ? '58px' : (isCheckCol ? '160px' : (isNameCol ? '250px' : (isAddCol ? '450px' : (isCityCol ? '200px' : (isProductCol ? '220px' : 'auto'))))), 
-                        width: isQtyCol ? '52px' : (isCheckCol ? '150px' : (isNameCol ? '220px' : (isAddCol ? '400px' : (isCityCol ? '140px' : (isProductCol ? '160px' : 'auto'))))) 
+                        ...getColumnWidthStyles(col),
+                        boxShadow: idx === effectiveFixedColumns - 1 ? '2px 0 0 #d1d5db' : undefined
                       }}>
                         <div className={`font-semibold mb-2 text-gray-700 ${isQtyCol ? 'text-[11px] leading-tight whitespace-normal break-words' : 'text-sm whitespace-nowrap'} ${(col === "Kết quả Check" || col === "Kết quả check") ? 'text-left' : ''}`}>{col}</div>
                         {/* Render Filters based on View Mode and Column Type */}
@@ -2431,20 +2519,12 @@ function VanDon() {
                           const isProductCol = (col === "Mặt hàng");
                           const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
-                          let cellStickyLeft = checkboxStickyPad + cIdx * 100;
-                          if (cIdx > 1) {
-                            cellStickyLeft += 50;
-                          }
+                          const cellStickyLeft = getStickyLeftPx(cIdx);
 
-                          const colWidthStyles = isQtyCol ? { minWidth: '48px', maxWidth: '58px', width: '52px' } :
-                                               (isCheckCol ? { minWidth: '140px', maxWidth: '160px', width: '150px' } : 
-                                               (isNameCol ? { minWidth: '200px', maxWidth: '250px', width: '220px' } : 
-                                               (isAddCol ? { minWidth: '380px', maxWidth: '450px', width: '400px' } : 
-                                               (isCityCol ? { minWidth: '130px', maxWidth: '200px', width: '140px' } : 
-                                               (isProductCol ? { minWidth: '150px', maxWidth: '220px', width: '160px' } : {})))));
+                          const colWidthStyles = getColumnWidthStyles(col);
 
                           const cellStyle = cIdx < effectiveFixedColumns ?
-                            { position: 'sticky', left: cellStickyLeft, zIndex: 10, ...colWidthStyles } :
+                            { position: 'sticky', left: cellStickyLeft, zIndex: 10, ...colWidthStyles, boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined } :
                             colWidthStyles;
 
                           return (
@@ -2456,6 +2536,9 @@ function VanDon() {
                               onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
                             >
                               {col === "STT" ? (row['rowIndex'] || ((currentPage - 1) * rowsPerPage + rIdx + 1)) :
+                                isReadonlyAllTab ? (
+                                  displayVal
+                                ) :
                                 DROPDOWN_OPTIONS[col] ? (
                                   <select
                                     className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"

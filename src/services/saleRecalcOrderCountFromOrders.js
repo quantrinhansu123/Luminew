@@ -1,0 +1,353 @@
+import { supabase } from '../supabase/config';
+import { buildEmailByNameLookup, emailFromName } from '../utils/emailFromName';
+import { getCheckResult, isCheckResultHuy, orderAmountVnd } from '../utils/orderCheckAndVnd';
+
+function normalizeStr(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeDateStr(dateVal) {
+  if (!dateVal) return '';
+  if (dateVal instanceof Date) {
+    const year = dateVal.getFullYear();
+    const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+    const day = String(dateVal.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  const s = String(dateVal).trim();
+  if (!s) return '';
+  if (s.includes('T')) return s.split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  if (s.includes('/')) {
+    const parts = s.split('/');
+    if (parts.length === 3) {
+      const [d, m, y] = parts;
+      if (y && m && d) return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return s;
+}
+
+function reportShiftToGroup(shiftVal) {
+  const lower = normalizeStr(shiftVal);
+  if (!lower) return null;
+  if (lower.includes('hết ca') || lower.includes('het ca')) return 'Hết ca';
+  if (lower.includes('giữa ca') || lower.includes('giua ca')) return 'Giữa ca';
+  return null;
+}
+
+function orderShiftToGroups(shiftVal) {
+  const shiftLower = normalizeStr(shiftVal);
+  const groups = [];
+  if (!shiftLower) return groups;
+  if (shiftLower.includes('hết ca') || shiftLower.includes('het ca')) groups.push('Hết ca');
+  if (shiftLower.includes('giữa ca') || shiftLower.includes('giua ca')) groups.push('Giữa ca');
+  return groups;
+}
+
+/** Key giống detail_reports/MKT nhưng dùng cột sales_reports: date, name, product, market */
+function buildKey(dateStr, name, product, market) {
+  return [
+    normalizeDateStr(dateStr),
+    normalizeStr(name),
+    normalizeStr(product),
+    normalizeStr(market),
+  ].join('|');
+}
+
+function makeId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `sale_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+async function fetchAllSalesReportsInRange(startDate, endDate) {
+  const PAGE_SIZE = 1000;
+  const rows = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sales_reports')
+      .select('*')
+      .gte('date', startDate)
+      .lte('date', endDate)
+      .order('date', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    rows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return rows;
+}
+
+async function fetchAllOrdersInRangeForSale(startDate, endDate) {
+  const PAGE_SIZE = 2000;
+  const orders = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(
+        'order_code, order_date, sale_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+      )
+      .gte('order_date', startDate)
+      .lte('order_date', endDate)
+      .order('order_date', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    orders.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return orders;
+}
+
+async function fetchHumanResourceEmailLookup() {
+  const { data, error } = await supabase.from('human_resources').select('"Họ Và Tên", email');
+
+  if (error) {
+    console.warn('[Sale recalc order_count] human_resources:', error.message);
+    return buildEmailByNameLookup([]);
+  }
+  return buildEmailByNameLookup(data || []);
+}
+
+/**
+ * Từ `orders` ghi `sales_reports`: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).
+ */
+export async function recalcSaleOrderCountFromOrders({
+  startDate,
+  endDate,
+  dryRun = false,
+  createMissingForHetCa = true,
+  createMissingForGiuaCa = true,
+} = {}) {
+  const normalizedStart = normalizeDateStr(startDate);
+  const normalizedEnd = normalizeDateStr(endDate);
+
+  if (!normalizedStart || !normalizedEnd) {
+    throw new Error('Khoảng ngày không hợp lệ. Vui lòng truyền startDate/endDate dạng YYYY-MM-DD.');
+  }
+
+  const [reports, orders, hrEmailLookup] = await Promise.all([
+    fetchAllSalesReportsInRange(normalizedStart, normalizedEnd),
+    fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd),
+    fetchHumanResourceEmailLookup(),
+  ]);
+
+  const countsByGroup = {
+    'Hết ca': new Map(),
+    'Giữa ca': new Map(),
+  };
+
+  for (const order of orders || []) {
+    const groups = orderShiftToGroups(order.shift);
+    if (!groups.length) continue;
+
+    const key = buildKey(order.order_date, order.sale_staff, order.product, order.country);
+    if (!key || !normalizeStr(order.sale_staff)) continue;
+
+    const vnd = orderAmountVnd(order);
+    const huy = isCheckResultHuy(getCheckResult(order));
+
+    for (const group of groups) {
+      const mapForGroup = countsByGroup[group];
+      const existing = mapForGroup.get(key);
+      if (existing) {
+        existing.count += 1;
+        existing.revenueVnd += vnd;
+        if (huy) {
+          existing.cancelCount += 1;
+          existing.cancelRevenueVnd += vnd;
+        }
+      } else {
+        mapForGroup.set(key, {
+          count: 1,
+          revenueVnd: vnd,
+          cancelCount: huy ? 1 : 0,
+          cancelRevenueVnd: huy ? vnd : 0,
+          sample: {
+            date: normalizeDateStr(order.order_date),
+            name: String(order.sale_staff || '').trim(),
+            product: String(order.product || '').trim(),
+            market: String(order.country || '').trim(),
+            team: String(order.team || '').trim(),
+          },
+        });
+      }
+    }
+  }
+
+  const existingByShiftKey = new Set();
+  const reportRows = (reports || []).filter((r) => {
+    const group = reportShiftToGroup(r.shift);
+    return group === 'Hết ca' || group === 'Giữa ca';
+  });
+
+  for (const r of reportRows) {
+    const group = reportShiftToGroup(r.shift);
+    const key = buildKey(r.date, r.name, r.product, r.market);
+    if (!key) continue;
+    existingByShiftKey.add(`${group}|${key}`);
+  }
+
+  const updateRows = [];
+  const createRows = [];
+  const previewRows = [];
+  const PREVIEW_LIMIT = 50;
+
+  for (const r of reportRows) {
+    const group = reportShiftToGroup(r.shift);
+    const key = buildKey(r.date, r.name, r.product, r.market);
+    const agg = countsByGroup[group]?.get(key);
+    const count = agg?.count || 0;
+    const revenueActual = agg?.revenueVnd ?? 0;
+    const cancelActual = agg?.cancelCount ?? 0;
+    const revenueCancelActual = agg?.cancelRevenueVnd ?? 0;
+
+    if (!r.id) continue;
+    const resolvedEmail = emailFromName(r.name, hrEmailLookup);
+    const patch = {
+      id: r.id,
+      order_count: count,
+      revenue_actual: revenueActual,
+      order_cancel_count_actual: cancelActual,
+      revenue_cancel_actual: revenueCancelActual,
+    };
+    if (resolvedEmail && !String(r.email ?? '').trim()) {
+      patch.email = resolvedEmail;
+    }
+    updateRows.push(patch);
+
+    if (previewRows.length < PREVIEW_LIMIT) {
+      previewRows.push({
+        ca: group,
+        Ngày: normalizeDateStr(r.date),
+        Tên: String(r.name || '').trim(),
+        Sản_phẩm: String(r.product || '').trim(),
+        Thị_trường: String(r.market || '').trim(),
+        order_count: count,
+        revenue_actual: revenueActual,
+        order_cancel_count_actual: cancelActual,
+        revenue_cancel_actual: revenueCancelActual,
+        action: 'update',
+      });
+    }
+  }
+
+  for (const group of ['Hết ca', 'Giữa ca']) {
+    if (group === 'Hết ca' && !createMissingForHetCa) continue;
+    if (group === 'Giữa ca' && !createMissingForGiuaCa) continue;
+
+    const mapForGroup = countsByGroup[group];
+    for (const [key, entry] of mapForGroup.entries()) {
+      const exists = existingByShiftKey.has(`${group}|${key}`);
+      if (exists) continue;
+
+      const email = emailFromName(entry.sample.name, hrEmailLookup) || '';
+
+      const row = {
+        id: makeId(),
+        name: entry.sample.name,
+        email: email || null,
+        team: entry.sample.team || 'Sale',
+        date: entry.sample.date,
+        shift: group,
+        product: entry.sample.product || null,
+        market: entry.sample.market || null,
+        order_count: entry.count,
+        revenue_actual: entry.revenueVnd ?? 0,
+        order_cancel_count_actual: entry.cancelCount ?? 0,
+        revenue_cancel_actual: entry.cancelRevenueVnd ?? 0,
+      };
+      createRows.push(row);
+
+      if (previewRows.length < PREVIEW_LIMIT) {
+        previewRows.push({
+          ca: group,
+          Ngày: row.date,
+          Tên: row.name,
+          Sản_phẩm: row.product || '',
+          Thị_trường: row.market || '',
+          order_count: row.order_count,
+          revenue_actual: row.revenue_actual,
+          order_cancel_count_actual: row.order_cancel_count_actual,
+          revenue_cancel_actual: row.revenue_cancel_actual,
+          action: 'create',
+        });
+      }
+    }
+  }
+
+  if (dryRun) {
+    return {
+      success: true,
+      table: 'sales_reports',
+      field: 'order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual',
+      reportsFetched: reportRows.length,
+      ordersFetched: orders?.length || 0,
+      updatedExisting: updateRows.length,
+      createdMissing: createRows.length,
+      upsertCount: updateRows.length + createRows.length,
+      previewRows,
+    };
+  }
+
+  const UPDATE_CHUNK = 80;
+  let touched = 0;
+
+  for (let i = 0; i < updateRows.length; i += UPDATE_CHUNK) {
+    const chunk = updateRows.slice(i, i + UPDATE_CHUNK);
+    const results = await Promise.all(
+      chunk.map((row) => {
+        const { id, ...rest } = row;
+        return supabase.from('sales_reports').update(rest).eq('id', id);
+      })
+    );
+    const firstErr = results.find((r) => r.error)?.error;
+    if (firstErr) throw firstErr;
+    touched += chunk.length;
+  }
+
+  const INSERT_CHUNK = 200;
+  for (let i = 0; i < createRows.length; i += INSERT_CHUNK) {
+    const chunk = createRows.slice(i, i + INSERT_CHUNK);
+    const { error } = await supabase.from('sales_reports').insert(chunk);
+    if (error) throw error;
+    touched += chunk.length;
+  }
+
+  return {
+    success: true,
+    table: 'sales_reports',
+    field: 'order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual',
+    reportsFetched: reportRows.length,
+    ordersFetched: orders?.length || 0,
+    updatedExisting: updateRows.length,
+    createdMissing: createRows.length,
+    upserted: touched,
+    previewRows,
+  };
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
@@ -79,8 +79,12 @@ export default function DanhSachBaoCaoTayMKT() {
     const [filters, setFilters] = useState({
         startDate: '',
         endDate: '',
-        personnelName: '' // Filter theo tên nhân sự
+        personnelNames: [],
+        shifts: [],
+        products: [],
+        markets: []
     });
+    const [personnelSearch, setPersonnelSearch] = useState('');
     const [syncing, setSyncing] = useState(false);
     const [deleting, setDeleting] = useState(false);
     
@@ -168,10 +172,11 @@ export default function DanhSachBaoCaoTayMKT() {
         d.setDate(d.getDate() - 30); // Last 30 days instead of 3
         const formatDateForInput = (date) => date.toISOString().split('T')[0];
 
-        setFilters({
+        setFilters(prev => ({
+            ...prev,
             startDate: formatDateForInput(d),
             endDate: formatDateForInput(today)
-        });
+        }));
     }, []);
 
     // Calculate real values from orders table for a single report
@@ -321,16 +326,9 @@ export default function DanhSachBaoCaoTayMKT() {
                 console.log('📋 Filter: department IS NULL OR department = MKT OR department != RD');
             }
 
-            // Filter theo tên nhân sự nếu có (áp dụng cho cả Admin và non-Admin)
-            if (filters.personnelName && filters.personnelName.trim().length > 0) {
-                const searchName = filters.personnelName.trim();
-                query = query.ilike('Tên', `%${searchName}%`);
-                console.log('📋 Filter: Tên nhân sự chứa:', searchName);
-            }
-
             // Admin: xem tất cả data, không filter theo selected_personnel
-            // Người khác: chỉ xem data của mình dựa trên selected_personnel (chỉ khi không có filter theo tên)
-            if (!isAdmin && (!filters.personnelName || filters.personnelName.trim().length === 0)) {
+            // Người khác: chỉ xem data của mình dựa trên selected_personnel
+            if (!isAdmin) {
                 // Filter theo selected_personnel nếu có
                 if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                     console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
@@ -443,16 +441,9 @@ export default function DanhSachBaoCaoTayMKT() {
                 console.log('📋 Filter: department IS NULL OR department = MKT OR department != RD');
             }
 
-            // Filter theo tên nhân sự nếu có (áp dụng cho cả Admin và non-Admin)
-            if (filters.personnelName && filters.personnelName.trim().length > 0) {
-                const searchName = filters.personnelName.trim();
-                query = query.ilike('Tên', `%${searchName}%`);
-                console.log('📋 Filter: Tên nhân sự chứa:', searchName);
-            }
-
             // Admin: xem tất cả data, không filter theo selected_personnel
-            // Người khác: chỉ xem data của mình dựa trên selected_personnel (chỉ khi không có filter theo tên)
-            if (!isAdmin && (!filters.personnelName || filters.personnelName.trim().length === 0)) {
+            // Người khác: chỉ xem data của mình dựa trên selected_personnel
+            if (!isAdmin) {
                 // Filter theo selected_personnel nếu có
                 if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                     console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
@@ -559,7 +550,7 @@ export default function DanhSachBaoCaoTayMKT() {
         if (filters.startDate && filters.endDate) {
             fetchData();
         }
-    }, [filters.startDate, filters.endDate, filters.personnelName, selectedPersonnelNames]);
+    }, [filters.startDate, filters.endDate, selectedPersonnelNames]);
     
     // Debug: Test if we can access the table at all
     useEffect(() => {
@@ -588,16 +579,70 @@ export default function DanhSachBaoCaoTayMKT() {
         testAccess();
     }, []);
 
+    const availablePersonnelOptions = useMemo(
+        () => [...new Set((allReports || []).map((item) => String(item?.['Tên'] || '').trim()).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
+        [allReports]
+    );
+
+    const filteredPersonnelOptions = useMemo(() => {
+        const keyword = personnelSearch.trim().toLowerCase();
+        if (!keyword) return availablePersonnelOptions;
+        return availablePersonnelOptions.filter((name) => name.toLowerCase().includes(keyword));
+    }, [availablePersonnelOptions, personnelSearch]);
+
+    const availableShiftOptions = useMemo(
+        () => [...new Set((allReports || []).map((item) => String(item?.['ca'] || '').trim()).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
+        [allReports]
+    );
+
+    const availableProductOptions = useMemo(
+        () => [...new Set((allReports || []).map((item) => String(item?.['Sản_phẩm'] || '').trim()).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
+        [allReports]
+    );
+
+    const availableMarketOptions = useMemo(
+        () => [...new Set((allReports || []).map((item) => String(item?.['Thị_trường'] || '').trim()).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
+        [allReports]
+    );
+
+    const reportsAfterFilters = useMemo(() => {
+        const selectedPersonnel = new Set(filters.personnelNames || []);
+        const selectedShifts = new Set(filters.shifts || []);
+        const selectedProducts = new Set(filters.products || []);
+        const selectedMarkets = new Set(filters.markets || []);
+
+        return (allReports || []).filter((item) => {
+            const name = String(item?.['Tên'] || '').trim();
+            const shift = String(item?.['ca'] || '').trim();
+            const product = String(item?.['Sản_phẩm'] || '').trim();
+            const market = String(item?.['Thị_trường'] || '').trim();
+
+            if (selectedPersonnel.size > 0 && !selectedPersonnel.has(name)) return false;
+            if (selectedShifts.size > 0 && !selectedShifts.has(shift)) return false;
+            if (selectedProducts.size > 0 && !selectedProducts.has(product)) return false;
+            if (selectedMarkets.size > 0 && !selectedMarkets.has(market)) return false;
+            return true;
+        });
+    }, [allReports, filters.personnelNames, filters.shifts, filters.products, filters.markets]);
+
     // Calculate pagination
-    const totalPages = Math.ceil(allReports.length / itemsPerPage);
+    const totalPages = Math.ceil(reportsAfterFilters.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const paginatedReports = allReports.slice(startIndex, endIndex);
+    const paginatedReports = reportsAfterFilters.slice(startIndex, endIndex);
 
     // Update displayed reports when pagination changes
     useEffect(() => {
         setManualReports(paginatedReports);
-    }, [currentPage, itemsPerPage, allReports]);
+    }, [currentPage, itemsPerPage, reportsAfterFilters]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filters.personnelNames, filters.shifts, filters.products, filters.markets]);
 
     // Sync data from Firebase Báo cáo MKT via backend API (bypasses RLS)
     const handleSyncMKT = async () => {
@@ -897,29 +942,168 @@ export default function DanhSachBaoCaoTayMKT() {
                         <input type="date" value={filters.endDate} onChange={e => setFilters(prev => ({ ...prev, endDate: e.target.value }))} />
                     </label>
                     <label>
-                        Tên nhân sự:
-                        <input 
-                            type="text" 
-                            placeholder="Gõ tên để tìm kiếm..."
-                            value={filters.personnelName} 
-                            onChange={e => setFilters(prev => ({ ...prev, personnelName: e.target.value }))} 
-                            style={{ width: '100%', padding: '8px', marginTop: '4px', border: '1px solid #ccc', borderRadius: '4px' }}
-                        />
+                        Nhân sự:
                     </label>
-                    {filters.personnelName && (
-                        <button 
-                            onClick={() => setFilters(prev => ({ ...prev, personnelName: '' }))}
-                            style={{ marginTop: '8px', padding: '4px 8px', fontSize: '12px', background: '#f44336', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                        >
-                            Xóa bộ lọc tên
-                        </button>
-                    )}
+                    <details>
+                        <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                            Chọn nhân sự ({(filters.personnelNames || []).length}/{availablePersonnelOptions.length})
+                        </summary>
+                        <div style={{ marginTop: '8px' }}>
+                            <input
+                                type="text"
+                                placeholder="Gõ để tìm tên..."
+                                value={personnelSearch}
+                                onChange={(e) => setPersonnelSearch(e.target.value)}
+                                style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', marginBottom: '8px' }}
+                            />
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px' }}>
+                                <input
+                                    type="checkbox"
+                                    style={{ marginRight: '6px' }}
+                                    checked={availablePersonnelOptions.length > 0 && (filters.personnelNames || []).length === availablePersonnelOptions.length}
+                                    onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        setFilters(prev => ({ ...prev, personnelNames: checked ? [...availablePersonnelOptions] : [] }));
+                                    }}
+                                />
+                                Tất cả
+                            </label>
+                            <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '6px' }}>
+                                {filteredPersonnelOptions.length === 0 ? (
+                                    <div style={{ fontSize: '12px', color: '#999' }}>Không có nhân sự phù hợp</div>
+                                ) : (
+                                    filteredPersonnelOptions.map((name) => (
+                                        <label key={name} style={{ display: 'block', marginBottom: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                style={{ marginRight: '6px' }}
+                                                checked={(filters.personnelNames || []).includes(name)}
+                                                onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    setFilters(prev => {
+                                                        const list = prev.personnelNames || [];
+                                                        return {
+                                                            ...prev,
+                                                            personnelNames: checked ? [...list, name] : list.filter((x) => x !== name)
+                                                        };
+                                                    });
+                                                }}
+                                            />
+                                            {name}
+                                        </label>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </details>
+                    <div style={{ marginTop: '12px' }}>
+                        <details>
+                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                                Ca ({(filters.shifts || []).length}/{availableShiftOptions.length})
+                            </summary>
+                            <div style={{ marginTop: '8px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px' }}>
+                                    <input
+                                        type="checkbox"
+                                        style={{ marginRight: '6px' }}
+                                        checked={availableShiftOptions.length > 0 && (filters.shifts || []).length === availableShiftOptions.length}
+                                        onChange={(e) => setFilters(prev => ({ ...prev, shifts: e.target.checked ? [...availableShiftOptions] : [] }))}
+                                    />
+                                    Tất cả
+                                </label>
+                                <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '6px' }}>
+                                    {availableShiftOptions.map((value) => (
+                                        <label key={value} style={{ display: 'block', marginBottom: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                style={{ marginRight: '6px' }}
+                                                checked={(filters.shifts || []).includes(value)}
+                                                onChange={(e) => setFilters(prev => ({
+                                                    ...prev,
+                                                    shifts: e.target.checked ? [...(prev.shifts || []), value] : (prev.shifts || []).filter((x) => x !== value)
+                                                }))}
+                                            />
+                                            {value}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                    <div style={{ marginTop: '12px' }}>
+                        <details>
+                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                                Sản phẩm ({(filters.products || []).length}/{availableProductOptions.length})
+                            </summary>
+                            <div style={{ marginTop: '8px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px' }}>
+                                    <input
+                                        type="checkbox"
+                                        style={{ marginRight: '6px' }}
+                                        checked={availableProductOptions.length > 0 && (filters.products || []).length === availableProductOptions.length}
+                                        onChange={(e) => setFilters(prev => ({ ...prev, products: e.target.checked ? [...availableProductOptions] : [] }))}
+                                    />
+                                    Tất cả
+                                </label>
+                                <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '6px' }}>
+                                    {availableProductOptions.map((value) => (
+                                        <label key={value} style={{ display: 'block', marginBottom: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                style={{ marginRight: '6px' }}
+                                                checked={(filters.products || []).includes(value)}
+                                                onChange={(e) => setFilters(prev => ({
+                                                    ...prev,
+                                                    products: e.target.checked ? [...(prev.products || []), value] : (prev.products || []).filter((x) => x !== value)
+                                                }))}
+                                            />
+                                            {value}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                    <div style={{ marginTop: '12px' }}>
+                        <details>
+                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                                Thị trường ({(filters.markets || []).length}/{availableMarketOptions.length})
+                            </summary>
+                            <div style={{ marginTop: '8px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px' }}>
+                                    <input
+                                        type="checkbox"
+                                        style={{ marginRight: '6px' }}
+                                        checked={availableMarketOptions.length > 0 && (filters.markets || []).length === availableMarketOptions.length}
+                                        onChange={(e) => setFilters(prev => ({ ...prev, markets: e.target.checked ? [...availableMarketOptions] : [] }))}
+                                    />
+                                    Tất cả
+                                </label>
+                                <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '6px' }}>
+                                    {availableMarketOptions.map((value) => (
+                                        <label key={value} style={{ display: 'block', marginBottom: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                style={{ marginRight: '6px' }}
+                                                checked={(filters.markets || []).includes(value)}
+                                                onChange={(e) => setFilters(prev => ({
+                                                    ...prev,
+                                                    markets: e.target.checked ? [...(prev.markets || []), value] : (prev.markets || []).filter((x) => x !== value)
+                                                }))}
+                                            />
+                                            {value}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        </details>
+                    </div>
                 </div>
 
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY MARKETING</h2>
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'none', gap: '10px', flexWrap: 'wrap' }}>
                             {/* Chỉ Admin mới thấy nút đồng bộ (không bao gồm Finance) */}
                             {isAdminOnly && (
                                 <button
@@ -1053,7 +1237,7 @@ export default function DanhSachBaoCaoTayMKT() {
                                     <option value="200">200</option>
                                 </select>
                                 <span className="text-sm text-gray-600 ml-2">
-                                    Hiển thị {startIndex + 1}-{Math.min(endIndex, allReports.length)} / {allReports.length} bản ghi
+                                    Hiển thị {startIndex + 1}-{Math.min(endIndex, reportsAfterFilters.length)} / {reportsAfterFilters.length} bản ghi
                                 </span>
                             </div>
 
