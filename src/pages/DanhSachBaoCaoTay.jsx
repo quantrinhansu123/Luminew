@@ -511,10 +511,6 @@ export default function DanhSachBaoCaoTay() {
         loadEditOptions();
     }, []);
 
-    if (!canView(permissionCode)) {
-        return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
-    }
-
     // Delete single report
     const handleDeleteReport = async (reportId) => {
         if (!window.confirm('Bạn có chắc chắn muốn xóa báo cáo này?')) return;
@@ -1200,6 +1196,10 @@ export default function DanhSachBaoCaoTay() {
         const comparison = strA.localeCompare(strB, 'vi', { numeric: true });
         return sortDirection === 'asc' ? comparison : -comparison;
     });
+
+    if (!canView(permissionCode)) {
+        return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
+    }
 
     return (
         <div className="bao-cao-sale-container">

@@ -5,7 +5,8 @@ import { toast } from 'react-toastify';
 import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
-// import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
 
 // Constants for LocalStorage Keys
@@ -79,6 +80,26 @@ const AdminTools = () => {
     });
     const [mktRecalcResult, setMktRecalcResult] = useState(null);
 
+    // Sale reports: order_count từ orders (sale_staff)
+    const [saleRecalcLoading, setSaleRecalcLoading] = useState(false);
+    const [saleRecalcStartDate, setSaleRecalcStartDate] = useState(() => {
+        const today = new Date();
+        const d = new Date(today);
+        d.setDate(d.getDate() - 30);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    });
+    const [saleRecalcEndDate, setSaleRecalcEndDate] = useState(() => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    });
+    const [saleRecalcResult, setSaleRecalcResult] = useState(null);
+
     // --- SETTINGS STATE ---
     const [settings, setSettings] = useState(DEFAULT_SETTINGS);
     const [productSuggestions, setProductSuggestions] = useState([]); // Suggested from DB history (loại bỏ các SP đã có trong DB)
@@ -94,6 +115,7 @@ const AdminTools = () => {
     const [exchangeRates, setExchangeRates] = useState([]); // [{id, ti_gia, gia_tri}, ...]
     const [exchangeLoading, setExchangeLoading] = useState(false);
     const [exchangeSaving, setExchangeSaving] = useState(false);
+    const [syncMktTeamLoading, setSyncMktTeamLoading] = useState(false);
     const [editingRateId, setEditingRateId] = useState(null); // ID của dòng đang được edit
     const [editValues, setEditValues] = useState({}); // {rateId: {ti_gia: '', gia_tri: ''}} để lưu giá trị đang edit
 
@@ -144,7 +166,7 @@ const AdminTools = () => {
         password: '',
         user_id: '',
         role: 'user',
-        team: '',
+        branch: '',
         department: '',
         status: 'active',
         must_change_password: false
@@ -1091,6 +1113,115 @@ const AdminTools = () => {
         }
     };
 
+    // Đồng bộ users.team theo dữ liệu MKT (detail_reports) khớp theo tên nhân sự.
+    const handleSyncMktTeamsToUsers = async () => {
+        if (!window.confirm('Đồng bộ toàn bộ cột team trong bảng users theo tên từ dữ liệu MKT?')) return;
+
+        setSyncMktTeamLoading(true);
+        try {
+            const normalizeName = (v) =>
+                String(v || '')
+                    .trim()
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ');
+
+            const normalizeTeam = (v) => String(v || '').trim();
+
+            // 1) Đọc users để biết danh sách cần update
+            const { data: users, error: usersErr } = await supabase
+                .from('users')
+                .select('id, name, team');
+            if (usersErr) throw usersErr;
+
+            // 2) Đọc nguồn MKT team từ detail_reports (ưu tiên schema snake_case)
+            let mktRows = [];
+            const { data: snakeRows, error: snakeErr } = await supabase
+                .from('detail_reports')
+                .select('ten, team')
+                .not('team', 'is', null)
+                .neq('team', '');
+
+            if (!snakeErr) {
+                mktRows = (snakeRows || []).map((r) => ({ name: r.ten, team: r.team }));
+            } else {
+                // Fallback nếu DB đang dùng cột tiếng Việt
+                const { data: viRows, error: viErr } = await supabase
+                    .from('detail_reports')
+                    .select('"Tên", "Team"')
+                    .not('"Team"', 'is', null)
+                    .neq('"Team"', '');
+                if (viErr) throw viErr;
+                mktRows = (viRows || []).map((r) => ({ name: r['Tên'], team: r['Team'] }));
+            }
+
+            // 3) Gom team theo tên và chọn team xuất hiện nhiều nhất
+            const nameTeamCounter = new Map(); // normalizedName -> Map(team -> count)
+            (mktRows || []).forEach((row) => {
+                const n = normalizeName(row?.name);
+                const t = normalizeTeam(row?.team);
+                if (!n || !t) return;
+                if (!nameTeamCounter.has(n)) nameTeamCounter.set(n, new Map());
+                const teamMap = nameTeamCounter.get(n);
+                teamMap.set(t, (teamMap.get(t) || 0) + 1);
+            });
+
+            const nameToBestTeam = new Map();
+            nameTeamCounter.forEach((teamMap, n) => {
+                let bestTeam = '';
+                let bestCount = -1;
+                teamMap.forEach((count, teamName) => {
+                    if (count > bestCount) {
+                        bestCount = count;
+                        bestTeam = teamName;
+                    }
+                });
+                if (bestTeam) nameToBestTeam.set(n, bestTeam);
+            });
+
+            // 4) Tạo danh sách update: chỉ update khi team tìm thấy và khác team hiện tại
+            const updates = [];
+            (users || []).forEach((u) => {
+                const n = normalizeName(u?.name);
+                if (!n) return;
+                const mappedTeam = nameToBestTeam.get(n);
+                if (!mappedTeam) return;
+                const currentTeam = normalizeTeam(u?.team);
+                if (currentTeam === mappedTeam) return;
+                updates.push({ id: u.id, team: mappedTeam, name: u.name || '' });
+            });
+
+            if (updates.length === 0) {
+                toast.info('Không có dữ liệu cần đồng bộ team.');
+                return;
+            }
+
+            // 5) Update theo lô
+            const CHUNK_SIZE = 100;
+            let done = 0;
+            for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+                const chunk = updates.slice(i, i + CHUNK_SIZE);
+                await Promise.all(
+                    chunk.map((u) =>
+                        supabase
+                            .from('users')
+                            .update({ team: u.team })
+                            .eq('id', u.id)
+                    )
+                );
+                done += chunk.length;
+            }
+
+            toast.success(`Đã đồng bộ team MKT cho ${done} nhân sự (khớp theo Tên).`);
+        } catch (error) {
+            console.error('Error syncing MKT teams to users:', error);
+            toast.error('Lỗi đồng bộ team MKT: ' + (error?.message || 'Unknown error'));
+        } finally {
+            setSyncMktTeamLoading(false);
+        }
+    };
+
     // Lưu sản phẩm vào database (bảng mới với 2 cột)
     const saveProductToDatabase = async (productName, productType) => {
         try {
@@ -1216,7 +1347,8 @@ const AdminTools = () => {
         if (mktRecalcLoading) return;
 
         const ok = window.confirm(
-            'Tính lại "Số đơn thực tế" (Số đơn TT) cho Báo cáo MKT theo logic Key match giữa orders và detail_reports.\n\n' +
+            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (tổng VND mọi đơn), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
+            'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result, fallback payment_status).\n\n' +
             'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
@@ -1237,7 +1369,7 @@ const AdminTools = () => {
         try {
             setMktRecalcLoading(true);
             setMktRecalcResult(null);
-            toast.info('Đang tính lại Số đơn TT cho Báo cáo MKT...', { autoClose: false });
+            toast.info('Đang tính lại Báo cáo MKT (đơn TT, đơn hủy, DS hủy)...', { autoClose: false });
 
             const result = await recalcMktSoDonThucTeFromOrders({
                 startDate: normStart,
@@ -1252,6 +1384,51 @@ const AdminTools = () => {
             toast.error('Lỗi tính lại Số đơn TT: ' + (error?.message || String(error)));
         } finally {
             setMktRecalcLoading(false);
+        }
+    };
+
+    const handleRecalcSaleOrderCount = async () => {
+        if (saleRecalcLoading) return;
+
+        const ok = window.confirm(
+            'Tính lại sales_reports: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).\n\n' +
+            'Key match giữa orders (sale_staff) và sales_reports (name, date, shift, product, market).\n\n' +
+            'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n' +
+            'Bạn có chắc muốn chạy không?'
+        );
+        if (!ok) return;
+
+        const normStart = String(saleRecalcStartDate || '').trim();
+        const normEnd = String(saleRecalcEndDate || '').trim();
+        if (!normStart || !normEnd) {
+            alert('Vui lòng nhập đầy đủ TỪ NGÀY và ĐẾN NGÀY.');
+            return;
+        }
+
+        if (normStart > normEnd) {
+            alert('Từ ngày phải <= đến ngày.');
+            return;
+        }
+
+        try {
+            setSaleRecalcLoading(true);
+            setSaleRecalcResult(null);
+            toast.info('Đang tính lại sales_reports (đơn, doanh thu, hủy)...', { autoClose: false });
+
+            const result = await recalcSaleOrderCountFromOrders({
+                startDate: normStart,
+                endDate: normEnd,
+            });
+
+            toast.dismiss();
+            const n = result.upserted ?? result.upsertCount ?? 0;
+            toast.success(`Hoàn tất: cập nhật ${n} dòng.`);
+            setSaleRecalcResult(result);
+        } catch (error) {
+            console.error('Recalc sales_reports error:', error);
+            toast.error('Lỗi tính lại sales_reports: ' + (error?.message || String(error)));
+        } finally {
+            setSaleRecalcLoading(false);
         }
     };
 
@@ -3715,7 +3892,7 @@ const AdminTools = () => {
             password: '', // Không hiển thị password
             user_id: account.id || account.user_id || '',
             role: account.role || 'user',
-            team: account.team || '',
+            branch: account.branch || account.team || '',
             department: account.department || '',
             status: account.has_password ? 'active' : 'inactive',
             must_change_password: false
@@ -3803,8 +3980,8 @@ const AdminTools = () => {
                     updateData.password = passwordHash;
                 }
 
-                if (accountForm.team !== undefined) {
-                    updateData.team = accountForm.team || null;
+                if (accountForm.branch !== undefined) {
+                    updateData.branch = accountForm.branch || null;
                 }
                 if (accountForm.department !== undefined) {
                     updateData.department = accountForm.department || null;
@@ -3846,7 +4023,7 @@ const AdminTools = () => {
                         password: passwordHash,
                         name: accountForm.name,
                         role: accountForm.role || 'user',
-                        team: accountForm.team || null,
+                        branch: accountForm.branch || null,
                         department: accountForm.department || null
                     });
 
@@ -3859,7 +4036,7 @@ const AdminTools = () => {
                             name: accountForm.name,
                             role: accountForm.role || 'user'
                         };
-                        if (accountForm.team) updateData.team = accountForm.team;
+                        if (accountForm.branch) updateData.branch = accountForm.branch;
                         if (accountForm.department) updateData.department = accountForm.department;
 
                         const { error: updateError } = await supabase
@@ -4027,7 +4204,7 @@ const AdminTools = () => {
     }
 
     return (
-        <div className="p-6 w-full mx-auto min-h-screen bg-gray-50">
+        <div className="w-full max-w-[1400px] mx-auto px-3 md:px-5 lg:px-8 py-4 md:py-6 min-h-screen bg-gray-50">
             <h1 className="text-3xl font-bold mb-8 text-gray-800 flex items-center gap-3">
                 <Settings className="w-8 h-8 text-gray-600" />
                 Công cụ quản trị & Cấu hình
@@ -4262,8 +4439,8 @@ const AdminTools = () => {
                                 Cập nhật Số đơn TT cho Báo cáo MKT
                             </h3>
                             <p className="text-sm text-gray-600 mb-4">
-                                Tính lại theo Key: <span className="font-medium">Ngày + Tên + Sản phẩm + Thị trường</span>, tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
-                                Không phụ thuộc <span className="font-medium">Kết quả Check</span>. Có thể tạo dòng mới nếu thiếu key trong <span className="font-medium">detail_reports</span>.
+                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (MKT) + Sản phẩm + Thị trường</span> khớp <span className="font-medium">orders</span> (marketing_staff, country), tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
+                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key (tổng VND không loại đơn Hủy). <span className="font-medium">Số đơn hoàn hủy thực tế</span> và <span className="font-medium">Doanh số hoàn hủy thực tế</span>: chỉ đơn có Kết quả Check dạng Hủy/Huỷ (ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>); VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key trong <span className="font-medium">detail_reports</span>.
                             </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
@@ -4337,6 +4514,9 @@ const AdminTools = () => {
                                                         <th className="px-3 py-2 text-left whitespace-nowrap">Sản_phẩm</th>
                                                         <th className="px-3 py-2 text-left whitespace-nowrap">Thị_trường</th>
                                                         <th className="px-3 py-2 text-left whitespace-nowrap">Số đơn thực tế</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Doanh số TT (VND)</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Số đơn hoàn hủy TT</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">DS hoàn hủy TT (VND)</th>
                                                         <th className="px-3 py-2 text-left whitespace-nowrap">action</th>
                                                     </tr>
                                                 </thead>
@@ -4350,6 +4530,121 @@ const AdminTools = () => {
                                                             <td className="px-3 py-2 text-gray-700">{r['Sản_phẩm'] || '-'}</td>
                                                             <td className="px-3 py-2 text-gray-700">{r['Thị_trường'] || '-'}</td>
                                                             <td className="px-3 py-2 text-gray-900">{r['Số đơn thực tế'] ?? 0}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{Number(r['Doanh số TT'] ?? 0).toLocaleString('vi-VN')}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{r['Số đơn hoàn hủy thực tế'] ?? 0}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{Number(r['Doanh số hoàn hủy thực tế'] ?? 0).toLocaleString('vi-VN')}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* SALES_REPORTS: order_count + revenue + cancel + revenue_cancel_actual */}
+                        <div className="border border-gray-200 rounded-lg p-5 bg-white">
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-2">
+                                <RefreshCw className="w-5 h-5 text-emerald-600" />
+                                Cập nhật Báo cáo Sale (sales_reports)
+                            </h3>
+                            <p className="text-sm text-gray-600 mb-4">
+                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (NV Sale) + Sản phẩm + Thị trường</span>, nguồn đơn: <span className="font-medium">orders.sale_staff</span>, <span className="font-medium">country</span>, tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
+                                Ghi <span className="font-medium">order_count</span> (mọi đơn khớp key), <span className="font-medium">revenue_actual</span> (tổng VND mọi đơn khớp), <span className="font-medium">order_cancel_count_actual</span> và <span className="font-medium">revenue_cancel_actual</span> (số đơn hủy + tổng VND chỉ các đơn đó; Kết quả Check Hủy/Huỷ, ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>). Tiền VND: total_amount_vnd → total_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key.
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                                <label className="block">
+                                    <span className="text-sm font-medium text-gray-700">Từ ngày</span>
+                                    <input
+                                        type="date"
+                                        value={saleRecalcStartDate}
+                                        onChange={(e) => setSaleRecalcStartDate(e.target.value)}
+                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    />
+                                </label>
+                                <label className="block">
+                                    <span className="text-sm font-medium text-gray-700">Đến ngày</span>
+                                    <input
+                                        type="date"
+                                        value={saleRecalcEndDate}
+                                        onChange={(e) => setSaleRecalcEndDate(e.target.value)}
+                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    />
+                                </label>
+                            </div>
+
+                            <button
+                                onClick={handleRecalcSaleOrderCount}
+                                disabled={saleRecalcLoading || loading}
+                                className="w-full py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
+                            >
+                                {saleRecalcLoading ? (
+                                    <>
+                                        <span className="animate-spin">⏳</span> Đang cập nhật...
+                                    </>
+                                ) : (
+                                    <>
+                                        <RefreshCw size={18} /> Tính lại báo cáo Sale
+                                    </>
+                                )}
+                            </button>
+
+                            {saleRecalcResult && (
+                                <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                    <div className="text-sm font-semibold text-gray-800 mb-3">Kết quả tính toán</div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm border border-gray-200 rounded-lg">
+                                            <tbody>
+                                                {Object.entries(saleRecalcResult).map(([k, v]) => {
+                                                    if (k === 'previewRows') return null;
+                                                    return (
+                                                        <tr key={k} className="border-t border-gray-200">
+                                                            <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{k}</td>
+                                                            <td className="px-3 py-2 text-gray-900">
+                                                                {typeof v === 'number' ? v : (v == null ? '-' : String(v))}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {Array.isArray(saleRecalcResult.previewRows) && saleRecalcResult.previewRows.length > 0 && (
+                                        <div className="mt-4 overflow-x-auto">
+                                            <div className="text-sm font-semibold text-gray-800 mb-2">Preview các dòng đã update/create</div>
+                                            <table className="w-full text-sm border border-gray-200 rounded-lg">
+                                                <thead className="bg-white">
+                                                    <tr className="border-b border-gray-200">
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">#</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">shift (ca)</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">date</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">name</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">product</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">market</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">order_count</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">revenue_actual (VND)</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">order_cancel_count_actual</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">revenue_cancel_actual (VND)</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {saleRecalcResult.previewRows.map((r, idx) => (
+                                                        <tr key={`${r.action}-${idx}`} className="border-t border-gray-200">
+                                                            <td className="px-3 py-2 text-gray-700">{idx + 1}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.ca || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.Ngày || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.Tên || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.Sản_phẩm || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.Thị_trường || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{r.order_count ?? 0}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{Number(r.revenue_actual ?? 0).toLocaleString('vi-VN')}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{r.order_cancel_count_actual ?? 0}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{Number(r.revenue_cancel_actual ?? 0).toLocaleString('vi-VN')}</td>
                                                             <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
                                                         </tr>
                                                     ))}
@@ -4728,12 +5023,43 @@ const AdminTools = () => {
                             </div>
                         )}
 
-                        {/* 4. Exchange Rates Management */}
+                        {/* 4. Đồng bộ Team MKT -> Users */}
+                        {isSectionVisible('Đồng bộ Team MKT', ['mkt', 'team', 'đồng bộ', 'users', 'detail_reports']) && (
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                                    <Users className="w-5 h-5 text-emerald-600" />
+                                    4. Đồng bộ Team MKT vào Users
+                                </h3>
+                                <p className="text-sm text-gray-500">
+                                    Đồng bộ toàn bộ cột <code>users.team</code> theo dữ liệu MKT trong <code>detail_reports</code>, khớp theo cột Tên.
+                                </p>
+
+                                <div className="bg-white border rounded-lg shadow-sm p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="text-xs text-gray-600 space-y-1">
+                                            <div>• Nguồn team: bảng <code>detail_reports</code></div>
+                                            <div>• Điều kiện: khớp theo <code>Tên</code> (normalize dấu + khoảng trắng)</div>
+                                            <div>• Chỉ cập nhật khi team mới khác team hiện tại trong <code>users</code></div>
+                                        </div>
+                                        <button
+                                            onClick={handleSyncMktTeamsToUsers}
+                                            disabled={syncMktTeamLoading}
+                                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+                                        >
+                                            <RefreshCw className={`w-4 h-4 ${syncMktTeamLoading ? 'animate-spin' : ''}`} />
+                                            {syncMktTeamLoading ? 'Đang đồng bộ...' : 'Đồng bộ Team MKT'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 5. Exchange Rates Management */}
                         {isSectionVisible('Quản lý tỷ giá', ['tỷ giá', 'exchange', 'rate', 'tiền tệ', 'currency']) && (
                             <div className="space-y-4">
                                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                                     <Package className="w-5 h-5 text-blue-600" />
-                                    4. Quản lý tỷ giá
+                                    5. Quản lý tỷ giá
                                 </h3>
                                 <p className="text-sm text-gray-500">
                                     Cài đặt tỷ giá quy đổi các loại tiền tệ sang VNĐ. Tỷ giá sẽ được tự động áp dụng khi chọn đơn vị tiền tệ trong bảng đối soát bill cước.
@@ -4965,7 +5291,7 @@ const AdminTools = () => {
                             <h3 className="font-semibold text-gray-800 mb-3">Cấu hình</h3>
                             <div className="space-y-3">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Chi nhánh</label>
                                     <select
                                         value={selectedTeam}
                                         onChange={(e) => setSelectedTeam(e.target.value)}
@@ -4987,7 +5313,7 @@ const AdminTools = () => {
                                 <div className="text-xs text-gray-600 space-y-1">
                                     <p><strong>Điều kiện:</strong></p>
                                     <ul className="list-disc list-inside space-y-0.5 ml-2">
-                                        <li>Team = "{selectedTeam}"</li>
+                                        <li>Chi nhánh = "{selectedTeam}"</li>
                                         <li>Kế toán xác nhận = "Đã thu tiền"</li>
                                         <li>Tháng của Ngày lên đơn = {selectedMonth}</li>
                                         <li>Cột CSKH trống</li>
@@ -5331,7 +5657,7 @@ const AdminTools = () => {
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700"># (trong view)</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Mã đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Khách hàng</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Team</th>
+                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Chi nhánh</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">NV Vận đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Ngày lên đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Ngày chia vận đơn</th>
@@ -5585,7 +5911,7 @@ const AdminTools = () => {
                                         password: '',
                                         user_id: '',
                                         role: 'user',
-                                        team: '',
+                                        branch: '',
                                         department: '',
                                         status: 'active',
                                         must_change_password: false
@@ -5658,7 +5984,7 @@ const AdminTools = () => {
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Tên</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Password</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Role</th>
-                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Team</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Chi nhánh</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-center font-semibold">Đẩy FFM</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Trạng thái</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Thao tác</th>
@@ -5748,7 +6074,7 @@ const AdminTools = () => {
                                                         {account.role || 'user'}
                                                     </span>
                                                 </td>
-                                                <td className="border border-gray-300 px-4 py-3">{account.team || '-'}</td>
+                                                <td className="border border-gray-300 px-4 py-3">{account.branch || account.team || '-'}</td>
                                                 <td className="border border-gray-300 px-4 py-3">
                                                     <label className="flex items-center justify-center cursor-pointer group">
                                                         <div className="relative">
@@ -5944,12 +6270,12 @@ const AdminTools = () => {
 
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Team
+                                                Chi nhánh
                                             </label>
                                             <input
                                                 type="text"
-                                                value={accountForm.team}
-                                                onChange={(e) => setAccountForm({ ...accountForm, team: e.target.value })}
+                                                value={accountForm.branch}
+                                                onChange={(e) => setAccountForm({ ...accountForm, branch: e.target.value })}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                 placeholder="HCM, Hà Nội, ..."
                                             />

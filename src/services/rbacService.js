@@ -1,5 +1,49 @@
 import { supabase } from '../supabase/config';
 
+const normalizeText = (v) => String(v ?? '').trim();
+
+async function syncDetailReportsByIdentity({
+    oldEmail = '',
+    newEmail = '',
+    oldName = '',
+    newName = '',
+    team,
+    department
+}) {
+    const updatePayload = {};
+    const emailToSet = normalizeText(newEmail || oldEmail);
+    const nameToSet = normalizeText(newName || oldName);
+
+    // Ưu tiên cột snake_case đang dùng ở API detail_reports
+    if (emailToSet) updatePayload.email = emailToSet;
+    if (nameToSet) updatePayload.ten = nameToSet;
+    if (team !== undefined) updatePayload.team = normalizeText(team);
+    if (department !== undefined) updatePayload.department = normalizeText(department);
+
+    if (Object.keys(updatePayload).length === 0) return;
+
+    const emailCandidates = [...new Set([normalizeText(oldEmail), normalizeText(newEmail)].filter(Boolean))];
+    const nameCandidates = [...new Set([normalizeText(oldName), normalizeText(newName)].filter(Boolean))];
+
+    const tryUpdate = async (column, value) => {
+        const { error } = await supabase
+            .from('detail_reports')
+            .update(updatePayload)
+            .eq(column, value);
+        if (error) {
+            // Không chặn flow chính nếu sync detail_reports lỗi/không có cột tương ứng
+            console.warn(`Could not sync detail_reports by ${column}:`, error.message || error);
+        }
+    };
+
+    for (const email of emailCandidates) {
+        await tryUpdate('email', email);
+    }
+    for (const name of nameCandidates) {
+        await tryUpdate('ten', name);
+    }
+}
+
 // --- ROLES ---
 export const getRoles = async () => {
     const { data, error } = await supabase.from('app_roles').select('*').order('code');
@@ -62,6 +106,12 @@ export const assignUserRole = async (email, role_code) => {
 };
 
 export const updateUserTeam = async (email, team) => {
+    const { data: beforeUser } = await supabase
+        .from('users')
+        .select('email, name')
+        .eq('email', email)
+        .maybeSingle();
+
     // Update users table
     const { data, error } = await supabase
         .from('users')
@@ -70,11 +120,31 @@ export const updateUserTeam = async (email, team) => {
         .select();
 
     if (error) throw error;
+
+    // Đồng bộ team sang detail_reports (MKT_detail)
+    try {
+        await syncDetailReportsByIdentity({
+            oldEmail: beforeUser?.email || email,
+            newEmail: beforeUser?.email || email,
+            oldName: beforeUser?.name || '',
+            newName: beforeUser?.name || '',
+            team
+        });
+    } catch (err) {
+        console.warn('Could not sync team to detail_reports:', err);
+    }
+
     return data[0];
 };
 
 // Update user information (name, department, position, team, role)
 export const updateUserInfo = async (email, userInfo) => {
+    const { data: beforeUser } = await supabase
+        .from('users')
+        .select('email, name')
+        .eq('email', email)
+        .maybeSingle();
+
     const updateData = {};
     
     if (userInfo.name !== undefined) updateData.name = userInfo.name;
@@ -107,6 +177,20 @@ export const updateUserInfo = async (email, userInfo) => {
         } catch (err) {
             console.warn("Could not sync to human_resources:", err);
         }
+    }
+
+    // Đồng bộ thông tin liên quan sang detail_reports (MKT_detail)
+    try {
+        await syncDetailReportsByIdentity({
+            oldEmail: beforeUser?.email || email,
+            newEmail: userInfo.email !== undefined ? userInfo.email : (beforeUser?.email || email),
+            oldName: beforeUser?.name || '',
+            newName: userInfo.name !== undefined ? userInfo.name : (beforeUser?.name || ''),
+            team: userInfo.team,
+            department: userInfo.department
+        });
+    } catch (err) {
+        console.warn('Could not sync user info to detail_reports:', err);
     }
 
     return data[0];

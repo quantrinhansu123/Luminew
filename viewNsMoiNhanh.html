@@ -645,7 +645,7 @@
   <!-- TAB MỚI: HIỆU SUẤT KPI -->
   <div id="HieuSuatKPI" class="tab-content">
     <div style="width: 100%; height: 100vh; border: none; padding: 0; margin: 0;">
-      <iframe id="hieu-suat-kpi-iframe" src="baocaokpiCEO.html"
+      <iframe id="hieu-suat-kpi-iframe" src="KPisale.html"
         style="width: 100%; height: 100vh; border: none; display: block;"></iframe>
     </div>
   </div>
@@ -860,34 +860,34 @@
       return q ? `${API_URL_MKT}?${q}` : API_URL_MKT;
     }
 
-    /** Chuẩn hóa theo field hiện tại của API detail_reports (ưu tiên snake_case đang trả về). */
+    /** Chuẩn hóa tên cột giống XemBaoCaoMKT (API có thể trả snake_case / tiếng Anh). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
       return {
         ...item,
-        'Ngày': item.ngay || item['Ngày'] || '',
-        'Team': item.team || item['Team'] || '',
-        'Tên': item.ten || item['Tên'] || '',
-        'Email': item.email || item['Email'] || '',
-        'Sản_phẩm': item.san_pham || item['Sản_phẩm'] || '',
-        'Thị_trường': item.thi_truong || item['Thị_trường'] || '',
-        'CPQC': item.cpqc ?? item['CPQC'] ?? 0,
-        'Số_Mess_Cmt': item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0,
-        'Số đơn': item['Số đơn'] ?? 0,
-        'Số đơn thực tế': item['Số đơn thực tế'] ?? 0,
-        'Doanh số': item['Doanh số'] ?? 0,
-        'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] ?? 0,
-        'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] ?? 0,
-        'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] ?? 0,
-        'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] ?? 0,
-        'DS sau hoàn hủy': item['DS sau hoàn hủy'] ?? 0,
-        'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] ?? 0,
-        'Doanh số sau ship': item['Doanh số sau ship'] ?? 0,
-        'Doanh số TC': item['Doanh số TC'] ?? 0,
-        'KPIs': item['KPIs'] ?? 0,
-        'ca': item['ca'] || '',
-        'id_NS': item['id_NS'] || '',
-        'Chức vụ': item.department || item['Chức vụ'] || '',
+        'Ngày': item['Ngày'] || item.ngay || item.date || '',
+        'Team': item['Team'] || item.team || '',
+        'Tên': item['Tên'] || item.ten || item.name || '',
+        'Email': item['Email'] || item.email || '',
+        'Sản_phẩm': item['Sản_phẩm'] || item['Sản phẩm'] || item.san_pham || item.product || '',
+        'Thị_trường': item['Thị_trường'] || item['Thị trường'] || item.thi_truong || item.market || '',
+        'CPQC': item['CPQC'] ?? item.cpqc ?? 0,
+        'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
+        'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
+        'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
+        'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
+        'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
+        'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
+        'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] || item.so_don_hoan_huy_thuc_te || item.order_cancel_count_actual || 0,
+        'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] || item.doanh_so_hoan_huy_thuc_te || item.revenue_cancel_actual || 0,
+        'DS sau hoàn hủy': item['DS sau hoàn hủy'] || item.ds_sau_hoan_huy || 0,
+        'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] || item.doanh_so_sau_hoan_huy_thuc_te || 0,
+        'Doanh số sau ship': item['Doanh số sau ship'] || item.doanh_so_sau_ship || 0,
+        'Doanh số TC': item['Doanh số TC'] || item.doanh_so_tc || 0,
+        'KPIs': item['KPIs'] || item.kpis || 0,
+        'ca': item['ca'] || item['Ca'] || item.shift || '',
+        'id_NS': item['id_NS'] || item.id_ns || item.id_NS || '',
+        'Chức vụ': item['Chức vụ'] || item.chuc_vu || item['Vị trí'] || item.position || '',
       };
     }
 
@@ -1484,79 +1484,7 @@
         return true;
       });
 
-      // Quy tắc ca:
-      // - Nếu bộ lọc chỉ chọn "Hết ca": lọc trùng theo key bỏ yếu tố ca.
-      // - Trường hợp khác:
-      //   + Nếu 1 nhóm có "Giữa ca" thì chỉ giữ "Giữa ca"
-      //   + Nếu không có "Giữa ca", giữ dữ liệu "Hết ca" nhưng chỉ 1 lần.
-      const normalizeCa = (v) =>
-        String(v || '')
-          .trim()
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '');
-
-      const isGiuaCa = (v) => normalizeCa(v).includes('giua ca');
-      const isHetCa = (v) => normalizeCa(v).includes('het ca');
-      const isHetCaOnlyFilter = Array.isArray(selectedCas) &&
-        selectedCas.length === 1 &&
-        isHetCa(selectedCas[0]);
-
-      if (isHetCaOnlyFilter) {
-        const uniqueMap = new Map();
-        filteredDataResult.forEach((r) => {
-          const d = r.ngay instanceof Date ? r.ngay.toISOString().slice(0, 10) : String(r.ngay || '');
-          // Key loại trừ "ca" theo yêu cầu.
-          const key = [
-            String(r.idnv || '').trim().toLowerCase(),
-            String(r.ten || '').trim().toLowerCase(),
-            d,
-            String(r.team || '').trim().toLowerCase(),
-            String(r.sanPham || '').trim().toLowerCase(),
-            String(r.thiTruong || '').trim().toLowerCase(),
-          ].join('||');
-          if (!uniqueMap.has(key)) uniqueMap.set(key, r);
-        });
-        return Array.from(uniqueMap.values());
-      }
-
-      const grouped = new Map();
-      filteredDataResult.forEach((r) => {
-        // Nhóm theo nhân sự + ngày + team + sản phẩm + thị trường để loại trùng theo ca
-        const d = r.ngay instanceof Date ? r.ngay.toISOString().slice(0, 10) : String(r.ngay || '');
-        const key = [
-          String(r.idnv || '').trim().toLowerCase(),
-          String(r.ten || '').trim().toLowerCase(),
-          d,
-          String(r.team || '').trim().toLowerCase(),
-          String(r.sanPham || '').trim().toLowerCase(),
-          String(r.thiTruong || '').trim().toLowerCase(),
-        ].join('||');
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key).push(r);
-      });
-
-      const finalRows = [];
-      grouped.forEach((rows) => {
-        const giua = rows.filter((x) => isGiuaCa(x.ca));
-        if (giua.length > 0) {
-          // Có Giữa ca -> chỉ tính Giữa ca
-          finalRows.push(...giua);
-          return;
-        }
-
-        const het = rows.filter((x) => isHetCa(x.ca));
-        if (het.length > 0) {
-          // Chỉ có Hết ca -> giữ 1 lần
-          finalRows.push(het[0]);
-          return;
-        }
-
-        // Ca khác/không rõ -> giữ 1 lần để tránh trùng
-        finalRows.push(rows[0]);
-      });
-
-      return finalRows;
+      return filteredDataResult;
     }
 
     function populateAllFilters() {
@@ -2262,3 +2190,6 @@
 </body>
 
 </html>
+
+
+
