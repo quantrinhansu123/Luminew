@@ -40,6 +40,9 @@ function BaoCaoChiTiet() {
         return new Date().toISOString().split('T')[0];
     });
 
+    const [filterBranch, setFilterBranch] = useState('');
+    const [userBranchMap, setUserBranchMap] = useState({});
+
     const [currentPage, setCurrentPage] = useState(1);
     const [rowsPerPage, setRowsPerPage] = useState(50);
     const [sortColumn, setSortColumn] = useState(null);
@@ -281,6 +284,52 @@ function BaoCaoChiTiet() {
         loadData();
     }, [startDate, endDate, role, userName]);
 
+    // Fetch user branch mapping
+    useEffect(() => {
+        const fetchUserBranches = async () => {
+            try {
+                const map = {};
+
+                // 1. Fetch from users
+                const { data: usersData, error: usersError } = await supabase
+                    .from('users')
+                    .select('name, branch')
+                    .not('branch', 'is', null)
+                    .neq('branch', '');
+
+                if (!usersError && usersData) {
+                    usersData.forEach(u => {
+                        if (u.name) map[u.name.toLowerCase().trim()] = u.branch;
+                    });
+                }
+
+                // 2. Fetch from human_resources
+                const { data: hrData, error: hrError } = await supabase
+                    .from('human_resources')
+                    .select('"Họ Và Tên", "chi nhánh"')
+                    .not('"chi nhánh"', 'is', null)
+                    .neq('"chi nhánh"', '');
+
+                if (!hrError && hrData) {
+                    hrData.forEach(h => {
+                        const name = h['Họ Và Tên'];
+                        const branch = h['chi nhánh'];
+                        if (name && branch) {
+                            const normName = name.toLowerCase().trim();
+                            // Only add if not already in map (prefer user table)
+                            if (!map[normName]) map[normName] = branch;
+                        }
+                    });
+                }
+
+                setUserBranchMap(map);
+            } catch (err) {
+                console.error('Error fetching user branches:', err);
+            }
+        };
+        fetchUserBranches();
+    }, []);
+
     // Get unique values for filters
     const uniqueMarkets = useMemo(() => {
         const markets = new Set();
@@ -511,6 +560,17 @@ function BaoCaoChiTiet() {
             });
         }
 
+        // Branch filter
+        if (filterBranch) {
+            data = data.filter(row => {
+                const staffName = row["Nhân viên Marketing"];
+                const branchFromMap = userBranchMap[staffName?.toLowerCase().trim()] || '';
+                const branchFromTeam = row["Team"];
+
+                return branchFromMap === filterBranch || branchFromTeam === filterBranch;
+            });
+        }
+
         // Sort
         if (sortColumn) {
             data.sort((a, b) => {
@@ -532,7 +592,7 @@ function BaoCaoChiTiet() {
         }
 
         return data;
-    }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, startDate, endDate, sortColumn, sortDirection]); // Added dependencies
+    }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterBranch, userBranchMap, startDate, endDate, sortColumn, sortDirection]); // Added dependencies
 
     // Pagination
     const totalPages = Math.ceil(filteredData.length / rowsPerPage);
@@ -756,6 +816,20 @@ function BaoCaoChiTiet() {
                                 {uniqueStatuses.map(status => (
                                     <option key={status} value={status}>{status}</option>
                                 ))}
+                            </select>
+                        </div>
+
+                        {/* Branch Filter */}
+                        <div className="min-w-[150px]">
+                            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Chi nhánh</label>
+                            <select
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                                value={filterBranch}
+                                onChange={(e) => setFilterBranch(e.target.value)}
+                            >
+                                <option value="">Tất cả</option>
+                                <option value="Hà Nội">Hà Nội</option>
+                                <option value="HCM">HCM</option>
                             </select>
                         </div>
 

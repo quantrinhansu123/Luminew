@@ -194,7 +194,7 @@ function FFM() {
 
       // Query user từ bảng users để kiểm tra cột can_day_ffm
       let query = supabase.from('users').select('can_day_ffm');
-      
+
       if (userId) {
         query = query.eq('id', userId);
       } else if (userEmail) {
@@ -231,11 +231,11 @@ function FFM() {
           const innerMap = new Map();
           for (const key in parsed[id]) {
             innerMap.set(key, parsed[id][key]);
-            initialDbQueue.push({ 
-              orderId: id, 
-              colKey: key, 
-              newValue: parsed[id][key].newValue, 
-              originalValue: parsed[id][key].originalValue 
+            initialDbQueue.push({
+              orderId: id,
+              colKey: key,
+              newValue: parsed[id][key].newValue,
+              originalValue: parsed[id][key].originalValue
             });
           }
           map.set(id, innerMap);
@@ -288,7 +288,7 @@ function FFM() {
     try {
       let date;
       const str = String(dateString).trim();
-      
+
       // Xử lý định dạng dd/mm/yyyy hoặc d/m/yyyy
       if (str.includes('/')) {
         const parts = str.split('/');
@@ -309,13 +309,13 @@ function FFM() {
       else {
         date = new Date(str.includes('Z') ? str : str + 'Z');
       }
-      
+
       if (isNaN(date.getTime())) {
         // Thử parse lại với các định dạng khác
         date = new Date(str);
         if (isNaN(date.getTime())) return str; // Trả về nguyên bản nếu không parse được
       }
-      
+
       const day = String(date.getDate()).padStart(2, '0');
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const year = date.getFullYear();
@@ -610,10 +610,10 @@ function FFM() {
       let rowCopy = { ...row };
 
       rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(row['time_dayon'] || row.time_dayon || row['Ngày Kế toán đối soát với FFM lần 2']);
-      
+
       const rawTrackingDate = row['tracking_check_date'] || row.tracking_check_date || row['Ngày có mã tracking'] || row['thoigiangiaohangffm'] || row['Ngày Kế toán đối soát với FFM lần 1'];
       rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(rawTrackingDate);
-      
+
       // Debug log for tracking date (only for first 5 rows to avoid spam)
       if (rIdx < 5 && rawTrackingDate) {
         console.log(`[FFM DEBUG] Row ${row[PRIMARY_KEY_COLUMN]}: rawTrackingDate=${rawTrackingDate}, extracted=${rowCopy['Ngày có mã tracking']}`);
@@ -734,7 +734,7 @@ function FFM() {
       data = data.filter(row => {
         const val = row['Ngày đóng hàng'] || '';
         if (status === 'Trống') return !val || String(val).trim() === '';
-        
+
         const dateStr = extractDateFromDateTime(val);
         if (status === 'Hôm nay') return dateStr === today;
         if (status === 'Hôm qua') return dateStr === yesterday;
@@ -764,7 +764,7 @@ function FFM() {
       data = data.filter(row => {
         const rawVal = row['Phí ship nội địa Mỹ (usd)'] || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
         const numVal = parseFloat(String(rawVal).replace(/[^\d.-]/g, ''));
-        
+
         if (status === 'Trống') return (rawVal === '' || rawVal === null);
         if (status === 'Miễn phí (0)') return numVal === 0;
         if (status === 'Có phí (>0)') return numVal > 0;
@@ -1070,7 +1070,7 @@ function FFM() {
     if (isTrackingCol && nextValue !== '') {
       const todayStr = getTodayDateStr();
       const trackingDateKey = 'Ngày có mã tracking';
-      
+
       const pendingInfo = pendingChanges.get(orderId)?.get(trackingDateKey);
       const rowTrackingDate = originalRow
         ? (originalRow[trackingDateKey] ?? originalRow.ngay_co_ma_tracking ?? originalRow.ngaycomatracking ?? '')
@@ -1078,11 +1078,11 @@ function FFM() {
       const currentTrackingDate = pendingInfo ? pendingInfo.newValue : rowTrackingDate;
 
       if (String(currentTrackingDate || '').trim() !== todayStr) {
-        changes.push({ 
-          orderId, 
-          colKey: trackingDateKey, 
-          originalValue: String(currentTrackingDate || ''), 
-          newValue: todayStr 
+        changes.push({
+          orderId,
+          colKey: trackingDateKey,
+          originalValue: String(currentTrackingDate || ''),
+          newValue: todayStr
         });
       }
     }
@@ -1121,7 +1121,7 @@ function FFM() {
         if (val !== undefined && val !== null && val !== '') {
           const dataKey = COLUMN_MAPPING[colName] || colName;
           const originalVal = originalRow[dataKey] ?? '';
-          
+
           const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
           const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
 
@@ -1137,7 +1137,7 @@ function FFM() {
             if (dataKey === 'Mã Tracking' && String(val).trim() !== '') {
               const todayStr = getTodayDateStr();
               const uiCol = 'Ngày có mã tracking';
-              
+
               const pendingInfo = pendingChanges.get(orderId)?.get(uiCol);
               const currentUiVal = pendingInfo ? pendingInfo.newValue : (originalRow[uiCol] ?? '');
 
@@ -1331,8 +1331,8 @@ function FFM() {
 
         // If focusing an input AND has a partial text selection inside it, let browser handle it
         const isSingleCell = bounds.minRow === bounds.maxRow && bounds.minCol === bounds.maxCol;
-        if (isInInput && isSingleCell && active.selectionStart !== active.selectionEnd && 
-            (active.selectionEnd - active.selectionStart) < active.value.length) {
+        if (isInInput && isSingleCell && active.selectionStart !== active.selectionEnd &&
+          (active.selectionEnd - active.selectionStart) < active.value.length) {
           return; // Let browser handle partial copy
         }
 
@@ -1494,7 +1494,7 @@ function FFM() {
           if (pasteValue === '') continue;
 
           const originalVal = rowData[dataKey] ?? '';
-          
+
           const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
           const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
 
@@ -1511,7 +1511,7 @@ function FFM() {
             if (dataKey === 'Mã Tracking' && String(pasteValue).trim() !== '') {
               const todayStr = getTodayDateStr();
               const uiCol = 'Ngày có mã tracking';
-              
+
               const pendingInfo = pendingChanges.get(orderId)?.get(uiCol);
               const currentUiVal = pendingInfo ? pendingInfo.newValue : (rowData[uiCol] ?? '');
 
@@ -1893,13 +1893,13 @@ function FFM() {
                 const filterKey = col;
                 const colWidthStyles = getColumnWidthStyles(col);
                 let stickyStyle = { ...colWidthStyles };
-                
+
                 if (idx < effectiveFixedColumns) {
-                  stickyStyle = { 
+                  stickyStyle = {
                     ...stickyStyle,
-                    position: 'sticky', 
-                    left: stickyOffsets[idx], 
-                    zIndex: 40, 
+                    position: 'sticky',
+                    left: stickyOffsets[idx],
+                    zIndex: 40,
                     background: '#f8f9fa'
                   };
                 }
@@ -2080,19 +2080,19 @@ function FFM() {
 
                       const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Thời gian giao dự kiến'].includes(col)
                         ? formatDate(val)
-                        : ((col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán" || col === "Phí ship nội địa Mỹ (usd)") 
-                          ? (val !== "" && val !== null ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : "") 
+                        : ((col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán" || col === "Phí ship nội địa Mỹ (usd)")
+                          ? (val !== "" && val !== null ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : "")
                           : val);
 
                       const colWidthStyles = getColumnWidthStyles(col);
-                      const cellStyle = cIdx < effectiveFixedColumns 
-                        ? { 
-                            position: 'sticky', 
-                            left: stickyOffsets[cIdx], 
-                            zIndex: 10,
-                            ...colWidthStyles,
-                            background: '#f9fafb'
-                          } 
+                      const cellStyle = cIdx < effectiveFixedColumns
+                        ? {
+                          position: 'sticky',
+                          left: stickyOffsets[cIdx],
+                          zIndex: 10,
+                          ...colWidthStyles,
+                          background: '#f9fafb'
+                        }
                         : colWidthStyles;
 
                       return (
@@ -2142,16 +2142,16 @@ function FFM() {
                                   {o || '-- Chọn --'}
                                 </option>
                               )) || (
-                                <>
-                                  <option value="">-- Chọn --</option>
-                                  <option value="Có bill">Có bill</option>
-                                  <option value="Bill một phần">Bill một phần</option>
-                                </>
-                              )}
+                                  <>
+                                    <option value="">-- Chọn --</option>
+                                    <option value="Có bill">Có bill</option>
+                                    <option value="Bill một phần">Bill một phần</option>
+                                  </>
+                                )}
                             </select>
                           ) : col === 'Payment Image' ? (
                             <Suspense fallback={<span className="text-gray-400">...</span>}>
-                              <BillImageViewer 
+                              <BillImageViewer
                                 paymentImage={val || row['Payment Image'] || row.payment_image || ''}
                                 orderCode={orderId}
                               />
@@ -2296,9 +2296,9 @@ function FFM() {
       </Suspense>
 
       <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div></div>}>
-        <QuickAddModal 
-          isOpen={quickAddModalOpen} 
-          onClose={() => setQuickAddModalOpen(false)} 
+        <QuickAddModal
+          isOpen={quickAddModalOpen}
+          onClose={() => setQuickAddModalOpen(false)}
           onSync={handleQuickSync}
         />
       </Suspense>
