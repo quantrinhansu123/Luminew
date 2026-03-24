@@ -14,6 +14,36 @@ import {
 } from '../types';
 import { rafThrottle } from '../utils/throttle';
 
+/** Giá trị Team / chi nhánh từ row (FFM) */
+function getTeamStringFFM(row) {
+  return String(row[TEAM_COLUMN_NAME] ?? row.team ?? '').trim();
+}
+
+/** Lọc Chi nhánh: all | hanoi | hcm */
+function matchesFfmBranchFilter(teamStr, filter) {
+  if (filter === 'all') return true;
+  const t = teamStr.toLowerCase().normalize('NFC').trim();
+  if (filter === 'hanoi') {
+    return t === 'hà nội' || t === 'ha noi' || t === 'hanoi';
+  }
+  if (filter === 'hcm') {
+    return (
+      t === 'hcm' ||
+      t === 'tp.hcm' ||
+      t === 'tp hcm' ||
+      t.includes('hồ chí minh') ||
+      t.includes('ho chi minh') ||
+      (t.includes('hcm') && !t.includes('hà nội') && !t.includes('ha noi'))
+    );
+  }
+  return true;
+}
+
+/** Có mã tracking (sau khi map từ DB) */
+function getTrackingCodeFFM(row) {
+  return String(row.tracking_code ?? row['Mã Tracking'] ?? row['tracking_code'] ?? '').trim();
+}
+
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
 const QuickAddModal = lazy(() => import('../components/QuickAddModal'));
 const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal'));
@@ -77,6 +107,11 @@ function FFM() {
   const [omActiveTeam, setOmActiveTeam] = useState('all');
   const [omDateType, setOmDateType] = useState('Ngày đóng hàng');
   const [showFilters, setShowFilters] = useState(true); // Collapse/expand filters
+
+  /** Chi nhánh: Tất cả | Hà Nội | HCM */
+  const [ffmBranchFilter, setFfmBranchFilter] = useState('all');
+  /** Mã Tracking: Tất cả | có mã | chưa có mã */
+  const [ffmTrackingPresence, setFfmTrackingPresence] = useState('all');
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -289,6 +324,8 @@ function FFM() {
     setLocalFilterValues(defaultFilters);
     setDateFrom('');
     setDateTo('');
+    setFfmBranchFilter('all');
+    setFfmTrackingPresence('all');
     setCurrentPage(1);
     await loadData();
   };
@@ -352,6 +389,11 @@ function FFM() {
         data = data.filter((row) => orderedIds.has(row[PRIMARY_KEY_COLUMN]));
       } else if (omActiveTeam !== 'all') {
         data = data.filter((row) => row[TEAM_COLUMN_NAME] === omActiveTeam);
+      }
+
+      // Lọc Chi nhánh (Hà Nội / HCM) — thanh bộ lọc FFM
+      if (ffmBranchFilter !== 'all') {
+        data = data.filter((row) => matchesFfmBranchFilter(getTeamStringFFM(row), ffmBranchFilter));
       }
 
       // Sort by rowIndex
@@ -483,8 +525,21 @@ function FFM() {
     // }
     // 'all' - không lọc, hiển thị tất cả
 
+    // Tình trạng mã Tracking: Có mã / Chưa có mã (bộ lọc nhanh FFM)
+    if (ffmTrackingPresence === 'has') {
+      data = data.filter((row) => {
+        const code = getTrackingCodeFFM(row);
+        return code !== '' && code !== 'null' && code !== 'undefined';
+      });
+    } else if (ffmTrackingPresence === 'no') {
+      data = data.filter((row) => {
+        const code = getTrackingCodeFFM(row);
+        return code === '' || code === 'null' || code === 'undefined';
+      });
+    }
+
     return data;
-  }, [allData, pendingChanges, omActiveTeam, omDateType, filterValues, dateFrom, dateTo, mgtNoiBoOrder]);
+  }, [allData, pendingChanges, omActiveTeam, omDateType, filterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
@@ -1269,6 +1324,36 @@ function FFM() {
         {showFilters && (
           <div className="px-4 pb-4 border-t border-gray-200">
             <div className="flex flex-wrap items-end gap-3 pt-4">
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+                <label className="text-xs font-semibold text-gray-500">Chi nhánh</label>
+                <select
+                  className="px-2 py-1.5 border rounded text-sm bg-white"
+                  value={ffmBranchFilter}
+                  onChange={(e) => {
+                    setFfmBranchFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Tất cả</option>
+                  <option value="hanoi">Hà Nội</option>
+                  <option value="hcm">HCM</option>
+                </select>
+              </div>
+              <div className="flex-1 flex flex-col gap-1 min-w-[160px]">
+                <label className="text-xs font-semibold text-gray-500">Tình trạng mã Tracking</label>
+                <select
+                  className="px-2 py-1.5 border rounded text-sm bg-white"
+                  value={ffmTrackingPresence}
+                  onChange={(e) => {
+                    setFfmTrackingPresence(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Tất cả</option>
+                  <option value="has">Có mã</option>
+                  <option value="no">Chưa có mã</option>
+                </select>
+              </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
                 <label className="text-xs font-semibold text-gray-500">Thị trường</label>
                 <MultiSelect
