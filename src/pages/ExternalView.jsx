@@ -13,10 +13,8 @@ export default function ExternalView() {
         if (targetUrl) {
             const decodedUrl = decodeURIComponent(targetUrl);
             // Backward-compat: old MKT external links now use internal app page.
-            if (
-                decodedUrl.includes("viewNsMoiNhanh.html") ||
-                decodedUrl.includes("nhanSuSaleLumiMoi.html")
-            ) {
+            // Chỉ chuyển sang trang MKT nội bộ cho bản cũ viewNsMoiNhanh (không chặn nhanSuSaleLumiMoi — dùng cho /xem-bao-cao-sale & /xem-bao-cao-cskh)
+            if (decodedUrl.includes("viewNsMoiNhanh.html")) {
                 navigate("/xem-bao-cao-mkt", { replace: true });
                 return;
             }

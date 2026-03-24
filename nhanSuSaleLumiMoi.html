@@ -522,17 +522,14 @@
                 <div id="daily-breakdown-chot"></div>
             </div>
 
-            <!-- Tab 3 (Mới): KPIs Sale -->
+            <!-- Tab 3 (Mới): KPIs Sale — src gán bằng JS: cùng origin app → /embed/ (tránh CORS github.io → n-api-rouge) -->
             <div id="tab-kpi-sale" class="tab-content">
-                <iframe id="iframe-kpi-sale" src="https://nguyenbatyads37.github.io/static-html-show-data/KPisale.html"
-                    frameborder="0"></iframe>
+                <iframe id="iframe-kpi-sale" src="about:blank" title="KPIs Sale" frameborder="0"></iframe>
             </div>
 
             <!-- Tab 4: Vận đơn Sale -->
             <div id="tab-van-don-sale" class="tab-content">
-                <iframe id="iframe-van-don-sale"
-                    src="https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html"
-                    frameborder="0"></iframe>
+                <iframe id="iframe-van-don-sale" src="about:blank" title="Vận đơn Sale" frameborder="0"></iframe>
             </div>
 
             <!-- Tab 5: Báo cáo thủ công -->
@@ -576,7 +573,34 @@
             return `${day}/${month}/${year}`;
         }
 
+        /** Cùng origin với Luminew → iframe nội bộ (cookie đăng nhập + không CORS). Trên github.io vẫn dùng URL cũ (có thể lỗi). */
+        function isAppSameOriginEmbeds() {
+            const h = (window.location.hostname || '').toLowerCase();
+            return h !== 'nguyenbatyads37.github.io' && !h.endsWith('.github.io');
+        }
+        function embedKpiUrl(idParam) {
+            if (!isAppSameOriginEmbeds()) {
+                return idParam
+                    ? `https://nguyenbatyads37.github.io/static-html-show-data/KPisale.html?id=${encodeURIComponent(idParam)}`
+                    : 'https://nguyenbatyads37.github.io/static-html-show-data/KPisale.html';
+            }
+            const q = idParam ? `?id=${encodeURIComponent(idParam)}` : '';
+            return `${window.location.origin}/embed/bao-cao-hieu-suat-kpi${q}`;
+        }
+        function embedVanDonUrl(idParam) {
+            if (!isAppSameOriginEmbeds()) {
+                return idParam
+                    ? `https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html?id=${encodeURIComponent(idParam)}`
+                    : 'https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html';
+            }
+            const q = idParam ? `?id=${encodeURIComponent(idParam)}` : '';
+            return `${window.location.origin}/embed/bao-cao-van-don${q}`;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            const idInit = getUrlParameter('id');
+            document.getElementById('iframe-kpi-sale').src = embedKpiUrl(idInit || '');
+            document.getElementById('iframe-van-don-sale').src = embedVanDonUrl(idInit || '');
             addEventListeners();
             setDefaultDates();
             fetchAndProcessData();
@@ -650,16 +674,12 @@
                     const apiData = result.data;
                     const idFromUrl = getUrlParameter('id');
 
-                    // Cập nhật URL cho iframe Vận đơn Sale và KPIs Sale nếu có ID
+                    // Cập nhật iframe KPI / Vận đơn (cùng origin app → /embed/…)
                     if (idFromUrl) {
-                        // Set Vận đơn Sale
                         const vanDonIframe = document.getElementById('iframe-van-don-sale');
-                        vanDonIframe.src = `https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html?id=${idFromUrl}`;
-
-                        // Set KPIs Sale
                         const kpiIframe = document.getElementById('iframe-kpi-sale');
-                        kpiIframe.src = `https://nguyenbatyads37.github.io/static-html-show-data/KPisale.html?id=${idFromUrl}`;
-
+                        vanDonIframe.src = embedVanDonUrl(idFromUrl);
+                        kpiIframe.src = embedKpiUrl(idFromUrl);
                         console.log('Set iframes URLs with ID:', idFromUrl);
                     }
 

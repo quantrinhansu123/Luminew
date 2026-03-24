@@ -10,7 +10,10 @@ import { logDataChange } from '../services/logging';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
-import { isDateInRange, parseSmartDate } from '../utils/dateParsing';
+import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '../utils/dateParsing';
+
+/** PostgREST thường chỉ trả ~1000 dòng nếu không set limit — dễ thiếu đơn khi dữ liệu nhiều */
+const ORDERS_FETCH_LIMIT = 50000;
 
 // Các cột tự động ẩn mặc định trong bảng danh sách đơn hàng
 const HIDDEN_COLUMNS = [
@@ -77,10 +80,10 @@ function DanhSachDon() {
   const [showMktStaffFilter, setShowMktStaffFilter] = useState(false);
   const [filterDeliveryStaff, setFilterDeliveryStaff] = useState([]);
   const [showDeliveryStaffFilter, setShowDeliveryStaffFilter] = useState(false);
-  // Initialize dates with "Last 3 Days"
+  // Mặc định 30 ngày (trước chỉ 3 ngày — dễ không thấy đơn cũ hơn)
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 3);
+    d.setDate(d.getDate() - 30);
     return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState(() => {
@@ -360,87 +363,88 @@ function DanhSachDon() {
       // 1. Fetch Supabase Data with Date Filter
       // Exclude R&D orders (Isolation Rule: Data only appears in RD module)
       // UPDATED: Logic to support R&D context
-      let query = supabase.from('orders').select('*');
-
-      if (teamFilter === 'RD') {
-        // If context is R&D, ONLY show R&D data
-        query = query.eq('team', 'RD');
-      } else {
-        // If context is standard (Sale/MKT), EXCLUDE R&D data
-        query = query.neq('team', 'RD');
-      }
-
-      // --- USER FILTER ---
-      // Nếu có selectedPersonnelNames, lấy đơn hàng của tất cả nhân sự trong danh sách
-      // Nếu không có, mới filter theo user hiện tại
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
 
-      // Admin luôn xem tất cả đơn, không bị filter
-      // isAdmin đã được định nghĩa ở đầu component
-      if (!isAdmin) {
-        // Non-admin: Áp dụng filter theo nhân sự
-        if (selectedPersonnelNames.length > 0) {
-          // Tạo danh sách tên để filter (bao gồm cả user hiện tại nếu chưa có trong danh sách)
-          const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-          console.log('🔍 Filtering by selected personnel names:', allNames);
+      const normalizeNameForQuery = (str) => {
+        if (!str) return '';
+        return String(str).trim().replace(/\s+/g, ' ');
+      };
 
-          // Helper function to normalize name (remove extra spaces)
-          const normalizeNameForQuery = (str) => {
-            if (!str) return '';
-            return String(str).trim().replace(/\s+/g, ' ');
-          };
-
-          // Filter theo sale_staff, marketing_staff, hoặc delivery_staff
-          // Sử dụng .or() để match với bất kỳ tên nào trong danh sách
-          const orConditions = allNames.flatMap(name => {
-            const normalizedName = normalizeNameForQuery(name);
-            return [
-              `sale_staff.ilike.%${normalizedName}%`,
-              `marketing_staff.ilike.%${normalizedName}%`,
-              `delivery_staff.ilike.%${normalizedName}%`
-            ];
-          });
-
-          query = query.or(orConditions.join(','));
-        } else if (userName) {
-          // Nếu không có selectedPersonnelNames, filter theo user hiện tại
-          // Helper function to normalize name (remove extra spaces)
-          const normalizeNameForQuery = (str) => {
-            if (!str) return '';
-            return String(str).trim().replace(/\s+/g, ' ');
-          };
-          const normalizedUserName = normalizeNameForQuery(userName);
-          // Filter by sale_staff, marketing_staff, hoặc delivery_staff
-          query = query.or(`sale_staff.ilike.%${normalizedUserName}%,marketing_staff.ilike.%${normalizedUserName}%,delivery_staff.ilike.%${normalizedUserName}%`);
+      /** Team + nhân sự — dùng lại cho truy vấn phụ (đơn order_date null) */
+      const applyTeamAndPersonnel = (q) => {
+        let query = q;
+        if (teamFilter === 'RD') {
+          query = query.eq('team', 'RD');
+        } else {
+          // QUAN TRỌNG: .neq('team','RD') trong SQL loại cả dòng team NULL → đơn không chi nhánh không thấy
+          query = query.or('team.is.null,team.neq.RD');
         }
-      } else {
-        // Admin: không filter, xem tất cả đơn
-        console.log('✅ Admin: Viewing all orders (no filter applied)');
-      }
+        if (!isAdmin) {
+          if (selectedPersonnelNames.length > 0) {
+            const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
+            console.log('🔍 Filtering by selected personnel names:', allNames);
+            const orConditions = allNames.flatMap((name) => {
+              const normalizedName = normalizeNameForQuery(name);
+              return [
+                `sale_staff.ilike.%${normalizedName}%`,
+                `marketing_staff.ilike.%${normalizedName}%`,
+                `delivery_staff.ilike.%${normalizedName}%`
+              ];
+            });
+            query = query.or(orConditions.join(','));
+          } else if (userName) {
+            const normalizedUserName = normalizeNameForQuery(userName);
+            query = query.or(
+              `sale_staff.ilike.%${normalizedUserName}%,marketing_staff.ilike.%${normalizedUserName}%,delivery_staff.ilike.%${normalizedUserName}%`
+            );
+          }
+        } else {
+          console.log('✅ Admin: Viewing all orders (no filter applied)');
+        }
+        return query;
+      };
+
+      let query = applyTeamAndPersonnel(supabase.from('orders').select('*'));
 
       if (startDate) {
         query = query.gte('order_date', startDate);
       }
       if (endDate) {
-        // Add time to end of day? Or just date string comparison works if strict YYYY-MM-DD
-        // Supabase date column might be date or timestamp. Assuming date or timestamp.
-        // If timestamp, YYYY-MM-DD matches start of day. lte needs end of day.
-        // Safer: lte YYYY-MM-DD might mean midnight if timestamp.
-        // Let's rely on string comparison or add time if needed.
-        // For 'order_date', usually it's just date.
         query = query.lte('order_date', endDate);
       }
 
-      const { data: supaData, error: supaError } = await query.order('order_date', { ascending: false });
+      const { data: supaData, error: supaError } = await query
+        .order('order_date', { ascending: false })
+        .limit(ORDERS_FETCH_LIMIT);
 
       if (supaError) throw supaError;
 
-
+      // Gộp thêm đơn có order_date NULL nhưng created_at nằm trong khoảng (tránh thiếu đơn trên UI)
+      let mergedRaw = [...(supaData || [])];
+      if (startDate && endDate) {
+        const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+        let qNull = applyTeamAndPersonnel(supabase.from('orders').select('*'));
+        qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
+        const { data: extraRows, error: extraErr } = await qNull
+          .order('created_at', { ascending: false })
+          .limit(ORDERS_FETCH_LIMIT);
+        if (extraErr) {
+          console.warn('⚠️ [DanhSachDon] Không gộp được đơn order_date null:', extraErr.message);
+        } else if (extraRows?.length) {
+          const seen = new Set(mergedRaw.map((r) => r.order_code));
+          for (const row of extraRows) {
+            if (row.order_code && !seen.has(row.order_code)) {
+              mergedRaw.push(row);
+              seen.add(row.order_code);
+            }
+          }
+        }
+      }
 
       // 2. Process Supabase Data
-      const supaMapped = (supaData || []).map(mapSupabaseToUI);
+      const supaMapped = mergedRaw.map(mapSupabaseToUI);
 
       // 3. Sort by Date Descending (Client side sort for display)
       supaMapped.sort((a, b) => {
@@ -1341,7 +1345,7 @@ function DanhSachDon() {
     }
 
     return data;
-  }, [allData, debouncedSearchText, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSaleStaff, filterMktStaff, filterDeliveryStaff, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
+  }, [allData, debouncedSearchText, startDate, endDate, isAdmin, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSaleStaff, filterMktStaff, filterDeliveryStaff, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
 
   // Handle Ctrl+C to copy selected row
   useEffect(() => {

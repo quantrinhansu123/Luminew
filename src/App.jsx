@@ -1,7 +1,5 @@
-import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
-import { supabase } from './supabase/config';
 import 'react-toastify/dist/ReactToastify.css';
 import Header from './components/Header';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -11,6 +9,7 @@ import BaoCaoChiTiet from './pages/BaoCaoChiTiet';
 import BaoCaoHieuSuatKPI from './pages/BaoCaoHieuSuatKPI';
 import BaoCaoMarketing from './pages/BaoCaoMarketing';
 import BaoCaoSale from './pages/BaoCaoSale';
+import NhanSuSaleLumiMoiView from './pages/NhanSuSaleLumiMoiView';
 import BaoCaoVanDon from './pages/BaoCaoVanDon';
 import BillOfLadingHistoryPage from './pages/BillOfLadingHistoryPage';
 import ChangeLogViewer from './pages/ChangeLogViewer';
@@ -18,8 +17,6 @@ import CskhCrmHistoryPage from './pages/CskhCrmHistoryPage';
 import DanhSachBaoCaoTayCSKH from './pages/DanhSachBaoCaoTayCSKH';
 import NhapBaoCaoCSKH from './pages/NhapBaoCaoCSKH';
 import SalesOrderHistoryPage from './pages/SalesOrderHistoryPage';
-import XemBaoCaoCSKH from './pages/XemBaoCaoCSKH';
-
 // ... (existing imports)
 
 
@@ -65,73 +62,17 @@ import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
 
 import ErrorBoundary from './components/ErrorBoundary';
 
-function ExternalIdRedirect({ baseUrl }) {
-  const [redirectTo, setRedirectTo] = useState(null);
+/** Không render Header (dùng trong iframe tab Vận đơn Sale). */
+function AppShell() {
+  const location = useLocation();
+  const hideHeader = location.pathname.startsWith('/embed/');
 
-  useEffect(() => {
-    const resolve = async () => {
-      // Check if user role is director - if so, don't add id to link
-      let isDirector = false;
-      const userEmail = localStorage.getItem('userEmail');
-      if (userEmail) {
-        try {
-          const { data } = await supabase
-            .from('users')
-            .select('role')
-            .eq('email', userEmail)
-            .maybeSingle();
-
-          const role = (data?.role || '').toLowerCase();
-          isDirector = role === 'director' || role === 'DIRECTOR';
-        } catch (_) { }
-      }
-
-      // If director, don't add id to link
-      if (isDirector) {
-        setRedirectTo(`/external-view?url=${encodeURIComponent(baseUrl)}`);
-        return;
-      }
-
-      // Try localStorage first (fast path)
-      let idAppsheet = localStorage.getItem('idAppsheet') || '';
-
-      // If empty, fetch from DB using stored userId
-      if (!idAppsheet) {
-        const userId = localStorage.getItem('userId');
-        if (userId || userEmail) {
-          try {
-            let query = supabase.from('users').select('id_appsheet');
-            if (userId) query = query.eq('id', userId);
-            else query = query.eq('email', userEmail);
-            const { data } = await query.single();
-            if (data?.id_appsheet) {
-              idAppsheet = data.id_appsheet;
-              localStorage.setItem('idAppsheet', idAppsheet);
-            }
-          } catch (_) { }
-        }
-      }
-
-      const fullUrl = idAppsheet
-        ? `${baseUrl}?id=${encodeURIComponent(idAppsheet)}`
-        : baseUrl;
-      setRedirectTo(`/external-view?url=${encodeURIComponent(fullUrl)}`);
-    };
-    resolve();
-  }, [baseUrl]);
-
-  if (!redirectTo) return null;
-  return <Navigate to={redirectTo} replace />;
-}
-
-function App() {
-  console.log('📱 App component rendering...');
   return (
-    <Router>
+    <>
       <ScrollToTop />
       <div className="min-h-screen bg-gray-50">
         <ErrorBoundary>
-          <Header />
+          {!hideHeader && <Header />}
 
           {/* Routes */}
           <Routes>
@@ -149,13 +90,15 @@ function App() {
               path="/xem-bao-cao-sale"
               element={
                 <ProtectedRoute>
-                  <ExternalIdRedirect baseUrl="https://nguyenbatyads37.github.io/static-html-show-data/nhanSuSaleLumiMoi.html" />
+                  <NhanSuSaleLumiMoiView />
                 </ProtectedRoute>
               }
             />
+            <Route path="/xem-bao-cao-Sale" element={<Navigate to="/xem-bao-cao-sale" replace />} />
             <Route path="/danh-sach-bao-cao-tay" element={<ProtectedRoute><DanhSachBaoCaoTay /></ProtectedRoute>} />
             <Route path="/bao-cao-f3" element={<ProtectedRoute><F3Report /></ProtectedRoute>} />
             <Route path="/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
+            <Route path="/embed/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
             <Route path="/nhan-su" element={<ProtectedRoute><NhanSu /></ProtectedRoute>} />
             <Route path="/hr-dashboard" element={<ProtectedRoute><HRDashboard /></ProtectedRoute>} />
             <Route path="/finance-dashboard" element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} />
@@ -163,6 +106,7 @@ function App() {
             <Route path="/ho-so" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="/van-don" element={<ProtectedRoute><VanDon /></ProtectedRoute>} />
             <Route path="/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
+            <Route path="/embed/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-van-don" element={<ProtectedRoute><DanhSachVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-van-don" element={<ProtectedRoute><DanhSachBaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-don" element={<ProtectedRoute><DanhSachDon /></ProtectedRoute>} />
@@ -178,7 +122,7 @@ function App() {
               path="/xem-bao-cao-cskh"
               element={
                 <ProtectedRoute>
-                  <ExternalIdRedirect baseUrl="https://nguyenbatyads37.github.io/static-html-show-data/nhanSuSaleLumiMoi.html" />
+                  <NhanSuSaleLumiMoiView reportTableName="Báo cáo sale" thuCongTableName="Báo cáo sale" />
                 </ProtectedRoute>
               }
             />
@@ -236,6 +180,15 @@ function App() {
           theme="light"
         />
       </div>
+    </>
+  );
+}
+
+function App() {
+  console.log('📱 App component rendering...');
+  return (
+    <Router>
+      <AppShell />
     </Router>
   );
 }

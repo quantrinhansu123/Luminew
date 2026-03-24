@@ -1651,7 +1651,6 @@ export default function BaoCaoVanDon() {
                         </div>
                     </div>
                     )}
-                    )}
 
                     <div className="bcvd-table-wrapper">
                         <h3 style={{ textAlign: 'center', color: '#2c3e50', marginBottom: '10px' }}>Báo cáo chi tiết</h3>
