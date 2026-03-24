@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Calculator, Eye, RefreshCw, X } from 'lucide-react';
 import { toast } from 'react-toastify';
@@ -66,8 +66,10 @@ export default function DanhSachBaoCaoTay() {
         startDate: '',
         endDate: '',
         products: [],
-        markets: []
+        markets: [],
+        personnel: []
     });
+    const [personnelSearch, setPersonnelSearch] = useState('');
     const [deleting, setDeleting] = useState(false);
     const [sortColumn, setSortColumn] = useState(null);
     const [sortDirection, setSortDirection] = useState('asc');
@@ -138,10 +140,11 @@ export default function DanhSachBaoCaoTay() {
         d.setDate(d.getDate() - 3);
         const formatDateForInput = (date) => date.toISOString().split('T')[0];
 
-        setFilters({
+        setFilters(prev => ({
+            ...prev,
             startDate: formatDateForInput(d),
             endDate: formatDateForInput(today)
-        });
+        }));
     }, []);
 
     // Load available options for filters (chỉ lấy từ báo cáo của nhân sự được phép xem)
@@ -264,31 +267,6 @@ export default function DanhSachBaoCaoTay() {
                 .lte('date', filters.endDate)
                 .order('created_at', { ascending: false });
 
-            // Helper function to normalize name (remove extra spaces)
-            const normalizeNameForQuery = (str) => {
-                if (!str) return '';
-                return String(str).trim().replace(/\s+/g, ' ');
-            };
-
-            // Filter theo selected_personnel nếu có (Admin và Finance không bị filter)
-            if (!isAdmin && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                const orConditions = selectedPersonnelNames
-                    .filter(name => name && name.trim().length > 0)
-                    .map(name => {
-                        const normalizedName = normalizeNameForQuery(name);
-                        return `name.ilike.%${normalizedName}%`;
-                    });
-                if (orConditions.length > 0) {
-                    query = query.or(orConditions.join(','));
-                    console.log('📋 Filter by selected_personnel:', selectedPersonnelNames);
-                } else {
-                    // Nếu không có tên hợp lệ, không hiển thị gì cả
-                    query = query.eq('id', '00000000-0000-0000-0000-000000000000');
-                }
-            } else if (isAdmin) {
-                console.log('✅ Admin/Finance: Viewing all manual reports (no filter applied)');
-            }
-
             // Filter theo sản phẩm
             if (filters.products && filters.products.length > 0) {
                 query = query.in('product', filters.products);
@@ -302,13 +280,27 @@ export default function DanhSachBaoCaoTay() {
             const { data, error } = await query;
 
             if (error) throw error;
-            setManualReports(data || []);
+            const normalizeNameForMatch = (str) => String(str || '').trim().replace(/\s+/g, ' ').toLowerCase();
+            const allowedPersonnelSet = new Set(
+                (selectedPersonnelNames || [])
+                    .map(normalizeNameForMatch)
+                    .filter(Boolean)
+            );
+
+            const filteredByPermission = (data || []).filter((row) => {
+                if (isAdmin) return true;
+                if (allowedPersonnelSet.size === 0) return false;
+                const rowName = normalizeNameForMatch(row?.name);
+                return allowedPersonnelSet.has(rowName);
+            });
+
+            setManualReports(filteredByPermission);
         } catch (error) {
             console.error('Error fetching manual reports:', error);
         } finally {
             setLoading(false);
         }
-    }, [filters.startDate, filters.endDate, filters.products, filters.markets, selectedPersonnelNames]);
+    }, [filters.startDate, filters.endDate, filters.products, filters.markets, selectedPersonnelNames, isAdmin, teamFilter]);
 
     useEffect(() => {
         fetchData();
@@ -1139,8 +1131,27 @@ export default function DanhSachBaoCaoTay() {
     };
 
 
+    const availablePersonnelOptions = useMemo(
+        () => [...new Set((manualReports || []).map((item) => String(item?.name || '').trim()).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
+        [manualReports]
+    );
+
+    const filteredPersonnelOptions = useMemo(() => {
+        const keyword = personnelSearch.trim().toLowerCase();
+        if (!keyword) return availablePersonnelOptions;
+        return availablePersonnelOptions.filter((name) => name.toLowerCase().includes(keyword));
+    }, [availablePersonnelOptions, personnelSearch]);
+
+    const reportsAfterPersonnelFilter = useMemo(() => {
+        const withoutHcmTeam = (manualReports || []).filter((item) => String(item?.team || '').trim().toUpperCase() !== 'HCM');
+        if (!filters.personnel || filters.personnel.length === 0) return withoutHcmTeam;
+        const selectedSet = new Set(filters.personnel);
+        return withoutHcmTeam.filter((item) => selectedSet.has(String(item?.name || '').trim()));
+    }, [manualReports, filters.personnel]);
+
     // Sort data
-    const sortedReports = [...manualReports].sort((a, b) => {
+    const sortedReports = [...reportsAfterPersonnelFilter].sort((a, b) => {
         if (!sortColumn) return 0;
 
         let aVal, bVal;
@@ -1277,6 +1288,50 @@ export default function DanhSachBaoCaoTay() {
                         </label>
                     </div>
 
+                    {/* Personnel Filter */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <details>
+                            <summary style={{ cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '10px' }}>
+                                Nhân sự ({(filters.personnel || []).length}/{availablePersonnelOptions.length})
+                            </summary>
+                            <div style={{ marginTop: '10px' }}>
+                                <input
+                                    type="text"
+                                    value={personnelSearch}
+                                    onChange={(e) => setPersonnelSearch(e.target.value)}
+                                    placeholder="Gõ để tìm nhân sự..."
+                                    style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px', marginBottom: '8px' }}
+                                />
+                                <label style={{ display: 'block', fontSize: '11px', marginBottom: '8px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={(filters.personnel || []).length === availablePersonnelOptions.length && availablePersonnelOptions.length > 0}
+                                        onChange={(e) => handleSelectAll('personnel', e.target.checked)}
+                                        style={{ marginRight: '5px' }}
+                                    />
+                                    Tất cả
+                                </label>
+                                <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '5px' }}>
+                                    {filteredPersonnelOptions.length === 0 ? (
+                                        <div style={{ fontSize: '11px', color: '#999', padding: '5px' }}>Không có nhân sự phù hợp</div>
+                                    ) : (
+                                        filteredPersonnelOptions.map((personName) => (
+                                            <label key={personName} style={{ display: 'block', fontSize: '12px', marginBottom: '5px', cursor: 'pointer' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={(filters.personnel || []).includes(personName)}
+                                                    onChange={(e) => handleFilterChange('personnel', personName, e.target.checked)}
+                                                    style={{ marginRight: '5px' }}
+                                                />
+                                                {personName}
+                                            </label>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+
                     {/* Product Filter */}
                     <div style={{ marginBottom: '20px' }}>
                         <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '10px', color: '#333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1347,7 +1402,7 @@ export default function DanhSachBaoCaoTay() {
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY SALE</h2>
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <div style={{ display: 'none', gap: '10px', alignItems: 'center' }}>
                             <button
                                 onClick={handleCalculateAndUpdateOrders}
                                 disabled={updatingOrders || loading || manualReports.length === 0}

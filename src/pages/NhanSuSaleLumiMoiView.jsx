@@ -74,10 +74,11 @@ async function fetchEmployeeDataForRestrict() {
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('id_appsheet, email, name, username, role, team, branch, position');
+      .select('id_appsheet, email, name, username, role, team, branch, position')
+      .not('id_appsheet', 'is', null);
     if (error) throw error;
     return (data || [])
-      .filter((u) => u.id_appsheet && String(u.id_appsheet).trim() !== '')
+      .filter((u) => String(u.id_appsheet || '').trim() !== '')
       .map((u) => ({
         id: String(u.id_appsheet).trim(),
         Email: (u.email || '').trim(),
@@ -340,7 +341,7 @@ export default function NhanSuSaleLumiMoiView({
     const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
     const doanhSoMap = {};
     flatListFiltered.forEach((item) => {
-      doanhSoMap[item.name] = item.chot;
+      doanhSoMap[item.name] = item.doanhThuChotThucTe;
     });
     /* Tổng dòng — giữ công thức file HTML */
     const soDonSauHuyTotal2 = total.soDonThucTe - total.soDonHoanHuyThucTe;
@@ -662,7 +663,7 @@ restrictedForPopulate,
                     <th>Số đơn hủy</th>
                     <th>Số đơn TT</th>
                     <th>Số đơn sau huỷ</th>
-                    <th>Doanh số</th>
+                    <th>Doanh số TT</th>
                     <th>DS Sau Hủy TT</th>
                     <th>Tỉ lệ chốt</th>
                     <th>Tỉ lệ hủy</th>
@@ -676,7 +677,7 @@ restrictedForPopulate,
                     <td className="total-value">{formatNumber(soDonHuyTotal)}</td>
                     <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
                     <td className="total-value">{formatNumber(soDonSauHuyTotal2)}</td>
-                    <td className="total-value" />
+                    <td className="total-value">{formatCurrency(total.doanhThuChotThucTe)}</td>
                     <td className="total-value">{formatCurrency(dsSauHuyTTTotal)}</td>
                     <td className="total-value">{formatPercent(totalRateSauHuy)}</td>
                     <td className="total-value">{formatPercent(tiLeHuyTotal)}</td>
