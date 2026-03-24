@@ -29,6 +29,8 @@ const SyncPopover = lazy(() => import('../components/SyncPopover'));
 
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
+/** Độ rộng cột checkbox (tab Hà Nội) — bù `left` cho cột sticky kế bên */
+const VAN_DON_CHECKBOX_COL_PX = 52;
 
 function VanDon() {
   const { canView, role, loading: permissionsLoading } = usePermissions();
@@ -64,6 +66,7 @@ function VanDon() {
     product: [],
     nv_sale: [],
     nv_mkt: [],
+    nv_van_don: [],
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã'
@@ -382,6 +385,8 @@ function VanDon() {
           isAdmin ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale.filter((x) => x && x !== '__EMPTY__') : undefined);
         const mktStaffApi =
           isAdmin ? undefined : (filterValues.nv_mkt?.length ? filterValues.nv_mkt.filter((x) => x && x !== '__EMPTY__') : undefined);
+        const vanDonStaffApi =
+          isAdmin ? undefined : (filterValues.nv_van_don?.length ? filterValues.nv_van_don.filter((x) => x && x !== '__EMPTY__') : undefined);
 
         const result = await API.fetchVanDon({
           page: fetchPage,
@@ -392,6 +397,7 @@ function VanDon() {
           product: productFilter,
           nv_sale: saleStaffApi?.length ? saleStaffApi : undefined,
           nv_mkt: mktStaffApi?.length ? mktStaffApi : undefined,
+          nv_van_don: vanDonStaffApi?.length ? vanDonStaffApi : undefined,
           dateFrom: shouldApplyDateFilter ? dateFrom : undefined,
           dateTo: shouldApplyDateFilter ? dateTo : undefined,
           allowedStaff: apiAllowedStaff
@@ -565,6 +571,7 @@ function VanDon() {
       product: [],
       nv_sale: [],
       nv_mkt: [],
+      nv_van_don: [],
       tracking_include: '',
       tracking_exclude: '',
       tracking_status: 'Tình trạng mã'
@@ -692,7 +699,7 @@ function VanDon() {
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
+  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
 
   const savePendingToLocalStorage = (newPending) => {
     const changesToSave = {};
@@ -821,6 +828,24 @@ function VanDon() {
 
     return filtered;
   }, [allColumns, visibleColumns, bolActiveTab]);
+
+  /** Số cột cố định khi cuộn ngang: clamp 0 … số cột đang hiện (từ trái sang phải). */
+  const effectiveFixedColumns = useMemo(() => {
+    const raw = Number(fixedColumns);
+    const n = Number.isFinite(raw) ? Math.floor(raw) : 0;
+    return Math.max(0, Math.min(n, currentColumns.length));
+  }, [fixedColumns, currentColumns.length]);
+
+  const checkboxStickyPad = bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0;
+
+  /** Khi ẩn bớt cột, hạ số cố định nếu đang vượt quá số cột hiển thị */
+  useEffect(() => {
+    setFixedColumns((prev) => {
+      const n = Math.floor(Number(prev) || 0);
+      if (currentColumns.length === 0) return n;
+      return Math.min(n, currentColumns.length);
+    });
+  }, [currentColumns.length]);
 
   // Save column visibility to localStorage
   useEffect(() => {
@@ -1064,6 +1089,14 @@ function VanDon() {
           return v && set.has(v);
         });
       }
+      if (filterValues.nv_van_don && Array.isArray(filterValues.nv_van_don) && filterValues.nv_van_don.length > 0) {
+        const set = new Set(filterValues.nv_van_don);
+        data = data.filter((row) => {
+          const v = String(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim();
+          if (set.has('__EMPTY__') && !v) return true;
+          return v && set.has(v);
+        });
+      }
     } catch (err) {
       console.warn('⚠️ [Filter Error] Lỗi khi xử lý Market/Product filter:', err);
     }
@@ -1093,7 +1126,7 @@ function VanDon() {
     // Column Filters (Text & Dropdown) - Áp dụng cho tất cả users (bao gồm Admin nếu họ muốn filter)
     Object.entries(filterValues).forEach(([key, val]) => {
       // Skip các filter đặc biệt đã được xử lý riêng
-      if (['market', 'product', 'nv_sale', 'nv_mkt', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
+      if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
 
       // Skip nếu giá trị rỗng
       if (val === null || val === undefined) return;
@@ -1910,7 +1943,7 @@ function VanDon() {
     }
 
     // Fixed
-    if (cIdx < fixedColumns) {
+    if (cIdx < effectiveFixedColumns) {
       classes += "sticky z-10 left-0 bg-gray-50 ";
     }
 
@@ -2119,6 +2152,21 @@ function VanDon() {
             </div>
           </div>
 
+          <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-200">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🚚 NV Vận đơn:</label>
+            <div className="relative" style={{ minWidth: '160px', zIndex: 999 }}>
+              <MultiSelect
+                label="Chọn NV Vận đơn..."
+                options={getMultiSelectOptions('NV Vận đơn')}
+                selected={filterValues.nv_van_don || []}
+                onChange={(vals) => {
+                  setFilterValues((prev) => ({ ...prev, nv_van_don: vals }));
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
+          </div>
+
           {/* Toolbar Actions Group */}
           <div className="flex items-center gap-2">
             <button
@@ -2149,13 +2197,33 @@ function VanDon() {
               ⚙️ Cài đặt cột
             </button>
 
-            <div className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100">
+            <div
+              className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100"
+              title="Số cột cố định từ trái sang phải: không cuộn theo chiều ngang. Nhập 0 để không ghim cột dữ liệu (cột checkbox tab Hà Nội vẫn ghim riêng)."
+            >
               Cố định:
               <input
-                type="number" min="0"
+                type="number"
+                min={0}
+                max={currentColumns.length}
                 className="w-10 border-none bg-transparent focus:ring-0 text-center font-bold text-[#F37021]"
-                value={fixedColumns} onChange={e => setFixedColumns(Number(e.target.value))}
+                value={fixedColumns}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    setFixedColumns(0);
+                    return;
+                  }
+                  const v = Number(raw);
+                  setFixedColumns(Number.isFinite(v) ? v : 0);
+                }}
+                onBlur={() => {
+                  setFixedColumns((p) =>
+                    Math.max(0, Math.min(Math.floor(Number(p) || 0), currentColumns.length))
+                  );
+                }}
               />
+              <span className="text-[10px] opacity-70 tabular-nums">/ {currentColumns.length}</span>
             </div>
 
             {/* Phân FFM button - chỉ hiển thị trong tab Hà Nội */}
@@ -2240,14 +2308,13 @@ function VanDon() {
                     const isProductCol = (col === "Mặt hàng");
                     const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
-                    // Dynamic sticky offset calculation (simplified)
-                    let stickyLeft = idx * 100;
+                    // Sticky: bù cột checkbox tab Hà Nội + offset theo chỉ số cột
+                    let stickyLeft = checkboxStickyPad + idx * 100;
                     if (idx > 1) {
-                      // Adjust for "Kết quả Check" if it's before this column
-                      stickyLeft += 50; 
+                      stickyLeft += 50;
                     }
 
-                    const stickyStyle = idx < fixedColumns ?
+                    const stickyStyle = idx < effectiveFixedColumns ?
                       { position: 'sticky', left: stickyLeft, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
 
                     return (
@@ -2364,10 +2431,9 @@ function VanDon() {
                           const isProductCol = (col === "Mặt hàng");
                           const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
-                          // Dynamic sticky offset calculation (simplified)
-                          let cellStickyLeft = cIdx * 100;
+                          let cellStickyLeft = checkboxStickyPad + cIdx * 100;
                           if (cIdx > 1) {
-                            cellStickyLeft += 50; 
+                            cellStickyLeft += 50;
                           }
 
                           const colWidthStyles = isQtyCol ? { minWidth: '48px', maxWidth: '58px', width: '52px' } :
@@ -2377,7 +2443,7 @@ function VanDon() {
                                                (isCityCol ? { minWidth: '130px', maxWidth: '200px', width: '140px' } : 
                                                (isProductCol ? { minWidth: '150px', maxWidth: '220px', width: '160px' } : {})))));
 
-                          const cellStyle = cIdx < fixedColumns ?
+                          const cellStyle = cIdx < effectiveFixedColumns ?
                             { position: 'sticky', left: cellStickyLeft, zIndex: 10, ...colWidthStyles } :
                             colWidthStyles;
 

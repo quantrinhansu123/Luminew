@@ -24,7 +24,7 @@ export const DB_TO_APP_MAPPING = {
     "note": "Ghi chú",
     "reason": "Lý do",
     "order_date": "Ngày lên đơn",
-    "goods_amount": "Giá bán",
+    "sale_price": "Giá bán",
     "shipping_unit": "Đơn vị vận chuyển",
     "accountant_confirm": "Kế toán xác nhận thu tiền về",
     "created_at": "created_at",
@@ -59,6 +59,17 @@ const mapSupabaseOrderToApp = (sOrder) => {
             appOrder[appKey] = sOrder[dbKey];
         }
     });
+
+    // Giá bán: ưu tiên sale_price; null/undefined thì dùng goods_amount (dữ liệu cũ)
+    if (sOrder.sale_price !== undefined && sOrder.sale_price !== null) {
+        appOrder["Giá bán"] = sOrder.sale_price;
+    } else if (sOrder.goods_amount !== undefined) {
+        appOrder["Giá bán"] = sOrder.goods_amount;
+    }
+
+    // Hình thức thanh toán: chỉ từ payment_method (Supabase), không gộp payment_method_text
+    appOrder["Hình thức thanh toán"] =
+        sOrder.payment_method === undefined || sOrder.payment_method === null ? '' : sOrder.payment_method;
 
     if (!appOrder["Ngày lên đơn"] && sOrder.order_date) appOrder["Ngày lên đơn"] = sOrder.order_date;
     if (!appOrder["Mã đơn hàng"]) appOrder["Mã đơn hàng"] = sOrder.order_code;
@@ -553,6 +564,8 @@ export const fetchVanDon = async (options = {}) => {
         nv_sale = [],
         /** Multi-select tên NV MKT (khớp cột marketing_staff) */
         nv_mkt = [],
+        /** Multi-select tên NV Vận đơn (khớp cột delivery_staff) */
+        nv_van_don = [],
         dateFrom,
         dateTo,
         allowedStaff // Array of names allowed to view
@@ -638,6 +651,13 @@ export const fetchVanDon = async (options = {}) => {
         }
         if (mktStaffIn.length > 0) {
             query = query.in('marketing_staff', mktStaffIn);
+        }
+
+        const vanDonStaffIn = Array.isArray(nv_van_don)
+            ? nv_van_don.filter((x) => x && x !== '__EMPTY__')
+            : [];
+        if (vanDonStaffIn.length > 0) {
+            query = query.in('delivery_staff', vanDonStaffIn);
         }
 
         if (dateFrom) {
