@@ -966,6 +966,7 @@
     let baseDataForReport = [];
     const API_CACHE_TTL_MS = 120000;
     const MAX_DAILY_BREAKDOWN_ROWS = 1500;
+    const DAILY_RENDER_CHUNK_SIZE = 5;
     const mktApiCache = new Map();
     const charts = {};
     let dailyRenderJobId = 0;
@@ -1195,11 +1196,23 @@
             const dsChot = Number(r["Doanh số"]) || 0;
             const dsSauHoanHuy = Number(r["DS sau hoàn hủy"]) || 0;
             const ngayParsed = parseNgayToDate(r["Ngày"]);
+            const ngayKey = ngayParsed instanceof Date && !isNaN(ngayParsed.getTime())
+              ? ngayParsed.toISOString().slice(0, 10)
+              : String(r["Ngày"] || '').trim();
+            const keyNoCa = [
+              String(r["id_NS"] || '').trim().toLowerCase(),
+              String(r["Tên"] || '').trim().toLowerCase(),
+              String(ngayKey || '').trim().toLowerCase(),
+              String(r["Team"] || 'Khác').trim().toLowerCase(),
+              String(r["Sản_phẩm"] || 'N/A').trim().toLowerCase(),
+              String(r["Thị_trường"] || 'N/A').trim().toLowerCase(),
+            ].join('||');
             return {
               idnv: (r["id_NS"] || '').trim(),
               ten: (r["Tên"] || 'N/A').trim(),
               email: (r["Email"] || '').trim(),
               ngay: ngayParsed,
+              ngayKey,
               ca: String(r["ca"] || 'N/A').trim(),
               sanPham: (r["Sản_phẩm"] || 'N/A').trim(),
               thiTruong: (r["Thị_trường"] || 'N/A').trim(),
@@ -1221,6 +1234,7 @@
               soDonHuyThucTe: Number(r["Số đơn hoàn hủy thực tế"]) || 0,
               dsSauHoanHuyThucTe: Number(r["Doanh số sau hoàn hủy thực tế"]) || 0,
               dsThanhCongThucTe: Number(r["Doanh số đi thực tế"]) || 0,
+              __keyNoCa: keyNoCa
             };
           });
 
@@ -1446,6 +1460,15 @@
         selectedTeams = getSelected('team');
       }
 
+      const isHetCaOnlyFilter = Array.isArray(selectedCas) &&
+        selectedCas.length === 1 &&
+        String(selectedCas[0] || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .includes('het ca');
+
       const filteredDataResult = baseDataForReport.filter(r => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
         if (!dateRaw || isNaN(dateRaw.getTime())) return false;
@@ -1469,13 +1492,15 @@
           const isTeamOk = selectedTeams.length === 0 || selectedTeams.includes(r.team);
           if (!isTeamOk) return false;
 
-          const isCaOk = selectedCas.length === 0 || selectedCas.includes(r.ca);
+          // Nếu chỉ lọc "Hết ca" => lấy tổng (không chặn theo ca ở bước này)
+          const isCaOk = isHetCaOnlyFilter || selectedCas.length === 0 || selectedCas.includes(r.ca);
           if (!isCaOk) return false;
 
           return true;
         }
 
-        const isCaOk = (selectedCas.length === 0) || selectedCas.includes(r.ca);
+        // Nếu chỉ lọc "Hết ca" => lấy tổng (không chặn theo ca ở bước này)
+        const isCaOk = isHetCaOnlyFilter || (selectedCas.length === 0) || selectedCas.includes(r.ca);
         if (!isCaOk) return false;
 
         const isTeamOk = (selectedTeams.length === 0) || selectedTeams.includes(r.team);
@@ -1485,7 +1510,7 @@
       });
 
       // Quy tắc ca:
-      // - Nếu bộ lọc chỉ chọn "Hết ca": lọc trùng theo key bỏ yếu tố ca.
+      // - Nếu bộ lọc chỉ chọn "Hết ca": lấy tổng theo key (bỏ yếu tố ca).
       // - Trường hợp khác:
       //   + Nếu 1 nhóm có "Giữa ca" thì chỉ giữ "Giữa ca"
       //   + Nếu không có "Giữa ca", giữ dữ liệu "Hết ca" nhưng chỉ 1 lần.
@@ -1498,36 +1523,46 @@
 
       const isGiuaCa = (v) => normalizeCa(v).includes('giua ca');
       const isHetCa = (v) => normalizeCa(v).includes('het ca');
-      const isHetCaOnlyFilter = Array.isArray(selectedCas) &&
-        selectedCas.length === 1 &&
-        isHetCa(selectedCas[0]);
-
       if (isHetCaOnlyFilter) {
-        const uniqueMap = new Map();
+        const groupedTotal = new Map();
+        const numericFields = [
+          'cpqc', 'soMessCmt', 'soDon', 'dsChot',
+          'soDonHuy', 'doanhSoHuy', 'dsSauHoanHuy',
+          'dsSauShip', 'dsThanhCong', 'kpiValue',
+          'soDonThucTe', 'dsChotThucTe', 'dsHoanHuyThucTe',
+          'soDonHuyThucTe', 'dsSauHoanHuyThucTe', 'dsThanhCongThucTe'
+        ];
+
         filteredDataResult.forEach((r) => {
-          const d = r.ngay instanceof Date ? r.ngay.toISOString().slice(0, 10) : String(r.ngay || '');
-          // Key loại trừ "ca" theo yêu cầu.
-          const key = [
+          const key = r.__keyNoCa || [
             String(r.idnv || '').trim().toLowerCase(),
             String(r.ten || '').trim().toLowerCase(),
-            d,
+            String(r.ngayKey || '').trim().toLowerCase(),
             String(r.team || '').trim().toLowerCase(),
             String(r.sanPham || '').trim().toLowerCase(),
             String(r.thiTruong || '').trim().toLowerCase(),
           ].join('||');
-          if (!uniqueMap.has(key)) uniqueMap.set(key, r);
+
+          if (!groupedTotal.has(key)) {
+            groupedTotal.set(key, { ...r, ca: 'Hết ca' });
+          } else {
+            const agg = groupedTotal.get(key);
+            numericFields.forEach((f) => {
+              agg[f] = (Number(agg[f]) || 0) + (Number(r[f]) || 0);
+            });
+          }
         });
-        return Array.from(uniqueMap.values());
+
+        return Array.from(groupedTotal.values());
       }
 
       const grouped = new Map();
       filteredDataResult.forEach((r) => {
-        // Nhóm theo nhân sự + ngày + team + sản phẩm + thị trường để loại trùng theo ca
-        const d = r.ngay instanceof Date ? r.ngay.toISOString().slice(0, 10) : String(r.ngay || '');
-        const key = [
+        // Nhóm theo nhân sự + ngày + team + sản phẩm + thị trường (bỏ yếu tố ca)
+        const key = r.__keyNoCa || [
           String(r.idnv || '').trim().toLowerCase(),
           String(r.ten || '').trim().toLowerCase(),
-          d,
+          String(r.ngayKey || '').trim().toLowerCase(),
           String(r.team || '').trim().toLowerCase(),
           String(r.sanPham || '').trim().toLowerCase(),
           String(r.thiTruong || '').trim().toLowerCase(),
@@ -1604,7 +1639,8 @@
       sortList(summaryList, sortStates.summary, summaryColumnSortKeys, { prop: 'team', type: 'string' });
       renderSummary(summaryList);
       updateSortIcons(document.getElementById('summary-table'), sortStates.summary);
-      renderDailyBreakdown(filteredData);
+      // Nhường nhịp render để bảng tổng hợp hiển thị trước, rồi mới dựng breakdown nặng.
+      requestAnimationFrame(() => renderDailyBreakdown(filteredData));
     }
 
     function applyTab3Filters() {
@@ -1878,7 +1914,7 @@
       };
 
       let idx = 0;
-      const CHUNK_SIZE = 1; // load dần từng ngày
+      const CHUNK_SIZE = DAILY_RENDER_CHUNK_SIZE; // load theo lô để giảm thời gian hoàn tất render
       const renderNextChunk = () => {
         if (currentJobId !== dailyRenderJobId) return;
         const start = idx;

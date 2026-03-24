@@ -67,6 +67,7 @@ function VanDon() {
     nv_sale: [],
     nv_mkt: [],
     nv_van_don: [],
+    shipping_unit: [],
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã'
@@ -574,6 +575,7 @@ function VanDon() {
       nv_sale: [],
       nv_mkt: [],
       nv_van_don: [],
+      shipping_unit: [],
       tracking_include: '',
       tracking_exclude: '',
       tracking_status: 'Tình trạng mã'
@@ -701,7 +703,7 @@ function VanDon() {
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
+  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, filterValues.shipping_unit, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
 
   const savePendingToLocalStorage = (newPending) => {
     const changesToSave = {};
@@ -832,11 +834,12 @@ function VanDon() {
     return filtered;
   }, [allColumns, visibleColumns, bolActiveTab]);
 
-  /** Số cột cố định khi cuộn ngang: clamp 0 … số cột đang hiện (từ trái sang phải). */
+  /** Luôn cố định tối thiểu 2 cột trái khi cuộn ngang. */
   const effectiveFixedColumns = useMemo(() => {
+    const minFixed = Math.min(2, currentColumns.length);
     const raw = Number(fixedColumns);
-    const n = Number.isFinite(raw) ? Math.floor(raw) : 0;
-    return Math.max(0, Math.min(n, currentColumns.length));
+    const n = Number.isFinite(raw) ? Math.floor(raw) : minFixed;
+    return Math.max(minFixed, Math.min(n, currentColumns.length));
   }, [fixedColumns, currentColumns.length]);
 
   const checkboxStickyPad = bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0;
@@ -1177,6 +1180,14 @@ function VanDon() {
           return v && set.has(v);
         });
       }
+      if (filterValues.shipping_unit && Array.isArray(filterValues.shipping_unit) && filterValues.shipping_unit.length > 0) {
+        const set = new Set(filterValues.shipping_unit);
+        data = data.filter((row) => {
+          const v = String(row['Đơn vị vận chuyển'] || row['Đơn_vị_vận_chuyển'] || '').trim();
+          if (set.has('__EMPTY__') && !v) return true;
+          return v && set.has(v);
+        });
+      }
     } catch (err) {
       console.warn('⚠️ [Filter Error] Lỗi khi xử lý Market/Product filter:', err);
     }
@@ -1206,7 +1217,7 @@ function VanDon() {
     // Column Filters (Text & Dropdown) - Áp dụng cho tất cả users (bao gồm Admin nếu họ muốn filter)
     Object.entries(filterValues).forEach(([key, val]) => {
       // Skip các filter đặc biệt đã được xử lý riêng
-      if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
+      if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
 
       // Skip nếu giá trị rỗng
       if (val === null || val === undefined) return;
@@ -2249,6 +2260,21 @@ function VanDon() {
             </div>
           </div>
 
+          <div className="flex items-center gap-2 bg-cyan-50 px-3 py-1.5 rounded-lg border border-cyan-200">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🚛 ĐV Vận chuyển:</label>
+            <div className="relative" style={{ minWidth: '170px', zIndex: 998 }}>
+              <MultiSelect
+                label="Chọn đơn vị..."
+                options={getMultiSelectOptions('Đơn vị vận chuyển')}
+                selected={filterValues.shipping_unit || []}
+                onChange={(vals) => {
+                  setFilterValues((prev) => ({ ...prev, shipping_unit: vals }));
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
+          </div>
+
           {/* Toolbar Actions Group */}
           <div className="flex items-center gap-2">
             <button
@@ -2291,22 +2317,24 @@ function VanDon() {
               Cố định (freeze):
               <input
                 type="number"
-                min={0}
+                min={Math.min(2, currentColumns.length)}
                 max={currentColumns.length}
                 className="w-10 border-none bg-transparent focus:ring-0 text-center font-bold text-[#F37021]"
                 value={fixedColumns}
                 onChange={(e) => {
                   const raw = e.target.value;
                   if (raw === '') {
-                    setFixedColumns(0);
+                    setFixedColumns(Math.min(2, currentColumns.length));
                     return;
                   }
                   const v = Number(raw);
-                  setFixedColumns(Number.isFinite(v) ? v : 0);
+                  const minFixed = Math.min(2, currentColumns.length);
+                  setFixedColumns(Number.isFinite(v) ? Math.max(minFixed, v) : minFixed);
                 }}
                 onBlur={() => {
+                  const minFixed = Math.min(2, currentColumns.length);
                   setFixedColumns((p) =>
-                    Math.max(0, Math.min(Math.floor(Number(p) || 0), currentColumns.length))
+                    Math.max(minFixed, Math.min(Math.floor(Number(p) || minFixed), currentColumns.length))
                   );
                 }}
               />
@@ -2403,8 +2431,9 @@ function VanDon() {
 
                     const stickyLeft = getStickyLeftPx(idx);
 
-                    const stickyStyle = idx < effectiveFixedColumns ?
-                      { position: 'sticky', left: stickyLeft, zIndex: 1001, background: '#f8f9fa' } : { zIndex: 1000 };
+                    const stickyStyle = idx < effectiveFixedColumns
+                      ? { position: 'sticky', left: stickyLeft, zIndex: 3200, background: '#f8f9fa' }
+                      : { position: 'relative', zIndex: 10 };
 
                     return (
                       <th data-col-idx={idx} key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : (isQtyCol ? '' : 'px-4')}`} style={{
@@ -2466,7 +2495,7 @@ function VanDon() {
                   })}
                 </tr>
               </thead>
-              <tbody style={{ position: 'relative', zIndex: 1 }}>
+              <tbody style={{ position: 'relative', zIndex: 0 }}>
                 {loading ? (
                   <tr><td colSpan={currentColumns.length + (bolActiveTab === 'hanoi' ? 1 : 0)} className="text-center p-10 text-gray-500">Đang tải dữ liệu...</td></tr>
                 ) : paginatedData.length === 0 ? (
@@ -2478,7 +2507,7 @@ function VanDon() {
                       <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
                         {/* Checkbox column - chỉ hiển thị trong tab Hà Nội */}
                         {bolActiveTab === 'hanoi' && (
-                          <td className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10" style={{ position: 'sticky', left: 0, zIndex: 10, backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb' }}>
+                          <td className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10" style={{ position: 'sticky', left: 0, zIndex: 3300, backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb' }}>
                             <div className="flex items-center justify-center">
                               <input
                                 type="checkbox"
@@ -2525,9 +2554,9 @@ function VanDon() {
 
                           const colWidthStyles = getColumnWidthStyles(col);
 
-                          const cellStyle = cIdx < effectiveFixedColumns ?
-                            { position: 'sticky', left: cellStickyLeft, zIndex: 10, ...colWidthStyles, boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined } :
-                            colWidthStyles;
+                          const cellStyle = cIdx < effectiveFixedColumns
+                            ? { position: 'sticky', left: cellStickyLeft, zIndex: 3100, ...colWidthStyles, boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined }
+                            : { position: 'relative', zIndex: 10, ...colWidthStyles };
 
                           return (
                             <td

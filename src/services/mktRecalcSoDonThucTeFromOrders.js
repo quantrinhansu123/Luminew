@@ -153,7 +153,32 @@ async function fetchHumanResourceEmailLookup() {
   return buildEmailByNameLookup(data || []);
 }
 
-export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRun = false } = {}) {
+async function fetchUserTeamLookup() {
+  const { data, error } = await supabase
+    .from('users')
+    .select('name, team');
+
+  if (error) {
+    console.warn('[MKT recalc] users team:', error.message);
+    return new Map();
+  }
+
+  const lookup = new Map();
+  for (const row of data || []) {
+    const nameKey = normalizeStr(row?.name);
+    const team = String(row?.team || '').trim();
+    if (!nameKey || !team) continue;
+    if (!lookup.has(nameKey)) lookup.set(nameKey, team);
+  }
+  return lookup;
+}
+
+export async function recalcMktSoDonThucTeFromOrders({
+  startDate,
+  endDate,
+  dryRun = false,
+  createMissingRows = true,
+} = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
 
@@ -161,10 +186,11 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
     throw new Error('Khoảng ngày không hợp lệ. Vui lòng truyền startDate/endDate dạng YYYY-MM-DD.');
   }
 
-  const [reports, orders, hrEmailLookup] = await Promise.all([
+  const [reports, orders, hrEmailLookup, userTeamLookup] = await Promise.all([
     fetchAllReportsInRange(normalizedStart, normalizedEnd),
     fetchAllOrdersInRange(normalizedStart, normalizedEnd),
     fetchHumanResourceEmailLookup(),
+    fetchUserTeamLookup(),
   ]);
 
   // countsByGroup: Map value { count, totalRevenueVnd, cancelCount, cancelRevenueVnd, sample }
@@ -272,43 +298,47 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
   }
 
   // 2) Create missing report rows for keys not present in detail_reports (B2)
-  for (const group of ['Hết ca', 'Giữa ca']) {
-    const mapForGroup = countsByGroup[group];
-    for (const [key, entry] of mapForGroup.entries()) {
-      const exists = existingByCaKey.has(`${group}|${key}`);
-      if (exists) continue;
+  if (createMissingRows) {
+    for (const group of ['Hết ca', 'Giữa ca']) {
+      const mapForGroup = countsByGroup[group];
+      for (const [key, entry] of mapForGroup.entries()) {
+        const exists = existingByCaKey.has(`${group}|${key}`);
+        if (exists) continue;
 
-      const email = emailFromName(entry.sample.name, hrEmailLookup) || '';
+        const email = emailFromName(entry.sample.name, hrEmailLookup) || '';
+        const teamFromUsers = userTeamLookup.get(normalizeStr(entry.sample.name)) || '';
+        const resolvedTeam = teamFromUsers || entry.sample.team || 'MKT';
 
-      const row = {
-        id: makeId(),
-        'Tên': entry.sample.name,
-        'Email': email,
-        'Ngày': entry.sample.date,
-        ca: group,
-        'Sản_phẩm': entry.sample.product,
-        'Thị_trường': entry.sample.market,
-        'Team': entry.sample.team || 'MKT',
-        'Số đơn thực tế': entry.count,
-        'Doanh số TT': entry.totalRevenueVnd ?? 0,
-        'Số đơn hoàn hủy thực tế': entry.cancelCount ?? 0,
-        'Doanh số hoàn hủy thực tế': entry.cancelRevenueVnd ?? 0,
-      };
-      createRows.push(row);
-
-      if (previewRows.length < PREVIEW_LIMIT) {
-        previewRows.push({
+        const row = {
+          id: makeId(),
+          'Tên': entry.sample.name,
+          'Email': email,
+          'Ngày': entry.sample.date,
           ca: group,
-          'Ngày': row['Ngày'],
-          'Tên': row['Tên'],
-          'Sản_phẩm': row['Sản_phẩm'],
-          'Thị_trường': row['Thị_trường'],
-          'Số đơn thực tế': row['Số đơn thực tế'],
-          'Doanh số TT': row['Doanh số TT'],
-          'Số đơn hoàn hủy thực tế': row['Số đơn hoàn hủy thực tế'],
-          'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
-          action: 'create',
-        });
+          'Sản_phẩm': entry.sample.product,
+          'Thị_trường': entry.sample.market,
+          'Team': resolvedTeam,
+          'Số đơn thực tế': entry.count,
+          'Doanh số TT': entry.totalRevenueVnd ?? 0,
+          'Số đơn hoàn hủy thực tế': entry.cancelCount ?? 0,
+          'Doanh số hoàn hủy thực tế': entry.cancelRevenueVnd ?? 0,
+        };
+        createRows.push(row);
+
+        if (previewRows.length < PREVIEW_LIMIT) {
+          previewRows.push({
+            ca: group,
+            'Ngày': row['Ngày'],
+            'Tên': row['Tên'],
+            'Sản_phẩm': row['Sản_phẩm'],
+            'Thị_trường': row['Thị_trường'],
+            'Số đơn thực tế': row['Số đơn thực tế'],
+            'Doanh số TT': row['Doanh số TT'],
+            'Số đơn hoàn hủy thực tế': row['Số đơn hoàn hủy thực tế'],
+            'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
+            action: 'create',
+          });
+        }
       }
     }
   }

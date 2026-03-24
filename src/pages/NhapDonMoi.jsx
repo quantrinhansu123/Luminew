@@ -1053,15 +1053,25 @@ export default function NhapDonMoi({ isEdit = false }) {
         try {
             const date = new Date(dateTimeString);
             const hour = date.getHours();
+            const minute = date.getMinutes();
+            const totalMinutes = hour * 60 + minute;
 
             // Logic phân ca:
-            // Giữa ca: 8h - 17h59
-            // Hết ca: 18h trở đi hoặc trước 8h (ca đêm)
-            if (hour >= 8 && hour < 18) {
+            // - 07:30 -> 15:30: "Giữa ca"
+            // - 15:31 -> 23:59: "Giữa ca,Hết ca" (để tính được cả 2 nhóm ca)
+            // - Còn lại (00:00 -> 07:29): "Hết ca"
+            const startGiuaCa = 7 * 60 + 30;   // 07:30
+            const endGiuaCa = 15 * 60 + 30;    // 15:30
+            const startBoth = 15 * 60 + 31;    // 15:31
+            const endDay = 23 * 60 + 59;       // 23:59
+
+            if (totalMinutes >= startGiuaCa && totalMinutes <= endGiuaCa) {
                 return "Giữa ca";
-            } else {
-                return "Hết ca";
             }
+            if (totalMinutes >= startBoth && totalMinutes <= endDay) {
+                return "Giữa ca,Hết ca";
+            }
+            return "Hết ca";
         } catch (error) {
             console.error("Error calculating shift:", error);
             return null;

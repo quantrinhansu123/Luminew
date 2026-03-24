@@ -61,11 +61,28 @@ function assignRowIndexByOrderDate(rows) {
 const FFM_FIRST_BATCH_SIZE = 400;
 const FFM_NEXT_BATCH_SIZE = 1000;
 const HIDDEN_FFM_COLUMNS = new Set(['Payment Bill', 'Payment Image']);
+const FFM_ALLOWED_EDIT_COLUMNS = new Set([
+  'Kết quả Check',
+  'Kết quả check',
+  'Kết quả',
+  'Mã Tracking',
+  'Ngày đóng hàng',
+  'Trạng thái giao hàng',
+  'GHI CHÚ',
+  'Thời gian giao dự kiến',
+  'Ngày đẩy đơn',
+  'Phí ship nội địa Mỹ (usd)',
+  'Ngày kế toán đối soát',
+]);
 
 /** Lấy ngày hôm nay định dạng YYYY-MM-DD */
 function getTodayDateStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function isEditableColFFM(colName) {
+  return FFM_ALLOWED_EDIT_COLUMNS.has(String(colName || '').trim());
 }
 
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
@@ -1482,7 +1499,7 @@ function FFM() {
           if (targetColIndex >= currentColumns.length) break;
 
           const colName = currentColumns[targetColIndex];
-          if (!EDITABLE_COLS.includes(colName)) {
+          if (!isEditableColFFM(colName)) {
             skippedCount++;
             continue;
           }
@@ -1572,9 +1589,22 @@ function FFM() {
     };
   }, [selectionBounds, paginatedData, currentColumns]);
 
+  const existingTrackingOwnerMap = useMemo(() => {
+    const map = {};
+    (allData || []).forEach((row) => {
+      const orderId = String(row?.[PRIMARY_KEY_COLUMN] || '').trim();
+      const tracking = getTrackingCodeFFM(row).toLowerCase();
+      if (!orderId || !tracking) return;
+      if (!map[tracking]) map[tracking] = orderId;
+    });
+    return map;
+  }, [allData]);
+
   const getColumnWidthPx = useCallback((col) => {
     if (col === 'STT') return 50;
     if (col === 'Mã đơn hàng') return 150;
+    if (col === 'Kết quả Check' || col === 'Kết quả check') return 90;
+    if (col === 'Mã Tracking') return 260;
     if (col === 'Add') return 250; // Giảm xuống 250px theo yêu cầu
     return 120;
   }, []);
@@ -1584,6 +1614,8 @@ function FFM() {
     if (col === 'Add') return { minWidth: '220px', maxWidth: '350px', width: '250px' };
     if (col === 'STT') return { minWidth: '50px', width: '50px' };
     if (col === 'Mã đơn hàng') return { minWidth: '150px', width: '150px' };
+    if (col === 'Kết quả Check' || col === 'Kết quả check') return { minWidth: '90px', width: '90px', maxWidth: '90px' };
+    if (col === 'Mã Tracking') return { minWidth: '260px', width: '260px' };
     return { minWidth: `${w}px` };
   }, [getColumnWidthPx]);
 
@@ -1631,7 +1663,7 @@ function FFM() {
     //   );
     // }
 
-    const isEditable = EDITABLE_COLS.includes(col);
+    const isEditable = isEditableColFFM(col);
     if (isEditable) {
       const orderId = row[PRIMARY_KEY_COLUMN];
       if (pendingChanges.get(orderId)?.has(COLUMN_MAPPING[col] || col)) {
@@ -2156,7 +2188,7 @@ function FFM() {
                                 orderCode={orderId}
                               />
                             </Suspense>
-                          ) : EDITABLE_COLS.includes(col) ? (
+                          ) : isEditableColFFM(col) ? (
                             <input
                               type="text"
                               key={`${orderId}-${col}-${String(displayVal)}`}
@@ -2300,6 +2332,7 @@ function FFM() {
           isOpen={quickAddModalOpen}
           onClose={() => setQuickAddModalOpen(false)}
           onSync={handleQuickSync}
+          existingTrackingOwnerMap={existingTrackingOwnerMap}
         />
       </Suspense>
 

@@ -1374,6 +1374,7 @@ const AdminTools = () => {
             const result = await recalcMktSoDonThucTeFromOrders({
                 startDate: normStart,
                 endDate: normEnd,
+                createMissingRows: true, // Có key trong orders mà thiếu ở detail_reports => tự tạo dòng
             });
 
             toast.dismiss();

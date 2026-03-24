@@ -1156,6 +1156,12 @@ function DanhSachDon() {
   const filteredData = useMemo(() => {
     let data = [...allData];
 
+    // View này chỉ hiển thị dữ liệu chi nhánh Hà Nội.
+    data = data.filter((row) => {
+      const raw = String(row["Team"] ?? row["Chi nhánh"] ?? '').trim().toLowerCase();
+      return raw === 'hà nội' || raw === 'ha noi' || raw === 'hanoi';
+    });
+
     // Filter by selected personnel (nếu có)
     // Admin KHÔNG bị filter, luôn xem tất cả đơn
     // Giờ selectedPersonnelNames chứa TÊN trực tiếp từ DB
