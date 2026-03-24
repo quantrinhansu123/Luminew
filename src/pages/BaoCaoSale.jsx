@@ -1462,65 +1462,23 @@ export default function BaoCaoSale({ reportType = 'sale' } = {}) {
                                         <th rowSpan={2} style={{ verticalAlign: 'middle' }}>Nhân viên</th>
                                         <th rowSpan={2} style={{ verticalAlign: 'middle' }}>Team</th>
                                         {kpiColumnVisibility.soDonDSChot && (
-                                            <>
-                                                <th colSpan="2" className="text-center">Số đơn và DS chốt</th>
-                                            </>
+                                            <th rowSpan={2} style={{ verticalAlign: 'middle' }}>DS chốt</th>
                                         )}
                                         {kpiColumnVisibility.soDonDSHuy && (
-                                            <>
-                                                <th colSpan="2" className="text-center">Số đơn và DS hủy</th>
-                                            </>
+                                            <th rowSpan={2} style={{ verticalAlign: 'middle' }}>DS hủy</th>
                                         )}
                                         {kpiColumnVisibility.soDonDSSauHuy && (
-                                            <>
-                                                <th colSpan="2" className="text-center">Số đơn và DS sau hủy</th>
-                                            </>
+                                            <th rowSpan={2} style={{ verticalAlign: 'middle' }}>DS sau hủy</th>
                                         )}
                                         {kpiColumnVisibility.soDonDSDi && (
-                                            <>
-                                                <th colSpan="2" className="text-center">Số đơn và DS đi</th>
-                                            </>
+                                            <th rowSpan={2} style={{ verticalAlign: 'middle' }}>DS đi</th>
                                         )}
                                         {kpiColumnVisibility.soDonDThuTC && (
-                                            <>
-                                                <th colSpan="2" className="text-center">Số đơn và DThu thành công</th>
-                                            </>
+                                            <th rowSpan={2} style={{ verticalAlign: 'middle' }}>DThu TC</th>
                                         )}
                                         {kpiColumnVisibility.ship && <th rowSpan={2} style={{ verticalAlign: 'middle', minWidth: '150px' }}>Ship</th>}
                                         {kpiColumnVisibility.dThuTinhKPI && <th rowSpan={2} style={{ verticalAlign: 'middle' }}>DThu tính KPI</th>}
                                         {kpiColumnVisibility.tyLeThuTien && <th rowSpan={2} style={{ verticalAlign: 'middle' }}>Tỷ lệ thu tiền</th>}
-                                    </tr>
-                                    <tr style={{ backgroundColor: '#2d5016', color: 'white' }}>
-                                        {kpiColumnVisibility.soDonDSChot && (
-                                            <>
-                                                <th>Số đơn</th>
-                                                <th>DS chốt</th>
-                                            </>
-                                        )}
-                                        {kpiColumnVisibility.soDonDSHuy && (
-                                            <>
-                                                <th>Số đơn</th>
-                                                <th>DS hủy</th>
-                                            </>
-                                        )}
-                                        {kpiColumnVisibility.soDonDSSauHuy && (
-                                            <>
-                                                <th>Số đơn</th>
-                                                <th>DS sau hủy</th>
-                                            </>
-                                        )}
-                                        {kpiColumnVisibility.soDonDSDi && (
-                                            <>
-                                                <th>Số đơn</th>
-                                                <th>DS đi</th>
-                                            </>
-                                        )}
-                                        {kpiColumnVisibility.soDonDThuTC && (
-                                            <>
-                                                <th>Số đơn</th>
-                                                <th>DThu TC</th>
-                                            </>
-                                        )}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1529,34 +1487,19 @@ export default function BaoCaoSale({ reportType = 'sale' } = {}) {
                                         <tr className="total-row" style={{ backgroundColor: '#fffacd' }}>
                                             <td className="total-label" colSpan={3} style={{ fontWeight: 'bold' }}>TỔNG CỘNG</td>
                                             {kpiColumnVisibility.soDonDSChot && (
-                                                <>
-                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonChot)}</td>
-                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsChot)}</td>
-                                                </>
+                                                <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsChot)}</td>
                                             )}
                                             {kpiColumnVisibility.soDonDSHuy && (
-                                                <>
-                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonHuy)}</td>
-                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsHuy)}</td>
-                                                </>
+                                                <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsHuy)}</td>
                                             )}
                                             {kpiColumnVisibility.soDonDSSauHuy && (
-                                                <>
-                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonSauHuy)}</td>
-                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsSauHuy)}</td>
-                                                </>
+                                                <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsSauHuy)}</td>
                                             )}
                                             {kpiColumnVisibility.soDonDSDi && (
-                                                <>
-                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonDi)}</td>
-                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsDi)}</td>
-                                                </>
+                                                <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dsDi)}</td>
                                             )}
                                             {kpiColumnVisibility.soDonDThuTC && (
-                                                <>
-                                                    <td className="total-value">{formatNumber(kpiReportData.kpiTotal.soDonTC)}</td>
-                                                    <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dThuTC)}</td>
-                                                </>
+                                                <td className="total-value">{formatCurrency(kpiReportData.kpiTotal.dThuTC)}</td>
                                             )}
                                             {kpiColumnVisibility.ship && (
                                                 <td className="total-value" style={{ whiteSpace: 'nowrap' }}>{formatCurrency(kpiReportData.kpiTotal.ship)}</td>
@@ -1577,34 +1520,19 @@ export default function BaoCaoSale({ reportType = 'sale' } = {}) {
                                                 <td className="text-left">{item.name}</td>
                                                 <td className="text-left">{item.team}</td>
                                                 {kpiColumnVisibility.soDonDSChot && (
-                                                    <>
-                                                        <td>{formatNumber(item.soDonChot)}</td>
-                                                        <td>{formatCurrency(item.dsChot)}</td>
-                                                    </>
+                                                    <td>{formatCurrency(item.dsChot)}</td>
                                                 )}
                                                 {kpiColumnVisibility.soDonDSHuy && (
-                                                    <>
-                                                        <td>{formatNumber(item.soDonHuy)}</td>
-                                                        <td>{formatCurrency(item.dsHuy)}</td>
-                                                    </>
+                                                    <td>{formatCurrency(item.dsHuy)}</td>
                                                 )}
                                                 {kpiColumnVisibility.soDonDSSauHuy && (
-                                                    <>
-                                                        <td>{formatNumber(item.soDonSauHuy)}</td>
-                                                        <td>{formatCurrency(item.dsSauHuy)}</td>
-                                                    </>
+                                                    <td>{formatCurrency(item.dsSauHuy)}</td>
                                                 )}
                                                 {kpiColumnVisibility.soDonDSDi && (
-                                                    <>
-                                                        <td>{formatNumber(item.soDonDi)}</td>
-                                                        <td>{formatCurrency(item.dsDi)}</td>
-                                                    </>
+                                                    <td>{formatCurrency(item.dsDi)}</td>
                                                 )}
                                                 {kpiColumnVisibility.soDonDThuTC && (
-                                                    <>
-                                                        <td>{formatNumber(item.soDonTC)}</td>
-                                                        <td>{formatCurrency(item.dThuTC)}</td>
-                                                    </>
+                                                    <td>{formatCurrency(item.dThuTC)}</td>
                                                 )}
                                                 {kpiColumnVisibility.ship && (
                                                     <td style={{ whiteSpace: 'nowrap' }}>{formatCurrency(item.ship)}</td>

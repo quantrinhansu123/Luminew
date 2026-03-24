@@ -53,6 +53,7 @@ import ReportDashboard from './pages/ReportDashboard';
 import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
+import DashboardQuanTri from './pages/DashboardQuanTri';
 import XemBaoCaoMKTLegacy from './pages/XemBaoCaoMKTLegacy';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import TestMKT from './pages/TestMKT.jsx';
@@ -107,6 +108,7 @@ function AppShell() {
             <Route path="/van-don" element={<ProtectedRoute><VanDon /></ProtectedRoute>} />
             <Route path="/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/embed/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
+            <Route path="/dashboard-quan-tri" element={<ProtectedRoute><DashboardQuanTri /></ProtectedRoute>} />
             <Route path="/danh-sach-van-don" element={<ProtectedRoute><DanhSachVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-van-don" element={<ProtectedRoute><DanhSachBaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-don" element={<ProtectedRoute><DanhSachDon /></ProtectedRoute>} />

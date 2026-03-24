@@ -82,6 +82,21 @@ function normalizeViAscii(s) {
 }
 
 /**
+ * Khớp `name` trên dòng báo cáo (`ten`) với danh sách trong `users.selected_personnel` (tên hoặc email đã resolve sang tên).
+ * Dùng chuẩn hóa + contains giống DanhSachVanDon.
+ */
+export function rowMatchesPersonnelList(ten, allowedList) {
+  if (!allowedList || allowedList.length === 0) return true;
+  const row = normalizeViAscii(ten);
+  if (!row) return false;
+  return allowedList.some((allowed) => {
+    const n = normalizeViAscii(allowed);
+    if (!n) return false;
+    return row === n || row.includes(n) || n.includes(row);
+  });
+}
+
+/**
  * Khóa chuẩn để so khớp chi nhánh: HCM ≈ Hồ Chí Minh ≈ TP.HCM; tránh mất dòng khi `branch` khác text với users.branch.
  */
 export function canonicalBranchKey(label) {
@@ -400,6 +415,8 @@ export function filterRawData({
   allowedBranch,
   allowedTeam,
   allowedNames,
+  /** Danh sách tên được phép xem (từ `users.selected_personnel`); null = không áp dụng. */
+  allowedPersonnelNames = null,
   startDateStr,
   endDateStr,
   productAll,
@@ -417,13 +434,23 @@ export function filterRawData({
   if (endDate) endDate.setHours(23, 59, 59, 999);
 
   return rawData.filter((r) => {
+    if (allowedPersonnelNames && allowedPersonnelNames.length > 0) {
+      if (!rowMatchesPersonnelList(r.ten, allowedPersonnelNames)) return false;
+    }
     if (isRestrictedView) {
       if (allowedBranch && !recordMatchesAllowedBranch(allowedBranch, r)) return false;
       if (allowedTeam) {
         const recordTeam = (r.team || '').trim();
         if (recordTeam !== allowedTeam) return false;
       }
-      if (allowedNames.length > 0 && !allowedNames.includes(r.ten)) return false;
+      // Có selected_personnel → đã lọc theo `ten` ở trên; không ép thêm allowedNames (tránh chặt hơn danh sách được cấp).
+      if (
+        (!allowedPersonnelNames || allowedPersonnelNames.length === 0) &&
+        allowedNames.length > 0 &&
+        !allowedNames.includes(r.ten)
+      ) {
+        return false;
+      }
     }
     const recordDate = new Date(r.ngay);
     recordDate.setHours(12, 0, 0, 0);
@@ -441,15 +468,33 @@ export function filterRawData({
   });
 }
 
-export function filterRawForRestrictedPopulate(rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames) {
-  if (!isRestrictedView) return rawData;
+export function filterRawForRestrictedPopulate(
+  rawData,
+  isRestrictedView,
+  allowedBranch,
+  allowedTeam,
+  allowedNames,
+  allowedPersonnelNames = null
+) {
+  const passPersonnel = (r) =>
+    !allowedPersonnelNames ||
+    allowedPersonnelNames.length === 0 ||
+    rowMatchesPersonnelList(r.ten, allowedPersonnelNames);
+
+  if (!isRestrictedView) {
+    return rawData.filter((r) => passPersonnel(r));
+  }
   return rawData.filter((r) => {
+    if (!passPersonnel(r)) return false;
     if (allowedBranch) {
       return recordMatchesAllowedBranch(allowedBranch, r);
     }
     if (allowedTeam) {
       const recordTeam = (r.team || '').trim();
       return recordTeam === allowedTeam;
+    }
+    if (allowedPersonnelNames && allowedPersonnelNames.length > 0) {
+      return true;
     }
     if (allowedNames.length > 0) return allowedNames.includes(r.ten);
     return false;

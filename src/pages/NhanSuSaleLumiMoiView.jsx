@@ -4,6 +4,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase/config';
+import usePermissions from '../hooks/usePermissions';
+import * as rbacService from '../services/rbacService';
 import '../styles/NhanSuSaleLumiMoiView.css';
 import {
   NSSL_IFRAME_THU_CONG,
@@ -102,6 +104,33 @@ export default function NhanSuSaleLumiMoiView({
   teamKeyword = 'sale',
 }) {
   const idSheet = useResolvedIdsheet();
+  const { role } = usePermissions();
+
+  /** Admin / Finance: không lọc theo selected_personnel */
+  const isAdmin = useMemo(() => {
+    const roleFromHook = (role || '').toUpperCase();
+    const roleFromStorage = (localStorage.getItem('userRole') || '').toLowerCase();
+    let roleFromUserObj = '';
+    try {
+      const userJson = localStorage.getItem('user');
+      const userObj = userJson ? JSON.parse(userJson) : null;
+      roleFromUserObj = (userObj?.role || '').toLowerCase();
+    } catch {
+      /* ignore */
+    }
+    const h = (roleFromHook || '').toLowerCase();
+    return (
+      h === 'admin' ||
+      h === 'super_admin' ||
+      h === 'finance' ||
+      roleFromStorage === 'admin' ||
+      roleFromStorage === 'super_admin' ||
+      roleFromStorage === 'finance' ||
+      roleFromUserObj === 'admin' ||
+      roleFromUserObj === 'super_admin' ||
+      roleFromUserObj === 'finance'
+    );
+  }, [role]);
 
   const [loading, setLoading] = useState(true);
   const [rawData, setRawData] = useState([]);
@@ -133,6 +162,55 @@ export default function NhanSuSaleLumiMoiView({
   const [iframeKpi, setIframeKpi] = useState(() => buildKpiEmbedUrl(''));
   const [iframeVanDon, setIframeVanDon] = useState(() => buildVanDonEmbedUrl(''));
   const [iframeThuCong, setIframeThuCong] = useState('about:blank');
+
+  /**
+   * Tên nhân sự được phép xem (users.selected_personnel → khớp cột name/ten trên dòng báo cáo).
+   * null = không áp dụng lọc (admin hoặc chưa cấu hình).
+   */
+  const [allowedPersonnelNames, setAllowedPersonnelNames] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (isAdmin) {
+        setAllowedPersonnelNames(null);
+        return;
+      }
+      const email = (localStorage.getItem('userEmail') || '').toLowerCase().trim();
+      if (!email) {
+        setAllowedPersonnelNames(null);
+        return;
+      }
+      try {
+        const map = await rbacService.getSelectedPersonnel([email]);
+        const raw = map[email] || [];
+        const emails = [];
+        const directNames = [];
+        for (const x of raw) {
+          const s = String(x ?? '').trim();
+          if (!s) continue;
+          if (s.includes('@')) emails.push(s.toLowerCase());
+          else directNames.push(s);
+        }
+        let fromEmails = [];
+        if (emails.length) {
+          const nameByEmail = await rbacService.getEmployeeNamesByEmails(emails);
+          for (const e of emails) {
+            const n = nameByEmail[e] ?? nameByEmail[String(e).toLowerCase()];
+            if (n && String(n).trim()) fromEmails.push(String(n).trim());
+          }
+        }
+        const merged = [...new Set([...directNames, ...fromEmails])].filter(Boolean);
+        if (!cancelled) setAllowedPersonnelNames(merged.length ? merged : null);
+      } catch (e) {
+        console.warn('[NhanSuSaleLumiMoi] selected_personnel:', e);
+        if (!cancelled) setAllowedPersonnelNames(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
 
   const setDefaultDates = useCallback(() => {
     const today = new Date();
@@ -298,6 +376,7 @@ export default function NhanSuSaleLumiMoiView({
       allowedBranch,
       allowedTeam,
       allowedNames,
+      allowedPersonnelNames,
       startDateStr: startDate,
       endDateStr: endDate,
       productAll,
@@ -315,6 +394,7 @@ export default function NhanSuSaleLumiMoiView({
     allowedBranch,
     allowedTeam,
     allowedNames,
+    allowedPersonnelNames,
     startDate,
     endDate,
     productAll,
@@ -329,8 +409,16 @@ export default function NhanSuSaleLumiMoiView({
 
   /** Dùng chung cho sidebar — tránh gọi filterRawForRestrictedPopulate hàng chục lần mỗi render */
   const restrictedForPopulate = useMemo(
-    () => filterRawForRestrictedPopulate(rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames),
-    [rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames]
+    () =>
+      filterRawForRestrictedPopulate(
+        rawData,
+        isRestrictedView,
+        allowedBranch,
+        allowedTeam,
+        allowedNames,
+        allowedPersonnelNames
+      ),
+    [rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames, allowedPersonnelNames]
   );
 
   /** Tính lại bảng sau khi React rảnh — bớt lag khi đổi checkbox / ngày (dữ liệu lớn). */

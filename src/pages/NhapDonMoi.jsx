@@ -1890,7 +1890,14 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <Label htmlFor="productMain">Mặt hàng (Chính)</Label>
-                                                        <Popover open={isProductOpen} onOpenChange={setIsProductOpen}>
+                                                        <Popover
+                                                            open={isProductOpen}
+                                                            onOpenChange={(open) => {
+                                                                setIsProductOpen(open);
+                                                                // Mở lại luôn hiển thị đủ gợi ý (không giữ bộ lọc theo mặt hàng đã chọn).
+                                                                if (open) setProductSearch("");
+                                                            }}
+                                                        >
                                                             <div className="relative" ref={productRef}>
                                                                 <PopoverAnchor asChild>
                                                                     <div className="relative">
@@ -1903,11 +1910,22 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                             }}
                                                                             onClick={() => {
                                                                                 if (productRef.current) setProductPopoverWidth(productRef.current.offsetWidth);
+                                                                                setProductSearch("");
                                                                                 setIsProductOpen(true);
                                                                             }}
                                                                             className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] bg-white cursor-pointer"
                                                                         />
-                                                                        <ChevronDown className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none" />
+                                                                        <ChevronDown
+                                                                            className="absolute right-3 top-3 h-4 w-4 opacity-50 cursor-pointer"
+                                                                            aria-hidden
+                                                                            onClick={(e) => {
+                                                                                e.preventDefault();
+                                                                                e.stopPropagation();
+                                                                                if (productRef.current) setProductPopoverWidth(productRef.current.offsetWidth);
+                                                                                setProductSearch("");
+                                                                                setIsProductOpen((v) => !v);
+                                                                            }}
+                                                                        />
                                                                     </div>
                                                                 </PopoverAnchor>
                                                                 {isProductOpen && (
@@ -1925,7 +1943,6 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                         className="flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-gray-100"
                                                                                         onClick={() => {
                                                                                             setFormData(prev => ({ ...prev, productMain: p }));
-                                                                                            setProductSearch(p);
                                                                                             setIsProductOpen(false);
                                                                                         }}
                                                                                     >

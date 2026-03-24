@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 
 import usePermissions from '../hooks/usePermissions';
 
-export default function XemBaoCaoMKTLegacy() {
+export default function XemBaoCaoMKTLegacy({ embedded = false }) {
   const location = useLocation();
   const { canView } = usePermissions();
 
@@ -16,7 +16,9 @@ export default function XemBaoCaoMKTLegacy() {
   }
 
   return (
-    <div className="w-full h-[calc(100vh-64px)] overflow-hidden bg-white">
+    <div
+      className={`w-full overflow-hidden bg-white ${embedded ? 'h-screen' : 'h-[calc(100vh-64px)]'}`}
+    >
       <iframe
         src={iframeSrc}
         className="w-full h-full border-none"

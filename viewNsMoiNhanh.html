@@ -816,6 +816,9 @@
     const API_URL_MKT = 'https://lumidataapi.vercel.app/detail_reports';
     // Đã bỏ API_URL_SALE - chỉ dùng MKT
 
+    /** Trang /xem-bao-cao-mkt: chỉ hiển thị dữ liệu các team này (so khớp đúng chuỗi sau trim). */
+    const MKT_TEAM_WHITELIST = ['HN-MKT', 'Team Test'];
+
     /** lumidataapi/detail_reports: from_date, to_date = DD/MM/YYYY — dùng theo tab đang mở */
     function buildMktDetailReportsFetchUrl() {
       const ymdToDmy = (ymd) => {
@@ -1224,8 +1227,8 @@
             };
           });
 
-        // Chỉ dùng dữ liệu từ MKT
-        masterData = masterDataMKT;
+        // Chỉ dùng dữ liệu từ MKT, giới hạn team (whitelist)
+        masterData = masterDataMKT.filter((r) => MKT_TEAM_WHITELIST.includes((r.team || '').trim()));
 
         console.log(`✅ Đã tải dữ liệu từ API MKT:`);
         console.log(`   - Báo cáo MKT: ${masterDataMKT.length} bản ghi, ${employeeDataMKT.length} nhân viên`);
@@ -1257,7 +1260,8 @@
       // --------------------------------
 
       if (!idFromUrl) {
-        document.getElementById('report-title-tab1').textContent = 'DỮ LIỆU CHI PHÍ ADS';
+        document.getElementById('report-title-tab1').textContent =
+          'DỮ LIỆU CHI PHÍ ADS (HN-MKT · Team Test)';
         baseDataForReport = masterData;
         manualTabBtn.style.display = 'none';
         vandonTabBtn.style.display = 'none';
