@@ -115,6 +115,7 @@ const AdminTools = () => {
     const [exchangeRates, setExchangeRates] = useState([]); // [{id, ti_gia, gia_tri}, ...]
     const [exchangeLoading, setExchangeLoading] = useState(false);
     const [exchangeSaving, setExchangeSaving] = useState(false);
+    const [syncMktTeamLoading, setSyncMktTeamLoading] = useState(false);
     const [editingRateId, setEditingRateId] = useState(null); // ID của dòng đang được edit
     const [editValues, setEditValues] = useState({}); // {rateId: {ti_gia: '', gia_tri: ''}} để lưu giá trị đang edit
 
@@ -1109,6 +1110,115 @@ const AdminTools = () => {
             toast.error('Lỗi khi lưu tỷ giá: ' + error.message);
         } finally {
             setExchangeSaving(false);
+        }
+    };
+
+    // Đồng bộ users.team theo dữ liệu MKT (detail_reports) khớp theo tên nhân sự.
+    const handleSyncMktTeamsToUsers = async () => {
+        if (!window.confirm('Đồng bộ toàn bộ cột team trong bảng users theo tên từ dữ liệu MKT?')) return;
+
+        setSyncMktTeamLoading(true);
+        try {
+            const normalizeName = (v) =>
+                String(v || '')
+                    .trim()
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ');
+
+            const normalizeTeam = (v) => String(v || '').trim();
+
+            // 1) Đọc users để biết danh sách cần update
+            const { data: users, error: usersErr } = await supabase
+                .from('users')
+                .select('id, name, team');
+            if (usersErr) throw usersErr;
+
+            // 2) Đọc nguồn MKT team từ detail_reports (ưu tiên schema snake_case)
+            let mktRows = [];
+            const { data: snakeRows, error: snakeErr } = await supabase
+                .from('detail_reports')
+                .select('ten, team')
+                .not('team', 'is', null)
+                .neq('team', '');
+
+            if (!snakeErr) {
+                mktRows = (snakeRows || []).map((r) => ({ name: r.ten, team: r.team }));
+            } else {
+                // Fallback nếu DB đang dùng cột tiếng Việt
+                const { data: viRows, error: viErr } = await supabase
+                    .from('detail_reports')
+                    .select('"Tên", "Team"')
+                    .not('"Team"', 'is', null)
+                    .neq('"Team"', '');
+                if (viErr) throw viErr;
+                mktRows = (viRows || []).map((r) => ({ name: r['Tên'], team: r['Team'] }));
+            }
+
+            // 3) Gom team theo tên và chọn team xuất hiện nhiều nhất
+            const nameTeamCounter = new Map(); // normalizedName -> Map(team -> count)
+            (mktRows || []).forEach((row) => {
+                const n = normalizeName(row?.name);
+                const t = normalizeTeam(row?.team);
+                if (!n || !t) return;
+                if (!nameTeamCounter.has(n)) nameTeamCounter.set(n, new Map());
+                const teamMap = nameTeamCounter.get(n);
+                teamMap.set(t, (teamMap.get(t) || 0) + 1);
+            });
+
+            const nameToBestTeam = new Map();
+            nameTeamCounter.forEach((teamMap, n) => {
+                let bestTeam = '';
+                let bestCount = -1;
+                teamMap.forEach((count, teamName) => {
+                    if (count > bestCount) {
+                        bestCount = count;
+                        bestTeam = teamName;
+                    }
+                });
+                if (bestTeam) nameToBestTeam.set(n, bestTeam);
+            });
+
+            // 4) Tạo danh sách update: chỉ update khi team tìm thấy và khác team hiện tại
+            const updates = [];
+            (users || []).forEach((u) => {
+                const n = normalizeName(u?.name);
+                if (!n) return;
+                const mappedTeam = nameToBestTeam.get(n);
+                if (!mappedTeam) return;
+                const currentTeam = normalizeTeam(u?.team);
+                if (currentTeam === mappedTeam) return;
+                updates.push({ id: u.id, team: mappedTeam, name: u.name || '' });
+            });
+
+            if (updates.length === 0) {
+                toast.info('Không có dữ liệu cần đồng bộ team.');
+                return;
+            }
+
+            // 5) Update theo lô
+            const CHUNK_SIZE = 100;
+            let done = 0;
+            for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+                const chunk = updates.slice(i, i + CHUNK_SIZE);
+                await Promise.all(
+                    chunk.map((u) =>
+                        supabase
+                            .from('users')
+                            .update({ team: u.team })
+                            .eq('id', u.id)
+                    )
+                );
+                done += chunk.length;
+            }
+
+            toast.success(`Đã đồng bộ team MKT cho ${done} nhân sự (khớp theo Tên).`);
+        } catch (error) {
+            console.error('Error syncing MKT teams to users:', error);
+            toast.error('Lỗi đồng bộ team MKT: ' + (error?.message || 'Unknown error'));
+        } finally {
+            setSyncMktTeamLoading(false);
         }
     };
 
@@ -4094,7 +4204,7 @@ const AdminTools = () => {
     }
 
     return (
-        <div className="p-6 w-full mx-auto min-h-screen bg-gray-50">
+        <div className="w-full max-w-[1400px] mx-auto px-3 md:px-5 lg:px-8 py-4 md:py-6 min-h-screen bg-gray-50">
             <h1 className="text-3xl font-bold mb-8 text-gray-800 flex items-center gap-3">
                 <Settings className="w-8 h-8 text-gray-600" />
                 Công cụ quản trị & Cấu hình
@@ -4913,12 +5023,43 @@ const AdminTools = () => {
                             </div>
                         )}
 
-                        {/* 4. Exchange Rates Management */}
+                        {/* 4. Đồng bộ Team MKT -> Users */}
+                        {isSectionVisible('Đồng bộ Team MKT', ['mkt', 'team', 'đồng bộ', 'users', 'detail_reports']) && (
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                                    <Users className="w-5 h-5 text-emerald-600" />
+                                    4. Đồng bộ Team MKT vào Users
+                                </h3>
+                                <p className="text-sm text-gray-500">
+                                    Đồng bộ toàn bộ cột <code>users.team</code> theo dữ liệu MKT trong <code>detail_reports</code>, khớp theo cột Tên.
+                                </p>
+
+                                <div className="bg-white border rounded-lg shadow-sm p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="text-xs text-gray-600 space-y-1">
+                                            <div>• Nguồn team: bảng <code>detail_reports</code></div>
+                                            <div>• Điều kiện: khớp theo <code>Tên</code> (normalize dấu + khoảng trắng)</div>
+                                            <div>• Chỉ cập nhật khi team mới khác team hiện tại trong <code>users</code></div>
+                                        </div>
+                                        <button
+                                            onClick={handleSyncMktTeamsToUsers}
+                                            disabled={syncMktTeamLoading}
+                                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+                                        >
+                                            <RefreshCw className={`w-4 h-4 ${syncMktTeamLoading ? 'animate-spin' : ''}`} />
+                                            {syncMktTeamLoading ? 'Đang đồng bộ...' : 'Đồng bộ Team MKT'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 5. Exchange Rates Management */}
                         {isSectionVisible('Quản lý tỷ giá', ['tỷ giá', 'exchange', 'rate', 'tiền tệ', 'currency']) && (
                             <div className="space-y-4">
                                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                                     <Package className="w-5 h-5 text-blue-600" />
-                                    4. Quản lý tỷ giá
+                                    5. Quản lý tỷ giá
                                 </h3>
                                 <p className="text-sm text-gray-500">
                                     Cài đặt tỷ giá quy đổi các loại tiền tệ sang VNĐ. Tỷ giá sẽ được tự động áp dụng khi chọn đơn vị tiền tệ trong bảng đối soát bill cước.
