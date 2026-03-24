@@ -92,6 +92,7 @@ const COLUMNS = [
     "Ghi chú",
     "Đơn vị vận chuyển"
 ];
+const TRACKING_COL_INDEX = COLUMNS.indexOf("Mã Tracking");
 
 const QuickAddModal = ({ isOpen, onClose, onSync }) => {
     const [rows, setRows] = useState([]);
@@ -99,6 +100,13 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
     const isSelecting = useRef(false);
     const containerRef = useRef(null);
     const selectionRef = useRef(null);
+    const fillDragRef = useRef({
+        active: false,
+        startRow: null,
+        endRow: null,
+        colIdx: null,
+        value: ''
+    });
 
     useEffect(() => {
         if (isOpen) {
@@ -116,7 +124,38 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
 
     // Mouse up listener
     useEffect(() => {
-        const handleMouseUp = () => { isSelecting.current = false; };
+        const handleMouseUp = () => {
+            isSelecting.current = false;
+            const drag = fillDragRef.current;
+            if (!drag.active || drag.startRow === null || drag.endRow === null || drag.colIdx === null) return;
+
+            const from = Math.min(drag.startRow, drag.endRow);
+            const to = Math.max(drag.startRow, drag.endRow);
+            if (to === from) {
+                fillDragRef.current = { active: false, startRow: null, endRow: null, colIdx: null, value: '' };
+                return;
+            }
+
+            // Batch update một lần khi thả chuột để mượt hơn.
+            setRows((prev) => {
+                const next = prev.map((r) => [...r]);
+                while (next.length <= to) {
+                    next.push(Array(COLUMNS.length).fill(""));
+                }
+                for (let r = from + 1; r <= to; r++) {
+                    next[r][drag.colIdx] = drag.value;
+                }
+                return next;
+            });
+
+            setSelection({
+                startRow: from,
+                endRow: to,
+                startCol: drag.colIdx,
+                endCol: drag.colIdx
+            });
+            fillDragRef.current = { active: false, startRow: null, endRow: null, colIdx: null, value: '' };
+        };
         document.addEventListener('mouseup', handleMouseUp);
         return () => document.removeEventListener('mouseup', handleMouseUp);
     }, []);
@@ -164,6 +203,19 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
     };
 
     const handleMouseEnter = (rowIdx, colIdx) => {
+        if (fillDragRef.current.active) {
+            // Fill handle: chỉ kéo theo chiều dọc trong cùng một cột.
+            if (colIdx === fillDragRef.current.colIdx) {
+                fillDragRef.current.endRow = rowIdx;
+                setSelection({
+                    startRow: fillDragRef.current.startRow,
+                    endRow: rowIdx,
+                    startCol: colIdx,
+                    endCol: colIdx
+                });
+            }
+            return;
+        }
         if (isSelecting.current) {
             setSelection(prev => {
                 if (!prev) return null;
@@ -391,7 +443,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
 
     // Get cell class - giống bảng chính
     const getCellClass = (col, rIdx, cIdx) => {
-        let classes = "px-3 py-2.5 border-r border-b border-gray-200 text-sm h-[42px] whitespace-nowrap transition-all duration-150 ";
+        let classes = "px-3 py-2.5 border-r border-b border-gray-200 text-sm h-[42px] whitespace-nowrap transition-all duration-150 relative ";
 
         // Editable cell style - chuyên nghiệp hơn
         classes += "bg-white border-l-4 border-l-emerald-400 hover:bg-emerald-50/30 hover:border-l-emerald-500 ";
@@ -402,6 +454,15 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
         }
 
         return classes;
+    };
+
+    const isFillHandleCell = (rIdx, cIdx) => {
+        if (!selection) return false;
+        const maxR = Math.max(selection.startRow, selection.endRow);
+        const maxC = Math.max(selection.startCol, selection.endCol);
+        const minR = Math.min(selection.startRow, selection.endRow);
+        const minC = Math.min(selection.startCol, selection.endCol);
+        return minR === maxR && minC === maxC && rIdx === maxR && cIdx === maxC;
     };
 
     // Render cell content - giống bảng chính (dropdown/input trực tiếp)
@@ -509,36 +570,27 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
                 className="bg-white rounded-xl shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col border border-gray-200 overflow-hidden"
                 onClick={e => e.stopPropagation()}
             >
-                {/* Header với gradient và icon */}
-                <div className="flex justify-between items-start p-5 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                {/* Header compact để ưu tiên diện tích bảng */}
+                <div className="flex justify-between items-start px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
                     <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-md">
-                                <span className="text-white text-xl font-bold">⚡</span>
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-md flex items-center justify-center shadow-sm">
+                                <span className="text-white text-base font-bold">⚡</span>
                             </div>
                             <div>
-                                <h4 className="text-xl font-bold text-gray-800">Thêm nhanh / Cập nhật hàng loạt</h4>
-                                <p className="text-xs text-gray-500 mt-0.5">Bulk data entry & update</p>
+                                <h4 className="text-base font-bold text-gray-800 leading-tight">Thêm nhanh / Cập nhật hàng loạt</h4>
+                                <p className="text-[11px] text-gray-500 mt-0">Bulk data entry</p>
                             </div>
                         </div>
-                        <div className="mt-3 space-y-1.5">
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
-                                <span>Nhập trực tiếp hoặc <kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded text-xs font-mono">Ctrl+V</kbd> để paste từ Excel</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
-                                <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded text-xs font-mono">Ctrl+C</kbd> để copy vùng chọn</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-blue-600">
-                                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
-                                <span>💡 Kéo chuột để chọn nhiều ô • Mũi tên để di chuyển • Delete để xóa</span>
-                            </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-gray-600">
+                            <span>Ctrl+V: paste Excel</span>
+                            <span>Ctrl+C: copy vùng chọn</span>
+                            <span className="text-blue-600">Kéo góc ô để sao chép xuống</span>
                         </div>
                     </div>
                     <button 
                         onClick={onClose} 
-                        className="ml-4 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all duration-200 text-xl font-light"
+                        className="ml-3 w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-md transition-all duration-200 text-lg font-light"
                         aria-label="Đóng"
                     >
                         ×
@@ -574,7 +626,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
                                     </div>
                                 </th>
                                 {COLUMNS.map((col, idx) => (
-                                    <th key={idx} className="p-3 border-b-2 border-r border-gray-600 min-w-[140px] text-left">
+                                    <th key={idx} className={`p-3 border-b-2 border-r border-gray-600 text-left ${idx === TRACKING_COL_INDEX ? 'min-w-[260px]' : 'min-w-[140px]'}`}>
                                         <div className="font-bold text-white flex items-center gap-1.5">
                                             <span>{col}</span>
                                             {idx === 0 && <span className="text-red-400 text-xs">*</span>}
@@ -597,10 +649,28 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
                                         <td
                                             key={cIdx}
                                             className={getCellClass(col, rIdx, cIdx)}
+                                            style={cIdx === TRACKING_COL_INDEX ? { minWidth: '260px', width: '260px' } : undefined}
                                             onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}
                                             onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
                                         >
                                             {renderCell(col, rIdx, cIdx, row[cIdx] || "")}
+                                            {isFillHandleCell(rIdx, cIdx) && (
+                                                <div
+                                                    title="Kéo để sao chép xuống"
+                                                    className="absolute right-0 bottom-0 w-2.5 h-2.5 bg-blue-600 border border-white rounded-sm cursor-ns-resize shadow-sm"
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        fillDragRef.current = {
+                                                            active: true,
+                                                            startRow: rIdx,
+                                                            endRow: rIdx,
+                                                            colIdx: cIdx,
+                                                            value: row[cIdx] || ''
+                                                        };
+                                                    }}
+                                                />
+                                            )}
                                         </td>
                                     ))}
                                 </tr>

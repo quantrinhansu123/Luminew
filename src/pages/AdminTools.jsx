@@ -5,7 +5,8 @@ import { toast } from 'react-toastify';
 import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
-// import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
 
 // Constants for LocalStorage Keys
@@ -78,6 +79,26 @@ const AdminTools = () => {
         return `${year}-${month}-${day}`;
     });
     const [mktRecalcResult, setMktRecalcResult] = useState(null);
+
+    // Sale reports: order_count từ orders (sale_staff)
+    const [saleRecalcLoading, setSaleRecalcLoading] = useState(false);
+    const [saleRecalcStartDate, setSaleRecalcStartDate] = useState(() => {
+        const today = new Date();
+        const d = new Date(today);
+        d.setDate(d.getDate() - 30);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    });
+    const [saleRecalcEndDate, setSaleRecalcEndDate] = useState(() => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    });
+    const [saleRecalcResult, setSaleRecalcResult] = useState(null);
 
     // --- SETTINGS STATE ---
     const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -1216,7 +1237,8 @@ const AdminTools = () => {
         if (mktRecalcLoading) return;
 
         const ok = window.confirm(
-            'Tính lại "Số đơn thực tế" (Số đơn TT) cho Báo cáo MKT theo logic Key match giữa orders và detail_reports.\n\n' +
+            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (tổng VND mọi đơn), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
+            'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result, fallback payment_status).\n\n' +
             'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
@@ -1237,7 +1259,7 @@ const AdminTools = () => {
         try {
             setMktRecalcLoading(true);
             setMktRecalcResult(null);
-            toast.info('Đang tính lại Số đơn TT cho Báo cáo MKT...', { autoClose: false });
+            toast.info('Đang tính lại Báo cáo MKT (đơn TT, đơn hủy, DS hủy)...', { autoClose: false });
 
             const result = await recalcMktSoDonThucTeFromOrders({
                 startDate: normStart,
@@ -1252,6 +1274,51 @@ const AdminTools = () => {
             toast.error('Lỗi tính lại Số đơn TT: ' + (error?.message || String(error)));
         } finally {
             setMktRecalcLoading(false);
+        }
+    };
+
+    const handleRecalcSaleOrderCount = async () => {
+        if (saleRecalcLoading) return;
+
+        const ok = window.confirm(
+            'Tính lại sales_reports: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).\n\n' +
+            'Key match giữa orders (sale_staff) và sales_reports (name, date, shift, product, market).\n\n' +
+            'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n' +
+            'Bạn có chắc muốn chạy không?'
+        );
+        if (!ok) return;
+
+        const normStart = String(saleRecalcStartDate || '').trim();
+        const normEnd = String(saleRecalcEndDate || '').trim();
+        if (!normStart || !normEnd) {
+            alert('Vui lòng nhập đầy đủ TỪ NGÀY và ĐẾN NGÀY.');
+            return;
+        }
+
+        if (normStart > normEnd) {
+            alert('Từ ngày phải <= đến ngày.');
+            return;
+        }
+
+        try {
+            setSaleRecalcLoading(true);
+            setSaleRecalcResult(null);
+            toast.info('Đang tính lại sales_reports (đơn, doanh thu, hủy)...', { autoClose: false });
+
+            const result = await recalcSaleOrderCountFromOrders({
+                startDate: normStart,
+                endDate: normEnd,
+            });
+
+            toast.dismiss();
+            const n = result.upserted ?? result.upsertCount ?? 0;
+            toast.success(`Hoàn tất: cập nhật ${n} dòng.`);
+            setSaleRecalcResult(result);
+        } catch (error) {
+            console.error('Recalc sales_reports error:', error);
+            toast.error('Lỗi tính lại sales_reports: ' + (error?.message || String(error)));
+        } finally {
+            setSaleRecalcLoading(false);
         }
     };
 
@@ -4262,8 +4329,8 @@ const AdminTools = () => {
                                 Cập nhật Số đơn TT cho Báo cáo MKT
                             </h3>
                             <p className="text-sm text-gray-600 mb-4">
-                                Tính lại theo Key: <span className="font-medium">Ngày + Tên + Sản phẩm + Thị trường</span>, tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
-                                Không phụ thuộc <span className="font-medium">Kết quả Check</span>. Có thể tạo dòng mới nếu thiếu key trong <span className="font-medium">detail_reports</span>.
+                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (MKT) + Sản phẩm + Thị trường</span> khớp <span className="font-medium">orders</span> (marketing_staff, country), tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
+                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key (tổng VND không loại đơn Hủy). <span className="font-medium">Số đơn hoàn hủy thực tế</span> và <span className="font-medium">Doanh số hoàn hủy thực tế</span>: chỉ đơn có Kết quả Check dạng Hủy/Huỷ (ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>); VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key trong <span className="font-medium">detail_reports</span>.
                             </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
@@ -4337,6 +4404,9 @@ const AdminTools = () => {
                                                         <th className="px-3 py-2 text-left whitespace-nowrap">Sản_phẩm</th>
                                                         <th className="px-3 py-2 text-left whitespace-nowrap">Thị_trường</th>
                                                         <th className="px-3 py-2 text-left whitespace-nowrap">Số đơn thực tế</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Doanh số TT (VND)</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Số đơn hoàn hủy TT</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">DS hoàn hủy TT (VND)</th>
                                                         <th className="px-3 py-2 text-left whitespace-nowrap">action</th>
                                                     </tr>
                                                 </thead>
@@ -4350,6 +4420,121 @@ const AdminTools = () => {
                                                             <td className="px-3 py-2 text-gray-700">{r['Sản_phẩm'] || '-'}</td>
                                                             <td className="px-3 py-2 text-gray-700">{r['Thị_trường'] || '-'}</td>
                                                             <td className="px-3 py-2 text-gray-900">{r['Số đơn thực tế'] ?? 0}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{Number(r['Doanh số TT'] ?? 0).toLocaleString('vi-VN')}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{r['Số đơn hoàn hủy thực tế'] ?? 0}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{Number(r['Doanh số hoàn hủy thực tế'] ?? 0).toLocaleString('vi-VN')}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* SALES_REPORTS: order_count + revenue + cancel + revenue_cancel_actual */}
+                        <div className="border border-gray-200 rounded-lg p-5 bg-white">
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-2">
+                                <RefreshCw className="w-5 h-5 text-emerald-600" />
+                                Cập nhật Báo cáo Sale (sales_reports)
+                            </h3>
+                            <p className="text-sm text-gray-600 mb-4">
+                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (NV Sale) + Sản phẩm + Thị trường</span>, nguồn đơn: <span className="font-medium">orders.sale_staff</span>, <span className="font-medium">country</span>, tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
+                                Ghi <span className="font-medium">order_count</span> (mọi đơn khớp key), <span className="font-medium">revenue_actual</span> (tổng VND mọi đơn khớp), <span className="font-medium">order_cancel_count_actual</span> và <span className="font-medium">revenue_cancel_actual</span> (số đơn hủy + tổng VND chỉ các đơn đó; Kết quả Check Hủy/Huỷ, ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>). Tiền VND: total_amount_vnd → total_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key.
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                                <label className="block">
+                                    <span className="text-sm font-medium text-gray-700">Từ ngày</span>
+                                    <input
+                                        type="date"
+                                        value={saleRecalcStartDate}
+                                        onChange={(e) => setSaleRecalcStartDate(e.target.value)}
+                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    />
+                                </label>
+                                <label className="block">
+                                    <span className="text-sm font-medium text-gray-700">Đến ngày</span>
+                                    <input
+                                        type="date"
+                                        value={saleRecalcEndDate}
+                                        onChange={(e) => setSaleRecalcEndDate(e.target.value)}
+                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    />
+                                </label>
+                            </div>
+
+                            <button
+                                onClick={handleRecalcSaleOrderCount}
+                                disabled={saleRecalcLoading || loading}
+                                className="w-full py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
+                            >
+                                {saleRecalcLoading ? (
+                                    <>
+                                        <span className="animate-spin">⏳</span> Đang cập nhật...
+                                    </>
+                                ) : (
+                                    <>
+                                        <RefreshCw size={18} /> Tính lại báo cáo Sale
+                                    </>
+                                )}
+                            </button>
+
+                            {saleRecalcResult && (
+                                <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                    <div className="text-sm font-semibold text-gray-800 mb-3">Kết quả tính toán</div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm border border-gray-200 rounded-lg">
+                                            <tbody>
+                                                {Object.entries(saleRecalcResult).map(([k, v]) => {
+                                                    if (k === 'previewRows') return null;
+                                                    return (
+                                                        <tr key={k} className="border-t border-gray-200">
+                                                            <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{k}</td>
+                                                            <td className="px-3 py-2 text-gray-900">
+                                                                {typeof v === 'number' ? v : (v == null ? '-' : String(v))}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {Array.isArray(saleRecalcResult.previewRows) && saleRecalcResult.previewRows.length > 0 && (
+                                        <div className="mt-4 overflow-x-auto">
+                                            <div className="text-sm font-semibold text-gray-800 mb-2">Preview các dòng đã update/create</div>
+                                            <table className="w-full text-sm border border-gray-200 rounded-lg">
+                                                <thead className="bg-white">
+                                                    <tr className="border-b border-gray-200">
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">#</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">shift (ca)</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">date</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">name</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">product</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">market</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">order_count</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">revenue_actual (VND)</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">order_cancel_count_actual</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">revenue_cancel_actual (VND)</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {saleRecalcResult.previewRows.map((r, idx) => (
+                                                        <tr key={`${r.action}-${idx}`} className="border-t border-gray-200">
+                                                            <td className="px-3 py-2 text-gray-700">{idx + 1}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.ca || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.Ngày || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.Tên || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.Sản_phẩm || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.Thị_trường || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{r.order_count ?? 0}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{Number(r.revenue_actual ?? 0).toLocaleString('vi-VN')}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{r.order_cancel_count_actual ?? 0}</td>
+                                                            <td className="px-3 py-2 text-gray-900">{Number(r.revenue_cancel_actual ?? 0).toLocaleString('vi-VN')}</td>
                                                             <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
                                                         </tr>
                                                     ))}

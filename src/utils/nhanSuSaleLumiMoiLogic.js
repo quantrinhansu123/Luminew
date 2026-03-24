@@ -2,7 +2,32 @@
  * Logic trích từ nhanSuSaleLumiMoi.html (giữ nguyên công thức / lọc / gom nhóm).
  */
 
+import { supabase } from '../supabase/config';
 import { convertDateToAPIFormat } from '../services/ordersApiService';
+
+/** Chỉ cột cần cho view — giảm payload so với select('*') */
+const SALES_REPORTS_SELECT = [
+  'name',
+  'email',
+  'team',
+  'branch',
+  'position',
+  'date',
+  'shift',
+  'product',
+  'market',
+  'mess_count',
+  'response_count',
+  'order_count',
+  'revenue_actual',
+  'revenue_go_actual',
+  'order_cancel_count',
+  'revenue_cancel',
+  'order_success_count',
+  'revenue_success',
+  'order_cancel_count_actual',
+  'revenue_cancel_actual',
+].join(',');
 
 export const SALES_REPORTS_API_BASE = 'https://lumidataapi.vercel.app';
 /** KPI Sale — trong app (KPisale.html trên github.io bị CORS + timeout khi gọi n-api-rouge). */
@@ -47,6 +72,56 @@ export function formatDateDisplay(dateValue) {
   return `${day}/${month}/${year}`;
 }
 
+function normalizeViAscii(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Khóa chuẩn để so khớp chi nhánh: HCM ≈ Hồ Chí Minh ≈ TP.HCM; tránh mất dòng khi `branch` khác text với users.branch.
+ */
+export function canonicalBranchKey(label) {
+  const t = normalizeViAscii(label);
+  if (!t || t.includes('khong xac dinh')) return '';
+  if (/hcm|tp\.?\s*hcm|ho\s*chi\s*minh|sai\s*gon|saigon|hochiminh/.test(t)) return 'BR_HCM';
+  if (/(^|\s)hn(\s|$)|ha\s*noi|hanoi/.test(t)) return 'BR_HN';
+  if (/da\s*nang|danang/.test(t)) return 'BR_DN';
+  if (/can\s*tho|cantho/.test(t)) return 'BR_CT';
+  return `BR_RAW_${t}`;
+}
+
+export function rowCanonicalBranchKey(r) {
+  if (!r) return '';
+  const fromChi = canonicalBranchKey(r.chiNhanh);
+  if (fromChi) return fromChi;
+  return canonicalBranchKey(r.team);
+}
+
+/** Sale Leader: dòng có cùng “chi nhánh logic” với user */
+export function recordMatchesAllowedBranch(allowedBranch, r) {
+  const a = String(allowedBranch || '').trim();
+  if (!a) return true;
+  const want = canonicalBranchKey(a);
+  const got = rowCanonicalBranchKey(r);
+  if (want && got) return want === got;
+  return (r.chiNhanh || '').trim().toLowerCase() === a.toLowerCase();
+}
+
+function displayChiNhanhFromBranchAndTeam(branchStr, teamStr) {
+  const b = String(branchStr || '').trim();
+  if (b && !/^không xác định$/i.test(b)) return b;
+  const t = normalizeViAscii(teamStr);
+  if (/hcm|tp\.?\s*hcm|ho\s*chi\s*minh|sai\s*gon/.test(t)) return 'HCM';
+  if (/(^|\s)hn(\s|$)|ha\s*noi/.test(t)) return 'Hà Nội';
+  if (/da\s*nang/.test(t)) return 'Đà Nẵng';
+  if (/can\s*tho/.test(t)) return 'Cần Thơ';
+  return b || 'Không xác định';
+}
+
 export function mapApiToRawRows(apiData) {
   return apiData
     .filter(
@@ -84,6 +159,45 @@ export function mapApiToRawRows(apiData) {
     }));
 }
 
+/**
+ * Một dòng từ Supabase `sales_reports` — cùng shape với mapLumidataSalesReportRow (đồng bộ API lumidata).
+ */
+export function mapSupabaseSalesReportRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const ten = String(row.name ?? '').trim();
+  const team = String(row.team ?? '').trim();
+  if (!ten || !team) return null;
+  const oc = Number(row.order_count) || 0;
+  const ra = Number(row.revenue_actual) || 0;
+  const rca = Number(row.revenue_cancel_actual) || 0;
+  return {
+    chucVu: String(row.position ?? '').trim(),
+    ten,
+    email: String(row.email ?? '').trim(),
+    team,
+    chiNhanh: displayChiNhanhFromBranchAndTeam(row.branch, row.team),
+    ngay: row.date ?? '',
+    ca: row.shift || 'Hết ca',
+    sanPham: row.product || '',
+    thiTruong: row.market || '',
+    soMessCmt: Number(row.mess_count) || 0,
+    soDon: 0,
+    dsChot: 0,
+    phanHoi: Number(row.response_count) || 0,
+    doanhSoDi: Number(row.revenue_go_actual) || 0,
+    soDonHuy: Number(row.order_cancel_count) || 0,
+    doanhSoHuy: Number(row.revenue_cancel) || 0,
+    soDonThanhCong: Number(row.order_success_count) || 0,
+    doanhSoThanhCong: Number(row.revenue_success) || 0,
+    soDonThucTe: oc,
+    doanhThuChotThucTe: ra,
+    doanhSoDiThucTe: Number(row.revenue_go_actual) || 0,
+    soDonHoanHuyThucTe: Number(row.order_cancel_count_actual) || 0,
+    doanhSoHoanHuyThucTe: rca,
+    doanhSoSauHoanHuyThucTe: ra - rca,
+  };
+}
+
 /** Một dòng từ lumidataapi `/sales_reports` → cùng shape với mapApiToRawRows (đồng bộ BaoCaoSale.jsx). */
 export function mapLumidataSalesReportRow(item) {
   if (!item || typeof item !== 'object') return null;
@@ -95,7 +209,7 @@ export function mapLumidataSalesReportRow(item) {
     ten,
     email: String(item.email ?? '').trim(),
     team,
-    chiNhanh: String(item.branch ?? '').trim() || 'Không xác định',
+    chiNhanh: displayChiNhanhFromBranchAndTeam(item.branch, item.team),
     ngay: item.date ?? '',
     ca: item.ca || 'Hết ca',
     sanPham: item.san_pham || '',
@@ -120,9 +234,48 @@ export function mapLumidataSalesReportRow(item) {
 }
 
 /**
- * Tải toàn bộ sales_reports trong khoảng ngày (YYYY-MM-DD), có phân trang after_id.
+ * Phân trang Supabase (nhanh hơn nhiều so với N lần gọi lumidataapi).
+ * Không lọc team ở đây — lọc `sale`/`cskh` ở client (team HCM thường không chứa chữ "sale").
  */
-export async function fetchSalesReportsMapped(startDateStr, endDateStr, signal) {
+export async function fetchSalesReportsFromSupabase(startDateStr, endDateStr, signal) {
+  if (!startDateStr || !endDateStr) return [];
+
+  const PAGE = 1000;
+  const rows = [];
+  let from = 0;
+
+  while (true) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    const q = supabase
+      .from('sales_reports')
+      .select(SALES_REPORTS_SELECT)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr)
+      .order('date', { ascending: false })
+      .range(from, from + PAGE - 1);
+
+    const { data, error } = await q;
+
+    if (error) {
+      throw error;
+    }
+
+    const chunk = data || [];
+    rows.push(...chunk);
+    if (chunk.length < PAGE) break;
+    from += PAGE;
+  }
+
+  return rows.map(mapSupabaseSalesReportRow).filter(Boolean);
+}
+
+/**
+ * Fallback: lumidataapi — phân trang after_id (có thể rất chậm nhiều vòng).
+ */
+export async function fetchSalesReportsFromLumidataApi(startDateStr, endDateStr, signal) {
   const from_date = convertDateToAPIFormat(startDateStr);
   const to_date = convertDateToAPIFormat(endDateStr);
   if (!from_date || !to_date) return [];
@@ -135,6 +288,9 @@ export async function fetchSalesReportsMapped(startDateStr, endDateStr, signal) 
   const maxFetches = 100;
 
   while (hasMore && fetchCount < maxFetches) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
     fetchCount += 1;
     const params = new URLSearchParams();
     params.append('from_date', from_date);
@@ -158,6 +314,20 @@ export async function fetchSalesReportsMapped(startDateStr, endDateStr, signal) 
   }
 
   return allData.map(mapLumidataSalesReportRow).filter(Boolean);
+}
+
+/**
+ * Tải sales_reports: ưu tiên Supabase, lỗi/RLS thì fallback lumidataapi.
+ * Lọc sale/cskh theo team — thực hiện ở component sau khi map (tránh loại nhầm chi nhánh HCM).
+ */
+export async function fetchSalesReportsMapped(startDateStr, endDateStr, signal) {
+  try {
+    return await fetchSalesReportsFromSupabase(startDateStr, endDateStr, signal);
+  } catch (e) {
+    if (e?.name === 'AbortError') throw e;
+    console.warn('[fetchSalesReportsMapped] Supabase không dùng được, dùng lumidataapi:', e?.message || e);
+    return fetchSalesReportsFromLumidataApi(startDateStr, endDateStr, signal);
+  }
 }
 
 const initialSummary = () => ({
@@ -248,10 +418,7 @@ export function filterRawData({
 
   return rawData.filter((r) => {
     if (isRestrictedView) {
-      if (allowedBranch) {
-        const recordBranch = (r.chiNhanh || '').trim();
-        if (recordBranch.toLowerCase() !== allowedBranch.toLowerCase()) return false;
-      }
+      if (allowedBranch && !recordMatchesAllowedBranch(allowedBranch, r)) return false;
       if (allowedTeam) {
         const recordTeam = (r.team || '').trim();
         if (recordTeam !== allowedTeam) return false;
@@ -278,8 +445,7 @@ export function filterRawForRestrictedPopulate(rawData, isRestrictedView, allowe
   if (!isRestrictedView) return rawData;
   return rawData.filter((r) => {
     if (allowedBranch) {
-      const recordBranch = (r.chiNhanh || '').trim();
-      return recordBranch.toLowerCase() === allowedBranch.toLowerCase();
+      return recordMatchesAllowedBranch(allowedBranch, r);
     }
     if (allowedTeam) {
       const recordTeam = (r.team || '').trim();

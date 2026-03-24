@@ -1,5 +1,6 @@
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName } from '../utils/emailFromName';
+import { getCheckResult, isCheckResultHuy, orderAmountVnd } from '../utils/orderCheckAndVnd';
 
 function normalizeStr(str) {
   if (str === null || str === undefined) return '';
@@ -121,7 +122,9 @@ async function fetchAllOrdersInRange(startDate, endDate) {
   while (true) {
     const { data, error } = await supabase
       .from('orders')
-      .select('order_code, order_date, marketing_staff, product, country, shift, total_amount_vnd, team')
+      .select(
+        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+      )
       .gte('order_date', startDate)
       .lte('order_date', endDate)
       .order('order_date', { ascending: false })
@@ -164,14 +167,13 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
     fetchHumanResourceEmailLookup(),
   ]);
 
-  // countsByGroup: { 'Hết ca': Map<key, {count, sample}>, 'Giữa ca': ... }
+  // countsByGroup: Map value { count, totalRevenueVnd, cancelCount, cancelRevenueVnd, sample }
   const countsByGroup = {
     'Hết ca': new Map(),
     'Giữa ca': new Map(),
   };
 
-  // B2: Số đơn TT(R) = count(F ∈ F3 | Key(F) = Key(R))
-  // => trong DB map vào cột: "Số đơn thực tế"
+  // B2: Số đơn thực tế = count mọi đơn khớp key; Doanh số TT = tổng VND mọi đơn (không loại Hủy); đơn/DS hủy chỉ khi Check = Hủy
   for (const order of orders || []) {
     const groups = orderShiftToGroups(order.shift);
     if (!groups.length) continue;
@@ -179,14 +181,25 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
     const key = buildKey(order.order_date, order.marketing_staff, order.product, order.country);
     if (!key) continue;
 
+    const vnd = orderAmountVnd(order);
+    const huy = isCheckResultHuy(getCheckResult(order));
+
     for (const group of groups) {
       const mapForGroup = countsByGroup[group];
       const existing = mapForGroup.get(key);
       if (existing) {
         existing.count += 1;
+        existing.totalRevenueVnd += vnd;
+        if (huy) {
+          existing.cancelCount += 1;
+          existing.cancelRevenueVnd += vnd;
+        }
       } else {
         mapForGroup.set(key, {
           count: 1,
+          totalRevenueVnd: vnd,
+          cancelCount: huy ? 1 : 0,
+          cancelRevenueVnd: huy ? vnd : 0,
           sample: {
             date: normalizeDateStr(order.order_date),
             name: String(order.marketing_staff || '').trim(),
@@ -222,13 +235,20 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
   for (const r of reportRows) {
     const group = reportCaToGroup(r.ca);
     const key = buildKey(r['Ngày'], r['Tên'], r['Sản_phẩm'], r['Thị_trường']);
-    const count = countsByGroup[group]?.get(key)?.count || 0;
+    const agg = countsByGroup[group]?.get(key);
+    const count = agg?.count || 0;
+    const soDonHoanHuyTT = agg?.cancelCount ?? 0;
+    const dsHoanHuyTT = agg?.cancelRevenueVnd ?? 0;
+    const doanhSoTT = agg?.totalRevenueVnd ?? 0;
 
     if (!r.id) continue;
     const resolvedEmail = emailFromName(r['Tên'], hrEmailLookup);
     const patch = {
       id: r.id,
       'Số đơn thực tế': count,
+      'Doanh số TT': doanhSoTT,
+      'Số đơn hoàn hủy thực tế': soDonHoanHuyTT,
+      'Doanh số hoàn hủy thực tế': dsHoanHuyTT,
     };
     if (resolvedEmail && !String(r['Email'] ?? '').trim()) {
       patch['Email'] = resolvedEmail;
@@ -243,6 +263,9 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
         'Sản_phẩm': String(r['Sản_phẩm'] || '').trim(),
         'Thị_trường': String(r['Thị_trường'] || '').trim(),
         'Số đơn thực tế': count,
+        'Doanh số TT': doanhSoTT,
+        'Số đơn hoàn hủy thực tế': soDonHoanHuyTT,
+        'Doanh số hoàn hủy thực tế': dsHoanHuyTT,
         action: 'update',
       });
     }
@@ -267,6 +290,9 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
         'Thị_trường': entry.sample.market,
         'Team': entry.sample.team || 'MKT',
         'Số đơn thực tế': entry.count,
+        'Doanh số TT': entry.totalRevenueVnd ?? 0,
+        'Số đơn hoàn hủy thực tế': entry.cancelCount ?? 0,
+        'Doanh số hoàn hủy thực tế': entry.cancelRevenueVnd ?? 0,
       };
       createRows.push(row);
 
@@ -278,6 +304,9 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
           'Sản_phẩm': row['Sản_phẩm'],
           'Thị_trường': row['Thị_trường'],
           'Số đơn thực tế': row['Số đơn thực tế'],
+          'Doanh số TT': row['Doanh số TT'],
+          'Số đơn hoàn hủy thực tế': row['Số đơn hoàn hủy thực tế'],
+          'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
           action: 'create',
         });
       }
@@ -296,7 +325,7 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
     };
   }
 
-  // Chỉ cập nhật cột "Số đơn thực tế" — KHÔNG dùng upsert partial (tránh ghi NULL các cột khác)
+  // Cập nhật Số đơn thực tế, Doanh số TT, Số đơn hoàn hủy TT, Doanh số hoàn hủy TT — không upsert partial toàn bảng
   const UPDATE_CHUNK = 80;
   let touched = 0;
 
@@ -333,8 +362,7 @@ export async function recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRu
 }
 
 /**
- * Sau khi Lưu / Cập nhật đơn (nhap-don): tính lại "Số đơn thực tế" (Số đơn TT) theo Key match orders ↔ detail_reports.
- * Không dùng Kết quả Check — chỉ đếm đơn theo Key(F) = Key(R) và phân nhóm ca (shift).
+ * Sau khi Lưu / Cập nhật đơn (nhap-don): tính lại Số đơn thực tế, Doanh số TT (tổng VND mọi đơn khớp key), đơn/DS hoàn hủy thực tế (chỉ đơn Check = Hủy).
  *
  * @param {string} newOrderDate - Ngày đơn sau lưu (YYYY-MM-DD hoặc string DB)
  * @param {string} [previousOrderDate] - Khi sửa đơn: ngày đơn trước khi đổi (để tính lại cả ngày cũ)

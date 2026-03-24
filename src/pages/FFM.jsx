@@ -59,6 +59,7 @@ function assignRowIndexByOrderDate(rows) {
 /** Lô đầu nhỏ để lên UI nhanh; các lô sau rộng hơn. */
 const FFM_FIRST_BATCH_SIZE = 400;
 const FFM_NEXT_BATCH_SIZE = 1000;
+const HIDDEN_FFM_COLUMNS = new Set(['Payment Bill', 'Payment Image']);
 
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
 const QuickAddModal = lazy(() => import('../components/QuickAddModal'));
@@ -68,6 +69,10 @@ const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
 
 function FFM() {
   const { canView } = usePermissions();
+  const ffmColumns = useMemo(
+    () => ORDER_MGMT_COLUMNS.filter((col) => !HIDDEN_FFM_COLUMNS.has(col)),
+    []
+  );
 
 
 
@@ -93,7 +98,7 @@ function FFM() {
     }
     // Initialize with default columns
     const initial = {};
-    ORDER_MGMT_COLUMNS.forEach(col => {
+    ffmColumns.forEach(col => {
       initial[col] = true;
     });
     return initial;
@@ -122,7 +127,7 @@ function FFM() {
 
   const [omActiveTeam, setOmActiveTeam] = useState('all');
   const [omDateType, setOmDateType] = useState('Ngày đóng hàng');
-  const [showFilters, setShowFilters] = useState(true); // Collapse/expand filters
+  const [showFilters, setShowFilters] = useState(false); // Collapse/expand filters
 
   /** Chi nhánh: Tất cả | Hà Nội | HCM */
   const [ffmBranchFilter, setFfmBranchFilter] = useState('all');
@@ -306,6 +311,14 @@ function FFM() {
     } catch (e) {
       return String(dateString);
     }
+  };
+
+  const getTodayYmd = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   };
 
   const loadData = async () => {
@@ -545,8 +558,25 @@ function FFM() {
 
   // Filter columns based on visibility
   const currentColumns = useMemo(() => {
-    return ORDER_MGMT_COLUMNS.filter(col => visibleColumns[col] === true);
-  }, [visibleColumns]);
+    return ffmColumns.filter(col => visibleColumns[col] === true);
+  }, [ffmColumns, visibleColumns]);
+
+  // Số cột cố định khi kéo ngang (freeze từ trái sang phải)
+  const effectiveFixedColumns = useMemo(() => {
+    const raw = Number(fixedColumns);
+    const n = Number.isFinite(raw) ? Math.floor(raw) : 0;
+    return Math.max(0, Math.min(n, currentColumns.length));
+  }, [fixedColumns, currentColumns.length]);
+
+  const getStickyLeftPx = useCallback((idx) => idx * 140, []);
+
+  // Nếu số cột hiển thị giảm, tự clamp lại fixedColumns
+  useEffect(() => {
+    setFixedColumns((prev) => {
+      const n = Math.floor(Number(prev) || 0);
+      return Math.max(0, Math.min(n, currentColumns.length));
+    });
+  }, [currentColumns.length]);
 
   // Save column visibility to localStorage
   useEffect(() => {
@@ -953,7 +983,33 @@ function FFM() {
 
     if (String(newValue) === String(stepOriginalValue)) return;
 
-    pushChange([{ orderId, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
+    const changes = [
+      { orderId, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }
+    ];
+
+    // Khi vừa điền Mã Tracking -> tự điền "Ngày có mã tracking" = hôm nay (nếu đang trống).
+    const isTrackingCol = colKey === 'Mã Tracking' || colKey === 'tracking_code';
+    const nextTracking = String(newValue || '').trim();
+    if (isTrackingCol && nextTracking) {
+      const trackingDateKey = 'Ngày có mã tracking';
+      const pendingTrackingDate = pendingChanges.get(orderId)?.get(trackingDateKey)?.newValue;
+      const rowTrackingDate = originalRow
+        ? (originalRow[trackingDateKey] ?? originalRow.ngay_co_ma_tracking ?? originalRow.ngaycomatracking ?? '')
+        : '';
+      const currentTrackingDate = String(pendingTrackingDate ?? rowTrackingDate ?? '').trim();
+
+      if (!currentTrackingDate) {
+        const today = getTodayYmd();
+        changes.push({
+          orderId,
+          colKey: trackingDateKey,
+          originalValue: '',
+          newValue: today
+        });
+      }
+    }
+
+    pushChange(changes);
   }, [allData, pendingChanges, pushChange]);
 
   const handleUpdateAll = async () => {
@@ -973,8 +1029,8 @@ function FFM() {
       'Trạng thái giao hàng',
       'GHI CHÚ',
       'Thời gian giao dự kiến',
-      'Phí ship nội địa Mỹ (usd)',
-      'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+      'Ngày kế toán đối soát',
+      'Ngày kế toán đối soát lần 2',
       'Kết quả Check',
       'Ghi chú',
       'Đơn vị vận chuyển'
@@ -1419,7 +1475,7 @@ function FFM() {
     }, 0);
   }, [getFilteredData]);
 
-  const getCellClass = (row, col, val, rIdx, cIdx) => {
+  const getCellClass = useCallback((row, col, val, rIdx, cIdx) => {
     let classes =
       'px-4 py-2.5 border border-gray-200 text-sm min-h-[38px] min-w-max align-top whitespace-normal break-words overflow-visible box-border ';
 
@@ -1450,8 +1506,9 @@ function FFM() {
       }
     }
 
-    if (cIdx < fixedColumns) {
-      classes += 'sticky z-10 left-0 bg-gray-50 ';
+    if (cIdx < effectiveFixedColumns) {
+      // `left` được set bằng inline style theo từng cột để freeze đúng vị trí.
+      classes += 'sticky z-10 bg-gray-50 ';
     }
 
     if (
@@ -1482,25 +1539,25 @@ function FFM() {
     }
 
     return classes;
-  };
+  }, [selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns]);
 
   if (!canView('ORDERS_FFM')) {
     return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (ORDERS_FFM).</div>;
   }
 
   return (
-    <div className="min-h-screen flex flex-col p-4 font-sans text-gray-800 bg-[#f8f9fa]">
+    <div className="min-h-screen flex flex-col p-2 font-sans text-gray-800 bg-[#f8f9fa]">
       {/* Header */}
-      <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
+      <div className="bg-white rounded-lg shadow-sm p-2 mb-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
               src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
               alt="Header"
-              className="h-10 object-contain"
+              className="h-7 object-contain"
             />
-            <h2 className="text-xl font-bold text-gray-700">HỆ THỐNG QUẢN LÝ SPEEGO</h2>
-            <div className="flex items-center gap-2 text-sm">
+            <h2 className="text-lg font-bold text-gray-700">HỆ THỐNG QUẢN LÝ SPEEGO</h2>
+            <div className="flex items-center gap-1.5 text-xs">
               <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
               <span className="text-gray-600">{allData.length} đơn hàng</span>
             </div>
@@ -1509,21 +1566,21 @@ function FFM() {
       </div>
 
       {/* Filters Section - Collapsible */}
-      <div className="bg-white rounded-lg shadow-sm mb-4">
+      <div className="bg-white rounded-lg shadow-sm mb-2">
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors rounded-t-lg"
+          className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 transition-colors rounded-t-lg"
         >
-          <span className="font-semibold text-gray-700">🔍 Bộ lọc</span>
-          <span className="text-gray-500">{showFilters ? '▲' : '▼'}</span>
+          <span className="font-semibold text-gray-700 text-sm">🔍 Bộ lọc</span>
+          <span className="text-gray-500 text-xs">{showFilters ? '▲' : '▼'}</span>
         </button>
         {showFilters && (
-          <div className="px-4 pb-4 border-t border-gray-200">
-            <div className="flex flex-wrap items-end gap-3 pt-4">
-              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+          <div className="px-3 pb-2 border-t border-gray-200">
+            <div className="flex flex-wrap items-end gap-2 pt-2">
+              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Chi nhánh</label>
                 <select
-                  className="px-2 py-1.5 border rounded text-sm bg-white"
+                  className="px-2 py-1 border rounded text-xs bg-white"
                   value={ffmBranchFilter}
                   onChange={(e) => {
                     setFfmBranchFilter(e.target.value);
@@ -1535,10 +1592,10 @@ function FFM() {
                   <option value="hcm">HCM</option>
                 </select>
               </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[160px]">
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
                 <label className="text-xs font-semibold text-gray-500">Tình trạng mã Tracking</label>
                 <select
-                  className="px-2 py-1.5 border rounded text-sm bg-white"
+                  className="px-2 py-1 border rounded text-xs bg-white"
                   value={ffmTrackingPresence}
                   onChange={(e) => {
                     setFfmTrackingPresence(e.target.value);
@@ -1550,7 +1607,7 @@ function FFM() {
                   <option value="no">Chưa có mã</option>
                 </select>
               </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Thị trường</label>
                 <MultiSelect
                   label="Tất cả"
@@ -1560,7 +1617,7 @@ function FFM() {
                   onChange={(vals) => setFilterValues((prev) => ({ ...prev, market: vals }))}
                 />
               </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Sản phẩm</label>
                 <MultiSelect
                   label="Tất cả"
@@ -1570,34 +1627,34 @@ function FFM() {
                   onChange={(vals) => setFilterValues((prev) => ({ ...prev, product: vals }))}
                 />
               </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Loại ngày</label>
-                <select className="px-2 py-1.5 border rounded text-sm bg-white" value={omDateType} onChange={(e) => setOmDateType(e.target.value)}>
+                <select className="px-2 py-1 border rounded text-xs bg-white" value={omDateType} onChange={(e) => setOmDateType(e.target.value)}>
                   <option value="Ngày lên đơn">Ngày lên đơn</option>
                   <option value="Ngày đóng hàng">Ngày đóng hàng</option>
                   <option value="Ngày đẩy đơn">Ngày đẩy đơn</option>
                   <option value="Ngày có mã tracking">Ngày có mã tracking</option>
                 </select>
               </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Từ ngày</label>
                 <input
                   type="date"
-                  className="px-2 py-1.5 border rounded text-sm bg-white"
+                  className="px-2 py-1 border rounded text-xs bg-white"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
                 />
               </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Tới ngày</label>
                 <input
                   type="date"
-                  className="px-2 py-1.5 border rounded text-sm bg-white"
+                  className="px-2 py-1 border rounded text-xs bg-white"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
                 />
               </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Kết quả Check</label>
                 <MultiSelect
                   label="Tất cả"
@@ -1607,8 +1664,8 @@ function FFM() {
                   onChange={(vals) => setFilterValues((prev) => ({ ...prev, ['Kết quả Check']: vals }))}
                 />
               </div>
-              <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
-                <button onClick={refreshData} className="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm transition shadow-sm">
+              <div className="flex-1 flex flex-col gap-1 min-w-[110px]">
+                <button onClick={refreshData} className="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs transition shadow-sm">
                   🗑️ Xóa lọc
                 </button>
               </div>
@@ -1618,11 +1675,11 @@ function FFM() {
       </div>
 
       {/* Action Bar */}
-      <div className="sticky top-0 z-[40] bg-white rounded-lg shadow-sm border border-gray-200 mb-4 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-[40] bg-white rounded-lg shadow-sm border border-gray-200 mb-2 p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {/* Left: Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={loadData} disabled={loading} className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm font-medium transition disabled:opacity-50">
+            <button onClick={loadData} disabled={loading} className="bg-green-500 hover:bg-green-600 text-white px-2.5 py-1 rounded text-xs font-medium transition disabled:opacity-50">
               {loading ? '...' : '↻ Load'}
             </button>
             {ffmHasMore && !ffmBackgroundLoading && (
@@ -1630,12 +1687,12 @@ function FFM() {
                 type="button"
                 onClick={loadMoreFfmData}
                 disabled={loading || loadingMore}
-                className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded text-sm font-medium transition disabled:opacity-50"
+                className="bg-teal-600 hover:bg-teal-700 text-white px-2.5 py-1 rounded text-xs font-medium transition disabled:opacity-50"
               >
                 {loadingMore ? 'Đang tải…' : '⬇ Tải thêm đơn'}
               </button>
             )}
-            <button onClick={() => setSyncPopoverOpen(true)} className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm font-medium relative">
+            <button onClick={() => setSyncPopoverOpen(true)} className="bg-gray-500 hover:bg-gray-600 text-white px-2.5 py-1 rounded text-xs font-medium relative">
               Trạng thái
               {pendingChanges.size > 0 && (
                 <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center border border-white">
@@ -1643,15 +1700,41 @@ function FFM() {
                 </div>
               )}
             </button>
-            <button onClick={handleUpdateAll} className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium">
+            <button onClick={handleUpdateAll} className="bg-blue-500 hover:bg-blue-600 text-white px-2.5 py-1 rounded text-xs font-medium">
               Cập nhật
             </button>
-            <button onClick={() => setQuickAddModalOpen(true)} className="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1.5 rounded text-sm font-medium">
+            <button onClick={() => setQuickAddModalOpen(true)} className="bg-indigo-500 hover:bg-indigo-600 text-white px-2.5 py-1 rounded text-xs font-medium">
               ⚡ Thêm nhanh
             </button>
-            <button onClick={() => setShowColumnSettings(true)} className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded text-sm font-medium transition flex items-center gap-1">
+            <button onClick={() => setShowColumnSettings(true)} className="bg-gray-600 hover:bg-gray-700 text-white px-2.5 py-1 rounded text-xs font-medium transition flex items-center gap-1">
               ⚙️ Cài đặt cột
             </button>
+            <div
+              className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100"
+              title="Nhập số cột cố định từ trái sang phải khi kéo ngang (freeze cột)."
+            >
+              Cố định:
+              <input
+                type="number"
+                min={0}
+                max={currentColumns.length}
+                className="w-10 border-none bg-transparent focus:ring-0 text-center font-bold text-[#F37021]"
+                value={fixedColumns}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    setFixedColumns(0);
+                    return;
+                  }
+                  const v = Number(raw);
+                  setFixedColumns(Number.isFinite(v) ? v : 0);
+                }}
+                onBlur={() => {
+                  setFixedColumns((p) => Math.max(0, Math.min(Math.floor(Number(p) || 0), currentColumns.length)));
+                }}
+              />
+              <span className="text-[10px] opacity-70 tabular-nums">/ {currentColumns.length}</span>
+            </div>
           </div>
 
           {/* Right: Summary & Tracking Filters */}
@@ -1659,21 +1742,28 @@ function FFM() {
             {ffmBackgroundLoading && (
               <span className="text-amber-700 text-sm font-medium animate-pulse">Đang tải đầy đủ đơn…</span>
             )}
-            <div className="bg-blue-50 text-blue-700 px-3 py-1.5 rounded text-sm font-semibold border border-blue-200">
+            <div className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded text-xs font-semibold border border-blue-200">
               {getFilteredData.length} đơn | {totalMoney.toLocaleString('vi-VN')} ₫
             </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-white shadow-md rounded border border-gray-200 overflow-auto max-h-[65vh] relative select-none">
+      <div className="bg-white shadow-md rounded border border-gray-200 overflow-auto max-h-[72vh] relative select-none">
         <table className="border-collapse text-sm w-max min-w-full table-auto">
           <thead className="sticky top-0 z-30">
             <tr className="bg-gray-100 min-h-12">
               {currentColumns.map((col, idx) => {
                 const key = COLUMN_MAPPING[col] || col;
                 const filterKey = col;
-                const stickyStyle = idx < fixedColumns ? { position: 'sticky', left: idx * 120, zIndex: 40, background: '#f8f9fa' } : {};
+                const stickyStyle = idx < effectiveFixedColumns
+                  ? {
+                    position: 'sticky',
+                    left: getStickyLeftPx(idx),
+                    zIndex: 40,
+                    background: '#f8f9fa'
+                  }
+                  : {};
 
                 return (
                   <th key={`filter-${col}`} className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border" style={stickyStyle}>
@@ -1786,7 +1876,14 @@ function FFM() {
                           ? Number(String(val).replace(/[^\d.-]/g, '')).toLocaleString('vi-VN')
                           : val;
 
-                      const cellStyle = cIdx < fixedColumns ? { position: 'sticky', left: cIdx * 120, zIndex: 10 } : {};
+                      const cellStyle = cIdx < effectiveFixedColumns
+                        ? {
+                          position: 'sticky',
+                          left: getStickyLeftPx(cIdx),
+                          zIndex: 10,
+                          background: '#f9fafb'
+                        }
+                        : {};
 
                       return (
                         <td
@@ -2000,25 +2097,25 @@ function FFM() {
         <ColumnSettingsModal
           isOpen={showColumnSettings}
           onClose={() => setShowColumnSettings(false)}
-          allColumns={ORDER_MGMT_COLUMNS}
+          allColumns={ffmColumns}
           visibleColumns={visibleColumns}
           onToggleColumn={(col) => setVisibleColumns(prev => ({ ...prev, [col]: !prev[col] }))}
           onSelectAll={() => {
             const all = {};
-            ORDER_MGMT_COLUMNS.forEach(col => { all[col] = true; });
+            ffmColumns.forEach(col => { all[col] = true; });
             setVisibleColumns(all);
           }}
           onDeselectAll={() => {
             const none = {};
-            ORDER_MGMT_COLUMNS.forEach(col => { none[col] = false; });
+            ffmColumns.forEach(col => { none[col] = false; });
             setVisibleColumns(none);
           }}
           onResetDefault={() => {
             const defaultCols = {};
-            ORDER_MGMT_COLUMNS.forEach(col => { defaultCols[col] = true; });
+            ffmColumns.forEach(col => { defaultCols[col] = true; });
             setVisibleColumns(defaultCols);
           }}
-          defaultColumns={ORDER_MGMT_COLUMNS}
+          defaultColumns={ffmColumns}
         />
       </Suspense>
     </div>
