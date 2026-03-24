@@ -321,6 +321,105 @@ export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy)
     }
 };
 
+const ffmOrderPassesFilter = (row) => {
+    const tracking = String(row.tracking_code ?? '').trim();
+    const hasTracking = tracking.length > 0;
+    const checkResult = String(row.check_result || '').trim();
+    const isCheckOK = checkResult.toUpperCase() === 'OK';
+    const hasMgt = String(row.shipping_unit || '').toLowerCase().includes('mgt');
+    if (hasTracking) return true;
+    return hasMgt && isCheckOK;
+};
+
+/**
+ * Một lô FFM: song song MGT + có tracking, gộp theo order_code, lọc, map app.
+ * Dùng incremental: gọi lần lượt với nextMgtFrom / nextTrackedFrom cho đến khi cả hai exhausted.
+ */
+export const fetchFFMOrdersBatch = async ({
+    mgtFrom = 0,
+    trackedFrom = 0,
+    pageSize = 1000,
+    mgtExhausted: mgtSkip = false,
+    trackedExhausted: trackedSkip = false
+} = {}) => {
+    const mode = getDataSourceMode();
+    if (mode === 'test') {
+        const mock = [
+            {
+                'Mã đơn hàng': 'TEST-FFM-01',
+                'Name*': 'Khách FFM Test',
+                'Phone*': '0999888777',
+                Add: 'Kho FFM Test',
+                City: 'Hà Nội',
+                team: 'Hà Nội',
+                shipping_unit: 'MGT Express',
+                'Đơn vị vận chuyển': 'MGT Express',
+                'Trạng thái giao hàng': 'ĐANG GIAO',
+                'Ngày lên đơn': new Date().toISOString()
+            }
+        ];
+        return {
+            rows: mock,
+            nextMgtFrom: 0,
+            nextTrackedFrom: 0,
+            mgtExhausted: true,
+            trackedExhausted: true
+        };
+    }
+
+    const mgtPromise = mgtSkip
+        ? Promise.resolve({ data: [], error: null })
+        : supabase
+              .from('orders')
+              .select('*')
+              .ilike('shipping_unit', '%MGT%')
+              .order('order_date', { ascending: false })
+              .range(mgtFrom, mgtFrom + pageSize - 1);
+
+    const trackedPromise = trackedSkip
+        ? Promise.resolve({ data: [], error: null })
+        : supabase
+              .from('orders')
+              .select('*')
+              .not('tracking_code', 'is', null)
+              .neq('tracking_code', '')
+              .order('order_date', { ascending: false })
+              .range(trackedFrom, trackedFrom + pageSize - 1);
+
+    const [mgtRes, trackedRes] = await Promise.all([mgtPromise, trackedPromise]);
+
+    if (mgtRes.error) throw mgtRes.error;
+    if (trackedRes.error) throw trackedRes.error;
+
+    const mgtBatch = mgtRes.data || [];
+    const trackedBatch = trackedRes.data || [];
+
+    const merged = new Map();
+    for (const row of mgtBatch) {
+        if (row?.order_code) merged.set(row.order_code, row);
+    }
+    for (const row of trackedBatch) {
+        if (row?.order_code) merged.set(row.order_code, row);
+    }
+
+    const filteredData = Array.from(merged.values())
+        .filter(ffmOrderPassesFilter)
+        .map(mapSupabaseOrderToApp);
+
+    const newMgtExhausted = mgtSkip || mgtBatch.length < pageSize;
+    const newTrackedExhausted = trackedSkip || trackedBatch.length < pageSize;
+    const nextMgtFrom = mgtSkip ? mgtFrom : mgtFrom + mgtBatch.length;
+    const nextTrackedFrom = trackedSkip ? trackedFrom : trackedFrom + trackedBatch.length;
+
+    return {
+        rows: filteredData,
+        nextMgtFrom,
+        nextTrackedFrom,
+        mgtExhausted: newMgtExhausted,
+        trackedExhausted: newTrackedExhausted
+    };
+};
+
 export const fetchMGTNoiBoOrders = async () => {
     try {
         const response = await fetch(MGT_NOI_BO_ORDER_API_URL);
@@ -336,61 +435,42 @@ export const fetchMGTNoiBoOrders = async () => {
     }
 };
 
+/** Tải toàn bộ FFM (lặp batch) — ưu tiên dùng fetchFFMOrdersBatch + gộp phía UI để hiện từng lô. */
 export const fetchFFMOrders = async () => {
-    const mode = getDataSourceMode();
-    if (mode === 'test') {
-        console.log('🔶 [TEST MODE] Using Mock Data for fetchFFMOrders');
-        return [
-            {
-                "Mã đơn hàng": "TEST-FFM-01",
-                "Name*": "Khách FFM Test",
-                "Phone*": "0999888777",
-                "Add": "Kho FFM Test",
-                "City": "Hà Nội",
-                "team": "Hà Nội",
-                "shipping_unit": "MGT Express",
-                "Đơn vị vận chuyển": "MGT Express",
-                "Trạng thái giao hàng": "ĐANG GIAO",
-                "Ngày lên đơn": new Date().toISOString()
-            }
-        ];
-    }
+    const merge = new Map();
+    let state = {
+        mgtFrom: 0,
+        trackedFrom: 0,
+        mgtExhausted: false,
+        trackedExhausted: false
+    };
+    const pageSize = 1000;
 
     try {
-        console.log('Fetching FFM orders from Supabase...');
-
-        // Query: Shipping Unit contains MGT
-        // Filter tracking_code và check_result ở client-side để tránh lỗi query phức tạp
-
-        let query = supabase
-            .from('orders')
-            .select('*', { count: 'exact' })
-            .ilike('shipping_unit', '%MGT%')
-            .order('order_date', { ascending: false })
-            .limit(1000); // Reasonable limit for checking
-
-        const { data, error, count } = await query;
-
-        if (error) {
-            console.error('Supabase fetchFFMOrders error:', error);
-            throw error;
+        console.log('Fetching FFM orders from Supabase (full batch loop)...');
+        while (!state.mgtExhausted || !state.trackedExhausted) {
+            const b = await fetchFFMOrdersBatch({
+                mgtFrom: state.mgtFrom,
+                trackedFrom: state.trackedFrom,
+                pageSize,
+                mgtExhausted: state.mgtExhausted,
+                trackedExhausted: state.trackedExhausted
+            });
+            for (const r of b.rows) {
+                if (r?.[PRIMARY_KEY_COLUMN]) merge.set(r[PRIMARY_KEY_COLUMN], r);
+            }
+            state = {
+                mgtFrom: b.nextMgtFrom,
+                trackedFrom: b.nextTrackedFrom,
+                mgtExhausted: b.mgtExhausted,
+                trackedExhausted: b.trackedExhausted
+            };
         }
-
-        // Filter ở client-side: Chỉ filter Kết quả Check="OK" (không filter tracking_code để có thể xem cả đơn có mã và không có mã)
-        const filteredData = data.filter(row => {
-            const checkResult = String(row.check_result || '').trim();
-            const isCheckOK = checkResult.toUpperCase() === 'OK';
-            return isCheckOK;
-        });
-
-        console.log(`Loaded ${filteredData.length}/${data.length} FFM orders from Supabase (filtered: MGT, Check=OK, tracking code không filter)`);
-
-        // Map to App Format
-        return filteredData.map(mapSupabaseOrderToApp);
-
+        const list = Array.from(merge.values());
+        console.log(`Loaded ${list.length} FFM orders (full)`);
+        return list;
     } catch (error) {
         console.error('fetchFFMOrders error:', error);
-        // Let the caller handle UI notifications
         throw error;
     }
 };

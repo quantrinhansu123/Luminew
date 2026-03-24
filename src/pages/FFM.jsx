@@ -44,6 +44,22 @@ function getTrackingCodeFFM(row) {
   return String(row.tracking_code ?? row['Mã Tracking'] ?? row['tracking_code'] ?? '').trim();
 }
 
+/** Sắp theo Ngày lên đơn giảm dần + gán rowIndex (khớp sort trong getFilteredData). */
+function assignRowIndexByOrderDate(rows) {
+  const sorted = [...rows].sort((a, b) => {
+    const da = new Date(a['Ngày lên đơn'] || a.order_date || 0).getTime();
+    const db = new Date(b['Ngày lên đơn'] || b.order_date || 0).getTime();
+    if (Number.isNaN(da)) return 1;
+    if (Number.isNaN(db)) return -1;
+    return db - da;
+  });
+  return sorted.map((r, i) => ({ ...r, rowIndex: i + 1 }));
+}
+
+/** Lô đầu nhỏ để lên UI nhanh; các lô sau rộng hơn. */
+const FFM_FIRST_BATCH_SIZE = 400;
+const FFM_NEXT_BATCH_SIZE = 1000;
+
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
 const QuickAddModal = lazy(() => import('../components/QuickAddModal'));
 const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal'));
@@ -115,6 +131,16 @@ function FFM() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
+
+  const ffmMergeRef = useRef(new Map());
+  const ffmCursorRef = useRef({
+    mgtFrom: 0,
+    trackedFrom: 0,
+    mgtExhausted: false,
+    trackedExhausted: false
+  });
+  const [ffmHasMore, setFfmHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [selection, setSelection] = useState({ startRow: null, startCol: null, endRow: null, endCol: null });
   const [copiedData, setCopiedData] = useState(null);
@@ -281,32 +307,137 @@ function FFM() {
 
   const loadData = async () => {
     setLoading(true);
+    setFfmHasMore(false);
     try {
-      const data = await API.fetchFFMOrders?.() || await API.fetchOrders();
-      // Debug: Kiểm tra dữ liệu tracking_code
-      if (data.length > 0) {
-        const sample = data[0];
-        console.log('🔍 [FFM] Sample data keys:', Object.keys(sample));
-        console.log('🔍 [FFM] Sample tracking_code:', sample.tracking_code);
-        console.log('🔍 [FFM] Sample Mã Tracking:', sample['Mã Tracking']);
-        const withTracking = data.filter(row => {
-          const tc = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
-          return tc !== '' && tc !== 'null' && tc !== 'undefined';
-        });
-        console.log(`📊 [FFM] Tổng ${data.length} đơn, trong đó ${withTracking.length} đơn có tracking code`);
-      }
-      setAllData(data);
+      if (typeof API.fetchFFMOrdersBatch === 'function') {
+        ffmMergeRef.current = new Map();
+        ffmCursorRef.current = {
+          mgtFrom: 0,
+          trackedFrom: 0,
+          mgtExhausted: false,
+          trackedExhausted: false
+        };
 
-      if (data.length === 2 && data[0][PRIMARY_KEY_COLUMN] === 'DEMO001') {
-        addToast('⚠️ Đang sử dụng dữ liệu demo do API lỗi. Kiểm tra kết nối mạng.', 'error', 8000);
+        const b = await API.fetchFFMOrdersBatch({
+          mgtFrom: 0,
+          trackedFrom: 0,
+          pageSize: FFM_FIRST_BATCH_SIZE,
+          mgtExhausted: false,
+          trackedExhausted: false
+        });
+
+        ffmCursorRef.current = {
+          mgtFrom: b.nextMgtFrom,
+          trackedFrom: b.nextTrackedFrom,
+          mgtExhausted: b.mgtExhausted,
+          trackedExhausted: b.trackedExhausted
+        };
+
+        for (const r of b.rows) {
+          const id = r[PRIMARY_KEY_COLUMN];
+          if (id) ffmMergeRef.current.set(id, r);
+        }
+
+        const mergedList = assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values()));
+        setAllData(mergedList);
+
+        const hasMore = !b.mgtExhausted || !b.trackedExhausted;
+        setFfmHasMore(hasMore);
+
+        if (mergedList.length > 0) {
+          const sample = mergedList[0];
+          console.log('🔍 [FFM] Sample data keys:', Object.keys(sample));
+          const withTracking = mergedList.filter((row) => {
+            const tc = String(row['tracking_code'] || row['Mã Tracking'] || row.tracking_code || '').trim();
+            return tc !== '' && tc !== 'null' && tc !== 'undefined';
+          });
+          console.log(`📊 [FFM] Lô 1: ${mergedList.length} đơn, ${withTracking.length} có mã tracking`);
+        }
+
+        if (mergedList.length === 2 && mergedList[0][PRIMARY_KEY_COLUMN] === 'DEMO001') {
+          addToast('⚠️ Đang sử dụng dữ liệu demo do API lỗi. Kiểm tra kết nối mạng.', 'error', 8000);
+        } else if (hasMore) {
+          addToast(
+            `✅ Đã tải ${mergedList.length} đơn (hiển thị trước). Bấm «Tải thêm đơn» để lấy tiếp.`,
+            'success',
+            4000
+          );
+        } else {
+          addToast(`✅ Đã tải ${mergedList.length} đơn hàng`, 'success', 2000);
+        }
       } else {
-        addToast(`✅ Đã tải ${data.length} đơn hàng`, 'success', 2000);
+        const data = await API.fetchFFMOrders?.();
+        const list = Array.isArray(data) ? assignRowIndexByOrderDate(data) : [];
+        setAllData(list);
+        setFfmHasMore(false);
+        if (list.length === 2 && list[0][PRIMARY_KEY_COLUMN] === 'DEMO001') {
+          addToast('⚠️ Đang sử dụng dữ liệu demo do API lỗi. Kiểm tra kết nối mạng.', 'error', 8000);
+        } else {
+          addToast(`✅ Đã tải ${list.length} đơn hàng`, 'success', 2000);
+        }
       }
     } catch (error) {
       console.error('Load data error:', error);
-      addToast(`❌ Lỗi tải dữ liệu: ${error.message}. Vui lòng thử lại.`, 'error', 8000);
+      addToast(`❌ Lỗi tải dữ liệu: ${error.message}. Thử fallback...`, 'error', 4000);
+      try {
+        const data = await API.fetchOrders();
+        const list = Array.isArray(data) ? assignRowIndexByOrderDate(data) : [];
+        setAllData(list);
+        setFfmHasMore(false);
+        addToast(`✅ Fallback: ${list.length} đơn`, 'success', 2000);
+      } catch (e2) {
+        addToast(`❌ ${e2.message || 'Không tải được dữ liệu.'}`, 'error', 8000);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMoreFfmData = async () => {
+    if (!ffmHasMore || loadingMore || loading) return;
+    if (typeof API.fetchFFMOrdersBatch !== 'function') return;
+
+    setLoadingMore(true);
+    try {
+      const c = ffmCursorRef.current;
+      const b = await API.fetchFFMOrdersBatch({
+        mgtFrom: c.mgtFrom,
+        trackedFrom: c.trackedFrom,
+        pageSize: FFM_NEXT_BATCH_SIZE,
+        mgtExhausted: c.mgtExhausted,
+        trackedExhausted: c.trackedExhausted
+      });
+
+      ffmCursorRef.current = {
+        mgtFrom: b.nextMgtFrom,
+        trackedFrom: b.nextTrackedFrom,
+        mgtExhausted: b.mgtExhausted,
+        trackedExhausted: b.trackedExhausted
+      };
+
+      for (const r of b.rows) {
+        const id = r[PRIMARY_KEY_COLUMN];
+        if (id) ffmMergeRef.current.set(id, r);
+      }
+
+      const mergedList = assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values()));
+      setAllData(mergedList);
+
+      const hasMore = !b.mgtExhausted || !b.trackedExhausted;
+      setFfmHasMore(hasMore);
+
+      addToast(
+        hasMore
+          ? `Đã gộp thêm — hiện ${mergedList.length} đơn (còn dữ liệu, bấm tiếp nếu cần).`
+          : `Đã tải xong — ${mergedList.length} đơn.`,
+        'success',
+        2500
+      );
+    } catch (err) {
+      console.error('loadMoreFfmData error:', err);
+      addToast(`❌ Lỗi tải thêm: ${err.message}`, 'error', 5000);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -381,7 +512,7 @@ function FFM() {
 
     // ORDER_MANAGEMENT filtering
     {
-      // FFM đẩy vận hành: Đã filter ở API level (MGT, Kết quả Check="OK")
+      // FFM: API giữ đơn có mã tracking HOẶC (MGT + Kết quả Check=OK)
       // Tracking code được filter ở client-side theo tab đã chọn
 
       if (omActiveTeam === 'mgt_noi_bo') {
@@ -1225,7 +1356,8 @@ function FFM() {
   }, [getFilteredData]);
 
   const getCellClass = (row, col, val, rIdx, cIdx) => {
-    let classes = 'px-3 py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap ';
+    let classes =
+      'px-4 py-2.5 border border-gray-200 text-sm min-h-[38px] min-w-max align-top whitespace-normal break-words overflow-visible box-border ';
 
     if (col === 'Kết quả Check' || col === 'Kết quả check') {
       const v = val.toLowerCase();
@@ -1429,6 +1561,16 @@ function FFM() {
             <button onClick={loadData} disabled={loading} className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm font-medium transition disabled:opacity-50">
               {loading ? '...' : '↻ Load'}
             </button>
+            {ffmHasMore && (
+              <button
+                type="button"
+                onClick={loadMoreFfmData}
+                disabled={loading || loadingMore}
+                className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded text-sm font-medium transition disabled:opacity-50"
+              >
+                {loadingMore ? 'Đang tải…' : '⬇ Tải thêm đơn'}
+              </button>
+            )}
             <button onClick={() => setSyncPopoverOpen(true)} className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-sm font-medium relative">
               Trạng thái
               {pendingChanges.size > 0 && (
@@ -1458,16 +1600,16 @@ function FFM() {
       </div>
 
       <div className="bg-white shadow-md rounded border border-gray-200 overflow-auto max-h-[65vh] relative select-none">
-        <table className="w-full border-collapse min-w-[2500px] text-sm">
+        <table className="border-collapse text-sm w-max min-w-full table-auto">
           <thead className="sticky top-0 z-30">
-            <tr className="bg-gray-100 h-12">
+            <tr className="bg-gray-100 min-h-12">
               {currentColumns.map((col, idx) => {
                 const key = COLUMN_MAPPING[col] || col;
                 const filterKey = col;
-                const stickyStyle = idx < fixedColumns ? { position: 'sticky', left: idx * 100, zIndex: 40, background: '#f8f9fa' } : {};
+                const stickyStyle = idx < fixedColumns ? { position: 'sticky', left: idx * 120, zIndex: 40, background: '#f8f9fa' } : {};
 
                 return (
-                  <th key={`filter-${col}`} className="p-1.5 border-b-2 border-r border-gray-300 min-w-[120px] align-top bg-[#f8f9fa]" style={stickyStyle}>
+                  <th key={`filter-${col}`} className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border" style={stickyStyle}>
                     <div className="font-semibold mb-1 text-gray-700">{col}</div>
                     {col === 'STT' ? (
                       <div className="text-xs text-gray-400">-</div>
@@ -1577,7 +1719,7 @@ function FFM() {
                           ? Number(String(val).replace(/[^\d.-]/g, '')).toLocaleString('vi-VN')
                           : val;
 
-                      const cellStyle = cIdx < fixedColumns ? { position: 'sticky', left: cIdx * 100, zIndex: 10 } : {};
+                      const cellStyle = cIdx < fixedColumns ? { position: 'sticky', left: cIdx * 120, zIndex: 10 } : {};
 
                       return (
                         <td

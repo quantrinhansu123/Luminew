@@ -90,7 +90,7 @@ function AppShell() {
               path="/xem-bao-cao-sale"
               element={
                 <ProtectedRoute>
-                  <NhanSuSaleLumiMoiView />
+                  <NhanSuSaleLumiMoiView teamKeyword="sale" />
                 </ProtectedRoute>
               }
             />
@@ -122,7 +122,11 @@ function AppShell() {
               path="/xem-bao-cao-cskh"
               element={
                 <ProtectedRoute>
-                  <NhanSuSaleLumiMoiView reportTableName="Báo cáo sale" thuCongTableName="Báo cáo sale" />
+                  <NhanSuSaleLumiMoiView
+                    reportTableName="Báo cáo sale"
+                    thuCongTableName="Báo cáo sale"
+                    teamKeyword="cskh"
+                  />
                 </ProtectedRoute>
               }
             />

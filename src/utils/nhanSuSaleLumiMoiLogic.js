@@ -2,7 +2,9 @@
  * Logic trích từ nhanSuSaleLumiMoi.html (giữ nguyên công thức / lọc / gom nhóm).
  */
 
-export const NSSL_API_BASE = 'https://n-api-gamma.vercel.app';
+import { convertDateToAPIFormat } from '../services/ordersApiService';
+
+export const SALES_REPORTS_API_BASE = 'https://lumidataapi.vercel.app';
 /** KPI Sale — trong app (KPisale.html trên github.io bị CORS + timeout khi gọi n-api-rouge). */
 export const NSSL_KPI_EMBED_PATH = '/embed/bao-cao-hieu-suat-kpi';
 /** Trang trong app — thay Vandonsale.html (getAll ~7MB hay lỗi JSON: cắt nửa / chuỗi chưa escape). */
@@ -80,6 +82,82 @@ export function mapApiToRawRows(apiData) {
       doanhSoHoanHuyThucTe: Number(r['Doanh số hoàn hủy thực tế']) || 0,
       doanhSoSauHoanHuyThucTe: Number(r['Doanh số sau hoàn hủy thực tế']) || 0,
     }));
+}
+
+/** Một dòng từ lumidataapi `/sales_reports` → cùng shape với mapApiToRawRows (đồng bộ BaoCaoSale.jsx). */
+export function mapLumidataSalesReportRow(item) {
+  if (!item || typeof item !== 'object') return null;
+  const ten = String(item.ten ?? '').trim();
+  const team = String(item.team ?? '').trim();
+  if (!ten || !team) return null;
+  return {
+    chucVu: String(item.position ?? '').trim(),
+    ten,
+    email: String(item.email ?? '').trim(),
+    team,
+    chiNhanh: String(item.branch ?? '').trim() || 'Không xác định',
+    ngay: item.date ?? '',
+    ca: item.ca || 'Hết ca',
+    sanPham: item.san_pham || '',
+    thiTruong: item.thi_truong || '',
+    soMessCmt: Number(item.mess_count) || 0,
+    soDon: 0,
+    dsChot: 0,
+    phanHoi: Number(item.response_count) || 0,
+    doanhSoDi: Number(item.revenue_go_actual) || 0,
+    soDonHuy: Number(item.order_cancel_count_actual) || 0,
+    doanhSoHuy: Number(item.revenue_cancel_actual) || 0,
+    soDonThanhCong: Number(item.order_success_count) || 0,
+    doanhSoThanhCong: Number(item.revenue_success) || 0,
+    soDonThucTe: Number(item.order_count) || 0,
+    doanhThuChotThucTe: Number(item.revenue_actual) || 0,
+    doanhSoDiThucTe: Number(item.revenue_go_actual) || 0,
+    soDonHoanHuyThucTe: Number(item.order_cancel_count_actual) || 0,
+    doanhSoHoanHuyThucTe: Number(item.revenue_cancel_actual) || 0,
+    doanhSoSauHoanHuyThucTe:
+      (Number(item.revenue_actual) || 0) - (Number(item.revenue_cancel_actual) || 0),
+  };
+}
+
+/**
+ * Tải toàn bộ sales_reports trong khoảng ngày (YYYY-MM-DD), có phân trang after_id.
+ */
+export async function fetchSalesReportsMapped(startDateStr, endDateStr, signal) {
+  const from_date = convertDateToAPIFormat(startDateStr);
+  const to_date = convertDateToAPIFormat(endDateStr);
+  if (!from_date || !to_date) return [];
+
+  const base = `${SALES_REPORTS_API_BASE.replace(/\/+$/, '')}/sales_reports`;
+  const allData = [];
+  let nextAfterId = null;
+  let hasMore = true;
+  let fetchCount = 0;
+  const maxFetches = 100;
+
+  while (hasMore && fetchCount < maxFetches) {
+    fetchCount += 1;
+    const params = new URLSearchParams();
+    params.append('from_date', from_date);
+    params.append('to_date', to_date);
+    params.append('limit', '1000');
+    if (nextAfterId) params.append('after_id', nextAfterId);
+
+    const res = await fetch(`${base}?${params}`, { signal });
+    if (!res.ok) {
+      throw new Error(`sales_reports ${res.status} ${res.statusText}`);
+    }
+    const result = await res.json();
+    const items = Array.isArray(result) ? result : result.data || [];
+    allData.push(...items);
+
+    if (!Array.isArray(result) && result.next_after_id && items.length > 0) {
+      nextAfterId = result.next_after_id;
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return allData.map(mapLumidataSalesReportRow).filter(Boolean);
 }
 
 const initialSummary = () => ({

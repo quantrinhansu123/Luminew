@@ -6,17 +6,16 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 import '../styles/NhanSuSaleLumiMoiView.css';
 import {
-  NSSL_API_BASE,
   NSSL_IFRAME_THU_CONG,
   buildKpiEmbedUrl,
   buildVanDonEmbedUrl,
+  fetchSalesReportsMapped,
   filterRawData,
   filterRawForRestrictedPopulate,
   formatCurrency,
   formatDateDisplay,
   formatNumber,
   formatPercent,
-  mapApiToRawRows,
   summarizeAndSortSalesData,
   uniqueSorted,
 } from '../utils/nhanSuSaleLumiMoiLogic';
@@ -70,9 +69,36 @@ function flatListFilteredNoTeamNghi(flatList) {
   return flatList.filter((item) => (item.team || '').trim() !== 'Đã nghỉ');
 }
 
+/** Danh sách nhân sự dạng employeeData cũ (gamma) — lấy từ Supabase `users` + `id_appsheet`. */
+async function fetchEmployeeDataForRestrict() {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id_appsheet, email, name, username, role, team, branch, position');
+    if (error) throw error;
+    return (data || [])
+      .filter((u) => u.id_appsheet && String(u.id_appsheet).trim() !== '')
+      .map((u) => ({
+        id: String(u.id_appsheet).trim(),
+        Email: (u.email || '').trim(),
+        'Họ Và Tên': (u.name || u.username || '').trim(),
+        'Chức vụ': (u.position || '').trim(),
+        'Vị trí': (u.position || '').trim(),
+        Team: (u.team || '').trim(),
+        'Chi nhánh': (u.branch || '').trim(),
+        'chi nhánh': (u.branch || '').trim(),
+      }));
+  } catch (e) {
+    console.warn('[NhanSuSaleLumiMoi] users for restrict:', e);
+    return [];
+  }
+}
+
 export default function NhanSuSaleLumiMoiView({
   reportTableName = 'Báo cáo sale',
   thuCongTableName = 'Báo cáo sale',
+  /** Lọc team chứa chuỗi (giống BaoCaoSale: sale | cskh). */
+  teamKeyword = 'sale',
 }) {
   const idSheet = useResolvedIdsheet();
 
@@ -120,21 +146,24 @@ export default function NhanSuSaleLumiMoiView({
     setDefaultDates();
   }, [setDefaultDates]);
 
-  /** Chỉ fetch 1 lần / đổi bảng — không fetch lại khi idSheet cập nhật sau Supabase (giảm ~50% thời gian chờ). */
+  /** Dữ liệu từ lumidataapi `/sales_reports` (from_date/to_date theo bộ lọc). Phân quyền `?id=`: users Supabase. */
   useEffect(() => {
+    if (!startDate || !endDate) return;
     const ac = new AbortController();
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const url = `${NSSL_API_BASE}/report/generate?tableName=${encodeURIComponent(reportTableName)}`;
       try {
-        const res = await fetch(url, { signal: ac.signal });
-        const result = await res.json();
+        const [mappedRaw, emp] = await Promise.all([
+          fetchSalesReportsMapped(startDate, endDate, ac.signal),
+          fetchEmployeeDataForRestrict(),
+        ]);
         if (cancelled) return;
-        const apiData = result.data || [];
-        const emp = result.employeeData || [];
+        const kw = String(teamKeyword || '').toLowerCase();
+        const mapped = kw
+          ? mappedRaw.filter((r) => String(r.team || '').toLowerCase().includes(kw))
+          : mappedRaw;
         setEmployeeData(emp);
-        const mapped = mapApiToRawRows(apiData);
         setRawData(mapped);
       } catch (e) {
         if (e?.name === 'AbortError') return;
@@ -148,7 +177,7 @@ export default function NhanSuSaleLumiMoiView({
       cancelled = true;
       ac.abort();
     };
-  }, [reportTableName]);
+  }, [startDate, endDate, teamKeyword]);
 
   /** Phân quyền + bộ lọc + iframe — chạy khi có dữ liệu hoặc đổi id (không gọi lại API). */
   useEffect(() => {
@@ -360,7 +389,7 @@ export default function NhanSuSaleLumiMoiView({
   const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
 
   return (
-    <div className="nssl-root">
+    <div className="nssl-root" data-report-table={reportTableName}>
       <div className={`nssl-loading-overlay ${loading ? 'visible' : ''}`}>Đang tải dữ liệu...</div>
 
       <div className="report-container">
