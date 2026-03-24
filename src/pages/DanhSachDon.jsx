@@ -644,10 +644,10 @@ function DanhSachDon() {
           const rawGoodsAmount = item["Tiền Hàng"] || item["Tiền_Hàng"] || "0";
           const rawReconciled = item["Tiền Việt đã đối soát"] || item["Tiền_Việt_đã_đối_soát"] || "0";
 
-          const amount = parseFloat(String(rawAmount).replace(/[^0-9.-]+/g, "")) || 0;
-          const ship = parseFloat(String(rawShip).replace(/[^0-9.-]+/g, "")) || 0;
-          const goodsAmount = parseFloat(String(rawGoodsAmount).replace(/[^0-9.-]+/g, "")) || 0;
-          const reconciled = parseFloat(String(rawReconciled).replace(/[^0-9.-]+/g, "")) || 0;
+          const amount = rawAmount ? (parseFloat(String(rawAmount).replace(/[^0-9.-]+/g, "")) || 0) : 0;
+          const ship = rawShip ? (parseFloat(String(rawShip).replace(/[^0-9.-]+/g, "")) || 0) : null;
+          const goodsAmount = rawGoodsAmount ? (parseFloat(String(rawGoodsAmount).replace(/[^0-9.-]+/g, "")) || 0) : 0;
+          const reconciled = rawReconciled ? (parseFloat(String(rawReconciled).replace(/[^0-9.-]+/g, "")) || 0) : 0;
 
           return {
             order_code: item["Mã đơn hàng"] || item["Mã_đơn_hàng"] || `UNK-${Date.now()}-${i + index}`,

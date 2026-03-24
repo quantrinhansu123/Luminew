@@ -189,7 +189,7 @@ export default function NhapDonMoi({ isEdit = false }) {
         "exchange_rate": 25000, // Tỷ giá mặc định (ví dụ)
         "tong-tien": 0, // Tổng tiền VNĐ
         "hinh-thuc": "", // Hình thức thanh toán (text)
-        "shipping_fee": 0, "shipping_cost": 0,
+        "shipping_fee": "", "shipping_cost": 0,
         "base_price": 0, "reconciled_vnd": 0,
 
         "note_sale": "",
@@ -1215,7 +1215,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 total_amount_vnd: parseFloat(formData["tong-tien"]) || 0,
                 payment_method_text: formData["hinh-thuc"],
 
-                shipping_fee: parseFloat(formData.shipping_fee) || 0,
+                shipping_fee: formData.shipping_fee === '' ? null : parseFloat(formData.shipping_fee),
                 shipping_cost: parseFloat(formData.shipping_cost) || 0,
                 base_price: parseFloat(formData.base_price) || 0,
                 reconciled_vnd: parseFloat(formData.reconciled_vnd) || 0,

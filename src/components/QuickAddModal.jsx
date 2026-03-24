@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { DROPDOWN_OPTIONS } from '../types';
 
 // Helper function để format date thành dd/mm/yyyy
@@ -374,7 +374,41 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
         }
     };
 
+    const calculatedSummary = useMemo(() => {
+        if (!selection) return null;
+
+        const minR = Math.min(selection.startRow, selection.endRow);
+        const maxR = Math.max(selection.startRow, selection.endRow);
+        const minC = Math.min(selection.startCol, selection.endCol);
+        const maxC = Math.max(selection.startCol, selection.endCol);
+
+        let count = 0;
+        let sum = 0;
+        let numericCount = 0;
+
+        for (let r = minR; r <= maxR && r < rows.length; r++) {
+            for (let c = minC; c <= maxC && c < COLUMNS.length; c++) {
+                count++;
+                const val = rows[r][c];
+                if (val && val.trim() !== "") {
+                    const numVal = parseFloat(String(val).replace(/[^\d.-]/g, ''));
+                    if (!isNaN(numVal)) {
+                        sum += numVal;
+                        numericCount++;
+                    }
+                }
+            }
+        }
+
+        return {
+            count,
+            sum: numericCount > 0 ? sum : 0,
+            avg: numericCount > 0 ? sum / numericCount : 0
+        };
+    }, [selection, rows]);
+
     const handleSyncClick = () => {
+
         const validRows = rows.filter(r => r.length > 0 && r[0] && r[0].trim() !== "");
         if (validRows.length === 0) {
             alert("Chưa có dữ liệu hợp lệ (Cần có Mã đơn hàng)");
@@ -393,12 +427,22 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
     const getCellClass = (col, rIdx, cIdx) => {
         let classes = "px-3 py-2.5 border-r border-b border-gray-200 text-sm h-[42px] whitespace-nowrap transition-all duration-150 ";
 
-        // Editable cell style - chuyên nghiệp hơn
+        // Editable cell style
         classes += "bg-white border-l-4 border-l-emerald-400 hover:bg-emerald-50/30 hover:border-l-emerald-500 ";
 
-        // Selection - highlight đẹp hơn
+        // Selection 
         if (isSelected(rIdx, cIdx)) {
-            classes += "!bg-blue-100 !border-l-blue-500 outline outline-2 outline-blue-400 -outline-offset-2 shadow-sm ";
+            classes += "!bg-[#e3f2fd] ";
+            
+            const minR = Math.min(selection.startRow, selection.endRow);
+            const maxR = Math.max(selection.startRow, selection.endRow);
+            const minC = Math.min(selection.startCol, selection.endCol);
+            const maxC = Math.max(selection.startCol, selection.endCol);
+
+            if (rIdx === minR) classes += 'selection-border-top ';
+            if (rIdx === maxR) classes += 'selection-border-bottom ';
+            if (cIdx === minC) classes += 'selection-border-left ';
+            if (cIdx === maxC) classes += 'selection-border-right ';
         }
 
         return classes;
@@ -607,6 +651,30 @@ const QuickAddModal = ({ isOpen, onClose, onSync }) => {
                             ))}
                         </tbody>
                     </table>
+
+                    {/* Bộ đếm số lượng ô được chọn */}
+                    {calculatedSummary && calculatedSummary.count > 1 && (
+                        <div className="absolute bottom-4 right-4 z-50 bg-[#1a73e8] text-white px-4 py-2 rounded-lg shadow-xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                            <div className="flex flex-col items-center">
+                                <span className="text-[10px] opacity-80 uppercase tracking-tighter">Số ô</span>
+                                <span className="font-bold text-sm tracking-tight">{calculatedSummary.count}</span>
+                            </div>
+                            {calculatedSummary.sum !== 0 && (
+                                <>
+                                    <div className="w-px h-6 bg-white/30"></div>
+                                    <div className="flex flex-col items-center">
+                                        <span className="text-[10px] opacity-80 uppercase tracking-tighter">Tổng</span>
+                                        <span className="font-bold text-sm tracking-tight">{calculatedSummary.sum.toLocaleString('vi-VN')}</span>
+                                    </div>
+                                    <div className="w-px h-6 bg-white/30"></div>
+                                    <div className="flex flex-col items-center">
+                                        <span className="text-[10px] opacity-80 uppercase tracking-tighter">Trung bình</span>
+                                        <span className="font-bold text-sm tracking-tight">{calculatedSummary.avg.toLocaleString('vi-VN', { maximumFractionDigits: 1 })}</span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 <div className="p-5 border-t border-gray-200 flex justify-between items-center bg-gradient-to-r from-gray-50 to-white">

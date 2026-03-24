@@ -43,6 +43,7 @@ export const DB_TO_APP_MAPPING = {
     "warehouse_fee": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
     "note_caps": "GHI CHÚ",
     "accounting_check_date": "Ngày Kế toán đối soát với FFM lần 2",
+    "tracking_check_date": "Ngày có mã tracking",
     "reconciled_amount": "Số tiền của đơn hàng đã về TK Cty",
     "payment_bill": "Payment Bill",
     "payment_image": "Payment Image"
@@ -274,7 +275,7 @@ const prepareValueForDB = (dbKey, value) => {
     // to support clearing numeric/date/text fields correctly in PostgreSQL.
     if (value === '' || value === undefined) return null;
 
-    if (['order_date', 'created_at', 'estimated_delivery_date', 'accounting_check_date', 'ngayupbill', 'ngaydonghang'].includes(dbKey)) {
+    if (['order_date', 'created_at', 'estimated_delivery_date', 'accounting_check_date', 'ngayupbill', 'ngaydonghang', 'tracking_check_date'].includes(dbKey)) {
         return parseDateForDB(value);
     }
     return value;
