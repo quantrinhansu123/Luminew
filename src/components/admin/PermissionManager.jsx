@@ -900,12 +900,16 @@ const PermissionManager = ({ searchQuery = "" }) => {
     const handleUpdateUserInfo = async () => {
         if (!editingUser) return toast.warning("Không có thông tin để cập nhật");
         try {
+            const normalizedTeams = Array.isArray(editFormData.teams) ? editFormData.teams.filter(Boolean) : [];
+            const typedPrimaryTeam = String(editFormData.team || '').trim();
+            const primaryTeam = typedPrimaryTeam || normalizedTeams[0] || '';
+
             // Cập nhật thông tin user
             await rbacService.updateUserInfo(editingUser.email, {
                 name: editFormData.name,
                 department: editFormData.department,
                 position: editFormData.position,
-                team: editFormData.team,
+                team: primaryTeam,
                 role: editFormData.role_code
             });
             
@@ -1487,7 +1491,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                     department: departmentsMap[ur.email] || emp?.department || '',
                                                                     position: emp?.position || '',
                                                                     team: emp?.team || '',
-                                                                    teams: leaderTeamsMap[ur.email] || [],
+                                                                    teams: (leaderTeamsMap[ur.email] && leaderTeamsMap[ur.email].length > 0)
+                                                                        ? leaderTeamsMap[ur.email]
+                                                                        : (emp?.team ? [emp.team] : []),
                                                                     role_code: ur.role_code,
                                                                     selectedPersonnel: selectedPersonnelMap[ur.email] || []
                                                                 });
@@ -1618,14 +1624,30 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    Team:
+                                                    Team chính:
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={editFormData.team}
+                                                    onChange={(e) => setEditFormData({ ...editFormData, team: e.target.value })}
+                                                    className="border p-2 rounded text-sm w-full mb-2"
+                                                    placeholder="Ví dụ: HCM, Hà Nội..."
+                                                />
+                                                <label className="block text-xs font-medium text-gray-500 mb-1">
+                                                    Vị trí Team (multi):
                                                 </label>
                                                 <TeamMultiSelect
                                                     email={editingUser.email}
                                                     selectedTeams={editFormData.teams}
                                                     allTeams={allTeams}
                                                     onSave={(teams) => {
-                                                        setEditFormData({ ...editFormData, teams });
+                                                        setEditFormData({
+                                                            ...editFormData,
+                                                            teams,
+                                                            team: (editFormData.team && editFormData.team.trim())
+                                                                ? editFormData.team
+                                                                : (teams[0] || '')
+                                                        });
                                                     }}
                                                 />
                                             </div>

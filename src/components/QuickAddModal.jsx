@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { DROPDOWN_OPTIONS } from '../types';
+import { FFM_QUICK_ADD_COLUMNS } from '../types';
 
 // Helper function để format date thành dd/mm/yyyy
 const formatDateToDDMMYYYY = (dateValue) => {
@@ -79,19 +80,7 @@ const parseDateValue = (value) => {
 };
 
 // Các cột cho bảng Thêm nhanh - đồng bộ với bảng chính
-const COLUMNS = [
-    "Mã đơn hàng",           // Cột bắt buộc - khóa chính
-    "Mã Tracking",
-    "Ngày đóng hàng",
-    "Trạng thái giao hàng",
-    "GHI CHÚ",
-    "Thời gian giao dự kiến",
-    "Phí ship nội địa Mỹ (usd)",
-    "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
-    "Kết quả Check",
-    "Ghi chú",
-    "Đơn vị vận chuyển"
-];
+const COLUMNS = FFM_QUICK_ADD_COLUMNS;
 const TRACKING_COL_INDEX = COLUMNS.indexOf("Mã Tracking");
 
 const QuickAddModal = ({ isOpen, onClose, onSync }) => {

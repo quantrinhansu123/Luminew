@@ -165,7 +165,7 @@ const AdminTools = () => {
         password: '',
         user_id: '',
         role: 'user',
-        team: '',
+        branch: '',
         department: '',
         status: 'active',
         must_change_password: false
@@ -3782,7 +3782,7 @@ const AdminTools = () => {
             password: '', // Không hiển thị password
             user_id: account.id || account.user_id || '',
             role: account.role || 'user',
-            team: account.team || '',
+            branch: account.branch || account.team || '',
             department: account.department || '',
             status: account.has_password ? 'active' : 'inactive',
             must_change_password: false
@@ -3870,8 +3870,8 @@ const AdminTools = () => {
                     updateData.password = passwordHash;
                 }
 
-                if (accountForm.team !== undefined) {
-                    updateData.team = accountForm.team || null;
+                if (accountForm.branch !== undefined) {
+                    updateData.branch = accountForm.branch || null;
                 }
                 if (accountForm.department !== undefined) {
                     updateData.department = accountForm.department || null;
@@ -3913,7 +3913,7 @@ const AdminTools = () => {
                         password: passwordHash,
                         name: accountForm.name,
                         role: accountForm.role || 'user',
-                        team: accountForm.team || null,
+                        branch: accountForm.branch || null,
                         department: accountForm.department || null
                     });
 
@@ -3926,7 +3926,7 @@ const AdminTools = () => {
                             name: accountForm.name,
                             role: accountForm.role || 'user'
                         };
-                        if (accountForm.team) updateData.team = accountForm.team;
+                        if (accountForm.branch) updateData.branch = accountForm.branch;
                         if (accountForm.department) updateData.department = accountForm.department;
 
                         const { error: updateError } = await supabase
@@ -5150,7 +5150,7 @@ const AdminTools = () => {
                             <h3 className="font-semibold text-gray-800 mb-3">Cấu hình</h3>
                             <div className="space-y-3">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Chi nhánh</label>
                                     <select
                                         value={selectedTeam}
                                         onChange={(e) => setSelectedTeam(e.target.value)}
@@ -5172,7 +5172,7 @@ const AdminTools = () => {
                                 <div className="text-xs text-gray-600 space-y-1">
                                     <p><strong>Điều kiện:</strong></p>
                                     <ul className="list-disc list-inside space-y-0.5 ml-2">
-                                        <li>Team = "{selectedTeam}"</li>
+                                        <li>Chi nhánh = "{selectedTeam}"</li>
                                         <li>Kế toán xác nhận = "Đã thu tiền"</li>
                                         <li>Tháng của Ngày lên đơn = {selectedMonth}</li>
                                         <li>Cột CSKH trống</li>
@@ -5516,7 +5516,7 @@ const AdminTools = () => {
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700"># (trong view)</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Mã đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Khách hàng</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Team</th>
+                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Chi nhánh</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">NV Vận đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Ngày lên đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Ngày chia vận đơn</th>
@@ -5770,7 +5770,7 @@ const AdminTools = () => {
                                         password: '',
                                         user_id: '',
                                         role: 'user',
-                                        team: '',
+                                        branch: '',
                                         department: '',
                                         status: 'active',
                                         must_change_password: false
@@ -5843,7 +5843,7 @@ const AdminTools = () => {
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Tên</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Password</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Role</th>
-                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Team</th>
+                                                <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Chi nhánh</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-center font-semibold">Đẩy FFM</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Trạng thái</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Thao tác</th>
@@ -5933,7 +5933,7 @@ const AdminTools = () => {
                                                         {account.role || 'user'}
                                                     </span>
                                                 </td>
-                                                <td className="border border-gray-300 px-4 py-3">{account.team || '-'}</td>
+                                                <td className="border border-gray-300 px-4 py-3">{account.branch || account.team || '-'}</td>
                                                 <td className="border border-gray-300 px-4 py-3">
                                                     <label className="flex items-center justify-center cursor-pointer group">
                                                         <div className="relative">
@@ -6129,12 +6129,12 @@ const AdminTools = () => {
 
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Team
+                                                Chi nhánh
                                             </label>
                                             <input
                                                 type="text"
-                                                value={accountForm.team}
-                                                onChange={(e) => setAccountForm({ ...accountForm, team: e.target.value })}
+                                                value={accountForm.branch}
+                                                onChange={(e) => setAccountForm({ ...accountForm, branch: e.target.value })}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                 placeholder="HCM, Hà Nội, ..."
                                             />

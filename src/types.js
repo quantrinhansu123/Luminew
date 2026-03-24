@@ -78,3 +78,16 @@ export const COLUMN_MAPPING = {
     "Nhân viên MKT": "marketing_staff",
     "Tiền đã thanh toán": "reconciled_vnd"
 };
+
+// Columns used by Quick Add modal in FFM (single source of truth).
+// Keep this array order in sync with paste/sync behavior.
+export const FFM_QUICK_ADD_COLUMNS = [
+    "Mã đơn hàng",
+    "Mã Tracking",
+    "Ngày đóng hàng",
+    "Trạng thái giao hàng",
+    "GHI CHÚ",
+    "Thời gian giao dự kiến",
+    "Phí ship nội địa Mỹ (usd)",
+    "Phí xử lý đơn đóng hàng-Lưu kho(usd)"
+];

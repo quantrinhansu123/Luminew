@@ -8,6 +8,7 @@ import {
   COLUMN_MAPPING,
   DROPDOWN_OPTIONS,
   EDITABLE_COLS,
+  FFM_QUICK_ADD_COLUMNS,
   ORDER_MGMT_COLUMNS,
   PRIMARY_KEY_COLUMN,
   TEAM_COLUMN_NAME
@@ -1022,19 +1023,7 @@ function FFM() {
   };
   const handleQuickSync = (rows) => {
     const changesArray = [];
-    const COL_KEYS = [
-      'Mã đơn hàng',
-      'Mã Tracking',
-      'Ngày đóng hàng',
-      'Trạng thái giao hàng',
-      'GHI CHÚ',
-      'Thời gian giao dự kiến',
-      'Ngày kế toán đối soát',
-      'Ngày kế toán đối soát lần 2',
-      'Kết quả Check',
-      'Ghi chú',
-      'Đơn vị vận chuyển'
-    ];
+    const COL_KEYS = FFM_QUICK_ADD_COLUMNS;
     let notFoundCount = 0;
 
     rows.forEach((row) => {
@@ -1048,8 +1037,10 @@ function FFM() {
 
       COL_KEYS.forEach((colName, idx) => {
         if (idx === 0) return;
-        const val = row[idx];
-        if (val !== undefined && val !== '') {
+        const rawVal = row[idx];
+        const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
+        // Chỉ sync khi ô quick-add có giá trị thực sự; ô trống không được phép ghi đè DB.
+        if (val !== undefined && val !== null && val !== '') {
           const dataKey = COLUMN_MAPPING[colName] || colName;
           const originalVal = originalRow[dataKey] ?? '';
           
