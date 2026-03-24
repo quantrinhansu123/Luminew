@@ -729,9 +729,9 @@ restrictedForPopulate,
                     <th>Số Mess</th>
                     <th>Phản hồi</th>
                     <th>Số Đơn</th>
-                    <th>Số Đơn TT</th>
+                    <th>Số đơn TT</th>
                     <th>DS Chốt</th>
-                    <th>DS Chốt TT</th>
+                    <th>Doanh số TT</th>
                     <th>Tỉ lệ chốt</th>
                   </tr>
                 </thead>
@@ -841,6 +841,8 @@ function DailyBreakdownSauHuy({ filteredData }) {
                     <th>Sale</th>
                     <th>Số Mess</th>
                     <th>Phản hồi</th>
+                    <th>Số đơn TT</th>
+                    <th>Doanh số TT</th>
                     <th>Số đơn sau huỷ</th>
                     <th>DS Sau Hủy TT</th>
                     <th>Tỉ lệ chốt</th>
@@ -853,6 +855,8 @@ function DailyBreakdownSauHuy({ filteredData }) {
                     </td>
                     <td className="total-value">{formatNumber(total.mess)}</td>
                     <td className="total-value">{formatNumber(total.phanHoi)}</td>
+                    <td className="total-value">{formatNumber(total.soDonThucTe)}</td>
+                    <td className="total-value">{formatCurrency(total.doanhThuChotThucTe)}</td>
                     <td className="total-value">{formatNumber(soDonSauHuyTotal)}</td>
                     <td className="total-value">{formatCurrency(dsSauHuyTTTotal)}</td>
                     <td className="total-value">{formatPercent(totalRateSauHuy)}</td>
@@ -870,6 +874,8 @@ function DailyBreakdownSauHuy({ filteredData }) {
                         <td className="text-left">{item.name}</td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
+                        <td>{formatNumber(item.soDonThucTe)}</td>
+                        <td>{formatCurrency(item.doanhThuChotThucTe)}</td>
                         <td>{formatNumber(soDonSauHuy)}</td>
                         <td>{formatCurrency(dsSauHuyTT)}</td>
                         <td className={rateClass}>{formatPercent(rate)}</td>
@@ -926,9 +932,9 @@ function DailyBreakdownChot({ filteredData }) {
                     <th>Số Mess</th>
                     <th>Phản hồi</th>
                     <th>Số Đơn</th>
-                    <th>Số Đơn TT</th>
+                    <th>Số đơn TT</th>
                     <th>DS Chốt</th>
-                    <th>DS Chốt TT</th>
+                    <th>Doanh số TT</th>
                     <th>Tỉ lệ chốt</th>
                   </tr>
                 </thead>

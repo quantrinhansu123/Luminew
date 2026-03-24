@@ -141,6 +141,9 @@ function FFM() {
   });
   const [ffmHasMore, setFfmHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** Tự động gọi batch tiếp sau lô đầu cho đến khi hết (tránh thiếu đơn nếu không bấm «Tải thêm»). */
+  const [ffmBackgroundLoading, setFfmBackgroundLoading] = useState(false);
+  const ffmLoadGenRef = useRef(0);
 
   const [selection, setSelection] = useState({ startRow: null, startCol: null, endRow: null, endCol: null });
   const [copiedData, setCopiedData] = useState(null);
@@ -306,8 +309,12 @@ function FFM() {
   };
 
   const loadData = async () => {
+    ffmLoadGenRef.current += 1;
+    const loadGen = ffmLoadGenRef.current;
+
     setLoading(true);
     setFfmHasMore(false);
+    setFfmBackgroundLoading(false);
     try {
       if (typeof API.fetchFFMOrdersBatch === 'function') {
         ffmMergeRef.current = new Map();
@@ -325,6 +332,8 @@ function FFM() {
           mgtExhausted: false,
           trackedExhausted: false
         });
+
+        if (loadGen !== ffmLoadGenRef.current) return;
 
         ffmCursorRef.current = {
           mgtFrom: b.nextMgtFrom,
@@ -358,10 +367,65 @@ function FFM() {
           addToast('⚠️ Đang sử dụng dữ liệu demo do API lỗi. Kiểm tra kết nối mạng.', 'error', 8000);
         } else if (hasMore) {
           addToast(
-            `✅ Đã tải ${mergedList.length} đơn (hiển thị trước). Bấm «Tải thêm đơn» để lấy tiếp.`,
+            `✅ Hiển thị ${mergedList.length} đơn trước — đang tải đầy đủ trong nền.`,
             'success',
-            4000
+            3500
           );
+          setFfmBackgroundLoading(true);
+          void (async () => {
+            try {
+              while (loadGen === ffmLoadGenRef.current) {
+                const c = ffmCursorRef.current;
+                if (c.mgtExhausted && c.trackedExhausted) break;
+
+                const next = await API.fetchFFMOrdersBatch({
+                  mgtFrom: c.mgtFrom,
+                  trackedFrom: c.trackedFrom,
+                  pageSize: FFM_NEXT_BATCH_SIZE,
+                  mgtExhausted: c.mgtExhausted,
+                  trackedExhausted: c.trackedExhausted
+                });
+
+                if (loadGen !== ffmLoadGenRef.current) return;
+
+                ffmCursorRef.current = {
+                  mgtFrom: next.nextMgtFrom,
+                  trackedFrom: next.nextTrackedFrom,
+                  mgtExhausted: next.mgtExhausted,
+                  trackedExhausted: next.trackedExhausted
+                };
+
+                for (const r of next.rows) {
+                  const id = r[PRIMARY_KEY_COLUMN];
+                  if (id) ffmMergeRef.current.set(id, r);
+                }
+
+                const fullList = assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values()));
+                setAllData(fullList);
+              }
+
+              if (loadGen === ffmLoadGenRef.current) {
+                setFfmHasMore(false);
+                const n = ffmMergeRef.current.size;
+                addToast(`✅ Đã tải đủ ${n} đơn FFM`, 'success', 2500);
+              }
+            } catch (bgErr) {
+              console.error('[FFM] Tải nền:', bgErr);
+              if (loadGen === ffmLoadGenRef.current) {
+                const c = ffmCursorRef.current;
+                setFfmHasMore(!c.mgtExhausted || !c.trackedExhausted);
+                addToast(
+                  `⚠️ Tải nền lỗi: ${bgErr.message || bgErr}. Bấm «Tải thêm đơn» để thử tiếp.`,
+                  'error',
+                  6500
+                );
+              }
+            } finally {
+              if (loadGen === ffmLoadGenRef.current) {
+                setFfmBackgroundLoading(false);
+              }
+            }
+          })();
         } else {
           addToast(`✅ Đã tải ${mergedList.length} đơn hàng`, 'success', 2000);
         }
@@ -394,7 +458,7 @@ function FFM() {
   };
 
   const loadMoreFfmData = async () => {
-    if (!ffmHasMore || loadingMore || loading) return;
+    if (!ffmHasMore || loadingMore || loading || ffmBackgroundLoading) return;
     if (typeof API.fetchFFMOrdersBatch !== 'function') return;
 
     setLoadingMore(true);
@@ -1561,7 +1625,7 @@ function FFM() {
             <button onClick={loadData} disabled={loading} className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm font-medium transition disabled:opacity-50">
               {loading ? '...' : '↻ Load'}
             </button>
-            {ffmHasMore && (
+            {ffmHasMore && !ffmBackgroundLoading && (
               <button
                 type="button"
                 onClick={loadMoreFfmData}
@@ -1592,6 +1656,9 @@ function FFM() {
 
           {/* Right: Summary & Tracking Filters */}
           <div className="flex items-center gap-3 flex-wrap">
+            {ffmBackgroundLoading && (
+              <span className="text-amber-700 text-sm font-medium animate-pulse">Đang tải đầy đủ đơn…</span>
+            )}
             <div className="bg-blue-50 text-blue-700 px-3 py-1.5 rounded text-sm font-semibold border border-blue-200">
               {getFilteredData.length} đơn | {totalMoney.toLocaleString('vi-VN')} ₫
             </div>
