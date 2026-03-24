@@ -53,7 +53,7 @@ import ReportDashboard from './pages/ReportDashboard';
 import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
-import XemBaoCaoMKT from './pages/XemBaoCaoMKT';
+import XemBaoCaoMKTLegacy from './pages/XemBaoCaoMKTLegacy';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import TestMKT from './pages/TestMKT.jsx';
 import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
@@ -136,7 +136,7 @@ function AppShell() {
               path="/xem-bao-cao-mkt"
               element={
                 <ProtectedRoute>
-                  <XemBaoCaoMKT />
+                  <XemBaoCaoMKTLegacy />
                 </ProtectedRoute>
               }
             />

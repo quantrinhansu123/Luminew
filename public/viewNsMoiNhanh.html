@@ -860,34 +860,34 @@
       return q ? `${API_URL_MKT}?${q}` : API_URL_MKT;
     }
 
-    /** Chuẩn hóa tên cột giống XemBaoCaoMKT (API có thể trả snake_case / tiếng Anh). */
+    /** Chuẩn hóa theo field hiện tại của API detail_reports (ưu tiên snake_case đang trả về). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
       return {
         ...item,
-        'Ngày': item['Ngày'] || item.ngay || item.date || '',
-        'Team': item['Team'] || item.team || '',
-        'Tên': item['Tên'] || item.ten || item.name || '',
-        'Email': item['Email'] || item.email || '',
-        'Sản_phẩm': item['Sản_phẩm'] || item['Sản phẩm'] || item.san_pham || item.product || '',
-        'Thị_trường': item['Thị_trường'] || item['Thị trường'] || item.thi_truong || item.market || '',
-        'CPQC': item['CPQC'] ?? item.cpqc ?? 0,
-        'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
-        'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
-        'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
-        'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
-        'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
-        'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
-        'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] || item.so_don_hoan_huy_thuc_te || item.order_cancel_count_actual || 0,
-        'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] || item.doanh_so_hoan_huy_thuc_te || item.revenue_cancel_actual || 0,
-        'DS sau hoàn hủy': item['DS sau hoàn hủy'] || item.ds_sau_hoan_huy || 0,
-        'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] || item.doanh_so_sau_hoan_huy_thuc_te || 0,
-        'Doanh số sau ship': item['Doanh số sau ship'] || item.doanh_so_sau_ship || 0,
-        'Doanh số TC': item['Doanh số TC'] || item.doanh_so_tc || 0,
-        'KPIs': item['KPIs'] || item.kpis || 0,
-        'ca': item['ca'] || item['Ca'] || item.shift || '',
-        'id_NS': item['id_NS'] || item.id_ns || item.id_NS || '',
-        'Chức vụ': item['Chức vụ'] || item.chuc_vu || item['Vị trí'] || item.position || '',
+        'Ngày': item.ngay || item['Ngày'] || '',
+        'Team': item.team || item['Team'] || '',
+        'Tên': item.ten || item['Tên'] || '',
+        'Email': item.email || item['Email'] || '',
+        'Sản_phẩm': item.san_pham || item['Sản_phẩm'] || '',
+        'Thị_trường': item.thi_truong || item['Thị_trường'] || '',
+        'CPQC': item.cpqc ?? item['CPQC'] ?? 0,
+        'Số_Mess_Cmt': item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0,
+        'Số đơn': item['Số đơn'] ?? 0,
+        'Số đơn thực tế': item['Số đơn thực tế'] ?? 0,
+        'Doanh số': item['Doanh số'] ?? 0,
+        'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] ?? 0,
+        'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] ?? 0,
+        'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] ?? 0,
+        'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] ?? 0,
+        'DS sau hoàn hủy': item['DS sau hoàn hủy'] ?? 0,
+        'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] ?? 0,
+        'Doanh số sau ship': item['Doanh số sau ship'] ?? 0,
+        'Doanh số TC': item['Doanh số TC'] ?? 0,
+        'KPIs': item['KPIs'] ?? 0,
+        'ca': item['ca'] || '',
+        'id_NS': item['id_NS'] || '',
+        'Chức vụ': item.department || item['Chức vụ'] || '',
       };
     }
 

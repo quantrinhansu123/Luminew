@@ -232,6 +232,7 @@ export default function XemBaoCaoMKT() {
         'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
         'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
         'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
+        'Doanh số TT': item['Doanh số TT'] || item['Doanh số chốt TT'] || item.doanh_so_tt || 0,
         'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
         'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
@@ -875,6 +876,7 @@ export default function XemBaoCaoMKT() {
         if (!marketingName || !reportDate) {
           item['Số đơn TT'] = 0;
           item['Doanh số chốt TT'] = 0;
+          item['Doanh số TT'] = 0;
           if (index < 3) {
             console.log(`⚠️ MKT [${index}]: Thiếu dữ liệu - Tên: "${item['Tên']}", Ngày: "${reportDateRaw}"`);
           }
@@ -887,6 +889,7 @@ export default function XemBaoCaoMKT() {
         const matchingData = ordersByMarketingDateMarket.get(key) || { orders: [], totalAmount: 0 };
         item['Số đơn TT'] = matchingData.orders.length;
         item['Doanh số chốt TT'] = matchingData.totalAmount; // Tổng tiền VNĐ từ orders
+        item['Doanh số TT'] = matchingData.totalAmount;
 
         if (matchingData.orders.length > 0) {
           matchedCount++;
@@ -1043,7 +1046,6 @@ export default function XemBaoCaoMKT() {
         <button
           className={`tablinks ${activeTab === 'MarketReport' ? 'active' : ''}`}
           onClick={() => setActiveTab('MarketReport')}
-          style={{ display: 'none' }}
         >
           Hiệu quả MKT
         </button>
