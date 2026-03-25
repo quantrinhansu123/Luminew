@@ -1470,22 +1470,9 @@
           return false;
         });
       };
-      const shouldKeepFirstRowPerKeyForHetCa =
-        selectedCas.length === 1 &&
-        normalizeCaForFilter(selectedCas[0]).includes('het ca');
-      const makePrimaryRowKey = (row) => {
-        const dateKey = formatDate(row.ngay) || '';
-        const idKey = String(row.idnv || '').trim();
-        const nameKey = String(row.ten || '').trim();
-        return [
-          dateKey,
-          idKey,
-          nameKey,
-          String(row.sanPham || '').trim(),
-          String(row.thiTruong || '').trim(),
-          String(row.team || '').trim(),
-        ].join('||');
-      };
+      // NOTE: Không dedupe dữ liệu ở bước lọc.
+      // Nếu cần tránh double-count cho các chỉ số "TT" khi chọn Hết ca,
+      // xử lý ở bước tổng hợp (generateSummaryTableData) để CPQC/Mess vẫn cộng đủ.
 
       const filteredDataResult = baseDataForReport.filter(r => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
@@ -1523,17 +1510,7 @@
         return true;
       });
 
-      if (!shouldKeepFirstRowPerKeyForHetCa) {
-        return filteredDataResult;
-      }
-
-      const seenRowKeys = new Set();
-      return filteredDataResult.filter((row) => {
-        const rowKey = makePrimaryRowKey(row);
-        if (seenRowKeys.has(rowKey)) return false;
-        seenRowKeys.add(rowKey);
-        return true;
-      });
+      return filteredDataResult;
     }
 
     function populateAllFilters() {
@@ -1577,7 +1554,19 @@
 
     function applyTab1Filters() {
       const filteredData = getFilteredData('tab1');
-      const summaryList = generateSummaryTableData(filteredData);
+      const caAll = document.getElementById('ca-all-tab1');
+      const selectedCas = (!caAll || caAll.checked)
+        ? []
+        : Array.from(document.querySelectorAll('.filter-ca-tab1:checked')).map(cb => cb.value);
+      const norm = (v) =>
+        String(v || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      const dedupeTTByKey = selectedCas.length === 1 && norm(selectedCas[0]).includes('het ca');
+
+      const summaryList = generateSummaryTableData(filteredData, { dedupeTTByKey });
       sortList(summaryList, sortStates.summary, summaryColumnSortKeys, { prop: 'team', type: 'string' });
       renderSummary(summaryList);
       updateSortIcons(document.getElementById('summary-table'), sortStates.summary);
@@ -1637,7 +1626,22 @@
     // --- VI. CÁC HÀM TÍNH TOÁN VÀ TỔNG HỢP DỮ LIỆU ---
     // =================================================================================
 
-    function generateSummaryTableData(data) {
+    function generateSummaryTableData(data, opts = {}) {
+      const dedupeTTByKey = !!opts.dedupeTTByKey;
+      const seenTTKeys = new Set();
+      const makeTTKey = (r) => {
+        const dateKey = formatDate(r.ngay) || '';
+        const idKey = String(r.idnv || '').trim();
+        const nameKey = String(r.ten || '').trim();
+        return [
+          dateKey,
+          idKey,
+          nameKey,
+          String(r.sanPham || '').trim(),
+          String(r.thiTruong || '').trim(),
+          String(r.team || '').trim(),
+        ].join('||');
+      };
       const summary = {};
       data.forEach(r => {
         const key = r.ten || 'N/A';
@@ -1649,11 +1653,22 @@
         }
         const S = summary[key];
         S.mess += r.soMessCmt;
-        S.don += r.soDon;
-        S.chot += r.dsChot;
         S.cpqc += r.cpqc;
-        S.donThucTe += r.soDonThucTe;
-        S.chotThucTe += r.dsChotThucTe;
+        if (dedupeTTByKey) {
+          const ttKey = makeTTKey(r);
+          if (!seenTTKeys.has(ttKey)) {
+            seenTTKeys.add(ttKey);
+            S.don += r.soDon;
+            S.chot += r.dsChot;
+            S.donThucTe += r.soDonThucTe;
+            S.chotThucTe += r.dsChotThucTe;
+          }
+        } else {
+          S.don += r.soDon;
+          S.chot += r.dsChot;
+          S.donThucTe += r.soDonThucTe;
+          S.chotThucTe += r.dsChotThucTe;
+        }
       });
       return Object.values(summary);
     }
@@ -1816,6 +1831,17 @@
         container.innerHTML = `<p style="text-align:center; margin-top: 20px;">Dữ liệu quá lớn (${formatNumber(filteredData.length)} dòng), tạm ẩn bảng theo ngày để tăng tốc. Hãy thu hẹp bộ lọc theo ngày/team/sản phẩm.</p>`;
         return;
       }
+      const caAll = document.getElementById('ca-all-tab1');
+      const selectedCas = (!caAll || caAll.checked)
+        ? []
+        : Array.from(document.querySelectorAll('.filter-ca-tab1:checked')).map(cb => cb.value);
+      const norm = (v) =>
+        String(v || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      const dedupeTTByKey = selectedCas.length === 1 && norm(selectedCas[0]).includes('het ca');
       const groupedByDate = {};
       filteredData.forEach(r => {
         const d = formatDate(r.ngay);
@@ -1831,7 +1857,7 @@
       container.appendChild(loadingEl);
 
       const renderOneDateHtml = (date) => {
-        let dailyList = generateSummaryTableData(groupedByDate[date]);
+        let dailyList = generateSummaryTableData(groupedByDate[date], { dedupeTTByKey });
         sortList(dailyList, { column: null, direction: 'asc' }, summaryColumnSortKeys, { prop: 'team', type: 'string' });
         const { bodyHtml } = generateSummaryTableHTML(dailyList, selectedMarkets);
         return `<h3>${date}</h3><div class="table-responsive-container"><table class="sortable-table daily-summary-table" data-date="${date}">
