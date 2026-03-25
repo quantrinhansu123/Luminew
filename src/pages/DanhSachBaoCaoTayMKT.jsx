@@ -629,6 +629,22 @@ export default function DanhSachBaoCaoTayMKT() {
         });
     }, [allReports, filters.personnelNames, filters.shifts, filters.products, filters.markets]);
 
+    // Tổng kết theo toàn bộ dữ liệu đã lọc (không phụ thuộc phân trang)
+    const totalsByFiltered = useMemo(() => {
+        const rows = reportsAfterFilters || [];
+        return rows.reduce(
+            (acc, r) => {
+                acc.cpqc += Number(r?.['CPQC'] || 0);
+                acc.mess += Number(r?.['Số_Mess_Cmt'] || 0);
+                const realValues = (r && r.id && realValuesMap[r.id]) ? realValuesMap[r.id] : null;
+                acc.soDon += Number(realValues?.so_don_thuc_te || 0);
+                acc.doanhSo += Number(realValues?.doanh_so_thuc_te || 0);
+                return acc;
+            },
+            { cpqc: 0, mess: 0, soDon: 0, doanhSo: 0 }
+        );
+    }, [reportsAfterFilters, realValuesMap]);
+
     // Calculate pagination
     const totalPages = Math.ceil(reportsAfterFilters.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -1164,55 +1180,64 @@ export default function DanhSachBaoCaoTayMKT() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {manualReports.length === 0 ? (
+                                {reportsAfterFilters.length === 0 ? (
                                     <tr>
                                         <td colSpan="11" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
-                                    manualReports.map((item, index) => {
-                                        const realValues = realValuesMap[item.id] || {
-                                            so_don_thuc_te: item['Số đơn thực tế'] || 0,
-                                            doanh_so_thuc_te: item['Doanh số thực tế'] || 0
-                                        };
-                                        
-                                        return (
-                                            <tr key={item.id || index}>
-                                                <td className="text-center">{startIndex + index + 1}</td>
-                                                <td>{formatDate(item['Ngày'])}</td>
-                                                <td>{item['ca']}</td>
-                                                <td>{item['Tên']}</td>
-                                                <td>{item['Team']}</td>
-                                                <td>{item['Sản_phẩm']}</td>
-                                                <td>{item['Thị_trường']}</td>
-                                                <td>{formatNumber(item['CPQC'])}</td>
-                                                <td>{formatNumber(item['Số_Mess_Cmt'])}</td>
-                                                <td>{formatNumber(item['Số đơn'])}</td>
-                                                <td>{formatCurrency(item['Doanh số'])}</td>
-                                                <td className="text-center">
-                                                    <button
-                                                        className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition mr-2"
-                                                        onClick={() => handleEditClick(item)}
-                                                    >
-                                                        Sửa
-                                                    </button>
-                                                    {canDeleteSingle && (
+                                    <>
+                                        <tr className="total-row">
+                                            <td className="total-label" colSpan="7">TỔNG CỘNG</td>
+                                            <td className="total-value">{formatNumber(totalsByFiltered.cpqc)}</td>
+                                            <td className="total-value">{formatNumber(totalsByFiltered.mess)}</td>
+                                            <td className="total-value">{formatNumber(totalsByFiltered.soDon)}</td>
+                                            <td className="total-value">{formatCurrency(totalsByFiltered.doanhSo)}</td>
+                                            <td />
+                                        </tr>
+                                        {manualReports.map((item, index) => {
+                                            const realValues = realValuesMap[item.id] || {
+                                                so_don_thuc_te: item['Số đơn'] || 0,
+                                                doanh_so_thuc_te: item['Doanh số'] || 0
+                                            };
+                                            return (
+                                                <tr key={item.id || index}>
+                                                    <td className="text-center">{startIndex + index + 1}</td>
+                                                    <td>{formatDate(item['Ngày'])}</td>
+                                                    <td>{item['ca']}</td>
+                                                    <td>{item['Tên']}</td>
+                                                    <td>{item['Team']}</td>
+                                                    <td>{item['Sản_phẩm']}</td>
+                                                    <td>{item['Thị_trường']}</td>
+                                                    <td>{formatNumber(item['CPQC'])}</td>
+                                                    <td>{formatNumber(item['Số_Mess_Cmt'])}</td>
+                                                    <td>{formatNumber(realValues.so_don_thuc_te)}</td>
+                                                    <td>{formatCurrency(realValues.doanh_so_thuc_te)}</td>
+                                                    <td className="text-center">
                                                         <button
-                                                            onClick={() => {
-                                                                console.log('🔍 Delete button clicked, item:', item);
-                                                                console.log('🔍 Item ID:', item.id);
-                                                                handleDeleteReport(item.id);
-                                                            }}
-                                                            disabled={deletingId === item.id || !item.id}
-                                                            className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                                            title={!item.id ? 'Không có ID để xóa' : ''}
+                                                            className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition mr-2"
+                                                            onClick={() => handleEditClick(item)}
                                                         >
-                                                            {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                            Sửa
                                                         </button>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
+                                                        {canDeleteSingle && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    console.log('🔍 Delete button clicked, item:', item);
+                                                                    console.log('🔍 Item ID:', item.id);
+                                                                    handleDeleteReport(item.id);
+                                                                }}
+                                                                disabled={deletingId === item.id || !item.id}
+                                                                className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                title={!item.id ? 'Không có ID để xóa' : ''}
+                                                            >
+                                                                {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </>
                                 )}
                             </tbody>
                         </table>

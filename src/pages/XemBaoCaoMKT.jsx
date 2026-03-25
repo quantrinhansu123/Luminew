@@ -6,6 +6,7 @@ import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import { fetchSalesReportsFromAPI, convertDateToAPIFormat } from '../services/ordersApiService';
 import { parseSmartDate } from '../utils/dateParsing';
+import { supabase } from '../supabase/config';
 import './XemBaoCaoMKT.css';
 
 const MKT_DEV = import.meta.env.DEV;
@@ -23,11 +24,12 @@ function parseMoneyNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** DS Chốt (TT): chỉ lấy `doanh_so_tt` từ API. */
+/** DS Chốt (TT): ưu tiên field từ Supabase, fallback snake_case từ API. */
 function pickDoanhSoTT(item) {
   if (item == null) return 0;
-  const p = parseMoneyNumber(item.doanh_so_tt);
-  return p !== null ? p : 0;
+  const fromApi = parseMoneyNumber(item.doanh_so_tt);
+  const fromDb = parseMoneyNumber(item['Doanh số TT']);
+  return fromDb !== null ? fromDb : (fromApi !== null ? fromApi : 0);
 }
 
 /** Chuẩn hóa một dòng detail_reports từ API (dùng chung fetch + cache). */
@@ -237,6 +239,9 @@ function deriveTotalsFromSums(sums) {
 const LUMIDATA_DETAIL_PAGE_LIMIT = 1000;
 const LUMIDATA_DETAIL_MAX_PAGES = 250;
 
+const MKT_SUPABASE_PAGE_SIZE = 1000;
+const MKT_SUPABASE_MAX_PAGES = 250;
+
 /**
  * Nguồn MKT: https://lumidataapi.vercel.app/detail_reports?team=HN-MKT
  * `?team=RD` trên URL: không gửi `team` lên API, chỉ lọc department RD ở client.
@@ -303,6 +308,44 @@ async function fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter,
     return rows.filter((r) => String(r?.department || '').toUpperCase() === 'RD');
   }
   return rows.filter((r) => String(r?.department || '').toUpperCase() !== 'RD');
+}
+
+/**
+ * Lấy trực tiếp từ Supabase (DB): bảng `detail_reports`.
+ * - team != RD: Team = 'HN-MKT' và department != 'RD'
+ * - team == RD: department = 'RD' (giữ cùng component để tab/permission hoạt động)
+ */
+async function fetchDetailReportsFromSupabaseAll(startDate, endDate, teamFilter) {
+  const rows = [];
+  let from = 0;
+
+  for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
+    let q = supabase
+      .from('detail_reports')
+      .select('*');
+
+    if (teamFilter === 'RD') {
+      q = q.eq('department', 'RD');
+    } else {
+      q = q.eq('Team', 'HN-MKT').neq('department', 'RD');
+    }
+
+    if (startDate) q = q.gte('Ngày', startDate);
+    if (endDate) q = q.lte('Ngày', endDate);
+
+    q = q.order('id', { ascending: true }).range(from, from + MKT_SUPABASE_PAGE_SIZE - 1);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    const chunk = data || [];
+    rows.push(...chunk);
+
+    if (chunk.length < MKT_SUPABASE_PAGE_SIZE) break;
+    from += MKT_SUPABASE_PAGE_SIZE;
+  }
+
+  return rows;
 }
 
 const MARKET_GROUPS = {
@@ -667,11 +710,11 @@ export default function XemBaoCaoMKT() {
         return;
       }
 
-      if (MKT_DEV) console.log(`📡 detail_reports: ${startDate} → ${endDate} → lumidataapi/detail_reports?team=HN-MKT (trừ ?team=RD)`);
+      if (MKT_DEV) console.log(`📡 detail_reports (Supabase): ${startDate} → ${endDate}`);
 
       let rawRows;
       try {
-        rawRows = await fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter, signal);
+        rawRows = await fetchDetailReportsFromSupabaseAll(startDate, endDate, teamFilter);
       } finally {
         if (fetchMktTimeoutRef.current) {
           clearTimeout(fetchMktTimeoutRef.current);

@@ -810,31 +810,29 @@
     // --- I. KHAI BÁO BIẾN TOÀN CỤC & CẤU HÌNH ---
     // =================================================================================
 
-    /**
-    * @description URL của API để lấy dữ liệu báo cáo.
-    */
-    const API_URL_MKT = 'https://lumidataapi.vercel.app/detail_reports';
-    // Đã bỏ API_URL_SALE - chỉ dùng MKT
+    /** Trùng src/supabase/config — có thể ghi đè: window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__ */
+    const SUPABASE_URL_DEFAULT = 'https://gsjhsmxyxjyiqovauyrp.supabase.co';
+    const SUPABASE_ANON_KEY_DEFAULT = 'sb_publishable_vXBSa3eP8cvjIK2qLWI6Ug_FoYm4CNy';
+    function getSupabaseUrl() {
+      return (typeof window !== 'undefined' && window.__SUPABASE_URL__) || SUPABASE_URL_DEFAULT;
+    }
+    function getSupabaseAnonKey() {
+      return (typeof window !== 'undefined' && window.__SUPABASE_ANON_KEY__) || SUPABASE_ANON_KEY_DEFAULT;
+    }
 
-    /** Luôn gửi lên API detail_reports (đồng bộ với /xem-bao-cao-mkt). */
-    const MKT_API_TEAM = 'HN-MKT';
+    /** Lọc team HN-MKT trực tiếp trên Supabase (bảng detail_reports). */
+    const MKT_TEAM = 'HN-MKT';
 
-    /** lumidataapi/detail_reports: team (bắt buộc), from_date, to_date = DD/MM/YYYY — theo tab đang mở */
-    function buildMktDetailReportsFetchUrl() {
-      const ymdToDmy = (ymd) => {
-        if (!ymd || typeof ymd !== 'string') return '';
-        const parts = ymd.split('-');
-        if (parts.length !== 3) return '';
-        return `${parts[2]}/${parts[1]}/${parts[0]}`;
-      };
-      const parseYmdInput = (v) => {
-        if (!v || typeof v !== 'string') return null;
-        const p = v.split('-');
-        if (p.length !== 3) return null;
-        const y = parseInt(p[0], 10), m = parseInt(p[1], 10) - 1, d = parseInt(p[2], 10);
-        const dt = new Date(y, m, d);
-        return isNaN(dt.getTime()) ? null : dt;
-      };
+    function parseYmdInputForMkt(v) {
+      if (!v || typeof v !== 'string') return null;
+      const p = v.split('-');
+      if (p.length !== 3) return null;
+      const y = parseInt(p[0], 10), m = parseInt(p[1], 10) - 1, d = parseInt(p[2], 10);
+      const dt = new Date(y, m, d);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+
+    function getActiveTabDateInputIds() {
       const visibleTab = Array.from(document.querySelectorAll('.tab-content'))
         .find((el) => el.style.display !== 'none');
       const tabId = visibleTab ? visibleTab.id : 'DetailedReport';
@@ -843,27 +841,34 @@
         KpiReport: ['start-date-tab3', 'end-date-tab3'],
         MarketReport: ['start-date-mkt', 'end-date-mkt'],
       };
-      const [startId, endId] = dateInputMap[tabId] || dateInputMap.DetailedReport;
+      return dateInputMap[tabId] || dateInputMap.DetailedReport;
+    }
+
+    /** Khoảng ngày YYYY-MM-DD theo tab đang mở (đồng bộ với bộ lọc cũ). */
+    function getMktDateRangeForQuery() {
+      const [startId, endId] = getActiveTabDateInputIds();
       const sEl = document.getElementById(startId);
       const eEl = document.getElementById(endId);
-      const minD = sEl ? parseYmdInput(sEl.value) : null;
-      const maxD = eEl ? parseYmdInput(eEl.value) : null;
+      const minD = sEl ? parseYmdInputForMkt(sEl.value) : null;
+      const maxD = eEl ? parseYmdInputForMkt(eEl.value) : null;
       const fmtBack = (dt) => {
         const y = dt.getFullYear();
         const m = String(dt.getMonth() + 1).padStart(2, '0');
         const d = String(dt.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
       };
-      const fromDMY = minD ? ymdToDmy(fmtBack(minD)) : '';
-      const toDMY = maxD ? ymdToDmy(fmtBack(maxD)) : '';
-      const params = new URLSearchParams();
-      params.set('team', MKT_API_TEAM);
-      if (fromDMY) params.set('from_date', fromDMY);
-      if (toDMY) params.set('to_date', toDMY);
-      return `${API_URL_MKT}?${params.toString()}`;
+      return {
+        startYmd: minD ? fmtBack(minD) : null,
+        endYmd: maxD ? fmtBack(maxD) : null,
+      };
     }
 
-    /** Chuẩn hóa tên cột giống XemBaoCaoMKT (API có thể trả snake_case / tiếng Anh). */
+    function getMktDetailReportsCacheKey() {
+      const { startYmd, endYmd } = getMktDateRangeForQuery();
+      return `MKT_SUPABASE:${MKT_TEAM}:${startYmd || ''}:${endYmd || ''}`;
+    }
+
+    /** Chuẩn hóa tên cột giống XemBaoCaoMKT (Supabase / snake_case / tiếng Anh). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
       return {
@@ -925,69 +930,51 @@
       return [];
     }
 
-    /** Đồng bộ với React (lumidataapi): gom mọi trang — tránh chỉ ~1000 dòng đầu → “mất dòng”. */
-    const MKT_DETAIL_PAGE_LIMIT = 1000;
-    const MKT_DETAIL_MAX_PAGES = 250;
+    const MKT_SUPABASE_PAGE_SIZE = 1000;
+    const MKT_SUPABASE_MAX_PAGES = 500;
 
-    async function fetchAllMktDetailReportRows(firstPageUrl) {
-      const u = new URL(firstPageUrl);
-      const baseParams = new URLSearchParams(u.search);
+    let _supabaseClient = null;
+    async function getSupabaseClient() {
+      if (_supabaseClient) return _supabaseClient;
+      const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+      _supabaseClient = createClient(getSupabaseUrl(), getSupabaseAnonKey());
+      return _supabaseClient;
+    }
+
+    /** Gom mọi trang range() — giới hạn PostgREST ~1000 dòng/request. */
+    async function fetchAllMktDetailReportRowsFromSupabase(dateRange) {
+      const supabase = await getSupabaseClient();
       const allRows = [];
-      let nextCursor = null;
-      let cursorParam = 'next_after_id';
+      let from = 0;
+      const { startYmd, endYmd } = dateRange;
 
-      for (let page = 0; page < MKT_DETAIL_MAX_PAGES; page++) {
-        const params = new URLSearchParams(baseParams.toString());
-        params.set('limit', String(MKT_DETAIL_PAGE_LIMIT));
-        params.delete('next_after_id');
-        params.delete('after_id');
-        if (nextCursor) {
-          if (cursorParam === 'after_id') params.set('after_id', nextCursor);
-          else params.set('next_after_id', nextCursor);
-        }
+      for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
+        let q = supabase.from('detail_reports').select('*').eq('Team', MKT_TEAM);
+        if (startYmd) q = q.gte('Ngày', startYmd);
+        if (endYmd) q = q.lte('Ngày', endYmd);
+        q = q.order('id', { ascending: true }).range(from, from + MKT_SUPABASE_PAGE_SIZE - 1);
 
-        const url = `${API_URL_MKT}?${params.toString()}`;
-        const responseMKT = await fetch(url);
-        if (!responseMKT.ok) {
-          if (page === 0) {
-            console.error(`Lỗi tải dữ liệu MKT: HTTP ${responseMKT.status} ${responseMKT.statusText}`);
-          }
-          break;
+        const { data, error } = await q;
+        if (error) {
+          console.error('Supabase detail_reports:', error);
+          throw error;
         }
-        let resultPage;
-        try {
-          resultPage = await responseMKT.json();
-        } catch (e) {
-          console.error('Lỗi parse JSON từ MKT:', e);
-          break;
-        }
-
-        const chunk = extractDetailReportsRows(resultPage);
+        const chunk = data || [];
         allRows.push(...chunk);
 
         const lo = document.getElementById('loading-overlay');
         if (lo) {
-          const hasMore =
-            chunk.length > 0 &&
-            (resultPage?.next_after_id != null || resultPage?.after_id != null);
           lo.textContent =
-            hasMore || page > 0
+            chunk.length >= MKT_SUPABASE_PAGE_SIZE || page > 0
               ? `Đang tải dữ liệu… (trang ${page + 1}, ${allRows.length} dòng)`
               : 'Đang tải dữ liệu…';
         }
 
-        let next = resultPage && resultPage.next_after_id != null ? resultPage.next_after_id : null;
-        if (next) {
-          cursorParam = 'next_after_id';
-        } else {
-          next = resultPage && resultPage.after_id != null ? resultPage.after_id : null;
-          if (next) cursorParam = 'after_id';
-        }
-        if (!next || chunk.length === 0) break;
-        nextCursor = next;
+        if (chunk.length < MKT_SUPABASE_PAGE_SIZE) break;
+        from += MKT_SUPABASE_PAGE_SIZE;
       }
 
-      console.log(`📄 detail_reports: đã gom ${allRows.length} dòng (phân trang API).`);
+      console.log(`📄 detail_reports (Supabase): ${allRows.length} dòng.`);
       return allRows;
     }
 
@@ -1234,22 +1221,23 @@
     async function fetchAndProcessData() {
       showLoader();
       try {
-        const fetchUrl = buildMktDetailReportsFetchUrl();
-        let resultMKT = getCachedMktResult(fetchUrl);
+        const cacheKey = getMktDetailReportsCacheKey();
+        const dateRange = getMktDateRangeForQuery();
+        let resultMKT = getCachedMktResult(cacheKey);
 
         if (!resultMKT) {
           try {
-            const rawRowsAll = await fetchAllMktDetailReportRows(fetchUrl);
+            const rawRowsAll = await fetchAllMktDetailReportRowsFromSupabase(dateRange);
             resultMKT = { data: rawRowsAll };
           } catch (e) {
-            console.error('Lỗi tải dữ liệu MKT:', e);
+            console.error('Lỗi tải dữ liệu MKT (Supabase):', e);
             resultMKT = null;
           }
           if (resultMKT) {
-            setCachedMktResult(fetchUrl, resultMKT);
+            setCachedMktResult(cacheKey, resultMKT);
           }
         } else {
-          console.log('⚡ Dùng dữ liệu cache:', fetchUrl);
+          console.log('⚡ Dùng dữ liệu cache:', cacheKey);
         }
 
         const rawRows = extractDetailReportsRows(resultMKT);
@@ -1297,10 +1285,10 @@
             };
           });
 
-        // Dữ liệu từ API đã lọc theo ?team=HN-MKT
+        // Dữ liệu từ Supabase (detail_reports): Team = HN-MKT + khoảng Ngày
         masterData = masterDataMKT;
 
-        console.log(`✅ Đã tải dữ liệu từ API MKT:`);
+        console.log(`✅ Đã tải dữ liệu từ Supabase (detail_reports):`);
         console.log(`   - Báo cáo MKT: ${masterDataMKT.length} bản ghi, ${employeeDataMKT.length} nhân viên`);
         console.log(`   - Tổng hợp: ${masterData.length} bản ghi, ${employeeData.length} nhân viên`);
 
@@ -1309,7 +1297,7 @@
         applyTab1Filters();
       } catch (err) {
         console.error("Lỗi tải dữ liệu:", err);
-        alert('Không thể tải dữ liệu từ API. Vui lòng kiểm tra lại.');
+        alert('Không thể tải dữ liệu từ Supabase (detail_reports). Vui lòng kiểm tra mạng, RLS và biến môi trường.');
         document.getElementById('report-title-tab1').textContent = `LỖI TẢI DỮ LIỆU`;
       } finally {
         hideLoader();
@@ -1320,7 +1308,7 @@
       const manualTabBtn = document.getElementById('manual-report-tab-btn');
       const vandonTabBtn = document.getElementById('vandon-report-tab-btn');
       document.getElementById('report-title-tab1').textContent =
-        'DỮ LIỆU CHI PHÍ ADS — team HN-MKT (API)';
+        'DỮ LIỆU CHI PHÍ ADS — team HN-MKT (Supabase)';
       baseDataForReport = masterData;
       manualTabBtn.style.display = 'none';
       vandonTabBtn.style.display = 'none';
@@ -1482,6 +1470,22 @@
           return false;
         });
       };
+      const shouldKeepFirstRowPerKeyForHetCa =
+        selectedCas.length === 1 &&
+        normalizeCaForFilter(selectedCas[0]).includes('het ca');
+      const makePrimaryRowKey = (row) => {
+        const dateKey = formatDate(row.ngay) || '';
+        const idKey = String(row.idnv || '').trim();
+        const nameKey = String(row.ten || '').trim();
+        return [
+          dateKey,
+          idKey,
+          nameKey,
+          String(row.sanPham || '').trim(),
+          String(row.thiTruong || '').trim(),
+          String(row.team || '').trim(),
+        ].join('||');
+      };
 
       const filteredDataResult = baseDataForReport.filter(r => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
@@ -1519,7 +1523,17 @@
         return true;
       });
 
-      return filteredDataResult;
+      if (!shouldKeepFirstRowPerKeyForHetCa) {
+        return filteredDataResult;
+      }
+
+      const seenRowKeys = new Set();
+      return filteredDataResult.filter((row) => {
+        const rowKey = makePrimaryRowKey(row);
+        if (seenRowKeys.has(rowKey)) return false;
+        seenRowKeys.add(rowKey);
+        return true;
+      });
     }
 
     function populateAllFilters() {
