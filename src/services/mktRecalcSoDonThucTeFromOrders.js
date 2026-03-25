@@ -91,6 +91,28 @@ function makeId() {
   return `mkt_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+/** Gắn nhãn bảng + gợi ý khi lỗi mạng (Failed to fetch). */
+function wrapRecalcReadError(table, err) {
+  const raw = err?.message || err?.hint || String(err);
+  const isNetwork =
+    err?.name === 'TypeError' ||
+    (typeof raw === 'string' && raw.toLowerCase().includes('failed to fetch'));
+  if (isNetwork) {
+    const hasEnv =
+      typeof import.meta !== 'undefined' &&
+      import.meta.env?.VITE_SUPABASE_URL &&
+      import.meta.env?.VITE_SUPABASE_ANON_KEY;
+    const envHint = hasEnv
+      ? 'Đã có VITE_SUPABASE_* — kiểm tra URL đúng https://….supabase.co, mạng/VPN/firewall, dự án Supabase không Pause, tắt extension chặn request, thử trình duyệt khác.'
+      : 'Thiếu hoặc chưa nạp .env: thêm VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY, rồi dừng và chạy lại npm run dev.';
+    return new Error(`[${table}] ${raw}. ${envHint}`);
+  }
+  if (err && typeof err === 'object' && err.code) {
+    return new Error(`[${table}] ${raw} (code: ${err.code})`);
+  }
+  return new Error(`[${table}] ${raw}`);
+}
+
 async function fetchAllReportsInRange(startDate, endDate) {
   const PAGE_SIZE = 1000;
   const reports = [];
@@ -247,12 +269,31 @@ export async function recalcMktSoDonThucTeFromOrders({
     throw new Error('Khoảng ngày không hợp lệ. Vui lòng truyền startDate/endDate dạng YYYY-MM-DD.');
   }
 
-  const [reports, orders, hrEmailLookup, usersLookup] = await Promise.all([
-    fetchAllReportsInRange(normalizedStart, normalizedEnd),
-    fetchAllOrdersInRange(normalizedStart, normalizedEnd),
-    fetchHumanResourceEmailLookup(),
-    fetchUsersIdentityLookup(),
-  ]);
+  // Tuần tự để lỗi báo đúng bảng (Promise.all chỉ thấy “Failed to fetch” chung)
+  let reports;
+  let orders;
+  let hrEmailLookup;
+  let usersLookup;
+  try {
+    reports = await fetchAllReportsInRange(normalizedStart, normalizedEnd);
+  } catch (e) {
+    throw wrapRecalcReadError('detail_reports', e);
+  }
+  try {
+    orders = await fetchAllOrdersInRange(normalizedStart, normalizedEnd);
+  } catch (e) {
+    throw wrapRecalcReadError('orders', e);
+  }
+  try {
+    hrEmailLookup = await fetchHumanResourceEmailLookup();
+  } catch (e) {
+    throw wrapRecalcReadError('human_resources', e);
+  }
+  try {
+    usersLookup = await fetchUsersIdentityLookup();
+  } catch (e) {
+    throw wrapRecalcReadError('users', e);
+  }
 
   /*
    * Ca (shift) và số liệu:
@@ -444,20 +485,33 @@ export async function recalcMktSoDonThucTeFromOrders({
     };
   }
 
-  // Cập nhật từng dòng — giữ đồng thời thấp (tránh quá tải / “Failed to fetch” trên một số mạng hoặc trình duyệt)
-  const UPDATE_CONCURRENCY = 8;
+  // Cập nhật từng dòng — đồng thời thấp; lỗi mạng thì fallback từng dòng
+  const UPDATE_CONCURRENCY = 4;
   let touched = 0;
 
   for (let i = 0; i < updateRows.length; i += UPDATE_CONCURRENCY) {
     const chunk = updateRows.slice(i, i + UPDATE_CONCURRENCY);
-    const results = await Promise.all(
-      chunk.map((row) => {
+    try {
+      const results = await Promise.all(
+        chunk.map((row) => {
+          const { id, ...rest } = row;
+          return supabase.from('detail_reports').update(rest).eq('id', id);
+        })
+      );
+      const firstErr = results.find((r) => r.error)?.error;
+      if (firstErr) throw firstErr;
+    } catch (e) {
+      const raw = e?.message || String(e);
+      const isNetwork =
+        e?.name === 'TypeError' ||
+        (typeof raw === 'string' && raw.toLowerCase().includes('failed to fetch'));
+      if (!isNetwork) throw wrapRecalcReadError('detail_reports (cập nhật)', e);
+      for (const row of chunk) {
         const { id, ...rest } = row;
-        return supabase.from('detail_reports').update(rest).eq('id', id);
-      })
-    );
-    const firstErr = results.find((r) => r.error)?.error;
-    if (firstErr) throw firstErr;
+        const { error } = await supabase.from('detail_reports').update(rest).eq('id', id);
+        if (error) throw wrapRecalcReadError('detail_reports (cập nhật)', error);
+      }
+    }
     touched += chunk.length;
   }
 

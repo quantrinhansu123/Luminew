@@ -407,20 +407,20 @@ export default function BaoCaoMarketing() {
     };
   };
 
-  const handleAddRow = (rowIndexToCopy = 0) => {
-    const sourceRow = tableRows[rowIndexToCopy];
-    const newRowData = {};
+  /** ➕ trên dòng: chèn dòng mới ngay bên dưới, sao chép toàn bộ dữ liệu dòng nguồn (trừ id bản ghi). */
+  const handleAddRow = (rowIndexToCopy) => {
+    setTableRows((prev) => {
+      const sourceRow = prev[rowIndexToCopy];
+      if (!sourceRow?.data) return prev;
 
-    // Fields to copy up to and including "Thị_trường"
-    const fieldsToKeep = ['Tên', 'Email', 'ca', 'Sản_phẩm', 'Thị_trường'];
+      const newRowData = { ...sourceRow.data };
+      delete newRowData.id;
 
-    fieldsToKeep.forEach((field) => {
-      if (sourceRow?.data?.[field]) {
-        newRowData[field] = sourceRow.data[field];
-      }
+      const newRow = createRowData(newRowData, appData.employeeDetails, hrEmailLookup);
+      const next = [...prev];
+      next.splice(rowIndexToCopy + 1, 0, newRow);
+      return next;
     });
-
-    setTableRows([...tableRows, createRowData(newRowData, appData.employeeDetails, hrEmailLookup)]);
   };
 
   const handleAddNewRow = () => {
@@ -1023,34 +1023,71 @@ export default function BaoCaoMarketing() {
       ];
 
       const keyToExistingId = new Map();
+      /** id bản ghi DB → Số_Mess_Cmt & CPQC hiện có (để cộng dồn khi trùng key) */
+      const idToExistingAgg = new Map();
       if (uniqueDates.length > 0) {
         const { data: existingList, error: exErr } = await supabase
           .from('detail_reports')
-          .select('id, "Ngày", "Tên", "Sản_phẩm", "Thị_trường", ca')
+          .select('id, "Ngày", "Tên", "Sản_phẩm", "Thị_trường", ca, "Số_Mess_Cmt", "CPQC"')
           .in('Ngày', uniqueDates);
 
         if (exErr) throw exErr;
         for (const er of existingList || []) {
           const k = buildMktReportDedupeKey(er);
           if (!keyToExistingId.has(k)) keyToExistingId.set(k, er.id);
+
+          const messRaw = er['Số_Mess_Cmt'] ?? er.so_mess_cmt;
+          const cpqcRaw = er['CPQC'] ?? er.cpqc;
+          idToExistingAgg.set(er.id, {
+            soMess: parseVietnameseNumberInput(messRaw),
+            cpqc: parseVietnameseNumberInput(cpqcRaw),
+          });
         }
       }
 
-      // Không gộp trước bằng Map (dễ mất dòng khi key trùng oan). Last-wins theo id / key mới.
-      const updateById = new Map();
       const insertCanonicalByKey = new Map();
+      /** Trùng key: gom cộng Số_Mess_Cmt + CPQC từ mọi dòng form; các cột khác lấy dòng cuối. */
+      const pendingUpdateByExistingId = new Map();
+
       for (const row of rowsData) {
         const k = buildMktReportDedupeKey(row);
         const existingId = keyToExistingId.get(k);
         if (existingId) {
-          updateById.set(existingId, { ...row, id: existingId });
+          const dm = parseVietnameseNumberInput(row['Số_Mess_Cmt']);
+          const dc = parseVietnameseNumberInput(row['CPQC']);
+          const prev = pendingUpdateByExistingId.get(existingId);
+          if (prev) {
+            pendingUpdateByExistingId.set(existingId, {
+              lastRow: row,
+              sumMess: prev.sumMess + dm,
+              sumCpqc: prev.sumCpqc + dc,
+            });
+          } else {
+            pendingUpdateByExistingId.set(existingId, {
+              lastRow: row,
+              sumMess: dm,
+              sumCpqc: dc,
+            });
+          }
         } else {
           insertCanonicalByKey.set(k, row);
         }
       }
 
       const toInsert = [...insertCanonicalByKey.values()];
-      const toUpdate = [...updateById.values()];
+      const toUpdate = [];
+      for (const [existingId, { lastRow, sumMess, sumCpqc }] of pendingUpdateByExistingId) {
+        const agg = idToExistingAgg.get(existingId);
+        const merged = { ...lastRow, id: existingId };
+        if (agg) {
+          merged['Số_Mess_Cmt'] = agg.soMess + sumMess;
+          merged['CPQC'] = agg.cpqc + sumCpqc;
+        } else {
+          merged['Số_Mess_Cmt'] = sumMess;
+          merged['CPQC'] = sumCpqc;
+        }
+        toUpdate.push(merged);
+      }
 
       if (toInsert.length > 0) {
         const { error: insErr } = await supabase.from('detail_reports').insert(toInsert).select();
@@ -1078,10 +1115,10 @@ export default function BaoCaoMarketing() {
       setResponseMsg({
         text:
           insN > 0 && updN > 0
-            ? `Thành công! Đã thêm ${insN} dòng, cập nhật ${updN} dòng (trùng key).`
+            ? `Thành công! Đã thêm ${insN} dòng, cập nhật ${updN} dòng (trùng key: Số Mess + CPQC đã cộng dồn với DB).`
             : insN > 0
               ? `Thành công! Đã thêm ${insN} dòng vào hệ thống.`
-              : `Thành công! Đã cập nhật ${updN} dòng (đã có sẵn cùng key).`,
+              : `Thành công! Đã cập nhật ${updN} dòng (trùng key: Số Mess + CPQC = DB + số vừa nhập).`,
         isSuccess: true,
         visible: true,
       });
@@ -1197,7 +1234,7 @@ export default function BaoCaoMarketing() {
                             type="button"
                             onClick={() => handleAddRow(rowIndex)}
                             className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition text-xs font-semibold"
-                            title="Copy dòng này"
+                            title="Thêm dòng giống dòng này (ngay bên dưới)"
                           >
                             ➕
                           </button>

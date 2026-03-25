@@ -313,8 +313,10 @@ export const fetchSalesReportsFromAPI = async (filters = {}) => {
         const baseUrl = ORDERS_API_BASE_URL.replace(/\s+/g, '').replace(/\/+$/, '');
         const endpoint = '/detail_reports';
         const url = `${baseUrl}${endpoint}?${params.toString()}`;
-        console.log('📡 Fetching detail_reports from:', url);
-        console.log('📋 Request params:', Object.fromEntries(params));
+        if (import.meta.env.DEV) {
+            console.log('📡 Fetching detail_reports from:', url);
+            console.log('📋 Request params:', Object.fromEntries(params));
+        }
 
         const response = await fetch(url, {
             method: 'GET',
@@ -348,25 +350,26 @@ export const fetchSalesReportsFromAPI = async (filters = {}) => {
         }
 
         const data = await response.json();
-        
-        // Debug: Log cấu trúc dữ liệu
-        const sampleItem = data.data?.[0] || data[0] || null;
-        console.log('✅ Detail Reports API Response:', {
-            count: data.data?.length || data.length || 0,
-            hasStatistics: !!data.statistics,
-            dataKeys: sampleItem ? Object.keys(sampleItem) : [],
-            sampleData: sampleItem,
-            sampleFields: sampleItem ? {
-                id: sampleItem.id || sampleItem.ID,
-                ten: sampleItem['Tên'] || sampleItem.name,
-                ngay: sampleItem['Ngày'] || sampleItem.date,
-                team: sampleItem['Team'] || sampleItem.team,
-                cpqc: sampleItem['CPQC'] || sampleItem.CPQC,
-                phanHoi: sampleItem['Phản hồi'] || sampleItem['Phản_hồi'] || sampleItem.response_count || sampleItem.phan_hoi,
-                soMess: sampleItem['Số_Mess_Cmt'] || sampleItem['Số Mess Cmt'],
-                soDon: sampleItem['Số đơn'] || sampleItem['Số_đơn']
-            } : null
-        });
+
+        if (import.meta.env.DEV) {
+            const sampleItem = data.data?.[0] || data[0] || null;
+            console.log('✅ Detail Reports API Response:', {
+                count: data.data?.length || data.length || 0,
+                hasStatistics: !!data.statistics,
+                dataKeys: sampleItem ? Object.keys(sampleItem) : [],
+                sampleData: sampleItem,
+                sampleFields: sampleItem ? {
+                    id: sampleItem.id || sampleItem.ID,
+                    ten: sampleItem['Tên'] || sampleItem.name,
+                    ngay: sampleItem['Ngày'] || sampleItem.date,
+                    team: sampleItem['Team'] || sampleItem.team,
+                    cpqc: sampleItem['CPQC'] || sampleItem.CPQC,
+                    phanHoi: sampleItem['Phản hồi'] || sampleItem['Phản_hồi'] || sampleItem.response_count || sampleItem.phan_hoi,
+                    soMess: sampleItem['Số_Mess_Cmt'] || sampleItem['Số Mess Cmt'],
+                    soDon: sampleItem['Số đơn'] || sampleItem['Số_đơn']
+                } : null
+            });
+        }
 
         // Xử lý cả 2 trường hợp: {data: [...]} hoặc trực tiếp là array
         const result = {

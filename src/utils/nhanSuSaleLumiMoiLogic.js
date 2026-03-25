@@ -19,6 +19,7 @@ const SALES_REPORTS_SELECT = [
   'mess_count',
   'response_count',
   'order_count',
+  'revenue_mess',
   'revenue_actual',
   'revenue_go_actual',
   'order_cancel_count',
@@ -183,6 +184,7 @@ export function mapSupabaseSalesReportRow(row) {
   const team = String(row.team ?? '').trim();
   if (!ten || !team) return null;
   const oc = Number(row.order_count) || 0;
+  const rm = Number(row.revenue_mess) || 0;
   const ra = Number(row.revenue_actual) || 0;
   const rca = Number(row.revenue_cancel_actual) || 0;
   return {
@@ -196,8 +198,8 @@ export function mapSupabaseSalesReportRow(row) {
     sanPham: row.product || '',
     thiTruong: row.market || '',
     soMessCmt: Number(row.mess_count) || 0,
-    soDon: 0,
-    dsChot: 0,
+    soDon: oc,
+    dsChot: rm,
     phanHoi: Number(row.response_count) || 0,
     doanhSoDi: Number(row.revenue_go_actual) || 0,
     soDonHuy: Number(row.order_cancel_count) || 0,
@@ -230,8 +232,8 @@ export function mapLumidataSalesReportRow(item) {
     sanPham: item.san_pham || '',
     thiTruong: item.thi_truong || '',
     soMessCmt: Number(item.mess_count) || 0,
-    soDon: 0,
-    dsChot: 0,
+    soDon: Number(item.order_count) || 0,
+    dsChot: Number(item.revenue_mess) || 0,
     phanHoi: Number(item.response_count) || 0,
     doanhSoDi: Number(item.revenue_go_actual) || 0,
     soDonHuy: Number(item.order_cancel_count_actual) || 0,

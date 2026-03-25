@@ -1,5 +1,5 @@
 import { Settings } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState, startTransition } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
@@ -21,25 +21,34 @@ function parseMoneyNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * DS Chốt (TT): doanh_so_tt → Doanh số chốt TT (legacy) → Doanh thu chốt thực tế.
- * Không đọc `Doanh số TT` ở đây (đó là field đang được gán từ hàm này — tránh lỗi gọi 2 lần).
- */
+/** DS Chốt (TT): chỉ lấy `doanh_so_tt` từ API. */
 function pickDoanhSoTT(item) {
   if (item == null) return 0;
-
   const p = parseMoneyNumber(item.doanh_so_tt);
-  if (p !== null) return p;
+  return p !== null ? p : 0;
+}
 
-  const legacy = parseMoneyNumber(item['Doanh số chốt TT']);
-  if (legacy !== null) return legacy;
+const MKT_DEV = import.meta.env.DEV;
 
-  const chotThucTe = parseMoneyNumber(
-    item['Doanh thu chốt thực tế'] ?? item.doanh_thu_chot_thuc_te ?? item.revenue_actual
-  );
-  if (chotThucTe !== null) return chotThucTe;
-
-  return 0;
+/** Formatters module-scope — tránh tạo lại mỗi lần render (bảng lớn). */
+function fmtNum(n) {
+  return n ? Math.round(n).toLocaleString('vi-VN') : '0';
+}
+function fmtCurrency(n) {
+  return n ? Math.round(n).toLocaleString('vi-VN') + ' ₫' : '0 ₫';
+}
+function fmtPct(n) {
+  return n ? n.toFixed(2) + '%' : '0.00%';
+}
+function getCpsCellStyle(cps) {
+  if (cps > 2000000) return 'bg-lightred';
+  if (cps > 1000000) return 'bg-yellow';
+  return '';
+}
+function getRateClass(rate) {
+  if (rate > 10) return 'bg-green';
+  if (rate > 5) return 'bg-yellow';
+  return '';
 }
 
 /** Chuẩn hóa ngày báo cáo → YYYY-MM-DD để nhóm theo ngày. */
@@ -181,10 +190,12 @@ async function fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter)
   const from_date = convertDateToAPIFormat(startDate);
   const to_date = convertDateToAPIFormat(endDate);
   const apiTeam = lumidataDetailReportsTeamParam(teamFilter);
-  if (apiTeam) {
-    console.log('📡 lumidata detail_reports?team=HN-MKT (+ from_date, to_date, limit, cursor…)');
-  } else {
-    console.log('📡 lumidata detail_reports (không team=) — chế độ ?team=RD, lọc department ở client');
+  if (MKT_DEV) {
+    if (apiTeam) {
+      console.log('📡 lumidata detail_reports?team=HN-MKT (+ from_date, to_date, limit, cursor…)');
+    } else {
+      console.log('📡 lumidata detail_reports (không team=) — chế độ ?team=RD, lọc department ở client');
+    }
   }
   const rows = [];
   let nextCursor = null;
@@ -266,7 +277,10 @@ export default function XemBaoCaoMKT() {
 
   const [activeTab, setActiveTab] = useState('DetailedReport');
   const [data, setData] = useState([]);
+  const deferredData = useDeferredValue(data);
   const [loading, setLoading] = useState(true);
+  /** Mặc định ẩn — bảng chi tiết theo ngày nhân đôi DOM, rất nặng với nhiều ngày/dòng. */
+  const [showDailyBreakdown, setShowDailyBreakdown] = useState(false);
 
   // Helper function để format date theo LOCAL time (tránh lỗi timezone trên Vercel)
   const formatLocalDate = (date) => {
@@ -306,14 +320,14 @@ export default function XemBaoCaoMKT() {
         const parsed = JSON.parse(saved);
         // Đảm bảo soDonTT luôn là true
         parsed.soDonTT = true;
-        console.log('📋 Loaded visibleColumns from localStorage:', parsed);
+        if (MKT_DEV) console.log('📋 Loaded visibleColumns from localStorage:', parsed);
         return parsed;
       } catch (e) {
         console.warn('⚠️ Error parsing visibleColumns from localStorage, using defaults');
         return defaultColumns;
       }
     }
-    console.log('📋 Using default visibleColumns:', defaultColumns);
+    if (MKT_DEV) console.log('📋 Using default visibleColumns:', defaultColumns);
     return defaultColumns;
   });
 
@@ -416,10 +430,13 @@ export default function XemBaoCaoMKT() {
               }
             ];
 
-            setData(mockReports);
-            setTeams(['Team Test']);
-            setProducts(['Sản phẩm A', 'Sản phẩm B']);
-            setMarkets(['Hà Nội', 'Hồ Chí Minh']);
+            startTransition(() => {
+              setShowDailyBreakdown(false);
+              setData(mockReports);
+              setTeams(['Team Test']);
+              setProducts(['Sản phẩm A', 'Sản phẩm B']);
+              setMarkets(['Hà Nội', 'Hồ Chí Minh']);
+            });
             setLoading(false);
             return; // EXIT EARLY
           }
@@ -429,7 +446,7 @@ export default function XemBaoCaoMKT() {
       }
       // --------------------------
 
-      console.log(`📡 detail_reports: ${startDate} → ${endDate} → lumidataapi/detail_reports?team=HN-MKT (trừ ?team=RD)`);
+      if (MKT_DEV) console.log(`📡 detail_reports: ${startDate} → ${endDate} → lumidataapi/detail_reports?team=HN-MKT (trừ ?team=RD)`);
 
       const normalizeApiRow = (item) => ({
         ...item,
@@ -460,10 +477,9 @@ export default function XemBaoCaoMKT() {
       const rawRows = await fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter);
       const allReports = rawRows.map(normalizeApiRow);
 
-      console.log(`✅ Đã tải ${allReports.length} bản ghi detail_reports`);
+      if (MKT_DEV) console.log(`✅ Đã tải ${allReports.length} bản ghi detail_reports`);
 
-      // Debug: Log sample date format từ database
-      if (allReports.length > 0) {
+      if (MKT_DEV && allReports.length > 0) {
         const sampleDates = allReports.slice(0, 3).map(r => r['Ngày']);
         console.log(`📅 Sample dates từ DB:`, sampleDates);
         console.log(`📅 Date format check: startDate=${startDate}, endDate=${endDate}`);
@@ -491,7 +507,7 @@ export default function XemBaoCaoMKT() {
         return true;
       });
 
-      console.log(`📊 After client-side date filter: ${dateFilteredReports.length}/${allReports.length}`);
+      if (MKT_DEV) console.log(`📊 After client-side date filter: ${dateFilteredReports.length}/${allReports.length}`);
 
       // Then filter by hierarchical permissions
       // Admin: luôn xem tất cả dữ liệu, không bị filter
@@ -524,42 +540,43 @@ export default function XemBaoCaoMKT() {
         }
       } else {
         // Admin: xem tất cả, không filter
-        console.log('✅ Admin: Viewing all MKT reports (no filter applied)');
+        if (MKT_DEV) console.log('✅ Admin: Viewing all MKT reports (no filter applied)');
       }
 
-      console.log(`📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`);
+      if (MKT_DEV) {
+        console.log(
+          `📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`
+        );
+      }
 
-      setData(dateFilteredReports);
-
-      // Extract unique teams, products, markets from detail_reports
-      // Tất cả dữ liệu đều lấy từ bảng detail_reports
       const uniqueTeams = [...new Set(dateFilteredReports.map(r => r['Team']).filter(Boolean))].sort();
-      setTeams(uniqueTeams);
-      setSelectedTeams(prev => {
-        const next = prev.filter(v => uniqueTeams.includes(v));
-        return next.length > 0 ? next : uniqueTeams;
-      });
-
       const uniqueProducts = [...new Set(dateFilteredReports.map(r => r['Sản_phẩm']).filter(Boolean))].sort();
-      setProducts(uniqueProducts);
-      setSelectedProducts(prev => {
-        const next = prev.filter(v => uniqueProducts.includes(v));
-        return next.length > 0 ? next : uniqueProducts;
-      });
-
       const uniqueMarkets = [...new Set(dateFilteredReports.map(r => r['Thị_trường']).filter(Boolean))].sort();
-      setMarkets(uniqueMarkets);
-      setSelectedMarkets(prev => {
-        const next = prev.filter(v => uniqueMarkets.includes(v));
-        return next.length > 0 ? next : uniqueMarkets;
-      });
-
-      // Extract unique shifts (Ca) from detail_reports
       const uniqueShifts = [...new Set(dateFilteredReports.map(r => r['ca']).filter(Boolean))].sort();
-      setShifts(uniqueShifts);
-      setSelectedShifts(prev => {
-        const next = prev.filter(v => uniqueShifts.includes(v));
-        return next.length > 0 ? next : uniqueShifts;
+
+      startTransition(() => {
+        setShowDailyBreakdown(false);
+        setData(dateFilteredReports);
+        setTeams(uniqueTeams);
+        setSelectedTeams((prev) => {
+          const next = prev.filter((v) => uniqueTeams.includes(v));
+          return next.length > 0 ? next : uniqueTeams;
+        });
+        setProducts(uniqueProducts);
+        setSelectedProducts((prev) => {
+          const next = prev.filter((v) => uniqueProducts.includes(v));
+          return next.length > 0 ? next : uniqueProducts;
+        });
+        setMarkets(uniqueMarkets);
+        setSelectedMarkets((prev) => {
+          const next = prev.filter((v) => uniqueMarkets.includes(v));
+          return next.length > 0 ? next : uniqueMarkets;
+        });
+        setShifts(uniqueShifts);
+        setSelectedShifts((prev) => {
+          const next = prev.filter((v) => uniqueShifts.includes(v));
+          return next.length > 0 ? next : uniqueShifts;
+        });
       });
 
     } catch (err) {
@@ -584,7 +601,7 @@ export default function XemBaoCaoMKT() {
   };
 
   const processData = useMemo(() => {
-    if (!data.length) {
+    if (!deferredData.length) {
       return {
         rows: [],
         total: {
@@ -612,7 +629,7 @@ export default function XemBaoCaoMKT() {
       };
     }
 
-    const filteredRaw = data.filter((row) => {
+    const filteredRaw = deferredData.filter((row) => {
       if (selectedTeams.length > 0 && !selectedTeams.includes(row['Team'])) return false;
       if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return false;
       if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return false;
@@ -626,33 +643,39 @@ export default function XemBaoCaoMKT() {
 
     const total = deriveTotalsFromSums(sumProcessRows(rows));
 
-    const byDay = new Map();
-    for (const row of filteredRaw) {
-      const key = ymdKeyFromReportRow(row);
-      if (!key) continue;
-      if (!byDay.has(key)) byDay.set(key, []);
-      byDay.get(key).push(row);
+    let dailyData = [];
+    if (activeTab === 'DetailedReport') {
+      const byDay = new Map();
+      for (const row of filteredRaw) {
+        const key = ymdKeyFromReportRow(row);
+        if (!key) continue;
+        if (!byDay.has(key)) byDay.set(key, []);
+        byDay.get(key).push(row);
+      }
+
+      dailyData = Array.from(byDay.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, dayRaw]) => {
+          const dayRows = dayRaw
+            .map((r) => mapRawRowToProcessRow(r))
+            .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
+          return {
+            date,
+            rows: dayRows,
+            total: deriveTotalsFromSums(sumProcessRows(dayRows)),
+          };
+        });
     }
 
-    const dailyData = Array.from(byDay.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, dayRaw]) => {
-        const dayRows = dayRaw
-          .map((r) => mapRawRowToProcessRow(r))
-          .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
-        return {
-          date,
-          rows: dayRows,
-          total: deriveTotalsFromSums(sumProcessRows(dayRows)),
-        };
-      });
-
     return { rows, total, dailyData };
-  }, [data, selectedTeams, selectedProducts, selectedShifts, selectedMarkets]);
+  }, [deferredData, selectedTeams, selectedProducts, selectedShifts, selectedMarkets, activeTab]);
 
   // Logic for Market Report (Tab 4)
   const processMarketData = useMemo(() => {
-    if (!data.length) return { asia: [], nonAsia: [], summary: [] };
+    if (activeTab !== 'MarketReport') {
+      return { asia: [], nonAsia: [], summary: [] };
+    }
+    if (!deferredData.length) return { asia: [], nonAsia: [], summary: [] };
 
     const processGroup = (records, showMarketColumns = true) => {
       const productGroups = {};
@@ -733,7 +756,7 @@ export default function XemBaoCaoMKT() {
     const nonAsiaList = [];
     const nonAsiaMarketsLower = MARKET_GROUPS['Ngoài Châu Á'].map(m => m.toLowerCase());
 
-    data.forEach(r => {
+    deferredData.forEach((r) => {
       const market = (r['Thị_trường'] || '').toLowerCase();
       if (nonAsiaMarketsLower.some(m => market.includes(m))) {
         nonAsiaList.push(r);
@@ -745,10 +768,10 @@ export default function XemBaoCaoMKT() {
     return {
       nonAsia: processGroup(nonAsiaList, true),
       asia: processGroup(asiaList, true),
-      summary: processGroup(data, false)
+      summary: processGroup(deferredData, false)
     };
 
-  }, [data, selectedProduct, selectedMarket, selectedTeam]);
+  }, [deferredData, selectedProduct, selectedMarket, selectedTeam, activeTab]);
 
 
 
@@ -854,25 +877,6 @@ export default function XemBaoCaoMKT() {
 
   const handleSelectAll = (filterType, isChecked) => {
     handleFilterChange(filterType, 'ALL', isChecked);
-  };
-
-  // Format Helper
-  const fmtNum = (n) => n ? Math.round(n).toLocaleString('vi-VN') : '0';
-  const fmtCurrency = (n) => n ? Math.round(n).toLocaleString('vi-VN') + ' ₫' : '0 ₫';
-  const fmtPct = (n) => n ? n.toFixed(2) + '%' : '0.00%';
-
-  const getCpsCellStyle = (cps) => {
-    // Match với hình: red cho >2M, yellow cho >1M
-    if (cps > 2000000) return 'bg-lightred'; // > 2M - Red
-    if (cps > 1000000) return 'bg-yellow';   // > 1M - Yellow
-    return ''; // < 1M - White/Default
-  };
-
-  const getRateClass = (rate) => {
-    // Match với hình: green cho >10%, yellow cho 5-10%
-    if (rate > 10) return 'bg-green';  // > 10% - Green
-    if (rate > 5) return 'bg-yellow';   // 5-10% - Yellow
-    return ''; // < 5% - White/Default
   };
 
   const renderMarketTable = (rows, title) => {
@@ -1303,8 +1307,29 @@ export default function XemBaoCaoMKT() {
                           : ''}
                       </div>
 
-                      {/* Daily Breakdown */}
-                      {processData.dailyData && processData.dailyData.length > 0 && processData.dailyData.map((dayData, dIdx) => (
+                      {processData.dailyData.length > 0 && (
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            marginTop: '14px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            userSelect: 'none',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={showDailyBreakdown}
+                            onChange={(e) => setShowDailyBreakdown(e.target.checked)}
+                          />
+                          Hiển thị chi tiết theo ngày ({processData.dailyData.length} ngày)
+                        </label>
+                      )}
+
+                      {/* Daily Breakdown — tắt mặc định: giảm lag khi nhiều ngày */}
+                      {showDailyBreakdown && processData.dailyData.length > 0 && processData.dailyData.map((dayData, dIdx) => (
                         <div key={dIdx} style={{ marginTop: '30px' }}>
                           <h3 style={{ borderBottom: '2px solid #2d7c2d', paddingBottom: '5px', marginBottom: '10px' }}>
                             {dayData.date.split('-').reverse().join('/')}

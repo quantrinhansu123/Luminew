@@ -54,6 +54,7 @@ import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
 import DashboardQuanTri from './pages/DashboardQuanTri';
+import XemBaoCaoMKT from './pages/XemBaoCaoMKT';
 import XemBaoCaoMKTLegacy from './pages/XemBaoCaoMKTLegacy';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import TestMKT from './pages/TestMKT.jsx';
@@ -136,6 +137,14 @@ function AppShell() {
             <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
             <Route
               path="/xem-bao-cao-mkt"
+              element={
+                <ProtectedRoute>
+                  <XemBaoCaoMKT />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/xem-bao-cao-mkt-legacy"
               element={
                 <ProtectedRoute>
                   <XemBaoCaoMKTLegacy />
