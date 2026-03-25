@@ -1017,108 +1017,14 @@ export default function BaoCaoMarketing() {
       }
       // --------------------------
 
-      // Cùng key với DB → UPDATE; key gồm ca (trống = Giữa ca) + Ngày + Tên + SP + TT
-      const uniqueDates = [
-        ...new Set(rowsData.map((r) => normalizeMktReportDate(r['Ngày'])).filter(Boolean)),
-      ];
-
-      const keyToExistingId = new Map();
-      /** id bản ghi DB → Số_Mess_Cmt & CPQC hiện có (để cộng dồn khi trùng key) */
-      const idToExistingAgg = new Map();
-      if (uniqueDates.length > 0) {
-        const { data: existingList, error: exErr } = await supabase
-          .from('detail_reports')
-          .select('id, "Ngày", "Tên", "Sản_phẩm", "Thị_trường", ca, "Số_Mess_Cmt", "CPQC"')
-          .in('Ngày', uniqueDates);
-
-        if (exErr) throw exErr;
-        for (const er of existingList || []) {
-          const k = buildMktReportDedupeKey(er);
-          if (!keyToExistingId.has(k)) keyToExistingId.set(k, er.id);
-
-          const messRaw = er['Số_Mess_Cmt'] ?? er.so_mess_cmt;
-          const cpqcRaw = er['CPQC'] ?? er.cpqc;
-          idToExistingAgg.set(er.id, {
-            soMess: parseVietnameseNumberInput(messRaw),
-            cpqc: parseVietnameseNumberInput(cpqcRaw),
-          });
-        }
-      }
-
-      const insertCanonicalByKey = new Map();
-      /** Trùng key: gom cộng Số_Mess_Cmt + CPQC từ mọi dòng form; các cột khác lấy dòng cuối. */
-      const pendingUpdateByExistingId = new Map();
-
-      for (const row of rowsData) {
-        const k = buildMktReportDedupeKey(row);
-        const existingId = keyToExistingId.get(k);
-        if (existingId) {
-          const dm = parseVietnameseNumberInput(row['Số_Mess_Cmt']);
-          const dc = parseVietnameseNumberInput(row['CPQC']);
-          const prev = pendingUpdateByExistingId.get(existingId);
-          if (prev) {
-            pendingUpdateByExistingId.set(existingId, {
-              lastRow: row,
-              sumMess: prev.sumMess + dm,
-              sumCpqc: prev.sumCpqc + dc,
-            });
-          } else {
-            pendingUpdateByExistingId.set(existingId, {
-              lastRow: row,
-              sumMess: dm,
-              sumCpqc: dc,
-            });
-          }
-        } else {
-          insertCanonicalByKey.set(k, row);
-        }
-      }
-
-      const toInsert = [...insertCanonicalByKey.values()];
-      const toUpdate = [];
-      for (const [existingId, { lastRow, sumMess, sumCpqc }] of pendingUpdateByExistingId) {
-        const agg = idToExistingAgg.get(existingId);
-        const merged = { ...lastRow, id: existingId };
-        if (agg) {
-          merged['Số_Mess_Cmt'] = agg.soMess + sumMess;
-          merged['CPQC'] = agg.cpqc + sumCpqc;
-        } else {
-          merged['Số_Mess_Cmt'] = sumMess;
-          merged['CPQC'] = sumCpqc;
-        }
-        toUpdate.push(merged);
-      }
-
-      if (toInsert.length > 0) {
-        const { error: insErr } = await supabase.from('detail_reports').insert(toInsert).select();
-        if (insErr) throw insErr;
-      }
-
-      const UPDATE_CHUNK = 40;
-      for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK) {
-        const chunk = toUpdate.slice(i, i + UPDATE_CHUNK);
-        const results = await Promise.all(
-          chunk.map((row) => {
-            const { id, ...rawRest } = row;
-            const rest = Object.fromEntries(
-              Object.entries(rawRest).filter(([, v]) => v !== undefined)
-            );
-            return supabase.from('detail_reports').update(rest).eq('id', id);
-          })
-        );
-        const firstErr = results.find((r) => r.error)?.error;
-        if (firstErr) throw firstErr;
-      }
+      // Không gộp / không update khi trùng key: báo cáo dòng nào thì ghi đúng dòng đó.
+      const toInsert = rowsData;
+      const { error: insErr } = await supabase.from('detail_reports').insert(toInsert).select();
+      if (insErr) throw insErr;
 
       const insN = toInsert.length;
-      const updN = toUpdate.length;
       setResponseMsg({
-        text:
-          insN > 0 && updN > 0
-            ? `Thành công! Đã thêm ${insN} dòng, cập nhật ${updN} dòng (trùng key: Số Mess + CPQC đã cộng dồn với DB).`
-            : insN > 0
-              ? `Thành công! Đã thêm ${insN} dòng vào hệ thống.`
-              : `Thành công! Đã cập nhật ${updN} dòng (trùng key: Số Mess + CPQC = DB + số vừa nhập).`,
+        text: insN > 0 ? `Thành công! Đã thêm ${insN} dòng vào hệ thống.` : 'Thành công.',
         isSuccess: true,
         visible: true,
       });
