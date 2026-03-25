@@ -19,6 +19,16 @@ const formatDate = (dateValue) => {
     return `${day}/${month}/${year}`;
 };
 
+/** YYYY-MM-DD theo giờ địa phương — tránh lệch 1 ngày so với `toISOString().split('T')[0]` (UTC) ở múi giờ VN. */
+function formatDateYmdLocal(d) {
+    const date = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(date.getTime())) return '';
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 export default function DanhSachBaoCaoTay() {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
@@ -70,6 +80,8 @@ export default function DanhSachBaoCaoTay() {
         personnel: []
     });
     const [personnelSearch, setPersonnelSearch] = useState('');
+    /** Lọc bảng theo chuỗi tên (giống tìm nhanh báo cáo MKT). */
+    const [staffTableSearch, setStaffTableSearch] = useState('');
     const [deleting, setDeleting] = useState(false);
     const [sortColumn, setSortColumn] = useState(null);
     const [sortDirection, setSortDirection] = useState('asc');
@@ -138,12 +150,11 @@ export default function DanhSachBaoCaoTay() {
         const today = new Date();
         const d = new Date();
         d.setDate(d.getDate() - 3);
-        const formatDateForInput = (date) => date.toISOString().split('T')[0];
 
         setFilters(prev => ({
             ...prev,
-            startDate: formatDateForInput(d),
-            endDate: formatDateForInput(today)
+            startDate: formatDateYmdLocal(d),
+            endDate: formatDateYmdLocal(today)
         }));
     }, []);
 
@@ -309,7 +320,6 @@ export default function DanhSachBaoCaoTay() {
     // Quick date filter handlers
     const handleQuickDateSelect = (period) => {
         const today = new Date();
-        const formatDateForInput = (date) => date.toISOString().split('T')[0];
         let startDate, endDate;
 
         switch (period) {
@@ -366,8 +376,8 @@ export default function DanhSachBaoCaoTay() {
 
         setFilters(prev => ({
             ...prev,
-            startDate: formatDateForInput(startDate),
-            endDate: formatDateForInput(endDate)
+            startDate: formatDateYmdLocal(startDate),
+            endDate: formatDateYmdLocal(endDate)
         }));
     };
 
@@ -386,7 +396,7 @@ export default function DanhSachBaoCaoTay() {
     const handleSelectAll = (type, checked) => {
         setFilters(prev => ({
             ...prev,
-            [type]: checked ? availableOptions[type] : []
+            [type]: checked ? (availableOptions[type] || []) : []
         }));
     };
 
@@ -1141,10 +1151,43 @@ export default function DanhSachBaoCaoTay() {
 
     const reportsAfterPersonnelFilter = useMemo(() => {
         const withoutHcmTeam = (manualReports || []).filter((item) => String(item?.team || '').trim().toUpperCase() !== 'HCM');
-        if (!filters.personnel || filters.personnel.length === 0) return withoutHcmTeam;
-        const selectedSet = new Set(filters.personnel);
-        return withoutHcmTeam.filter((item) => selectedSet.has(String(item?.name || '').trim()));
-    }, [manualReports, filters.personnel]);
+        const selectedSet = new Set(filters.personnel || []);
+        let rows =
+            selectedSet.size === 0
+                ? withoutHcmTeam
+                : withoutHcmTeam.filter((item) => selectedSet.has(String(item?.name || '').trim()));
+        const q = staffTableSearch.trim().toLowerCase();
+        if (q) {
+            rows = rows.filter((item) => String(item?.name || '').toLowerCase().includes(q));
+        }
+        return rows;
+    }, [manualReports, filters.personnel, staffTableSearch]);
+
+    const reportTableTotals = useMemo(() => {
+        const rows = reportsAfterPersonnelFilter || [];
+        return rows.reduce(
+            (acc, item) => ({
+                mess_count: acc.mess_count + Number(item.mess_count || 0),
+                response_count: acc.response_count + Number(item.response_count || 0),
+                order_count: acc.order_count + Number(item.order_count || 0),
+                order_cancel_count: acc.order_cancel_count + Number(item.order_cancel_count || 0),
+                revenue_actual: acc.revenue_actual + Number(item.revenue_actual || 0),
+                revenue_cancel_actual: acc.revenue_cancel_actual + Number(item.revenue_cancel_actual || 0),
+                order_go: acc.order_go + Number(item.order_go || 0),
+                revenue_go_actual: acc.revenue_go_actual + Number(item.revenue_go_actual || 0),
+            }),
+            {
+                mess_count: 0,
+                response_count: 0,
+                order_count: 0,
+                order_cancel_count: 0,
+                revenue_actual: 0,
+                revenue_cancel_actual: 0,
+                order_go: 0,
+                revenue_go_actual: 0,
+            }
+        );
+    }, [reportsAfterPersonnelFilter]);
 
     // Sort data
     const sortedReports = [...reportsAfterPersonnelFilter].sort((a, b) => {
@@ -1288,25 +1331,46 @@ export default function DanhSachBaoCaoTay() {
                         </label>
                     </div>
 
+                    {/* Tìm theo tên — lọc trực tiếp bảng (giống báo cáo MKT: gõ tên) */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: '#333' }}>Tìm theo nhân sự</h4>
+                        <input
+                            type="text"
+                            value={staffTableSearch}
+                            onChange={(e) => setStaffTableSearch(e.target.value)}
+                            placeholder="Gõ để tìm tên (lọc bảng)..."
+                            style={{ width: '100%', padding: '8px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px' }}
+                        />
+                        <p style={{ fontSize: '11px', color: '#666', marginTop: '6px', marginBottom: 0 }}>
+                            Không phân biệt hoa thường; khớp một phần tên người báo cáo.
+                        </p>
+                    </div>
+
                     {/* Personnel Filter */}
                     <div style={{ marginBottom: '20px' }}>
                         <details>
                             <summary style={{ cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '10px' }}>
-                                Nhân sự ({(filters.personnel || []).length}/{availablePersonnelOptions.length})
+                                Chọn nhân sự ({(filters.personnel || []).length}/{availablePersonnelOptions.length})
                             </summary>
                             <div style={{ marginTop: '10px' }}>
                                 <input
                                     type="text"
                                     value={personnelSearch}
                                     onChange={(e) => setPersonnelSearch(e.target.value)}
-                                    placeholder="Gõ để tìm nhân sự..."
+                                    placeholder="Gõ để lọc danh sách checkbox..."
                                     style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px', marginBottom: '8px' }}
                                 />
                                 <label style={{ display: 'block', fontSize: '11px', marginBottom: '8px' }}>
                                     <input
                                         type="checkbox"
                                         checked={(filters.personnel || []).length === availablePersonnelOptions.length && availablePersonnelOptions.length > 0}
-                                        onChange={(e) => handleSelectAll('personnel', e.target.checked)}
+                                        onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            setFilters((prev) => ({
+                                                ...prev,
+                                                personnel: checked ? [...availablePersonnelOptions] : []
+                                            }));
+                                        }}
                                         style={{ marginRight: '5px' }}
                                     />
                                     Tất cả
@@ -1648,6 +1712,22 @@ export default function DanhSachBaoCaoTay() {
                                 </tr>
                             </thead>
                             <tbody>
+                                {sortedReports.length > 0 && (
+                                    <tr className="total-row">
+                                        <td colSpan={7} className="total-label">
+                                            TỔNG CỘNG ({sortedReports.length} dòng)
+                                        </td>
+                                        <td className="total-value">{formatNumber(reportTableTotals.mess_count)}</td>
+                                        <td className="total-value">{formatNumber(reportTableTotals.response_count)}</td>
+                                        <td className="total-value">{formatNumber(reportTableTotals.order_count)}</td>
+                                        <td className="total-value">{formatNumber(reportTableTotals.order_cancel_count)}</td>
+                                        <td className="total-value">{formatCurrency(reportTableTotals.revenue_actual)}</td>
+                                        <td className="total-value">{formatCurrency(reportTableTotals.revenue_cancel_actual)}</td>
+                                        <td className="total-value">{formatNumber(reportTableTotals.order_go)}</td>
+                                        <td className="total-value">{formatCurrency(reportTableTotals.revenue_go_actual)}</td>
+                                        <td className="text-center">—</td>
+                                    </tr>
+                                )}
                                 {sortedReports.length === 0 ? (
                                     <tr>
                                         <td colSpan="16" className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>

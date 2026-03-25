@@ -6,7 +6,10 @@ import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
-import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
+import {
+    recalcSaleOrderCountFromOrders,
+    SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
+} from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
 
 // Constants for LocalStorage Keys
@@ -1349,6 +1352,7 @@ const AdminTools = () => {
         const ok = window.confirm(
             'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (tổng VND mọi đơn), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
             'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result, fallback payment_status).\n\n' +
+            'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
             'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
@@ -1382,7 +1386,11 @@ const AdminTools = () => {
             setMktRecalcResult(result);
         } catch (error) {
             console.error('Recalc MKT error:', error);
-            toast.error('Lỗi tính lại Số đơn TT: ' + (error?.message || String(error)));
+            const msg = error?.message || String(error);
+            const fetchHint = /failed to fetch/i.test(msg)
+                ? ' Thao tác này chỉ gọi Supabase (orders, detail_reports). Kiểm tra: mạng/VPN, .env có VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY, dự án Supabase không bị pause, thử tắt extension chặn request.'
+                : '';
+            toast.error('Lỗi tính lại Số đơn TT: ' + msg + fetchHint, { autoClose: 12000 });
         } finally {
             setMktRecalcLoading(false);
         }
@@ -1394,7 +1402,9 @@ const AdminTools = () => {
         const ok = window.confirm(
             'Tính lại sales_reports: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).\n\n' +
             'Key match giữa orders (sale_staff) và sales_reports (name, date, shift, product, market).\n\n' +
-            'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n' +
+            (SALES_REPORTS_AUTO_CREATE_MISSING_ROWS
+                ? 'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n'
+                : 'Tạm thời: chỉ cập nhật các dòng đã có — không tạo dòng mới từ orders.\n\n') +
             'Bạn có chắc muốn chạy không?'
         );
         if (!ok) return;
@@ -4442,6 +4452,8 @@ const AdminTools = () => {
                             <p className="text-sm text-gray-600 mb-4">
                                 Tính lại theo Key: <span className="font-medium">Ngày + Tên (MKT) + Sản phẩm + Thị trường</span> khớp <span className="font-medium">orders</span> (marketing_staff, country), tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
                                 <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key (tổng VND không loại đơn Hủy). <span className="font-medium">Số đơn hoàn hủy thực tế</span> và <span className="font-medium">Doanh số hoàn hủy thực tế</span>: chỉ đơn có Kết quả Check dạng Hủy/Huỷ (ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>); VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key trong <span className="font-medium">detail_reports</span>.
+                                {' '}
+                                <span className="font-medium text-gray-800">Tự điền khi trống:</span> cột <span className="font-medium">Email</span> và <span className="font-medium">Team</span> trên dòng hiện có — lấy từ bảng <span className="font-medium">users</span> (khớp tên và email khi có đủ hai), không có thì từ <span className="font-medium">human_resources</span>; dòng tạo mới dùng cùng thứ tự, Team cuối cùng có thể lấy từ đơn hoặc mặc định MKT.
                             </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">

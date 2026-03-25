@@ -9,6 +9,102 @@ import { fetchSalesReportsFromAPI, convertDateToAPIFormat } from '../services/or
 import { parseSmartDate } from '../utils/dateParsing';
 import './XemBaoCaoMKT.css';
 
+const DETAIL_REPORTS_PAGE_SIZE = 1000;
+
+function normalizeKeyPerson(str) {
+  if (!str) return '';
+  return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** Parse số tiền từ DB/API (số, hoặc chuỗi kiểu 26.088.000). */
+function parseMoneyNumber(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const direct = Number(s);
+  if (Number.isFinite(direct)) return direct;
+  const stripped = s.replace(/\./g, '').replace(/,/g, '');
+  const n = Number(stripped);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * DS Chốt (TT): doanh_so_tt → Doanh số chốt TT (legacy) → Doanh thu chốt thực tế.
+ * Không đọc `Doanh số TT` ở đây (đó là field đang được gán từ hàm này — tránh lỗi gọi 2 lần).
+ */
+function pickDoanhSoTT(item) {
+  if (item == null) return 0;
+
+  const p = parseMoneyNumber(item.doanh_so_tt);
+  if (p !== null) return p;
+
+  const legacy = parseMoneyNumber(item['Doanh số chốt TT']);
+  if (legacy !== null) return legacy;
+
+  const chotThucTe = parseMoneyNumber(
+    item['Doanh thu chốt thực tế'] ?? item.doanh_thu_chot_thuc_te ?? item.revenue_actual
+  );
+  if (chotThucTe !== null) return chotThucTe;
+
+  return 0;
+}
+
+/** Lấy đủ dòng trong khoảng ngày (tránh giới hạn 1 request của API / PostgREST). */
+async function fetchDetailReportsSupabasePaged(startDate, endDate, teamFilter) {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    let query = supabase
+      .from('detail_reports')
+      .select('*')
+      .gte('Ngày', startDate)
+      .lte('Ngày', endDate)
+      .order('Ngày', { ascending: false })
+      .range(from, from + DETAIL_REPORTS_PAGE_SIZE - 1);
+
+    if (teamFilter === 'RD') {
+      query = query.eq('department', 'RD');
+    } else {
+      query = query.or('department.is.null,department.eq.MKT,department.neq.RD');
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    if (!data?.length) break;
+    rows.push(...data);
+    if (data.length < DETAIL_REPORTS_PAGE_SIZE) break;
+    from += DETAIL_REPORTS_PAGE_SIZE;
+  }
+  return rows;
+}
+
+/** Một query users, map Email/Tên → Team cho dòng đang thiếu Team. */
+async function enrichTeamFromUsersBatch(reports) {
+  if (!reports.length || !reports.some((r) => !String(r['Team'] ?? '').trim())) {
+    return reports;
+  }
+  const { data: users, error } = await supabase.from('users').select('email, name, team');
+  if (error || !users?.length) return reports;
+
+  const byEmail = new Map();
+  const byName = new Map();
+  for (const u of users) {
+    const team = String(u.team || '').trim();
+    if (!team) continue;
+    if (u.email) byEmail.set(String(u.email).trim().toLowerCase(), team);
+    if (u.name) byName.set(normalizeKeyPerson(u.name), team);
+  }
+
+  return reports.map((r) => {
+    if (String(r['Team'] ?? '').trim()) return r;
+    const em = String(r['Email'] || '').trim().toLowerCase();
+    const nm = normalizeKeyPerson(r['Tên']);
+    const t = (em && byEmail.get(em)) || (nm && byName.get(nm));
+    return t ? { ...r, Team: t } : r;
+  });
+}
+
 const MARKET_GROUPS = {
   'Ngoài Châu Á': ['US', 'Canada', 'Úc', 'Anh', 'Khác'],
   'Châu Á': ['Nhật Bản', 'Hàn Quốc', 'Đài Loan', 'Malaysia', 'Singapore']
@@ -212,13 +308,7 @@ export default function XemBaoCaoMKT() {
       }
       // --------------------------
 
-      console.log(`📡 Fetching detail_reports từ API...`);
-      console.log(`📅 Date range: ${startDate} đến ${endDate}`);
-
-      const apiResponse = await fetchSalesReportsFromAPI({
-        from_date: convertDateToAPIFormat(startDate),
-        to_date: convertDateToAPIFormat(endDate)
-      });
+      console.log(`📡 detail_reports: ${startDate} → ${endDate} (ưu tiên Supabase phân trang)`);
 
       const normalizeApiRow = (item) => ({
         ...item,
@@ -232,7 +322,7 @@ export default function XemBaoCaoMKT() {
         'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
         'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
         'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
-        'Doanh số TT': item['Doanh số TT'] || item['Doanh số chốt TT'] || item.doanh_so_tt || 0,
+        'Doanh số TT': pickDoanhSoTT(item),
         'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
         'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
@@ -246,9 +336,23 @@ export default function XemBaoCaoMKT() {
         'ca': item['ca'] || item['Ca'] || item.ca || item.shift || ''
       });
 
-      const allReports = (apiResponse?.data || []).map(normalizeApiRow);
+      let rawRows = [];
+      try {
+        rawRows = await fetchDetailReportsSupabasePaged(startDate, endDate, teamFilter);
+      } catch (sbErr) {
+        console.warn('⚠️ Supabase detail_reports lỗi, fallback lumidata API:', sbErr?.message || sbErr);
+        const apiResponse = await fetchSalesReportsFromAPI({
+          from_date: convertDateToAPIFormat(startDate),
+          to_date: convertDateToAPIFormat(endDate),
+        });
+        const payload = apiResponse?.data ?? apiResponse;
+        rawRows = Array.isArray(payload) ? payload : [];
+      }
 
-      console.log(`✅ Fetched ${allReports.length} records từ /detail_reports`);
+      rawRows = await enrichTeamFromUsersBatch(rawRows);
+      const allReports = rawRows.map(normalizeApiRow);
+
+      console.log(`✅ Đã tải ${allReports.length} bản ghi detail_reports`);
 
       // Debug: Log sample date format từ database
       if (allReports.length > 0) {
@@ -399,7 +503,8 @@ export default function XemBaoCaoMKT() {
         orders: Number(row['Số đơn'] || 0),
         soDonTT: Number(row['Số đơn thực tế'] || 0),
         dsChot: Number(row['Doanh số'] || 0),
-        dsChotTT: Number(row['Doanh thu chốt thực tế'] || 0),
+        // Đã gán ở normalizeApiRow (pick một lần trên bản ghi gốc); không gọi lại pick(row) — row có 'Doanh số TT'=0 sẽ nuốt fallback
+        dsChotTT: Number(row['Doanh số TT'] ?? 0),
         tiLeChot: Number(row['Tỉ lệ chốt'] || 0),
         tiLeChotTT: Number(row['Tỉ lệ chốt thực tế'] || row['Tỉ lệ chốt TT'] || 0),
         giaMess: Number(row['Giá Mess'] || 0),
@@ -634,275 +739,6 @@ export default function XemBaoCaoMKT() {
 
   const handleSelectAll = (filterType, isChecked) => {
     handleFilterChange(filterType, 'ALL', isChecked);
-  };
-
-  // Enrich Team từ bảng users nếu thiếu trong detail_reports
-  const enrichTeamFromUsers = async (reports) => {
-    try {
-      // Helper function để normalize string
-      const normalizeStr = (str) => {
-        if (!str) return '';
-        return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
-      };
-
-      // Lấy danh sách Email và Tên từ reports để tìm Team
-      const emailsFromReports = [...new Set(reports
-        .map(item => item['Email'])
-        .filter(email => email && email.trim().length > 0)
-      )];
-
-      const namesFromReports = [...new Set(reports
-        .map(item => item['Tên'])
-        .filter(name => name && name.trim().length > 0)
-      )];
-
-      // Tạo map từ users table (ưu tiên email)
-      const teamMapByEmail = new Map();
-      const teamMapByName = new Map();
-
-      if (emailsFromReports.length > 0) {
-        const { data: usersData, error: usersError } = await supabase
-          .from('users')
-          .select('email, name, team')
-          .in('email', emailsFromReports);
-
-        if (usersError) {
-          console.warn('⚠️ Error fetching users for Team enrichment:', usersError);
-        } else if (usersData) {
-          usersData.forEach(user => {
-            if (user.email && user.team) {
-              teamMapByEmail.set(normalizeStr(user.email), user.team);
-            }
-            if (user.name && user.team) {
-              teamMapByName.set(normalizeStr(user.name), user.team);
-            }
-          });
-        }
-      }
-
-      // Bỏ lấy Team từ human_resources - chỉ lấy từ users
-
-      // Enrich Team cho các reports thiếu Team
-      let enrichedCount = 0;
-      reports.forEach(report => {
-        if (!report['Team'] || report['Team'].trim() === '') {
-          const reportEmail = normalizeStr(report['Email'] || '');
-          const reportName = normalizeStr(report['Tên'] || '');
-
-          // Ưu tiên tìm theo Email, sau đó theo Tên
-          const teamFromEmail = reportEmail ? teamMapByEmail.get(reportEmail) : null;
-          const teamFromName = reportName ? teamMapByName.get(reportName) : null;
-
-          const foundTeam = teamFromEmail || teamFromName;
-
-          if (foundTeam) {
-            report['Team'] = foundTeam;
-            enrichedCount++;
-            console.log(`✅ Enriched Team for "${report['Tên']}" (${report['Email'] || 'N/A'}): ${foundTeam}`);
-          } else {
-            console.warn(`⚠️ Could not find Team for "${report['Tên']}" (${report['Email'] || 'N/A'})`);
-          }
-        }
-      });
-
-      if (enrichedCount > 0) {
-        console.log(`✅ Enriched Team for ${enrichedCount} reports from users`);
-      }
-    } catch (err) {
-      console.error('❌ Error enriching Team from users:', err);
-    }
-  };
-
-  // Fetch số đơn tổng (tất cả các đơn, không filter theo check_result) từ bảng orders cho MKT
-  const enrichWithTotalOrdersFromOrders = async (reports, startDate, endDate) => {
-    try {
-      // Helper function để normalize date format (sử dụng LOCAL time)
-      const normalizeDate = (date) => {
-        if (!date) return '';
-        if (date instanceof Date) {
-          // Sử dụng local date thay vì toISOString() (UTC)
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          return `${year}-${month}-${day}`;
-        }
-        if (typeof date === 'string') {
-          const trimmed = date.trim();
-          if (trimmed.includes('T')) {
-            return trimmed.split('T')[0];
-          }
-          if (trimmed.includes(' ')) {
-            return trimmed.split(' ')[0];
-          }
-          // Nếu là format DD/MM/YYYY, convert sang YYYY-MM-DD
-          if (trimmed.includes('/')) {
-            const parts = trimmed.split('/');
-            if (parts.length === 3) {
-              return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-            }
-          }
-          // Nếu đã là YYYY-MM-DD
-          if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-            return trimmed;
-          }
-          // Thử parse - sử dụng local date
-          const parsed = new Date(trimmed);
-          if (!isNaN(parsed.getTime())) {
-            const year = parsed.getFullYear();
-            const month = String(parsed.getMonth() + 1).padStart(2, '0');
-            const day = String(parsed.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-          }
-          return trimmed;
-        }
-        return String(date);
-      };
-
-      // Helper function để normalize string
-      const normalizeStr = (str) => {
-        if (!str) return '';
-        return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
-      };
-
-      const normalizedStartDate = normalizeDate(startDate);
-      const normalizedEndDate = normalizeDate(endDate);
-
-      // Lấy danh sách tên Marketing từ báo cáo để filter ở query level
-      const marketingNamesFromReports = [...new Set(reports
-        .map(item => item['Tên'])
-        .filter(name => name && name.trim().length > 0)
-      )];
-
-      // Build query với PAGINATION để lấy tất cả orders (Supabase mặc định giới hạn 1000 rows/request)
-      const PAGE_SIZE = 1000;
-      let allOrders = [];
-      let hasMore = true;
-      let offset = 0;
-      let totalCount = 0;
-
-      console.log(`📊 MKT: Đang query orders với khoảng ngày: ${normalizedStartDate} đến ${normalizedEndDate}`);
-
-      while (hasMore) {
-        let query = supabase
-          .from('orders')
-          .select('order_date, marketing_staff, product, country, total_amount_vnd', { count: 'exact' })
-          .gte('order_date', normalizedStartDate)
-          .lte('order_date', normalizedEndDate)
-          .order('order_date', { ascending: false }); // Lấy đơn mới nhất trước
-
-        // KHÔNG filter theo marketing_staff để lấy TẤT CẢ đơn trong khoảng thời gian
-        // Việc match sẽ thực hiện ở bước sau
-
-        query = query.range(offset, offset + PAGE_SIZE - 1);
-
-        const { data: pageData, error, count } = await query;
-
-        if (error) {
-          console.error('❌ Error fetching total orders for MKT:', error);
-          return;
-        }
-
-        if (count !== null && totalCount === 0) {
-          totalCount = count;
-          console.log(`📊 MKT: Tổng số đơn cần lấy: ${totalCount}`);
-        }
-
-        if (pageData && pageData.length > 0) {
-          allOrders = [...allOrders, ...pageData];
-          offset += PAGE_SIZE;
-          console.log(`📊 MKT: Đã lấy ${allOrders.length}/${totalCount} đơn...`);
-
-          // Kiểm tra còn dữ liệu không
-          if (pageData.length < PAGE_SIZE) {
-            hasMore = false;
-          }
-        } else {
-          hasMore = false;
-        }
-      }
-
-      console.log(`✅ MKT: Hoàn tất lấy ${allOrders.length} đơn (không giới hạn 1000)`);
-
-      console.log(`📊 MKT: Tìm thấy ${allOrders?.length || 0} đơn tổng trong khoảng ${normalizedStartDate} - ${normalizedEndDate}`);
-      console.log(`📊 MKT: Tên Marketing từ báo cáo:`, marketingNamesFromReports.slice(0, 5));
-
-      if (allOrders && allOrders.length > 0) {
-        const sampleOrder = allOrders[0];
-        console.log(`📊 MKT: Sample order:`, {
-          marketing_staff: sampleOrder.marketing_staff,
-          order_date: sampleOrder.order_date,
-          product: sampleOrder.product,
-          country: sampleOrder.country,
-          total_amount_vnd: sampleOrder.total_amount_vnd
-        });
-      }
-
-
-
-      // Group đơn theo Tên Marketing + Ngày + Thị trường (BỎ sản phẩm vì orders thường không có)
-      // Lưu cả số đơn và tổng tiền VNĐ
-      const ordersByMarketingDateMarket = new Map();
-
-      (allOrders || []).forEach(order => {
-        const orderMarketingName = normalizeStr(order.marketing_staff);
-        const orderDateStr = normalizeDate(order.order_date);
-        const orderMarket = normalizeStr(order.country || '');
-        // Key WITHOUT product - chỉ dùng Tên + Ngày + Thị trường
-        const key = `${orderMarketingName}|${orderDateStr}|${orderMarket}`;
-
-        if (!ordersByMarketingDateMarket.has(key)) {
-          ordersByMarketingDateMarket.set(key, { orders: [], totalAmount: 0 });
-        }
-        ordersByMarketingDateMarket.get(key).orders.push(order);
-        ordersByMarketingDateMarket.get(key).totalAmount += Number(order.total_amount_vnd || 0);
-      });
-
-      console.log(`📊 MKT: Đã group ${ordersByMarketingDateMarket.size} keys từ ${allOrders?.length || 0} đơn`);
-      if (ordersByMarketingDateMarket.size > 0) {
-        const sampleKeys = Array.from(ordersByMarketingDateMarket.keys()).slice(0, 3);
-        console.log(`📊 MKT: Sample keys từ orders:`, sampleKeys);
-      }
-
-      // Cập nhật reports với số đơn tổng từ orders
-      let matchedCount = 0;
-      let unmatchedCount = 0;
-
-      reports.forEach((item, index) => {
-        const marketingName = normalizeStr(item['Tên']);
-        const reportDateRaw = item['Ngày'];
-        const reportDate = normalizeDate(reportDateRaw);
-        const reportMarket = normalizeStr(item['Thị_trường'] || '');
-
-        if (!marketingName || !reportDate) {
-          item['Số đơn TT'] = 0;
-          item['Doanh số chốt TT'] = 0;
-          item['Doanh số TT'] = 0;
-          if (index < 3) {
-            console.log(`⚠️ MKT [${index}]: Thiếu dữ liệu - Tên: "${item['Tên']}", Ngày: "${reportDateRaw}"`);
-          }
-          unmatchedCount++;
-          return;
-        }
-
-        // Key WITHOUT product - chỉ dùng Tên + Ngày + Thị trường
-        const key = `${marketingName}|${reportDate}|${reportMarket}`;
-        const matchingData = ordersByMarketingDateMarket.get(key) || { orders: [], totalAmount: 0 };
-        item['Số đơn TT'] = matchingData.orders.length;
-        item['Doanh số chốt TT'] = matchingData.totalAmount; // Tổng tiền VNĐ từ orders
-        item['Doanh số TT'] = matchingData.totalAmount;
-
-        if (matchingData.orders.length > 0) {
-          matchedCount++;
-        } else {
-          unmatchedCount++;
-        }
-      });
-
-      // Chỉ log tóm tắt, không log từng record
-      console.log(`✅ MKT: Enriched ${reports.length} báo cáo - Match: ${matchedCount}, Không match: ${unmatchedCount}`);
-    } catch (err) {
-      console.error('❌ Error enriching with total orders for MKT:', err);
-    }
   };
 
   // Format Helper

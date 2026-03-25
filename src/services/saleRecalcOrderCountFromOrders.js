@@ -40,14 +40,12 @@ function normalizeDateStr(dateVal) {
   return s;
 }
 
-function reportShiftToGroup(shiftVal) {
-  const lower = normalizeStr(shiftVal);
-  if (!lower) return null;
-  if (lower.includes('hết ca') || lower.includes('het ca')) return 'Hết ca';
-  if (lower.includes('giữa ca') || lower.includes('giua ca')) return 'Giữa ca';
-  return null;
-}
-
+/**
+ * Cùng rule parse ca với đơn (orders.shift).
+ * Dòng báo cáo chỉ một ca: ["Hết ca"] hoặc ["Giữa ca"].
+ * Chuỗi kiểu "Giữa ca,Hết ca" → ["Hết ca","Giữa ca"] (2 nhóm) — recalc coi dòng đó là slot Hết ca,
+ * chỉ đăng ký tồn tại Hết ca|key để có thể tạo thêm dòng Giữa ca nếu thiếu.
+ */
 function orderShiftToGroups(shiftVal) {
   const shiftLower = normalizeStr(shiftVal);
   const groups = [];
@@ -135,14 +133,22 @@ async function fetchHumanResourceEmailLookup() {
 }
 
 /**
+ * Tạm thời tắt: khi false, recalc chỉ UPDATE các dòng sales_reports đã có,
+ * không INSERT dòng mới từ orders (Hết ca / Giữa ca).
+ * Bật lại tự tạo dòng thiếu: đổi thành true.
+ */
+export const SALES_REPORTS_AUTO_CREATE_MISSING_ROWS = false;
+
+/**
  * Từ `orders` ghi `sales_reports`: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).
+ * Tạo dòng thiếu: mặc định theo {@link SALES_REPORTS_AUTO_CREATE_MISSING_ROWS} (có thể override từng tham số).
  */
 export async function recalcSaleOrderCountFromOrders({
   startDate,
   endDate,
   dryRun = false,
-  createMissingForHetCa = true,
-  createMissingForGiuaCa = true,
+  createMissingForHetCa = SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
+  createMissingForGiuaCa = SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
 } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
@@ -157,6 +163,7 @@ export async function recalcSaleOrderCountFromOrders({
     fetchHumanResourceEmailLookup(),
   ]);
 
+  // Đơn chỉ Hết ca / chỉ Giữa ca / cả hai trong shift → gom vào đúng map; dòng sales_reports sau recalc: shift chuẩn "Hết ca" | "Giữa ca".
   const countsByGroup = {
     'Hết ca': new Map(),
     'Giữa ca': new Map(),
@@ -201,16 +208,17 @@ export async function recalcSaleOrderCountFromOrders({
   }
 
   const existingByShiftKey = new Set();
-  const reportRows = (reports || []).filter((r) => {
-    const group = reportShiftToGroup(r.shift);
-    return group === 'Hết ca' || group === 'Giữa ca';
-  });
+  const reportRows = (reports || []).filter((r) => orderShiftToGroups(r.shift).length > 0);
 
   for (const r of reportRows) {
-    const group = reportShiftToGroup(r.shift);
     const key = buildKey(r.date, r.name, r.product, r.market);
     if (!key) continue;
-    existingByShiftKey.add(`${group}|${key}`);
+    const gs = orderShiftToGroups(r.shift);
+    if (gs.length === 1) {
+      existingByShiftKey.add(`${gs[0]}|${key}`);
+    } else if (gs.length === 2) {
+      existingByShiftKey.add(`Hết ca|${key}`);
+    }
   }
 
   const updateRows = [];
@@ -219,9 +227,11 @@ export async function recalcSaleOrderCountFromOrders({
   const PREVIEW_LIMIT = 50;
 
   for (const r of reportRows) {
-    const group = reportShiftToGroup(r.shift);
+    const gs = orderShiftToGroups(r.shift);
+    if (!gs.length) continue;
     const key = buildKey(r.date, r.name, r.product, r.market);
-    const agg = countsByGroup[group]?.get(key);
+    const primaryGroup = gs.length === 2 ? 'Hết ca' : gs[0];
+    const agg = countsByGroup[primaryGroup]?.get(key);
     const count = agg?.count || 0;
     const revenueActual = agg?.revenueVnd ?? 0;
     const cancelActual = agg?.cancelCount ?? 0;
@@ -236,6 +246,9 @@ export async function recalcSaleOrderCountFromOrders({
       order_cancel_count_actual: cancelActual,
       revenue_cancel_actual: revenueCancelActual,
     };
+    if (gs.length === 2) {
+      patch.shift = 'Hết ca';
+    }
     if (resolvedEmail && !String(r.email ?? '').trim()) {
       patch.email = resolvedEmail;
     }
@@ -243,7 +256,7 @@ export async function recalcSaleOrderCountFromOrders({
 
     if (previewRows.length < PREVIEW_LIMIT) {
       previewRows.push({
-        ca: group,
+        ca: primaryGroup,
         Ngày: normalizeDateStr(r.date),
         Tên: String(r.name || '').trim(),
         Sản_phẩm: String(r.product || '').trim(),

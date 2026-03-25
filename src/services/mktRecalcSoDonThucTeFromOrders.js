@@ -7,6 +7,12 @@ function normalizeStr(str) {
   return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function normalizeEmail(str) {
+  return String(str ?? '')
+    .trim()
+    .toLowerCase();
+}
+
 function normalizeDateStr(dateVal) {
   if (!dateVal) return '';
   if (dateVal instanceof Date) {
@@ -54,13 +60,9 @@ function normalizeDateStr(dateVal) {
   return s;
 }
 
-function reportCaToGroup(caVal) {
-  const lower = normalizeStr(caVal);
-  if (!lower) return null;
-
-  if (lower.includes('hết ca') || lower.includes('het ca')) return 'Hết ca';
-  if (lower.includes('giữa ca') || lower.includes('giua ca')) return 'Giữa ca';
-  return null;
+/** Parse cột ca giống orders.shift: một ca hoặc "Giữa ca,Hết ca" → 2 nhóm. */
+function reportCaToGroups(caVal) {
+  return orderShiftToGroups(caVal);
 }
 
 function orderShiftToGroups(shiftVal) {
@@ -144,7 +146,7 @@ async function fetchAllOrdersInRange(startDate, endDate) {
 async function fetchHumanResourceEmailLookup() {
   const { data, error } = await supabase
     .from('human_resources')
-    .select('"Họ Và Tên", email');
+    .select('"Họ Và Tên", email, Team');
 
   if (error) {
     console.warn('[MKT recalc] human_resources:', error.message);
@@ -153,24 +155,83 @@ async function fetchHumanResourceEmailLookup() {
   return buildEmailByNameLookup(data || []);
 }
 
-async function fetchUserTeamLookup() {
-  const { data, error } = await supabase
-    .from('users')
-    .select('name, team');
+/** Team từ human_resources theo tên (khi users không có team). */
+function teamFromNameHr(name, hrLookup) {
+  if (!hrLookup?.list || !name) return '';
+  const n = normalizeStr(name);
+  for (const row of hrLookup.list) {
+    const raw = row['Họ Và Tên'] ?? row['Họ và Tên'] ?? row.name ?? row['Tên'] ?? '';
+    if (normalizeStr(raw) === n) {
+      return String(row.Team ?? row.team ?? '').trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Lấy email + team từ bảng users (ưu tiên khớp cả tên lẫn email khi có đủ hai giá trị).
+ */
+async function fetchUsersIdentityLookup() {
+  const { data, error } = await supabase.from('users').select('name, email, team');
 
   if (error) {
-    console.warn('[MKT recalc] users team:', error.message);
-    return new Map();
+    console.warn('[MKT recalc] users identity:', error.message);
+    return { byName: new Map(), byEmail: new Map() };
   }
 
-  const lookup = new Map();
+  const byName = new Map();
+  const byEmail = new Map();
+
   for (const row of data || []) {
-    const nameKey = normalizeStr(row?.name);
+    const name = String(row?.name || '').trim();
+    const email = String(row?.email || '').trim();
     const team = String(row?.team || '').trim();
-    if (!nameKey || !team) continue;
-    if (!lookup.has(nameKey)) lookup.set(nameKey, team);
+    const nameKey = normalizeStr(name);
+    const emailKey = normalizeEmail(email);
+
+    if (nameKey && !byName.has(nameKey)) {
+      byName.set(nameKey, { email, team });
+    }
+    if (emailKey && !byEmail.has(emailKey)) {
+      byEmail.set(emailKey, { name, nameKey, email, team });
+    }
   }
-  return lookup;
+
+  return { byName, byEmail };
+}
+
+/**
+ * @param {string} name - Tên hiển thị (vd. marketing_staff, cột Tên)
+ * @param {string} [emailFromRow] - Email trên dòng báo cáo (nếu có)
+ * @param {{ byName: Map, byEmail: Map }} lookup
+ */
+function resolveUserTeamEmail(name, emailFromRow, lookup) {
+  const { byName, byEmail } = lookup || { byName: new Map(), byEmail: new Map() };
+  const nameKey = normalizeStr(name);
+  const emailKey = normalizeEmail(emailFromRow);
+
+  if (nameKey && emailKey) {
+    const byN = byName.get(nameKey);
+    if (byN && normalizeEmail(byN.email) === emailKey) {
+      return { email: byN.email, team: byN.team };
+    }
+    const byE = byEmail.get(emailKey);
+    if (byE && normalizeStr(byE.name) === nameKey) {
+      return { email: byE.email, team: byE.team };
+    }
+  }
+
+  if (emailKey) {
+    const byE = byEmail.get(emailKey);
+    if (byE) return { email: byE.email, team: byE.team };
+  }
+
+  if (nameKey) {
+    const byN = byName.get(nameKey);
+    if (byN) return { email: byN.email, team: byN.team };
+  }
+
+  return { email: '', team: '' };
 }
 
 export async function recalcMktSoDonThucTeFromOrders({
@@ -186,13 +247,20 @@ export async function recalcMktSoDonThucTeFromOrders({
     throw new Error('Khoảng ngày không hợp lệ. Vui lòng truyền startDate/endDate dạng YYYY-MM-DD.');
   }
 
-  const [reports, orders, hrEmailLookup, userTeamLookup] = await Promise.all([
+  const [reports, orders, hrEmailLookup, usersLookup] = await Promise.all([
     fetchAllReportsInRange(normalizedStart, normalizedEnd),
     fetchAllOrdersInRange(normalizedStart, normalizedEnd),
     fetchHumanResourceEmailLookup(),
-    fetchUserTeamLookup(),
+    fetchUsersIdentityLookup(),
   ]);
 
+  /*
+   * Ca (shift) và số liệu:
+   * - Đơn: shift chỉ Hết ca → chỉ cộng nhóm Hết ca; chỉ Giữa ca → chỉ Giữa ca; "Giữa ca,Hết ca" → cộng cả hai nhóm.
+   * - Tự tạo / cập nhật dòng: mỗi dòng DB có ca chuẩn "Hết ca" hoặc "Giữa ca" (không gộp hai ca trong một dòng sau recalc).
+   * - Dòng đang lưu chuỗi gộp (2 ca): coi là dòng Hết ca — cập nhật số theo nhóm Hết ca, ghi ca = "Hết ca"; nếu chưa có dòng Giữa ca|cùng key thì INSERT thêm dòng Giữa ca.
+   * - Dòng một ca: UPDATE số theo đúng nhóm; key = Ngày + Tên + SP + TT (không gồm ca).
+   */
   // countsByGroup: Map value { count, totalRevenueVnd, cancelCount, cancelRevenueVnd, sample }
   const countsByGroup = {
     'Hết ca': new Map(),
@@ -238,18 +306,19 @@ export async function recalcMktSoDonThucTeFromOrders({
     }
   }
 
-  // existingByCaKey: caGroup|key => report rows (presence only)
+  // existingByCaKey: caGroup|key => đã có dòng báo cáo (tránh tạo trùng)
   const existingByCaKey = new Set();
-  const reportRows = (reports || []).filter((r) => {
-    const group = reportCaToGroup(r.ca);
-    return group === 'Hết ca' || group === 'Giữa ca';
-  });
+  const reportRows = (reports || []).filter((r) => reportCaToGroups(r.ca).length > 0);
 
   for (const r of reportRows) {
-    const group = reportCaToGroup(r.ca);
     const key = buildKey(r['Ngày'], r['Tên'], r['Sản_phẩm'], r['Thị_trường']);
     if (!key) continue;
-    existingByCaKey.add(`${group}|${key}`);
+    const gs = reportCaToGroups(r.ca);
+    if (gs.length === 1) {
+      existingByCaKey.add(`${gs[0]}|${key}`);
+    } else if (gs.length === 2) {
+      existingByCaKey.add(`Hết ca|${key}`);
+    }
   }
 
   const updateRows = [];
@@ -259,16 +328,18 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   // 1) Update existing reports' "Số đơn thực tế"
   for (const r of reportRows) {
-    const group = reportCaToGroup(r.ca);
+    const gs = reportCaToGroups(r.ca);
+    if (!gs.length) continue;
     const key = buildKey(r['Ngày'], r['Tên'], r['Sản_phẩm'], r['Thị_trường']);
-    const agg = countsByGroup[group]?.get(key);
+    const primaryGroup = gs.length === 2 ? 'Hết ca' : gs[0];
+    const agg = countsByGroup[primaryGroup]?.get(key);
     const count = agg?.count || 0;
     const soDonHoanHuyTT = agg?.cancelCount ?? 0;
     const dsHoanHuyTT = agg?.cancelRevenueVnd ?? 0;
     const doanhSoTT = agg?.totalRevenueVnd ?? 0;
 
     if (!r.id) continue;
-    const resolvedEmail = emailFromName(r['Tên'], hrEmailLookup);
+    const resolved = resolveUserTeamEmail(r['Tên'], r['Email'], usersLookup);
     const patch = {
       id: r.id,
       'Số đơn thực tế': count,
@@ -276,14 +347,31 @@ export async function recalcMktSoDonThucTeFromOrders({
       'Số đơn hoàn hủy thực tế': soDonHoanHuyTT,
       'Doanh số hoàn hủy thực tế': dsHoanHuyTT,
     };
-    if (resolvedEmail && !String(r['Email'] ?? '').trim()) {
-      patch['Email'] = resolvedEmail;
+    if (gs.length === 2) {
+      patch.ca = 'Hết ca';
+    }
+    const rowEmail = String(r['Email'] ?? '').trim();
+    const rowTeam = String(r['Team'] ?? '').trim();
+    // Chỉ tự điền khi đang trống: users (theo tên+email) → HR
+    if (!rowEmail) {
+      if (resolved.email) patch['Email'] = resolved.email;
+      else {
+        const hrEmail = emailFromName(r['Tên'], hrEmailLookup);
+        if (hrEmail) patch['Email'] = hrEmail;
+      }
+    }
+    if (!rowTeam) {
+      if (resolved.team) patch['Team'] = resolved.team;
+      else {
+        const hrTeam = teamFromNameHr(r['Tên'], hrEmailLookup);
+        if (hrTeam) patch['Team'] = hrTeam;
+      }
     }
     updateRows.push(patch);
 
     if (previewRows.length < PREVIEW_LIMIT) {
       previewRows.push({
-        ca: group,
+        ca: primaryGroup,
         'Ngày': normalizeDateStr(r['Ngày']),
         'Tên': String(r['Tên'] || '').trim(),
         'Sản_phẩm': String(r['Sản_phẩm'] || '').trim(),
@@ -305,9 +393,10 @@ export async function recalcMktSoDonThucTeFromOrders({
         const exists = existingByCaKey.has(`${group}|${key}`);
         if (exists) continue;
 
-        const email = emailFromName(entry.sample.name, hrEmailLookup) || '';
-        const teamFromUsers = userTeamLookup.get(normalizeStr(entry.sample.name)) || '';
-        const resolvedTeam = teamFromUsers || entry.sample.team || 'MKT';
+        const resolved = resolveUserTeamEmail(entry.sample.name, '', usersLookup);
+        const email = resolved.email || emailFromName(entry.sample.name, hrEmailLookup) || '';
+        const hrTeam = teamFromNameHr(entry.sample.name, hrEmailLookup);
+        const resolvedTeam = resolved.team || hrTeam || entry.sample.team || 'MKT';
 
         const row = {
           id: makeId(),
@@ -355,12 +444,12 @@ export async function recalcMktSoDonThucTeFromOrders({
     };
   }
 
-  // Cập nhật Số đơn thực tế, Doanh số TT, Số đơn hoàn hủy TT, Doanh số hoàn hủy TT — không upsert partial toàn bảng
-  const UPDATE_CHUNK = 80;
+  // Cập nhật từng dòng — giữ đồng thời thấp (tránh quá tải / “Failed to fetch” trên một số mạng hoặc trình duyệt)
+  const UPDATE_CONCURRENCY = 8;
   let touched = 0;
 
-  for (let i = 0; i < updateRows.length; i += UPDATE_CHUNK) {
-    const chunk = updateRows.slice(i, i + UPDATE_CHUNK);
+  for (let i = 0; i < updateRows.length; i += UPDATE_CONCURRENCY) {
+    const chunk = updateRows.slice(i, i + UPDATE_CONCURRENCY);
     const results = await Promise.all(
       chunk.map((row) => {
         const { id, ...rest } = row;

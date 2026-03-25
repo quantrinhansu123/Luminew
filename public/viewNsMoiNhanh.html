@@ -816,10 +816,10 @@
     const API_URL_MKT = 'https://lumidataapi.vercel.app/detail_reports';
     // Đã bỏ API_URL_SALE - chỉ dùng MKT
 
-    /** Trang HTML MKT: chỉ hiển thị dữ liệu các team này (so khớp đúng chuỗi sau trim). */
-    const MKT_TEAM_WHITELIST = ['HN-MKT', 'Team Test'];
+    /** Luôn gửi lên API detail_reports (đồng bộ với /xem-bao-cao-mkt). */
+    const MKT_API_TEAM = 'HN-MKT';
 
-    /** lumidataapi/detail_reports: from_date, to_date = DD/MM/YYYY — dùng theo tab đang mở */
+    /** lumidataapi/detail_reports: team (bắt buộc), from_date, to_date = DD/MM/YYYY — theo tab đang mở */
     function buildMktDetailReportsFetchUrl() {
       const ymdToDmy = (ymd) => {
         if (!ymd || typeof ymd !== 'string') return '';
@@ -857,10 +857,10 @@
       const fromDMY = minD ? ymdToDmy(fmtBack(minD)) : '';
       const toDMY = maxD ? ymdToDmy(fmtBack(maxD)) : '';
       const params = new URLSearchParams();
+      params.set('team', MKT_API_TEAM);
       if (fromDMY) params.set('from_date', fromDMY);
       if (toDMY) params.set('to_date', toDMY);
-      const q = params.toString();
-      return q ? `${API_URL_MKT}?${q}` : API_URL_MKT;
+      return `${API_URL_MKT}?${params.toString()}`;
     }
 
     /** Chuẩn hóa theo field hiện tại của API detail_reports (ưu tiên snake_case đang trả về). */
@@ -1241,8 +1241,8 @@
             };
           });
 
-        // Chỉ dùng dữ liệu từ MKT, giới hạn team (whitelist)
-        masterData = masterDataMKT.filter((r) => MKT_TEAM_WHITELIST.includes((r.team || '').trim()));
+        // Dữ liệu từ API đã lọc theo ?team=HN-MKT
+        masterData = masterDataMKT;
 
         console.log(`✅ Đã tải dữ liệu từ API MKT:`);
         console.log(`   - Báo cáo MKT: ${masterDataMKT.length} bản ghi, ${employeeDataMKT.length} nhân viên`);
@@ -1275,7 +1275,7 @@
 
       if (!idFromUrl) {
         document.getElementById('report-title-tab1').textContent =
-          'DỮ LIỆU CHI PHÍ ADS (HN-MKT · Team Test)';
+          'DỮ LIỆU CHI PHÍ ADS — team HN-MKT (API)';
         baseDataForReport = masterData;
         manualTabBtn.style.display = 'none';
         vandonTabBtn.style.display = 'none';
@@ -1464,14 +1464,24 @@
         selectedTeams = getSelected('team');
       }
 
-      const isHetCaOnlyFilter = Array.isArray(selectedCas) &&
-        selectedCas.length === 1 &&
-        String(selectedCas[0] || '')
+      const normalizeCaForFilter = (v) =>
+        String(v || '')
           .trim()
           .toLowerCase()
           .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .includes('het ca');
+          .replace(/[\u0300-\u036f]/g, '');
+      /** Khớp dòng với ca đã chọn: đúng chuỗi hoặc cột ca chứa "hết ca" / "giữa ca" tương ứng. */
+      const rowMatchesCaFilters = (rowCa, selected) => {
+        if (!selected || selected.length === 0) return true;
+        const norm = normalizeCaForFilter(rowCa);
+        return selected.some((sel) => {
+          const s = normalizeCaForFilter(sel);
+          if (norm === s) return true;
+          if (s.includes('het ca') && norm.includes('het ca')) return true;
+          if (s.includes('giua ca') && norm.includes('giua ca')) return true;
+          return false;
+        });
+      };
 
       const filteredDataResult = baseDataForReport.filter(r => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
@@ -1496,16 +1506,12 @@
           const isTeamOk = selectedTeams.length === 0 || selectedTeams.includes(r.team);
           if (!isTeamOk) return false;
 
-          // Nếu chỉ lọc "Hết ca" => lấy tổng (không chặn theo ca ở bước này)
-          const isCaOk = isHetCaOnlyFilter || selectedCas.length === 0 || selectedCas.includes(r.ca);
-          if (!isCaOk) return false;
+          if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
 
           return true;
         }
 
-        // Nếu chỉ lọc "Hết ca" => lấy tổng (không chặn theo ca ở bước này)
-        const isCaOk = isHetCaOnlyFilter || (selectedCas.length === 0) || selectedCas.includes(r.ca);
-        if (!isCaOk) return false;
+        if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
 
         const isTeamOk = (selectedTeams.length === 0) || selectedTeams.includes(r.team);
         if (!isTeamOk) return false;
@@ -1513,11 +1519,9 @@
         return true;
       });
 
-      // Quy tắc ca:
-      // - Nếu bộ lọc chỉ chọn "Hết ca": lấy tổng theo key (bỏ yếu tố ca).
-      // - Trường hợp khác:
-      //   + Nếu 1 nhóm có "Giữa ca" thì chỉ giữ "Giữa ca"
-      //   + Nếu không có "Giữa ca", giữ dữ liệu "Hết ca" nhưng chỉ 1 lần.
+      // Quy tắc ca sau lọc (nhiều dòng cùng key bỏ yếu tố ca):
+      // - Có dòng "Giữa ca" trong nhóm -> chỉ giữ các dòng Giữa ca
+      // - Không -> giữ một dòng Hết ca
       const normalizeCa = (v) =>
         String(v || '')
           .trim()
@@ -1527,38 +1531,6 @@
 
       const isGiuaCa = (v) => normalizeCa(v).includes('giua ca');
       const isHetCa = (v) => normalizeCa(v).includes('het ca');
-      if (isHetCaOnlyFilter) {
-        const groupedTotal = new Map();
-        const numericFields = [
-          'cpqc', 'soMessCmt', 'soDon', 'dsChot',
-          'soDonHuy', 'doanhSoHuy', 'dsSauHoanHuy',
-          'dsSauShip', 'dsThanhCong', 'kpiValue',
-          'soDonThucTe', 'dsChotThucTe', 'dsHoanHuyThucTe',
-          'soDonHuyThucTe', 'dsSauHoanHuyThucTe', 'dsThanhCongThucTe'
-        ];
-
-        filteredDataResult.forEach((r) => {
-          const key = r.__keyNoCa || [
-            String(r.idnv || '').trim().toLowerCase(),
-            String(r.ten || '').trim().toLowerCase(),
-            String(r.ngayKey || '').trim().toLowerCase(),
-            String(r.team || '').trim().toLowerCase(),
-            String(r.sanPham || '').trim().toLowerCase(),
-            String(r.thiTruong || '').trim().toLowerCase(),
-          ].join('||');
-
-          if (!groupedTotal.has(key)) {
-            groupedTotal.set(key, { ...r, ca: 'Hết ca' });
-          } else {
-            const agg = groupedTotal.get(key);
-            numericFields.forEach((f) => {
-              agg[f] = (Number(agg[f]) || 0) + (Number(r[f]) || 0);
-            });
-          }
-        });
-
-        return Array.from(groupedTotal.values());
-      }
 
       const grouped = new Map();
       filteredDataResult.forEach((r) => {

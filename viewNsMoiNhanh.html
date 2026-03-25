@@ -816,10 +816,10 @@
     const API_URL_MKT = 'https://lumidataapi.vercel.app/detail_reports';
     // Đã bỏ API_URL_SALE - chỉ dùng MKT
 
-    /** Trang /xem-bao-cao-mkt: chỉ hiển thị dữ liệu các team này (so khớp đúng chuỗi sau trim). */
-    const MKT_TEAM_WHITELIST = ['HN-MKT', 'Team Test'];
+    /** Luôn gửi lên API detail_reports (đồng bộ với /xem-bao-cao-mkt). */
+    const MKT_API_TEAM = 'HN-MKT';
 
-    /** lumidataapi/detail_reports: from_date, to_date = DD/MM/YYYY — dùng theo tab đang mở */
+    /** lumidataapi/detail_reports: team (bắt buộc), from_date, to_date = DD/MM/YYYY — theo tab đang mở */
     function buildMktDetailReportsFetchUrl() {
       const ymdToDmy = (ymd) => {
         if (!ymd || typeof ymd !== 'string') return '';
@@ -857,10 +857,10 @@
       const fromDMY = minD ? ymdToDmy(fmtBack(minD)) : '';
       const toDMY = maxD ? ymdToDmy(fmtBack(maxD)) : '';
       const params = new URLSearchParams();
+      params.set('team', MKT_API_TEAM);
       if (fromDMY) params.set('from_date', fromDMY);
       if (toDMY) params.set('to_date', toDMY);
-      const q = params.toString();
-      return q ? `${API_URL_MKT}?${q}` : API_URL_MKT;
+      return `${API_URL_MKT}?${params.toString()}`;
     }
 
     /** Chuẩn hóa tên cột giống XemBaoCaoMKT (API có thể trả snake_case / tiếng Anh). */
@@ -1227,8 +1227,8 @@
             };
           });
 
-        // Chỉ dùng dữ liệu từ MKT, giới hạn team (whitelist)
-        masterData = masterDataMKT.filter((r) => MKT_TEAM_WHITELIST.includes((r.team || '').trim()));
+        // Dữ liệu từ API đã lọc theo ?team=HN-MKT
+        masterData = masterDataMKT;
 
         console.log(`✅ Đã tải dữ liệu từ API MKT:`);
         console.log(`   - Báo cáo MKT: ${masterDataMKT.length} bản ghi, ${employeeDataMKT.length} nhân viên`);
@@ -1261,7 +1261,7 @@
 
       if (!idFromUrl) {
         document.getElementById('report-title-tab1').textContent =
-          'DỮ LIỆU CHI PHÍ ADS (HN-MKT · Team Test)';
+          'DỮ LIỆU CHI PHÍ ADS — team HN-MKT (API)';
         baseDataForReport = masterData;
         manualTabBtn.style.display = 'none';
         vandonTabBtn.style.display = 'none';
@@ -1450,6 +1450,24 @@
         selectedTeams = getSelected('team');
       }
 
+      const normalizeCaForFilter = (v) =>
+        String(v || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      const rowMatchesCaFilters = (rowCa, selected) => {
+        if (!selected || selected.length === 0) return true;
+        const norm = normalizeCaForFilter(rowCa);
+        return selected.some((sel) => {
+          const s = normalizeCaForFilter(sel);
+          if (norm === s) return true;
+          if (s.includes('het ca') && norm.includes('het ca')) return true;
+          if (s.includes('giua ca') && norm.includes('giua ca')) return true;
+          return false;
+        });
+      };
+
       const filteredDataResult = baseDataForReport.filter(r => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
         if (!dateRaw || isNaN(dateRaw.getTime())) return false;
@@ -1473,14 +1491,12 @@
           const isTeamOk = selectedTeams.length === 0 || selectedTeams.includes(r.team);
           if (!isTeamOk) return false;
 
-          const isCaOk = selectedCas.length === 0 || selectedCas.includes(r.ca);
-          if (!isCaOk) return false;
+          if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
 
           return true;
         }
 
-        const isCaOk = (selectedCas.length === 0) || selectedCas.includes(r.ca);
-        if (!isCaOk) return false;
+        if (!rowMatchesCaFilters(r.ca, selectedCas)) return false;
 
         const isTeamOk = (selectedTeams.length === 0) || selectedTeams.includes(r.team);
         if (!isTeamOk) return false;

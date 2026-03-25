@@ -362,7 +362,7 @@ function ReportForm() {
 
       toast.success(`Đã lưu thành công ${reports.length} báo cáo!`, { position: 'top-right', autoClose: 3000 });
 
-      // Tự động tính Số đơn TT + Doanh số TT cho sales_reports (không tự tạo dòng Giữa ca)
+      // Tự động tính Số đơn TT + Doanh số TT cho sales_reports (tạo dòng thiếu: theo saleRecalcOrderCountFromOrders)
       if (insertedData && insertedData.length > 0) {
         try {
           const normalizeDate = (dateStr) => {
@@ -378,8 +378,6 @@ function ReportForm() {
             const result = await recalcSaleOrderCountFromOrders({
               startDate,
               endDate,
-              createMissingForHetCa: true,
-              createMissingForGiuaCa: false,
             });
             console.log(`✅ Đã tự động cập nhật sales_reports TT:`, result);
           }
@@ -442,30 +440,38 @@ function ReportForm() {
             </div>
           </div>
 
-          <div className="overflow-x-auto pb-4">
-            <table className="w-full min-w-[1400px] border-collapse">
-              <thead>
-                <tr className="bg-gray-50 text-left text-sm font-semibold text-gray-600 border-b border-gray-200">
-                  <th className="p-3 w-10 text-center">#</th>
-                  <th className="p-3 min-w-[150px]">Tên nhân viên</th>
-                  <th className="p-3 min-w-[200px]">Email</th>
-                  <th className="p-3 min-w-[140px]">Ngày <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[120px]">Ca <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[140px]">Chi nhánh</th>
-                  <th className="p-3 min-w-[160px]">Sản phẩm <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[140px]">Thị trường <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[100px]">Số mess <span className="text-red-500">*</span></th>
-                  <th className="p-3 min-w-[100px]">Phản hồi <span className="text-red-500">*</span></th>
-                  <th className="p-3 w-16 text-center">Xóa</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {reports.map((report, idx) => (
-                  <tr key={idx} className="hover:bg-blue-50 transition-colors group">
-                    <td className="p-3 text-center text-gray-400 font-medium">
-                      {idx + 1}
-                    </td>
-                    <td className="p-3">
+          <div className="space-y-4 pb-4">
+            {reports.map((report, idx) => (
+              <div
+                key={idx}
+                className="border border-gray-200 rounded-xl p-4 hover:bg-blue-50/40 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
+                  <span className="text-sm font-semibold text-gray-600">Dòng {idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Bạn có chắc chắn muốn xóa dòng ${idx + 1}?`)) {
+                        deleteReport(idx);
+                      }
+                    }}
+                    className={`inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${reports.length <= 1
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
+                      }`}
+                    title="Xóa dòng"
+                    disabled={reports.length <= 1}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Xóa
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Tên nhân viên</label>
                       <input
                         type="text"
                         name="name"
@@ -474,8 +480,9 @@ function ReportForm() {
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-name`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                         placeholder="Nhập tên nhân viên"
                       />
-                    </td>
-                    <td className="p-3">
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
                       <input
                         type="email"
                         name="email"
@@ -484,8 +491,9 @@ function ReportForm() {
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-email`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                         placeholder="Nhập email"
                       />
-                    </td>
-                    <td className="p-3">
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Ngày <span className="text-red-500">*</span></label>
                       <input
                         type="date"
                         name="date"
@@ -493,8 +501,9 @@ function ReportForm() {
                         onChange={(e) => handleReportChange(e, idx)}
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-date`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                       />
-                    </td>
-                    <td className="p-3">
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Ca <span className="text-red-500">*</span></label>
                       <select
                         name="shift"
                         value={report.shift}
@@ -505,8 +514,9 @@ function ReportForm() {
                         <option value="Hết ca">Hết ca</option>
                         <option value="Giữa ca">Giữa ca</option>
                       </select>
-                    </td>
-                    <td className="p-3">
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Chi nhánh</label>
                       <select
                         name="branch"
                         value={report.branch || ''}
@@ -516,8 +526,11 @@ function ReportForm() {
                         <option value="">Chọn chi nhánh</option>
                         {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
-                    </td>
-                    <td className="p-3">
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Sản phẩm <span className="text-red-500">*</span></label>
                       <select
                         name="product"
                         value={report.product}
@@ -527,8 +540,9 @@ function ReportForm() {
                         <option value="">Chọn sản phẩm</option>
                         {productOptions.map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
-                    </td>
-                    <td className="p-3">
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Thị trường <span className="text-red-500">*</span></label>
                       <select
                         name="market"
                         value={report.market}
@@ -538,8 +552,9 @@ function ReportForm() {
                         <option value="">Chọn thị trường</option>
                         {marketOptions.map(m => <option key={m} value={m}>{m}</option>)}
                       </select>
-                    </td>
-                    <td className="p-3">
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Số mess <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         inputMode="numeric"
@@ -549,8 +564,9 @@ function ReportForm() {
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-mess_cmt`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                         placeholder="0"
                       />
-                    </td>
-                    <td className="p-3">
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Phản hồi <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         inputMode="numeric"
@@ -560,31 +576,11 @@ function ReportForm() {
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-response`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                         placeholder="0"
                       />
-                    </td>
-                    <td className="p-3 text-center">
-                      <button
-                        onClick={() => {
-                          if (window.confirm(`Bạn có chắc chắn muốn xóa dòng ${idx + 1}?`)) {
-                            deleteReport(idx);
-                          }
-                        }}
-                        className={`flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${reports.length <= 1
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
-                          }`}
-                        title="Xóa dòng"
-                        disabled={reports.length <= 1}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                        <span>Xóa</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="mt-4 flex items-center gap-3">
