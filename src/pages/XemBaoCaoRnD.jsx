@@ -862,7 +862,7 @@ export default function XemBaoCaoRnD() {
             {activeTab === 'HieuSuatKPI' && (
                 <div style={{ width: '100%', height: 'calc(100vh - 100px)' }}>
                     <iframe
-                        src="/baocaokpiCEO.html"
+                        src="/embed/bao-cao-hieu-suat-kpi"
                         style={{ width: '100%', height: '100%', border: 'none' }}
                         title="Hiệu suất KPI"
                     />

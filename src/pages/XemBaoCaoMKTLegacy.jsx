@@ -22,7 +22,7 @@ export default function XemBaoCaoMKTLegacy({ embedded = false }) {
       <iframe
         src={iframeSrc}
         className="w-full h-full border-none"
-        title="Xem Bao Cao MKT Legacy"
+        title="Xem báo cáo MKT (viewNsMoiNhanh.html)"
       />
     </div>
   );

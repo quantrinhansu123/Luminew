@@ -1,5 +1,5 @@
 import { Settings } from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useState, startTransition } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
@@ -7,6 +7,8 @@ import usePermissions from '../hooks/usePermissions';
 import { fetchSalesReportsFromAPI, convertDateToAPIFormat } from '../services/ordersApiService';
 import { parseSmartDate } from '../utils/dateParsing';
 import './XemBaoCaoMKT.css';
+
+const MKT_DEV = import.meta.env.DEV;
 
 /** Parse số tiền từ DB/API (số, hoặc chuỗi kiểu 26.088.000). */
 function parseMoneyNumber(v) {
@@ -28,7 +30,70 @@ function pickDoanhSoTT(item) {
   return p !== null ? p : 0;
 }
 
-const MKT_DEV = import.meta.env.DEV;
+/** Chuẩn hóa một dòng detail_reports từ API (dùng chung fetch + cache). */
+function normalizeMktDetailApiRow(item) {
+  return {
+    ...item,
+    'Ngày': item['Ngày'] || item.ngay || item.date || '',
+    'Team': item['Team'] || item.team || '',
+    'Tên': item['Tên'] || item.ten || item.name || '',
+    'Email': item['Email'] || item.email || '',
+    'Sản_phẩm': item['Sản_phẩm'] || item['Sản phẩm'] || item.san_pham || item.product || '',
+    'Thị_trường': item['Thị_trường'] || item['Thị trường'] || item.thi_truong || item.market || '',
+    'CPQC': item['CPQC'] || item.cpqc || 0,
+    'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
+    'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
+    'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
+    'Doanh số TT': pickDoanhSoTT(item),
+    'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
+    'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
+    'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
+    'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] || item.so_don_hoan_huy_thuc_te || item.order_cancel_count_actual || 0,
+    'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] || item.doanh_so_hoan_huy_thuc_te || item.revenue_cancel_actual || 0,
+    'DS sau hoàn hủy': item['DS sau hoàn hủy'] || item.ds_sau_hoan_huy || 0,
+    'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] || item.doanh_so_sau_hoan_huy_thuc_te || 0,
+    'Doanh số sau ship': item['Doanh số sau ship'] || item.doanh_so_sau_ship || 0,
+    'Doanh số TC': item['Doanh số TC'] || item.doanh_so_tc || 0,
+    'KPIs': item['KPIs'] || item.kpis || 0,
+    'ca': item['ca'] || item['Ca'] || item.ca || item.shift || ''
+  };
+}
+
+const MKT_DETAIL_CACHE_PREFIX = 'mkt_detail_reports_v1';
+const MKT_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+const MKT_DETAIL_FETCH_TIMEOUT_MS = 90_000;
+
+function mktDetailCacheKey(startDate, endDate, teamFilter) {
+  return `${MKT_DETAIL_CACHE_PREFIX}:${teamFilter || 'default'}:${startDate}:${endDate}`;
+}
+
+function readMktDetailCache(key) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const rows = parsed?.rows;
+    const t = parsed?.t;
+    if (!Array.isArray(rows) || typeof t !== 'number') return null;
+    if (Date.now() - t > MKT_DETAIL_CACHE_TTL_MS) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return rows;
+  } catch {
+    return null;
+  }
+}
+
+function writeMktDetailCache(key, rows) {
+  try {
+    const payload = JSON.stringify({ t: Date.now(), rows });
+    if (payload.length > 4_500_000) return;
+    sessionStorage.setItem(key, payload);
+  } catch (e) {
+    if (MKT_DEV) console.warn('mkt detail cache write failed', e);
+  }
+}
 
 /** Formatters module-scope — tránh tạo lại mỗi lần render (bảng lớn). */
 function fmtNum(n) {
@@ -186,7 +251,7 @@ function lumidataDetailReportsTeamParam(teamFromUrl) {
  * Chỉ lấy detail_reports từ lumidataapi + team=HN-MKT (mọi dòng bảng từ API).
  * Phân trang next_after_id / after_id nếu API trả về.
  */
-async function fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter) {
+async function fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter, signal) {
   const from_date = convertDateToAPIFormat(startDate);
   const to_date = convertDateToAPIFormat(endDate);
   const apiTeam = lumidataDetailReportsTeamParam(teamFilter);
@@ -203,11 +268,15 @@ async function fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter)
   let cursorParam = 'next_after_id';
 
   for (let page = 0; page < LUMIDATA_DETAIL_MAX_PAGES; page++) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
     const filters = {
       from_date,
       to_date,
       limit: LUMIDATA_DETAIL_PAGE_LIMIT,
       ...(apiTeam ? { team: apiTeam } : {}),
+      signal,
     };
     if (nextCursor) {
       if (cursorParam === 'after_id') filters.after_id = nextCursor;
@@ -278,9 +347,14 @@ export default function XemBaoCaoMKT() {
   const [activeTab, setActiveTab] = useState('DetailedReport');
   const [data, setData] = useState([]);
   const deferredData = useDeferredValue(data);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   /** Mặc định ẩn — bảng chi tiết theo ngày nhân đôi DOM, rất nặng với nhiều ngày/dòng. */
   const [showDailyBreakdown, setShowDailyBreakdown] = useState(false);
+  /** Hủy request detail_reports cũ khi đổi ngày/tab (tránh chờ lâu + state lỗi thời). */
+  const fetchMktSeqRef = useRef(0);
+  const fetchMktAbortRef = useRef(null);
+  const fetchMktTimeoutRef = useRef(null);
+  const mktMountedRef = useRef(true);
 
   // Helper function để format date theo LOCAL time (tránh lỗi timezone trên Vercel)
   const formatLocalDate = (date) => {
@@ -290,9 +364,10 @@ export default function XemBaoCaoMKT() {
     return `${year}-${month}-${day}`;
   };
 
+  /** Mặc định 2 ngày (hôm qua → hôm nay) — tải detail_reports nhanh. */
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 30); // Last 30 Days default
+    d.setDate(d.getDate() - 1);
     return formatLocalDate(d);
   });
   const [endDate, setEndDate] = useState(() => {
@@ -354,10 +429,19 @@ export default function XemBaoCaoMKT() {
   const [showMarketFilter, setShowMarketFilter] = useState(false);
 
   useEffect(() => {
+    mktMountedRef.current = true;
     if (activeTab === 'DetailedReport' || activeTab === 'KpiReport' || activeTab === 'MarketReport') {
       fetchData();
     }
-  }, [startDate, endDate, activeTab]);
+    return () => {
+      mktMountedRef.current = false;
+      fetchMktAbortRef.current?.abort();
+      if (fetchMktTimeoutRef.current) {
+        clearTimeout(fetchMktTimeoutRef.current);
+        fetchMktTimeoutRef.current = null;
+      }
+    };
+  }, [startDate, endDate, activeTab, teamFilter]);
 
   // Auto-select "Tất cả" when data is loaded and filters are empty
   useEffect(() => {
@@ -377,6 +461,9 @@ export default function XemBaoCaoMKT() {
 
   const fetchData = async () => {
     setLoading(true);
+    /** Chỉ gán khi thực sự gọi API (không phải test mode). */
+    let abortSeq = null;
+    let timedOut = false;
     try {
       // --- TESTING MODE CHECK ---
       try {
@@ -446,140 +533,166 @@ export default function XemBaoCaoMKT() {
       }
       // --------------------------
 
+      abortSeq = ++fetchMktSeqRef.current;
+      fetchMktAbortRef.current?.abort();
+      if (fetchMktTimeoutRef.current) {
+        clearTimeout(fetchMktTimeoutRef.current);
+        fetchMktTimeoutRef.current = null;
+      }
+      const ac = new AbortController();
+      fetchMktAbortRef.current = ac;
+      fetchMktTimeoutRef.current = setTimeout(() => {
+        timedOut = true;
+        ac.abort();
+      }, MKT_DETAIL_FETCH_TIMEOUT_MS);
+      const signal = ac.signal;
+
+      function applyDetailReportsPayload(allReports) {
+        if (abortSeq !== fetchMktSeqRef.current) return;
+
+        if (MKT_DEV) console.log(`✅ Đã tải ${allReports.length} bản ghi detail_reports`);
+
+        if (MKT_DEV && allReports.length > 0) {
+          const sampleDates = allReports.slice(0, 3).map(r => r['Ngày']);
+          console.log(`📅 Sample dates từ DB:`, sampleDates);
+          console.log(`📅 Date format check: startDate=${startDate}, endDate=${endDate}`);
+        }
+
+        // Lọc theo khoảng ngày UI; giữ dòng không parse được ngày (tránh mất data API format lạ)
+        let dateFilteredReports = allReports.filter((r) => {
+          const reportDate = parseSmartDate(r['Ngày']);
+          if (!reportDate) return true;
+
+          reportDate.setHours(0, 0, 0, 0);
+          const start = startDate ? parseSmartDate(startDate) : null;
+          const end = endDate ? parseSmartDate(endDate) : null;
+
+          if (start) {
+            start.setHours(0, 0, 0, 0);
+            if (reportDate < start) return false;
+          }
+
+          if (end) {
+            end.setHours(0, 0, 0, 0);
+            if (reportDate > end) return false;
+          }
+
+          return true;
+        });
+
+        if (MKT_DEV) console.log(`📊 After client-side date filter: ${dateFilteredReports.length}/${allReports.length}`);
+
+        // Then filter by hierarchical permissions
+        // Admin: luôn xem tất cả dữ liệu, không bị filter
+        if (!isAdmin) {
+          // Non-admin: Áp dụng filter theo role
+          // Leader: see team data only
+          if (role?.toUpperCase() === 'LEADER' && userTeam) {
+            dateFilteredReports = dateFilteredReports.filter(item =>
+              item['Team'] && item['Team'].toLowerCase() === userTeam.toLowerCase()
+            );
+          } else {
+            // Helper function to normalize name for matching
+            const normalizeNameForMatch = (str) => {
+              if (!str) return '';
+              return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+            };
+
+            // Staff: see own data only (by name or email)
+            dateFilteredReports = dateFilteredReports.filter(item => {
+              const itemName = normalizeNameForMatch(item['Tên'] || '');
+              const itemEmail = normalizeNameForMatch(item['Email'] || '');
+              const currentUserName = normalizeNameForMatch(userName);
+              const currentUserEmail = normalizeNameForMatch(userEmail);
+
+              return (itemName === currentUserName && currentUserName !== '') ||
+                (itemEmail === currentUserEmail && currentUserEmail !== '') ||
+                itemName.includes(currentUserName) ||
+                currentUserName.includes(itemName);
+            });
+          }
+        } else {
+          // Admin: xem tất cả, không filter
+          if (MKT_DEV) console.log('✅ Admin: Viewing all MKT reports (no filter applied)');
+        }
+
+        if (MKT_DEV) {
+          console.log(
+            `📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`
+          );
+        }
+
+        const uniqueTeams = [...new Set(dateFilteredReports.map(r => r['Team']).filter(Boolean))].sort();
+        const uniqueProducts = [...new Set(dateFilteredReports.map(r => r['Sản_phẩm']).filter(Boolean))].sort();
+        const uniqueMarkets = [...new Set(dateFilteredReports.map(r => r['Thị_trường']).filter(Boolean))].sort();
+        const uniqueShifts = [...new Set(dateFilteredReports.map(r => r['ca']).filter(Boolean))].sort();
+
+        startTransition(() => {
+          setShowDailyBreakdown(false);
+          setData(dateFilteredReports);
+          setTeams(uniqueTeams);
+          setSelectedTeams((prev) => {
+            const next = prev.filter((v) => uniqueTeams.includes(v));
+            return next.length > 0 ? next : uniqueTeams;
+          });
+          setProducts(uniqueProducts);
+          setSelectedProducts((prev) => {
+            const next = prev.filter((v) => uniqueProducts.includes(v));
+            return next.length > 0 ? next : uniqueProducts;
+          });
+          setMarkets(uniqueMarkets);
+          setSelectedMarkets((prev) => {
+            const next = prev.filter((v) => uniqueMarkets.includes(v));
+            return next.length > 0 ? next : uniqueMarkets;
+          });
+          setShifts(uniqueShifts);
+          setSelectedShifts((prev) => {
+            const next = prev.filter((v) => uniqueShifts.includes(v));
+            return next.length > 0 ? next : uniqueShifts;
+          });
+        });
+      }
+
+      const cacheKey = mktDetailCacheKey(startDate, endDate, teamFilter);
+      const cachedRaw = readMktDetailCache(cacheKey);
+      if (cachedRaw) {
+        if (fetchMktTimeoutRef.current) {
+          clearTimeout(fetchMktTimeoutRef.current);
+          fetchMktTimeoutRef.current = null;
+        }
+        if (MKT_DEV) console.log('✅ detail_reports từ cache (session, ~5 phút)');
+        if (abortSeq !== fetchMktSeqRef.current) return;
+        const allReports = cachedRaw.map(normalizeMktDetailApiRow);
+        applyDetailReportsPayload(allReports);
+        return;
+      }
+
       if (MKT_DEV) console.log(`📡 detail_reports: ${startDate} → ${endDate} → lumidataapi/detail_reports?team=HN-MKT (trừ ?team=RD)`);
 
-      const normalizeApiRow = (item) => ({
-        ...item,
-        'Ngày': item['Ngày'] || item.ngay || item.date || '',
-        'Team': item['Team'] || item.team || '',
-        'Tên': item['Tên'] || item.ten || item.name || '',
-        'Email': item['Email'] || item.email || '',
-        'Sản_phẩm': item['Sản_phẩm'] || item['Sản phẩm'] || item.san_pham || item.product || '',
-        'Thị_trường': item['Thị_trường'] || item['Thị trường'] || item.thi_truong || item.market || '',
-        'CPQC': item['CPQC'] || item.cpqc || 0,
-        'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
-        'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
-        'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
-        'Doanh số TT': pickDoanhSoTT(item),
-        'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
-        'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
-        'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
-        'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] || item.so_don_hoan_huy_thuc_te || item.order_cancel_count_actual || 0,
-        'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] || item.doanh_so_hoan_huy_thuc_te || item.revenue_cancel_actual || 0,
-        'DS sau hoàn hủy': item['DS sau hoàn hủy'] || item.ds_sau_hoan_huy || 0,
-        'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] || item.doanh_so_sau_hoan_huy_thuc_te || 0,
-        'Doanh số sau ship': item['Doanh số sau ship'] || item.doanh_so_sau_ship || 0,
-        'Doanh số TC': item['Doanh số TC'] || item.doanh_so_tc || 0,
-        'KPIs': item['KPIs'] || item.kpis || 0,
-        'ca': item['ca'] || item['Ca'] || item.ca || item.shift || ''
-      });
-
-      const rawRows = await fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter);
-      const allReports = rawRows.map(normalizeApiRow);
-
-      if (MKT_DEV) console.log(`✅ Đã tải ${allReports.length} bản ghi detail_reports`);
-
-      if (MKT_DEV && allReports.length > 0) {
-        const sampleDates = allReports.slice(0, 3).map(r => r['Ngày']);
-        console.log(`📅 Sample dates từ DB:`, sampleDates);
-        console.log(`📅 Date format check: startDate=${startDate}, endDate=${endDate}`);
-      }
-
-      // Lọc theo khoảng ngày UI; giữ dòng không parse được ngày (tránh mất data API format lạ)
-      let dateFilteredReports = allReports.filter((r) => {
-        const reportDate = parseSmartDate(r['Ngày']);
-        if (!reportDate) return true;
-
-        reportDate.setHours(0, 0, 0, 0);
-        const start = startDate ? parseSmartDate(startDate) : null;
-        const end = endDate ? parseSmartDate(endDate) : null;
-
-        if (start) {
-          start.setHours(0, 0, 0, 0);
-          if (reportDate < start) return false;
+      let rawRows;
+      try {
+        rawRows = await fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter, signal);
+      } finally {
+        if (fetchMktTimeoutRef.current) {
+          clearTimeout(fetchMktTimeoutRef.current);
+          fetchMktTimeoutRef.current = null;
         }
-
-        if (end) {
-          end.setHours(0, 0, 0, 0);
-          if (reportDate > end) return false;
-        }
-
-        return true;
-      });
-
-      if (MKT_DEV) console.log(`📊 After client-side date filter: ${dateFilteredReports.length}/${allReports.length}`);
-
-      // Then filter by hierarchical permissions
-      // Admin: luôn xem tất cả dữ liệu, không bị filter
-      if (!isAdmin) {
-        // Non-admin: Áp dụng filter theo role
-        // Leader: see team data only
-        if (role?.toUpperCase() === 'LEADER' && userTeam) {
-          dateFilteredReports = dateFilteredReports.filter(item =>
-            item['Team'] && item['Team'].toLowerCase() === userTeam.toLowerCase()
-          );
-        } else {
-          // Helper function to normalize name for matching
-          const normalizeNameForMatch = (str) => {
-            if (!str) return '';
-            return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
-          };
-
-          // Staff: see own data only (by name or email)
-          dateFilteredReports = dateFilteredReports.filter(item => {
-            const itemName = normalizeNameForMatch(item['Tên'] || '');
-            const itemEmail = normalizeNameForMatch(item['Email'] || '');
-            const currentUserName = normalizeNameForMatch(userName);
-            const currentUserEmail = normalizeNameForMatch(userEmail);
-
-            return (itemName === currentUserName && currentUserName !== '') ||
-              (itemEmail === currentUserEmail && currentUserEmail !== '') ||
-              itemName.includes(currentUserName) ||
-              currentUserName.includes(itemName);
-          });
-        }
-      } else {
-        // Admin: xem tất cả, không filter
-        if (MKT_DEV) console.log('✅ Admin: Viewing all MKT reports (no filter applied)');
       }
-
-      if (MKT_DEV) {
-        console.log(
-          `📊 Filtered to ${dateFilteredReports.length} records based on permissions (role: ${role}, team: ${userTeam}, isAdmin: ${isAdmin})`
-        );
-      }
-
-      const uniqueTeams = [...new Set(dateFilteredReports.map(r => r['Team']).filter(Boolean))].sort();
-      const uniqueProducts = [...new Set(dateFilteredReports.map(r => r['Sản_phẩm']).filter(Boolean))].sort();
-      const uniqueMarkets = [...new Set(dateFilteredReports.map(r => r['Thị_trường']).filter(Boolean))].sort();
-      const uniqueShifts = [...new Set(dateFilteredReports.map(r => r['ca']).filter(Boolean))].sort();
-
-      startTransition(() => {
-        setShowDailyBreakdown(false);
-        setData(dateFilteredReports);
-        setTeams(uniqueTeams);
-        setSelectedTeams((prev) => {
-          const next = prev.filter((v) => uniqueTeams.includes(v));
-          return next.length > 0 ? next : uniqueTeams;
-        });
-        setProducts(uniqueProducts);
-        setSelectedProducts((prev) => {
-          const next = prev.filter((v) => uniqueProducts.includes(v));
-          return next.length > 0 ? next : uniqueProducts;
-        });
-        setMarkets(uniqueMarkets);
-        setSelectedMarkets((prev) => {
-          const next = prev.filter((v) => uniqueMarkets.includes(v));
-          return next.length > 0 ? next : uniqueMarkets;
-        });
-        setShifts(uniqueShifts);
-        setSelectedShifts((prev) => {
-          const next = prev.filter((v) => uniqueShifts.includes(v));
-          return next.length > 0 ? next : uniqueShifts;
-        });
-      });
+      if (abortSeq !== fetchMktSeqRef.current) return;
+      writeMktDetailCache(cacheKey, rawRows);
+      const allReports = rawRows.map(normalizeMktDetailApiRow);
+      applyDetailReportsPayload(allReports);
 
     } catch (err) {
+      if (err?.name === 'AbortError') {
+        if (abortSeq === fetchMktSeqRef.current && timedOut) {
+          alert(
+            '⏱️ Tải dữ liệu quá lâu (90 giây). Vui lòng thu hẹp khoảng ngày hoặc thử lại sau khi mạng/API ổn định.'
+          );
+          setData([]);
+        }
+        return;
+      }
       console.error('❌ Error fetching data:', err);
       console.error('❌ Error details:', {
         message: err.message,
@@ -596,7 +709,13 @@ export default function XemBaoCaoMKT() {
 
       setData([]);
     } finally {
-      setLoading(false);
+      if (fetchMktTimeoutRef.current) {
+        clearTimeout(fetchMktTimeoutRef.current);
+        fetchMktTimeoutRef.current = null;
+      }
+      if (mktMountedRef.current && abortSeq !== null && abortSeq === fetchMktSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -979,10 +1098,11 @@ export default function XemBaoCaoMKT() {
 
   return (
     <div className="report-view-container">
-      {/* Loading Overlay */}
-      <div id="loading-overlay" className={loading ? 'visible' : ''}>
-        Đang tải dữ liệu...
-      </div>
+      {loading && (
+        <div className="mkt-loading-banner" role="status" aria-live="polite">
+          Đang tải dữ liệu…
+        </div>
+      )}
 
       <div className="tab-container">
         <button
@@ -1502,7 +1622,7 @@ export default function XemBaoCaoMKT() {
         activeTab === 'HieuSuatKPI' && (
           <div style={{ width: '100%', height: 'calc(100vh - 100px)' }}>
             <iframe
-              src="/baocaokpiCEO.html"
+              src="/embed/bao-cao-hieu-suat-kpi"
               style={{ width: '100%', height: '100%', border: 'none' }}
               title="Hiệu suất KPI"
             />

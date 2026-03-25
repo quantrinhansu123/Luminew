@@ -645,8 +645,8 @@
   <!-- TAB MỚI: HIỆU SUẤT KPI -->
   <div id="HieuSuatKPI" class="tab-content">
     <div style="width: 100%; height: 100vh; border: none; padding: 0; margin: 0;">
-      <iframe id="hieu-suat-kpi-iframe" src="KPisale.html"
-        style="width: 100%; height: 100vh; border: none; display: block;"></iframe>
+      <iframe id="hieu-suat-kpi-iframe" src="about:blank" data-embed-src="/embed/bao-cao-hieu-suat-kpi"
+        style="width: 100%; height: 100vh; border: none; display: block;" title="Hiệu suất KPI"></iframe>
     </div>
   </div>
   <!-- TAB 3: HIỆU QUẢ MKT (GIAO DIỆN MỚI) -->
@@ -879,6 +879,7 @@
         'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
         'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
         'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
+        'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
         'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
         'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] || item.so_don_hoan_huy_thuc_te || item.order_cancel_count_actual || 0,
@@ -922,6 +923,72 @@
       if (Array.isArray(resultMKT.rows)) return resultMKT.rows;
       if (Array.isArray(resultMKT.results)) return resultMKT.results;
       return [];
+    }
+
+    /** Đồng bộ với React (lumidataapi): gom mọi trang — tránh chỉ ~1000 dòng đầu → “mất dòng”. */
+    const MKT_DETAIL_PAGE_LIMIT = 1000;
+    const MKT_DETAIL_MAX_PAGES = 250;
+
+    async function fetchAllMktDetailReportRows(firstPageUrl) {
+      const u = new URL(firstPageUrl);
+      const baseParams = new URLSearchParams(u.search);
+      const allRows = [];
+      let nextCursor = null;
+      let cursorParam = 'next_after_id';
+
+      for (let page = 0; page < MKT_DETAIL_MAX_PAGES; page++) {
+        const params = new URLSearchParams(baseParams.toString());
+        params.set('limit', String(MKT_DETAIL_PAGE_LIMIT));
+        params.delete('next_after_id');
+        params.delete('after_id');
+        if (nextCursor) {
+          if (cursorParam === 'after_id') params.set('after_id', nextCursor);
+          else params.set('next_after_id', nextCursor);
+        }
+
+        const url = `${API_URL_MKT}?${params.toString()}`;
+        const responseMKT = await fetch(url);
+        if (!responseMKT.ok) {
+          if (page === 0) {
+            console.error(`Lỗi tải dữ liệu MKT: HTTP ${responseMKT.status} ${responseMKT.statusText}`);
+          }
+          break;
+        }
+        let resultPage;
+        try {
+          resultPage = await responseMKT.json();
+        } catch (e) {
+          console.error('Lỗi parse JSON từ MKT:', e);
+          break;
+        }
+
+        const chunk = extractDetailReportsRows(resultPage);
+        allRows.push(...chunk);
+
+        const lo = document.getElementById('loading-overlay');
+        if (lo) {
+          const hasMore =
+            chunk.length > 0 &&
+            (resultPage?.next_after_id != null || resultPage?.after_id != null);
+          lo.textContent =
+            hasMore || page > 0
+              ? `Đang tải dữ liệu… (trang ${page + 1}, ${allRows.length} dòng)`
+              : 'Đang tải dữ liệu…';
+        }
+
+        let next = resultPage && resultPage.next_after_id != null ? resultPage.next_after_id : null;
+        if (next) {
+          cursorParam = 'next_after_id';
+        } else {
+          next = resultPage && resultPage.after_id != null ? resultPage.after_id : null;
+          if (next) cursorParam = 'after_id';
+        }
+        if (!next || chunk.length === 0) break;
+        nextCursor = next;
+      }
+
+      console.log(`📄 detail_reports: đã gom ${allRows.length} dòng (phân trang API).`);
+      return allRows;
     }
 
     /** detail_reports không có employeeData — suy ra từ các dòng báo cáo */
@@ -1049,11 +1116,19 @@
       document.getElementById("defaultOpen").click();
     });
 
+    /** Mặc định 2 ngày (hôm qua → hôm nay): ít dòng hơn cả tháng, tải nhanh; local date (tránh lệch TZ). */
     function setDefaultDates() {
-      const today = new Date();
-      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      const formatDateForInput = (date) => date.toISOString().split('T')[0];
+      const now = new Date();
+      const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterdayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      const formatDateForInput = (date) => {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      };
+      const startVal = formatDateForInput(yesterdayLocal);
+      const endVal = formatDateForInput(todayLocal);
 
       const dateInputs = [
         'start-date-tab1', 'end-date-tab1',
@@ -1063,11 +1138,8 @@
 
       dateInputs.forEach(id => {
         const el = document.getElementById(id);
-        if (id.startsWith('start-')) {
-          el.value = formatDateForInput(firstDay);
-        } else {
-          el.value = formatDateForInput(lastDay);
-        }
+        if (!el) return;
+        el.value = id.startsWith('start-') ? startVal : endVal;
       });
     }
 
@@ -1166,14 +1238,11 @@
         let resultMKT = getCachedMktResult(fetchUrl);
 
         if (!resultMKT) {
-          const responseMKT = await fetch(fetchUrl);
-          if (!responseMKT.ok) {
-            console.error(`Lỗi tải dữ liệu MKT: HTTP ${responseMKT.status} ${responseMKT.statusText}`);
-          }
           try {
-            resultMKT = responseMKT.ok ? await responseMKT.json() : null;
+            const rawRowsAll = await fetchAllMktDetailReportRows(fetchUrl);
+            resultMKT = { data: rawRowsAll };
           } catch (e) {
-            console.error('Lỗi parse JSON từ MKT:', e);
+            console.error('Lỗi tải dữ liệu MKT:', e);
             resultMKT = null;
           }
           if (resultMKT) {
@@ -1196,6 +1265,7 @@
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
           .map(r => {
             const dsChot = Number(r["Doanh số"]) || 0;
+            const dsChotTT = Number(r["Doanh số TT"] ?? r.doanh_so_tt) || 0;
             const dsSauHoanHuy = Number(r["DS sau hoàn hủy"]) || 0;
             const ngayParsed = parseNgayToDate(r["Ngày"]);
             return {
@@ -1219,7 +1289,7 @@
               dsThanhCong: Number(r["Doanh số TC"]) || 0,
               kpiValue: Number(r["KPIs"]) || 0,
               soDonThucTe: Number(r["Số đơn thực tế"]) || 0,
-              dsChotThucTe: Number(r["Doanh thu chốt thực tế"]) || 0,
+              dsChotThucTe: dsChotTT || Number(r["Doanh thu chốt thực tế"]) || 0,
               dsHoanHuyThucTe: Number(r["Doanh số hoàn hủy thực tế"]) || 0,
               soDonHuyThucTe: Number(r["Số đơn hoàn hủy thực tế"]) || 0,
               dsSauHoanHuyThucTe: Number(r["Doanh số sau hoàn hủy thực tế"]) || 0,
@@ -1246,69 +1316,14 @@
       }
     }
 
-    // === HÀM ĐÃ SỬA 2: LÀM SẠCH ID TỪ URL VÀ THIẾT LẬP IFRAME CHÍNH XÁC ===
     function setupInitialReportView() {
-      // Lấy ID và dùng .trim() để cắt khoảng trắng ngay lập tức
-      const idFromUrl = new URLSearchParams(window.location.search).get('id')?.trim();
       const manualTabBtn = document.getElementById('manual-report-tab-btn');
       const vandonTabBtn = document.getElementById('vandon-report-tab-btn');
-
-      // --- BƯỚC GỠ LỖI QUAN TRỌNG ---
-      // Mở console (bấm F12 trên trình duyệt) để xem kết quả
-      console.log("Đang tìm kiếm ID từ URL:", `"${idFromUrl}"`);
-      console.log("Danh sách ID nhân viên có trong dữ liệu:", employeeData.map(emp => `"${emp.idnv}"`));
-      // --------------------------------
-
-      if (!idFromUrl) {
-        document.getElementById('report-title-tab1').textContent =
-          'DỮ LIỆU CHI PHÍ ADS — team HN-MKT (API)';
-        baseDataForReport = masterData;
-        manualTabBtn.style.display = 'none';
-        vandonTabBtn.style.display = 'none';
-        return;
-      }
-
-      // So sánh sau khi đã làm sạch cả hai bên
-      const currentUser = employeeData.find(emp => emp.idnv === idFromUrl);
-
-      if (currentUser) {
-        console.log("ĐÃ TÌM THẤY NHÂN VIÊN:", currentUser); // Thêm log để xác nhận
-        const teamsString = new URLSearchParams(window.location.search).get('teams');
-
-        // Ưu tiên: Nếu có teams trên URL HOẶC là leader thì xem view Team
-        if (teamsString || currentUser.chucVu.includes('leader') || currentUser.chucVu === 'quản lý') {
-          const teams = teamsString ? teamsString.split(',').map(t => t.trim()) : [currentUser.team];
-          document.getElementById('report-title-tab1').textContent = `DỮ LIỆU TEAM ${teams.join(', ')}`;
-
-          // Lọc dữ liệu theo danh sách team
-          baseDataForReport = masterData.filter(r => teams.includes((r.team || '').trim()));
-        } else {
-          document.getElementById('report-title-tab1').textContent = `DỮ LIỆU CÁ NHÂN - ${currentUser.ten}`;
-          baseDataForReport = masterData.filter(r => (r.ten || '').trim() === currentUser.ten);
-        }
-
-        manualTabBtn.style.display = 'block';
-        vandonTabBtn.style.display = 'block';
-
-        const manualIframe = document.getElementById('manual-report-iframe');
-        const hoten = encodeURIComponent(currentUser.ten);
-        const email = currentUser.email ? `${currentUser.email}` : '';
-        const tableName = encodeURIComponent('Báo cáo MKT');
-        manualIframe.src = `baoCaoThuCong.html?hoten=${hoten}&email=${email}&tableName=${tableName}&hideColumns=Page`;
-
-        // === THAY ĐỔI THEO YÊU CẦU MỚI NHẤT ===
-        const vandonIframe = document.getElementById('vandon-report-iframe');
-        // Chỉ lấy duy nhất biến id đã được trích xuất ở đầu hàm
-        vandonIframe.src = `vandonCEO.html?id=${idFromUrl}`;
-        // =====================================
-
-      } else {
-        console.error("KHÔNG TÌM THẤY NHÂN VIÊN VỚI ID ĐÃ CUNG CẤP."); // Thêm log lỗi
-        document.getElementById('report-title-tab1').textContent = `KHÔNG TÌM THẤY DỮ LIỆU`;
-        baseDataForReport = [];
-        manualTabBtn.style.display = 'none';
-        vandonTabBtn.style.display = 'none';
-      }
+      document.getElementById('report-title-tab1').textContent =
+        'DỮ LIỆU CHI PHÍ ADS — team HN-MKT (API)';
+      baseDataForReport = masterData;
+      manualTabBtn.style.display = 'none';
+      vandonTabBtn.style.display = 'none';
     }
 
     // =================================================================================
@@ -2007,26 +2022,16 @@
       );
       if (currentTabButton) currentTabButton.classList.add("active");
 
-      // Tab Hiệu suất KPI: gọi lại API detail_reports rồi reload iframe (luôn dữ liệu mới)
+      // Tab Hiệu suất KPI: chỉ load iframe React khi user mở tab (tránh tải nặng lúc vào trang)
       if (tabName === 'HieuSuatKPI') {
         const iframe = document.getElementById('hieu-suat-kpi-iframe');
-        void (async () => {
-          mktApiCache.clear();
-          try {
-            await fetchAndProcessData();
-          } catch (e) {
-            console.error('Lỗi khi tải API trước tab Hiệu suất KPI:', e);
-          }
-          if (iframe) {
-            const idFromUrl = new URLSearchParams(window.location.search).get('id')?.trim();
-            const params = new URLSearchParams();
-            if (idFromUrl) params.set('id', idFromUrl);
-            params.set('_cb', String(Date.now()));
-            const url = `baocaokpiCEO.html?${params.toString()}`;
-            iframe.src = url;
-            console.log('📊 Hiệu suất KPI — đã gọi API, load iframe:', url);
-          }
-        })();
+        if (iframe) {
+          const params = new URLSearchParams();
+          params.set('_cb', String(Date.now()));
+          const base = iframe.getAttribute('data-embed-src') || '/embed/bao-cao-hieu-suat-kpi';
+          iframe.src = `${base}?${params.toString()}`;
+          console.log('📊 Hiệu suất KPI — load iframe:', iframe.src);
+        }
         return;
       }
 
@@ -2139,8 +2144,18 @@
     // --- X. CÁC HÀM TIỆN ÍCH (UTILITIES) ---
     // =================================================================================
     const loader = document.getElementById('loading-overlay');
-    const showLoader = () => loader.classList.add('visible');
-    const hideLoader = () => loader.classList.remove('visible');
+    const showLoader = () => {
+      if (loader) {
+        loader.textContent = 'Đang tải dữ liệu…';
+        loader.classList.add('visible');
+      }
+    };
+    const hideLoader = () => {
+      if (loader) {
+        loader.classList.remove('visible');
+        loader.textContent = 'Đang tải dữ liệu…';
+      }
+    };
 
     function normalize(s) { return (s || '').trim().toLowerCase(); }
     function getMarketGroup(normalizedMarket) {

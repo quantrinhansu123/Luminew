@@ -323,7 +323,8 @@ export const fetchSalesReportsFromAPI = async (filters = {}) => {
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
-            }
+            },
+            signal: filters.signal,
         });
 
         if (!response.ok) {
@@ -382,6 +383,9 @@ export const fetchSalesReportsFromAPI = async (filters = {}) => {
 
         return result;
     } catch (error) {
+        if (error?.name === 'AbortError') {
+            throw error;
+        }
         console.error('❌ fetchSalesReportsFromAPI (detail_reports) error:', error);
         throw error;
     }

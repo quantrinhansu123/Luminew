@@ -390,6 +390,20 @@
     opacity: 1;
 }
 
+/* Thanh trạng thái tải — không che toàn màn hình (UX nhanh hơn so với overlay fixed). */
+.mkt-loading-banner {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    padding: 10px 16px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #1a5c1a;
+    background: linear-gradient(180deg, rgba(45, 124, 45, 0.12) 0%, rgba(45, 124, 45, 0.04) 100%);
+    border-bottom: 1px solid rgba(45, 124, 45, 0.25);
+}
+
 /* --- TABLE STYLES --- */
 .table-responsive-container {
     overflow-x: auto;

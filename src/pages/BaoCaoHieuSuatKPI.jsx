@@ -23,10 +23,6 @@ export default function BaoCaoHieuSuatKPI() {
   const [markets, setMarkets] = useState([]);
   const [shifts, setShifts] = useState([]);
 
-  // HR data for team filtering
-  const [hrData, setHrData] = useState([]);
-  const [hrLoading, setHrLoading] = useState(false);
-
   const [filters, setFilters] = useState({
     startDate: "",
     endDate: "",
@@ -89,58 +85,14 @@ export default function BaoCaoHieuSuatKPI() {
     }
   };
 
-  // Load user info from localStorage
+  // Load user info from localStorage (không gọi Firebase HR)
   useEffect(() => {
     setUserTeam(localStorage.getItem("userTeam") || "");
     setUserRole(localStorage.getItem("userRole") || "user");
     setUserEmail(localStorage.getItem("userEmail") || "");
-    setUserName(localStorage.getItem("userName") || "");
-  }, []);
-
-  // Load user info và HR data
-  useEffect(() => {
-    const loadUserAndHRData = async () => {
-      try {
-        setHrLoading(true);
-
-        // Load user info từ localStorage
-        const userTeam = localStorage.getItem("userTeam") || "";
-        const userRole = localStorage.getItem("userRole") || "user";
-        const userEmail = localStorage.getItem("userEmail") || "";
-        const username = localStorage.getItem("username") || "";
-
-        setUserTeam(userTeam);
-        setUserRole(userRole);
-        setUserEmail(userEmail);
-        setUserName(username);
-
-        // Fetch HR data để lấy thông tin đầy đủ
-        const response = await fetch(
-          "https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/Nh%C3%A2n_s%E1%BB%B1.json"
-        );
-        if (response.ok) {
-          const hrData = await response.json();
-          setHrData(hrData);
-
-          // Tìm thông tin đầy đủ của user từ HR data
-          if (userEmail) {
-            const userInfo = hrData.find(
-              (hr) =>
-                hr.email && hr.email.toLowerCase() === userEmail.toLowerCase()
-            );
-            if (userInfo && userInfo["Họ Và Tên"]) {
-              setUserName(userInfo["Họ Và Tên"]);
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error loading HR data:", error);
-      } finally {
-        setHrLoading(false);
-      }
-    };
-
-    loadUserAndHRData();
+    setUserName(
+      localStorage.getItem("userName") || localStorage.getItem("username") || ""
+    );
   }, []);
 
   // Hàm chuẩn hóa tên để so sánh - SỬA LẠI
@@ -176,18 +128,18 @@ export default function BaoCaoHieuSuatKPI() {
     return base1 === base2 && name1 !== name2;
   };
 
-  // Hàm lấy danh sách thành viên trong team (cho leader)
+  /** Leader: danh sách tên trong team — suy từ dữ liệu báo cáo đã tải (không cần sheet HR). */
   const getTeamMembers = useMemo(() => {
     if (userRole !== "leader" || !userTeam) return [];
-
-    return hrData
-      .filter((hr) => {
-        const team = hr["Team"] || hr["Team Sale_mar"] || "";
-        return team.toLowerCase() === userTeam.toLowerCase();
-      })
-      .map((hr) => hr["Họ Và Tên"])
-      .filter((name) => name && name.trim() !== "");
-  }, [hrData, userRole, userTeam]);
+    const names = new Set();
+    masterData.forEach((row) => {
+      const t = (row.team || "").trim();
+      if (t.toLowerCase() === userTeam.toLowerCase() && row.ten) {
+        names.add(String(row.ten).trim());
+      }
+    });
+    return Array.from(names);
+  }, [masterData, userRole, userTeam]);
 
   // Update available filters when data changes
   useEffect(() => {
@@ -618,11 +570,16 @@ export default function BaoCaoHieuSuatKPI() {
     if (roleLower === "admin" || roleLower === "finance") {
       // Admin và Finance xem tất cả - không lọc
     } else if (userRole === "leader") {
-      // Leader chỉ xem dữ liệu của team mình
+      // Leader: lọc theo tên trong team (từ masterData) hoặc theo cột team nếu chưa gom được tên
       const teamMembers = getTeamMembers;
       if (teamMembers.length > 0) {
         filtered = filtered.filter((report) =>
           teamMembers.some((memberName) => isNameMatch(report.ten, memberName))
+        );
+      } else if (userTeam) {
+        filtered = filtered.filter(
+          (report) =>
+            (report.team || "").trim().toLowerCase() === userTeam.toLowerCase()
         );
       }
     } else if (userRole === "user") {
@@ -692,7 +649,7 @@ export default function BaoCaoHieuSuatKPI() {
     }
 
     return filtered;
-  }, [masterData, filters, userRole, userName, getTeamMembers, enableDateFilter]);
+  }, [masterData, filters, userRole, userName, userTeam, getTeamMembers, enableDateFilter]);
 
   // Generate KPI table data với phân quyền tối ưu
   const kpiData = useMemo(() => {
@@ -714,6 +671,17 @@ export default function BaoCaoHieuSuatKPI() {
               (filteredCpqcByMarketing[row.ten] || 0) + row.cpqc;
           }
           return isInTeam;
+        });
+      } else if (userTeam) {
+        const allowedNames = new Set(filteredData.map((r) => r.ten).filter(Boolean));
+        filteredCpqcByMarketing = {};
+        filteredCpqcSourceRows = cpqcSourceRows.filter((row) => {
+          const ok = allowedNames.has(row.ten);
+          if (ok && row.ten) {
+            filteredCpqcByMarketing[row.ten] =
+              (filteredCpqcByMarketing[row.ten] || 0) + row.cpqc;
+          }
+          return ok;
         });
       }
     } else if (userRole === "user") {
@@ -828,6 +796,7 @@ export default function BaoCaoHieuSuatKPI() {
     filters.endDate,
     userRole,
     userName,
+    userTeam,
     getTeamMembers,
   ]);
 
@@ -891,7 +860,7 @@ export default function BaoCaoHieuSuatKPI() {
     return `${(Number(value || 0) * 100).toFixed(2)}%`;
   };
 
-  if (loading || hrLoading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center">

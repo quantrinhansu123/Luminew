@@ -64,6 +64,12 @@ import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
 
 import ErrorBoundary from './components/ErrorBoundary';
 
+/** File HTML cũ `baocaokpiCEO.html` không còn — chuyển sang trang KPI React, giữ query. */
+function BaocaokpiCEORedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`/bao-cao-hieu-suat-kpi${search}`} replace />;
+}
+
 /** Không render Header (dùng trong iframe tab Vận đơn Sale). */
 function AppShell() {
   const location = useLocation();
@@ -135,8 +141,17 @@ function AppShell() {
             />
             <Route path="/nhap-bao-cao-cskh" element={<ProtectedRoute><NhapBaoCaoCSKH /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
+            {/* Mặc định: view HTML viewNsMoiNhanh.html (iframe). Bản React: /xem-bao-cao-mkt-react */}
             <Route
               path="/xem-bao-cao-mkt"
+              element={
+                <ProtectedRoute>
+                  <XemBaoCaoMKTLegacy />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/xem-bao-cao-mkt-react"
               element={
                 <ProtectedRoute>
                   <XemBaoCaoMKT />
@@ -202,7 +217,12 @@ function AppShell() {
 function App() {
   console.log('📱 App component rendering...');
   return (
-    <Router>
+    <Router
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <AppShell />
     </Router>
   );
