@@ -14,7 +14,7 @@ export const DB_TO_APP_MAPPING = {
     "total_amount_vnd": "Tổng tiền VNĐ",
     "payment_method": "Hình thức thanh toán",
     "tracking_code": "Mã Tracking",
-    "shipping_fee": "Phí ship nội địa Mỹ (usd)",
+    "shipping_fee": "Ngày đối soát kế toán",
     "marketing_staff": "Nhân viên MKT",
     "sale_staff": "Nhân viên Sale",
     "team": "Team",
@@ -100,6 +100,10 @@ const mapSupabaseOrderToApp = (sOrder) => {
     if (sOrder.reconciled_vnd !== undefined && sOrder.reconciled_vnd !== null) {
         appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
         appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd;
+    }
+    // shipping_fee (Ngày đối soát kế toán): luôn chuỗi — khớp cột text trên DB và tránh format số ở grid
+    if (appOrder["Ngày đối soát kế toán"] !== undefined && appOrder["Ngày đối soát kế toán"] !== null) {
+        appOrder["Ngày đối soát kế toán"] = String(appOrder["Ngày đối soát kế toán"]);
     }
     return appOrder;
 };

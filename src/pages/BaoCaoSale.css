@@ -208,6 +208,18 @@
     font-weight: 700;
 }
 
+/* Dòng tổng ngay dưới hàng tiêu đề cột (Danh sách báo cáo tay CSKH) */
+.bao-cao-sale-container thead tr.dsbcskh-thead-totals th {
+    top: 2.85rem;
+    z-index: 9;
+    background: var(--primary-dark) !important;
+    color: #fff !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    text-transform: none;
+    font-size: 0.95em;
+    font-weight: 700;
+}
+
 /* --- CONDITIONAL FORMATTING --- */
 .bao-cao-sale-container .bg-green {
     background-color: var(--primary-light) !important;

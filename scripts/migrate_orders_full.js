@@ -79,7 +79,7 @@ async function migrate() {
                 total_amount_vnd: cleanNumber(r["Tổng tiền VNĐ"]),
                 payment_method: r["Hình thức thanh toán"],
                 tracking_code: r["Mã Tracking"],
-                shipping_fee: cleanNumber(r["Phí ship nội địa Mỹ (usd)"]),
+                shipping_fee: cleanNumber(r["Ngày đối soát kế toán"] ?? r["Phí ship nội địa Mỹ (usd)"]),
 
                 // Staff
                 marketing_staff: r["Nhân viên Sale"], // Approx logic

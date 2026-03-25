@@ -73,6 +73,68 @@ export function formatDateDisplay(dateValue) {
   return `${day}/${month}/${year}`;
 }
 
+function formatLocalYmd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const DEFAULT_FILTER_DAYS = 3;
+
+function parseYmdToLocalDate(ymdStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymdStr).slice(0, 10));
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const day = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(day)) return null;
+  return new Date(y, mo - 1, day);
+}
+
+/** `n` ngày gần nhất kết thúc hôm nay (mặc định 3 ngày, gồm cả hôm nay). */
+export function getLastNDaysRangeLocal(nDays = DEFAULT_FILTER_DAYS) {
+  const n = Math.max(1, Number(nDays) || DEFAULT_FILTER_DAYS);
+  const end = new Date();
+  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  start.setDate(start.getDate() - (n - 1));
+  return {
+    startDateStr: formatLocalYmd(start),
+    endDateStr: formatLocalYmd(end),
+  };
+}
+
+/**
+ * Mặc định bộ lọc: `n` ngày kết thúc tại ngày báo cáo mới nhất trong `sales_reports` (Supabase).
+ * Trả về null nếu bảng trống hoặc không parse được ngày.
+ */
+export async function fetchLatestSalesReportNDayRange(signal, nDays = DEFAULT_FILTER_DAYS) {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  const { data, error } = await supabase
+    .from('sales_reports')
+    .select('date')
+    .order('date', { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  const raw = row?.date;
+  if (raw == null || raw === '') return null;
+
+  const s = String(raw).slice(0, 10);
+  const endD = parseYmdToLocalDate(s);
+  if (!endD) return null;
+
+  const n = Math.max(1, Number(nDays) || DEFAULT_FILTER_DAYS);
+  const startD = new Date(endD.getFullYear(), endD.getMonth(), endD.getDate());
+  startD.setDate(startD.getDate() - (n - 1));
+
+  return {
+    startDateStr: formatLocalYmd(startD),
+    endDateStr: formatLocalYmd(endD),
+  };
+}
+
 function normalizeViAscii(s) {
   return String(s || '')
     .normalize('NFD')
@@ -86,6 +148,16 @@ function normalizeViAscii(s) {
  * Khớp `name` trên dòng báo cáo (`ten`) với danh sách trong `users.selected_personnel` (tên hoặc email đã resolve sang tên).
  * Dùng chuẩn hóa + contains giống DanhSachVanDon.
  */
+/** NV xem cá nhân: cho phép khớp `sales_reports.email` với user dù `name` trên bảng khác `users.name`. */
+export function rowMatchesAllowedSaleName(r, allowedNames, allowedUserEmail) {
+  if (!allowedNames || allowedNames.length === 0) return true;
+  if (allowedNames.includes(r.ten)) return true;
+  const e = String(allowedUserEmail || '').toLowerCase().trim();
+  const rowE = String(r.email || '').toLowerCase().trim();
+  if (e && rowE && rowE === e) return true;
+  return false;
+}
+
 export function rowMatchesPersonnelList(ten, allowedList) {
   if (!allowedList || allowedList.length === 0) return true;
   const row = normalizeViAscii(ten);
@@ -181,8 +253,11 @@ export function mapApiToRawRows(apiData) {
 export function mapSupabaseSalesReportRow(row) {
   if (!row || typeof row !== 'object') return null;
   const ten = String(row.name ?? '').trim();
-  const team = String(row.team ?? '').trim();
-  if (!ten || !team) return null;
+  const teamRaw = String(row.team ?? '').trim();
+  const branchRaw = String(row.branch ?? '').trim();
+  // HCM hay để trống `team` nhưng có `branch` — không drop dòng (trước đây mất cả chi nhánh).
+  const team = teamRaw || branchRaw || 'Không xác định';
+  if (!ten) return null;
   const oc = Number(row.order_count) || 0;
   const rm = Number(row.revenue_mess) || 0;
   const ra = Number(row.revenue_actual) || 0;
@@ -219,8 +294,10 @@ export function mapSupabaseSalesReportRow(row) {
 export function mapLumidataSalesReportRow(item) {
   if (!item || typeof item !== 'object') return null;
   const ten = String(item.ten ?? '').trim();
-  const team = String(item.team ?? '').trim();
-  if (!ten || !team) return null;
+  const teamRaw = String(item.team ?? '').trim();
+  const branchRaw = String(item.branch ?? '').trim();
+  const team = teamRaw || branchRaw || 'Không xác định';
+  if (!ten) return null;
   return {
     chucVu: String(item.position ?? '').trim(),
     ten,
@@ -380,7 +457,8 @@ export function summarizeAndSortSalesData(data) {
     }
     summaryData[name].mess += r.soMessCmt;
     summaryData[name].don += r.soDon;
-    summaryData[name].chot += r.dsChot;
+    // DS Chốt (tab Dữ liệu báo cáo tay): cộng revenue_actual (doanhThuChotThucTe), không dùng revenue_mess (dsChot).
+    summaryData[name].chot += r.doanhThuChotThucTe;
     summaryData[name].phanHoi += r.phanHoi;
     summaryData[name].soDonThucTe += r.soDonThucTe;
     summaryData[name].doanhThuChotThucTe += r.doanhThuChotThucTe;
@@ -417,6 +495,8 @@ export function filterRawData({
   allowedBranch,
   allowedTeam,
   allowedNames,
+  /** Email user khi xem cá nhân — khớp với cột `email` trên dòng `sales_reports`. */
+  allowedUserEmail = null,
   /** Danh sách tên được phép xem (từ `users.selected_personnel`); null = không áp dụng. */
   allowedPersonnelNames = null,
   startDateStr,
@@ -449,7 +529,7 @@ export function filterRawData({
       if (
         (!allowedPersonnelNames || allowedPersonnelNames.length === 0) &&
         allowedNames.length > 0 &&
-        !allowedNames.includes(r.ten)
+        !rowMatchesAllowedSaleName(r, allowedNames, allowedUserEmail)
       ) {
         return false;
       }
@@ -476,7 +556,8 @@ export function filterRawForRestrictedPopulate(
   allowedBranch,
   allowedTeam,
   allowedNames,
-  allowedPersonnelNames = null
+  allowedPersonnelNames = null,
+  allowedUserEmail = null
 ) {
   const passPersonnel = (r) =>
     !allowedPersonnelNames ||
@@ -498,7 +579,7 @@ export function filterRawForRestrictedPopulate(
     if (allowedPersonnelNames && allowedPersonnelNames.length > 0) {
       return true;
     }
-    if (allowedNames.length > 0) return allowedNames.includes(r.ten);
+    if (allowedNames.length > 0) return rowMatchesAllowedSaleName(r, allowedNames, allowedUserEmail);
     return false;
   });
 }

@@ -11,7 +11,9 @@ import {
   NSSL_IFRAME_THU_CONG,
   buildKpiEmbedUrl,
   buildVanDonEmbedUrl,
+  fetchLatestSalesReportNDayRange,
   fetchSalesReportsMapped,
+  getLastNDaysRangeLocal,
   filterRawData,
   filterRawForRestrictedPopulate,
   formatCurrency,
@@ -97,11 +99,19 @@ async function fetchEmployeeDataForRestrict() {
   }
 }
 
+function normalizeTeamLabel(s) {
+  return String(s || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
 export default function NhanSuSaleLumiMoiView({
   reportTableName = 'Báo cáo sale',
   thuCongTableName = 'Báo cáo sale',
-  /** Lọc team chứa chuỗi (giống BaoCaoSale: sale | cskh). */
+  /** Lọc team chứa chuỗi (giống BaoCaoSale: sale | cskh). Bỏ qua khi có `teamExactFilter`. */
   teamKeyword = 'sale',
+  /** Chỉ giữ dòng có Team khớp đúng (sau trim/gom khoảng trắng), ví dụ CSKH- Lý. */
+  teamExactFilter = null,
 }) {
   const idSheet = useResolvedIdsheet();
   const { role } = usePermissions();
@@ -139,6 +149,8 @@ export default function NhanSuSaleLumiMoiView({
   const [reportTitle, setReportTitle] = useState('DỮ LIỆU TỔNG HỢP');
   const [isRestrictedView, setIsRestrictedView] = useState(false);
   const [allowedNames, setAllowedNames] = useState([]);
+  /** Khớp dòng báo cáo với user qua `sales_reports.email` khi `name` khác `users.name`. */
+  const [allowedUserEmail, setAllowedUserEmail] = useState(null);
   const [allowedTeam, setAllowedTeam] = useState(null);
   const [allowedBranch, setAllowedBranch] = useState(null);
   const [currentUserInfo, setCurrentUserInfo] = useState(null);
@@ -213,19 +225,37 @@ export default function NhanSuSaleLumiMoiView({
   }, [isAdmin]);
 
   const setDefaultDates = useCallback(() => {
-    const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    const fmt = (d) => d.toISOString().split('T')[0];
-    setStartDate(fmt(firstDay));
-    setEndDate(fmt(lastDay));
+    const { startDateStr, endDateStr } = getLastNDaysRangeLocal(3);
+    setStartDate(startDateStr);
+    setEndDate(endDateStr);
   }, []);
 
+  /** Mặc định Từ/Đến ngày: 3 ngày kết thúc tại ngày mới nhất trong `sales_reports` (Supabase); không có thì 3 ngày gần nhất (máy). */
   useEffect(() => {
-    setDefaultDates();
+    let cancelled = false;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const range = await fetchLatestSalesReportNDayRange(ac.signal, 3);
+        if (cancelled) return;
+        if (range?.startDateStr && range?.endDateStr) {
+          setStartDate(range.startDateStr);
+          setEndDate(range.endDateStr);
+          return;
+        }
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        console.warn('[NhanSuSaleLumiMoi] default 3 days from Supabase:', e);
+      }
+      if (!cancelled) setDefaultDates();
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
   }, [setDefaultDates]);
 
-  /** Dữ liệu từ lumidataapi `/sales_reports` (from_date/to_date theo bộ lọc). Phân quyền `?id=`: users Supabase. */
+  /** Dữ liệu `sales_reports` (Supabase / fallback API) theo bộ lọc ngày. Phân quyền `?id=`: users Supabase. */
   useEffect(() => {
     if (!startDate || !endDate) return;
     const ac = new AbortController();
@@ -238,10 +268,18 @@ export default function NhanSuSaleLumiMoiView({
           fetchEmployeeDataForRestrict(),
         ]);
         if (cancelled) return;
-        const kw = String(teamKeyword || '').toLowerCase();
-        const mapped = kw
-          ? mappedRaw.filter((r) => String(r.team || '').toLowerCase().includes(kw))
-          : mappedRaw;
+        const exactWant = normalizeTeamLabel(teamExactFilter);
+        let mapped = mappedRaw;
+        if (exactWant) {
+          mapped = mappedRaw.filter((r) => normalizeTeamLabel(r.team) === exactWant);
+        } else {
+          const kw = String(teamKeyword || '').toLowerCase();
+          if (kw === 'cskh') {
+            mapped = mappedRaw.filter((r) => String(r.team || '').toLowerCase().includes('cskh'));
+          } else if (kw) {
+            mapped = mappedRaw.filter((r) => !String(r.team || '').toLowerCase().includes('cskh'));
+          }
+        }
         setEmployeeData(emp);
         setRawData(mapped);
       } catch (e) {
@@ -256,7 +294,7 @@ export default function NhanSuSaleLumiMoiView({
       cancelled = true;
       ac.abort();
     };
-  }, [startDate, endDate, teamKeyword]);
+  }, [startDate, endDate, teamKeyword, teamExactFilter]);
 
   /** Phân quyền + bộ lọc + iframe — chạy khi có dữ liệu hoặc đổi id (không gọi lại API). */
   useEffect(() => {
@@ -264,8 +302,16 @@ export default function NhanSuSaleLumiMoiView({
     const mapped = rawData;
     const idFromUrl = idSheet;
 
-    const resetFilterLists = (restricted, branch, team, names) => {
-      const dataForFilters = filterRawForRestrictedPopulate(mapped, restricted, branch, team, names);
+    const resetFilterLists = (restricted, branch, team, names, emailForRow) => {
+      const dataForFilters = filterRawForRestrictedPopulate(
+        mapped,
+        restricted,
+        branch,
+        team,
+        names,
+        null,
+        emailForRow
+      );
       setProductAll(true);
       setCaAll(true);
       setTeamAll(true);
@@ -286,7 +332,8 @@ export default function NhanSuSaleLumiMoiView({
       setIframeKpi(buildKpiEmbedUrl(''));
       setIframeVanDon(buildVanDonEmbedUrl(''));
       setReportTitle('DỮ LIỆU TỔNG HỢP');
-      resetFilterLists(false, null, null, []);
+      setAllowedUserEmail(null);
+      resetFilterLists(false, null, null, [], null);
       return;
     }
 
@@ -298,16 +345,18 @@ export default function NhanSuSaleLumiMoiView({
     let branch = null;
     let userInfo = null;
     let showThu = false;
+    let userEmailForRowMatch = null;
 
     if (!emp.length) {
       setReportTitle('KHÔNG TÌM THẤY DỮ LIỆU');
       setIsRestrictedView(true);
       setAllowedNames([]);
+      setAllowedUserEmail(null);
       setAllowedTeam(null);
       setAllowedBranch(null);
       setCurrentUserInfo(null);
       setShowThuCongTab(false);
-      resetFilterLists(true, null, null, []);
+      resetFilterLists(true, null, null, [], null);
       return;
     }
 
@@ -333,31 +382,37 @@ export default function NhanSuSaleLumiMoiView({
         branch = userBranch;
         team = null;
         names = [];
+        userEmailForRowMatch = null;
         setReportTitle(`DỮ LIỆU CHI NHÁNH - ${userBranch}`);
       } else if (userRole === 'Leader') {
         team = userTeam ? userTeam.trim() : null;
         branch = null;
         names = [];
+        userEmailForRowMatch = null;
         setReportTitle(`DỮ LIỆU TEAM - ${userTeam}`);
       } else if (userRole === 'NV') {
         setReportTitle(`DỮ LIỆU CÁ NHÂN - ${cleanName}`);
         names = [cleanName];
         team = null;
+        userEmailForRowMatch = (currentUserRecord['Email'] || '').toLowerCase().trim() || null;
       } else {
         setReportTitle(`DỮ LIỆU CÁ NHÂN - ${cleanName}`);
         names = [cleanName];
         team = null;
         branch = null;
+        userEmailForRowMatch = (currentUserRecord['Email'] || '').toLowerCase().trim() || null;
       }
     } else {
       setReportTitle('KHÔNG TÌM THẤY DỮ LIỆU');
       names = [];
       team = null;
       branch = null;
+      userEmailForRowMatch = null;
     }
 
     setIsRestrictedView(restricted);
     setAllowedNames(names);
+    setAllowedUserEmail(userEmailForRowMatch);
     setAllowedTeam(team);
     setAllowedBranch(branch);
     setCurrentUserInfo(userInfo);
@@ -366,7 +421,7 @@ export default function NhanSuSaleLumiMoiView({
     setIframeKpi(buildKpiEmbedUrl(idFromUrl));
     setIframeVanDon(buildVanDonEmbedUrl(idFromUrl));
 
-    resetFilterLists(restricted, branch, team, names);
+    resetFilterLists(restricted, branch, team, names, userEmailForRowMatch);
   }, [idSheet, employeeData, rawData]);
 
   const filteredData = useMemo(() => {
@@ -376,6 +431,7 @@ export default function NhanSuSaleLumiMoiView({
       allowedBranch,
       allowedTeam,
       allowedNames,
+      allowedUserEmail,
       allowedPersonnelNames,
       startDateStr: startDate,
       endDateStr: endDate,
@@ -394,6 +450,7 @@ export default function NhanSuSaleLumiMoiView({
     allowedBranch,
     allowedTeam,
     allowedNames,
+    allowedUserEmail,
     allowedPersonnelNames,
     startDate,
     endDate,
@@ -416,9 +473,10 @@ export default function NhanSuSaleLumiMoiView({
         allowedBranch,
         allowedTeam,
         allowedNames,
-        allowedPersonnelNames
+        allowedPersonnelNames,
+        allowedUserEmail
       ),
-    [rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames, allowedPersonnelNames]
+    [rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames, allowedPersonnelNames, allowedUserEmail]
   );
 
   /** Tính lại bảng sau khi React rảnh — bớt lag khi đổi checkbox / ngày (dữ liệu lớn). */

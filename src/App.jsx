@@ -131,11 +131,7 @@ function AppShell() {
               path="/xem-bao-cao-cskh"
               element={
                 <ProtectedRoute>
-                  <NhanSuSaleLumiMoiView
-                    reportTableName="Báo cáo sale"
-                    thuCongTableName="Báo cáo sale"
-                    teamKeyword="cskh"
-                  />
+                  <NhanSuSaleLumiMoiView teamExactFilter="CSKH- Lý" />
                 </ProtectedRoute>
               }
             />

@@ -1,4 +1,4 @@
-import { Eye, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
+import { Clock, Eye, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -14,6 +14,18 @@ import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '.
 
 /** PostgREST thường chỉ trả ~1000 dòng nếu không set limit — dễ thiếu đơn khi dữ liệu nhiều */
 const ORDERS_FETCH_LIMIT = 50000;
+
+/** Giá trị Ca sau khi gộp Giữa ca + Hết ca (khớp NhapDonMoi / báo cáo) */
+const SHIFT_GIUA_CA_HET_CA = 'Giữa ca,Hết ca';
+
+/** Chỉ đơn đang là đúng một ca "Giữa ca" (không phẩy, không Hết ca) */
+function isOnlyGiuaCaShift(shiftVal) {
+  const s = String(shiftVal ?? '').trim().replace(/\s+/g, ' ');
+  if (!s) return false;
+  if (s.includes(',')) return false;
+  const n = s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  return n === 'giua ca';
+}
 
 // Các cột tự động ẩn mặc định trong bảng danh sách đơn hàng
 const HIDDEN_COLUMNS = [
@@ -98,6 +110,7 @@ function DanhSachDon() {
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [syncing, setSyncing] = useState(false); // State for sync process
   const [isFixingTeams, setIsFixingTeams] = useState(false); // State for fixing missing teams
+  const [isFixingShift, setIsFixingShift] = useState(false); // Chỉnh ca: Giữa ca → Giữa ca,Hết ca
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -114,6 +127,7 @@ function DanhSachDon() {
     'Phone*',
     'Khu vực',
     'Mặt hàng',
+    'Loại tiền thanh toán',
     'Ca',
     'Mã Tracking',
     'Trạng thái giao hàng',
@@ -171,7 +185,7 @@ function DanhSachDon() {
     const endCols = pinnedEndColumns.filter(col => allKeys.has(col));
 
     return [...startDefaults, ...otherCols, ...endCols];
-  }, [allData]);
+  }, [allData, defaultColumns.join('|')]);
 
   // Default columns
 
@@ -217,7 +231,7 @@ function DanhSachDon() {
     return allAvailableColumns.filter(col => visibleColumns[col] === true);
   }, [allAvailableColumns, visibleColumns]);
 
-  // Clean up hidden columns from visibleColumns on mount
+  // Clean up hidden columns from visibleColumns and ensure default columns exist
   useEffect(() => {
     setVisibleColumns(prev => {
       let updated = { ...prev };
@@ -241,7 +255,7 @@ function DanhSachDon() {
 
       return changed ? updated : prev;
     });
-  }, []); // Chỉ chạy một lần khi component mount
+  }, [defaultColumns.join('|')]);
 
   // Save to localStorage when visibleColumns changes (excluding hidden columns)
   useEffect(() => {
@@ -269,6 +283,7 @@ function DanhSachDon() {
     "Khu vực": item.country, // Lấy từ country
     "Zipcode": item.zipcode,
     "Mặt hàng": item.product,
+    "Loại tiền thanh toán": item.payment_currency || item.paymentCurrency || '',
     "Tên mặt hàng 1": item.product_name_1 || item.product,
     "Tổng tiền VNĐ": item.total_amount_vnd,
     "Hình thức thanh toán": item.payment_method_text || item.payment_method, // payment_method_text is new
@@ -662,6 +677,7 @@ function DanhSachDon() {
             product: item["Mặt hàng"] || item["Mặt_hàng"] || item["Tên mặt hàng 1"] || "",
             total_amount_vnd: amount,
             payment_method: item["Hình thức thanh toán"] || item["Hình_thức_thanh_toán"] || "",
+            payment_currency: item["Loại tiền thanh toán"] || item["Loại_tiền_thanh_toán"] || item["payment_currency"] || "",
             tracking_code: item["Mã Tracking"] || item["Mã_Tracking"] || "",
             shipping_fee: ship,
             marketing_staff: item["Nhân viên Marketing"] || item["Nhân_viên_Marketing"] || "",
@@ -866,7 +882,131 @@ function DanhSachDon() {
     }
   };
 
+  /** Đổi Ca từ "Giữa ca" → "Giữa ca,Hết ca" trong cùng phạm vi team / nhân sự / ngày như Tải lại */
+  const handleFixGiuaCaShift = async () => {
+    if (
+      !window.confirm(
+        'Đổi trường Ca từ "Giữa ca" sang "Giữa ca,Hết ca" cho các đơn trong phạm vi lọc hiện tại (chi nhánh, nhân sự, khoảng ngày) giống khi bấm Tải lại?\n\nChỉ các đơn đang là đúng "Giữa ca" (không có dấu phẩy / Hết ca) mới được cập nhật.'
+      )
+    )
+      return;
 
+    setIsFixingShift(true);
+    try {
+      const userJson = localStorage.getItem('user');
+      const user = userJson ? JSON.parse(userJson) : null;
+      const userName =
+        localStorage.getItem('username') ||
+        user?.['Họ_và_tên'] ||
+        user?.['Họ và tên'] ||
+        user?.['Tên'] ||
+        user?.username ||
+        user?.name ||
+        '';
+
+      const normalizeNameForQuery = (str) => {
+        if (!str) return '';
+        return String(str).trim().replace(/\s+/g, ' ');
+      };
+
+      const applyTeamAndPersonnel = (q) => {
+        let query = q;
+        if (teamFilter === 'RD') {
+          query = query.eq('team', 'RD');
+        } else {
+          query = query.or('team.is.null,team.neq.RD');
+        }
+        if (!isAdmin) {
+          if (selectedPersonnelNames.length > 0) {
+            const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
+            const orConditions = allNames.flatMap((name) => {
+              const normalizedName = normalizeNameForQuery(name);
+              return [
+                `sale_staff.ilike.%${normalizedName}%`,
+                `marketing_staff.ilike.%${normalizedName}%`,
+                `delivery_staff.ilike.%${normalizedName}%`,
+              ];
+            });
+            query = query.or(orConditions.join(','));
+          } else if (userName) {
+            const normalizedUserName = normalizeNameForQuery(userName);
+            query = query.or(
+              `sale_staff.ilike.%${normalizedUserName}%,marketing_staff.ilike.%${normalizedUserName}%,delivery_staff.ilike.%${normalizedUserName}%`
+            );
+          }
+        }
+        return query;
+      };
+
+      const PAGE = 1000;
+      const toUpdateIds = new Set();
+
+      const collectMatchingIds = (rows) => {
+        for (const r of rows || []) {
+          if (r?.id && isOnlyGiuaCaShift(r.shift)) toUpdateIds.add(r.id);
+        }
+      };
+
+      let from = 0;
+      while (true) {
+        let q = applyTeamAndPersonnel(supabase.from('orders').select('id, shift'));
+        if (startDate) q = q.gte('order_date', startDate);
+        if (endDate) q = q.lte('order_date', endDate);
+        const { data, error } = await q.order('order_date', { ascending: false }).range(from, from + PAGE - 1);
+        if (error) throw error;
+        const batch = data || [];
+        collectMatchingIds(batch);
+        if (batch.length < PAGE) break;
+        from += PAGE;
+      }
+
+      if (startDate && endDate) {
+        const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+        let qNull = applyTeamAndPersonnel(supabase.from('orders').select('id, shift'));
+        qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
+        from = 0;
+        while (true) {
+          const { data: nb, error: ne } = await qNull
+            .order('created_at', { ascending: false })
+            .range(from, from + PAGE - 1);
+          if (ne) {
+            console.warn('⚠️ [Chỉnh ca] Không gộp được đơn order_date null:', ne.message);
+            break;
+          }
+          const batch = nb || [];
+          collectMatchingIds(batch);
+          if (batch.length < PAGE) break;
+          from += PAGE;
+        }
+      }
+
+      const ids = [...toUpdateIds];
+      if (ids.length === 0) {
+        toast.info('Không có đơn nào có Ca = "Giữa ca" (thuần) trong phạm vi lọc.');
+        return;
+      }
+
+      const chunkSize = 10;
+      let success = 0;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        await Promise.all(
+          chunk.map(async (id) => {
+            const { error } = await supabase.from('orders').update({ shift: SHIFT_GIUA_CA_HET_CA }).eq('id', id);
+            if (!error) success++;
+          })
+        );
+      }
+
+      toast.success(`Đã cập nhật Ca → "${SHIFT_GIUA_CA_HET_CA}" cho ${success} đơn.`);
+    } catch (err) {
+      console.error('Chỉnh ca error:', err);
+      toast.error(`Lỗi: ${err.message}`);
+    } finally {
+      setIsFixingShift(false);
+      loadData();
+    }
+  };
 
   // Handle Delete All
   const handleDeleteAll = async () => {
@@ -1553,23 +1693,42 @@ function DanhSachDon() {
                 </span>
               </div>
               {isAdmin && (
-                <button
-                  onClick={handleFixMissingTeams}
-                  disabled={syncing || loading || deleting || isFixingTeams}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                >
-                  {isFixingTeams ? (
-                    <>
-                      <span className="animate-spin">⏳</span>
-                      Đang xử lý...
-                    </>
-                  ) : (
-                    <>
-                      <Wrench className="w-4 h-4" />
-                      Sửa lỗi Team
-                    </>
-                  )}
-                </button>
+                <>
+                  <button
+                    onClick={handleFixMissingTeams}
+                    disabled={syncing || loading || deleting || isFixingTeams || isFixingShift}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                  >
+                    {isFixingTeams ? (
+                      <>
+                        <span className="animate-spin">⏳</span>
+                        Đang xử lý...
+                      </>
+                    ) : (
+                      <>
+                        <Wrench className="w-4 h-4" />
+                        Sửa lỗi Team
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleFixGiuaCaShift}
+                    disabled={syncing || loading || deleting || isFixingTeams || isFixingShift}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                  >
+                    {isFixingShift ? (
+                      <>
+                        <span className="animate-spin">⏳</span>
+                        Đang xử lý...
+                      </>
+                    ) : (
+                      <>
+                        <Clock className="w-4 h-4" />
+                        Chỉnh ca
+                      </>
+                    )}
+                  </button>
+                </>
               )}
               <button
                 onClick={loadData}

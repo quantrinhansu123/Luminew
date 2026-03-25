@@ -2568,7 +2568,7 @@ function VanDon() {
                           // Use formatDate for dates
                           const displayVal = ["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2", "Ngày up bill"].includes(col)
                             ? formatDate(val)
-                            : ((col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán" || col === "Phí ship nội địa Mỹ (usd)") 
+                            : ((col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán") 
                               ? (val !== "" && val !== null ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : "") 
                               : val);
 

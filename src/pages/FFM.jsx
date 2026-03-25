@@ -71,8 +71,7 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'GHI CHÚ',
   'Thời gian giao dự kiến',
   'Ngày đẩy đơn',
-  'Phí ship nội địa Mỹ (usd)',
-  'Ngày kế toán đối soát',
+  'Ngày đối soát kế toán',
 ]);
 
 /** Lấy ngày hôm nay định dạng YYYY-MM-DD */
@@ -115,7 +114,17 @@ function FFM() {
     const saved = localStorage.getItem('ffm_visibleColumns');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        const oldShipCol = 'Phí ship nội địa Mỹ (usd)';
+        const newShipCol = 'Ngày đối soát kế toán';
+        if (Object.prototype.hasOwnProperty.call(parsed, oldShipCol) && !Object.prototype.hasOwnProperty.call(parsed, newShipCol)) {
+          parsed[newShipCol] = parsed[oldShipCol];
+          delete parsed[oldShipCol];
+          try {
+            localStorage.setItem('ffm_visibleColumns', JSON.stringify(parsed));
+          } catch (_) { /* ignore */ }
+        }
+        return parsed;
       } catch (e) {
         console.error('Error parsing saved columns:', e);
       }
@@ -779,7 +788,7 @@ function FFM() {
       const search = filterValues.us_shipping_fee_search;
 
       data = data.filter(row => {
-        const rawVal = row['Phí ship nội địa Mỹ (usd)'] || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
+        const rawVal = row['Ngày đối soát kế toán'] || row['Phí ship nội địa Mỹ (usd)'] || row.shipping_fee || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
         const numVal = parseFloat(String(rawVal).replace(/[^\d.-]/g, ''));
 
         if (status === 'Trống') return (rawVal === '' || rawVal === null);
@@ -2016,7 +2025,7 @@ function FFM() {
                           />
                         )}
                       </div>
-                    ) : (col === 'Phí ship nội địa Mỹ (usd)' || col === 'Phí ship nội địa mỹ') ? (
+                    ) : (col === 'Ngày đối soát kế toán' || col === 'Phí ship nội địa Mỹ (usd)' || col === 'Phí ship nội địa mỹ') ? (
                       <div className="flex flex-col gap-1.5 relative">
                         <select
                           className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
@@ -2112,7 +2121,7 @@ function FFM() {
 
                       const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Thời gian giao dự kiến'].includes(col)
                         ? formatDate(val)
-                        : ((col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán" || col === "Phí ship nội địa Mỹ (usd)")
+                        : ((col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán")
                           ? (val !== "" && val !== null ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : "")
                           : val);
 

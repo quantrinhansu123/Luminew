@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
@@ -16,6 +16,22 @@ const formatDate = (dateValue) => {
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const year = d.getFullYear();
     return `${day}/${month}/${year}`;
+};
+
+const filterOptionsBySearch = (list, q) => {
+    const needle = String(q || '').trim().toLowerCase();
+    if (!needle) return list;
+    return (list || []).filter((item) => String(item).toLowerCase().includes(needle));
+};
+
+/** YYYY-MM-DD theo giờ local — tránh lệch 1 ngày so với `toISOString()` (UTC). */
+const formatLocalDateYMD = (date) => {
+    const d = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 };
 
 export default function DanhSachBaoCaoTayCSKH() {
@@ -62,7 +78,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         roleFromUserObj === 'super_admin' ||
         roleFromUserObj === 'finance';
 
-    // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
+    // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền chỉnh team hàng loạt
     const isAdminOnly = roleFromHookLower === 'admin' ||
         roleFromHookLower === 'super_admin' ||
         roleFromStorage === 'admin' ||
@@ -83,8 +99,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         markets: [],
         personnel: []
     });
-    const [syncing, setSyncing] = useState(false);
-    const [deleting, setDeleting] = useState(false);
+    const [teamSyncing, setTeamSyncing] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
 
     // Available options for filters
@@ -93,6 +108,10 @@ export default function DanhSachBaoCaoTayCSKH() {
         markets: [],
         personnel: []
     });
+
+    const [personnelSearch, setPersonnelSearch] = useState('');
+    const [productSearch, setProductSearch] = useState('');
+    const [marketSearch, setMarketSearch] = useState('');
 
     // Pagination state
     const [currentPage, setCurrentPage] = useState(1);
@@ -116,6 +135,19 @@ export default function DanhSachBaoCaoTayCSKH() {
 
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
+
+    const personnelFiltered = useMemo(
+        () => filterOptionsBySearch(availableOptions.personnel, personnelSearch),
+        [availableOptions.personnel, personnelSearch]
+    );
+    const productsFiltered = useMemo(
+        () => filterOptionsBySearch(availableOptions.products, productSearch),
+        [availableOptions.products, productSearch]
+    );
+    const marketsFiltered = useMemo(
+        () => filterOptionsBySearch(availableOptions.markets, marketSearch),
+        [availableOptions.markets, marketSearch]
+    );
 
     // Load human_resources to map tên -> email
     useEffect(() => {
@@ -185,17 +217,16 @@ export default function DanhSachBaoCaoTayCSKH() {
             const today = new Date();
             const threeDaysAgo = new Date();
             threeDaysAgo.setDate(today.getDate() - 2); // 3 ngày: hôm nay, hôm qua, hôm kia
-            const formatDateForInput = (date) => date.toISOString().split('T')[0];
 
             setFilters(prev => ({
                 ...prev,
-                startDate: formatDateForInput(threeDaysAgo),
-                endDate: formatDateForInput(today)
+                startDate: formatLocalDateYMD(threeDaysAgo),
+                endDate: formatLocalDateYMD(today)
             }));
 
             console.log('📅 [DanhSachBaoCaoTayCSKH] Khởi tạo filters với 3 ngày gần nhất:', {
-                startDate: formatDateForInput(threeDaysAgo),
-                endDate: formatDateForInput(today)
+                startDate: formatLocalDateYMD(threeDaysAgo),
+                endDate: formatLocalDateYMD(today)
             });
         }
     }, []); // Chỉ chạy một lần khi mount
@@ -542,7 +573,6 @@ export default function DanhSachBaoCaoTayCSKH() {
     // Quick date filter handlers
     const handleQuickDateSelect = (period) => {
         const today = new Date();
-        const formatDateForInput = (date) => date.toISOString().split('T')[0];
         let startDate, endDate;
 
         switch (period) {
@@ -599,8 +629,8 @@ export default function DanhSachBaoCaoTayCSKH() {
 
         setFilters(prev => ({
             ...prev,
-            startDate: formatDateForInput(startDate),
-            endDate: formatDateForInput(endDate)
+            startDate: formatLocalDateYMD(startDate),
+            endDate: formatLocalDateYMD(endDate)
         }));
     };
 
@@ -657,80 +687,102 @@ export default function DanhSachBaoCaoTayCSKH() {
         setManualReports(paginatedReports);
     }, [currentPage, itemsPerPage, allReports]);
 
-    // Delete all data
-    const handleDeleteAll = async () => {
-        const confirm1 = window.confirm(
-            "⚠️ CẢNH BÁO NGHIÊM TRỌNG!\n\n" +
-            "Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu trong bảng sales_reports?\n\n" +
-            "Hành động này KHÔNG THỂ HOÀN TÁC!\n\n" +
-            "Nhấn OK để tiếp tục, hoặc Cancel để hủy."
+    /** Tổng các cột số theo toàn bộ danh sách đã lọc (không chỉ trang hiện tại) */
+    const reportColumnTotals = useMemo(() => {
+        return allReports.reduce(
+            (acc, item) => ({
+                mess: acc.mess + (Number(item.mess_count) || 0),
+                response: acc.response + (Number(item.response_count) || 0),
+                orders: acc.orders + (Number(item.order_count) || 0),
+                revenue: acc.revenue + (Number(item.revenue_mess) || 0),
+            }),
+            { mess: 0, response: 0, orders: 0, revenue: 0 }
         );
+    }, [allReports]);
 
-        if (!confirm1) return;
+    const normalizePersonName = (s) =>
+        String(s || '')
+            .trim()
+            .replace(/\s+/g, ' ')
+            .toLowerCase();
 
-        const confirm2 = window.confirm(
-            "⚠️ XÁC NHẬN LẦN CUỐI!\n\n" +
-            "Bạn có THỰC SỰ muốn xóa TOÀN BỘ dữ liệu?\n\n" +
-            "Tất cả báo cáo sẽ bị mất vĩnh viễn!\n\n" +
-            "Nhập 'XÓA' vào ô bên dưới để xác nhận."
-        );
-
-        if (!confirm2) return;
-
-        const userInput = window.prompt(
-            "Nhập 'XÓA' (chữ hoa) để xác nhận xóa toàn bộ dữ liệu:"
-        );
-
-        if (userInput !== 'XÓA') {
-            alert("Xác nhận không đúng. Hủy bỏ thao tác xóa.");
+    /** Khớp `sales_reports.name` với `users.name` (hoặc username nếu name trống), ghi `users.team` vào `sales_reports.team`. */
+    const handleSyncTeamFromUsers = async () => {
+        if (!window.confirm(
+            'Đồng bộ cột Team và Chi nhánh (branch) từ bảng users?\n\n' +
+            'Áp dụng cho các dòng đang có trong danh sách (theo bộ lọc ngày / nhân sự).\n' +
+            'Khớp tên (name / username) không phân biệt hoa thường, sau khi chuẩn hóa khoảng trắng.'
+        )) {
             return;
         }
-
+        if (!allReports.length) {
+            alert('Không có dữ liệu trong khoảng đã lọc.');
+            return;
+        }
+        setTeamSyncing(true);
         try {
-            setDeleting(true);
+            const { data: users, error: userErr } = await supabase
+                .from('users')
+                .select('name, username, team, branch');
+            if (userErr) throw userErr;
 
-            // Delete all records from sales_reports
-            const { error } = await supabase
-                .from('sales_reports')
-                .delete()
-                .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all (hack for delete all)
+            const nameToProfile = new Map();
+            (users || []).forEach((u) => {
+                const teamVal = String(u.team ?? '').trim();
+                const branchVal = String(u.branch ?? '').trim();
+                if (!teamVal && !branchVal) return;
+                const n = normalizePersonName(u.name);
+                const un = normalizePersonName(u.username);
+                const payload = { team: teamVal, branch: branchVal };
+                if (n) nameToProfile.set(n, payload);
+                if (un) nameToProfile.set(un, payload);
+            });
 
-            if (error) {
-                // If the above doesn't work, try deleting by selecting all IDs first
-                const { data: allRecords, error: fetchError } = await supabase
-                    .from('sales_reports')
-                    .select('id')
-                    .limit(10000);
+            let updated = 0;
+            let skippedNoMatch = 0;
+            let skippedSame = 0;
 
-                if (fetchError) throw fetchError;
-
-                if (allRecords && allRecords.length > 0) {
-                    const ids = allRecords.map(r => r.id);
-                    // Delete in batches
-                    const batchSize = 1000;
-                    for (let i = 0; i < ids.length; i += batchSize) {
-                        const batch = ids.slice(i, i + batchSize);
-                        const { error: batchError } = await supabase
-                            .from('sales_reports')
-                            .delete()
-                            .in('id', batch);
-
-                        if (batchError) {
-                            console.error(`Batch ${i / batchSize + 1} error:`, batchError);
-                            throw batchError;
-                        }
-                    }
+            for (const r of allReports) {
+                const key = normalizePersonName(r.name);
+                const prof = nameToProfile.get(key);
+                if (!prof) {
+                    skippedNoMatch += 1;
+                    continue;
                 }
+                const newTeam = prof.team || '';
+                const newBranch = prof.branch || '';
+                if (!newTeam && !newBranch) {
+                    skippedNoMatch += 1;
+                    continue;
+                }
+                const curTeam = String(r.team ?? '').trim();
+                const curBranch = String(r.branch ?? '').trim();
+                if (curTeam === newTeam && curBranch === newBranch) {
+                    skippedSame += 1;
+                    continue;
+                }
+                const { error: upErr } = await supabase
+                    .from('sales_reports')
+                    .update({
+                        team: newTeam || null,
+                        branch: newBranch || null,
+                    })
+                    .eq('id', r.id);
+                if (upErr) throw upErr;
+                updated += 1;
             }
 
-            alert("✅ Đã xóa toàn bộ dữ liệu thành công!");
-            fetchData(); // Refresh the table
-
+            alert(
+                `Đã cập nhật team & chi nhánh: ${updated} dòng.\n` +
+                `Không khớp tên với users (hoặc user không có team/chi nhánh): ${skippedNoMatch} dòng.\n` +
+                `Đã khớp, không đổi: ${skippedSame} dòng.`
+            );
+            fetchData();
         } catch (error) {
-            console.error("Delete error:", error);
-            alert("Lỗi khi xóa dữ liệu: " + (error.message || String(error)));
+            console.error('handleSyncTeamFromUsers:', error);
+            alert('Lỗi: ' + (error.message || String(error)));
         } finally {
-            setDeleting(false);
+            setTeamSyncing(false);
         }
     };
 
@@ -849,11 +901,20 @@ export default function DanhSachBaoCaoTayCSKH() {
                                 Tất cả
                             </label>
                         </h4>
+                        <input
+                            type="search"
+                            placeholder="Tìm nhân sự..."
+                            value={personnelSearch}
+                            onChange={(e) => setPersonnelSearch(e.target.value)}
+                            style={{ width: '100%', marginBottom: '8px', padding: '6px 8px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box' }}
+                        />
                         <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '5px' }}>
                             {availableOptions.personnel.length === 0 ? (
                                 <div style={{ fontSize: '11px', color: '#999', padding: '5px' }}>Đang tải...</div>
+                            ) : personnelFiltered.length === 0 ? (
+                                <div style={{ fontSize: '11px', color: '#999', padding: '5px' }}>Không có mục khớp tìm kiếm.</div>
                             ) : (
-                                availableOptions.personnel.map(person => (
+                                personnelFiltered.map(person => (
                                     <label key={person} style={{ display: 'block', fontSize: '12px', marginBottom: '5px', cursor: 'pointer' }}>
                                         <input type="checkbox" checked={(filters.personnel || []).includes(person)} onChange={(e) => handleFilterChange('personnel', person, e.target.checked)} style={{ marginRight: '5px' }} />
                                         {person}
@@ -872,11 +933,20 @@ export default function DanhSachBaoCaoTayCSKH() {
                                 Tất cả
                             </label>
                         </h4>
+                        <input
+                            type="search"
+                            placeholder="Tìm sản phẩm..."
+                            value={productSearch}
+                            onChange={(e) => setProductSearch(e.target.value)}
+                            style={{ width: '100%', marginBottom: '8px', padding: '6px 8px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box' }}
+                        />
                         <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '5px' }}>
                             {availableOptions.products.length === 0 ? (
                                 <div style={{ fontSize: '11px', color: '#999', padding: '5px' }}>Đang tải...</div>
+                            ) : productsFiltered.length === 0 ? (
+                                <div style={{ fontSize: '11px', color: '#999', padding: '5px' }}>Không có mục khớp tìm kiếm.</div>
                             ) : (
-                                availableOptions.products.map(product => (
+                                productsFiltered.map(product => (
                                     <label key={product} style={{ display: 'block', fontSize: '12px', marginBottom: '5px', cursor: 'pointer' }}>
                                         <input type="checkbox" checked={(filters.products || []).includes(product)} onChange={(e) => handleFilterChange('products', product, e.target.checked)} style={{ marginRight: '5px' }} />
                                         {product}
@@ -895,11 +965,20 @@ export default function DanhSachBaoCaoTayCSKH() {
                                 Tất cả
                             </label>
                         </h4>
+                        <input
+                            type="search"
+                            placeholder="Tìm thị trường..."
+                            value={marketSearch}
+                            onChange={(e) => setMarketSearch(e.target.value)}
+                            style={{ width: '100%', marginBottom: '8px', padding: '6px 8px', fontSize: '12px', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box' }}
+                        />
                         <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '5px' }}>
                             {availableOptions.markets.length === 0 ? (
                                 <div style={{ fontSize: '11px', color: '#999', padding: '5px' }}>Đang tải...</div>
+                            ) : marketsFiltered.length === 0 ? (
+                                <div style={{ fontSize: '11px', color: '#999', padding: '5px' }}>Không có mục khớp tìm kiếm.</div>
                             ) : (
-                                availableOptions.markets.map(market => (
+                                marketsFiltered.map(market => (
                                     <label key={market} style={{ display: 'block', fontSize: '12px', marginBottom: '5px', cursor: 'pointer' }}>
                                         <input type="checkbox" checked={(filters.markets || []).includes(market)} onChange={(e) => handleFilterChange('markets', market, e.target.checked)} style={{ marginRight: '5px' }} />
                                         {market}
@@ -917,19 +996,18 @@ export default function DanhSachBaoCaoTayCSKH() {
                             {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
                             {isAdminOnly && (
                                 <button
-                                    onClick={handleDeleteAll}
-                                    disabled={syncing || loading || deleting}
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    type="button"
+                                    onClick={handleSyncTeamFromUsers}
+                                    disabled={teamSyncing || loading || calculatingRealValues}
+                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
                                 >
-                                    {deleting ? (
+                                    {teamSyncing ? (
                                         <>
                                             <span className="animate-spin">⏳</span>
-                                            Đang xóa...
+                                            Đang đồng bộ team & chi nhánh...
                                         </>
                                     ) : (
-                                        <>
-                                            🗑️ Xóa toàn bộ dữ liệu
-                                        </>
+                                        <>Chỉnh team & chi nhánh (theo users)</>
                                     )}
                                 </button>
                             )}
@@ -953,6 +1031,18 @@ export default function DanhSachBaoCaoTayCSKH() {
                                     <th>Doanh số</th>
                                     <th>Thao tác</th>
                                 </tr>
+                                {allReports.length > 0 && (
+                                    <tr className="total-row dsbcskh-thead-totals">
+                                        <th colSpan="7" className="total-label">
+                                            Tổng cộng ({allReports.length} dòng)
+                                        </th>
+                                        <th className="total-value">{formatNumber(reportColumnTotals.mess)}</th>
+                                        <th className="total-value">{formatNumber(reportColumnTotals.response)}</th>
+                                        <th className="total-value">{formatNumber(reportColumnTotals.orders)}</th>
+                                        <th className="total-value">{formatCurrency(reportColumnTotals.revenue)}</th>
+                                        <th className="total-value" aria-hidden="true">—</th>
+                                    </tr>
+                                )}
                             </thead>
                             <tbody>
                                 {manualReports.length === 0 ? (

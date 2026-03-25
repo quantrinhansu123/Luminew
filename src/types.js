@@ -11,7 +11,7 @@ export const ORDER_MGMT_COLUMNS = [
     "Ghi chú vận đơn", "Kết quả Check", "Mã Tracking", "Ngày đóng hàng",
     "Trạng thái giao hàng", "GHI CHÚ", "Thời gian giao dự kiến",
     "Ngày Kế toán đối soát với FFM lần 2", "Ngày đẩy đơn", "Ngày có mã tracking",
-    "Phí ship nội địa Mỹ (usd)", "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
+    "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
     "Payment Bill", "Payment Image"
 ];
 
@@ -23,7 +23,7 @@ export const BILL_LADING_COLUMNS = [
     "Tên mặt hàng 2", "Số lượng mặt hàng 2", "Quà tặng", "Số lượng quà kèm", "Giá bán",
     "Loại tiền thanh toán", "Tổng tiền VNĐ", "Hình thức thanh toán", "Ghi chú",
     "Mã Tracking", "Ngày đóng hàng", "Trạng thái giao hàng", "Thời gian giao dự kiến",
-    "Phí ship nội địa Mỹ (usd)", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
+    "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
     "Nhân viên Sale", "Nhân viên MKT", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
     "Ngày up bill", "Tiền đã thanh toán"
@@ -50,7 +50,7 @@ export const DROPDOWN_OPTIONS = {
 export const EDITABLE_COLS = [
     "Kết quả Check", "Trạng thái giao hàng NB", "Mã Tracking", "Lý do",
     "Trạng thái thu tiền", "Ghi chú của VĐ", "Ghi chú", "Ngày đóng hàng",
-    "Trạng thái giao hàng", "Thời gian giao dự kiến", "Phí ship nội địa Mỹ (usd)",
+    "Trạng thái giao hàng", "Thời gian giao dự kiến", "Ngày đối soát kế toán",
     "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ", "Đơn vị vận chuyển",
     "Ngày Kế toán đối soát với FFM lần 2", "Ghi chú vận đơn",
     // Thêm các cột khách hàng để có thể paste
@@ -88,6 +88,6 @@ export const FFM_QUICK_ADD_COLUMNS = [
     "Trạng thái giao hàng",
     "GHI CHÚ",
     "Thời gian giao dự kiến",
-    "Phí ship nội địa Mỹ (usd)",
+    "Ngày đối soát kế toán",
     "Phí xử lý đơn đóng hàng-Lưu kho(usd)"
 ];

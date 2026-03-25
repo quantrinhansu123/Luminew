@@ -588,7 +588,7 @@ export const COLUMN_DEFINITIONS = {
         'Ghi chú', 'Ghi chú vận đơn', 'Kết quả Check', 'Mã Tracking', 'Ngày đóng hàng',
         'Trạng thái giao hàng', 'GHI CHÚ', 'Thời gian giao dự kiến', 'Nhân viên MKT',
         'Nhân viên Sale', 'Team', 'NV Vận đơn', 'CSKH', 'Trạng thái thu tiền',
-        'Lý do', 'Phí ship nội địa Mỹ (usd)', 'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+        'Lý do', 'Ngày đối soát kế toán', 'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
         'Đơn vị vận chuyển', 'Số tiền của đơn hàng đã về TK Cty', 'Kế toán xác nhận thu tiền về',
         'Ngày Kế toán đối soát với FFM lần 2'
     ],

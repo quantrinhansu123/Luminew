@@ -410,227 +410,216 @@ function ReportForm() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <div className="w-full mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-xl p-8 mb-8 border border-gray-100">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-6 mx-auto justify-center">
-              <img
-                src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
-                alt="Logo"
-                className="h-16 w-16 rounded-full shadow-lg"
-              />
-              <div>
-                <h1 className="text-3xl font-bold bg-green-500 bg-clip-text text-transparent">
-                  Báo Cáo Sale
-                </h1>
-                <p className="text-gray-500 mt-1">LumiGlobal Report System</p>
-              </div>
-            </div>
+      <div className="w-full mx-auto px-4 py-4">
+        {/* Header — một dòng */}
+        <div className="bg-white rounded-xl shadow-lg px-4 py-3 mb-4 border border-gray-100">
+          <div className="flex flex-nowrap items-center gap-3 overflow-x-auto">
+            <img
+              src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
+              alt="Logo"
+              className="h-10 w-10 rounded-full shadow shrink-0"
+            />
+            <h1 className="text-lg font-bold text-green-600 whitespace-nowrap shrink-0">
+              Báo Cáo Sale
+            </h1>
+            <span className="text-xs text-gray-400 whitespace-nowrap hidden sm:inline">LumiGlobal Report</span>
           </div>
         </div>
 
         {/* Main Table */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 overflow-hidden">
-          <div className="mb-4 flex items-center justify-between">
-            <h4 className="font-semibold text-gray-700 flex items-center gap-2">
-            </h4>
-            <div className="text-sm text-gray-500 italic">
-              * Mẹo: Dòng mới sẽ sao chép Tên, Email, Ngày, Chi nhánh từ dòng trên; Ca mặc định "Hết ca". Nếu dòng hiện tại là "Giữa ca" thì không tự động thêm dòng.
-            </div>
-          </div>
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 overflow-hidden">
+          <p className="mb-3 text-xs text-gray-500 leading-snug">
+            * Mẹo: Dòng mới sao chép Tên, Email, Ngày, Chi nhánh từ dòng trên; Ca mặc định &quot;Hết ca&quot;. &quot;Giữa ca&quot; không tự thêm dòng.
+          </p>
 
-          <div className="space-y-4 pb-4">
+          <div className="space-y-2 pb-2">
             {reports.map((report, idx) => (
               <div
                 key={idx}
-                className="border border-gray-200 rounded-xl p-4 hover:bg-blue-50/40 transition-colors"
+                className="border border-gray-200 rounded-lg px-2 py-2 hover:bg-blue-50/40 transition-colors"
               >
-                <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
-                  <span className="text-sm font-semibold text-gray-600">Dòng {idx + 1}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm(`Bạn có chắc chắn muốn xóa dòng ${idx + 1}?`)) {
-                        deleteReport(idx);
-                      }
-                    }}
-                    className={`inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${reports.length <= 1
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700'
-                      }`}
-                    title="Xóa dòng"
-                    disabled={reports.length <= 1}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    Xóa
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Tên nhân viên</label>
-                      <input
-                        type="text"
-                        name="name"
-                        value={report.name}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-name`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                        placeholder="Nhập tên nhân viên"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
-                      <input
-                        type="email"
-                        name="email"
-                        value={report.email}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-email`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                        placeholder="Nhập email"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Ngày <span className="text-red-500">*</span></label>
-                      <input
-                        type="date"
-                        name="date"
-                        value={report.date}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-date`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Ca <span className="text-red-500">*</span></label>
-                      <select
-                        name="shift"
-                        value={report.shift}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-shift`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                      >
-                        <option value="">Chọn ca</option>
-                        <option value="Hết ca">Hết ca</option>
-                        <option value="Giữa ca">Giữa ca</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Chi nhánh</label>
-                      <select
-                        name="branch"
-                        value={report.branch || ''}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all"
-                      >
-                        <option value="">Chọn chi nhánh</option>
-                        {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
-                      </select>
-                    </div>
+                <div className="flex flex-nowrap items-end gap-2 overflow-x-auto pb-0.5">
+                  <div className="flex shrink-0 items-center gap-1.5 self-end pb-1.5 border-r border-gray-100 pr-2 mr-0.5">
+                    <span className="text-[11px] font-semibold text-gray-500 whitespace-nowrap w-8">#{idx + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Bạn có chắc chắn muốn xóa dòng ${idx + 1}?`)) {
+                          deleteReport(idx);
+                        }
+                      }}
+                      className={`inline-flex items-center justify-center p-1.5 rounded-md transition-colors ${reports.length <= 1
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-red-50 text-red-600 hover:bg-red-100'
+                        }`}
+                      title="Xóa dòng"
+                      disabled={reports.length <= 1}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   </div>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Sản phẩm <span className="text-red-500">*</span></label>
-                      <select
-                        name="product"
-                        value={report.product}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-product`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                      >
-                        <option value="">Chọn sản phẩm</option>
-                        {productOptions.map(p => <option key={p} value={p}>{p}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Thị trường <span className="text-red-500">*</span></label>
-                      <select
-                        name="market"
-                        value={report.market}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-market`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                      >
-                        <option value="">Chọn thị trường</option>
-                        {marketOptions.map(m => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Số mess <span className="text-red-500">*</span></label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        name="mess_cmt"
-                        value={report.mess_cmt}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-mess_cmt`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Phản hồi <span className="text-red-500">*</span></label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        name="response"
-                        value={report.response}
-                        onChange={(e) => handleReportChange(e, idx)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-response`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                        placeholder="0"
-                      />
-                    </div>
+                  <div className="flex flex-col min-w-[7.5rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap">Tên NV</label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={report.name}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className={`w-full px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-name`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                      placeholder="Tên"
+                    />
+                  </div>
+                  <div className="flex flex-col min-w-[10rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap">Email</label>
+                    <input
+                      type="email"
+                      name="email"
+                      value={report.email}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className={`w-full px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-email`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                      placeholder="Email"
+                    />
+                  </div>
+                  <div className="flex flex-col min-w-[8.5rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap">Ngày <span className="text-red-500">*</span></label>
+                    <input
+                      type="date"
+                      name="date"
+                      value={report.date}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className={`w-full px-1 py-1 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-date`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                    />
+                  </div>
+                  <div className="flex flex-col min-w-[5.5rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap">Ca <span className="text-red-500">*</span></label>
+                    <select
+                      name="shift"
+                      value={report.shift}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className={`w-full px-1 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-shift`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                    >
+                      <option value="">—</option>
+                      <option value="Hết ca">Hết ca</option>
+                      <option value="Giữa ca">Giữa ca</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col min-w-[6.5rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap">Chi nhánh</label>
+                    <select
+                      name="branch"
+                      value={report.branch || ''}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className="w-full px-1 py-1.5 border border-gray-200 rounded-md focus:ring-1 focus:ring-blue-500 text-xs"
+                    >
+                      <option value="">—</option>
+                      {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-col min-w-[7rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap" title="Sản phẩm">SP <span className="text-red-500">*</span></label>
+                    <select
+                      name="product"
+                      value={report.product}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className={`w-full px-1 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-product`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                    >
+                      <option value="">—</option>
+                      {productOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-col min-w-[7rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap" title="Thị trường">TT <span className="text-red-500">*</span></label>
+                    <select
+                      name="market"
+                      value={report.market}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className={`w-full px-1 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-market`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                    >
+                      <option value="">—</option>
+                      {marketOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-col min-w-[4.5rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap">Mess <span className="text-red-500">*</span></label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      name="mess_cmt"
+                      value={report.mess_cmt}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className={`w-full px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-mess_cmt`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex flex-col min-w-[4.5rem] shrink-0">
+                    <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap" title="Phản hồi">PH <span className="text-red-500">*</span></label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      name="response"
+                      value={report.response}
+                      onChange={(e) => handleReportChange(e, idx)}
+                      className={`w-full px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-response`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
+                      placeholder="0"
+                    />
                   </div>
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="mt-4 flex items-center gap-3">
+          <div className="mt-3 flex flex-nowrap items-center justify-between gap-2 overflow-x-auto pb-1">
+            <div className="flex flex-nowrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={addReport}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Thêm dòng
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('Bạn có chắc chắn muốn xóa tất cả các dòng báo cáo? Hành động này không thể hoàn tác.')) {
+                    setReports([{
+                      name: defaultInfo.name,
+                      email: defaultInfo.email,
+                      date: new Date().toISOString().split('T')[0],
+                      shift: 'Hết ca', // Tự động điền "Hết ca"
+                      product: '',
+                      market: '',
+                      branch: defaultInfo.branch || '',
+                      mess_cmt: '',
+                      response: '',
+                      orders: ''
+                    }]);
+                    setErrors({});
+                    toast.info('Đã xóa tất cả các dòng báo cáo', { position: 'top-right', autoClose: 2000 });
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors disabled:opacity-50"
+                disabled={reports.length <= 1}
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Xóa tất cả
+              </button>
+            </div>
             <button
-              onClick={addReport}
-              className="flex items-center gap-2 px-4 py-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg font-medium transition-colors"
+              type="button"
+              onClick={handleSubmit}
+              disabled={loading}
+              className={`shrink-0 flex items-center gap-2 px-5 py-1.5 rounded-lg font-semibold text-sm text-white shadow-md transition-all ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Thêm dòng
-            </button>
-            <button
-              onClick={() => {
-                if (window.confirm('Bạn có chắc chắn muốn xóa tất cả các dòng báo cáo? Hành động này không thể hoàn tác.')) {
-                  setReports([{
-                    name: defaultInfo.name,
-                    email: defaultInfo.email,
-                    date: new Date().toISOString().split('T')[0],
-                    shift: 'Hết ca', // Tự động điền "Hết ca"
-                    product: '',
-                    market: '',
-                    branch: defaultInfo.branch || '',
-                    mess_cmt: '',
-                    response: '',
-                    orders: ''
-                  }]);
-                  setErrors({});
-                  toast.info('Đã xóa tất cả các dòng báo cáo', { position: 'top-right', autoClose: 2000 });
-                }
-              }}
-              className="flex items-center gap-2 px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg font-medium transition-colors"
-              disabled={reports.length <= 1}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Xóa tất cả
+              {loading ? 'Đang gửi...' : `Gửi ${reports.length} báo cáo`}
             </button>
           </div>
-        </div>
-
-        <div className="flex justify-center pt-8 pb-12">
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className={`flex items-center gap-3 px-12 py-4 rounded-2xl font-bold text-lg text-white shadow-xl transition-all ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:shadow-2xl hover:scale-105'}`}
-          >
-            {loading ? 'Đang gửi...' : `Gửi ${reports.length} báo cáo`}
-          </button>
         </div>
       </div>
     </div>

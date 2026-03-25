@@ -11,6 +11,7 @@ import {
     SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
 } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
+import * as ApiService from '../services/api';
 
 // Constants for LocalStorage Keys
 export const SETTINGS_KEY = 'system_settings';
@@ -291,6 +292,11 @@ const AdminTools = () => {
     // --- VERIFICATION STATE ---
     const [verifyResult, setVerifyResult] = useState(null);
     const [verifying, setVerifying] = useState(false);
+
+    // --- EMPTY COLUMNS SYNC STATE ---
+    const [emptyColsChecking, setEmptyColsChecking] = useState(false);
+    const [emptyColsSyncing, setEmptyColsSyncing] = useState(false);
+    const [emptyColsSummary, setEmptyColsSummary] = useState(null); // { totalOrders, totalCells, perColumn: [{column, count, samples}] }
 
     const [downloadMode, setDownloadMode] = useState(false);
     const [uploadMode, setUploadMode] = useState(false);
@@ -1586,6 +1592,170 @@ const AdminTools = () => {
             toast.error("Lỗi đồng bộ: " + e.message);
         } finally {
             setVerifying(false);
+        }
+    };
+
+    // -----------------------------
+    // AUTO PAYMENT CURRENCY SYNC (Country -> Payment Currency)
+    // Tự động điền `payment_currency` (và đồng bộ `payment_type`, `exchange_rate` nếu cần)
+    // theo logic "Auto-Currency by Country" ở trang `NhapDonMoi`.
+    // Example: US -> USD
+    // -----------------------------
+    const isEmptySupabaseValue = (v) => {
+        if (v === null || v === undefined) return true;
+        if (typeof v === 'string' && v.trim() === '') return true;
+        return false;
+    };
+
+    const EXCHANGE_RATES = {
+        USD: 25500,
+        JPY: 170,
+        KRW: 18,
+        CAD: 18000,
+        AUD: 16500,
+        GBP: 32000,
+        VND: 1
+    };
+
+    const getCurrencyFromCountry = (country) => {
+        const c = country ? String(country).trim() : '';
+        if (c === 'US') return 'USD';
+        if (c === 'Nhật Bản' || c === 'CĐ Nhật Bản') return 'JPY';
+        if (c === 'Hàn Quốc') return 'KRW';
+        if (c === 'Canada') return 'CAD';
+        if (c === 'Úc') return 'AUD';
+        if (c === 'Anh') return 'GBP';
+        return 'VND';
+    };
+
+    const buildEmptyColumnsSummary = async () => {
+        setEmptyColsChecking(true);
+        try {
+            setEmptyColsSummary(null);
+            let ordersQuery = supabase
+                .from('orders')
+                .select('order_code,country,payment_currency,payment_type,exchange_rate');
+
+            if (dateFrom) ordersQuery = ordersQuery.gte('order_date', dateFrom);
+            if (dateTo) ordersQuery = ordersQuery.lte('order_date', dateTo);
+
+            // Only rows where payment_currency is empty (NULL or '')
+            // If PostgREST parsing for empty string fails, we fallback to client-side filtering.
+            let orders = [];
+            let queryErr = null;
+            try {
+                const { data, error } = await ordersQuery.or('payment_currency.is.null,payment_currency.eq.');
+                queryErr = error;
+                orders = data || [];
+            } catch (e) {
+                queryErr = e;
+            }
+
+            if (queryErr) {
+                const { data: fallbackData, error: fallbackErr } = await ordersQuery;
+                if (fallbackErr) throw fallbackErr;
+                orders = fallbackData || [];
+            }
+
+            const candidates = (orders || []).filter((o) => isEmptySupabaseValue(o.payment_currency));
+
+            const totalOrders = candidates.length;
+            const totalCells = totalOrders; // We are filling 1 column: payment_currency
+            const perColumn = [
+                {
+                    column: 'Loại tiền thanh toán',
+                    count: totalOrders,
+                    samples: candidates.slice(0, 5).map((o) => o.order_code)
+                }
+            ];
+
+            setEmptyColsSummary({ totalOrders, totalCells, perColumn });
+            toast.success('Đã kiểm tra đơn cần tự điền Loại tiền thanh toán');
+        } catch (e) {
+            console.error('EmptyColsSync check error:', e);
+            toast.error('Lỗi kiểm tra cột trống theo country: ' + (e?.message || String(e)));
+        } finally {
+            setEmptyColsChecking(false);
+        }
+    };
+
+    const handleSyncEmptyColumns = async () => {
+        if (emptyColsSyncing) return;
+        const hasWork = emptyColsSummary && (emptyColsSummary.totalCells || emptyColsSummary.totalOrders) > 0;
+        if (!hasWork) {
+            toast.info('Chưa có đơn cần tự điền. Hãy bấm "Xem cột trống" trước.');
+            return;
+        }
+
+        if (!window.confirm(`Tự động điền "Loại tiền thanh toán" theo country:\n- Đơn cần cập nhật: ${emptyColsSummary.totalOrders}\n- Số ô cần điền: ${emptyColsSummary.totalCells}\n\nThao tác sẽ CHỈ điền vào các ô đang trống (không ghi đè nếu đã có).`)) {
+            return;
+        }
+
+        setEmptyColsSyncing(true);
+        try {
+            let ordersQuery = supabase
+                .from('orders')
+                .select('order_code,country,payment_currency,payment_type,exchange_rate');
+
+            if (dateFrom) ordersQuery = ordersQuery.gte('order_date', dateFrom);
+            if (dateTo) ordersQuery = ordersQuery.lte('order_date', dateTo);
+            let orders = [];
+            let queryErr = null;
+            try {
+                const { data, error } = await ordersQuery.or('payment_currency.is.null,payment_currency.eq.');
+                queryErr = error;
+                orders = data || [];
+            } catch (e) {
+                queryErr = e;
+            }
+
+            if (queryErr) {
+                const { data: fallbackData, error: fallbackErr } = await ordersQuery;
+                if (fallbackErr) throw fallbackErr;
+                orders = fallbackData || [];
+            }
+
+            const candidates = (orders || []).filter((o) => isEmptySupabaseValue(o.payment_currency));
+
+            if (candidates.length === 0) {
+                toast.info('Không có dòng cần cập nhật sau khi tính lại.');
+                return;
+            }
+
+            const updates = candidates.map((o) => {
+                const currency = getCurrencyFromCountry(o.country);
+                const rate = EXCHANGE_RATES[currency] ?? 1;
+                const upd = {
+                    order_code: o.order_code,
+                    payment_currency: currency,
+                };
+                // Only fill if empty to avoid overriding
+                if (isEmptySupabaseValue(o.payment_type)) upd.payment_type = currency;
+                if (isEmptySupabaseValue(o.exchange_rate)) upd.exchange_rate = rate;
+                return upd;
+            });
+
+            toast.info(`Đang tự điền cho ${updates.length} đơn...`, { autoClose: false });
+            const CHUNK_SIZE = 100;
+            let processed = 0;
+            for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+                const chunk = updates.slice(i, i + CHUNK_SIZE);
+                const { error: upsertError } = await supabase
+                    .from('orders')
+                    .upsert(chunk, { onConflict: 'order_code' });
+
+                if (upsertError) throw upsertError;
+                processed += chunk.length;
+            }
+
+            toast.dismiss();
+            toast.success(`Xong: đã điền "Loại tiền thanh toán" cho ${processed} đơn trống.`);
+            await buildEmptyColumnsSummary(); // refresh preview
+        } catch (e) {
+            console.error('EmptyColsSync error:', e);
+            toast.error('Lỗi tự điền Loại tiền thanh toán: ' + (e?.message || String(e)));
+        } finally {
+            setEmptyColsSyncing(false);
         }
     };
 
@@ -4564,7 +4734,7 @@ const AdminTools = () => {
                                 Cập nhật Báo cáo Sale (sales_reports)
                             </h3>
                             <p className="text-sm text-gray-600 mb-4">
-                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (NV Sale) + Sản phẩm + Thị trường</span>, nguồn đơn: <span className="font-medium">orders.sale_staff</span>, <span className="font-medium">country</span>, tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
+                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (NV Sale) + Sản phẩm + Thị trường</span>, nguồn đơn: <span className="font-medium">orders.sale_staff</span>, <span className="font-medium">country</span>. Dòng báo cáo <span className="font-medium">Hết ca</span>: tổng mọi đơn khớp key (gồm cả đơn chỉ Giữa ca, chỉ Hết ca và gộp 2 ca; mỗi đơn chỉ cộng một lần). Dòng <span className="font-medium">Giữa ca</span>: chỉ đơn có ca Giữa ca (theo parse shift).
                                 Ghi <span className="font-medium">order_count</span> (mọi đơn khớp key), <span className="font-medium">revenue_actual</span> (tổng VND mọi đơn khớp), <span className="font-medium">order_cancel_count_actual</span> và <span className="font-medium">revenue_cancel_actual</span> (số đơn hủy + tổng VND chỉ các đơn đó; Kết quả Check Hủy/Huỷ, ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>). Tiền VND: total_amount_vnd → total_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key.
                             </p>
 
@@ -5277,6 +5447,92 @@ const AdminTools = () => {
                                 </div>
                             </div>
                         )}
+
+                        {/* 6. Auto-fill payment currency by country */}
+                        <div className="space-y-4 mt-8">
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                                <GitCompare className="w-5 h-5 text-indigo-600" />
+                                6. Tự động điền Loại tiền thanh toán theo country
+                            </h3>
+                            <p className="text-sm text-gray-500">
+                                Bước 1: Hệ thống sẽ kiểm tra trong Supabase các đơn có <strong>Loại tiền thanh toán</strong> đang <strong>trống</strong> (NULL/'').
+                                Bước 2: Bấm <strong>Đồng bộ loạt</strong> để tự điền theo rule:
+                                <span className="font-medium">US sang USD</span>, <span className="font-medium">Nhật Bản sang JPY</span>, <span className="font-medium">Hàn Quốc sang KRW</span>...
+                            </p>
+
+                            <div className="bg-white border rounded-lg shadow-sm p-4 space-y-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <button
+                                        onClick={buildEmptyColumnsSummary}
+                                        disabled={emptyColsChecking || loading}
+                                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+                                    >
+                                        {emptyColsChecking ? (
+                                            <>
+                                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                                Đang kiểm tra...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <GitCompare className="w-4 h-4" />
+                                                Xem cột trống
+                                            </>
+                                        )}
+                                    </button>
+
+                                    <button
+                                        onClick={handleSyncEmptyColumns}
+                                        disabled={emptyColsSyncing || !emptyColsSummary || (emptyColsSummary.totalCells || emptyColsSummary.totalOrders) === 0}
+                                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+                                    >
+                                        {emptyColsSyncing ? (
+                                            <>
+                                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                                Đang đồng bộ...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Database className="w-4 h-4" />
+                                                Đồng bộ loạt
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+
+                                {emptyColsSummary && (
+                                    <div className="space-y-2">
+                                        <div className="text-xs text-gray-600">
+                                            Tổng đơn cần cập nhật: <strong className="text-gray-900">{emptyColsSummary.totalOrders}</strong>
+                                            {"  "}•{"  "}
+                                            Tổng số ô trống cần điền: <strong className="text-gray-900">{emptyColsSummary.totalCells}</strong>
+                                        </div>
+
+                                        {emptyColsSummary.perColumn.length > 0 ? (
+                                            <div className="max-h-56 overflow-y-auto border border-gray-200 rounded p-3 bg-gray-50">
+                                                <div className="text-xs font-semibold text-gray-700 mb-2">Cột cần điền (top 12)</div>
+                                                <div className="space-y-2">
+                                                    {emptyColsSummary.perColumn.slice(0, 12).map((c) => (
+                                                        <div key={c.column} className="text-xs bg-white border border-gray-200 rounded p-2">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <span className="font-medium text-gray-800">{c.column}</span>
+                                                                <span className="text-gray-700">{c.count}</span>
+                                                            </div>
+                                                            {c.samples && c.samples.length > 0 && (
+                                                                <div className="text-[11px] text-gray-500 mt-1">
+                                                                    VD: {c.samples.join(', ')}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="text-sm text-gray-500">Không có cột trống nào.</div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
 
                     </div>
                 </div>
