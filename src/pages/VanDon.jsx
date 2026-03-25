@@ -385,11 +385,11 @@ function VanDon() {
         const fetchPage = isAdmin ? 1 : currentPage;
 
         const saleStaffApi =
-          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale.filter((x) => x && x !== '__EMPTY__') : undefined);
+          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale : undefined);
         const mktStaffApi =
-          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_mkt?.length ? filterValues.nv_mkt.filter((x) => x && x !== '__EMPTY__') : undefined);
+          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_mkt?.length ? filterValues.nv_mkt : undefined);
         const vanDonStaffApi =
-          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_van_don?.length ? filterValues.nv_van_don.filter((x) => x && x !== '__EMPTY__') : undefined);
+          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_van_don?.length ? filterValues.nv_van_don : undefined);
 
         const result = await API.fetchVanDon({
           page: fetchPage,
@@ -820,18 +820,42 @@ function VanDon() {
   }, [viewMode]);
   const currentColumns = useMemo(() => {
     const filtered = allColumns.filter(col => visibleColumns[col] === true);
+    let cols = filtered;
 
     // Trong tab "Hà Nội", đẩy cột "Đơn vị vận chuyển" lên đầu
     if (bolActiveTab === 'hanoi') {
       const carrierCol = 'Đơn vị vận chuyển';
-      const hasCarrier = filtered.includes(carrierCol);
+      const hasCarrier = cols.includes(carrierCol);
       if (hasCarrier) {
-        const withoutCarrier = filtered.filter(col => col !== carrierCol);
-        return [carrierCol, ...withoutCarrier];
+        const withoutCarrier = cols.filter(col => col !== carrierCol);
+        cols = [carrierCol, ...withoutCarrier];
       }
     }
 
-    return filtered;
+    // Muốn "Mã Tracking" nằm gần "Trạng thái giao hàng NB":
+    // ép tracking sang ngay sau cột trạng thái giao hàng nội bộ (nếu cả 2 cột đều đang visible).
+    const internalDeliveryCol = cols.find(
+      (c) => String(c).trim().toLowerCase() === 'trạng thái giao hàng nb'
+    );
+    const trackingCol = cols.find(
+      (c) => String(c).trim().toLowerCase() === 'mã tracking'
+    );
+
+    if (!internalDeliveryCol || !trackingCol) return cols;
+
+    const internalIdx = cols.indexOf(internalDeliveryCol);
+    const trackingIdx = cols.indexOf(trackingCol);
+    const desiredIdx = internalIdx + 1;
+
+    if (trackingIdx === desiredIdx) return cols; // Đã đúng kề nhau
+
+    const next = [...cols];
+    // Remove tracking first
+    next.splice(trackingIdx, 1);
+    // Re-find internalIdx after removal
+    const internalIdxAfter = next.indexOf(internalDeliveryCol);
+    next.splice(internalIdxAfter + 1, 0, trackingCol);
+    return next;
   }, [allColumns, visibleColumns, bolActiveTab]);
 
   /** Luôn cố định tối thiểu 2 cột trái khi cuộn ngang. */
@@ -1016,9 +1040,12 @@ function VanDon() {
 
   const getMultiSelectOptions = (col) => {
     const key = COLUMN_MAPPING[col] || col;
-    if (DROPDOWN_OPTIONS[col]) return ['__EMPTY__', ...DROPDOWN_OPTIONS[col]];
-    if (DROPDOWN_OPTIONS[key]) return ['__EMPTY__', ...DROPDOWN_OPTIONS[key]];
-    return ['__EMPTY__', ...getUniqueValues(col)];
+    const emptyValues = ['Trống'];
+    // Backward-compat: keep old sentinel if something set it in state/localStorage.
+    const legacyEmpty = ['__EMPTY__'];
+    if (DROPDOWN_OPTIONS[col]) return [...emptyValues, ...legacyEmpty, ...DROPDOWN_OPTIONS[col]];
+    if (DROPDOWN_OPTIONS[key]) return [...emptyValues, ...legacyEmpty, ...DROPDOWN_OPTIONS[key]];
+    return [...emptyValues, ...legacyEmpty, ...getUniqueValues(col)];
   };
 
   const getFilteredData = useMemo(() => {
@@ -1145,22 +1172,24 @@ function VanDon() {
       if (filterValues.market && Array.isArray(filterValues.market) && filterValues.market.length > 0) {
         const set = new Set(filterValues.market);
         data = data.filter(row => {
-          const market = row["Khu vực"] || row["khu vực"] || '';
-          return set.has(market);
+            const market = String(row["Khu vực"] || row["khu vực"] || '').trim();
+            if ((set.has('Trống') || set.has('__EMPTY__')) && !market) return true;
+            return market && set.has(market);
         });
       }
       if (filterValues.product && Array.isArray(filterValues.product) && filterValues.product.length > 0) {
         const set = new Set(filterValues.product);
         data = data.filter(row => {
-          const product = row["Mặt hàng"] || '';
-          return set.has(product);
+            const product = String(row["Mặt hàng"] || '').trim();
+            if ((set.has('Trống') || set.has('__EMPTY__')) && !product) return true;
+            return product && set.has(product);
         });
       }
       if (filterValues.nv_sale && Array.isArray(filterValues.nv_sale) && filterValues.nv_sale.length > 0) {
         const set = new Set(filterValues.nv_sale);
         data = data.filter((row) => {
           const v = String(row.sale_staff || row['Nhân viên Sale'] || '').trim();
-          if (set.has('__EMPTY__') && !v) return true;
+          if ((set.has('Trống') || set.has('__EMPTY__')) && !v) return true;
           return v && set.has(v);
         });
       }
@@ -1168,7 +1197,7 @@ function VanDon() {
         const set = new Set(filterValues.nv_mkt);
         data = data.filter((row) => {
           const v = String(row.marketing_staff || row['Nhân viên MKT'] || '').trim();
-          if (set.has('__EMPTY__') && !v) return true;
+          if ((set.has('Trống') || set.has('__EMPTY__')) && !v) return true;
           return v && set.has(v);
         });
       }
@@ -1176,7 +1205,7 @@ function VanDon() {
         const set = new Set(filterValues.nv_van_don);
         data = data.filter((row) => {
           const v = String(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim();
-          if (set.has('__EMPTY__') && !v) return true;
+          if ((set.has('Trống') || set.has('__EMPTY__')) && !v) return true;
           return v && set.has(v);
         });
       }
@@ -1184,7 +1213,7 @@ function VanDon() {
         const set = new Set(filterValues.shipping_unit);
         data = data.filter((row) => {
           const v = String(row['Đơn vị vận chuyển'] || row['Đơn_vị_vận_chuyển'] || '').trim();
-          if (set.has('__EMPTY__') && !v) return true;
+          if ((set.has('Trống') || set.has('__EMPTY__')) && !v) return true;
           return v && set.has(v);
         });
       }
@@ -1246,7 +1275,7 @@ function VanDon() {
               if (!Array.isArray(val)) return true;
               const selected = val;
               if (selected.length === 0) return true;
-              if (cellValue === '' && selected.includes('__EMPTY__')) return true;
+              if (cellValue === '' && (selected.includes('Trống') || selected.includes('__EMPTY__'))) return true;
               return selected.includes(cellValue);
             }
 
@@ -2585,7 +2614,9 @@ function VanDon() {
                                     value={String(val)}
                                     onChange={(e) => handleCellChange(orderId, key, e.target.value)}
                                   >
-                                    {getMultiSelectOptions(key).filter(o => o !== '__EMPTY__').map(o => <option key={o} value={o}>{o}</option>)}
+                                    {getMultiSelectOptions(key)
+                                      .filter(o => o !== 'Trống' && o !== '__EMPTY__')
+                                      .map(o => <option key={o} value={o}>{o}</option>)}
                                   </select>
                                 ) : EDITABLE_COLS.includes(col) ? (
                                   <input

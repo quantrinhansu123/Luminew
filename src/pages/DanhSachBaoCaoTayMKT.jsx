@@ -295,13 +295,90 @@ export default function DanhSachBaoCaoTayMKT() {
                 console.log(`⚡ Calculated batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(reports.length / BATCH_SIZE)}: ${batch.length} reports`);
             }
             
-            setRealValuesMap(valuesMap);
+            // Merge để cho phép tính "giá trị thực tế" theo từng trang (lazy)
+            // thay vì reset toàn bộ mỗi lần tính.
+            setRealValuesMap(prev => ({ ...prev, ...valuesMap }));
             console.log(`✅ Calculated real values for ${reports.length} reports (parallel)`);
         } catch (error) {
             console.error('Error calculating real values for reports:', error);
         } finally {
             setCalculatingRealValues(false);
         }
+    };
+
+    // Fetch toàn bộ rows khớp bộ lọc bằng cách phân trang phía DB (range),
+    // tránh việc query bị giới hạn cứng (ví dụ `limit(50)`) làm thiếu dòng khi user lọc.
+    const fetchDetailReportsAllPages = async (startDate, endDate) => {
+        const PAGE_SIZE = 500;
+        let from = 0;
+        const rows = [];
+
+        const EMPTY_GUID = '00000000-0000-0000-0000-000000000000';
+
+        while (true) {
+            let query = supabase
+                .from('detail_reports')
+                .select('*');
+
+            // Date filter (nếu có)
+            if (startDate && endDate) {
+                query = query
+                    .gte('Ngày', startDate)
+                    .lte('Ngày', endDate);
+            }
+
+            // Department filter
+            if (teamFilter === 'RD') {
+                query = query.eq('department', 'RD');
+            } else {
+                // MKT: department IS NULL OR MKT OR != RD
+                query = query.or('department.is.null,department.eq.MKT,department.neq.RD');
+            }
+
+            // Personnel filter (non-admin chỉ xem theo selected_personnel)
+            if (!isAdmin) {
+                if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+                    const normalizeNameForQuery = (str) => {
+                        if (!str) return '';
+                        return String(str).trim().replace(/\s+/g, ' ');
+                    };
+
+                    const orConditions = selectedPersonnelNames
+                        .filter(name => name && name.trim().length > 0)
+                        .map(name => {
+                            const normalizedName = normalizeNameForQuery(name);
+                            return `Tên.ilike.%${normalizedName}%`;
+                        });
+
+                    if (orConditions.length > 0) {
+                        query = query.or(orConditions.join(','));
+                    } else {
+                        // Không có tên hợp lệ -> không trả data nào
+                        query = query.eq('id', EMPTY_GUID);
+                    }
+                } else {
+                    query = query.eq('id', EMPTY_GUID);
+                }
+            }
+
+            // Stable-ish ordering + pagination chunk
+            query = query
+                .order('Ngày', { ascending: false })
+                // Tie-break để range() không bị "nhảy" khi nhiều dòng có cùng 'Ngày'
+                .order('id', { ascending: false })
+                .range(from, from + PAGE_SIZE - 1);
+
+            const { data, error } = await query;
+            if (error) throw error;
+
+            const chunk = data || [];
+            rows.push(...chunk);
+
+            if (chunk.length < PAGE_SIZE) break;
+            from += PAGE_SIZE;
+        }
+
+        return rows;
     };
 
     // Fetch all data (no date filter) trực tiếp từ bảng
@@ -417,75 +494,8 @@ export default function DanhSachBaoCaoTayMKT() {
                 userName
             });
 
-            // Lấy trực tiếp từ bảng detail_reports (giới hạn 50 records)
-            let query = supabase
-                .from('detail_reports')
-                .select('*')
-                .limit(50);
-
-            // Filter theo ngày
-            if (filters.startDate && filters.endDate) {
-                query = query
-                    .gte('Ngày', filters.startDate)
-                    .lte('Ngày', filters.endDate);
-            }
-
-            // Filter theo department (MKT hoặc RD)
-            if (teamFilter === 'RD') {
-                query = query.eq('department', 'RD');
-                console.log('📋 Filter: department = RD');
-            } else {
-                // MKT: lấy tất cả các bản ghi có department = 'MKT' hoặc NULL hoặc không có cột department
-                // Sử dụng OR để bao gồm cả NULL và MKT
-                query = query.or('department.is.null,department.eq.MKT,department.neq.RD');
-                console.log('📋 Filter: department IS NULL OR department = MKT OR department != RD');
-            }
-
-            // Admin: xem tất cả data, không filter theo selected_personnel
-            // Người khác: chỉ xem data của mình dựa trên selected_personnel
-            if (!isAdmin) {
-                // Filter theo selected_personnel nếu có
-                if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                    console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
-                    
-                    // Helper function to normalize name (remove extra spaces)
-                    const normalizeNameForQuery = (str) => {
-                        if (!str) return '';
-                        return String(str).trim().replace(/\s+/g, ' ');
-                    };
-
-                    // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
-                    const orConditions = selectedPersonnelNames
-                        .filter(name => name && name.trim().length > 0)
-                        .map(name => {
-                            const normalizedName = normalizeNameForQuery(name);
-                            return `Tên.ilike.%${normalizedName}%`;
-                        });
-                    
-                    if (orConditions.length > 0) {
-                        query = query.or(orConditions.join(','));
-                        console.log('✅ Applied filter for selected personnel:', orConditions.length, 'names');
-                    } else {
-                        // Không có tên hợp lệ -> không trả về data nào
-                        console.warn('⚠️ No valid names in selectedPersonnelNames, returning empty result');
-                        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
-                    }
-                } else {
-                    console.log('ℹ️ No selectedPersonnelNames, returning empty result (non-admin)');
-                    query = query.eq('id', '00000000-0000-0000-0000-000000000000');
-                }
-            } else if (isAdmin) {
-                console.log('✅ Admin: Viewing all data (no selected_personnel filter applied)');
-            }
-
-            console.log('🔍 Executing query...');
-            const { data, error } = await query.order('Ngày', { ascending: false });
-
-            if (error) {
-                console.error('❌ Query error:', error);
-                throw error;
-            }
-
+            console.log('🔍 Fetching ALL pages (no hard limit) from detail_reports...');
+            const data = await fetchDetailReportsAllPages(filters.startDate, filters.endDate);
             console.log(`✅ Fetched ${data?.length || 0} records from detail_reports`);
             
             // Debug: Log sample data if available
@@ -523,9 +533,10 @@ export default function DanhSachBaoCaoTayMKT() {
 
             setAllReports(enrichedData); // Store all data for pagination
             setCurrentPage(1); // Reset to first page when data changes
-            
-            // Calculate real values for all reports
-            await calculateRealValuesForReports(enrichedData);
+
+            // Reset map giá trị thực tế; sẽ được tính "lazy" theo đúng trang user đang xem.
+            setRealValuesMap({});
+            setCalculatingRealValues(false);
             
             if (enrichedData.length === 0) {
                 console.warn('⚠️ No data found');
@@ -655,6 +666,21 @@ export default function DanhSachBaoCaoTayMKT() {
     useEffect(() => {
         setManualReports(paginatedReports);
     }, [currentPage, itemsPerPage, reportsAfterFilters]);
+
+    // Lazy tính giá trị thực tế cho các dòng đang hiển thị (tránh tính cho toàn bộ khi dữ liệu lớn).
+    useEffect(() => {
+        if (!paginatedReports || paginatedReports.length === 0) return;
+        if (calculatingRealValues) return;
+
+        const missingReports = paginatedReports.filter(r => {
+            const id = r?.id;
+            if (!id) return false;
+            return realValuesMap[id] == null;
+        });
+
+        if (missingReports.length === 0) return;
+        calculateRealValuesForReports(missingReports);
+    }, [paginatedReports, realValuesMap, calculatingRealValues]);
 
     useEffect(() => {
         setCurrentPage(1);

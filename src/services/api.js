@@ -629,36 +629,43 @@ export const fetchVanDon = async (options = {}) => {
             query = query.ilike('delivery_status', `%${status}%`);
         }
 
-        if (Array.isArray(market) && market.length > 0) {
-            query = query.in('country', market); // 'market' comes from 'Khu vực', which maps to 'country'
-        } else if (typeof market === 'string' && market) {
-            query = query.eq('country', market);
+        // Market & Product: hỗ trợ filter "Trống" => country/product rỗng hoặc null
+        const applyEmptyOrInFilter = (field, value) => {
+            const hasEmpty = Array.isArray(value) ? value.includes('Trống') || value.includes('__EMPTY__') : value === 'Trống' || value === '__EMPTY__';
+            const inValues = Array.isArray(value)
+                ? value.filter((x) => x && x !== 'Trống' && x !== '__EMPTY__')
+                : (typeof value === 'string' && value && value !== 'Trống' && value !== '__EMPTY__' ? [value] : []);
+
+            if (inValues.length > 0 && hasEmpty) {
+                query = query.in(field, inValues).or(`${field}.eq.,${field}.is.null`);
+            } else if (inValues.length > 0) {
+                query = query.in(field, inValues);
+            } else if (hasEmpty) {
+                query = query.or(`${field}.eq.,${field}.is.null`);
+            }
+        };
+
+        if (market !== undefined && market !== null) {
+            if (Array.isArray(market) ? market.length > 0 : typeof market === 'string' && market) {
+                applyEmptyOrInFilter('country', market); // 'market' comes from 'Khu vực', which maps to 'country'
+            }
         }
 
-        if (Array.isArray(product) && product.length > 0) {
-            query = query.in('product', product);
-        } else if (typeof product === 'string' && product) {
-            query = query.eq('product', product);
+        if (product !== undefined && product !== null) {
+            if (Array.isArray(product) ? product.length > 0 : typeof product === 'string' && product) {
+                applyEmptyOrInFilter('product', product);
+            }
         }
 
-        const saleStaffIn = Array.isArray(nv_sale)
-            ? nv_sale.filter((x) => x && x !== '__EMPTY__')
-            : [];
-        const mktStaffIn = Array.isArray(nv_mkt)
-            ? nv_mkt.filter((x) => x && x !== '__EMPTY__')
-            : [];
-        if (saleStaffIn.length > 0) {
-            query = query.in('sale_staff', saleStaffIn);
+        // NV Sale / NV MKT / NV Vận đơn: hỗ trợ filter "Trống" => staff rỗng hoặc null
+        if (nv_sale !== undefined && nv_sale !== null && Array.isArray(nv_sale) && nv_sale.length > 0) {
+            applyEmptyOrInFilter('sale_staff', nv_sale);
         }
-        if (mktStaffIn.length > 0) {
-            query = query.in('marketing_staff', mktStaffIn);
+        if (nv_mkt !== undefined && nv_mkt !== null && Array.isArray(nv_mkt) && nv_mkt.length > 0) {
+            applyEmptyOrInFilter('marketing_staff', nv_mkt);
         }
-
-        const vanDonStaffIn = Array.isArray(nv_van_don)
-            ? nv_van_don.filter((x) => x && x !== '__EMPTY__')
-            : [];
-        if (vanDonStaffIn.length > 0) {
-            query = query.in('delivery_staff', vanDonStaffIn);
+        if (nv_van_don !== undefined && nv_van_don !== null && Array.isArray(nv_van_don) && nv_van_don.length > 0) {
+            applyEmptyOrInFilter('delivery_staff', nv_van_don);
         }
 
         if (dateFrom) {
