@@ -212,13 +212,16 @@ export const fetchOrdersFromAPI = async (filters = {}) => {
  */
 export const convertDateToAPIFormat = (dateStr) => {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
+    const s = String(dateStr).trim();
+    const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (ymd) {
+        return `${ymd[3]}/${ymd[2]}/${ymd[1]}`;
+    }
+    const date = new Date(s);
     if (isNaN(date.getTime())) return '';
-    
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();
-    
     return `${day}/${month}/${year}`;
 };
 
@@ -296,6 +299,16 @@ export const fetchSalesReportsFromAPI = async (filters = {}) => {
             }
         }
 
+        if (filters.limit != null && filters.limit !== '') {
+            params.append('limit', String(filters.limit));
+        }
+        if (filters.next_after_id) {
+            params.append('next_after_id', filters.next_after_id);
+        }
+        if (filters.after_id) {
+            params.append('after_id', filters.after_id);
+        }
+
         // Đảm bảo URL không có khoảng trắng và đúng format
         const baseUrl = ORDERS_API_BASE_URL.replace(/\s+/g, '').replace(/\/+$/, '');
         const endpoint = '/detail_reports';
@@ -359,7 +372,9 @@ export const fetchSalesReportsFromAPI = async (filters = {}) => {
         const result = {
             data: data.data || data,
             statistics: data.statistics || null,
-            count: data.count || (Array.isArray(data.data) ? data.data.length : (Array.isArray(data) ? data.length : 0))
+            count: data.count || (Array.isArray(data.data) ? data.data.length : (Array.isArray(data) ? data.length : 0)),
+            next_after_id: data.next_after_id ?? null,
+            after_id: data.after_id ?? null,
         };
 
         return result;

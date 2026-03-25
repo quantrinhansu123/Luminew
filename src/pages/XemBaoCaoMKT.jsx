@@ -4,17 +4,9 @@ import { useLocation } from 'react-router-dom';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
-import { supabase } from '../supabase/config';
 import { fetchSalesReportsFromAPI, convertDateToAPIFormat } from '../services/ordersApiService';
 import { parseSmartDate } from '../utils/dateParsing';
 import './XemBaoCaoMKT.css';
-
-const DETAIL_REPORTS_PAGE_SIZE = 1000;
-
-function normalizeKeyPerson(str) {
-  if (!str) return '';
-  return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
-}
 
 /** Parse số tiền từ DB/API (số, hoặc chuỗi kiểu 26.088.000). */
 function parseMoneyNumber(v) {
@@ -50,59 +42,187 @@ function pickDoanhSoTT(item) {
   return 0;
 }
 
-/** Lấy đủ dòng trong khoảng ngày (tránh giới hạn 1 request của API / PostgREST). */
-async function fetchDetailReportsSupabasePaged(startDate, endDate, teamFilter) {
-  const rows = [];
-  let from = 0;
-  while (true) {
-    let query = supabase
-      .from('detail_reports')
-      .select('*')
-      .gte('Ngày', startDate)
-      .lte('Ngày', endDate)
-      .order('Ngày', { ascending: false })
-      .range(from, from + DETAIL_REPORTS_PAGE_SIZE - 1);
-
-    if (teamFilter === 'RD') {
-      query = query.eq('department', 'RD');
-    } else {
-      query = query.or('department.is.null,department.eq.MKT,department.neq.RD');
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    if (!data?.length) break;
-    rows.push(...data);
-    if (data.length < DETAIL_REPORTS_PAGE_SIZE) break;
-    from += DETAIL_REPORTS_PAGE_SIZE;
-  }
-  return rows;
+/** Chuẩn hóa ngày báo cáo → YYYY-MM-DD để nhóm theo ngày. */
+function ymdKeyFromReportRow(row) {
+  const d = parseSmartDate(row['Ngày']);
+  if (!d) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Một query users, map Email/Tên → Team cho dòng đang thiếu Team. */
-async function enrichTeamFromUsersBatch(reports) {
-  if (!reports.length || !reports.some((r) => !String(r['Team'] ?? '').trim())) {
-    return reports;
-  }
-  const { data: users, error } = await supabase.from('users').select('email, name, team');
-  if (error || !users?.length) return reports;
+/** Một dòng bảng chi tiết: tỉ lệ / CPS / giá tính từ Mess–Đơn–CPQC–DS nếu API không gửi. */
+function mapRawRowToProcessRow(row) {
+  const mess = Number(row['Số_Mess_Cmt'] || 0);
+  const cpqc = Number(row['CPQC'] || 0);
+  const orders = Number(row['Số đơn'] || 0);
+  const soDonTT = Number(row['Số đơn thực tế'] || 0);
+  const dsChot = Number(row['Doanh số'] || 0);
+  const dsChotTT = Number(row['Doanh số TT'] ?? 0);
 
-  const byEmail = new Map();
-  const byName = new Map();
-  for (const u of users) {
-    const team = String(u.team || '').trim();
-    if (!team) continue;
-    if (u.email) byEmail.set(String(u.email).trim().toLowerCase(), team);
-    if (u.name) byName.set(normalizeKeyPerson(u.name), team);
+  const tiLeChot = mess > 0 ? (orders / mess) * 100 : Number(row['Tỉ lệ chốt'] || 0);
+  const tiLeChotTT = mess > 0 ? (soDonTT / mess) * 100 : Number(row['Tỉ lệ chốt thực tế'] || row['Tỉ lệ chốt TT'] || 0);
+  const giaMess = mess > 0 ? cpqc / mess : Number(row['Giá Mess'] || 0);
+  const cps = orders > 0 ? cpqc / orders : Number(row['CPS'] || 0);
+  const cp_ds = dsChot > 0 ? (cpqc / dsChot) * 100 : Number(row['%CP/DS'] || 0);
+  const giaTBDon = orders > 0 ? dsChot / orders : Number(row['Giá TB Đơn'] || 0);
+
+  const dsSauShip = Number(row['Doanh số sau ship'] || 0);
+  const kpiValue = Number(row['KPIs'] || 0);
+  const soDonHuyTT = Number(row['Số đơn hoàn hủy thực tế'] || 0);
+  const dsHuyTT = Number(row['Doanh số hoàn hủy thực tế'] || 0);
+  const dsThanhCongTT = Number(row['Doanh số đi thực tế'] || 0);
+  const cp_ds_sau_ship = dsSauShip > 0 ? (cpqc / dsSauShip) * 100 : 0;
+  const kpi_percent = kpiValue > 0 ? (dsSauShip / kpiValue) * 100 : 0;
+
+  return {
+    team: row['Team'] || '',
+    name: row['Tên'] || '',
+    mess,
+    cpqc,
+    orders,
+    soDonTT,
+    dsChot,
+    dsChotTT,
+    tiLeChot,
+    tiLeChotTT,
+    giaMess,
+    cps,
+    cp_ds,
+    giaTBDon,
+    dsSauShip,
+    kpiValue,
+    soDonHuyTT,
+    dsHuyTT,
+    dsThanhCongTT,
+    cp_ds_sau_ship,
+    kpi_percent,
+  };
+}
+
+function sumProcessRows(rows) {
+  return rows.reduce(
+    (acc, cur) => ({
+      mess: acc.mess + cur.mess,
+      cpqc: acc.cpqc + cur.cpqc,
+      orders: acc.orders + cur.orders,
+      soDonTT: acc.soDonTT + cur.soDonTT,
+      dsChot: acc.dsChot + cur.dsChot,
+      dsChotTT: acc.dsChotTT + cur.dsChotTT,
+      dsSauShip: acc.dsSauShip + cur.dsSauShip,
+      kpiValue: acc.kpiValue + cur.kpiValue,
+      soDonHuyTT: acc.soDonHuyTT + cur.soDonHuyTT,
+      dsHuyTT: acc.dsHuyTT + cur.dsHuyTT,
+      dsThanhCongTT: acc.dsThanhCongTT + cur.dsThanhCongTT,
+    }),
+    {
+      mess: 0,
+      cpqc: 0,
+      orders: 0,
+      soDonTT: 0,
+      dsChot: 0,
+      dsChotTT: 0,
+      dsSauShip: 0,
+      kpiValue: 0,
+      soDonHuyTT: 0,
+      dsHuyTT: 0,
+      dsThanhCongTT: 0,
+    }
+  );
+}
+
+function deriveTotalsFromSums(sums) {
+  const m = sums.mess;
+  const ord = sums.orders;
+  const cp = sums.cpqc;
+  const ds = sums.dsChot;
+  const tt = sums.soDonTT;
+  const dsShip = sums.dsSauShip;
+  const kpiSum = sums.kpiValue;
+  return {
+    mess: sums.mess,
+    cpqc: sums.cpqc,
+    orders: sums.orders,
+    soDonTT: sums.soDonTT,
+    dsChot: sums.dsChot,
+    dsChotTT: sums.dsChotTT,
+    tiLeChot: m > 0 ? (ord / m) * 100 : 0,
+    tiLeChotTT: m > 0 ? (tt / m) * 100 : 0,
+    giaMess: m > 0 ? cp / m : 0,
+    cps: ord > 0 ? cp / ord : 0,
+    cp_ds: ds > 0 ? (cp / ds) * 100 : 0,
+    giaTBDon: ord > 0 ? ds / ord : 0,
+    dsSauShip: sums.dsSauShip,
+    kpiValue: sums.kpiValue,
+    soDonHuyTT: sums.soDonHuyTT,
+    dsHuyTT: sums.dsHuyTT,
+    dsThanhCongTT: sums.dsThanhCongTT,
+    cp_ds_sau_ship: dsShip > 0 ? (cp / dsShip) * 100 : 0,
+    kpi_percent: kpiSum > 0 ? (dsShip / kpiSum) * 100 : 0,
+  };
+}
+
+const LUMIDATA_DETAIL_PAGE_LIMIT = 1000;
+const LUMIDATA_DETAIL_MAX_PAGES = 250;
+
+/**
+ * Nguồn MKT: https://lumidataapi.vercel.app/detail_reports?team=HN-MKT
+ * `?team=RD` trên URL: không gửi `team` lên API, chỉ lọc department RD ở client.
+ */
+function lumidataDetailReportsTeamParam(teamFromUrl) {
+  const t = String(teamFromUrl || '').trim();
+  if (t === 'RD') return undefined;
+  return 'HN-MKT';
+}
+
+/**
+ * Chỉ lấy detail_reports từ lumidataapi + team=HN-MKT (mọi dòng bảng từ API).
+ * Phân trang next_after_id / after_id nếu API trả về.
+ */
+async function fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter) {
+  const from_date = convertDateToAPIFormat(startDate);
+  const to_date = convertDateToAPIFormat(endDate);
+  const apiTeam = lumidataDetailReportsTeamParam(teamFilter);
+  if (apiTeam) {
+    console.log('📡 lumidata detail_reports?team=HN-MKT (+ from_date, to_date, limit, cursor…)');
+  } else {
+    console.log('📡 lumidata detail_reports (không team=) — chế độ ?team=RD, lọc department ở client');
+  }
+  const rows = [];
+  let nextCursor = null;
+  /** API có thể dùng `next_after_id` hoặc `after_id` cho trang sau */
+  let cursorParam = 'next_after_id';
+
+  for (let page = 0; page < LUMIDATA_DETAIL_MAX_PAGES; page++) {
+    const filters = {
+      from_date,
+      to_date,
+      limit: LUMIDATA_DETAIL_PAGE_LIMIT,
+      ...(apiTeam ? { team: apiTeam } : {}),
+    };
+    if (nextCursor) {
+      if (cursorParam === 'after_id') filters.after_id = nextCursor;
+      else filters.next_after_id = nextCursor;
+    }
+
+    const res = await fetchSalesReportsFromAPI(filters);
+
+    const chunk = Array.isArray(res?.data) ? res.data : [];
+    rows.push(...chunk);
+
+    let next = res?.next_after_id || null;
+    if (next) {
+      cursorParam = 'next_after_id';
+    } else {
+      next = res?.after_id || null;
+      if (next) cursorParam = 'after_id';
+    }
+    if (!next || chunk.length === 0) break;
+    nextCursor = next;
   }
 
-  return reports.map((r) => {
-    if (String(r['Team'] ?? '').trim()) return r;
-    const em = String(r['Email'] || '').trim().toLowerCase();
-    const nm = normalizeKeyPerson(r['Tên']);
-    const t = (em && byEmail.get(em)) || (nm && byName.get(nm));
-    return t ? { ...r, Team: t } : r;
-  });
+  if (teamFilter === 'RD') {
+    return rows.filter((r) => String(r?.department || '').toUpperCase() === 'RD');
+  }
+  return rows.filter((r) => String(r?.department || '').toUpperCase() !== 'RD');
 }
 
 const MARKET_GROUPS = {
@@ -113,7 +233,8 @@ const MARKET_GROUPS = {
 export default function XemBaoCaoMKT() {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
-  const teamFilter = searchParams.get('team'); // 'RD' or null
+  /** `RD` = RnD (API không kèm team=). Mọi trường hợp khác: API luôn `team=HN-MKT`. */
+  const teamFilter = searchParams.get('team');
 
   // Permission Logic
   const { canView, role, team: userTeam } = usePermissions();
@@ -308,7 +429,7 @@ export default function XemBaoCaoMKT() {
       }
       // --------------------------
 
-      console.log(`📡 detail_reports: ${startDate} → ${endDate} (ưu tiên Supabase phân trang)`);
+      console.log(`📡 detail_reports: ${startDate} → ${endDate} → lumidataapi/detail_reports?team=HN-MKT (trừ ?team=RD)`);
 
       const normalizeApiRow = (item) => ({
         ...item,
@@ -336,20 +457,7 @@ export default function XemBaoCaoMKT() {
         'ca': item['ca'] || item['Ca'] || item.ca || item.shift || ''
       });
 
-      let rawRows = [];
-      try {
-        rawRows = await fetchDetailReportsSupabasePaged(startDate, endDate, teamFilter);
-      } catch (sbErr) {
-        console.warn('⚠️ Supabase detail_reports lỗi, fallback lumidata API:', sbErr?.message || sbErr);
-        const apiResponse = await fetchSalesReportsFromAPI({
-          from_date: convertDateToAPIFormat(startDate),
-          to_date: convertDateToAPIFormat(endDate),
-        });
-        const payload = apiResponse?.data ?? apiResponse;
-        rawRows = Array.isArray(payload) ? payload : [];
-      }
-
-      rawRows = await enrichTeamFromUsersBatch(rawRows);
+      const rawRows = await fetchDetailReportsFromLumidataAll(startDate, endDate, teamFilter);
       const allReports = rawRows.map(normalizeApiRow);
 
       console.log(`✅ Đã tải ${allReports.length} bản ghi detail_reports`);
@@ -361,10 +469,10 @@ export default function XemBaoCaoMKT() {
         console.log(`📅 Date format check: startDate=${startDate}, endDate=${endDate}`);
       }
 
-      // API đã lọc theo date, nhưng vẫn lọc lại ở client bằng parse date để tránh sai format
-      let dateFilteredReports = allReports.filter(r => {
+      // Lọc theo khoảng ngày UI; giữ dòng không parse được ngày (tránh mất data API format lạ)
+      let dateFilteredReports = allReports.filter((r) => {
         const reportDate = parseSmartDate(r['Ngày']);
-        if (!reportDate) return false;
+        if (!reportDate) return true;
 
         reportDate.setHours(0, 0, 0, 0);
         const start = startDate ? parseSmartDate(startDate) : null;
@@ -480,59 +588,66 @@ export default function XemBaoCaoMKT() {
       return {
         rows: [],
         total: {
-          mess: 0, cpqc: 0, orders: 0, soDonTT: 0, dsChot: 0, dsChotTT: 0,
-          tiLeChot: 0, tiLeChotTT: 0, giaMess: 0, cps: 0, cp_ds: 0, giaTBDon: 0
+          mess: 0,
+          cpqc: 0,
+          orders: 0,
+          soDonTT: 0,
+          dsChot: 0,
+          dsChotTT: 0,
+          tiLeChot: 0,
+          tiLeChotTT: 0,
+          giaMess: 0,
+          cps: 0,
+          cp_ds: 0,
+          giaTBDon: 0,
+          dsSauShip: 0,
+          kpiValue: 0,
+          soDonHuyTT: 0,
+          dsHuyTT: 0,
+          dsThanhCongTT: 0,
+          cp_ds_sau_ship: 0,
+          kpi_percent: 0,
         },
         dailyData: []
       };
     }
 
-    const rows = data
-      .filter((row) => {
-        if (selectedTeams.length > 0 && !selectedTeams.includes(row['Team'])) return false;
-        if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return false;
-        if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return false;
-        if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return false;
-        return true;
-      })
-      .map((row) => ({
-        team: row['Team'] || '',
-        name: row['Tên'] || '',
-        mess: Number(row['Số_Mess_Cmt'] || 0),
-        cpqc: Number(row['CPQC'] || 0),
-        orders: Number(row['Số đơn'] || 0),
-        soDonTT: Number(row['Số đơn thực tế'] || 0),
-        dsChot: Number(row['Doanh số'] || 0),
-        // Đã gán ở normalizeApiRow (pick một lần trên bản ghi gốc); không gọi lại pick(row) — row có 'Doanh số TT'=0 sẽ nuốt fallback
-        dsChotTT: Number(row['Doanh số TT'] ?? 0),
-        tiLeChot: Number(row['Tỉ lệ chốt'] || 0),
-        tiLeChotTT: Number(row['Tỉ lệ chốt thực tế'] || row['Tỉ lệ chốt TT'] || 0),
-        giaMess: Number(row['Giá Mess'] || 0),
-        cps: Number(row['CPS'] || 0),
-        cp_ds: Number(row['%CP/DS'] || 0),
-        giaTBDon: Number(row['Giá TB Đơn'] || 0),
-      }))
-      .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
-
-    const total = rows.reduce((acc, cur) => ({
-      mess: acc.mess + cur.mess,
-      cpqc: acc.cpqc + cur.cpqc,
-      orders: acc.orders + cur.orders,
-      soDonTT: acc.soDonTT + cur.soDonTT,
-      dsChot: acc.dsChot + cur.dsChot,
-      dsChotTT: acc.dsChotTT + cur.dsChotTT,
-      tiLeChot: 0,
-      tiLeChotTT: 0,
-      giaMess: 0,
-      cps: 0,
-      cp_ds: 0,
-      giaTBDon: 0,
-    }), {
-      mess: 0, cpqc: 0, orders: 0, soDonTT: 0, dsChot: 0, dsChotTT: 0,
-      tiLeChot: 0, tiLeChotTT: 0, giaMess: 0, cps: 0, cp_ds: 0, giaTBDon: 0
+    const filteredRaw = data.filter((row) => {
+      if (selectedTeams.length > 0 && !selectedTeams.includes(row['Team'])) return false;
+      if (selectedProducts.length > 0 && !selectedProducts.includes(row['Sản_phẩm'])) return false;
+      if (selectedShifts.length > 0 && !selectedShifts.includes(row['ca'])) return false;
+      if (selectedMarkets.length > 0 && !selectedMarkets.includes(row['Thị_trường'])) return false;
+      return true;
     });
 
-    return { rows, total, dailyData: [] };
+    const rows = filteredRaw
+      .map((row) => mapRawRowToProcessRow(row))
+      .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
+
+    const total = deriveTotalsFromSums(sumProcessRows(rows));
+
+    const byDay = new Map();
+    for (const row of filteredRaw) {
+      const key = ymdKeyFromReportRow(row);
+      if (!key) continue;
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key).push(row);
+    }
+
+    const dailyData = Array.from(byDay.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, dayRaw]) => {
+        const dayRows = dayRaw
+          .map((r) => mapRawRowToProcessRow(r))
+          .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
+        return {
+          date,
+          rows: dayRows,
+          total: deriveTotalsFromSums(sumProcessRows(dayRows)),
+        };
+      });
+
+    return { rows, total, dailyData };
   }, [data, selectedTeams, selectedProducts, selectedShifts, selectedMarkets]);
 
   // Logic for Market Report (Tab 4)
@@ -1181,9 +1296,11 @@ export default function XemBaoCaoMKT() {
                           )}
                         </tbody>
                       </table>
-                      {/* Date footer */}
+                      {/* Khoảng ngày đang xem (input type=date = YYYY-MM-DD) */}
                       <div style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
-                        {endDate ? new Date(endDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}
+                        {startDate && endDate
+                          ? `${parseSmartDate(startDate)?.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) || startDate} → ${parseSmartDate(endDate)?.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }) || endDate}`
+                          : ''}
                       </div>
 
                       {/* Daily Breakdown */}
