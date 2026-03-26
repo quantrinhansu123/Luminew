@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import MultiSelect from '../components/MultiSelect';
 import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
@@ -1653,6 +1653,83 @@ function FFM() {
   const frozenCols = splitPane ? currentColumns.slice(0, effectiveFixedColumns) : [];
   const scrollCols = splitPane ? currentColumns.slice(effectiveFixedColumns) : currentColumns;
 
+  /**
+   * Khi bật freeze (splitPane), UI tách thành 2 <table> (left/right).
+   * Mỗi bảng tự tính chiều cao `thead` + `tbody tr` khác nhau -> lệch dòng.
+   * Đồng bộ minHeight giữa 2 bảng để các hàng thẳng hàng.
+   */
+  useLayoutEffect(() => {
+    if (!splitPane) return;
+
+    const syncRowHeights = () => {
+      const leftTable = document.querySelector('table[data-ffm-pane="left"]');
+      const rightTable = document.querySelector('table[data-ffm-pane="right"]');
+      if (!leftTable || !rightTable) return;
+
+      const leftHeadRow = leftTable.querySelector('thead tr');
+      const rightHeadRow = rightTable.querySelector('thead tr');
+
+      if (leftHeadRow && rightHeadRow) {
+        leftHeadRow.style.minHeight = '';
+        rightHeadRow.style.minHeight = '';
+        const headH = Math.max(
+          leftHeadRow.getBoundingClientRect().height,
+          rightHeadRow.getBoundingClientRect().height
+        );
+        if (headH > 0) {
+          leftHeadRow.style.minHeight = `${headH}px`;
+          rightHeadRow.style.minHeight = `${headH}px`;
+          leftHeadRow.style.height = `${headH}px`;
+          rightHeadRow.style.height = `${headH}px`;
+        }
+      }
+
+      const leftRows = leftTable.querySelectorAll('tbody tr');
+      const rightRows = rightTable.querySelectorAll('tbody tr');
+      const n = Math.min(leftRows.length, rightRows.length);
+
+      for (let i = 0; i < n; i += 1) {
+        leftRows[i].style.minHeight = '';
+        rightRows[i].style.minHeight = '';
+      }
+
+      for (let i = 0; i < n; i += 1) {
+        const lh = leftRows[i].getBoundingClientRect().height;
+        const rh = rightRows[i].getBoundingClientRect().height;
+        const rowH = Math.max(lh, rh);
+        if (rowH > 0) {
+          leftRows[i].style.minHeight = `${rowH}px`;
+          leftRows[i].style.height = `${rowH}px`;
+          rightRows[i].style.minHeight = `${rowH}px`;
+          rightRows[i].style.height = `${rowH}px`;
+        }
+      }
+    };
+
+    syncRowHeights();
+    const raf = requestAnimationFrame(syncRowHeights);
+
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      const leftWrap = document.querySelector('table[data-ffm-pane="left"]')?.parentElement;
+      const rightWrap = document.querySelector('table[data-ffm-pane="right"]')?.parentElement;
+      if (leftWrap && rightWrap) {
+        ro = new ResizeObserver(() => syncRowHeights());
+        ro.observe(leftWrap);
+        ro.observe(rightWrap);
+      }
+    }
+
+    const onResize = () => syncRowHeights();
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      ro?.disconnect();
+    };
+  }, [splitPane, paginatedData, currentColumns, effectiveFixedColumns, loading]);
+
   const totalMoney = useMemo(() => {
     return getFilteredData.reduce((sum, row) => {
       let val = row['Tổng tiền VNĐ'] || row['Tổng_tiền_VNĐ'] || row['Giá bán'] || 0;
@@ -2212,7 +2289,7 @@ function FFM() {
             <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20">
               <table data-ffm-pane="left" className={`${tableClassName} w-max`}>
                 <thead className="sticky top-0 z-[42]">
-                  <tr className="bg-gray-100 min-h-12">
+                  <tr className="bg-gray-100 align-top">
                     {frozenCols.map((col) => (
                       <th
                         key={`ff-${col}`}
@@ -2244,7 +2321,7 @@ function FFM() {
             <div className="flex-1 min-w-0 overflow-x-auto">
               <table data-ffm-pane="right" className={`${tableClassName} w-max min-w-max`}>
                 <thead className="sticky top-0 z-[41]">
-                  <tr className="bg-gray-100 min-h-12">
+                  <tr className="bg-gray-100 align-top">
                     {scrollCols.map((col) => (
                       <th
                         key={`sf-${col}`}
@@ -2275,7 +2352,7 @@ function FFM() {
           <div className="overflow-auto max-h-[72vh]">
             <table className={`${tableClassName} w-max min-w-full`}>
               <thead className="sticky top-0 z-30">
-                <tr className="bg-gray-100 min-h-12">
+                <tr className="bg-gray-100">
                   {currentColumns.map((col, idx) => {
                     const colWidthStyles = getColumnWidthStyles(col);
                     let stickyStyle = { ...colWidthStyles };

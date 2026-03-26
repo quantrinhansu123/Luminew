@@ -84,6 +84,25 @@ const AdminTools = () => {
     });
     const [mktRecalcResult, setMktRecalcResult] = useState(null);
 
+    // MKT cleanup: Xóa các dòng detail_reports có Số mess=0 (hoặc trống) và CPQC=0 (hoặc trống)
+    const [emptyMktCleanupLoading, setEmptyMktCleanupLoading] = useState(false);
+    const [emptyMktCleanupStartDate, setEmptyMktCleanupStartDate] = useState(() => {
+        const today = new Date();
+        const d = new Date(today);
+        d.setDate(d.getDate() - 30);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    });
+    const [emptyMktCleanupEndDate, setEmptyMktCleanupEndDate] = useState(() => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    });
+
     // Sale reports: order_count từ orders (sale_staff)
     const [saleRecalcLoading, setSaleRecalcLoading] = useState(false);
     const [saleRecalcStartDate, setSaleRecalcStartDate] = useState(() => {
@@ -1394,6 +1413,113 @@ const AdminTools = () => {
             toast.error('Lỗi tính lại Số đơn TT: ' + msg + fetchHint, { autoClose: 12000 });
         } finally {
             setMktRecalcLoading(false);
+        }
+    };
+
+    // --- MKT cleanup: delete detail_reports rows with empty mess/cpqc ---
+    const handleDeleteEmptyMessAndCpqcRows = async () => {
+        if (emptyMktCleanupLoading) return;
+
+        const ok = window.confirm(
+            'Xóa các dòng detail_reports không có dữ liệu MKT?\n\n' +
+            'Điều kiện:\n' +
+            '- Số mess (Số_Mess_Cmt) == 0 hoặc trống\n' +
+            '- CPQC == 0 hoặc trống\n\n' +
+            'Áp dụng theo khoảng ngày bạn chọn.\n\n' +
+            'Bạn có chắc muốn xóa không?'
+        );
+        if (!ok) return;
+
+        const normStart = String(emptyMktCleanupStartDate || '').trim();
+        const normEnd = String(emptyMktCleanupEndDate || '').trim();
+        if (!normStart || !normEnd) {
+            alert('Vui lòng nhập đầy đủ TỪ NGÀY và ĐẾN NGÀY.');
+            return;
+        }
+        if (normStart > normEnd) {
+            alert('Từ ngày phải <= đến ngày.');
+            return;
+        }
+
+        // Helpers (copy logic từ phía XemBaoCaoMKT)
+        const parseIntegerVi = (v) => {
+            if (v == null || v === '') return 0;
+            if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+            const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
+            const n = parseInt(s, 10);
+            return Number.isFinite(n) ? n : 0;
+        };
+        const parseNumberVi = (v) => {
+            if (v == null || v === '') return 0;
+            if (typeof v === 'number' && Number.isFinite(v)) return v;
+            const s = String(v).trim();
+            const stripped = s.replace(/[^\d.-]/g, '');
+            const n = Number(stripped);
+            return Number.isFinite(n) ? n : 0;
+        };
+
+        try {
+            setEmptyMktCleanupLoading(true);
+            const toastId = toast.info('Đang quét + xóa detail_reports (có thể mất vài phút)...', { autoClose: false });
+
+            let totalDeleted = 0;
+            const PAGE_SIZE = 1000;
+            let from = 0;
+
+            while (true) {
+                const { data: rows, error } = await supabase
+                    .from('detail_reports')
+                    .select('id, "Ngày", "Số_Mess_Cmt", "CPQC"')
+                    .gte('Ngày', normStart)
+                    .lte('Ngày', normEnd)
+                    .order('id', { ascending: true })
+                    .range(from, from + PAGE_SIZE - 1);
+
+                if (error) throw error;
+                if (!rows || rows.length === 0) break;
+
+                const idsToDelete = [];
+                for (const r of rows) {
+                    const messVal = parseIntegerVi(r?.['Số_Mess_Cmt']);
+                    const cpqcVal = parseNumberVi(r?.['CPQC']);
+                    if (messVal === 0 && cpqcVal === 0 && r?.id) {
+                        idsToDelete.push(r.id);
+                    }
+                }
+
+                // Delete in batches
+                const BATCH_SIZE = 500;
+                if (idsToDelete.length > 0) {
+                    for (let i = 0; i < idsToDelete.length; i += BATCH_SIZE) {
+                        const batch = idsToDelete.slice(i, i + BATCH_SIZE);
+                        const { error: delErr } = await supabase
+                            .from('detail_reports')
+                            .delete()
+                            .in('id', batch);
+                        if (delErr) throw delErr;
+                        totalDeleted += batch.length;
+                    }
+                }
+
+                if (rows.length < PAGE_SIZE) break;
+                from += PAGE_SIZE;
+            }
+
+            // Clear detail_reports cache used by XemBaoCaoMKT
+            try {
+                const keys = Object.keys(sessionStorage || {}).filter((k) => k.startsWith('mkt_detail_reports_v1:'));
+                keys.forEach((k) => sessionStorage.removeItem(k));
+            } catch {
+                // ignore
+            }
+
+            toast.dismiss(toastId);
+            toast.success(`Đã xóa ${totalDeleted} dòng detail_reports (mess=0 & CPQC=0) trong khoảng ngày đã chọn.`);
+        } catch (error) {
+            console.error('MKT cleanup error:', error);
+            toast.error('Lỗi khi xóa dữ liệu MKT: ' + (error?.message || String(error)));
+        } finally {
+            setEmptyMktCleanupLoading(false);
         }
     };
 
@@ -4556,6 +4682,54 @@ const AdminTools = () => {
                                     )}
                                 </div>
                             )}
+                        </div>
+
+                        {/* MKT CLEANUP */}
+                        <div className="border border-gray-200 rounded-lg p-5 bg-white">
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-2">
+                                <Trash2 className="w-5 h-5 text-red-600" />
+                                Xóa dòng MKT rỗng (Số mess=0 & CPQC=0)
+                            </h3>
+                            <p className="text-sm text-gray-600 mb-4">
+                                Quét bảng <span className="font-medium">detail_reports</span> theo khoảng ngày và xóa các dòng mà <span className="font-medium">Số_Mess_Cmt</span> == 0 (hoặc trống) đồng thời <span className="font-medium">CPQC</span> == 0 (hoặc trống).
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                                <label className="block">
+                                    <span className="text-sm font-medium text-gray-700">Từ ngày</span>
+                                    <input
+                                        type="date"
+                                        value={emptyMktCleanupStartDate}
+                                        onChange={(e) => setEmptyMktCleanupStartDate(e.target.value)}
+                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                                    />
+                                </label>
+                                <label className="block">
+                                    <span className="text-sm font-medium text-gray-700">Đến ngày</span>
+                                    <input
+                                        type="date"
+                                        value={emptyMktCleanupEndDate}
+                                        onChange={(e) => setEmptyMktCleanupEndDate(e.target.value)}
+                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                                    />
+                                </label>
+                            </div>
+
+                            <button
+                                onClick={handleDeleteEmptyMessAndCpqcRows}
+                                disabled={emptyMktCleanupLoading || loading}
+                                className="w-full py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
+                            >
+                                {emptyMktCleanupLoading ? (
+                                    <>
+                                        <span className="animate-spin">⏳</span> Đang xóa...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Trash2 size={18} /> Xóa
+                                    </>
+                                )}
+                            </button>
                         </div>
 
                         {/* SALES_REPORTS: order_count + revenue + cancel + revenue_cancel_actual */}

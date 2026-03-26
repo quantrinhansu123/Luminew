@@ -953,6 +953,92 @@ function VanDon() {
     return () => window.removeEventListener('resize', recalcStickyOffsets);
   }, [currentColumns, checkboxStickyPad, getColumnWidthPx, filterValues, localFilterValues, isLongTextExpanded]);
 
+  /**
+   * Chế độ freeze tách 2 <table> trái/phải: thead/tbody tự tính chiều cao khác nhau → lệch dòng.
+   * Đồng bộ minHeight của hàng tiêu đề + bộ lọc và từng cặp hàng dữ liệu giữa hai bảng.
+   */
+  useLayoutEffect(() => {
+    if (!splitPane) return;
+
+    const sync = () => {
+      const root = tableRef.current;
+      if (!root) return;
+      const leftTable = root.querySelector('[data-vandon-pane="left"]');
+      const rightTable = root.querySelector('[data-vandon-pane="right"]');
+      if (!leftTable || !rightTable) return;
+
+      const leftHeadRow = leftTable.querySelector('thead tr');
+      const rightHeadRow = rightTable.querySelector('thead tr');
+      if (leftHeadRow && rightHeadRow) {
+        leftHeadRow.style.minHeight = '';
+        rightHeadRow.style.minHeight = '';
+        leftHeadRow.style.height = '';
+        rightHeadRow.style.height = '';
+        const headH = Math.max(
+          leftHeadRow.getBoundingClientRect().height,
+          rightHeadRow.getBoundingClientRect().height
+        );
+        if (headH > 0) {
+          leftHeadRow.style.minHeight = `${headH}px`;
+          rightHeadRow.style.minHeight = `${headH}px`;
+          // Ép chiều cao header để tránh lệch “nhìn thấy” giữa hai bảng
+          // (khi nội dung header có khác biệt do editor lọc).
+          leftHeadRow.style.height = `${headH}px`;
+          rightHeadRow.style.height = `${headH}px`;
+        }
+      }
+
+      const leftRows = leftTable.querySelectorAll('tbody tr');
+      const rightRows = rightTable.querySelectorAll('tbody tr');
+      const n = Math.min(leftRows.length, rightRows.length);
+      for (let i = 0; i < n; i++) {
+        leftRows[i].style.minHeight = '';
+        rightRows[i].style.minHeight = '';
+      }
+      for (let i = 0; i < n; i++) {
+        const lh = leftRows[i].getBoundingClientRect().height;
+        const rh = rightRows[i].getBoundingClientRect().height;
+        const rowH = Math.max(lh, rh);
+        if (rowH > 0) {
+          leftRows[i].style.minHeight = `${rowH}px`;
+          rightRows[i].style.minHeight = `${rowH}px`;
+        }
+      }
+    };
+
+    sync();
+    const raf = requestAnimationFrame(() => sync());
+    const onResize = () => sync();
+    window.addEventListener('resize', onResize);
+
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => sync());
+      const left = tableRef.current?.querySelector('[data-vandon-pane="left"]');
+      const right = tableRef.current?.querySelector('[data-vandon-pane="right"]');
+      if (left) ro.observe(left);
+      if (right) ro.observe(right);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      ro?.disconnect();
+    };
+  }, [
+    splitPane,
+    currentColumns,
+    effectiveFixedColumns,
+    currentPage,
+    rowsPerPage,
+    filterValues,
+    localFilterValues,
+    isLongTextExpanded,
+    bolActiveTab,
+    loading,
+    stickyOffsets,
+  ]);
+
   /** Khi ẩn bớt cột, hạ số cố định nếu đang vượt quá số cột hiển thị */
   useEffect(() => {
     setFixedColumns((prev) => {
@@ -2627,10 +2713,10 @@ function VanDon() {
               className="flex-1 min-h-0 overflow-y-auto flex flex-row items-start select-none relative"
               style={{ isolation: 'isolate' }}
             >
-              <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20">
+              <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20 self-start">
                 <table className="border-collapse w-max text-[13px] leading-tight" data-vandon-pane="left">
                   <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
-                    <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
+                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
                       {bolActiveTab === 'hanoi' && (
                         <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 1002, background: '#f8f9fa' }}>
                           <div className="flex items-center justify-center">
@@ -2699,10 +2785,10 @@ function VanDon() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex-1 min-w-0 overflow-x-auto min-h-0">
+              <div className="flex-1 min-w-0 overflow-x-auto min-h-0 self-start">
                 <table className="border-collapse w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
                   <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
-                    <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
+                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
                       {scrollCols.map((col, i) =>
                         renderVanDonFilterTh(
                           col,
@@ -2738,7 +2824,7 @@ function VanDon() {
             >
               <table className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
                 <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
-                  <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
+                  <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
                     {bolActiveTab === 'hanoi' && (
                       <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 1002, background: '#f8f9fa' }}>
                         <div className="flex items-center justify-center">
