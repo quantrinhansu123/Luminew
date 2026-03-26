@@ -335,7 +335,11 @@ function FFM() {
   const [copiedData, setCopiedData] = useState(null);
   const [copiedSelection, setCopiedSelection] = useState(null);
   const isSelecting = useRef(false);
+  // Cache cell elements for smoother drag-selection (avoid scanning all td per frame).
+  const ffmDragCellMapRef = useRef(null); // Map<"r-c", HTMLTableCellElement>
+  const ffmDragPrevBoundsRef = useRef(null); // { minR, maxR, minC, maxC } | null
   const tableRef = useRef(null);
+  const ffmScrollContainerRef = useRef(null);
   const dragAnchorRef = useRef({ r: 0, c: 0 });
   const dragEndRef = useRef({ r: 0, c: 0 });
   const dragListenersRef = useRef({ move: null, up: null });
@@ -1424,9 +1428,82 @@ function FFM() {
     };
   }, [copiedSelection]);
 
+  const buildFfDragCellMap = useCallback(() => {
+    const cells = getFfDragTargetCells();
+    const map = new Map();
+    cells.forEach((el) => {
+      const r = +el.getAttribute('data-ffm-r');
+      const c = +el.getAttribute('data-ffm-c');
+      if (Number.isFinite(r) && Number.isFinite(c)) {
+        map.set(`${r}-${c}`, el);
+      }
+    });
+    ffmDragCellMapRef.current = map;
+    ffmDragPrevBoundsRef.current = null;
+  }, [ffmDragCellMapRef, ffmDragPrevBoundsRef]);
+
+  const paintFfDragSelection = useCallback((minR, maxR, minC, maxC) => {
+    const DRAG = 'ffm-drag-select';
+    const edges = ['selection-border-top', 'selection-border-bottom', 'selection-border-left', 'selection-border-right'];
+    const cellMap = ffmDragCellMapRef.current;
+
+    if (!cellMap || cellMap.size === 0) {
+      // Fallback: behavior giống cũ nếu chưa kịp build map.
+      applyFfDragDomSelection(minR, maxR, minC, maxC);
+      ffmDragPrevBoundsRef.current = { minR, maxR, minC, maxC };
+      return;
+    }
+
+    const prev = ffmDragPrevBoundsRef.current;
+    if (
+      prev &&
+      prev.minR === minR && prev.maxR === maxR &&
+      prev.minC === minC && prev.maxC === maxC
+    ) return;
+
+    // Clear vùng selection cũ
+    if (prev) {
+      for (let r = prev.minR; r <= prev.maxR; r += 1) {
+        for (let c = prev.minC; c <= prev.maxC; c += 1) {
+          const el = cellMap.get(`${r}-${c}`);
+          if (!el) continue;
+          el.classList.remove(DRAG, ...edges);
+        }
+      }
+    }
+
+    let missing = false;
+
+    // Paint vùng selection mới
+    for (let r = minR; r <= maxR; r += 1) {
+      for (let c = minC; c <= maxC; c += 1) {
+        const el = cellMap.get(`${r}-${c}`);
+        if (!el) {
+          // Nếu cache map thiếu một vài cell (DOM thay đổi trong lúc kéo / scroll),
+          // fallback sang cách quét DOM để đảm bảo highlight đúng tất cả cột.
+          missing = true;
+          continue;
+        }
+        el.classList.add(DRAG);
+        if (r === minR) el.classList.add('selection-border-top');
+        if (r === maxR) el.classList.add('selection-border-bottom');
+        if (c === minC) el.classList.add('selection-border-left');
+        if (c === maxC) el.classList.add('selection-border-right');
+      }
+    }
+
+    if (missing) {
+      applyFfDragDomSelection(minR, maxR, minC, maxC);
+      // Rebuild map để lần sau có thể incremental lại.
+      buildFfDragCellMap();
+    }
+
+    ffmDragPrevBoundsRef.current = { minR, maxR, minC, maxC };
+  }, [ffmDragCellMapRef, ffmDragPrevBoundsRef, buildFfDragCellMap]);
+
   const paintDragThrottled = useRef(
     rafThrottle((minR, maxR, minC, maxC) => {
-      applyFfDragDomSelection(minR, maxR, minC, maxC);
+      paintFfDragSelection(minR, maxR, minC, maxC);
     })
   ).current;
 
@@ -1470,6 +1547,8 @@ function FFM() {
       removeFillDragListeners();
       clearFfDragDomSelection();
       clearFfFillPreview();
+      ffmDragCellMapRef.current = null;
+      ffmDragPrevBoundsRef.current = null;
     };
   }, [removeDragListeners, removeFillDragListeners]);
 
@@ -1604,7 +1683,9 @@ function FFM() {
       setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
       setCopiedSelection(null);
 
-      applyFfDragDomSelection(rowIndex, rowIndex, colIndex, colIndex);
+      // Build cell index once per drag to make repaint during mousemove smoother.
+      buildFfDragCellMap();
+      paintFfDragSelection(rowIndex, rowIndex, colIndex, colIndex);
 
       const onMove = (ev) => {
         if (!isSelecting.current) return;
@@ -1615,12 +1696,30 @@ function FFM() {
         const tc = +td.getAttribute('data-ffm-c');
         if (Number.isNaN(tr) || Number.isNaN(tc)) return;
         updateDragFromCell(tr, tc);
+
+        // Auto-scroll khi kéo chọn xuống gần mép viewport để không phải nhả chuột rồi click lại.
+        // Chỉ chạy trong lúc đang selecting.
+        const scrollEl = ffmScrollContainerRef.current;
+        if (scrollEl) {
+          const rect = scrollEl.getBoundingClientRect();
+          const margin = 48; // px từ mép
+          const maxSpeed = 20; // px/frame
+          if (ev.clientY > rect.bottom - margin) {
+            const delta = Math.min(maxSpeed, Math.ceil(((ev.clientY - (rect.bottom - margin)) / margin) * maxSpeed));
+            if (delta > 0) scrollEl.scrollTop += delta;
+          } else if (ev.clientY < rect.top + margin) {
+            const delta = Math.min(maxSpeed, Math.ceil(((rect.top + margin - ev.clientY) / margin) * maxSpeed));
+            if (delta > 0) scrollEl.scrollTop -= delta;
+          }
+        }
       };
 
       const onUp = (ev) => {
         removeDragListeners();
         isSelecting.current = false;
         clearFfDragDomSelection();
+        ffmDragCellMapRef.current = null;
+        ffmDragPrevBoundsRef.current = null;
         const { r: er, c: ec } = dragEndRef.current;
         const { r: sr, c: sc } = dragAnchorRef.current;
         const dx = ev.clientX - dragStartClientRef.current.x;
@@ -2880,7 +2979,7 @@ function FFM() {
             </div>
           </div>
         ) : (
-          <div className="min-h-0 max-h-[72vh] overflow-auto overscroll-contain">
+          <div ref={ffmScrollContainerRef} className="min-h-0 max-h-[72vh] overflow-auto overscroll-contain">
             <table ref={tableRef} className={`${tableClassName} w-max min-w-full`}>
               <thead className="relative">
                 <tr className="bg-[#f8f9fa] shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
@@ -3047,11 +3146,30 @@ function FFM() {
           onApply={handleUpdateAll}
           onDiscard={() => {
             if (confirm('Hủy bỏ tất cả thay đổi?')) {
+              // Không re-fetch toàn bộ danh sách.
+              // Hoàn tác đúng các cột đã thay đổi về lại `originalValue` đang nằm trong pendingChanges.
+              const revertEntries = [];
+              pendingChanges.forEach((cols, orderId) => {
+                cols.forEach(({ originalValue }, colKey) => {
+                  revertEntries.push({ orderId, colKey, originalValue });
+                });
+              });
+
+              setAllData((prevData) => {
+                const next = [...prevData];
+                revertEntries.forEach(({ orderId, colKey, originalValue }) => {
+                  const idx = next.findIndex((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+                  if (idx > -1) {
+                    next[idx] = { ...next[idx], [colKey]: originalValue };
+                  }
+                });
+                return next;
+              });
+
               setPendingChanges(new Map());
               savePendingToLocalStorage(new Map());
               localStorage.removeItem('speegoPendingChanges');
               setSyncPopoverOpen(false);
-              refreshData();
             }
           }}
         />
