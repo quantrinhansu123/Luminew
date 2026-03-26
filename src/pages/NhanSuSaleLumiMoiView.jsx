@@ -112,6 +112,11 @@ export default function NhanSuSaleLumiMoiView({
   teamKeyword = 'sale',
   /** Chỉ giữ dòng có Team khớp đúng (sau trim/gom khoảng trắng), ví dụ CSKH- Lý. */
   teamExactFilter = null,
+  /**
+   * Hiện lọc theo tên Sale: danh sách checkbox = `users.selected_personnel` (đã resolve tên);
+   * admin / không có selected_personnel → liệt kê theo tên có trong dữ liệu đã lọc.
+   */
+  showPersonnelNameFilter = false,
 }) {
   const idSheet = useResolvedIdsheet();
   const { role } = usePermissions();
@@ -167,6 +172,8 @@ export default function NhanSuSaleLumiMoiView({
   const [teamSel, setTeamSel] = useState([]);
   const [marketAll, setMarketAll] = useState(true);
   const [marketSel, setMarketSel] = useState([]);
+  const [nameAll, setNameAll] = useState(true);
+  const [nameSel, setNameSel] = useState([]);
 
   const [activeTab, setActiveTab] = useState('sau-huy');
   const [selectedRowKey, setSelectedRowKey] = useState(null);
@@ -316,6 +323,8 @@ export default function NhanSuSaleLumiMoiView({
       setCaAll(true);
       setTeamAll(true);
       setMarketAll(true);
+      setNameAll(true);
+      setNameSel([]);
       setProductSel(uniqueSorted(dataForFilters, 'sanPham'));
       setCaSel(uniqueSorted(dataForFilters, 'ca').map(String));
       setTeamSel(uniqueSorted(dataForFilters, 'team').map(String));
@@ -443,6 +452,9 @@ export default function NhanSuSaleLumiMoiView({
       selectedTeams: teamAll ? null : teamSel,
       marketAll,
       selectedMarkets: marketAll ? null : marketSel,
+      nameAll: showPersonnelNameFilter ? nameAll : true,
+      selectedNames:
+        showPersonnelNameFilter && !nameAll ? nameSel : null,
     });
   }, [
     rawData,
@@ -462,6 +474,9 @@ export default function NhanSuSaleLumiMoiView({
     teamSel,
     marketAll,
     marketSel,
+    showPersonnelNameFilter,
+    nameAll,
+    nameSel,
   ]);
 
   /** Dùng chung cho sidebar — tránh gọi filterRawForRestrictedPopulate hàng chục lần mỗi render */
@@ -478,6 +493,17 @@ export default function NhanSuSaleLumiMoiView({
       ),
     [rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames, allowedPersonnelNames, allowedUserEmail]
   );
+
+  /** Checkbox Tên Sale: ưu tiên danh sách `selected_personnel`; không có thì theo tên trong báo cáo. */
+  const personnelNameFilterOptions = useMemo(() => {
+    if (!showPersonnelNameFilter) return [];
+    if (allowedPersonnelNames && allowedPersonnelNames.length > 0) {
+      return [...allowedPersonnelNames].sort((a, b) =>
+        String(a).localeCompare(String(b), 'vi')
+      );
+    }
+    return uniqueSorted(restrictedForPopulate, 'ten');
+  }, [showPersonnelNameFilter, allowedPersonnelNames, restrictedForPopulate]);
 
   /** Tính lại bảng sau khi React rảnh — bớt lag khi đổi checkbox / ngày (dữ liệu lớn). */
   const deferredFiltered = useDeferredValue(filteredData);
@@ -550,6 +576,60 @@ export default function NhanSuSaleLumiMoiView({
             Đến ngày:
             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </label>
+
+          {showPersonnelNameFilter && personnelNameFilterOptions.length > 0 && (
+            <>
+              <h3>Tên Sale</h3>
+              <p className="nssl-filter-hint">
+                {allowedPersonnelNames?.length
+                  ? 'Danh sách theo selected_personnel trên tài khoản.'
+                  : 'Danh sách theo tên có trong báo cáo (quyền xem tất cả).'}
+              </p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={nameAll}
+                  onChange={() => {
+                    if (nameAll) {
+                      setNameAll(false);
+                      setNameSel([...personnelNameFilterOptions]);
+                    } else {
+                      setNameAll(true);
+                      setNameSel([]);
+                    }
+                  }}
+                />{' '}
+                Tất cả
+              </label>
+              <div className="indent">
+                {personnelNameFilterOptions.map((val) => (
+                  <label key={val}>
+                    <input
+                      type="checkbox"
+                      checked={nameAll || nameSel.includes(val)}
+                      onChange={() => {
+                        if (nameAll) {
+                          setNameAll(false);
+                          setNameSel([val]);
+                          return;
+                        }
+                        const next = nameSel.includes(val)
+                          ? nameSel.filter((x) => x !== val)
+                          : [...nameSel, val];
+                        setNameSel(next);
+                        if (next.length === personnelNameFilterOptions.length) {
+                          setNameAll(true);
+                          setNameSel([]);
+                        }
+                      }}
+                    />{' '}
+                    {val}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
           <h3>Sản phẩm</h3>
           <label>
             <input
@@ -803,7 +883,6 @@ restrictedForPopulate,
                 <thead>
                   <tr>
                     <th>STT</th>
-                    <th>Chi nhánh</th>
                     <th>Team</th>
                     <th>Sale</th>
                     <th>Số đơn hủy</th>
@@ -817,7 +896,7 @@ restrictedForPopulate,
                 </thead>
                 <tbody>
                   <tr className="total-row">
-                    <td className="total-label" colSpan={4}>
+                    <td className="total-label" colSpan={3}>
                       TỔNG CỘNG
                     </td>
                     <td className="total-value">{formatNumber(soDonHuyTotal)}</td>
@@ -845,7 +924,6 @@ restrictedForPopulate,
                         onClick={() => setSelectedRowKey((k) => (k === key ? null : key))}
                       >
                         <td className="text-center">{index + 1}</td>
-                        <td className="text-left">{item.chiNhanh}</td>
                         <td className="text-left">{item.team}</td>
                         <td className="text-left">{item.name}</td>
                         <td>{formatNumber(soDonHuy)}</td>
@@ -870,7 +948,6 @@ restrictedForPopulate,
                 <thead>
                   <tr>
                     <th>STT</th>
-                    <th>Chi nhánh</th>
                     <th>Team</th>
                     <th>Sale</th>
                     <th>Số Mess</th>
@@ -884,7 +961,7 @@ restrictedForPopulate,
                 </thead>
                 <tbody>
                   <tr className="total-row">
-                    <td className="total-label" colSpan={4}>
+                    <td className="total-label" colSpan={3}>
                       TỔNG CỘNG
                     </td>
                     <td className="total-value">{formatNumber(total.mess)}</td>
@@ -907,7 +984,6 @@ restrictedForPopulate,
                         onClick={() => setSelectedRowKey((k) => (k === key ? null : key))}
                       >
                         <td className="text-center">{index + 1}</td>
-                        <td className="text-left">{item.chiNhanh}</td>
                         <td className="text-left">{item.team}</td>
                         <td className="text-left">{item.name}</td>
                         <td>{formatNumber(item.mess)}</td>
@@ -983,7 +1059,6 @@ function DailyBreakdownSauHuy({ filteredData }) {
                 <thead>
                   <tr>
                     <th>STT</th>
-                    <th>Chi nhánh</th>
                     <th>Team</th>
                     <th>Sale</th>
                     <th>Số Mess</th>
@@ -997,7 +1072,7 @@ function DailyBreakdownSauHuy({ filteredData }) {
                 </thead>
                 <tbody>
                   <tr className="total-row">
-                    <td colSpan={4} className="total-label">
+                    <td colSpan={3} className="total-label">
                       TỔNG NGÀY {date}
                     </td>
                     <td className="total-value">{formatNumber(total.mess)}</td>
@@ -1016,7 +1091,6 @@ function DailyBreakdownSauHuy({ filteredData }) {
                     return (
                       <tr key={`${date}-${item.name}`} style={{ '--row-index': index }}>
                         <td className="text-center">{index + 1}</td>
-                        <td className="text-left">{item.chiNhanh}</td>
                         <td className="text-left">{item.team}</td>
                         <td className="text-left">{item.name}</td>
                         <td>{formatNumber(item.mess)}</td>
@@ -1073,7 +1147,6 @@ function DailyBreakdownChot({ filteredData }) {
                 <thead>
                   <tr>
                     <th>STT</th>
-                    <th>Chi nhánh</th>
                     <th>Team</th>
                     <th>Sale</th>
                     <th>Số Mess</th>
@@ -1087,7 +1160,7 @@ function DailyBreakdownChot({ filteredData }) {
                 </thead>
                 <tbody>
                   <tr className="total-row">
-                    <td colSpan={4} className="total-label">
+                    <td colSpan={3} className="total-label">
                       TỔNG NGÀY {date}
                     </td>
                     <td className="total-value">{formatNumber(total.mess)}</td>
@@ -1104,7 +1177,6 @@ function DailyBreakdownChot({ filteredData }) {
                     return (
                       <tr key={`${date}-${item.name}`} style={{ '--row-index': index }}>
                         <td className="text-center">{index + 1}</td>
-                        <td className="text-left">{item.chiNhanh}</td>
                         <td className="text-left">{item.team}</td>
                         <td className="text-left">{item.name}</td>
                         <td>{formatNumber(item.mess)}</td>

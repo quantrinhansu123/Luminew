@@ -509,6 +509,9 @@ export function filterRawData({
   selectedTeams,
   marketAll,
   selectedMarkets,
+  /** Lọc theo cột tên (ten); nameAll=true bỏ qua. */
+  nameAll = true,
+  selectedNames = null,
 }) {
   const startDate = startDateStr ? new Date(startDateStr) : null;
   if (startDate) startDate.setHours(0, 0, 0, 0);
@@ -516,18 +519,22 @@ export function filterRawData({
   if (endDate) endDate.setHours(23, 59, 59, 999);
 
   return rawData.filter((r) => {
-    if (allowedPersonnelNames && allowedPersonnelNames.length > 0) {
+    const hasPersonnelScope =
+      allowedPersonnelNames && allowedPersonnelNames.length > 0;
+    if (hasPersonnelScope) {
       if (!rowMatchesPersonnelList(r.ten, allowedPersonnelNames)) return false;
     }
     if (isRestrictedView) {
-      if (allowedBranch && !recordMatchesAllowedBranch(allowedBranch, r)) return false;
-      if (allowedTeam) {
-        const recordTeam = (r.team || '').trim();
-        if (recordTeam !== allowedTeam) return false;
+      /** Có selected_personnel → phạm vi theo danh sách tên; không siết thêm team/chi nhánh của người xem. */
+      if (!hasPersonnelScope) {
+        if (allowedBranch && !recordMatchesAllowedBranch(allowedBranch, r)) return false;
+        if (allowedTeam) {
+          const recordTeam = (r.team || '').trim();
+          if (recordTeam !== allowedTeam) return false;
+        }
       }
-      // Có selected_personnel → đã lọc theo `ten` ở trên; không ép thêm allowedNames (tránh chặt hơn danh sách được cấp).
       if (
-        (!allowedPersonnelNames || allowedPersonnelNames.length === 0) &&
+        !hasPersonnelScope &&
         allowedNames.length > 0 &&
         !rowMatchesAllowedSaleName(r, allowedNames, allowedUserEmail)
       ) {
@@ -546,7 +553,15 @@ export function filterRawData({
       caAll || (selectedShifts && selectedShifts.includes(String(r.ca)));
     const isTeamOk =
       teamAll || (selectedTeams && selectedTeams.includes(String(r.team)));
-    return isDateOk && isProductOk && isMarketOk && isShiftOk && isTeamOk;
+    /** Chỉ lọc theo tên khi đã bỏ "Tất cả" và có ít nhất một tên chọn — tránh nameSel=[] xóa hết dòng. */
+    const applyingNameSubset =
+      nameAll === false &&
+      Array.isArray(selectedNames) &&
+      selectedNames.length > 0;
+    const isNameOk =
+      !applyingNameSubset ||
+      selectedNames.some((n) => rowMatchesPersonnelList(r.ten, [n]));
+    return isDateOk && isProductOk && isMarketOk && isShiftOk && isTeamOk && isNameOk;
   });
 }
 
@@ -567,17 +582,19 @@ export function filterRawForRestrictedPopulate(
   if (!isRestrictedView) {
     return rawData.filter((r) => passPersonnel(r));
   }
+  const hasPersonnelScope =
+    allowedPersonnelNames && allowedPersonnelNames.length > 0;
   return rawData.filter((r) => {
     if (!passPersonnel(r)) return false;
+    if (hasPersonnelScope) {
+      return true;
+    }
     if (allowedBranch) {
       return recordMatchesAllowedBranch(allowedBranch, r);
     }
     if (allowedTeam) {
       const recordTeam = (r.team || '').trim();
       return recordTeam === allowedTeam;
-    }
-    if (allowedPersonnelNames && allowedPersonnelNames.length > 0) {
-      return true;
     }
     if (allowedNames.length > 0) return rowMatchesAllowedSaleName(r, allowedNames, allowedUserEmail);
     return false;

@@ -611,8 +611,6 @@ function FFM() {
     return Math.max(0, Math.min(n, currentColumns.length));
   }, [fixedColumns, currentColumns.length]);
 
-  const getStickyLeftPx = useCallback((idx) => idx * 140, []);
-
   // Nếu số cột hiển thị giảm, tự clamp lại fixedColumns
   useEffect(() => {
     setFixedColumns((prev) => {
@@ -1130,14 +1128,18 @@ function FFM() {
     const COL_KEYS = FFM_QUICK_ADD_COLUMNS;
     let notFoundCount = 0;
 
+    /** Chuẩn hóa mã đơn để khớp dòng trong bảng chính (đúng dòng / đúng khóa pending). */
+    const normOrderId = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+
     rows.forEach((row) => {
-      const orderId = row[0]?.trim();
-      if (!orderId) return;
-      const originalRow = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+      const lookupId = normOrderId(row[0]);
+      if (!lookupId) return;
+      const originalRow = allData.find((r) => normOrderId(r[PRIMARY_KEY_COLUMN]) === lookupId);
       if (!originalRow) {
         notFoundCount++;
         return;
       }
+      const orderId = String(originalRow[PRIMARY_KEY_COLUMN] ?? lookupId);
 
       COL_KEYS.forEach((colName, idx) => {
         if (idx === 0) return;
@@ -1165,13 +1167,13 @@ function FFM() {
               const uiCol = 'Ngày có mã tracking';
 
               const pendingInfo = pendingChanges.get(orderId)?.get(uiCol);
-              const currentUiVal = pendingInfo ? pendingInfo.newValue : (originalRow[uiCol] ?? '');
+              const currentUiValTracking = pendingInfo ? pendingInfo.newValue : (originalRow[uiCol] ?? '');
 
-              if (String(currentUiVal) !== todayStr) {
+              if (String(currentUiValTracking) !== todayStr) {
                 changesArray.push({
                   orderId,
                   colKey: uiCol,
-                  originalValue: String(currentUiVal),
+                  originalValue: String(currentUiValTracking),
                   newValue: todayStr
                 });
               }
@@ -1460,7 +1462,10 @@ function FFM() {
 
           if (tbody) {
             const rowIndex = Array.from(tbody.children).indexOf(tr);
-            const colIndex = Array.from(tr.children).indexOf(td);
+            let colIndex = Array.from(tr.children).indexOf(td);
+            if (table?.getAttribute('data-ffm-pane') === 'right') {
+              colIndex += effectiveFixedColumns;
+            }
             setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
           }
         }
@@ -1567,7 +1572,7 @@ function FFM() {
     };
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [selection, pendingChanges, quickAddModalOpen, currentColumns, paginatedData, getSelectionBounds]);
+  }, [selection, pendingChanges, quickAddModalOpen, currentColumns, paginatedData, getSelectionBounds, effectiveFixedColumns]);
 
   const calculatedSummary = useMemo(() => {
     if (!selectionBounds) return null;
@@ -1636,12 +1641,17 @@ function FFM() {
     let currentLeft = 0;
     for (let i = 0; i < currentColumns.length; i++) {
       offsets[i] = currentLeft;
-      if (i < fixedColumns) {
+      if (i < effectiveFixedColumns) {
         currentLeft += getColumnWidthPx(currentColumns[i]);
       }
     }
     return offsets;
-  }, [currentColumns, fixedColumns, getColumnWidthPx]);
+  }, [currentColumns, effectiveFixedColumns, getColumnWidthPx]);
+
+  /** Cố định > 0: tách cột trái ra khỏi vùng overflow-x (thanh kéo ngang chỉ nằm dưới phần cột cuộn). */
+  const splitPane = effectiveFixedColumns > 0;
+  const frozenCols = splitPane ? currentColumns.slice(0, effectiveFixedColumns) : [];
+  const scrollCols = splitPane ? currentColumns.slice(effectiveFixedColumns) : currentColumns;
 
   const totalMoney = useMemo(() => {
     return getFilteredData.reduce((sum, row) => {
@@ -1682,8 +1692,7 @@ function FFM() {
       }
     }
 
-    if (cIdx < effectiveFixedColumns) {
-      // `left` được set bằng inline style theo từng cột để freeze đúng vị trí.
+    if (!splitPane && cIdx < effectiveFixedColumns) {
       classes += 'sticky z-10 bg-gray-50 ';
     }
 
@@ -1715,7 +1724,271 @@ function FFM() {
     }
 
     return classes;
-  }, [selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns]);
+  }, [selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns, splitPane]);
+
+  const tableClassName = 'border-separate border-spacing-0 text-sm table-auto';
+
+  const renderColumnFilterEditor = (col) => {
+    const key = COLUMN_MAPPING[col] || col;
+    const filterKey = col;
+    if (col === 'STT') {
+      return <div className="text-xs text-gray-400">-</div>;
+    }
+    if (col === 'Mã Tracking') {
+      return (
+        <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
+          <select
+            className="w-full text-[13px] px-2 py-1.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+            value={localFilterValues.tracking_status || 'Tình trạng mã'}
+            onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_status: e.target.value }))}
+          >
+            <option value="Tình trạng mã">Tình trạng mã</option>
+            <option value="Tất cả có mã">Tất cả có mã</option>
+            <option value="Trống">Trống</option>
+            <option value="Toàn số">Toàn số</option>
+          </select>
+          {(localFilterValues.tracking_status === 'Tình trạng mã' || !localFilterValues.tracking_status) && (
+            <>
+              <input
+                className="w-full text-xs px-1 py-0.5 border rounded"
+                placeholder="Bao gồm..."
+                value={localFilterValues.tracking_include}
+                onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
+              />
+              <input
+                className="w-full text-xs px-1 py-0.5 border rounded"
+                placeholder="Loại trừ..."
+                value={localFilterValues.tracking_exclude}
+                onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
+              />
+            </>
+          )}
+        </div>
+      );
+    }
+    if (col === 'Ngày đóng hàng') {
+      return (
+        <div className="flex flex-col gap-1.5 relative">
+          <select
+            className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
+            value={localFilterValues.packing_date_status || 'Tất cả'}
+            onChange={(e) => setLocalFilterValues((p) => ({ ...p, packing_date_status: e.target.value }))}
+          >
+            <option value="Tất cả">Tất cả</option>
+            <option value="Hôm nay">Hôm nay</option>
+            <option value="Hôm qua">Hôm qua</option>
+            <option value="Trống">Trống</option>
+            <option value="Ngày cụ thể">Ngày cụ thể</option>
+          </select>
+          {localFilterValues.packing_date_status === 'Ngày cụ thể' && (
+            <input
+              type="date"
+              className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+              value={filterValues[filterKey] || ''}
+              onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+            />
+          )}
+        </div>
+      );
+    }
+    if (col === 'Trạng thái giao hàng') {
+      return (
+        <div className="flex flex-col gap-1.5 relative">
+          <select
+            className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
+            value={localFilterValues.delivery_status_filter || 'Tất cả'}
+            onChange={(e) => setLocalFilterValues((p) => ({ ...p, delivery_status_filter: e.target.value }))}
+          >
+            <option value="Tất cả">Tất cả</option>
+            {DROPDOWN_OPTIONS['Trạng thái giao hàng']?.filter((o) => o).map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+            <option value="Trống">Trống</option>
+            <option value="Tìm kiếm...">Tìm kiếm...</option>
+          </select>
+          {localFilterValues.delivery_status_filter === 'Tìm kiếm...' && (
+            <input
+              type="text"
+              className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+              placeholder="Nhập trạng thái..."
+              value={localFilterValues.delivery_status_search || ''}
+              onChange={(e) => setLocalFilterValues((p) => ({ ...p, delivery_status_search: e.target.value }))}
+            />
+          )}
+        </div>
+      );
+    }
+    if (col === 'Ngày đối soát kế toán' || col === 'Phí ship nội địa Mỹ (usd)' || col === 'Phí ship nội địa mỹ') {
+      return (
+        <div className="flex flex-col gap-1.5 relative">
+          <select
+            className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
+            value={localFilterValues.us_shipping_fee_status || 'Tất cả'}
+            onChange={(e) => setLocalFilterValues((p) => ({ ...p, us_shipping_fee_status: e.target.value }))}
+          >
+            <option value="Tất cả">Tất cả</option>
+            <option value="Miễn phí (0)">Miễn phí (0)</option>
+            <option value="Có phí (>0)">Có phí (&gt;0)</option>
+            <option value="Trống">Trống</option>
+            <option value="Giá trị cụ thể">Giá trị cụ thể</option>
+          </select>
+          {localFilterValues.us_shipping_fee_status === 'Giá trị cụ thể' && (
+            <input
+              type="text"
+              className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+              placeholder="Nhập phí..."
+              value={localFilterValues.us_shipping_fee_search || ''}
+              onChange={(e) => setLocalFilterValues((p) => ({ ...p, us_shipping_fee_search: e.target.value }))}
+            />
+          )}
+        </div>
+      );
+    }
+    if (DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(col)) {
+      return (
+        <MultiSelect
+          label="Lọc..."
+          options={getMultiSelectOptions(col)}
+          selected={filterValues[filterKey] || []}
+          onChange={(vals) => setFilterValues((p) => ({ ...p, [filterKey]: vals }))}
+        />
+      );
+    }
+    if (['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)) {
+      return (
+        <input
+          type="date"
+          className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+          value={filterValues[filterKey] || ''}
+          onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+        />
+      );
+    }
+    return (
+      <input
+        type="text"
+        className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+        placeholder="..."
+        value={localFilterValues[filterKey] || ''}
+        onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+      />
+    );
+  };
+
+  const renderFfmDataCell = (row, rIdx, col, cIdx, cellStyle) => {
+    const orderId = row[PRIMARY_KEY_COLUMN];
+    const key = COLUMN_MAPPING[col] || col;
+    let val = '';
+    if (col === 'Mã Tracking') {
+      val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
+    } else if (col === 'Ngày đẩy đơn') {
+      val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
+    } else if (col === 'Payment Bill') {
+      val = row['Payment Bill'] ?? row.payment_bill ?? row[key] ?? '';
+    } else if (col === 'Payment Image') {
+      val = row['Payment Image'] ?? row.payment_image ?? row[key] ?? '';
+    } else {
+      val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
+    }
+    const pendingInfo = pendingChanges.get(orderId)?.get(key);
+    if (pendingInfo) val = pendingInfo.newValue;
+    const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Thời gian giao dự kiến'].includes(col)
+      ? formatDate(val)
+      : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
+        ? val !== '' && val !== null
+          ? Number(String(val).replace(/[^\d.-]/g, '')).toLocaleString('vi-VN')
+          : ''
+        : val;
+
+    const className = getCellClass(row, col, String(displayVal), rIdx, cIdx);
+
+    return (
+      <td
+        key={`${orderId}-${col}`}
+        className={className}
+        style={cellStyle}
+        onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}
+        onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
+      >
+        {col === 'STT' ? (
+          row['rowIndex'] || (currentPage - 1) * rowsPerPage + rIdx + 1
+        ) : DROPDOWN_OPTIONS[col] ? (
+          <select
+            className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
+            value={String(val)}
+            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
+          >
+            {DROPDOWN_OPTIONS[col].map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        ) : col === 'Kết quả Check' || col === 'Trạng thái giao hàng' ? (
+          <select
+            className="w-full bg-transparent border-none outline-none text-sm p-0 m-0"
+            value={String(val)}
+            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
+          >
+            {getMultiSelectOptions(key)
+              .filter((o) => o !== '__EMPTY__')
+              .map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+          </select>
+        ) : col === 'Payment Bill' ? (
+          <select
+            className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
+            value={String(val)}
+            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
+          >
+            {DROPDOWN_OPTIONS['Payment Bill']?.map((o) => (
+              <option key={o} value={o}>{o || '-- Chọn --'}</option>
+            )) || (
+              <>
+                <option value="">-- Chọn --</option>
+                <option value="Có bill">Có bill</option>
+                <option value="Bill một phần">Bill một phần</option>
+              </>
+            )}
+          </select>
+        ) : col === 'Payment Image' ? (
+          <Suspense fallback={<span className="text-gray-400">...</span>}>
+            <BillImageViewer
+              paymentImage={val || row['Payment Image'] || row.payment_image || ''}
+              orderCode={orderId}
+            />
+          </Suspense>
+        ) : isEditableColFFM(col) ? (
+          <input
+            type="text"
+            key={`${orderId}-${col}-${String(displayVal)}`}
+            defaultValue={String(displayVal)}
+            onBlur={(e) => {
+              const newValue = e.target.value;
+              if (newValue !== String(displayVal)) handleCellChange(orderId, key, newValue);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const newValue = e.target.value;
+                if (newValue !== String(displayVal)) handleCellChange(orderId, key, newValue);
+                e.target.blur();
+              } else if (e.key === 'Escape') {
+                e.target.value = String(displayVal);
+                e.target.blur();
+              }
+            }}
+            onFocus={(e) => {
+              e.target.select();
+              setSelection({ startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
+            }}
+            className="w-full h-full outline-none bg-transparent border-none p-0 text-sm"
+          />
+        ) : (
+          displayVal
+        )}
+      </td>
+    );
+  };
 
   if (!canView('ORDERS_FFM')) {
     return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (ORDERS_FFM).</div>;
@@ -1925,322 +2198,139 @@ function FFM() {
         </div>
       </div>
 
-      <div className="bg-white shadow-md rounded border border-gray-200 overflow-auto max-h-[72vh] relative select-none">
-        <table className="border-collapse text-sm w-max min-w-full table-auto">
-          <thead className="sticky top-0 z-30">
-            <tr className="bg-gray-100 min-h-12">
-              {currentColumns.map((col, idx) => {
-                const key = COLUMN_MAPPING[col] || col;
-                const filterKey = col;
-                const colWidthStyles = getColumnWidthStyles(col);
-                let stickyStyle = { ...colWidthStyles };
-
-                if (idx < effectiveFixedColumns) {
-                  stickyStyle = {
-                    ...stickyStyle,
-                    position: 'sticky',
-                    left: stickyOffsets[idx],
-                    zIndex: 40,
-                    background: '#f8f9fa'
-                  };
-                }
-
-                return (
-                  <th key={`filter-${col}`} className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border" style={stickyStyle}>
-                    <div className="font-semibold mb-1 text-gray-700">{col}</div>
-                    {col === 'STT' ? (
-                      <div className="text-xs text-gray-400">-</div>
-                    ) : col === 'Mã Tracking' ? (
-                      <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
-                        <select
-                          className="w-full text-[13px] px-2 py-1.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-                          value={localFilterValues.tracking_status || 'Tình trạng mã'}
-                          onChange={e => setLocalFilterValues(p => ({ ...p, tracking_status: e.target.value }))}
-                        >
-                          <option value="Tình trạng mã">Tình trạng mã</option>
-                          <option value="Tất cả có mã">Tất cả có mã</option>
-                          <option value="Trống">Trống</option>
-                          <option value="Toàn số">Toàn số</option>
-                        </select>
-                        {(localFilterValues.tracking_status === 'Tình trạng mã' || !localFilterValues.tracking_status) && (
-                          <>
-                            <input
-                              className="w-full text-xs px-1 py-0.5 border rounded"
-                              placeholder="Bao gồm..."
-                              value={localFilterValues.tracking_include}
-                              onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
-                            />
-                            <input
-                              className="w-full text-xs px-1 py-0.5 border rounded"
-                              placeholder="Loại trừ..."
-                              value={localFilterValues.tracking_exclude}
-                              onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
-                            />
-                          </>
-                        )}
-                      </div>
-                    ) : col === 'Ngày đóng hàng' ? (
-                      <div className="flex flex-col gap-1.5 relative">
-                        <select
-                          className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
-                          value={localFilterValues.packing_date_status || 'Tất cả'}
-                          onChange={e => setLocalFilterValues(p => ({ ...p, packing_date_status: e.target.value }))}
-                        >
-                          <option value="Tất cả">Tất cả</option>
-                          <option value="Hôm nay">Hôm nay</option>
-                          <option value="Hôm qua">Hôm qua</option>
-                          <option value="Trống">Trống</option>
-                          <option value="Ngày cụ thể">Ngày cụ thể</option>
-                        </select>
-                        {localFilterValues.packing_date_status === 'Ngày cụ thể' && (
-                          <input
-                            type="date"
-                            className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-                            value={filterValues[filterKey] || ''}
-                            onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
-                          />
-                        )}
-                      </div>
-                    ) : col === 'Trạng thái giao hàng' ? (
-                      <div className="flex flex-col gap-1.5 relative">
-                        <select
-                          className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
-                          value={localFilterValues.delivery_status_filter || 'Tất cả'}
-                          onChange={e => setLocalFilterValues(p => ({ ...p, delivery_status_filter: e.target.value }))}
-                        >
-                          <option value="Tất cả">Tất cả</option>
-                          {DROPDOWN_OPTIONS['Trạng thái giao hàng']?.filter(o => o).map(o => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                          <option value="Trống">Trống</option>
-                          <option value="Tìm kiếm...">Tìm kiếm...</option>
-                        </select>
-                        {localFilterValues.delivery_status_filter === 'Tìm kiếm...' && (
-                          <input
-                            type="text"
-                            className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-                            placeholder="Nhập trạng thái..."
-                            value={localFilterValues.delivery_status_search || ''}
-                            onChange={(e) => setLocalFilterValues((p) => ({ ...p, delivery_status_search: e.target.value }))}
-                          />
-                        )}
-                      </div>
-                    ) : (col === 'Ngày đối soát kế toán' || col === 'Phí ship nội địa Mỹ (usd)' || col === 'Phí ship nội địa mỹ') ? (
-                      <div className="flex flex-col gap-1.5 relative">
-                        <select
-                          className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
-                          value={localFilterValues.us_shipping_fee_status || 'Tất cả'}
-                          onChange={e => setLocalFilterValues(p => ({ ...p, us_shipping_fee_status: e.target.value }))}
-                        >
-                          <option value="Tất cả">Tất cả</option>
-                          <option value="Miễn phí (0)">Miễn phí (0)</option>
-                          <option value="Có phí (>0)">Có phí (&gt;0)</option>
-                          <option value="Trống">Trống</option>
-                          <option value="Giá trị cụ thể">Giá trị cụ thể</option>
-                        </select>
-                        {localFilterValues.us_shipping_fee_status === 'Giá trị cụ thể' && (
-                          <input
-                            type="text"
-                            className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-                            placeholder="Nhập phí..."
-                            value={localFilterValues.us_shipping_fee_search || ''}
-                            onChange={(e) => setLocalFilterValues((p) => ({ ...p, us_shipping_fee_search: e.target.value }))}
-                          />
-                        )}
-                      </div>
-                    ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(col) ? (
-                      <MultiSelect
-                        label={`Lọc...`}
-                        options={getMultiSelectOptions(col)}
-                        selected={filterValues[filterKey] || []}
-                        onChange={(vals) => setFilterValues((p) => ({ ...p, [filterKey]: vals }))}
-                      />
-                    ) : ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col) ? (
-                      <input
-                        type="date"
-                        className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-                        value={filterValues[filterKey] || ''}
-                        onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
-                      />
-                    ) : (
-                      <input
-                        type="text"
-                        className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-                        placeholder="..."
-                        value={localFilterValues[filterKey] || ''}
-                        onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
-                      />
-                    )}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={currentColumns.length} className="text-center p-10 text-gray-500">
-                  Đang tải dữ liệu...
-                </td>
-              </tr>
-            ) : paginatedData.length === 0 ? (
-              <tr>
-                <td colSpan={currentColumns.length} className="text-center p-10 text-gray-500 italic">
-                  Không có dữ liệu phù hợp
-                </td>
-              </tr>
-            ) : (
-              paginatedData.map((row, rIdx) => {
-                const orderId = row[PRIMARY_KEY_COLUMN];
-                return (
-                  <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
-                    {currentColumns.map((col, cIdx) => {
-                      const key = COLUMN_MAPPING[col] || col;
-                      // Đặc biệt xử lý cho "Mã Tracking" - kiểm tra cả tracking_code (DB) và Mã Tracking (mapped)
-                      let val = '';
-                      if (col === 'Mã Tracking') {
-                        val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
-                      } else if (col === 'Ngày đẩy đơn') {
-                        // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
-                        val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
-                      } else if (col === 'Payment Bill') {
-                        // Lấy từ cả tên hiển thị và database
-                        val = row['Payment Bill'] ?? row.payment_bill ?? row[key] ?? '';
-                      } else if (col === 'Payment Image') {
-                        // Lấy từ cả tên hiển thị và database
-                        val = row['Payment Image'] ?? row.payment_image ?? row[key] ?? '';
-                      } else {
-                        val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
-                      }
-
-                      // Merge pending changes vào giá trị hiển thị
-                      const pendingInfo = pendingChanges.get(orderId)?.get(key);
-                      if (pendingInfo) {
-                        val = pendingInfo.newValue;
-                      }
-
-                      const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Thời gian giao dự kiến'].includes(col)
-                        ? formatDate(val)
-                        : ((col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán")
-                          ? (val !== "" && val !== null ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : "")
-                          : val);
-
-                      const colWidthStyles = getColumnWidthStyles(col);
-                      const cellStyle = cIdx < effectiveFixedColumns
-                        ? {
-                          position: 'sticky',
-                          left: stickyOffsets[cIdx],
-                          zIndex: 10,
-                          ...colWidthStyles,
-                          background: '#f9fafb'
-                        }
-                        : colWidthStyles;
-
-                      return (
-                        <td
-                          key={`${orderId}-${col}`}
-                          className={getCellClass(row, col, String(displayVal), rIdx, cIdx)}
-                          style={cellStyle}
-                          onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}
-                          onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
-                        >
-                          {col === 'STT' ? (
-                            row['rowIndex'] || (currentPage - 1) * rowsPerPage + rIdx + 1
-                          ) : DROPDOWN_OPTIONS[col] ? (
-                            <select
-                              className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
-                              value={String(val)}
-                              onChange={(e) => handleCellChange(orderId, key, e.target.value)}
-                            >
-                              {DROPDOWN_OPTIONS[col].map((o) => (
-                                <option key={o} value={o}>
-                                  {o}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (col === 'Kết quả Check' || col === 'Trạng thái giao hàng') ? (
-                            <select
-                              className="w-full bg-transparent border-none outline-none text-sm p-0 m-0"
-                              value={String(val)}
-                              onChange={(e) => handleCellChange(orderId, key, e.target.value)}
-                            >
-                              {getMultiSelectOptions(key)
-                                .filter((o) => o !== '__EMPTY__')
-                                .map((o) => (
-                                  <option key={o} value={o}>
-                                    {o}
-                                  </option>
-                                ))}
-                            </select>
-                          ) : col === 'Payment Bill' ? (
-                            <select
-                              className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
-                              value={String(val)}
-                              onChange={(e) => handleCellChange(orderId, key, e.target.value)}
-                            >
-                              {DROPDOWN_OPTIONS['Payment Bill']?.map((o) => (
-                                <option key={o} value={o}>
-                                  {o || '-- Chọn --'}
-                                </option>
-                              )) || (
-                                  <>
-                                    <option value="">-- Chọn --</option>
-                                    <option value="Có bill">Có bill</option>
-                                    <option value="Bill một phần">Bill một phần</option>
-                                  </>
-                                )}
-                            </select>
-                          ) : col === 'Payment Image' ? (
-                            <Suspense fallback={<span className="text-gray-400">...</span>}>
-                              <BillImageViewer
-                                paymentImage={val || row['Payment Image'] || row.payment_image || ''}
-                                orderCode={orderId}
-                              />
-                            </Suspense>
-                          ) : isEditableColFFM(col) ? (
-                            <input
-                              type="text"
-                              key={`${orderId}-${col}-${String(displayVal)}`}
-                              defaultValue={String(displayVal)}
-                              onBlur={(e) => {
-                                const newValue = e.target.value;
-                                if (newValue !== String(displayVal)) {
-                                  handleCellChange(orderId, key, newValue);
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  const newValue = e.target.value;
-                                  if (newValue !== String(displayVal)) {
-                                    handleCellChange(orderId, key, newValue);
-                                  }
-                                  e.target.blur();
-                                } else if (e.key === 'Escape') {
-                                  e.target.value = String(displayVal);
-                                  e.target.blur();
-                                }
-                              }}
-                              onFocus={(e) => {
-                                e.target.select();
-                                setSelection({ startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
-                              }}
-                              className="w-full h-full outline-none bg-transparent border-none p-0 text-sm"
-                            />
-                          ) : (
-                            displayVal
-                          )}
-                        </td>
-                      );
-                    })}
+      <div className="bg-white shadow-md rounded border border-gray-200 relative isolate select-none">
+        {loading ? (
+          <div className="overflow-auto max-h-[72vh] flex justify-center items-center min-h-[240px] text-gray-500">
+            Đang tải dữ liệu...
+          </div>
+        ) : paginatedData.length === 0 ? (
+          <div className="overflow-auto max-h-[72vh] flex justify-center items-center min-h-[240px] text-gray-500 italic">
+            Không có dữ liệu phù hợp
+          </div>
+        ) : splitPane ? (
+          <div className="overflow-y-auto max-h-[72vh] flex flex-row items-start">
+            <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20">
+              <table data-ffm-pane="left" className={`${tableClassName} w-max`}>
+                <thead className="sticky top-0 z-[42]">
+                  <tr className="bg-gray-100 min-h-12">
+                    {frozenCols.map((col) => (
+                      <th
+                        key={`ff-${col}`}
+                        className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border"
+                        style={getColumnWidthStyles(col)}
+                      >
+                        <div className="font-semibold mb-1 text-gray-700">{col}</div>
+                        {renderColumnFilterEditor(col)}
+                      </th>
+                    ))}
                   </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                </thead>
+                <tbody>
+                  {paginatedData.map((row, rIdx) => (
+                    <tr key={String(row[PRIMARY_KEY_COLUMN])} className="hover:bg-[#E8EAF6] transition-colors">
+                      {frozenCols.map((col, i) => {
+                        const lastF = i === frozenCols.length - 1;
+                        const cellStyle = {
+                          ...getColumnWidthStyles(col),
+                          ...(lastF ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
+                        };
+                        return renderFfmDataCell(row, rIdx, col, i, cellStyle);
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex-1 min-w-0 overflow-x-auto">
+              <table data-ffm-pane="right" className={`${tableClassName} w-max min-w-max`}>
+                <thead className="sticky top-0 z-[41]">
+                  <tr className="bg-gray-100 min-h-12">
+                    {scrollCols.map((col) => (
+                      <th
+                        key={`sf-${col}`}
+                        className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border"
+                        style={getColumnWidthStyles(col)}
+                      >
+                        <div className="font-semibold mb-1 text-gray-700">{col}</div>
+                        {renderColumnFilterEditor(col)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedData.map((row, rIdx) => (
+                    <tr key={String(row[PRIMARY_KEY_COLUMN])} className="hover:bg-[#E8EAF6] transition-colors">
+                      {scrollCols.map((col, i) => {
+                        const cIdx = effectiveFixedColumns + i;
+                        const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 0 };
+                        return renderFfmDataCell(row, rIdx, col, cIdx, cellStyle);
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-auto max-h-[72vh]">
+            <table className={`${tableClassName} w-max min-w-full`}>
+              <thead className="sticky top-0 z-30">
+                <tr className="bg-gray-100 min-h-12">
+                  {currentColumns.map((col, idx) => {
+                    const colWidthStyles = getColumnWidthStyles(col);
+                    let stickyStyle = { ...colWidthStyles };
+                    if (idx < effectiveFixedColumns) {
+                      const lastFrozen = idx === effectiveFixedColumns - 1;
+                      stickyStyle = {
+                        ...stickyStyle,
+                        position: 'sticky',
+                        left: stickyOffsets[idx],
+                        zIndex: 41,
+                        background: '#f8f9fa',
+                        backgroundClip: 'padding-box',
+                        ...(lastFrozen ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.12)' } : {})
+                      };
+                    }
+                    return (
+                      <th
+                        key={`filter-${col}`}
+                        className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border"
+                        style={stickyStyle}
+                      >
+                        <div className="font-semibold mb-1 text-gray-700">{col}</div>
+                        {renderColumnFilterEditor(col)}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedData.map((row, rIdx) => {
+                  const orderId = row[PRIMARY_KEY_COLUMN];
+                  return (
+                    <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
+                      {currentColumns.map((col, cIdx) => {
+                        const colWidthStyles = getColumnWidthStyles(col);
+                        const lastFrozenCol = cIdx === effectiveFixedColumns - 1;
+                        const cellStyle = cIdx < effectiveFixedColumns
+                          ? {
+                              position: 'sticky',
+                              left: stickyOffsets[cIdx],
+                              zIndex: 20,
+                              ...colWidthStyles,
+                              ...(lastFrozenCol ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
+                            }
+                          : { ...colWidthStyles, position: 'relative', zIndex: 0 };
+                        return renderFfmDataCell(row, rIdx, col, cIdx, cellStyle);
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-
       <div className="bg-white p-3 rounded shadow-sm mt-4 flex justify-center items-center gap-4">
         <button disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => p - 1)} className="px-4 py-2 bg-primary text-white rounded disabled:bg-gray-300">
           Trang trước

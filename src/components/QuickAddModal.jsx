@@ -82,6 +82,19 @@ const parseDateValue = (value) => {
 // Các cột cho bảng Thêm nhanh - đồng bộ với bảng chính
 const COLUMNS = FFM_QUICK_ADD_COLUMNS;
 const TRACKING_COL_INDEX = COLUMNS.indexOf("Mã Tracking");
+const NGAY_DONG_HANG_COL_INDEX = COLUMNS.indexOf("Ngày đóng hàng");
+
+/** Hôm nay theo giờ local, định dạng dd/mm/yyyy (đồng bộ ô Ngày đóng hàng). */
+const getTodayDDMMYYYY = () => {
+    const d = new Date();
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+};
+
+/** Cùng quy tắc với FFM handleQuickSync — khớp đúng dòng theo Mã đơn hàng trong bảng chính. */
+const normOrderId = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
 
 const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} }) => {
     const [rows, setRows] = useState([]);
@@ -491,11 +504,26 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
     const handleSyncClick = () => {
         if (duplicateTrackingState.hasDuplicate) return;
 
-        const validRows = rows.filter(r => r.length > 0 && r[0] && r[0].trim() !== "");
+        const todayStr = getTodayDDMMYYYY();
+        const working = rows.map((r) => {
+            const copy = [...r];
+            while (copy.length < COLUMNS.length) copy.push("");
+            const orderCode = normOrderId(copy[0]);
+            const tracking = normOrderId(copy[TRACKING_COL_INDEX]);
+            const ngay = normOrderId(copy[NGAY_DONG_HANG_COL_INDEX]);
+            // Chỉ điền today trên đúng dòng (mã đơn + tracking + chưa có ngày đóng hàng)
+            if (orderCode && tracking && !ngay) {
+                copy[NGAY_DONG_HANG_COL_INDEX] = todayStr;
+            }
+            return copy;
+        });
+
+        const validRows = working.filter((r) => r.length > 0 && r[0] && r[0].trim() !== "");
         if (validRows.length === 0) {
             alert("Chưa có dữ liệu hợp lệ (Cần có Mã đơn hàng)");
             return;
         }
+        setRows(working);
         onSync(validRows);
         onClose();
     };

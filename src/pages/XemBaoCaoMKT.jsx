@@ -24,6 +24,15 @@ function parseMoneyNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Đếm đơn/mess: chuỗi kiểu "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
+function parseIntegerVi(v) {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** DS Chốt (TT): ưu tiên field từ Supabase, fallback snake_case từ API. */
 function pickDoanhSoTT(item) {
   if (item == null) return 0;
@@ -43,14 +52,31 @@ function normalizeMktDetailApiRow(item) {
     'Sản_phẩm': item['Sản_phẩm'] || item['Sản phẩm'] || item.san_pham || item.product || '',
     'Thị_trường': item['Thị_trường'] || item['Thị trường'] || item.thi_truong || item.market || '',
     'CPQC': item['CPQC'] || item.cpqc || 0,
-    'Số_Mess_Cmt': item['Số_Mess_Cmt'] || item['Số Mess Cmt'] || item.so_mess_cmt || item.mess_count || 0,
-    'Số đơn': item['Số đơn'] || item['Số_đơn'] || item.so_don || item.order_count || 0,
-    'Số đơn thực tế': item['Số đơn thực tế'] || item['Số_đơn_thực_tế'] || item.so_don_thuc_te || item.order_count_actual || 0,
+    'Số_Mess_Cmt': parseIntegerVi(
+      item['Số_Mess_Cmt'] ?? item['Số Mess Cmt'] ?? item.so_mess_cmt ?? item.mess_count ?? 0
+    ),
+    'Số đơn': parseIntegerVi(
+      item['Số đơn'] ?? item['Số_đơn'] ?? item.so_don ?? item.order_count ?? 0
+    ),
+    'Số đơn thực tế': parseIntegerVi(
+      item['Số đơn thực tế'] ??
+        item['Số_đơn_thực_tế'] ??
+        item.so_don_thuc_te ??
+        item.order_count_actual ??
+        0
+    ),
     'Doanh số TT': pickDoanhSoTT(item),
     'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
     'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
-    'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] || item.so_don_hoan_huy || item.order_cancel_count || 0,
-    'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] || item.so_don_hoan_huy_thuc_te || item.order_cancel_count_actual || 0,
+    'Số đơn hoàn hủy': parseIntegerVi(
+      item['Số đơn hoàn hủy'] ?? item.so_don_hoan_huy ?? item.order_cancel_count ?? 0
+    ),
+    'Số đơn hoàn hủy thực tế': parseIntegerVi(
+      item['Số đơn hoàn hủy thực tế'] ??
+        item.so_don_hoan_huy_thuc_te ??
+        item.order_cancel_count_actual ??
+        0
+    ),
     'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] || item.doanh_so_hoan_huy_thuc_te || item.revenue_cancel_actual || 0,
     'DS sau hoàn hủy': item['DS sau hoàn hủy'] || item.ds_sau_hoan_huy || 0,
     'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] || item.doanh_so_sau_hoan_huy_thuc_te || 0,
@@ -127,12 +153,14 @@ function ymdKeyFromReportRow(row) {
 
 /** Một dòng bảng chi tiết: tỉ lệ / CPS / giá tính từ Mess–Đơn–CPQC–DS nếu API không gửi. */
 function mapRawRowToProcessRow(row) {
-  const mess = Number(row['Số_Mess_Cmt'] || 0);
+  const mess = parseIntegerVi(row['Số_Mess_Cmt']);
   const cpqc = Number(row['CPQC'] || 0);
-  const orders = Number(row['Số đơn'] || 0);
-  const soDonTT = Number(row['Số đơn thực tế'] || 0);
-  const dsChot = Number(row['Doanh số'] || 0);
-  const dsChotTT = Number(row['Doanh số TT'] ?? 0);
+  const soDonTT = parseIntegerVi(row['Số đơn thực tế']);
+  const orders = soDonTT;
+  const dsChotTTCore = pickDoanhSoTT(row);
+  const dsChotTTFallback = parseMoneyNumber(row['Doanh thu chốt thực tế']);
+  const dsChotTT = dsChotTTCore || (dsChotTTFallback !== null ? dsChotTTFallback : 0);
+  const dsChot = dsChotTT;
 
   const tiLeChot = mess > 0 ? (orders / mess) * 100 : Number(row['Tỉ lệ chốt'] || 0);
   const tiLeChotTT = mess > 0 ? (soDonTT / mess) * 100 : Number(row['Tỉ lệ chốt thực tế'] || row['Tỉ lệ chốt TT'] || 0);
@@ -143,7 +171,7 @@ function mapRawRowToProcessRow(row) {
 
   const dsSauShip = Number(row['Doanh số sau ship'] || 0);
   const kpiValue = Number(row['KPIs'] || 0);
-  const soDonHuyTT = Number(row['Số đơn hoàn hủy thực tế'] || 0);
+  const soDonHuyTT = parseIntegerVi(row['Số đơn hoàn hủy thực tế']);
   const dsHuyTT = Number(row['Doanh số hoàn hủy thực tế'] || 0);
   const dsThanhCongTT = Number(row['Doanh số đi thực tế'] || 0);
   const cp_ds_sau_ship = dsSauShip > 0 ? (cpqc / dsSauShip) * 100 : 0;
@@ -436,8 +464,9 @@ export default function XemBaoCaoMKT() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Đảm bảo soDonTT luôn là true
+        // Luôn hiện Số đơn / Số đơn TT (có tổng cộng khớp cột)
         parsed.soDonTT = true;
+        parsed.orders = true;
         if (MKT_DEV) console.log('📋 Loaded visibleColumns from localStorage:', parsed);
         return parsed;
       } catch (e) {
@@ -863,11 +892,14 @@ export default function XemBaoCaoMKT() {
 
         const g = productGroups[productKey][marketKey];
         g.cpqc += Number(r['CPQC'] || 0);
-        g.soDon += Number(r['Số đơn'] || 0);
-        g.soDonThucTe += Number(r['Số đơn thực tế'] || 0);
-        g.soMessCmt += Number(r['Số_Mess_Cmt'] || 0);
-        g.dsChot += Number(r['Doanh số'] || 0);
-        g.dsChotThucTe += Number(r['Doanh thu chốt thực tế'] || 0);
+        const donTT = parseIntegerVi(r['Số đơn thực tế']);
+        g.soDon += donTT;
+        g.soDonThucTe += donTT;
+        g.soMessCmt += parseIntegerVi(r['Số_Mess_Cmt']);
+        const dtChotTT = parseMoneyNumber(r['Doanh thu chốt thực tế']);
+        const dsTT = pickDoanhSoTT(r) || (dtChotTT !== null ? dtChotTT : 0);
+        g.dsChot += dsTT;
+        g.dsChotThucTe += dsTT;
         g.dsHoanHuyThucTe += Number(r['Doanh số hoàn hủy thực tế'] || 0);
         g.dsSauHoanHuyThucTe += Number(r['Doanh số sau hoàn hủy thực tế'] || 0);
       });
@@ -1771,9 +1803,8 @@ export default function XemBaoCaoMKT() {
         }}
         visibleColumns={visibleColumns}
         onToggleColumn={(key) => {
-          // Đảm bảo soDonTT luôn là true
-          if (key === 'soDonTT') {
-            return; // Không cho phép tắt soDonTT
+          if (key === 'soDonTT' || key === 'orders') {
+            return;
           }
           setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
         }}
@@ -1784,8 +1815,8 @@ export default function XemBaoCaoMKT() {
             'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'].forEach(key => {
               all[key] = true;
             });
-          // Đảm bảo soDonTT luôn là true
           all.soDonTT = true;
+          all.orders = true;
           setVisibleColumns(all);
         }}
         onDeselectAll={() => {
@@ -1795,6 +1826,8 @@ export default function XemBaoCaoMKT() {
             'cp_ds', 'giaTBDon', 'soDonHuy', 'dsHuy'].forEach(key => {
               none[key] = false;
             });
+          none.soDonTT = true;
+          none.orders = true;
           setVisibleColumns(none);
         }}
         onResetDefault={() => {
@@ -1804,8 +1837,8 @@ export default function XemBaoCaoMKT() {
             giaMess: true, cps: true, cp_ds: true, giaTBDon: true,
             soDonHuy: false, dsHuy: false
           };
-          // Đảm bảo soDonTT luôn là true
           defaultCols.soDonTT = true;
+          defaultCols.orders = true;
           setVisibleColumns(defaultCols);
         }}
         defaultColumns={['stt', 'team', 'marketing', 'mess', 'cpqc', 'orders', 'soDonTT',

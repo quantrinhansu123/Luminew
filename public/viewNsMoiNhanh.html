@@ -868,6 +868,15 @@
       return `MKT_SUPABASE:${MKT_TEAM}:${startYmd || ''}:${endYmd || ''}`;
     }
 
+    /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
+    function parseIntegerVi(v) {
+      if (v == null || v === '') return 0;
+      if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+      const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) ? n : 0;
+    }
+
     /** Chuẩn hóa một dòng detail_reports (Supabase hoặc định dạng snake_case). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
@@ -880,15 +889,15 @@
         'Sản_phẩm': item.san_pham || item['Sản_phẩm'] || '',
         'Thị_trường': item.thi_truong || item['Thị_trường'] || '',
         'CPQC': item.cpqc ?? item['CPQC'] ?? 0,
-        'Số_Mess_Cmt': item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0,
-        'Số đơn': item['Số đơn'] ?? item.so_don ?? 0,
-        'Số đơn thực tế': item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0,
+        'Số_Mess_Cmt': parseIntegerVi(item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0),
+        'Số đơn': parseIntegerVi(item['Số đơn'] ?? item.so_don ?? 0),
+        'Số đơn thực tế': parseIntegerVi(item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0),
         'Doanh số': item['Doanh số'] ?? item.doanh_so ?? 0,
         /** API trả `doanh_so_tt` — đồng bộ React / pickDoanhSoTT (DS Chốt TT). */
         'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] ?? item.doanh_thu_chot_thuc_te ?? 0,
-        'Số đơn hoàn hủy': item['Số đơn hoàn hủy'] ?? 0,
-        'Số đơn hoàn hủy thực tế': item['Số đơn hoàn hủy thực tế'] ?? 0,
+        'Số đơn hoàn hủy': parseIntegerVi(item['Số đơn hoàn hủy'] ?? 0),
+        'Số đơn hoàn hủy thực tế': parseIntegerVi(item['Số đơn hoàn hủy thực tế'] ?? 0),
         'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] ?? 0,
         'DS sau hoàn hủy': item['DS sau hoàn hủy'] ?? 0,
         'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] ?? 0,
@@ -1254,21 +1263,14 @@
         const masterDataMKT = rowsNorm
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
           .map(r => {
-            const dsChot = Number(r["Doanh số"]) || 0;
             const dsChotTT = Number(r["Doanh số TT"] ?? r.doanh_so_tt) || 0;
+            const dsChotThucTeVal = dsChotTT || Number(r["Doanh thu chốt thực tế"]) || 0;
+            const donTT = parseIntegerVi(r["Số đơn thực tế"]);
             const dsSauHoanHuy = Number(r["DS sau hoàn hủy"]) || 0;
             const ngayParsed = parseNgayToDate(r["Ngày"]);
             const ngayKey = ngayParsed instanceof Date && !isNaN(ngayParsed.getTime())
               ? ngayParsed.toISOString().slice(0, 10)
               : String(r["Ngày"] || '').trim();
-            const keyNoCa = [
-              String(r["id_NS"] || '').trim().toLowerCase(),
-              String(r["Tên"] || '').trim().toLowerCase(),
-              String(ngayKey || '').trim().toLowerCase(),
-              String(r["Team"] || 'Khác').trim().toLowerCase(),
-              String(r["Sản_phẩm"] || 'N/A').trim().toLowerCase(),
-              String(r["Thị_trường"] || 'N/A').trim().toLowerCase(),
-            ].join('||');
             return {
               idnv: (r["id_NS"] || '').trim(),
               ten: (r["Tên"] || 'N/A').trim(),
@@ -1281,22 +1283,21 @@
               team: (r["Team"] || 'Khác').trim(),
               chucVu: String(r["Chức vụ"] || '').trim().toLowerCase(),
               cpqc: Number(r["CPQC"]) || 0,
-              soMessCmt: Number(r["Số_Mess_Cmt"]) || 0,
-              soDon: Number(r["Số đơn"]) || 0,
-              dsChot: dsChot,
-              soDonHuy: Number(r["Số đơn hoàn hủy"]) || 0,
-              doanhSoHuy: dsChot - dsSauHoanHuy,
+              soMessCmt: parseIntegerVi(r["Số_Mess_Cmt"]),
+              soDon: donTT,
+              dsChot: dsChotThucTeVal,
+              soDonHuy: parseIntegerVi(r["Số đơn hoàn hủy"]),
+              doanhSoHuy: dsChotThucTeVal - dsSauHoanHuy,
               dsSauHoanHuy: dsSauHoanHuy,
               dsSauShip: Number(r["Doanh số sau ship"]) || 0,
               dsThanhCong: Number(r["Doanh số TC"]) || 0,
               kpiValue: Number(r["KPIs"]) || 0,
-              soDonThucTe: Number(r["Số đơn thực tế"]) || 0,
-              dsChotThucTe: dsChotTT || Number(r["Doanh thu chốt thực tế"]) || 0,
+              soDonThucTe: donTT,
+              dsChotThucTe: dsChotThucTeVal,
               dsHoanHuyThucTe: Number(r["Doanh số hoàn hủy thực tế"]) || 0,
-              soDonHuyThucTe: Number(r["Số đơn hoàn hủy thực tế"]) || 0,
+              soDonHuyThucTe: parseIntegerVi(r["Số đơn hoàn hủy thực tế"]),
               dsSauHoanHuyThucTe: Number(r["Doanh số sau hoàn hủy thực tế"]) || 0,
               dsThanhCongThucTe: Number(r["Doanh số đi thực tế"]) || 0,
-              __keyNoCa: keyNoCa
             };
           });
 
@@ -1486,10 +1487,6 @@
           return false;
         });
       };
-      // NOTE: Không dedupe dữ liệu ở bước lọc.
-      // Nếu cần tránh double-count cho các chỉ số "TT" khi chọn Hết ca,
-      // xử lý ở bước tổng hợp (generateSummaryTableData) để CPQC/Mess vẫn cộng đủ.
-
       const filteredDataResult = baseDataForReport.filter(r => {
         const dateRaw = r.ngay instanceof Date ? r.ngay : parseNgayToDate(r.ngay);
         if (!dateRaw || isNaN(dateRaw.getTime())) return false;
@@ -1569,21 +1566,10 @@
 
     function applyTab1Filters() {
       const filteredData = getFilteredData('tab1');
-      const caAll = document.getElementById('ca-all-tab1');
-      const selectedCas = (!caAll || caAll.checked)
-        ? []
-        : Array.from(document.querySelectorAll('.filter-ca-tab1:checked')).map(cb => cb.value);
-      const norm = (v) =>
-        String(v || '')
-          .trim()
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '');
-      const dedupeTTByKey = selectedCas.length === 1 && norm(selectedCas[0]).includes('het ca');
 
-      const summaryList = generateSummaryTableData(filteredData, { dedupeTTByKey });
+      const summaryList = generateSummaryTableData(filteredData);
       sortList(summaryList, sortStates.summary, summaryColumnSortKeys, { prop: 'team', type: 'string' });
-      renderSummary(summaryList);
+      renderSummary(summaryList, filteredData);
       updateSortIcons(document.getElementById('summary-table'), sortStates.summary);
       // Nhường nhịp render để bảng tổng hợp hiển thị trước, rồi mới dựng breakdown nặng.
       requestAnimationFrame(() => renderDailyBreakdown(filteredData));
@@ -1642,44 +1628,46 @@
     // --- VI. CÁC HÀM TÍNH TOÁN VÀ TỔNG HỢP DỮ LIỆU ---
     // =================================================================================
 
-    function generateSummaryTableData(data, opts = {}) {
-      const dedupeTTByKey = !!opts.dedupeTTByKey;
-      const seenTTKeys = new Set();
-      const makeTTKey = (r) => r.__keyNoCa || [
-        String(r.idnv || '').trim().toLowerCase(),
-        String(r.ten || '').trim().toLowerCase(),
-        String(r.ngayKey || '').trim().toLowerCase(),
-        String(r.team || '').trim().toLowerCase(),
-        String(r.sanPham || '').trim().toLowerCase(),
-        String(r.thiTruong || '').trim().toLowerCase(),
-      ].join('||');
+    /** Cộng dồn từng chỉ số trên toàn bộ dòng detail đã lọc (không qua gom nhóm). */
+    function sumDetailTotalsFromRows(rows) {
+      const acc = { mess: 0, cpqc: 0, don: 0, chot: 0, donThucTe: 0, chotThucTe: 0 };
+      (rows || []).forEach((r) => {
+        acc.mess += Number(r.soMessCmt) || 0;
+        acc.cpqc += Number(r.cpqc) || 0;
+        acc.don += Number(r.soDon) || 0;
+        acc.chot += Number(r.dsChot) || 0;
+        acc.donThucTe += Number(r.soDonThucTe) || 0;
+        acc.chotThucTe += Number(r.dsChotThucTe) || 0;
+      });
+      return acc;
+    }
+
+    /** Gom theo id_NS + tên (tránh gộp nhầm hai người trùng tên); mọi dòng đều cộng dồn số. */
+    function generateSummaryTableData(data) {
       const summary = {};
-      data.forEach(r => {
-        const key = r.ten || 'N/A';
+      data.forEach((r) => {
+        const idPart = String(r.idnv || '').trim();
+        const namePart = String(r.ten || '').trim();
+        const key = idPart ? `${idPart}__${namePart}` : (namePart || 'N/A');
         if (!summary[key]) {
           summary[key] = {
-            team: r.team, name: r.ten, mess: 0, don: 0, chot: 0, cpqc: 0,
-            donThucTe: 0, chotThucTe: 0
+            team: r.team,
+            name: namePart || 'N/A',
+            mess: 0,
+            don: 0,
+            chot: 0,
+            cpqc: 0,
+            donThucTe: 0,
+            chotThucTe: 0,
           };
         }
         const S = summary[key];
-        S.mess += r.soMessCmt;
-        S.cpqc += r.cpqc;
-        if (dedupeTTByKey) {
-          const ttKey = makeTTKey(r);
-          if (!seenTTKeys.has(ttKey)) {
-            seenTTKeys.add(ttKey);
-            S.don += r.soDon;
-            S.chot += r.dsChot;
-            S.donThucTe += r.soDonThucTe;
-            S.chotThucTe += r.dsChotThucTe;
-          }
-        } else {
-          S.don += r.soDon;
-          S.chot += r.dsChot;
-          S.donThucTe += r.soDonThucTe;
-          S.chotThucTe += r.dsChotThucTe;
-        }
+        S.mess += Number(r.soMessCmt) || 0;
+        S.cpqc += Number(r.cpqc) || 0;
+        S.don += Number(r.soDon) || 0;
+        S.chot += Number(r.dsChot) || 0;
+        S.donThucTe += Number(r.soDonThucTe) || 0;
+        S.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
       return Object.values(summary);
     }
@@ -1712,11 +1700,12 @@
     // --- VII. CÁC HÀM HIỂN THỊ DỮ LIỆU (RENDERING) ---
     // =================================================================================
 
-    function renderSummary(dataList) {
+    function renderSummary(dataList, rawFilteredRows) {
       const selM = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
-      const { bodyHtml } = generateSummaryTableHTML(dataList, selM);
+      const detailTotals = rawFilteredRows ? sumDetailTotalsFromRows(rawFilteredRows) : null;
+      const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, detailTotals);
       document.getElementById('summary-body').innerHTML = bodyHtml;
-      document.getElementById('summary-foot').innerHTML = '';
+      document.getElementById('summary-foot').innerHTML = footHtml || '';
     }
 
     function renderKpiSummary(dataList) {
@@ -1842,17 +1831,6 @@
         container.innerHTML = `<p style="text-align:center; margin-top: 20px;">Dữ liệu quá lớn (${formatNumber(filteredData.length)} dòng), tạm ẩn bảng theo ngày để tăng tốc. Hãy thu hẹp bộ lọc theo ngày/team/sản phẩm.</p>`;
         return;
       }
-      const caAll = document.getElementById('ca-all-tab1');
-      const selectedCas = (!caAll || caAll.checked)
-        ? []
-        : Array.from(document.querySelectorAll('.filter-ca-tab1:checked')).map(cb => cb.value);
-      const norm = (v) =>
-        String(v || '')
-          .trim()
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '');
-      const dedupeTTByKey = selectedCas.length === 1 && norm(selectedCas[0]).includes('het ca');
       const groupedByDate = {};
       filteredData.forEach(r => {
         const d = formatDate(r.ngay);
@@ -1868,9 +1846,11 @@
       container.appendChild(loadingEl);
 
       const renderOneDateHtml = (date) => {
-        let dailyList = generateSummaryTableData(groupedByDate[date], { dedupeTTByKey });
+        const dayRaw = groupedByDate[date] || [];
+        const dayDetailTotals = sumDetailTotalsFromRows(dayRaw);
+        let dailyList = generateSummaryTableData(dayRaw);
         sortList(dailyList, { column: null, direction: 'asc' }, summaryColumnSortKeys, { prop: 'team', type: 'string' });
-        const { bodyHtml } = generateSummaryTableHTML(dailyList, selectedMarkets);
+        const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals);
         return `<h3>${date}</h3><div class="table-responsive-container"><table class="sortable-table daily-summary-table" data-date="${date}">
         <thead><tr>
         <th class="green-header">STT<span class="sort-icon"></span></th>
@@ -1888,7 +1868,7 @@
         <th class="yellow-header">CPS<span class="sort-icon"></span></th>
         <th class="yellow-header">%CP/DS<span class="sort-icon"></span></th>
         <th class="yellow-header">Giá TB Đơn<span class="sort-icon"></span></th>
-        </tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+        </tr></thead><tbody>${bodyHtml}</tbody><tfoot>${footHtml || ''}</tfoot></table></div>`;
       };
 
       let idx = 0;
@@ -1917,10 +1897,29 @@
       sortStates.daily = {};
     }
 
-    function generateSummaryTableHTML(dataList, selectedMarkets) {
-      let total = { mess: 0, don: 0, chot: 0, cpqc: 0, donThucTe: 0, chotThucTe: 0 };
+    /**
+     * @param detailTotalsOverride — nếu có: TỔNG CỘNG lấy trực tiếp từ mọi dòng detail (đã lọc), khớp tổng Số đơn / DS Chốt với dữ liệu gốc.
+     */
+    function generateSummaryTableHTML(dataList, selectedMarkets, detailTotalsOverride) {
+      let total;
+      if (detailTotalsOverride != null && typeof detailTotalsOverride === 'object') {
+        total = {
+          mess: Number(detailTotalsOverride.mess) || 0,
+          don: Number(detailTotalsOverride.don) || 0,
+          chot: Number(detailTotalsOverride.chot) || 0,
+          cpqc: Number(detailTotalsOverride.cpqc) || 0,
+          donThucTe: Number(detailTotalsOverride.donThucTe) || 0,
+          chotThucTe: Number(detailTotalsOverride.chotThucTe) || 0,
+        };
+      } else {
+        total = { mess: 0, don: 0, chot: 0, cpqc: 0, donThucTe: 0, chotThucTe: 0 };
+      }
       const bodyRowsHtml = dataList.map((s, index) => {
-        Object.keys(total).forEach(key => total[key] += s[key] || 0);
+        if (detailTotalsOverride == null) {
+          Object.keys(total).forEach((key) => {
+            total[key] += s[key] || 0;
+          });
+        }
         const rate = s.mess ? s.don / s.mess : 0;
         const rateThucTe = s.mess ? s.donThucTe / s.mess : 0;
         const pm = s.mess ? s.cpqc / s.mess : 0;
@@ -1970,7 +1969,7 @@
             <td class="total-value">${formatPercent(tPc)}</td>
             <td class="total-value">${formatCurrency(tPdt)}</td>
         </tr>`;
-      return { bodyHtml: totalRowHtml + bodyRowsHtml };
+      return { bodyHtml: bodyRowsHtml, footHtml: totalRowHtml };
     }
 
 
@@ -2015,11 +2014,19 @@
       const date = table.dataset.date;
       const filteredData = getFilteredData('tab1');
       const dailyData = filteredData.filter(r => formatDate(r.ngay) === date);
+      const dayDetailTotals = sumDetailTotalsFromRows(dailyData);
       let dailyList = generateSummaryTableData(dailyData);
       sortList(dailyList, sortState, summaryColumnSortKeys, { prop: 'team', type: 'string' });
       const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
-      const { bodyHtml } = generateSummaryTableHTML(dailyList, selectedMarkets);
-      table.querySelector('tbody').innerHTML = bodyHtml;
+      const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals);
+      const tb = table.querySelector('tbody');
+      if (tb) tb.innerHTML = bodyHtml;
+      let tf = table.querySelector('tfoot');
+      if (!tf) {
+        table.insertAdjacentHTML('beforeend', '<tfoot></tfoot>');
+        tf = table.querySelector('tfoot');
+      }
+      if (tf) tf.innerHTML = footHtml || '';
       updateSortIcons(table, sortState);
     }
 

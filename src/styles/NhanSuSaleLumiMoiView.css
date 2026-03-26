@@ -245,6 +245,14 @@
   font-weight: 600;
 }
 
+.nssl-root .sidebar .nssl-filter-hint {
+  font-size: 0.82rem;
+  color: var(--text-light);
+  margin: -4px 0 10px;
+  line-height: 1.35;
+  font-weight: 400;
+}
+
 .nssl-root .sidebar label {
   display: block;
   margin: 12px 0;

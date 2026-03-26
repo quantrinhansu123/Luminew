@@ -866,6 +866,12 @@ function VanDon() {
     return Math.max(minFixed, Math.min(n, currentColumns.length));
   }, [fixedColumns, currentColumns.length]);
 
+  /** Hai bảng: cột cố định ngoài vùng cuộn ngang (giống FFM). */
+  const splitPane =
+    effectiveFixedColumns > 0 && effectiveFixedColumns < currentColumns.length;
+  const frozenCols = splitPane ? currentColumns.slice(0, effectiveFixedColumns) : [];
+  const scrollCols = splitPane ? currentColumns.slice(effectiveFixedColumns) : [];
+
   const checkboxStickyPad = bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0;
 
   /** Độ rộng cố định theo từng cột để tính offset sticky chính xác khi cuộn ngang. */
@@ -921,7 +927,9 @@ function VanDon() {
         return;
       }
 
-      const thList = Array.from(tableEl.querySelectorAll('thead tr:first-child th[data-col-idx]'));
+      const thList = Array.from(tableEl.querySelectorAll('thead tr:first-child th[data-col-idx]')).sort(
+        (a, b) => Number(a.getAttribute('data-col-idx')) - Number(b.getAttribute('data-col-idx'))
+      );
       const widthByIdx = new Map();
       thList.forEach((th) => {
         const idx = Number(th.getAttribute('data-col-idx'));
@@ -2085,8 +2093,193 @@ function VanDon() {
     return classes;
   };
 
+  const renderVanDonFilterTh = (col, idx, positionStyle, showFreezeShadow) => {
+    const key = COLUMN_MAPPING[col] || col;
+    const filterKey = col;
+    const isCheckCol = col === 'Kết quả Check' || col === 'Kết quả check';
+    const isNameCol = col === 'Name*';
+    const isAddCol = col === 'Add';
+    const isCityCol = col === 'City';
+    const isProductCol = col === 'Mặt hàng';
+    const isQtyCol = col === 'Số lượng mặt hàng 1' || col === 'Số lượng mặt hàng 2';
 
+    return (
+      <th
+        data-col-idx={idx}
+        key={`filter-${col}-${idx}`}
+        className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : isQtyCol ? '' : 'px-4'}`}
+        style={{
+          ...positionStyle,
+          ...getColumnWidthStyles(col),
+          boxShadow: showFreezeShadow ? '2px 0 0 #d1d5db' : undefined
+        }}
+      >
+        <div
+          className={`font-semibold mb-2 text-gray-700 ${isQtyCol ? 'text-[11px] leading-tight whitespace-normal break-words' : 'text-sm whitespace-nowrap'} ${isCheckCol ? 'text-left' : ''}`}
+        >
+          {col}
+        </div>
+        {col === 'STT' ? (
+          <div className="text-xs text-gray-400">-</div>
+        ) : col === 'Mã Tracking' ? (
+          <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
+            <select
+              className="w-full text-[13px] px-2 py-1.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+              value={localFilterValues.tracking_status || 'Tình trạng mã'}
+              onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_status: e.target.value }))}
+            >
+              <option value="Tình trạng mã">Tình trạng mã</option>
+              <option value="Tất cả có mã">Tất cả có mã</option>
+              <option value="Trống">Trống</option>
+              <option value="Toàn số">Toàn số</option>
+            </select>
+            {(localFilterValues.tracking_status === 'Tình trạng mã' || !localFilterValues.tracking_status) && (
+              <>
+                <input
+                  className="w-full text-sm px-2 py-1.5 border rounded"
+                  style={{ zIndex: 1002 }}
+                  placeholder="Bao gồm..."
+                  value={localFilterValues.tracking_include}
+                  onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
+                />
+                <input
+                  className="w-full text-sm px-2 py-1.5 border rounded"
+                  style={{ zIndex: 1002 }}
+                  placeholder="Loại trừ..."
+                  value={localFilterValues.tracking_exclude}
+                  onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
+                />
+              </>
+            )}
+          </div>
+        ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(col) ? (
+          <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
+            <MultiSelect
+              label="Lọc..."
+              options={getMultiSelectOptions(col)}
+              selected={filterValues[filterKey] || []}
+              onChange={(vals) => setFilterValues((p) => ({ ...p, [filterKey]: vals }))}
+            />
+          </div>
+        ) : ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col) ? (
+          <input
+            type="date"
+            className="w-full text-sm px-2 py-1.5 border rounded shadow-sm"
+            style={{ zIndex: 1002 }}
+            value={filterValues[filterKey] || ''}
+            onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+          />
+        ) : (
+          <input
+            type="text"
+            className="w-full text-sm px-2 py-1.5 border rounded shadow-sm"
+            style={{ zIndex: 1002 }}
+            placeholder="..."
+            value={localFilterValues[filterKey] || ''}
+            onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+          />
+        )}
+      </th>
+    );
+  };
 
+  const renderVanDonDataCell = (row, rIdx, col, cIdx, cellStyle) => {
+    const orderId = row[PRIMARY_KEY_COLUMN];
+    const key = COLUMN_MAPPING[col] || col;
+    let val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
+    if (!val && col === 'Ngày up bill') {
+      val = row.ngayupbill ?? row.ngay_up_bill ?? '';
+    }
+    if (!val && col === 'Tiền đã thanh toán') {
+      val = row.reconciled_vnd ?? '';
+    }
+    const pendingInfo = pendingChanges.get(orderId)?.get(key);
+    if (pendingInfo) {
+      val = pendingInfo.newValue;
+    }
+    const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col)
+      ? formatDate(val)
+      : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
+        ? val !== '' && val !== null
+          ? Number(String(val).replace(/[^\d.-]/g, '')).toLocaleString('vi-VN')
+          : ''
+        : val;
+
+    return (
+      <td
+        key={`${orderId}-${col}`}
+        className={getCellClass(row, col, String(displayVal), rIdx, cIdx)}
+        style={cellStyle}
+        onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}
+        onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
+      >
+        {col === 'STT' ? (
+          row.rowIndex || (currentPage - 1) * rowsPerPage + rIdx + 1
+        ) : isReadonlyAllTab ? (
+          displayVal
+        ) : DROPDOWN_OPTIONS[col] ? (
+          <select
+            className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
+            value={String(val)}
+            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
+          >
+            {DROPDOWN_OPTIONS[col].map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+        ) : col === 'Kết quả Check' || col === 'Trạng thái giao hàng' ? (
+          <select
+            className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
+            style={{ padding: 0, margin: 0, lineHeight: '38px' }}
+            value={String(val)}
+            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
+          >
+            {getMultiSelectOptions(key)
+              .filter((o) => o !== 'Trống' && o !== '__EMPTY__')
+              .map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+          </select>
+        ) : EDITABLE_COLS.includes(col) ? (
+          <input
+            key={`${orderId}-${col}-${String(displayVal)}`}
+            type="text"
+            defaultValue={String(displayVal)}
+            onBlur={(e) => {
+              const newValue = e.target.value;
+              if (newValue !== String(displayVal)) {
+                handleCellChange(orderId, key, newValue);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const newValue = e.target.value;
+                if (newValue !== String(displayVal)) {
+                  handleCellChange(orderId, key, newValue);
+                }
+                e.target.blur();
+              } else if (e.key === 'Escape') {
+                e.target.value = String(displayVal);
+                e.target.blur();
+              }
+            }}
+            onFocus={(e) => {
+              e.target.select();
+              setSelection({ startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
+            }}
+            className="w-full h-full outline-none bg-transparent border-none p-0 text-sm"
+          />
+        ) : (
+          displayVal
+        )}
+      </td>
+    );
+  };
 
   if (!canView('ORDERS_LIST')) {
     return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (ORDERS_LIST).</div>;
@@ -2423,120 +2616,169 @@ function VanDon() {
 
 
         {/* Table Area - Optimized for Height */}
-        <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col">
-          <div className="overflow-auto relative select-none flex-1" style={{ overflowX: 'auto', overflowY: 'auto', isolation: 'isolate' }}>
-            <table ref={tableRef} className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
-              <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
-
-                <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
-                  {/* Checkbox column header - chỉ hiển thị trong tab Hà Nội */}
-                  {bolActiveTab === 'hanoi' && (
-                    <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 1002, background: '#f8f9fa' }}>
-                      <div className="flex items-center justify-center">
-                        <input
-                          type="checkbox"
-                          checked={paginatedData.length > 0 && paginatedData.every(row => selectedRows.has(row[PRIMARY_KEY_COLUMN]))}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              selectAllRows();
-                            } else {
-                              deselectAllRows();
-                            }
-                          }}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                        />
-                      </div>
-                    </th>
-                  )}
-                  {currentColumns.map((col, idx) => {
-                    const key = COLUMN_MAPPING[col] || col;
-                    const filterKey = col;
-                    const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
-                    const isNameCol = (col === "Name*");
-                    const isAddCol = (col === "Add");
-                    const isCityCol = (col === "City");
-                    const isProductCol = (col === "Mặt hàng");
-                    const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
-
-                    const stickyLeft = getStickyLeftPx(idx);
-
-                    const stickyStyle = idx < effectiveFixedColumns
-                      ? { position: 'sticky', left: stickyLeft, zIndex: 3200, background: '#f8f9fa' }
-                      : { position: 'relative', zIndex: 10 };
-
-                    return (
-                      <th data-col-idx={idx} key={`filter-${col}`} className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : (isQtyCol ? '' : 'px-4')}`} style={{
-                        ...stickyStyle, 
-                        ...getColumnWidthStyles(col),
-                        boxShadow: idx === effectiveFixedColumns - 1 ? '2px 0 0 #d1d5db' : undefined
-                      }}>
-                        <div className={`font-semibold mb-2 text-gray-700 ${isQtyCol ? 'text-[11px] leading-tight whitespace-normal break-words' : 'text-sm whitespace-nowrap'} ${(col === "Kết quả Check" || col === "Kết quả check") ? 'text-left' : ''}`}>{col}</div>
-                        {/* Render Filters based on View Mode and Column Type */}
-                        {col === "STT" ? (
-                          <div className="text-xs text-gray-400">-</div>
-                        ) : col === "Mã Tracking" ? (
-                          <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
-                            <select
-                              className="w-full text-[13px] px-2 py-1.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-                              value={localFilterValues.tracking_status || 'Tình trạng mã'}
-                              onChange={e => setLocalFilterValues(p => ({ ...p, tracking_status: e.target.value }))}
-                            >
-                              <option value="Tình trạng mã">Tình trạng mã</option>
-                              <option value="Tất cả có mã">Tất cả có mã</option>
-                              <option value="Trống">Trống</option>
-                              <option value="Toàn số">Toàn số</option>
-                            </select>
-                            {(localFilterValues.tracking_status === 'Tình trạng mã' || !localFilterValues.tracking_status) && (
-                              <>
-                                <input
-                                  className="w-full text-sm px-2 py-1.5 border rounded" style={{ zIndex: 1002 }} placeholder="Bao gồm..."
-                                  value={localFilterValues.tracking_include} onChange={e => setLocalFilterValues(p => ({ ...p, tracking_include: e.target.value }))}
-                                />
-                                <input
-                                  className="w-full text-sm px-2 py-1.5 border rounded" style={{ zIndex: 1002 }} placeholder="Loại trừ..."
-                                  value={localFilterValues.tracking_exclude} onChange={e => setLocalFilterValues(p => ({ ...p, tracking_exclude: e.target.value }))}
-                                />
-                              </>
-                            )}
-                          </div>
-                        ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(col) ? (
-                          <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
-                            <MultiSelect
-                              label={`Lọc...`}
-                              options={getMultiSelectOptions(col)}
-                              selected={filterValues[filterKey] || []}
-                              onChange={vals => setFilterValues(p => ({ ...p, [filterKey]: vals }))}
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col min-h-0">
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-500">Đang tải dữ liệu...</div>
+          ) : paginatedData.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-500 italic">Không có dữ liệu phù hợp</div>
+          ) : splitPane ? (
+            <div
+              ref={tableRef}
+              className="flex-1 min-h-0 overflow-y-auto flex flex-row items-start select-none relative"
+              style={{ isolation: 'isolate' }}
+            >
+              <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20">
+                <table className="border-collapse w-max text-[13px] leading-tight" data-vandon-pane="left">
+                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
+                    <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
+                      {bolActiveTab === 'hanoi' && (
+                        <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 1002, background: '#f8f9fa' }}>
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={paginatedData.length > 0 && paginatedData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
+                              onChange={(e) => {
+                                if (e.target.checked) selectAllRows();
+                                else deselectAllRows();
+                              }}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
                             />
                           </div>
-                        ) : ["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(col) ? (
+                        </th>
+                      )}
+                      {frozenCols.map((col, i) =>
+                        renderVanDonFilterTh(
+                          col,
+                          i,
+                          { position: 'relative', zIndex: 3200, background: '#f8f9fa' },
+                          i === frozenCols.length - 1
+                        )
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody style={{ position: 'relative', zIndex: 0 }}>
+                    {paginatedData.map((row, rIdx) => {
+                      const orderId = row[PRIMARY_KEY_COLUMN];
+                      return (
+                        <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
+                          {bolActiveTab === 'hanoi' && (
+                            <td
+                              className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
+                              style={{
+                                position: 'sticky',
+                                left: 0,
+                                zIndex: 3300,
+                                backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb'
+                              }}
+                            >
+                              <div className="flex items-center justify-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRows.has(orderId)}
+                                  onChange={() => toggleRowSelection(orderId)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                />
+                              </div>
+                            </td>
+                          )}
+                          {frozenCols.map((col, i) => {
+                            const colWidthStyles = getColumnWidthStyles(col);
+                            const lastF = i === frozenCols.length - 1;
+                            const cellStyle = {
+                              ...colWidthStyles,
+                              position: 'relative',
+                              zIndex: 10,
+                              ...(lastF ? { boxShadow: '2px 0 0 #e5e7eb' } : {})
+                            };
+                            return renderVanDonDataCell(row, rIdx, col, i, cellStyle);
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex-1 min-w-0 overflow-x-auto min-h-0">
+                <table className="border-collapse w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
+                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
+                    <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
+                      {scrollCols.map((col, i) =>
+                        renderVanDonFilterTh(
+                          col,
+                          effectiveFixedColumns + i,
+                          { position: 'relative', zIndex: 10 },
+                          false
+                        )
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody style={{ position: 'relative', zIndex: 0 }}>
+                    {paginatedData.map((row, rIdx) => {
+                      const orderId = row[PRIMARY_KEY_COLUMN];
+                      return (
+                        <tr key={`${orderId}-right`} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
+                          {scrollCols.map((col, i) => {
+                            const cIdx = effectiveFixedColumns + i;
+                            const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 10 };
+                            return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div
+              ref={tableRef}
+              className="overflow-auto relative select-none flex-1 min-h-0"
+              style={{ overflowX: 'auto', overflowY: 'auto', isolation: 'isolate' }}
+            >
+              <table className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
+                <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
+                  <tr className="bg-gray-100 h-12" style={{ position: 'relative', zIndex: 1000 }}>
+                    {bolActiveTab === 'hanoi' && (
+                      <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 1002, background: '#f8f9fa' }}>
+                        <div className="flex items-center justify-center">
                           <input
-                            type="date" className="w-full text-sm px-2 py-1.5 border rounded shadow-sm" style={{ zIndex: 1002 }}
-                            value={filterValues[filterKey] || ''} onChange={e => setFilterValues(p => ({ ...p, [filterKey]: e.target.value }))}
+                            type="checkbox"
+                            checked={paginatedData.length > 0 && paginatedData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
+                            onChange={(e) => {
+                              if (e.target.checked) selectAllRows();
+                              else deselectAllRows();
+                            }}
+                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
                           />
-                        ) : (
-                          <input
-                            type="text" className="w-full text-sm px-2 py-1.5 border rounded shadow-sm" style={{ zIndex: 1002 }} placeholder="..."
-                            value={localFilterValues[filterKey] || ''} onChange={e => setLocalFilterValues(p => ({ ...p, [filterKey]: e.target.value }))}
-                          />
-                        )}
+                        </div>
                       </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody style={{ position: 'relative', zIndex: 0 }}>
-                {loading ? (
-                  <tr><td colSpan={currentColumns.length + (bolActiveTab === 'hanoi' ? 1 : 0)} className="text-center p-10 text-gray-500">Đang tải dữ liệu...</td></tr>
-                ) : paginatedData.length === 0 ? (
-                  <tr><td colSpan={currentColumns.length + (bolActiveTab === 'hanoi' ? 1 : 0)} className="text-center p-10 text-gray-500 italic">Không có dữ liệu phù hợp</td></tr>
-                ) : (
-                  paginatedData.map((row, rIdx) => {
+                    )}
+                    {currentColumns.map((col, idx) => {
+                      const stickyLeft = getStickyLeftPx(idx);
+                      const stickyStyle =
+                        idx < effectiveFixedColumns
+                          ? { position: 'sticky', left: stickyLeft, zIndex: 3200, background: '#f8f9fa' }
+                          : { position: 'relative', zIndex: 10 };
+                      return renderVanDonFilterTh(col, idx, stickyStyle, idx === effectiveFixedColumns - 1);
+                    })}
+                  </tr>
+                </thead>
+                <tbody style={{ position: 'relative', zIndex: 0 }}>
+                  {paginatedData.map((row, rIdx) => {
                     const orderId = row[PRIMARY_KEY_COLUMN];
                     return (
                       <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
-                        {/* Checkbox column - chỉ hiển thị trong tab Hà Nội */}
                         {bolActiveTab === 'hanoi' && (
-                          <td className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10" style={{ position: 'sticky', left: 0, zIndex: 3300, backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb' }}>
+                          <td
+                            className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
+                            style={{
+                              position: 'sticky',
+                              left: 0,
+                              zIndex: 3300,
+                              backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb'
+                            }}
+                          >
                             <div className="flex items-center justify-center">
                               <input
                                 type="checkbox"
@@ -2549,120 +2791,28 @@ function VanDon() {
                           </td>
                         )}
                         {currentColumns.map((col, cIdx) => {
-                          const key = COLUMN_MAPPING[col] || col;
-                          // Try multiple key variations for ngayupbill and reconciled_vnd
-                          let val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
-                          if (!val && col === "Ngày up bill") {
-                            val = row["ngayupbill"] ?? row["ngay_up_bill"] ?? '';
-                          }
-                          if (!val && col === "Tiền đã thanh toán") {
-                            val = row["reconciled_vnd"] ?? row["reconciled_vnd"] ?? '';
-                          }
-
-                          // Merge pending changes vào giá trị hiển thị
-                          const pendingInfo = pendingChanges.get(orderId)?.get(key);
-                          if (pendingInfo) {
-                            val = pendingInfo.newValue;
-                          }
-
-                          // Use formatDate for dates
-                          const displayVal = ["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2", "Ngày up bill"].includes(col)
-                            ? formatDate(val)
-                            : ((col === "Tổng tiền VNĐ" || col === "Tiền đã thanh toán") 
-                              ? (val !== "" && val !== null ? Number(String(val).replace(/[^\d.-]/g, "")).toLocaleString('vi-VN') : "") 
-                              : val);
-
-                          const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
-                          const isNameCol = (col === "Name*");
-                          const isAddCol = (col === "Add");
-                          const isCityCol = (col === "City");
-                          const isProductCol = (col === "Mặt hàng");
-                          const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
-
                           const cellStickyLeft = getStickyLeftPx(cIdx);
-
                           const colWidthStyles = getColumnWidthStyles(col);
-
-                          const cellStyle = cIdx < effectiveFixedColumns
-                            ? { position: 'sticky', left: cellStickyLeft, zIndex: 3100, ...colWidthStyles, boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined }
-                            : { position: 'relative', zIndex: 10, ...colWidthStyles };
-
-                          return (
-                            <td
-                              key={`${orderId}-${col}`}
-                              className={getCellClass(row, col, String(displayVal), rIdx, cIdx)}
-                              style={cellStyle}
-                              onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}
-                              onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
-                            >
-                              {col === "STT" ? (row['rowIndex'] || ((currentPage - 1) * rowsPerPage + rIdx + 1)) :
-                                isReadonlyAllTab ? (
-                                  displayVal
-                                ) :
-                                DROPDOWN_OPTIONS[col] ? (
-                                  <select
-                                    className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
-                                    value={String(val)}
-                                    onChange={(e) => handleCellChange(orderId, key, e.target.value)}
-                                  >
-                                    {DROPDOWN_OPTIONS[col].map(o => <option key={o} value={o}>{o}</option>)}
-                                  </select>
-                                ) : (col === "Kết quả Check" || col === "Trạng thái giao hàng") ? (
-                                  <select
-                                    className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
-                                    style={{ padding: 0, margin: 0, lineHeight: '38px' }}
-                                    value={String(val)}
-                                    onChange={(e) => handleCellChange(orderId, key, e.target.value)}
-                                  >
-                                    {getMultiSelectOptions(key)
-                                      .filter(o => o !== 'Trống' && o !== '__EMPTY__')
-                                      .map(o => <option key={o} value={o}>{o}</option>)}
-                                  </select>
-                                ) : EDITABLE_COLS.includes(col) ? (
-                                  <input
-                                    key={`${orderId}-${col}-${String(displayVal)}`}
-                                    type="text"
-                                    defaultValue={String(displayVal)}
-                                    onBlur={(e) => {
-                                      const newValue = e.target.value;
-                                      if (newValue !== String(displayVal)) {
-                                        handleCellChange(orderId, key, newValue);
-                                      }
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        const newValue = e.target.value;
-                                        if (newValue !== String(displayVal)) {
-                                          handleCellChange(orderId, key, newValue);
-                                        }
-                                        e.target.blur();
-                                      } else if (e.key === 'Escape') {
-                                        e.target.value = String(displayVal);
-                                        e.target.blur();
-                                      }
-                                    }}
-                                    onFocus={(e) => {
-                                      e.target.select();
-                                      setSelection({ startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
-                                    }}
-                                    className="w-full h-full outline-none bg-transparent border-none p-0 text-sm"
-                                  />
-                                ) : (
-                                  displayVal
-                                )}
-                            </td>
-                          );
+                          const cellStyle =
+                            cIdx < effectiveFixedColumns
+                              ? {
+                                  position: 'sticky',
+                                  left: cellStickyLeft,
+                                  zIndex: 3100,
+                                  ...colWidthStyles,
+                                  boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
+                                }
+                              : { position: 'relative', zIndex: 10, ...colWidthStyles };
+                          return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
                         })}
                       </tr>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-
         {/* Pagination Footer - Also compact */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2 flex-shrink-0">
           <div className="flex justify-between items-center gap-4">
