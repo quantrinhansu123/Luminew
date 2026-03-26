@@ -12,8 +12,11 @@ import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '../utils/dateParsing';
 
-/** PostgREST thường chỉ trả ~1000 dòng nếu không set limit — dễ thiếu đơn khi dữ liệu nhiều */
-const ORDERS_FETCH_LIMIT = 50000;
+/**
+ * PostgREST thường bị giới hạn ~1000 dòng / request.
+ * Vì vậy phải fetch theo trang bằng range().
+ */
+const ORDERS_PAGE_SIZE = 1000;
 
 /** Giá trị Ca sau khi gộp Giữa ca + Hết ca (khớp NhapDonMoi / báo cáo) */
 const SHIFT_GIUA_CA_HET_CA = 'Giữa ca,Hết ca';
@@ -423,20 +426,28 @@ function DanhSachDon() {
         return query;
       };
 
-      let query = applyTeamAndPersonnel(supabase.from('orders').select('*'));
+      const fetchAllPages = async (baseQuery, orderField) => {
+        const all = [];
+        let from = 0;
+        for (let page = 0; page < 500; page++) {
+          const { data, error } = await baseQuery
+            .order(orderField, { ascending: false })
+            .order('order_code', { ascending: false })
+            .range(from, from + ORDERS_PAGE_SIZE - 1);
+          if (error) throw error;
+          const chunk = data || [];
+          all.push(...chunk);
+          if (chunk.length < ORDERS_PAGE_SIZE) break;
+          from += ORDERS_PAGE_SIZE;
+        }
+        return all;
+      };
 
-      if (startDate) {
-        query = query.gte('order_date', startDate);
-      }
-      if (endDate) {
-        query = query.lte('order_date', endDate);
-      }
+      let base = applyTeamAndPersonnel(supabase.from('orders').select('*'));
+      if (startDate) base = base.gte('order_date', startDate);
+      if (endDate) base = base.lte('order_date', endDate);
 
-      const { data: supaData, error: supaError } = await query
-        .order('order_date', { ascending: false })
-        .limit(ORDERS_FETCH_LIMIT);
-
-      if (supaError) throw supaError;
+      const supaData = await fetchAllPages(base, 'order_date');
 
       // Gộp thêm đơn có order_date NULL nhưng created_at nằm trong khoảng (tránh thiếu đơn trên UI)
       let mergedRaw = [...(supaData || [])];
@@ -444,19 +455,19 @@ function DanhSachDon() {
         const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
         let qNull = applyTeamAndPersonnel(supabase.from('orders').select('*'));
         qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
-        const { data: extraRows, error: extraErr } = await qNull
-          .order('created_at', { ascending: false })
-          .limit(ORDERS_FETCH_LIMIT);
-        if (extraErr) {
-          console.warn('⚠️ [DanhSachDon] Không gộp được đơn order_date null:', extraErr.message);
-        } else if (extraRows?.length) {
-          const seen = new Set(mergedRaw.map((r) => r.order_code));
-          for (const row of extraRows) {
-            if (row.order_code && !seen.has(row.order_code)) {
-              mergedRaw.push(row);
-              seen.add(row.order_code);
+        try {
+          const extraRows = await fetchAllPages(qNull, 'created_at');
+          if (extraRows?.length) {
+            const seen = new Set(mergedRaw.map((r) => r.order_code));
+            for (const row of extraRows) {
+              if (row.order_code && !seen.has(row.order_code)) {
+                mergedRaw.push(row);
+                seen.add(row.order_code);
+              }
             }
           }
+        } catch (e) {
+          console.warn('⚠️ [DanhSachDon] Không gộp được đơn order_date null:', e?.message || String(e));
         }
       }
 
@@ -2368,7 +2379,9 @@ function DanhSachDon() {
                   {displayColumns.map((col) => (
                     <th
                       key={col}
-                      className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      className={`px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${
+                        col === 'Loại tiền thanh toán' ? 'whitespace-nowrap w-[150px]' : ''
+                      }`}
                       onClick={() => handleSort(col)}
                     >
                       <div className="flex items-center gap-2">
@@ -2477,7 +2490,9 @@ function DanhSachDon() {
                         return (
                           <td
                             key={col}
-                            className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50 transition-colors"
+                            className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50 transition-colors ${
+                              col === 'Loại tiền thanh toán' ? 'w-[150px]' : ''
+                            }`}
                             title={`${value || '-'} (Click để copy)`}
                             onClick={(e) => {
                               e.stopPropagation(); // Ngăn chặn select row khi click vào ô
