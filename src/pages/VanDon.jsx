@@ -134,15 +134,24 @@ function VanDon() {
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Đẩy đơn Hà Nội không
 
   // --- Pagination ---
+  const clampRowsPerPage = (v) => {
+    const n = Number(v) || 50;
+    return Math.max(50, Math.min(n, 500));
+  };
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(() => {
     const saved = localStorage.getItem('vanDon_rowsPerPage');
-    return saved ? Number(saved) : 50;
+    return clampRowsPerPage(saved ? Number(saved) : 50);
   });
 
   // Save rowsPerPage to localStorage
   useEffect(() => {
-    localStorage.setItem('vanDon_rowsPerPage', String(rowsPerPage));
+    const normalized = clampRowsPerPage(rowsPerPage);
+    if (normalized !== rowsPerPage) {
+      setRowsPerPage(normalized);
+      return;
+    }
+    localStorage.setItem('vanDon_rowsPerPage', String(normalized));
   }, [rowsPerPage]);
 
   // --- Selection & Clipboard ---
@@ -381,9 +390,10 @@ function VanDon() {
 
         console.log('🚀 [VanDon] Fetching API - isAdmin:', isAdmin, 'allowedStaff:', apiAllowedStaff, 'activeTeam:', activeTeam, 'marketFilter:', marketFilter);
 
-        // Admin: load tất cả đơn hàng một lần (không pagination)
-        const fetchLimit = isAdmin ? 100000 : rowsPerPage;
-        const fetchPage = isAdmin ? 1 : currentPage;
+        // Luôn dùng server-side pagination để tránh lag khi dữ liệu lớn.
+        // Trước đây admin tải 100k dòng/lần gây đơ UI.
+        const fetchLimit = clampRowsPerPage(rowsPerPage);
+        const fetchPage = Math.max(1, Number(currentPage) || 1);
 
         const saleStaffApi =
           (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale : undefined);
@@ -1507,7 +1517,7 @@ function VanDon() {
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
-  const effectiveRowsPerPage = viewMode === 'BILL_OF_LADING' ? 30 : rowsPerPage;
+  const effectiveRowsPerPage = clampRowsPerPage(rowsPerPage);
 
   // If using backend pagination, data is already paginated
   const paginatedData = useMemo(() => {
@@ -2362,7 +2372,7 @@ function VanDon() {
         onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
       >
         {col === 'STT' ? (
-          row.rowIndex || (currentPage - 1) * rowsPerPage + rIdx + 1
+          row.rowIndex || (currentPage - 1) * effectiveRowsPerPage + rIdx + 1
         ) : isReadonlyEditTab || (isReadonlyOrderDataTab && (isCarrierCol || isTrackingCol)) ? (
           displayVal
         ) : DROPDOWN_OPTIONS[col] ? (
@@ -3017,40 +3027,29 @@ function VanDon() {
                   className="border-none bg-transparent text-xs font-black text-[#F37021] focus:ring-0 p-0 cursor-pointer"
                   value={rowsPerPage}
                   onChange={e => {
-                    const value = Number(e.target.value);
-                    if (value > 0) {
-                      setRowsPerPage(value);
-                      setCurrentPage(1);
-                    }
+                    const value = clampRowsPerPage(Number(e.target.value));
+                    setRowsPerPage(value);
+                    setCurrentPage(1);
                   }}
                 >
-                  <option value="25">25 dòng</option>
                   <option value="50">50 dòng</option>
                   <option value="100">100 dòng</option>
                   <option value="200">200 dòng</option>
                   <option value="500">500 dòng</option>
-                  <option value="1000">1000 dòng</option>
                 </select>
                 <span className="text-xs text-gray-400">|</span>
                 <input
                   type="number"
-                  min="1"
-                  max="10000"
+                  min="50"
+                  max="500"
                   value={rowsPerPage}
                   onChange={e => {
-                    const value = Number(e.target.value);
-                    if (value > 0 && value <= 10000) {
-                      setRowsPerPage(value);
-                      setCurrentPage(1);
-                    }
+                    const value = clampRowsPerPage(Number(e.target.value));
+                    setRowsPerPage(value);
+                    setCurrentPage(1);
                   }}
                   onBlur={e => {
-                    const value = Number(e.target.value);
-                    if (value < 1) {
-                      setRowsPerPage(50);
-                    } else if (value > 10000) {
-                      setRowsPerPage(10000);
-                    }
+                    setRowsPerPage(clampRowsPerPage(Number(e.target.value)));
                   }}
                   className="w-16 text-xs font-bold text-[#F37021] border border-gray-300 rounded px-1 py-0.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Tùy chỉnh"
