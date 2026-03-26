@@ -877,6 +877,21 @@ function FFM() {
         const dataKey = COLUMN_MAPPING[key] || key;
         const isDateColFilter = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key);
 
+        // MultiSelect (dạng mảng) phải match đúng theo danh sách đã chọn,
+        // tránh rơi vào nhánh substring và dẫn đến cảm giác "lọc tự ý".
+        if (Array.isArray(val)) {
+          data = data.filter((row) => {
+            let cellValue =
+              row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+            cellValue = String(cellValue).trim();
+            const selected = val;
+            if (selected.length === 0) return true;
+            if (cellValue === '' && selected.includes('__EMPTY__')) return true;
+            return selected.includes(cellValue);
+          });
+          return;
+        }
+
         if (isDateColFilter) {
           const filterYmd = normalizeToYmdForCompare(val);
           if (!filterYmd) return;
