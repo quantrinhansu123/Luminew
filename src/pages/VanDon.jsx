@@ -966,22 +966,30 @@ function VanDon() {
     if (!root) return;
 
     const calcTop = () => {
+      const fallback = 38; // chiều cao header tối thiểu để tránh pinned-row đè header lúc mới render
       // splitPane: có 2 thead, lấy max height để top khớp
       if (splitPane) {
         const left = root.querySelector('[data-vandon-pane="left"]');
         const right = root.querySelector('[data-vandon-pane="right"]');
         const lh = left?.querySelector('thead')?.getBoundingClientRect?.().height || 0;
         const rh = right?.querySelector('thead')?.getBoundingClientRect?.().height || 0;
-        setFirstDataRowTop(Math.max(lh, rh));
+        const h = Math.max(lh, rh);
+        setFirstDataRowTop(Math.max(fallback, h));
+        if (h <= 0) requestAnimationFrame(calcTop);
         return;
       }
       const h = root.querySelector('thead')?.getBoundingClientRect?.().height || 0;
-      setFirstDataRowTop(h);
+      setFirstDataRowTop(Math.max(fallback, h));
+      if (h <= 0) requestAnimationFrame(calcTop);
     };
 
     calcTop();
+    const raf = requestAnimationFrame(calcTop);
     window.addEventListener('resize', calcTop);
-    return () => window.removeEventListener('resize', calcTop);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', calcTop);
+    };
   }, [splitPane, currentColumns.length, fixedColumns, bolActiveTab, viewMode]);
 
   /**
@@ -2332,11 +2340,24 @@ function VanDon() {
     const isTrackingCol = colLower === 'mã tracking';
     const isReadonlyOrderDataTab = bolActiveTab === 'all';
 
+    const mergedCellStyle = (() => {
+      const s = { ...(cellStyle || {}) };
+      if (rIdx === 0) {
+        // Sticky "dòng đầu tiên" ngay dưới header. Không dùng overlay để tránh lệch/nhân đôi dòng.
+        s.position = s.position || 'sticky';
+        s.top = firstDataRowTop;
+        s.zIndex = Math.max(Number(s.zIndex) || 0, 5000);
+        // đảm bảo nền không bị trong suốt khi đè lên các dòng phía dưới
+        if (!('background' in s) && !('backgroundColor' in s)) s.background = '#ffffff';
+      }
+      return s;
+    })();
+
     return (
       <td
         key={`${orderId}-${col}`}
         className={getCellClass(row, col, String(displayVal), rIdx, cIdx)}
-        style={cellStyle}
+        style={mergedCellStyle}
         onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}
         onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
       >
@@ -2774,39 +2795,11 @@ function VanDon() {
               onDragStartCapture={blockTableDragStart}
             >
               <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20 self-start overflow-y-hidden">
-                {paginatedData.length > 0 && (
-                  <div className="sticky" style={{ top: firstDataRowTop, zIndex: 1500 }}>
-                    <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight">
-                      <tbody>
-                        <tr className="bg-white">
-                          {bolActiveTab === 'hanoi' && (
-                            <td
-                              className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
-                              style={{ position: 'sticky', left: 0, zIndex: 4100, backgroundColor: '#f9fafb' }}
-                            />
-                          )}
-                          {frozenCols.map((col, i) => {
-                            const colWidthStyles = getColumnWidthStyles(col);
-                            const lastF = i === frozenCols.length - 1;
-                            const cellStyle = {
-                              ...colWidthStyles,
-                              position: 'relative',
-                              zIndex: 10,
-                              background: '#ffffff',
-                              ...(lastF ? { boxShadow: '2px 0 0 #e5e7eb' } : {})
-                            };
-                            return renderVanDonDataCell(paginatedData[0], 0, col, i, cellStyle);
-                          })}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                )}
                 <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight" data-vandon-pane="left">
-                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
-                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
+                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 7000, backgroundColor: 'white' }}>
+                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 7000 }}>
                       {bolActiveTab === 'hanoi' && (
-                        <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 1002, background: '#f8f9fa' }}>
+                        <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 7100, background: '#f8f9fa' }}>
                           <div className="flex items-center justify-center">
                             <input
                               type="checkbox"
@@ -2824,14 +2817,14 @@ function VanDon() {
                         renderVanDonFilterTh(
                           col,
                           i,
-                          { position: 'relative', zIndex: 3200, background: '#f8f9fa' },
+                          { position: 'relative', zIndex: 7200, background: '#f8f9fa' },
                           i === frozenCols.length - 1
                         )
                       )}
                     </tr>
                   </thead>
                   <tbody style={{ position: 'relative', zIndex: 0 }}>
-                    {paginatedData.slice(1).map((row, rIdx) => {
+                    {paginatedData.map((row, rIdx) => {
                       const orderId = row[PRIMARY_KEY_COLUMN];
                       return (
                         <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
@@ -2840,8 +2833,9 @@ function VanDon() {
                               className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
                               style={{
                                 position: 'sticky',
+                                top: rIdx === 0 ? firstDataRowTop : undefined,
                                 left: 0,
-                                zIndex: 3300,
+                                zIndex: rIdx === 0 ? 5200 : 3300,
                                 backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb'
                               }}
                             >
@@ -2865,7 +2859,7 @@ function VanDon() {
                               zIndex: 10,
                               ...(lastF ? { boxShadow: '2px 0 0 #e5e7eb' } : {})
                             };
-                            return renderVanDonDataCell(row, rIdx + 1, col, i, cellStyle);
+                            return renderVanDonDataCell(row, rIdx, col, i, cellStyle);
                           })}
                         </tr>
                       );
@@ -2874,43 +2868,28 @@ function VanDon() {
                 </table>
               </div>
               <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden min-h-0 self-start">
-                {paginatedData.length > 0 && (
-                  <div className="sticky" style={{ top: firstDataRowTop, zIndex: 4000 }}>
-                    <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight">
-                      <tbody>
-                        <tr className="bg-white">
-                          {scrollCols.map((col, i) => {
-                            const cIdx = effectiveFixedColumns + i;
-                            const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 10, background: '#ffffff' };
-                            return renderVanDonDataCell(paginatedData[0], 0, col, cIdx, cellStyle);
-                          })}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                )}
                 <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
-                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
-                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
+                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 7000, backgroundColor: 'white' }}>
+                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 7000 }}>
                       {scrollCols.map((col, i) =>
                         renderVanDonFilterTh(
                           col,
                           effectiveFixedColumns + i,
-                          { position: 'relative', zIndex: 10 },
+                          { position: 'relative', zIndex: 7200 },
                           false
                         )
                       )}
                     </tr>
                   </thead>
                   <tbody style={{ position: 'relative', zIndex: 0 }}>
-                    {paginatedData.slice(1).map((row, rIdx) => {
+                    {paginatedData.map((row, rIdx) => {
                       const orderId = row[PRIMARY_KEY_COLUMN];
                       return (
                         <tr key={`${orderId}-right`} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
                           {scrollCols.map((col, i) => {
                             const cIdx = effectiveFixedColumns + i;
                             const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 10 };
-                            return renderVanDonDataCell(row, rIdx + 1, col, cIdx, cellStyle);
+                            return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
                           })}
                         </tr>
                       );
@@ -2927,43 +2906,11 @@ function VanDon() {
               onDoubleClickCapture={blockTableDoubleClickCopy}
               onDragStartCapture={blockTableDragStart}
             >
-                {paginatedData.length > 0 && (
-                  <div className="sticky" style={{ top: firstDataRowTop, zIndex: 1500 }}>
-                  <table className="w-full border-separate border-spacing-0 min-w-[2500px] text-[13px] leading-tight">
-                    <tbody>
-                      <tr className="bg-white">
-                        {bolActiveTab === 'hanoi' && (
-                          <td
-                            className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
-                            style={{ position: 'sticky', left: 0, zIndex: 4100, backgroundColor: '#f9fafb' }}
-                          />
-                        )}
-                        {currentColumns.map((col, cIdx) => {
-                          const cellStickyLeft = getStickyLeftPx(cIdx);
-                          const colWidthStyles = getColumnWidthStyles(col);
-                          const cellStyle =
-                            cIdx < effectiveFixedColumns
-                              ? {
-                                  position: 'sticky',
-                                  left: cellStickyLeft,
-                                  zIndex: 4100,
-                                  background: '#ffffff',
-                                  ...colWidthStyles,
-                                  boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
-                                }
-                              : { position: 'relative', zIndex: 10, background: '#ffffff', ...colWidthStyles };
-                          return renderVanDonDataCell(paginatedData[0], 0, col, cIdx, cellStyle);
-                        })}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              )}
               <table className="w-full border-separate border-spacing-0 min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
-                <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
-                  <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
+                <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 7000, backgroundColor: 'white' }}>
+                  <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 7000 }}>
                     {bolActiveTab === 'hanoi' && (
-                      <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 1002, background: '#f8f9fa' }}>
+                      <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 7100, background: '#f8f9fa' }}>
                         <div className="flex items-center justify-center">
                           <input
                             type="checkbox"
@@ -2981,14 +2928,14 @@ function VanDon() {
                       const stickyLeft = getStickyLeftPx(idx);
                       const stickyStyle =
                         idx < effectiveFixedColumns
-                          ? { position: 'sticky', left: stickyLeft, zIndex: 3200, background: '#f8f9fa' }
-                          : { position: 'relative', zIndex: 10 };
+                          ? { position: 'sticky', left: stickyLeft, zIndex: 7200, background: '#f8f9fa' }
+                          : { position: 'relative', zIndex: 7200 };
                       return renderVanDonFilterTh(col, idx, stickyStyle, idx === effectiveFixedColumns - 1);
                     })}
                   </tr>
                 </thead>
                 <tbody style={{ position: 'relative', zIndex: 0 }}>
-                  {paginatedData.slice(1).map((row, rIdx) => {
+                  {paginatedData.map((row, rIdx) => {
                     const orderId = row[PRIMARY_KEY_COLUMN];
                     return (
                       <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
@@ -2997,8 +2944,9 @@ function VanDon() {
                             className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
                             style={{
                               position: 'sticky',
+                              top: rIdx === 0 ? firstDataRowTop : undefined,
                               left: 0,
-                              zIndex: 3300,
+                              zIndex: rIdx === 0 ? 5200 : 3300,
                               backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb'
                             }}
                           >
@@ -3026,7 +2974,7 @@ function VanDon() {
                                   boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
                                 }
                               : { position: 'relative', zIndex: 10, ...colWidthStyles };
-                          return renderVanDonDataCell(row, rIdx + 1, col, cIdx, cellStyle);
+                          return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
                         })}
                       </tr>
                     );
