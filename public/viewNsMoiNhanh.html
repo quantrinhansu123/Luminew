@@ -1009,6 +1009,11 @@
       return parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
     }
 
+    function parseDoanhSoChotTTFromRow(row) {
+      if (!row) return 0;
+      return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
+    }
+
     function mergeUniqueRowsByIdKeepNoId(rows) {
       const map = new Map();
       const noId = [];
@@ -1021,22 +1026,39 @@
       return [...map.values(), ...noId];
     }
 
-    /** Trùng `id` (API lặp) hoặc trùng key logic → chỉ giữ một dòng (ưu tiên Số đơn TT lớn hơn). */
+    /**
+     * Trùng `id` (API lặp) hoặc trùng key logic.
+     * Khi trùng theo key, gộp theo max:
+     * - Số đơn TT: lấy max
+     * - DS Chốt (TT): lấy max
+     */
     function dedupeMktDetailReportRows(rows) {
       const merged = mergeUniqueRowsByIdKeepNoId(rows || []);
       const byKey = new Map();
       for (const row of merged) {
         const k = buildMktDetailReportRowKey(row);
+        const sd = parseSoDonThucTeFromRow(row);
+        const ds = parseDoanhSoChotTTFromRow(row);
+
         const prev = byKey.get(k);
         if (!prev) {
-          byKey.set(k, row);
+          byKey.set(k, { row, sd, ds });
           continue;
         }
-        if (parseSoDonThucTeFromRow(row) >= parseSoDonThucTeFromRow(prev)) {
-          byKey.set(k, row);
-        }
+
+        const mergedSd = Math.max(prev.sd, sd);
+        const mergedDs = Math.max(prev.ds, ds);
+
+        // Cập nhật lại ngay trên object row đang lưu để downstream lấy max cho cả 2 cột.
+        prev.sd = mergedSd;
+        prev.ds = mergedDs;
+        prev.row['Số đơn thực tế'] = mergedSd;
+        prev.row['Doanh số TT'] = mergedDs;
+        if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
+        if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
       }
-      return [...byKey.values()];
+
+      return [...byKey.values()].map(m => m.row);
     }
 
     function parseNgayToDate(ngayVal) {
@@ -1386,11 +1408,11 @@
 
         const employeeDataMKT = Array.isArray(resultMKT.employeeData) && resultMKT.employeeData.length
           ? await fetchEmployeeData(resultMKT.employeeData)
-          : buildEmployeesFromDetailRows(rowsNorm);
+          : buildEmployeesFromDetailRows(rowsDeduped);
 
         employeeData = employeeDataMKT;
 
-        const masterDataMKT = rowsNorm
+        const masterDataMKT = rowsDeduped
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
           .map(r => {
             const dsChotTT = Number(r["Doanh số TT"] ?? r.doanh_so_tt) || 0;
