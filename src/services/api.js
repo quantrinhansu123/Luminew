@@ -68,9 +68,14 @@ const mapSupabaseOrderToApp = (sOrder) => {
         appOrder["Giá bán"] = sOrder.goods_amount;
     }
 
-    // Hình thức thanh toán: chỉ từ payment_method (Supabase), không gộp payment_method_text
-    appOrder["Hình thức thanh toán"] =
-        sOrder.payment_method === undefined || sOrder.payment_method === null ? '' : sOrder.payment_method;
+    // Hình thức thanh toán: ưu tiên payment_method; nếu trống thì fallback payment_method_text
+    const paymentMethod = sOrder.payment_method === undefined || sOrder.payment_method === null
+        ? ''
+        : String(sOrder.payment_method).trim();
+    const paymentMethodText = sOrder.payment_method_text === undefined || sOrder.payment_method_text === null
+        ? ''
+        : String(sOrder.payment_method_text).trim();
+    appOrder["Hình thức thanh toán"] = paymentMethod || paymentMethodText || '';
 
     if (!appOrder["Ngày lên đơn"] && sOrder.order_date) appOrder["Ngày lên đơn"] = sOrder.order_date;
     if (!appOrder["Mã đơn hàng"]) appOrder["Mã đơn hàng"] = sOrder.order_code;
