@@ -1774,8 +1774,13 @@
           const donTT = Number(r.soDonThucTe) || 0;
           const donHuyTT = Number(r.soDonHuyThucTe) || 0;
           acc.donThucTe += Math.max(0, donTT - donHuyTT);
+          // DS Chốt (TT) phải áp dụng cùng rule với Số đơn (TT):
+          // - dedupe theo detailRowKey
+          // - lấy phần "sau hủy" (trừ dsHoanHuyThucTe)
+          const dsChotTT = Number(r.dsChotThucTe) || 0;
+          const dsHuyTT = Number(r.dsHoanHuyThucTe) || 0;
+          acc.chotThucTe += Math.max(0, dsChotTT - dsHuyTT);
         }
-        acc.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
       return acc;
     }
@@ -1813,8 +1818,12 @@
           const donTT = Number(r.soDonThucTe) || 0;
           const donHuyTT = Number(r.soDonHuyThucTe) || 0;
           S.donThucTe += Math.max(0, donTT - donHuyTT);
+
+          // DS Chốt (TT) cũng áp dụng cùng rule với Số đơn (TT)
+          const dsChotTT = Number(r.dsChotThucTe) || 0;
+          const dsHuyTT = Number(r.dsHoanHuyThucTe) || 0;
+          S.chotThucTe += Math.max(0, dsChotTT - dsHuyTT);
         }
-        S.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
       return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
     }

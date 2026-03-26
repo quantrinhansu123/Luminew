@@ -93,6 +93,21 @@ export default function DanhSachBaoCaoTayMKT() {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(50);
 
+    // Sorting state for table headers
+    // sortColumn uses keys that map to properties on report rows.
+    const [sortColumn, setSortColumn] = useState('Ngày');
+    const [sortDirection, setSortDirection] = useState('desc'); // 'asc' | 'desc'
+
+    const handleSort = (columnKey) => {
+        if (sortColumn === columnKey) {
+            setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+        } else {
+            setSortColumn(columnKey);
+            setSortDirection('asc');
+        }
+        setCurrentPage(1);
+    };
+
     // Edit State
     const [editingReport, setEditingReport] = useState(null);
     const [editForm, setEditForm] = useState({});
@@ -641,6 +656,61 @@ export default function DanhSachBaoCaoTayMKT() {
         });
     }, [allReports, filters.personnelNames, filters.shifts, filters.products, filters.markets]);
 
+    // Apply sorting (before pagination)
+    const sortedReports = useMemo(() => {
+        const rows = [...(reportsAfterFilters || [])];
+        const dir = sortDirection === 'asc' ? 1 : -1;
+
+        const getSortValue = (item) => {
+            if (!item) return '';
+            if (sortColumn === 'Ngày') {
+                const t = new Date(item?.['Ngày']).getTime();
+                return Number.isNaN(t) ? 0 : t;
+            }
+
+            if (sortColumn === 'Số đơn') {
+                const id = item?.id;
+                if (id && realValuesMap?.[id]) return Number(realValuesMap[id]?.so_don_thuc_te || 0);
+                return Number(item?.['Số đơn'] || 0);
+            }
+
+            if (sortColumn === 'Doanh số') {
+                const id = item?.id;
+                if (id && realValuesMap?.[id]) return Number(realValuesMap[id]?.doanh_so_thuc_te || 0);
+                return Number(item?.['Doanh số'] || 0);
+            }
+
+            // Numeric columns
+            if (sortColumn === 'CPQC' || sortColumn === 'Số_Mess_Cmt') {
+                return Number(item?.[sortColumn] || 0);
+            }
+
+            // Default: treat as text
+            return String(item?.[sortColumn] ?? '').trim();
+        };
+
+        rows.sort((a, b) => {
+            const va = getSortValue(a);
+            const vb = getSortValue(b);
+
+            let cmp = 0;
+            if (typeof va === 'number' && typeof vb === 'number') {
+                cmp = va - vb;
+            } else {
+                cmp = String(va).localeCompare(String(vb), 'vi', { sensitivity: 'base', numeric: true });
+            }
+
+            // Tie-break to keep ordering deterministic
+            if (cmp === 0) {
+                cmp = String(a?.id ?? '').localeCompare(String(b?.id ?? ''), 'vi', { sensitivity: 'base', numeric: true });
+            }
+
+            return cmp * dir;
+        });
+
+        return rows;
+    }, [reportsAfterFilters, sortColumn, sortDirection, realValuesMap]);
+
     // Tổng kết theo toàn bộ dữ liệu đã lọc (không phụ thuộc phân trang)
     const totalsByFiltered = useMemo(() => {
         const rows = reportsAfterFilters || [];
@@ -675,16 +745,34 @@ export default function DanhSachBaoCaoTayMKT() {
         return { cpqc, mess, soDon, doanhSo };
     }, [reportsAfterFilters, realValuesMap]);
 
+    // If user sorts by derived real values, try to calculate missing realValues for all filtered rows.
+    useEffect(() => {
+        const shouldSortByReal = sortColumn === 'Số đơn' || sortColumn === 'Doanh số';
+        if (!shouldSortByReal) return;
+        if (!reportsAfterFilters || reportsAfterFilters.length === 0) return;
+
+        const missingReports = reportsAfterFilters.filter(r => {
+            const id = r?.id;
+            if (!id) return false;
+            return realValuesMap?.[id] == null;
+        });
+
+        if (missingReports.length === 0) return;
+        if (calculatingRealValues) return;
+
+        calculateRealValuesForReports(missingReports);
+    }, [sortColumn, reportsAfterFilters, realValuesMap, calculatingRealValues]);
+
     // Calculate pagination
-    const totalPages = Math.ceil(reportsAfterFilters.length / itemsPerPage);
+    const totalPages = Math.ceil(sortedReports.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const paginatedReports = reportsAfterFilters.slice(startIndex, endIndex);
+    const paginatedReports = sortedReports.slice(startIndex, endIndex);
 
     // Update displayed reports when pagination changes
     useEffect(() => {
         setManualReports(paginatedReports);
-    }, [currentPage, itemsPerPage, reportsAfterFilters]);
+    }, [currentPage, itemsPerPage, sortedReports]);
 
     // Lazy tính giá trị thực tế cho các dòng đang hiển thị (tránh tính cho toàn bộ khi dữ liệu lớn).
     useEffect(() => {
@@ -703,7 +791,7 @@ export default function DanhSachBaoCaoTayMKT() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [filters.personnelNames, filters.shifts, filters.products, filters.markets]);
+    }, [filters.personnelNames, filters.shifts, filters.products, filters.markets, sortColumn, sortDirection]);
 
     // Sync data from Firebase Báo cáo MKT via backend API (bypasses RLS)
     const handleSyncMKT = async () => {
@@ -1211,23 +1299,73 @@ export default function DanhSachBaoCaoTayMKT() {
                             <thead>
                                 <tr>
                                     <th>STT</th>
-                                    <th>Ngày</th>
-                                    <th>Ca</th>
-                                    <th>Người báo cáo</th>
-                                    <th>Team</th>
-                                    <th>Sản phẩm</th>
-                                    <th>Thị trường</th>
-                                    <th>CPQC</th>
-                                    <th>Số mess</th>
-                                    <th>Số đơn</th>
-                                    <th>Doanh số</th>
+                                    <th
+                                        onClick={() => handleSort('Ngày')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Ngày {sortColumn === 'Ngày' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('ca')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Ca {sortColumn === 'ca' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('Tên')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Người báo cáo {sortColumn === 'Tên' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('Team')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Team {sortColumn === 'Team' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('Sản_phẩm')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Sản phẩm {sortColumn === 'Sản_phẩm' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('Thị_trường')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Thị trường {sortColumn === 'Thị_trường' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('CPQC')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        CPQC {sortColumn === 'CPQC' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('Số_Mess_Cmt')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Số mess {sortColumn === 'Số_Mess_Cmt' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('Số đơn')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Số đơn {sortColumn === 'Số đơn' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('Doanh số')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Doanh số {sortColumn === 'Doanh số' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
                                     <th>Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {reportsAfterFilters.length === 0 ? (
                                     <tr>
-                                        <td colSpan="11" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td colSpan="12" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
                                     <>
