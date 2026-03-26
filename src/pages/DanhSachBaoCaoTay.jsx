@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../services/supabaseClient';
+import { rowMatchesPersonnelList } from '../utils/nhanSuSaleLumiMoiLogic';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -82,6 +83,14 @@ export default function DanhSachBaoCaoTay() {
     const [personnelSearch, setPersonnelSearch] = useState('');
     /** Lọc bảng theo chuỗi tên (giống tìm nhanh báo cáo MKT). */
     const [staffTableSearch, setStaffTableSearch] = useState('');
+    /** Chuỗi ổn định để refetch khi đổi checkbox nhân sự (mảng `filters.personnel` đổi reference). */
+    const personnelFilterKey = useMemo(
+        () =>
+            [...(filters.personnel || [])]
+                .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }))
+                .join('|'),
+        [filters.personnel]
+    );
     const [deleting, setDeleting] = useState(false);
     const [sortColumn, setSortColumn] = useState(null);
     const [sortDirection, setSortDirection] = useState('asc');
@@ -271,26 +280,7 @@ export default function DanhSachBaoCaoTay() {
         if (!filters.startDate || !filters.endDate) return;
         setLoading(true);
         try {
-            let query = supabase
-                .from('sales_reports')
-                .select('*')
-                .gte('date', filters.startDate)
-                .lte('date', filters.endDate)
-                .order('created_at', { ascending: false });
-
-            // Filter theo sản phẩm
-            if (filters.products && filters.products.length > 0) {
-                query = query.in('product', filters.products);
-            }
-
-            // Filter theo thị trường
-            if (filters.markets && filters.markets.length > 0) {
-                query = query.in('market', filters.markets);
-            }
-
-            const { data, error } = await query;
-
-            if (error) throw error;
+            const PAGE_SIZE = 1000;
             const normalizeNameForMatch = (str) => String(str || '').trim().replace(/\s+/g, ' ').toLowerCase();
             const allowedPersonnelSet = new Set(
                 (selectedPersonnelNames || [])
@@ -298,7 +288,34 @@ export default function DanhSachBaoCaoTay() {
                     .filter(Boolean)
             );
 
-            const filteredByPermission = (data || []).filter((row) => {
+            // PostgREST/Supabase mặc định giới hạn ~1000 dòng/request — gom đủ trang theo bộ lọc.
+            const allRows = [];
+            for (let page = 0; ; page += 1) {
+                const from = page * PAGE_SIZE;
+                const to = from + PAGE_SIZE - 1;
+
+                let query = supabase
+                    .from('sales_reports')
+                    .select('*')
+                    .gte('date', filters.startDate)
+                    .lte('date', filters.endDate)
+                    .order('created_at', { ascending: false });
+
+                if (filters.products && filters.products.length > 0) {
+                    query = query.in('product', filters.products);
+                }
+                if (filters.markets && filters.markets.length > 0) {
+                    query = query.in('market', filters.markets);
+                }
+
+                const { data, error } = await query.range(from, to);
+                if (error) throw error;
+                if (!data || data.length === 0) break;
+                allRows.push(...data);
+                if (data.length < PAGE_SIZE) break;
+            }
+
+            const filteredByPermission = allRows.filter((row) => {
                 if (isAdmin) return true;
                 if (allowedPersonnelSet.size === 0) return false;
                 const rowName = normalizeNameForMatch(row?.name);
@@ -311,7 +328,15 @@ export default function DanhSachBaoCaoTay() {
         } finally {
             setLoading(false);
         }
-    }, [filters.startDate, filters.endDate, filters.products, filters.markets, selectedPersonnelNames, isAdmin, teamFilter]);
+    }, [
+        filters.startDate,
+        filters.endDate,
+        filters.products,
+        filters.markets,
+        selectedPersonnelNames,
+        isAdmin,
+        personnelFilterKey,
+    ]);
 
     useEffect(() => {
         fetchData();
@@ -1150,12 +1175,13 @@ export default function DanhSachBaoCaoTay() {
     }, [availablePersonnelOptions, personnelSearch]);
 
     const reportsAfterPersonnelFilter = useMemo(() => {
-        const withoutHcmTeam = (manualReports || []).filter((item) => String(item?.team || '').trim().toUpperCase() !== 'HCM');
-        const selectedSet = new Set(filters.personnel || []);
-        let rows =
-            selectedSet.size === 0
-                ? withoutHcmTeam
-                : withoutHcmTeam.filter((item) => selectedSet.has(String(item?.name || '').trim()));
+        let rows = manualReports || [];
+        const selected = filters.personnel || [];
+        if (selected.length > 0) {
+            rows = rows.filter((item) =>
+                selected.some((p) => rowMatchesPersonnelList(String(item?.name || ''), [p]))
+            );
+        }
         const q = staffTableSearch.trim().toLowerCase();
         if (q) {
             rows = rows.filter((item) => String(item?.name || '').toLowerCase().includes(q));
