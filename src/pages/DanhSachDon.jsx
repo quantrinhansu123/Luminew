@@ -116,6 +116,7 @@ function DanhSachDon() {
   const [isFixingTeams, setIsFixingTeams] = useState(false); // State for fixing missing teams
   const [isFixingShift, setIsFixingShift] = useState(false); // Chỉnh ca: Giữa ca → Giữa ca,Hết ca
   const [isFillingPaymentCurrency, setIsFillingPaymentCurrency] = useState(false); // Tự điền Loại tiền theo Khu vực
+  const [isClearingShippingInfo, setIsClearingShippingInfo] = useState(false); // Xóa NV vận đơn theo bộ lọc
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -580,6 +581,90 @@ function DanhSachDon() {
       toast.error(`❌ Lỗi tự điền Loại tiền thanh toán: ${err?.message || String(err)}`);
     } finally {
       setIsFillingPaymentCurrency(false);
+    }
+  };
+
+  const handleClearShippingInfoByFilters = async () => {
+    const rows = filteredData || [];
+    if (rows.length === 0) {
+      toast.info('Không có đơn nào trong bộ lọc để xóa cột delivery_staff.', { autoClose: 1800, hideProgressBar: true });
+      return;
+    }
+
+    const rowsToUpdate = rows
+      .map((r) => {
+        const orderCode = String(r?.['Mã đơn hàng'] ?? '').trim();
+        const rowId = r?.id;
+        const deliveryStaff = String(r?.delivery_staff ?? r?.['NV Vận đơn'] ?? '').trim();
+        if (!deliveryStaff) return null;
+        return { orderCode, rowId };
+      })
+      .filter(Boolean);
+
+    if (rowsToUpdate.length === 0) {
+      toast.info('Các đơn trong bộ lọc hiện tại không có dữ liệu delivery_staff để xóa.', {
+        autoClose: 2000,
+        hideProgressBar: true,
+      });
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Xóa cột "delivery_staff" cho ${rowsToUpdate.length} đơn đang nằm trong bộ lọc hiện tại?`
+      )
+    ) {
+      return;
+    }
+
+    setIsClearingShippingInfo(true);
+    try {
+      let success = 0;
+      const chunkSize = 10;
+      for (let i = 0; i < rowsToUpdate.length; i += chunkSize) {
+        const chunk = rowsToUpdate.slice(i, i + chunkSize);
+        await Promise.all(
+          chunk.map(async (u) => {
+            const payload = {
+              delivery_staff: null,
+            };
+            let error = null;
+            if (u.orderCode) {
+              ({ error } = await supabase.from('orders').update(payload).eq('order_code', u.orderCode));
+            } else if (u.rowId) {
+              ({ error } = await supabase.from('orders').update(payload).eq('id', u.rowId));
+            } else {
+              error = new Error('Thiếu order_code/id');
+            }
+            if (!error) success++;
+          })
+        );
+      }
+
+      const byCode = new Set(rowsToUpdate.map((u) => String(u.orderCode || '').trim()).filter(Boolean));
+      const byId = new Set(rowsToUpdate.map((u) => u.rowId).filter(Boolean));
+      setAllData((prev) =>
+        (prev || []).map((r) => {
+          const code = String(r?.['Mã đơn hàng'] ?? '').trim();
+          const id = r?.id;
+          if (!byCode.has(code) && !byId.has(id)) return r;
+          return {
+            ...r,
+            'NV Vận đơn': '',
+            delivery_staff: '',
+          };
+        })
+      );
+
+      toast.success(`✅ Đã xóa delivery_staff: ${success}/${rowsToUpdate.length} đơn`, {
+        autoClose: 2500,
+        hideProgressBar: true,
+      });
+    } catch (err) {
+      console.error('Clear delivery staff error:', err);
+      toast.error(`❌ Lỗi xóa delivery_staff: ${err?.message || String(err)}`);
+    } finally {
+      setIsClearingShippingInfo(false);
     }
   };
 
@@ -2365,6 +2450,27 @@ function DanhSachDon() {
               <Settings className="w-4 h-4" />
               Cài đặt cột
             </button>
+
+            {canEdit(permissionCode) && (
+              <button
+                onClick={handleClearShippingInfoByFilters}
+                disabled={syncing || loading || deleting || isFixingTeams || isFixingShift || isFillingPaymentCurrency || isClearingShippingInfo}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+                title='Xóa cột "delivery_staff" cho các đơn trong bộ lọc hiện tại'
+              >
+                {isClearingShippingInfo ? (
+                  <>
+                    <span className="animate-spin">⏳</span>
+                    Đang xóa delivery_staff...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Xóa delivery_staff
+                  </>
+                )}
+              </button>
+            )}
 
 
           </div>

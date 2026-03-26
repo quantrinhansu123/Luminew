@@ -162,13 +162,30 @@ function VanDon() {
   const [copiedSelection, setCopiedSelection] = useState(null);
   const [stickyOffsets, setStickyOffsets] = useState([]);
   const [firstDataRowTop, setFirstDataRowTop] = useState(0); // sticky top cho dòng dữ liệu đầu tiên
+  const [horizontalTrackWidth, setHorizontalTrackWidth] = useState(0);
   const isSelecting = useRef(false);
   const tableRef = useRef(null);
+  const splitLeftPaneRef = useRef(null);
+  const splitRightPaneRef = useRef(null);
+  const horizontalScrollHostRef = useRef(null);
+  const horizontalScrollbarRef = useRef(null);
 
   // --- Row Selection for Hanoi Tab ---
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [showPhanFFMDropdown, setShowPhanFFMDropdown] = useState(false);
   const phanFFMRef = useRef(null);
+
+  // Khóa thanh trượt ngoài cùng của trang, chỉ giữ scroll trong vùng bảng.
+  useEffect(() => {
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+    };
+  }, []);
 
   // --- MGT Noi Bo specific ---
   const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
@@ -976,7 +993,7 @@ function VanDon() {
     if (!root) return;
 
     const calcTop = () => {
-      const fallback = 38; // chiều cao header tối thiểu để tránh pinned-row đè header lúc mới render
+      const fallback = 96; // chiều cao header+filter tối thiểu để tránh pinned-row đè lên vùng cố định
       // splitPane: có 2 thead, lấy max height để top khớp
       if (splitPane) {
         const left = root.querySelector('[data-vandon-pane="left"]');
@@ -1087,6 +1104,95 @@ function VanDon() {
     loading,
     stickyOffsets,
   ]);
+
+  // Thanh cuộn ngang phụ dưới bảng để không phải kéo xuống cuối mới cuộn ngang.
+  useLayoutEffect(() => {
+    const host = horizontalScrollHostRef.current;
+    const bar = horizontalScrollbarRef.current;
+    if (!host || !bar) return;
+
+    const updateWidth = () => {
+      setHorizontalTrackWidth(host.scrollWidth || 0);
+    };
+    const syncFromHost = () => {
+      if (bar.scrollLeft !== host.scrollLeft) bar.scrollLeft = host.scrollLeft;
+    };
+    const syncFromBar = () => {
+      if (host.scrollLeft !== bar.scrollLeft) host.scrollLeft = bar.scrollLeft;
+    };
+
+    updateWidth();
+    syncFromHost();
+
+    host.addEventListener('scroll', syncFromHost, { passive: true });
+    bar.addEventListener('scroll', syncFromBar, { passive: true });
+    window.addEventListener('resize', updateWidth);
+
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => updateWidth());
+      ro.observe(host);
+    }
+
+    return () => {
+      host.removeEventListener('scroll', syncFromHost);
+      bar.removeEventListener('scroll', syncFromBar);
+      window.removeEventListener('resize', updateWidth);
+      ro?.disconnect();
+    };
+  }, [splitPane, currentColumns.length, currentPage, rowsPerPage, isLongTextExpanded, loading]);
+
+  // Đồng bộ cuộn dọc giữa 2 pane trái/phải trong chế độ split.
+  useLayoutEffect(() => {
+    if (!splitPane) return;
+    const left = splitLeftPaneRef.current;
+    const right = splitRightPaneRef.current;
+    if (!left || !right) return;
+
+    let syncing = false;
+    const syncTo = (from, to) => {
+      if (syncing) return;
+      syncing = true;
+      to.scrollTop = from.scrollTop;
+      requestAnimationFrame(() => {
+        syncing = false;
+      });
+    };
+
+    const onLeftScroll = () => syncTo(left, right);
+    const onRightScroll = () => syncTo(right, left);
+
+    left.addEventListener('scroll', onLeftScroll, { passive: true });
+    right.addEventListener('scroll', onRightScroll, { passive: true });
+    right.scrollTop = left.scrollTop;
+
+    return () => {
+      left.removeEventListener('scroll', onLeftScroll);
+      right.removeEventListener('scroll', onRightScroll);
+    };
+  }, [splitPane, currentPage, rowsPerPage, loading]);
+
+  // Lăn chuột luôn cuộn phần nội dung bảng, header vẫn đứng yên (sticky).
+  const handleTableWheel = useCallback((e) => {
+    const root = tableRef.current;
+    if (!root) return;
+    const dy = Number(e?.deltaY || 0);
+    if (!dy) return;
+
+    const max = Math.max(0, root.scrollHeight - root.clientHeight);
+    const next = Math.max(0, Math.min(max, root.scrollTop + dy));
+    if (next === root.scrollTop) return;
+
+    e.preventDefault();
+    root.scrollTop = next;
+
+    if (splitPane) {
+      const left = splitLeftPaneRef.current;
+      const right = splitRightPaneRef.current;
+      if (left) left.scrollTop = next;
+      if (right) right.scrollTop = next;
+    }
+  }, [splitPane]);
 
   /** Khi ẩn bớt cột, hạ số cố định nếu đang vượt quá số cột hiển thị */
   useEffect(() => {
@@ -2250,7 +2356,10 @@ function VanDon() {
         className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : isQtyCol ? '' : 'px-4'}`}
         style={{
           ...positionStyle,
+          position: 'sticky',
+          top: 0,
           ...getColumnWidthStyles(col),
+          background: '#f8f9fa',
           boxShadow: showFreezeShadow ? '2px 0 0 #d1d5db' : undefined
         }}
       >
@@ -2462,7 +2571,7 @@ function VanDon() {
 
   /* End Component Logic */
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col h-screen overflow-hidden">
+    <div className="bg-gray-50 flex flex-col h-screen overflow-hidden">
       {/* Header Bar - Now including Tabs and Main Actions */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0">
         <div className="max-w-full mx-auto px-4 py-2">
@@ -2537,7 +2646,7 @@ function VanDon() {
       </div>
 
       {/* Main Content Area - Scrollable but compact */}
-      <div className="flex-1 flex flex-col p-2 space-y-2 overflow-hidden bg-[#f4f7fa]">
+      <div className="flex-1 min-h-0 flex flex-col p-2 space-y-2 overflow-hidden bg-[#f4f7fa]">
 
         {/* Toolbar Actions Row */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2 flex flex-wrap items-center gap-3">
@@ -2791,7 +2900,7 @@ function VanDon() {
 
 
         {/* Table Area - Optimized for Height */}
-        <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col min-h-0">
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col min-h-0 relative">
           {loading ? (
             <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-500">Đang tải dữ liệu...</div>
           ) : paginatedData.length === 0 ? (
@@ -2799,17 +2908,22 @@ function VanDon() {
           ) : splitPane ? (
             <div
               ref={tableRef}
-              className="flex-1 min-h-0 overflow-y-auto flex flex-row items-start select-none relative"
-              style={{ isolation: 'isolate' }}
+              className="flex-1 min-h-0 overflow-y-scroll flex flex-row items-start select-none relative"
+              style={{ isolation: 'isolate', overscrollBehavior: 'contain' }}
               onDoubleClickCapture={blockTableDoubleClickCopy}
               onDragStartCapture={blockTableDragStart}
+              onWheelCapture={handleTableWheel}
             >
-              <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20 self-start overflow-y-hidden">
+              <div
+                ref={splitLeftPaneRef}
+                className="shrink-0 border-r-2 border-gray-300 bg-white z-20 min-h-0 overflow-y-visible"
+                style={{ overscrollBehavior: 'contain' }}
+              >
                 <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight" data-vandon-pane="left">
-                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 7000, backgroundColor: 'white' }}>
-                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 7000 }}>
+                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
+                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
                       {bolActiveTab === 'hanoi' && (
-                        <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 7100, background: '#f8f9fa' }}>
+                        <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', top: 0, left: 0, zIndex: 10100, background: '#f8f9fa' }}>
                           <div className="flex items-center justify-center">
                             <input
                               type="checkbox"
@@ -2827,7 +2941,7 @@ function VanDon() {
                         renderVanDonFilterTh(
                           col,
                           i,
-                          { position: 'relative', zIndex: 7200, background: '#f8f9fa' },
+                          { position: 'relative', zIndex: 10200, background: '#f8f9fa' },
                           i === frozenCols.length - 1
                         )
                       )}
@@ -2877,15 +2991,22 @@ function VanDon() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden min-h-0 self-start">
+              <div
+                ref={(el) => {
+                  splitRightPaneRef.current = el;
+                  horizontalScrollHostRef.current = el;
+                }}
+                className="flex-1 min-w-0 overflow-x-auto overflow-y-visible min-h-0"
+                style={{ overscrollBehavior: 'contain' }}
+              >
                 <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
-                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 7000, backgroundColor: 'white' }}>
-                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 7000 }}>
+                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
+                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
                       {scrollCols.map((col, i) =>
                         renderVanDonFilterTh(
                           col,
                           effectiveFixedColumns + i,
-                          { position: 'relative', zIndex: 7200 },
+                          { position: 'relative', zIndex: 10200 },
                           false
                         )
                       )}
@@ -2910,17 +3031,21 @@ function VanDon() {
             </div>
           ) : (
             <div
-              ref={tableRef}
+              ref={(el) => {
+                tableRef.current = el;
+                horizontalScrollHostRef.current = el;
+              }}
               className="overflow-auto relative select-none flex-1 min-h-0"
-              style={{ overflowX: 'auto', overflowY: 'auto', isolation: 'isolate' }}
+              style={{ overflowX: 'auto', overflowY: 'scroll', isolation: 'isolate', overscrollBehavior: 'contain' }}
               onDoubleClickCapture={blockTableDoubleClickCopy}
               onDragStartCapture={blockTableDragStart}
+              onWheelCapture={handleTableWheel}
             >
               <table className="w-full border-separate border-spacing-0 min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
-                <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 7000, backgroundColor: 'white' }}>
-                  <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 7000 }}>
+                <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
+                  <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
                     {bolActiveTab === 'hanoi' && (
-                      <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', left: 0, zIndex: 7100, background: '#f8f9fa' }}>
+                      <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', top: 0, left: 0, zIndex: 10100, background: '#f8f9fa' }}>
                         <div className="flex items-center justify-center">
                           <input
                             type="checkbox"
@@ -2938,8 +3063,8 @@ function VanDon() {
                       const stickyLeft = getStickyLeftPx(idx);
                       const stickyStyle =
                         idx < effectiveFixedColumns
-                          ? { position: 'sticky', left: stickyLeft, zIndex: 7200, background: '#f8f9fa' }
-                          : { position: 'relative', zIndex: 7200 };
+                          ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa' }
+                          : { position: 'relative', zIndex: 10200 };
                       return renderVanDonFilterTh(col, idx, stickyStyle, idx === effectiveFixedColumns - 1);
                     })}
                   </tr>
@@ -2994,6 +3119,13 @@ function VanDon() {
             </div>
           )}
         </div>
+        {paginatedData.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-md px-2 py-1">
+            <div ref={horizontalScrollbarRef} className="overflow-x-auto overflow-y-hidden h-3">
+              <div style={{ width: Math.max(horizontalTrackWidth, 1), height: 1 }} />
+            </div>
+          </div>
+        )}
         {/* Pagination Footer - Also compact */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2 flex-shrink-0">
           <div className="flex justify-between items-center gap-4">

@@ -30,6 +30,21 @@ function formatDateYmdLocal(d) {
     return `${y}-${m}-${day}`;
 }
 
+function cleanPersonName(value) {
+    return String(value || '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\u00A0/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ');
+}
+
+function canonicalPersonName(value) {
+    return cleanPersonName(value)
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .toLowerCase();
+}
+
 export default function DanhSachBaoCaoTay() {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
@@ -47,15 +62,13 @@ export default function DanhSachBaoCaoTay() {
     const roleFromUserObj = (userObj?.role || '').toLowerCase();
 
     const roleFromHookLower = (roleFromHook || '').toLowerCase();
+    // Chỉ admin/super_admin mới được bypass filter selected_personnel.
     const isAdmin = roleFromHookLower === 'admin' ||
         roleFromHookLower === 'super_admin' ||
-        roleFromHookLower === 'finance' ||
         roleFromStorage === 'admin' ||
         roleFromStorage === 'super_admin' ||
-        roleFromStorage === 'finance' ||
         roleFromUserObj === 'admin' ||
-        roleFromUserObj === 'super_admin' ||
-        roleFromUserObj === 'finance';
+        roleFromUserObj === 'super_admin';
 
     // Chỉ Admin thực sự (không bao gồm Finance) mới có quyền xóa toàn bộ
     const isAdminOnly = roleFromHookLower === 'admin' ||
@@ -136,12 +149,76 @@ export default function DanhSachBaoCaoTay() {
 
                 const userEmailLower = userEmail.toLowerCase().trim();
                 const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
-                const personnelNames = personnelMap[userEmailLower] || [];
+                let rawPersonnel = personnelMap[userEmailLower] || [];
 
-                const validNames = personnelNames.filter(name => {
-                    const nameStr = String(name).trim();
-                    return nameStr.length > 0 && !nameStr.includes('@');
-                });
+                // Fallback: lấy trực tiếp theo email không phân biệt hoa/thường
+                // để tránh miss khi email lưu trong DB khác casing.
+                if (!rawPersonnel || rawPersonnel.length === 0) {
+                    const { data: currentUser, error: currentUserError } = await supabase
+                        .from('users')
+                        .select('selected_personnel')
+                        .ilike('email', userEmailLower)
+                        .maybeSingle();
+
+                    if (!currentUserError && currentUser?.selected_personnel) {
+                        if (Array.isArray(currentUser.selected_personnel)) {
+                            rawPersonnel = currentUser.selected_personnel;
+                        } else if (typeof currentUser.selected_personnel === 'string') {
+                            rawPersonnel = currentUser.selected_personnel
+                                .split(',')
+                                .map((item) => item.trim())
+                                .filter(Boolean);
+                        }
+                    }
+                }
+                const normalizedPersonnel = rawPersonnel
+                    .map((item) => cleanPersonName(item))
+                    .filter(Boolean);
+
+                const directNames = normalizedPersonnel.filter((value) => !value.includes('@'));
+                const personnelEmails = normalizedPersonnel
+                    .filter((value) => value.includes('@'))
+                    .map((value) => value.toLowerCase());
+
+                let resolvedNames = [];
+                if (personnelEmails.length > 0) {
+                    const { data: userRows } = await supabase
+                        .from('users')
+                        .select('email, name')
+                        .in('email', personnelEmails);
+
+                    const nameByEmailLower = {};
+                    (userRows || []).forEach((row) => {
+                        const key = String(row?.email || '').toLowerCase().trim();
+                        if (key && row?.name) {
+                            nameByEmailLower[key] = String(row.name).trim();
+                        }
+                    });
+
+                    // Fallback từng email theo ilike để xử lý lệch casing trong DB.
+                    const missingEmails = personnelEmails.filter((email) => !nameByEmailLower[email]);
+                    if (missingEmails.length > 0) {
+                        const missingResults = await Promise.all(
+                            missingEmails.map(async (email) => {
+                                const { data } = await supabase
+                                    .from('users')
+                                    .select('name')
+                                    .ilike('email', email)
+                                    .maybeSingle();
+                                return { email, name: String(data?.name || '').trim() };
+                            })
+                        );
+                        missingResults.forEach(({ email, name }) => {
+                            if (name) nameByEmailLower[email] = name;
+                        });
+                    }
+
+                    resolvedNames = personnelEmails
+                        .map((email) => nameByEmailLower[email] || '')
+                        .filter(Boolean);
+                }
+
+                const validNames = [...new Set([...directNames, ...resolvedNames])];
 
                 console.log('📝 [DanhSachBaoCaoTay] Valid personnel names:', validNames);
                 setSelectedPersonnelNames(validNames);
@@ -281,12 +358,9 @@ export default function DanhSachBaoCaoTay() {
         setLoading(true);
         try {
             const PAGE_SIZE = 1000;
-            const normalizeNameForMatch = (str) => String(str || '').trim().replace(/\s+/g, ' ').toLowerCase();
-            const allowedPersonnelSet = new Set(
-                (selectedPersonnelNames || [])
-                    .map(normalizeNameForMatch)
-                    .filter(Boolean)
-            );
+            const allowedPersonnelCanonical = (selectedPersonnelNames || [])
+                .map((name) => canonicalPersonName(name))
+                .filter(Boolean);
 
             // PostgREST/Supabase mặc định giới hạn ~1000 dòng/request — gom đủ trang theo bộ lọc.
             const allRows = [];
@@ -315,12 +389,17 @@ export default function DanhSachBaoCaoTay() {
                 if (data.length < PAGE_SIZE) break;
             }
 
-            const filteredByPermission = allRows.filter((row) => {
-                if (isAdmin) return true;
-                if (allowedPersonnelSet.size === 0) return false;
-                const rowName = normalizeNameForMatch(row?.name);
-                return allowedPersonnelSet.has(rowName);
-            });
+            const filteredByPermission = allowedPersonnelCanonical.length === 0
+                ? []
+                : (allRows || []).filter((row) => {
+                    const rowName = canonicalPersonName(row?.name || '');
+                    if (!rowName) return false;
+                    return allowedPersonnelCanonical.some((allowedName) =>
+                        rowName === allowedName ||
+                        rowName.includes(allowedName) ||
+                        allowedName.includes(rowName)
+                    );
+                });
 
             setManualReports(filteredByPermission);
         } catch (error) {
@@ -1189,8 +1268,55 @@ export default function DanhSachBaoCaoTay() {
         return rows;
     }, [manualReports, filters.personnel, staffTableSearch]);
 
+    // Gộp dữ liệu theo ngày + tên để lấy giá trị cùng tên theo từng ngày.
+    const reportsGroupedByDateAndName = useMemo(() => {
+        const normalizeName = (value) =>
+            String(value || '')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase();
+
+        const grouped = new Map();
+        for (const row of reportsAfterPersonnelFilter || []) {
+            const date = String(row?.date || '').trim();
+            const nameRaw = String(row?.name || '').trim();
+            const nameKey = normalizeName(nameRaw);
+            if (!date || !nameKey) continue;
+
+            const key = `${date}__${nameKey}`;
+            const current = grouped.get(key);
+            if (!current) {
+                grouped.set(key, {
+                    ...row,
+                    _sourceCount: 1,
+                    mess_count: Number(row?.mess_count || 0),
+                    response_count: Number(row?.response_count || 0),
+                    order_count: Number(row?.order_count || 0),
+                    order_cancel_count: Number(row?.order_cancel_count || 0),
+                    revenue_actual: Number(row?.revenue_actual || 0),
+                    revenue_cancel_actual: Number(row?.revenue_cancel_actual || 0),
+                    order_go: Number(row?.order_go || 0),
+                    revenue_go_actual: Number(row?.revenue_go_actual || 0),
+                });
+                continue;
+            }
+
+            current._sourceCount += 1;
+            current.mess_count += Number(row?.mess_count || 0);
+            current.response_count += Number(row?.response_count || 0);
+            current.order_count += Number(row?.order_count || 0);
+            current.order_cancel_count += Number(row?.order_cancel_count || 0);
+            current.revenue_actual += Number(row?.revenue_actual || 0);
+            current.revenue_cancel_actual += Number(row?.revenue_cancel_actual || 0);
+            current.order_go += Number(row?.order_go || 0);
+            current.revenue_go_actual += Number(row?.revenue_go_actual || 0);
+        }
+
+        return Array.from(grouped.values());
+    }, [reportsAfterPersonnelFilter]);
+
     const reportTableTotals = useMemo(() => {
-        const rows = reportsAfterPersonnelFilter || [];
+        const rows = reportsGroupedByDateAndName || [];
         return rows.reduce(
             (acc, item) => ({
                 mess_count: acc.mess_count + Number(item.mess_count || 0),
@@ -1213,10 +1339,10 @@ export default function DanhSachBaoCaoTay() {
                 revenue_go_actual: 0,
             }
         );
-    }, [reportsAfterPersonnelFilter]);
+    }, [reportsGroupedByDateAndName]);
 
     // Sort data
-    const sortedReports = [...reportsAfterPersonnelFilter].sort((a, b) => {
+    const sortedReports = [...reportsGroupedByDateAndName].sort((a, b) => {
         if (!sortColumn) return 0;
 
         let aVal, bVal;
@@ -1418,6 +1544,11 @@ export default function DanhSachBaoCaoTay() {
                                         ))
                                     )}
                                 </div>
+                                {!isAdmin && (
+                                    <p style={{ fontSize: '11px', color: '#666', marginTop: '6px', marginBottom: 0 }}>
+                                        Danh sách đang hiển thị theo `selected_personnel` của tài khoản.
+                                    </p>
+                                )}
                             </div>
                         </details>
                     </div>
@@ -1777,31 +1908,37 @@ export default function DanhSachBaoCaoTay() {
                                             <td>{formatNumber(item.order_go || 0)}</td>
                                             <td>{formatCurrency(item.revenue_go_actual || 0)}</td>
                                             <td className="text-center">
-                                                <div className="flex gap-2 justify-center">
-                                                    <button
-                                                        className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs transition flex items-center gap-1"
-                                                        onClick={() => handleViewOrders(item)}
-                                                        title="Xem danh sách đơn hàng thỏa mãn điều kiện"
-                                                    >
-                                                        <Eye className="w-3 h-3" />
-                                                        Xem
-                                                    </button>
-                                                    <button
-                                                        className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition"
-                                                        onClick={() => handleEditClick(item)}
-                                                    >
-                                                        Sửa
-                                                    </button>
-                                                    {isAdmin && (
+                                                {item._sourceCount > 1 ? (
+                                                    <span className="text-xs text-gray-500">
+                                                        Đã gộp {item._sourceCount} dòng
+                                                    </span>
+                                                ) : (
+                                                    <div className="flex gap-2 justify-center">
                                                         <button
-                                                            className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
-                                                            onClick={() => handleDeleteReport(item.id)}
-                                                            disabled={deletingId === item.id}
+                                                            className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs transition flex items-center gap-1"
+                                                            onClick={() => handleViewOrders(item)}
+                                                            title="Xem danh sách đơn hàng thỏa mãn điều kiện"
                                                         >
-                                                            {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                            <Eye className="w-3 h-3" />
+                                                            Xem
                                                         </button>
-                                                    )}
-                                                </div>
+                                                        <button
+                                                            className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition"
+                                                            onClick={() => handleEditClick(item)}
+                                                        >
+                                                            Sửa
+                                                        </button>
+                                                        {isAdmin && (
+                                                            <button
+                                                                className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
+                                                                onClick={() => handleDeleteReport(item.id)}
+                                                                disabled={deletingId === item.id}
+                                                            >
+                                                                {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     ))
