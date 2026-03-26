@@ -389,17 +389,20 @@ export default function DanhSachBaoCaoTay() {
                 if (data.length < PAGE_SIZE) break;
             }
 
-            const filteredByPermission = allowedPersonnelCanonical.length === 0
-                ? []
-                : (allRows || []).filter((row) => {
-                    const rowName = canonicalPersonName(row?.name || '');
-                    if (!rowName) return false;
-                    return allowedPersonnelCanonical.some((allowedName) =>
-                        rowName === allowedName ||
-                        rowName.includes(allowedName) ||
-                        allowedName.includes(rowName)
-                    );
-                });
+            // Admin/super_admin: xem toàn bộ báo cáo (không giới hạn selected_personnel).
+            const filteredByPermission = isAdmin
+                ? (allRows || [])
+                : allowedPersonnelCanonical.length === 0
+                    ? []
+                    : (allRows || []).filter((row) => {
+                        const rowName = canonicalPersonName(row?.name || '');
+                        if (!rowName) return false;
+                        return allowedPersonnelCanonical.some((allowedName) =>
+                            rowName === allowedName ||
+                            rowName.includes(allowedName) ||
+                            allowedName.includes(rowName)
+                        );
+                    });
 
             setManualReports(filteredByPermission);
         } catch (error) {

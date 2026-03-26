@@ -182,22 +182,71 @@ function parseSoDonThucTeFromRow(row) {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Trùng `id` (API lặp) hoặc trùng key logic → chỉ giữ một dòng cho thống kê (ưu tiên Số đơn TT lớn hơn). */
+function parseDoanhSoChotTTFromRow(row) {
+  if (!row) return 0;
+  return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
+}
+
+function parseCpqcFromRow(row) {
+  if (!row) return 0;
+  const v = row['CPQC'] ?? row.cpqc;
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseSoMessCmtFromRow(row) {
+  if (!row) return 0;
+  const v = row['Số_Mess_Cmt'] ?? row.so_mess_cmt;
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Trùng `id` (API lặp) hoặc trùng key logic → gộp một dòng:
+ * chỉ CPQC và Số_Mess_Cmt: tổng; Số đơn TT / DS Chốt TT: max; các cột khác giữ theo dòng đầu (không cộng).
+ */
 export function dedupeMktDetailReportRows(rows) {
   const merged = mergeUniqueRowsById(rows || []);
   const byKey = new Map();
   for (const row of merged) {
     const k = buildMktDetailReportRowKey(row);
+    const sd = parseSoDonThucTeFromRow(row);
+    const ds = parseDoanhSoChotTTFromRow(row);
+    const cpqc = parseCpqcFromRow(row);
+    const mess = parseSoMessCmtFromRow(row);
+
     const prev = byKey.get(k);
     if (!prev) {
-      byKey.set(k, row);
+      byKey.set(k, { row, sd, ds, cpqc, mess });
       continue;
     }
-    if (parseSoDonThucTeFromRow(row) >= parseSoDonThucTeFromRow(prev)) {
-      byKey.set(k, row);
-    }
+
+    const mergedSd = Math.max(prev.sd, sd);
+    const mergedDs = Math.max(prev.ds, ds);
+    const mergedCpqc = prev.cpqc + cpqc;
+    const mergedMess = prev.mess + mess;
+
+    prev.sd = mergedSd;
+    prev.ds = mergedDs;
+    prev.cpqc = mergedCpqc;
+    prev.mess = mergedMess;
+    prev.row['Số đơn thực tế'] = mergedSd;
+    prev.row['Doanh số TT'] = mergedDs;
+    prev.row['CPQC'] = mergedCpqc;
+    prev.row['Số_Mess_Cmt'] = mergedMess;
+    if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
+    if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
+    if (prev.row.cpqc != null) prev.row.cpqc = mergedCpqc;
+    if (prev.row.so_mess_cmt != null) prev.row.so_mess_cmt = mergedMess;
   }
-  return [...byKey.values()];
+
+  return [...byKey.values()].map((m) => m.row);
 }
 
 function makeId() {
