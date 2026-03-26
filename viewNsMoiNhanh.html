@@ -877,6 +877,21 @@
       return Number.isFinite(n) ? n : 0;
     }
 
+    /** Parse tiền tệ: hỗ trợ số hoặc chuỗi "4.730.600", "4.730.600 đ", "4,730,600 ₫". */
+    function parseMoneyNumber(v) {
+      if (v == null || v === '') return 0;
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      const s = String(v).trim();
+      const direct = Number(s);
+      if (Number.isFinite(direct)) return direct;
+      const stripped = s.replace(/\./g, '').replace(/,/g, '');
+      const n = Number(stripped);
+      if (Number.isFinite(n)) return n;
+      const digitsOnly = s.replace(/[^\d-]/g, '');
+      const n2 = Number(digitsOnly);
+      return Number.isFinite(n2) ? n2 : 0;
+    }
+
     /** Chuẩn hóa tên cột giống XemBaoCaoMKT (Supabase / snake_case / tiếng Anh). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
@@ -888,7 +903,7 @@
         'Email': item['Email'] || item.email || '',
         'Sản_phẩm': item['Sản_phẩm'] || item['Sản phẩm'] || item.san_pham || item.product || '',
         'Thị_trường': item['Thị_trường'] || item['Thị trường'] || item.thi_truong || item.market || '',
-        'CPQC': item['CPQC'] ?? item.cpqc ?? 0,
+        'CPQC': parseMoneyNumber(item['CPQC'] ?? item.cpqc ?? 0),
         'Số_Mess_Cmt': parseIntegerVi(
           item['Số_Mess_Cmt'] ?? item['Số Mess Cmt'] ?? item.so_mess_cmt ?? item.mess_count ?? 0
         ),
@@ -906,10 +921,15 @@
         'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
         'Số đơn hoàn hủy': parseIntegerVi(
-          item['Số đơn hoàn hủy'] ?? item.so_don_hoan_huy ?? item.order_cancel_count ?? 0
+          item['Số đơn hoàn hủy'] ??
+          item['Số đơn hoàn huỷ'] ??
+          item.so_don_hoan_huy ??
+          item.order_cancel_count ??
+          0
         ),
         'Số đơn hoàn hủy thực tế': parseIntegerVi(
           item['Số đơn hoàn hủy thực tế'] ??
+            item['Số đơn hoàn huỷ thực tế'] ??
             item.so_don_hoan_huy_thuc_te ??
             item.order_cancel_count_actual ??
             0
@@ -1640,12 +1660,19 @@
 
     function sumDetailTotalsFromRows(rows) {
       const acc = { mess: 0, cpqc: 0, don: 0, chot: 0, donThucTe: 0, chotThucTe: 0 };
+      const seenDetailKeysSoDonTT = new Set();
       (rows || []).forEach((r) => {
         acc.mess += Number(r.soMessCmt) || 0;
         acc.cpqc += Number(r.cpqc) || 0;
         acc.don += Number(r.soDon) || 0;
         acc.chot += Number(r.dsChot) || 0;
-        acc.donThucTe += Number(r.soDonThucTe) || 0;
+        const detailKey = String(r?.detailRowKey || '');
+        if (!seenDetailKeysSoDonTT.has(detailKey)) {
+          seenDetailKeysSoDonTT.add(detailKey);
+          const donTT = Number(r.soDonThucTe) || 0;
+          const donHuyTT = Number(r.soDonHuyThucTe) || 0;
+          acc.donThucTe += Math.max(0, donTT - donHuyTT);
+        }
         acc.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
       return acc;
@@ -1661,6 +1688,7 @@
           summary[key] = {
             team: r.team,
             name: namePart || 'N/A',
+            seenDetailKeysSoDonTT: new Set(),
             mess: 0,
             don: 0,
             chot: 0,
@@ -1674,10 +1702,16 @@
         S.cpqc += Number(r.cpqc) || 0;
         S.don += Number(r.soDon) || 0;
         S.chot += Number(r.dsChot) || 0;
-        S.donThucTe += Number(r.soDonThucTe) || 0;
+        const detailKey = String(r?.detailRowKey || '');
+        if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
+          S.seenDetailKeysSoDonTT.add(detailKey);
+          const donTT = Number(r.soDonThucTe) || 0;
+          const donHuyTT = Number(r.soDonHuyThucTe) || 0;
+          S.donThucTe += Math.max(0, donTT - donHuyTT);
+        }
         S.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
-      return Object.values(summary);
+      return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
     }
 
     function generateKpiTableData(data) {

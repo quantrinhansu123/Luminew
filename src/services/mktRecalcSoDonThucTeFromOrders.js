@@ -670,7 +670,7 @@ export async function recalcMktSoDonThucTeFromOrders({
  * @param {string} newOrderDate - Ngày đơn sau lưu (YYYY-MM-DD hoặc string DB)
  * @param {string} [previousOrderDate] - Khi sửa đơn: ngày đơn trước khi đổi (để tính lại cả ngày cũ)
  */
-export async function recalcMktSoDonAfterOrderSave({ newOrderDate, previousOrderDate } = {}) {
+export async function recalcMktSoDonAfterOrderSave({ newOrderDate, previousOrderDate, createMissingRows = true } = {}) {
   const n = normalizeDateStr(newOrderDate);
   const p = previousOrderDate != null && previousOrderDate !== '' ? normalizeDateStr(previousOrderDate) : '';
   if (!n && !p) {
@@ -679,6 +679,6 @@ export async function recalcMktSoDonAfterOrderSave({ newOrderDate, previousOrder
   const dates = [n, p].filter(Boolean).sort();
   const startDate = dates[0];
   const endDate = dates[dates.length - 1];
-  return recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRun: false });
+  return recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRun: false, createMissingRows });
 }
 

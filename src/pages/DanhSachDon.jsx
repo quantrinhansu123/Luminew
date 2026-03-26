@@ -86,6 +86,7 @@ function DanhSachDon() {
   const [showStatusFilter, setShowStatusFilter] = useState(false);
   const [filterCheckResult, setFilterCheckResult] = useState([]);
   const [showCheckResultFilter, setShowCheckResultFilter] = useState(false);
+  const [checkResultFilterSearchText, setCheckResultFilterSearchText] = useState('');
   const [filterSaleStaff, setFilterSaleStaff] = useState([]);
   const [showSaleStaffFilter, setShowSaleStaffFilter] = useState(false);
   const [filterMktStaff, setFilterMktStaff] = useState([]);
@@ -1263,6 +1264,12 @@ function DanhSachDon() {
     return sortedCheckResults;
   }, [allData]);
 
+  const filteredCheckResults = useMemo(() => {
+    const kw = String(checkResultFilterSearchText || '').trim().toLowerCase();
+    if (!kw) return uniqueCheckResults;
+    return uniqueCheckResults.filter((v) => String(v || '').toLowerCase().includes(kw));
+  }, [checkResultFilterSearchText, uniqueCheckResults]);
+
   const uniqueSaleStaff = useMemo(() => {
     const vals = new Set();
     allData.forEach(row => {
@@ -2038,7 +2045,16 @@ function DanhSachDon() {
                           Bỏ chọn tất cả
                         </button>
                       </div>
-                      {uniqueCheckResults.map(checkResult => {
+                      <div className="mb-2">
+                        <input
+                          type="text"
+                          value={checkResultFilterSearchText}
+                          onChange={(e) => setCheckResultFilterSearchText(e.target.value)}
+                          placeholder="Gõ để tìm nhanh..."
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                        />
+                      </div>
+                      {filteredCheckResults.map(checkResult => {
                         const isChecked = filterCheckResult.includes(checkResult);
                         return (
                           <label

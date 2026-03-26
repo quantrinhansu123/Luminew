@@ -88,7 +88,7 @@ function getTodayDateStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Giá trị gốc ngày tracking từ row (khớp thứ tự với ffmEnrichedRows). */
+/** Giá trị gốc ngày tracking từ row (dùng để suy ra cột ngày tracking). */
 function getTrackingDateRawFFM(row) {
   return (
     row['tracking_check_date'] ||
@@ -356,6 +356,7 @@ function FFM() {
   const historyIndexRef = useRef(-1);
   const dbQueueRef = useRef([]); // FIFO Queue for Backend
   const isProcessingQueue = useRef(false);
+  const manualSaveRequestedRef = useRef(false); // Chỉ lưu DB khi user bấm "Xác nhận lưu"
 
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
@@ -763,8 +764,25 @@ function FFM() {
     }
   }, [visibleColumns]);
 
-  /** Gộp pending + cột ngày suy ra — chỉ tính lại khi allData / pendingChanges đổi (không tính lại mỗi lần đổi filter). */
-  const ffmEnrichedRows = useMemo(() => {
+  /** Dữ liệu nền cho FILTER: chỉ dùng dữ liệu gốc + cột ngày suy ra (không trộn pending). */
+  const ffmEnrichedRowsForFilter = useMemo(() => {
+    const n = allData.length;
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const row = allData[i];
+      const rowCopy = { ...row };
+
+      rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(row['time_dayon'] || row.time_dayon || row['Ngày Kế toán đối soát với FFM lần 2']);
+
+      const rawTrackingDate = getTrackingDateRawFFM(row);
+      rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(rawTrackingDate);
+      out[i] = rowCopy;
+    }
+    return out;
+  }, [allData]);
+
+  /** Dữ liệu nền cho RENDER: có trộn pending để thể hiện ngay thay đổi (Thêm nhanh / Cập nhật hàng loạt). */
+  const ffmEnrichedRowsForRender = useMemo(() => {
     const n = allData.length;
     const out = new Array(n);
     for (let i = 0; i < n; i++) {
@@ -772,24 +790,36 @@ function FFM() {
       const orderId = row[PRIMARY_KEY_COLUMN];
       const rowCopy = { ...row };
 
-      rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(row['time_dayon'] || row.time_dayon || row['Ngày Kế toán đối soát với FFM lần 2']);
-
-      const rawTrackingDate = getTrackingDateRawFFM(row);
-      rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(rawTrackingDate);
-
-      const pending = pendingChanges.get(orderId);
+      // Overlay pending trước để các cột suy ra (derived) phản ánh đúng giá trị vừa sửa.
+      const pending = orderId ? pendingChanges.get(orderId) : undefined;
       if (pending) {
         pending.forEach((info, key) => {
           rowCopy[key] = info.newValue;
         });
       }
+
+      rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(
+        rowCopy['time_dayon'] || rowCopy.time_dayon || rowCopy['Ngày Kế toán đối soát với FFM lần 2']
+      );
+
+      const rawTrackingDate = getTrackingDateRawFFM(rowCopy);
+      rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(rawTrackingDate);
+
       out[i] = rowCopy;
     }
     return out;
   }, [allData, pendingChanges]);
 
+  const ffmRenderRowMap = useMemo(() => {
+    const m = new Map();
+    for (const r of ffmEnrichedRowsForRender) {
+      const id = r[PRIMARY_KEY_COLUMN];
+      if (id) m.set(id, r);
+    }
+    return m;
+  }, [ffmEnrichedRowsForRender]);
   const getFilteredData = useMemo(() => {
-    let data = ffmEnrichedRows;
+    let data = ffmEnrichedRowsForFilter;
     const fv = deferredFilterValues;
 
     // ORDER_MANAGEMENT filtering
@@ -840,138 +870,138 @@ function FFM() {
     }
 
     Object.entries(fv).forEach(([key, val]) => {
-      if (FFM_FILTER_SKIP_KEYS.has(key)) return;
-      if (Array.isArray(val) && val.length === 0) return;
-      if (typeof val === 'string' && val.trim() === '') return;
+        if (FFM_FILTER_SKIP_KEYS.has(key)) return;
+        if (Array.isArray(val) && val.length === 0) return;
+        if (typeof val === 'string' && val.trim() === '') return;
 
-      const dataKey = COLUMN_MAPPING[key] || key;
-      const isDateColFilter = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key);
+        const dataKey = COLUMN_MAPPING[key] || key;
+        const isDateColFilter = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key);
 
-      if (isDateColFilter) {
-        const filterYmd = normalizeToYmdForCompare(val);
-        if (!filterYmd) return;
+        if (isDateColFilter) {
+          const filterYmd = normalizeToYmdForCompare(val);
+          if (!filterYmd) return;
+          data = data.filter((row) => {
+            let cellYmd = '';
+            if (key === 'Ngày có mã tracking') {
+              const raw = getTrackingDateRawFFM(row);
+              const v = row['Ngày có mã tracking'] || extractDateFromDateTime(raw) || raw;
+              cellYmd = normalizeToYmdForCompare(v);
+            } else if (key === 'Ngày đẩy đơn') {
+              const v = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
+              cellYmd = normalizeToYmdForCompare(v);
+            } else {
+              const cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+              cellYmd = normalizeToYmdForCompare(String(cellValue).trim());
+            }
+            if (!cellYmd) return false;
+            // Ô date trên tiêu đề cột = đúng ngày đó (không phải «từ ngày» — khoảng ngày dùng Từ/Tới + Bộ lọc theo ngày).
+            return cellYmd === filterYmd;
+          });
+          return;
+        }
+
+        const valSearchLower = String(val).toLowerCase();
+
         data = data.filter((row) => {
-          let cellYmd = '';
-          if (key === 'Ngày có mã tracking') {
-            const raw = getTrackingDateRawFFM(row);
-            const v = row['Ngày có mã tracking'] || extractDateFromDateTime(raw) || raw;
-            cellYmd = normalizeToYmdForCompare(v);
-          } else if (key === 'Ngày đẩy đơn') {
-            const v = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
-            cellYmd = normalizeToYmdForCompare(v);
-          } else {
-            const cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
-            cellYmd = normalizeToYmdForCompare(String(cellValue).trim());
+          let cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+          cellValue = String(cellValue).trim();
+
+          if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)) {
+            const selected = val;
+            if (selected.length === 0) return true;
+            if (cellValue === '' && selected.includes('__EMPTY__')) return true;
+            return selected.includes(cellValue);
           }
-          if (!cellYmd) return false;
-          // Ô date trên tiêu đề cột = đúng ngày đó (không phải «từ ngày» — khoảng ngày dùng Từ/Tới + Bộ lọc theo ngày).
-          return cellYmd === filterYmd;
+
+          return cellValue.toLowerCase().includes(valSearchLower);
         });
-        return;
+      });
+
+      // Handle Dropdown Filters: Packing Date, Delivery Status, Shipping Fee
+      if (fv.packing_date_status && fv.packing_date_status !== 'Tất cả') {
+        const status = fv.packing_date_status;
+        const today = getTodayDateStr();
+        const yesterdayDate = new Date();
+        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+        const yesterday = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`;
+        const customDate = fv['Ngày đóng hàng'];
+
+        data = data.filter(row => {
+          const val = row['Ngày đóng hàng'] || '';
+          if (status === 'Trống') return !val || String(val).trim() === '';
+
+          const dateStr = extractDateFromDateTime(val);
+          if (status === 'Hôm nay') return dateStr === today;
+          if (status === 'Hôm qua') return dateStr === yesterday;
+          if (status === 'Ngày cụ thể' && customDate) return dateStr === customDate;
+          return true;
+        });
       }
 
-      const valSearchLower = String(val).toLowerCase();
+      if (fv.delivery_status_filter && fv.delivery_status_filter !== 'Tất cả') {
+        const status = fv.delivery_status_filter;
+        const search = fv.delivery_status_search ? fv.delivery_status_search.toLowerCase() : '';
 
-      data = data.filter((row) => {
-        let cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
-        cellValue = String(cellValue).trim();
+        data = data.filter(row => {
+          const val = String(row['Trạng thái giao hàng'] || '').trim();
+          if (status === 'Trống') return val === '' || val === 'null';
+          if (status === 'Tìm kiếm...') {
+            return search ? val.toLowerCase().includes(search) : true;
+          }
+          return val === status;
+        });
+      }
 
-        if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)) {
-          const selected = val;
-          if (selected.length === 0) return true;
-          if (cellValue === '' && selected.includes('__EMPTY__')) return true;
-          return selected.includes(cellValue);
-        }
+      if (fv.us_shipping_fee_status && fv.us_shipping_fee_status !== 'Tất cả') {
+        const status = fv.us_shipping_fee_status;
+        const search = fv.us_shipping_fee_search;
 
-        return cellValue.toLowerCase().includes(valSearchLower);
-      });
-    });
+        data = data.filter(row => {
+          const rawVal = row['Ngày đối soát kế toán'] || row['Phí ship nội địa Mỹ (usd)'] || row.shipping_fee || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
+          const numVal = parseFloat(String(rawVal).replace(/[^\d.-]/g, ''));
 
-    // Handle Dropdown Filters: Packing Date, Delivery Status, Shipping Fee
-    if (fv.packing_date_status && fv.packing_date_status !== 'Tất cả') {
-      const status = fv.packing_date_status;
-      const today = getTodayDateStr();
-      const yesterdayDate = new Date();
-      yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-      const yesterday = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`;
-      const customDate = fv['Ngày đóng hàng'];
-
-      data = data.filter(row => {
-        const val = row['Ngày đóng hàng'] || '';
-        if (status === 'Trống') return !val || String(val).trim() === '';
-
-        const dateStr = extractDateFromDateTime(val);
-        if (status === 'Hôm nay') return dateStr === today;
-        if (status === 'Hôm qua') return dateStr === yesterday;
-        if (status === 'Ngày cụ thể' && customDate) return dateStr === customDate;
-        return true;
-      });
-    }
-
-    if (fv.delivery_status_filter && fv.delivery_status_filter !== 'Tất cả') {
-      const status = fv.delivery_status_filter;
-      const search = fv.delivery_status_search ? fv.delivery_status_search.toLowerCase() : '';
-
-      data = data.filter(row => {
-        const val = String(row['Trạng thái giao hàng'] || '').trim();
-        if (status === 'Trống') return val === '' || val === 'null';
-        if (status === 'Tìm kiếm...') {
-          return search ? val.toLowerCase().includes(search) : true;
-        }
-        return val === status;
-      });
-    }
-
-    if (fv.us_shipping_fee_status && fv.us_shipping_fee_status !== 'Tất cả') {
-      const status = fv.us_shipping_fee_status;
-      const search = fv.us_shipping_fee_search;
-
-      data = data.filter(row => {
-        const rawVal = row['Ngày đối soát kế toán'] || row['Phí ship nội địa Mỹ (usd)'] || row.shipping_fee || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
-        const numVal = parseFloat(String(rawVal).replace(/[^\d.-]/g, ''));
-
-        if (status === 'Trống') return (rawVal === '' || rawVal === null);
-        if (status === 'Miễn phí (0)') return numVal === 0;
-        if (status === 'Có phí (>0)') return numVal > 0;
-        if (status === 'Giá trị cụ thể' && search !== '') {
-          return parseFloat(search) === numVal || String(rawVal).includes(search);
-        }
-        return true;
-      });
-    }
+          if (status === 'Trống') return (rawVal === '' || rawVal === null);
+          if (status === 'Miễn phí (0)') return numVal === 0;
+          if (status === 'Có phí (>0)') return numVal > 0;
+          if (status === 'Giá trị cụ thể' && search !== '') {
+            return parseFloat(search) === numVal || String(rawVal).includes(search);
+          }
+          return true;
+        });
+      }
 
     if (fv.tracking_status || fv.tracking_include || fv.tracking_exclude) {
-      const inc = fv.tracking_include ? String(fv.tracking_include).toLowerCase() : '';
-      const exc = fv.tracking_exclude ? String(fv.tracking_exclude).toLowerCase() : '';
-      const status = fv.tracking_status || 'Tình trạng mã';
-      const incMultiLine = inc && inc.includes('\n');
-      const incLinesSet = incMultiLine
-        ? new Set(inc.split('\n').map((t) => t.trim()).filter(Boolean).map((t) => t.toLowerCase()))
-        : null;
+        const inc = fv.tracking_include ? String(fv.tracking_include).toLowerCase() : '';
+        const exc = fv.tracking_exclude ? String(fv.tracking_exclude).toLowerCase() : '';
+        const status = fv.tracking_status || 'Tình trạng mã';
+        const incMultiLine = inc && inc.includes('\n');
+        const incLinesSet = incMultiLine
+          ? new Set(inc.split('\n').map((t) => t.trim()).filter(Boolean).map((t) => t.toLowerCase()))
+          : null;
 
-      data = data.filter((row) => {
-        // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
-        const code = String(row['tracking_code'] || row['Mã Tracking'] || '').trim();
-        const lowerCode = code.toLowerCase();
+        data = data.filter((row) => {
+          // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
+          const code = String(row['tracking_code'] || row['Mã Tracking'] || '').trim();
+          const lowerCode = code.toLowerCase();
 
-        // Status Filter Logic
-        if (status === 'Tất cả có mã' && code === '') return false;
-        if (status === 'Trống' && code !== '') return false;
-        if (status === 'Toàn số' && (code === '' || !/^\d+$/.test(code))) return false;
+          // Status Filter Logic
+          if (status === 'Tất cả có mã' && code === '') return false;
+          if (status === 'Trống' && code !== '') return false;
+          if (status === 'Toàn số' && (code === '' || !/^\d+$/.test(code))) return false;
 
-        // Only apply include/exclude if in 'Tình trạng mã' state
-        if (status === 'Tình trạng mã') {
-          if (exc && lowerCode.includes(exc)) return false;
-          if (inc) {
-            if (incLinesSet) {
-              if (!incLinesSet.has(lowerCode)) return false;
-            } else if (!lowerCode.includes(inc)) {
-              return false;
+          // Only apply include/exclude if in 'Tình trạng mã' state
+          if (status === 'Tình trạng mã') {
+            if (exc && lowerCode.includes(exc)) return false;
+            if (inc) {
+              if (incLinesSet) {
+                if (!incLinesSet.has(lowerCode)) return false;
+              } else if (!lowerCode.includes(inc)) {
+                return false;
+              }
             }
           }
-        }
-        return true;
-      });
+          return true;
+        });
     }
 
     // Filter by tracking code status - This logic is now handled by filterValues.tracking_status
@@ -1008,8 +1038,9 @@ function FFM() {
       });
     }
 
-    return data;
-  }, [ffmEnrichedRows, omActiveTeam, omDateType, deferredFilterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence]);
+    // Lọc dựa trên data gốc (không pending), sau đó map sang row có pending để UI thể hiện ngay thay đổi.
+    return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
+  }, [ffmEnrichedRowsForFilter, ffmRenderRowMap, omActiveTeam, omDateType, deferredFilterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
@@ -1047,6 +1078,7 @@ function FFM() {
 
 
   const processDbQueue = useCallback(async () => {
+    if (!manualSaveRequestedRef.current) return;
     if (isProcessingQueue.current) return;
     if (dbQueueRef.current.length === 0) return;
 
@@ -1117,6 +1149,7 @@ function FFM() {
       }
     } finally {
       isProcessingQueue.current = false;
+      manualSaveRequestedRef.current = false;
     }
   }, [addToast, removeToast, deepCloneMapOfMaps]);
 
@@ -1279,6 +1312,7 @@ function FFM() {
       return;
     }
     dbQueueRef.current = newQueue;
+    manualSaveRequestedRef.current = true;
     processDbQueue();
   }, [pendingChanges, addToast, processDbQueue]);
   const handleQuickSync = (rows) => {
@@ -1357,6 +1391,7 @@ function FFM() {
     const prevQueueLen = dbQueueRef.current.length;
     handleQuickSync(rows);
     if (dbQueueRef.current.length > prevQueueLen) {
+      manualSaveRequestedRef.current = true;
       processDbQueue();
     }
   };
@@ -2140,24 +2175,37 @@ function FFM() {
     return map;
   }, [allData]);
 
+  const checkResultColumnWidthPx = useMemo(() => {
+    // Ước lượng width theo độ dài chuỗi option của bộ lọc “Kết quả Check”.
+    // Ưu tiên các giá trị đang chọn; nếu không có chọn thì dùng toàn bộ option.
+    const selected = localFilterValues['Kết quả Check'] || [];
+    const allOptions = selected.length ? selected : getMultiSelectOptions('Kết quả Check');
+    const options = (allOptions || []).filter((v) => v && v !== '__EMPTY__');
+    const maxLen = options.reduce((m, v) => Math.max(m, String(v).length), 0);
+    // Font table ~13px, ước lượng 7-8px/char + padding.
+    const estimated = 20 + maxLen * 7.6;
+    // Yêu cầu: tăng độ rộng cột lên ~x2.
+    return Math.max(180, Math.min(440, Math.ceil(estimated * 2)));
+  }, [localFilterValues, allData]);
+
   const getColumnWidthPx = useCallback((col) => {
     if (col === 'STT') return 50;
     if (col === 'Mã đơn hàng') return 150;
-    if (col === 'Kết quả Check' || col === 'Kết quả check') return 90;
+    if (col === 'Kết quả Check' || col === 'Kết quả check') return checkResultColumnWidthPx;
     if (col === 'Mã Tracking') return 260;
     if (col === 'Add') return 250; // Giảm xuống 250px theo yêu cầu
     return 120;
-  }, []);
+  }, [checkResultColumnWidthPx]);
 
   const getColumnWidthStyles = useCallback((col) => {
     const w = getColumnWidthPx(col);
     if (col === 'Add') return { minWidth: '220px', maxWidth: '350px', width: '250px' };
     if (col === 'STT') return { minWidth: '50px', width: '50px' };
     if (col === 'Mã đơn hàng') return { minWidth: '150px', width: '150px' };
-    if (col === 'Kết quả Check' || col === 'Kết quả check') return { minWidth: '90px', width: '90px', maxWidth: '90px' };
+    if (col === 'Kết quả Check' || col === 'Kết quả check') return { minWidth: `${checkResultColumnWidthPx}px`, width: `${checkResultColumnWidthPx}px`, maxWidth: `${checkResultColumnWidthPx}px` };
     if (col === 'Mã Tracking') return { minWidth: '260px', width: '260px' };
     return { minWidth: `${w}px` };
-  }, [getColumnWidthPx]);
+  }, [getColumnWidthPx, checkResultColumnWidthPx]);
 
   /** 
    * Tính toán offset cho các cột sticky để tránh đè lên nhau.
@@ -2324,7 +2372,7 @@ function FFM() {
       window.removeEventListener('resize', onResize);
       ro?.disconnect();
     };
-    // Không phụ thuộc `paginatedData` (reference đổi mỗi lần pendingChanges/ffmEnrichedRows) — tránh
+    // Không phụ thuộc `paginatedData` (tránh chạy lại khi reference đổi do pendingChanges) — tránh
     // syncRowHeights chạy lại khi chỉ sửa ô (gây gộp/lệch hàng). Dùng length + trang; ResizeObserver xử lý khi hàng cao đổi.
   }, [splitPane, getFilteredData.length, currentPage, effectiveRowsPerPage, currentColumns, effectiveFixedColumns, loading]);
 
@@ -2466,8 +2514,8 @@ function FFM() {
             <input
               type="date"
               className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-              value={filterValues[filterKey] || ''}
-              onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+              value={localFilterValues[filterKey] || ''}
+              onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
             />
           )}
         </div>
@@ -2531,8 +2579,8 @@ function FFM() {
         <MultiSelect
           label="Lọc..."
           options={getMultiSelectOptions(col)}
-          selected={filterValues[filterKey] || []}
-          onChange={(vals) => setFilterValues((p) => ({ ...p, [filterKey]: vals }))}
+          selected={localFilterValues[filterKey] || []}
+          onChange={(vals) => setLocalFilterValues((p) => ({ ...p, [filterKey]: vals }))}
         />
       );
     }
@@ -2541,8 +2589,8 @@ function FFM() {
         <input
           type="date"
           className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-          value={filterValues[filterKey] || ''}
-          onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+          value={localFilterValues[filterKey] || ''}
+          onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
         />
       );
     }
@@ -2653,9 +2701,10 @@ function FFM() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                const newValue = e.target.value;
-                if (newValue !== String(displayVal)) handleCellChange(orderId, key, newValue);
-                e.target.blur();
+                // Không chốt pendingChanges khi bấm Enter.
+                // Người dùng phải bấm "Xác nhận lưu" (đồng bộ server) theo luồng hiện tại.
+                // Việc chốt có thể xảy ra khi blur (click ra ngoài / tab sang ô khác).
+                return;
               } else if (e.key === 'Escape') {
                 e.target.value = String(displayVal);
                 e.target.blur();
@@ -2755,8 +2804,8 @@ function FFM() {
                   label="Tất cả"
                   mainFilter={true}
                   options={getUniqueValues('Khu vực')}
-                  selected={filterValues.market}
-                  onChange={(vals) => setFilterValues((prev) => ({ ...prev, market: vals }))}
+                  selected={localFilterValues.market}
+                  onChange={(vals) => setLocalFilterValues((prev) => ({ ...prev, market: vals }))}
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
@@ -2765,8 +2814,8 @@ function FFM() {
                   label="Tất cả"
                   mainFilter={true}
                   options={getUniqueValues('Mặt hàng')}
-                  selected={filterValues.product}
-                  onChange={(vals) => setFilterValues((prev) => ({ ...prev, product: vals }))}
+                  selected={localFilterValues.product}
+                  onChange={(vals) => setLocalFilterValues((prev) => ({ ...prev, product: vals }))}
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
@@ -2802,8 +2851,8 @@ function FFM() {
                   label="Tất cả"
                   mainFilter={true}
                   options={getMultiSelectOptions('Kết quả Check')}
-                  selected={filterValues['Kết quả Check'] || []}
-                  onChange={(vals) => setFilterValues((prev) => ({ ...prev, ['Kết quả Check']: vals }))}
+                  selected={localFilterValues['Kết quả Check'] || []}
+                  onChange={(vals) => setLocalFilterValues((prev) => ({ ...prev, ['Kết quả Check']: vals }))}
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[110px]">

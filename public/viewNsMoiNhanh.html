@@ -877,6 +877,21 @@
       return Number.isFinite(n) ? n : 0;
     }
 
+    /** Parse tiền tệ: hỗ trợ số hoặc chuỗi "4.730.600", "4.730.600 đ", "4,730,600 ₫". */
+    function parseMoneyNumber(v) {
+      if (v == null || v === '') return 0;
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      const s = String(v).trim();
+      const direct = Number(s);
+      if (Number.isFinite(direct)) return direct;
+      const stripped = s.replace(/\./g, '').replace(/,/g, '');
+      const n = Number(stripped);
+      if (Number.isFinite(n)) return n;
+      const digitsOnly = s.replace(/[^\d-]/g, '');
+      const n2 = Number(digitsOnly);
+      return Number.isFinite(n2) ? n2 : 0;
+    }
+
     /** Chuẩn hóa một dòng detail_reports (Supabase hoặc định dạng snake_case). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
@@ -888,7 +903,7 @@
         'Email': item.email || item['Email'] || '',
         'Sản_phẩm': item.san_pham || item['Sản_phẩm'] || '',
         'Thị_trường': item.thi_truong || item['Thị_trường'] || '',
-        'CPQC': item.cpqc ?? item['CPQC'] ?? 0,
+        'CPQC': parseMoneyNumber(item.cpqc ?? item['CPQC'] ?? 0),
         'Số_Mess_Cmt': parseIntegerVi(item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0),
         'Số đơn': parseIntegerVi(item['Số đơn'] ?? item.so_don ?? 0),
         'Số đơn thực tế': parseIntegerVi(item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0),
@@ -896,8 +911,21 @@
         /** API trả `doanh_so_tt` — đồng bộ React / pickDoanhSoTT (DS Chốt TT). */
         'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] ?? item.doanh_thu_chot_thuc_te ?? 0,
-        'Số đơn hoàn hủy': parseIntegerVi(item['Số đơn hoàn hủy'] ?? 0),
-        'Số đơn hoàn hủy thực tế': parseIntegerVi(item['Số đơn hoàn hủy thực tế'] ?? 0),
+        'Số đơn hoàn hủy': parseIntegerVi(
+          item['Số đơn hoàn hủy'] ??
+          item['Số đơn hoàn huỷ'] ??
+          item.so_don_hoan_huy ??
+          item.so_don_hoan_huy_tt ??
+          item.order_cancel_count ??
+          0
+        ),
+        'Số đơn hoàn hủy thực tế': parseIntegerVi(
+          item['Số đơn hoàn hủy thực tế'] ??
+          item['Số đơn hoàn huỷ thực tế'] ??
+          item.so_don_hoan_huy_thuc_te ??
+          item.order_cancel_count_actual ??
+          0
+        ),
         'Doanh số hoàn hủy thực tế': item['Doanh số hoàn hủy thực tế'] ?? 0,
         'DS sau hoàn hủy': item['DS sau hoàn hủy'] ?? 0,
         'Doanh số sau hoàn hủy thực tế': item['Doanh số sau hoàn hủy thực tế'] ?? 0,
@@ -1358,11 +1386,11 @@
 
         const employeeDataMKT = Array.isArray(resultMKT.employeeData) && resultMKT.employeeData.length
           ? await fetchEmployeeData(resultMKT.employeeData)
-          : buildEmployeesFromDetailRows(rowsDeduped);
+          : buildEmployeesFromDetailRows(rowsNorm);
 
         employeeData = employeeDataMKT;
 
-        const masterDataMKT = rowsDeduped
+        const masterDataMKT = rowsNorm
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
           .map(r => {
             const dsChotTT = Number(r["Doanh số TT"] ?? r.doanh_so_tt) || 0;
@@ -1384,7 +1412,7 @@
               thiTruong: (r["Thị_trường"] || 'N/A').trim(),
               team: (r["Team"] || 'Khác').trim(),
               chucVu: String(r["Chức vụ"] || '').trim().toLowerCase(),
-              cpqc: Number(r["CPQC"]) || 0,
+              cpqc: parseMoneyNumber(r["CPQC"]),
               soMessCmt: parseIntegerVi(r["Số_Mess_Cmt"]),
               soDon: donTT,
               dsChot: dsChotThucTeVal,
@@ -1734,30 +1762,37 @@
     /** Cộng dồn từng chỉ số trên toàn bộ dòng detail đã lọc (không qua gom nhóm). */
     function sumDetailTotalsFromRows(rows) {
       const acc = { mess: 0, cpqc: 0, don: 0, chot: 0, donThucTe: 0, chotThucTe: 0 };
+      const seenDetailKeysSoDonTT = new Set();
       (rows || []).forEach((r) => {
         acc.mess += Number(r.soMessCmt) || 0;
         acc.cpqc += Number(r.cpqc) || 0;
         acc.don += Number(r.soDon) || 0;
         acc.chot += Number(r.dsChot) || 0;
-        acc.donThucTe += Number(r.soDonThucTe) || 0;
+        const detailKey = String(r?.detailRowKey || '');
+        if (!seenDetailKeysSoDonTT.has(detailKey)) {
+          seenDetailKeysSoDonTT.add(detailKey);
+          const donTT = Number(r.soDonThucTe) || 0;
+          const donHuyTT = Number(r.soDonHuyThucTe) || 0;
+          acc.donThucTe += Math.max(0, donTT - donHuyTT);
+        }
         acc.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
       return acc;
     }
 
-    /** Gom theo id_NS + tên (tránh gộp nhầm hai người trùng tên); mọi dòng đều cộng dồn số. */
+    /** Gom theo TÊN (theo yêu cầu), mọi dòng đều cộng dồn số. */
     function generateSummaryTableData(data) {
       const summary = {};
       data.forEach((r) => {
-        // Gộp các tên Marketing “giống nhau” theo chuẩn hóa (bỏ dấu/trim/xóa ký tự ẩn).
-        // Mục tiêu: 2 dòng nhìn giống cùng 1 người không bị tách làm đôi do khác dấu/ký tự ẩn.
+        // Gộp theo tên, không tách theo Team.
         const teamDisp = String(r.team || '').trim() || 'Khác';
         const nameDisp = String(r.ten || '').trim() || 'N/A';
-        const key = `${normalizeNameForKey(teamDisp)}||${normalizeNameForKey(nameDisp)}`;
+        const key = `${normalizeNameForKey(nameDisp)}`;
         if (!summary[key]) {
           summary[key] = {
             team: teamDisp,
             name: nameDisp,
+            seenDetailKeysSoDonTT: new Set(),
             mess: 0,
             don: 0,
             chot: 0,
@@ -1767,14 +1802,21 @@
           };
         }
         const S = summary[key];
+        if (!S.team && teamDisp) S.team = teamDisp;
         S.mess += Number(r.soMessCmt) || 0;
         S.cpqc += Number(r.cpqc) || 0;
         S.don += Number(r.soDon) || 0;
         S.chot += Number(r.dsChot) || 0;
-        S.donThucTe += Number(r.soDonThucTe) || 0;
+        const detailKey = String(r?.detailRowKey || '');
+        if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
+          S.seenDetailKeysSoDonTT.add(detailKey);
+          const donTT = Number(r.soDonThucTe) || 0;
+          const donHuyTT = Number(r.soDonHuyThucTe) || 0;
+          S.donThucTe += Math.max(0, donTT - donHuyTT);
+        }
         S.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
-      return Object.values(summary);
+      return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
     }
 
     function generateKpiTableData(data) {
