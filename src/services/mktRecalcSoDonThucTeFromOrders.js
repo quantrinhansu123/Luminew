@@ -1,10 +1,33 @@
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName } from '../utils/emailFromName';
+import { mergeUniqueRowsById, parseSmartDate } from '../utils/dateParsing';
 import { getCheckResult, isCheckResultHuy, orderAmountVnd } from '../utils/orderCheckAndVnd';
 
 function normalizeStr(str) {
   if (str === null || str === undefined) return '';
   return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeNameForKeyAndMatch(v) {
+  // Normalize mạnh để khớp "Tên" orders ↔ detail_reports dù khác dấu/các ký tự ẩn.
+  const s = String(v ?? '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\p{Cf}+/gu, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    // 'đ/Đ' không tách dấu theo NFD giống các chữ khác
+    .replace(/[đĐ]/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  // Chỉ giữ chữ/số/khoảng trắng, xóa dấu câu để tránh lệch do format.
+  return s.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeNameForKey(v) {
+  return normalizeNameForKeyAndMatch(v);
 }
 
 function normalizeEmail(str) {
@@ -75,15 +98,106 @@ function orderShiftToGroups(shiftVal) {
   return groups;
 }
 
+/** SP/TT: trim + lower + bỏ ký tự ẩn (không bỏ dấu câu như Tên — tránh gộp nhầm SP khác nhau). */
+function normalizeFieldForKey(v) {
+  let s = String(v ?? '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\p{Cf}+/gu, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim()
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  // "20 x" / "20  x" → "20x" (hai dòng nhập khác nhau vẫn cùng key)
+  s = s.replace(/(\d)\s+([a-z])/gi, '$1$2');
+  s = s.replace(/([a-z])\s+(\d)/gi, '$1$2');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Ngày trong key: ưu tiên parse giống bảng (parseSmartDate) để DD/MM, ISO+TZ, v.v. về cùng YYYY-MM-DD.
+ * Giữ Date object theo local như normalizeDateStr — tránh lệch ngày do chuỗi ISO.
+ */
+function normalizeNgayForKey(dateVal) {
+  if (!dateVal) return '';
+  if (dateVal instanceof Date) {
+    const year = dateVal.getFullYear();
+    const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+    const day = String(dateVal.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  const d = parseSmartDate(dateVal);
+  if (d && !isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return normalizeDateStr(dateVal);
+}
+
 function buildKey(dateStr, name, product, market) {
   // Key(R) = lower(Ngày | Tên | Sản_phẩm | Thị_trường)
   // Key(F) = lower(formatDate(Ngày_lên_đơn) | Nhân_viên_Marketing | Mặt_hàng | Khu_vực)
   return [
-    normalizeDateStr(dateStr),
-    normalizeStr(name),
-    normalizeStr(product),
-    normalizeStr(market),
+    normalizeNgayForKey(dateStr),
+    normalizeNameForKey(name),
+    normalizeFieldForKey(product),
+    normalizeFieldForKey(market),
   ].join('|');
+}
+
+/** Chuẩn ca về nhãn cố định để 2 dòng cùng ca không tách key do khoảng trắng/dấu. */
+function normalizeCaForRowKey(caVal) {
+  const s = normalizeFieldForKey(caVal);
+  // Trống ca thường tương đương dòng «Hết ca» trong thực tế — gộp key với "Hết ca" để không cộng đôi Số đơn TT.
+  if (!s) return 'het';
+  const hasHet = s.includes('hết ca') || s.includes('het ca');
+  const hasGua = s.includes('giữa ca') || s.includes('giua ca');
+  if (hasHet && hasGua) return 'het+gua';
+  if (hasHet) return 'het';
+  if (hasGua) return 'gua';
+  return s;
+}
+
+/**
+ * Key 1 dòng detail_reports — trùng với logic recalc (buildKey + ca).
+ * Dùng chung UI để không cộng trùng Số đơn thực tế khi có bản ghi trùng / lệch parse ngày.
+ */
+export function buildMktDetailReportRowKey(row) {
+  const r = row || {};
+  const ngay = r['Ngày'] ?? r.ngay ?? r.date;
+  const ten = r['Tên'] ?? r.ten ?? r.name;
+  const sp = r['Sản_phẩm'] ?? r['Sản phẩm'] ?? r.san_pham ?? r.product;
+  const tt = r['Thị_trường'] ?? r['Thị trường'] ?? r.thi_truong ?? r.market;
+  const caRaw = r.ca ?? r['Ca'] ?? r.shift;
+  const base = buildKey(ngay, ten, sp, tt);
+  return `${base}|${normalizeCaForRowKey(caRaw)}`;
+}
+
+function parseSoDonThucTeFromRow(row) {
+  if (!row) return 0;
+  const v = row['Số đơn thực tế'] ?? row.so_don_thuc_te;
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Trùng `id` (API lặp) hoặc trùng key logic → chỉ giữ một dòng cho thống kê (ưu tiên Số đơn TT lớn hơn). */
+export function dedupeMktDetailReportRows(rows) {
+  const merged = mergeUniqueRowsById(rows || []);
+  const byKey = new Map();
+  for (const row of merged) {
+    const k = buildMktDetailReportRowKey(row);
+    const prev = byKey.get(k);
+    if (!prev) {
+      byKey.set(k, row);
+      continue;
+    }
+    if (parseSoDonThucTeFromRow(row) >= parseSoDonThucTeFromRow(prev)) {
+      byKey.set(k, row);
+    }
+  }
+  return [...byKey.values()];
 }
 
 function makeId() {
@@ -260,7 +374,8 @@ export async function recalcMktSoDonThucTeFromOrders({
   startDate,
   endDate,
   dryRun = false,
-  createMissingRows = true,
+  // Bỏ tính năng "thêm dòng mới": chỉ cập nhật các dòng đã có sẵn trong detail_reports.
+  createMissingRows = false,
 } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
@@ -299,7 +414,8 @@ export async function recalcMktSoDonThucTeFromOrders({
    * Ca (shift) và số liệu:
    * - Đơn: shift chỉ Hết ca → chỉ cộng nhóm Hết ca; chỉ Giữa ca → chỉ Giữa ca; "Giữa ca,Hết ca" → cộng cả hai nhóm.
    * - Tự tạo / cập nhật dòng: mỗi dòng DB có ca chuẩn "Hết ca" hoặc "Giữa ca" (không gộp hai ca trong một dòng sau recalc).
-   * - Dòng đang lưu chuỗi gộp (2 ca): coi là dòng Hết ca — cập nhật số theo nhóm Hết ca, ghi ca = "Hết ca"; nếu chưa có dòng Giữa ca|cùng key thì INSERT thêm dòng Giữa ca.
+   * - Dòng đang lưu chuỗi gộp (2 ca): coi là dòng Hết ca — cập nhật số theo nhóm Hết ca, ghi ca = "Hết ca";
+   *   nếu chưa có dòng Giữa ca|cùng key thì chỉ UPDATE khi `createMissingRows=true` (mặc định là `false`).
    * - Dòng một ca: UPDATE số theo đúng nhóm; key = Ngày + Tên + SP + TT (không gồm ca).
    */
   // countsByGroup: Map value { count, totalRevenueVnd, cancelCount, cancelRevenueVnd, sample }
@@ -350,6 +466,14 @@ export async function recalcMktSoDonThucTeFromOrders({
   // existingByCaKey: caGroup|key => đã có dòng báo cáo (tránh tạo trùng)
   const existingByCaKey = new Set();
   const reportRows = (reports || []).filter((r) => reportCaToGroups(r.ca).length > 0);
+
+  // canonicalNameByNormalized: normalizedName -> Tên chuẩn lấy từ detail_reports
+  // Dùng cho việc "chỉ tạo dòng nếu name tồn tại trong detail_reports".
+  const canonicalNameByNormalized = new Map();
+  for (const r of reportRows) {
+    const nm = canonicalNameByNormalized.get(normalizeNameForKey(r['Tên']));
+    if (!nm) canonicalNameByNormalized.set(normalizeNameForKey(r['Tên']), String(r['Tên'] ?? '').trim());
+  }
 
   for (const r of reportRows) {
     const key = buildKey(r['Ngày'], r['Tên'], r['Sản_phẩm'], r['Thị_trường']);
@@ -434,14 +558,20 @@ export async function recalcMktSoDonThucTeFromOrders({
         const exists = existingByCaKey.has(`${group}|${key}`);
         if (exists) continue;
 
-        const resolved = resolveUserTeamEmail(entry.sample.name, '', usersLookup);
-        const email = resolved.email || emailFromName(entry.sample.name, hrEmailLookup) || '';
-        const hrTeam = teamFromNameHr(entry.sample.name, hrEmailLookup);
+        // Chặn "tạo dòng cho tên không tồn tại trong detail_reports":
+        // nếu không tìm được Tên canonical theo normalizedName => skip.
+        const normalizedName = normalizeNameForKey(entry.sample.name);
+        const canonicalName = canonicalNameByNormalized.get(normalizedName);
+        if (!canonicalName) continue;
+
+        const resolved = resolveUserTeamEmail(canonicalName, '', usersLookup);
+        const email = resolved.email || emailFromName(canonicalName, hrEmailLookup) || '';
+        const hrTeam = teamFromNameHr(canonicalName, hrEmailLookup);
         const resolvedTeam = resolved.team || hrTeam || entry.sample.team || 'MKT';
 
         const row = {
           id: makeId(),
-          'Tên': entry.sample.name,
+          'Tên': canonicalName,
           'Email': email,
           'Ngày': entry.sample.date,
           ca: group,

@@ -81,10 +81,13 @@ export function orderRangeToCreatedAtIsoBounds(startDate, endDate) {
 
 export function mergeUniqueRowsById(rowsA, rowsB) {
     const map = new Map();
+    const noId = [];
     for (const row of [...(rowsA || []), ...(rowsB || [])]) {
-        if (row && row.id != null) map.set(row.id, row);
+        if (!row) continue;
+        if (row.id != null) map.set(row.id, row);
+        else noId.push(row);
     }
-    return [...map.values()];
+    return [...map.values(), ...noId];
 }
 
 /** Giảm dần theo ngày “hiển thị”: order_date nếu có, không thì created_at */

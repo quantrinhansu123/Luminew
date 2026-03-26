@@ -5,11 +5,23 @@ import { useLocation } from 'react-router-dom';
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
 import { fetchSalesReportsFromAPI, convertDateToAPIFormat } from '../services/ordersApiService';
+import { buildMktDetailReportRowKey, dedupeMktDetailReportRows } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { parseSmartDate } from '../utils/dateParsing';
 import { supabase } from '../supabase/config';
 import './XemBaoCaoMKT.css';
 
 const MKT_DEV = import.meta.env.DEV;
+
+/** Đếm số bản ghi theo key logic MKT (trùng key → không đưa vào bảng chi tiết theo ngày). */
+function countRowsByMktDetailKey(rows) {
+  const m = new Map();
+  for (const row of rows || []) {
+    const k = buildMktDetailReportRowKey(row);
+    if (!k) continue;
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+  return m;
+}
 
 /** Parse số tiền từ DB/API (số, hoặc chuỗi kiểu 26.088.000). */
 function parseMoneyNumber(v) {
@@ -87,7 +99,8 @@ function normalizeMktDetailApiRow(item) {
   };
 }
 
-const MKT_DETAIL_CACHE_PREFIX = 'mkt_detail_reports_v1';
+// Bump khi đổi logic key/dedupe — tránh sessionStorage cũ làm lệch Số đơn TT.
+const MKT_DETAIL_CACHE_PREFIX = 'mkt_detail_reports_v4';
 const MKT_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
 const MKT_DETAIL_FETCH_TIMEOUT_MS = 90_000;
 
@@ -154,7 +167,9 @@ function ymdKeyFromReportRow(row) {
 /** Một dòng bảng chi tiết: tỉ lệ / CPS / giá tính từ Mess–Đơn–CPQC–DS nếu API không gửi. */
 function mapRawRowToProcessRow(row) {
   const mess = parseIntegerVi(row['Số_Mess_Cmt']);
-  const cpqc = Number(row['CPQC'] || 0);
+  // CPQC trong DB/API có thể là string có dấu phân cách hàng nghìn (vd: "1.234.000")
+  // => không dùng Number() trực tiếp.
+  const cpqc = parseMoneyNumber(row['CPQC']) ?? 0;
   const soDonTT = parseIntegerVi(row['Số đơn thực tế']);
   const orders = soDonTT;
   const dsChotTTCore = pickDoanhSoTT(row);
@@ -169,17 +184,19 @@ function mapRawRowToProcessRow(row) {
   const cp_ds = dsChot > 0 ? (cpqc / dsChot) * 100 : Number(row['%CP/DS'] || 0);
   const giaTBDon = orders > 0 ? dsChot / orders : Number(row['Giá TB Đơn'] || 0);
 
-  const dsSauShip = Number(row['Doanh số sau ship'] || 0);
-  const kpiValue = Number(row['KPIs'] || 0);
+  const dsSauShip = parseMoneyNumber(row['Doanh số sau ship']) ?? 0;
+  const kpiValue = parseMoneyNumber(row['KPIs']) ?? 0;
   const soDonHuyTT = parseIntegerVi(row['Số đơn hoàn hủy thực tế']);
-  const dsHuyTT = Number(row['Doanh số hoàn hủy thực tế'] || 0);
-  const dsThanhCongTT = Number(row['Doanh số đi thực tế'] || 0);
+  const dsHuyTT = parseMoneyNumber(row['Doanh số hoàn hủy thực tế']) ?? 0;
+  const dsThanhCongTT = parseMoneyNumber(row['Doanh số đi thực tế']) ?? 0;
   const cp_ds_sau_ship = dsSauShip > 0 ? (cpqc / dsSauShip) * 100 : 0;
   const kpi_percent = kpiValue > 0 ? (dsSauShip / kpiValue) * 100 : 0;
 
   return {
     team: row['Team'] || '',
     name: row['Tên'] || '',
+    /** Key recalc: Ngày + Tên + SP + TT + ca — trùng key thì không cộng dồn Số đơn TT khi gom Marketing */
+    detailRowKey: buildMktDetailReportRowKey(row),
     mess,
     cpqc,
     orders,
@@ -262,6 +279,109 @@ function deriveTotalsFromSums(sums) {
     cp_ds_sau_ship: dsShip > 0 ? (cp / dsShip) * 100 : 0,
     kpi_percent: kpiSum > 0 ? (dsShip / kpiSum) * 100 : 0,
   };
+}
+
+/**
+ * Gom dữ liệu hiển thị "tổng hợp theo Marketing" theo key = (Team + Tên).
+ * Mục tiêu: tránh lặp tên (do detail_reports có thể có nhiều dòng cùng người theo từng sản phẩm/thị trường).
+ */
+function groupProcessRowsByTeamAndName(rows) {
+  const map = new Map(); // key -> sums
+  const debugRawNameToNormalizedKeys = MKT_DEV ? new Map() : null;
+  const debugWarnedRawNames = new Set();
+  let debugWarnCount = 0;
+
+  for (const r of rows) {
+    const team = r.team || '';
+    const name = r.name || '';
+    const normalizeKey = (v) => {
+      const s = String(v || '')
+        .replace(/\u00A0/g, ' ')
+        // Remove all unicode "format" characters (Cf) that often cause "visually same but different" strings.
+        .replace(/\p{Cf}+/gu, '')
+        // loại bỏ zero-width chars (dễ gây "trùng mà không group được")
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        // Vietnamese special case: 'đ' không tách dấu theo NFD như các chữ khác
+        .replace(/[đĐ]/g, 'd')
+        .normalize('NFD')
+        // bỏ dấu tiếng Việt (diacritics)
+        .replace(/[\u0300-\u036f]/g, '');
+      // chỉ giữ chữ/số/khoảng trắng để chống lệch do dấu câu/ký tự ẩn khác
+      return s.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    };
+    // Gom theo MARKETING (Team) + Tên để đúng kỳ vọng hiển thị.
+    const normalizedName = normalizeKey(name);
+    const normalizedTeam = normalizeKey(team);
+
+    if (debugRawNameToNormalizedKeys && name && normalizedName) {
+      const keySet = debugRawNameToNormalizedKeys.get(name) || new Set();
+      keySet.add(normalizedName);
+      debugRawNameToNormalizedKeys.set(name, keySet);
+
+      // Nếu "cùng text Tên" nhưng normalize ra nhiều key khác nhau => báo để biết nguyên nhân tách dòng.
+      if (keySet.size > 1 && !debugWarnedRawNames.has(name) && debugWarnCount < 5) {
+        debugWarnedRawNames.add(name);
+        debugWarnCount++;
+        console.warn('[MKT] Same displayed name but different normalized keys', {
+          name,
+          normalizedKeys: Array.from(keySet).slice(0, 10),
+        });
+      }
+    }
+
+    const key = `${normalizedTeam}||name||${normalizedName}`;
+
+    if (!map.has(key)) {
+      map.set(key, {
+        team,
+        name,
+        seenDetailKeysSoDon: new Set(),
+        mess: 0,
+        cpqc: 0,
+        orders: 0,
+        soDonTT: 0,
+        dsChot: 0,
+        dsChotTT: 0,
+        dsSauShip: 0,
+        kpiValue: 0,
+        soDonHuyTT: 0,
+        dsHuyTT: 0,
+        dsThanhCongTT: 0,
+      });
+    }
+
+    const acc = map.get(key);
+    const detailKey = r.detailRowKey || '';
+    acc.mess += Number(r.mess || 0);
+    acc.cpqc += Number(r.cpqc || 0);
+    if (!acc.seenDetailKeysSoDon.has(detailKey)) {
+      acc.seenDetailKeysSoDon.add(detailKey);
+      acc.orders += Number(r.orders || 0);
+      acc.soDonTT += Number(r.soDonTT || 0);
+    }
+    acc.dsChot += Number(r.dsChot || 0);
+    acc.dsChotTT += Number(r.dsChotTT || 0);
+    acc.dsSauShip += Number(r.dsSauShip || 0);
+    acc.kpiValue += Number(r.kpiValue || 0);
+    acc.soDonHuyTT += Number(r.soDonHuyTT || 0);
+    acc.dsHuyTT += Number(r.dsHuyTT || 0);
+    acc.dsThanhCongTT += Number(r.dsThanhCongTT || 0);
+  }
+
+  const out = [];
+  for (const acc of map.values()) {
+    const metrics = deriveTotalsFromSums(acc);
+    out.push({
+      team: acc.team,
+      name: acc.name,
+      ...metrics,
+    });
+  }
+
+  return out;
 }
 
 const LUMIDATA_DETAIL_PAGE_LIMIT = 1000;
@@ -421,6 +541,8 @@ export default function XemBaoCaoMKT() {
   const [loading, setLoading] = useState(false);
   /** Mặc định ẩn — bảng chi tiết theo ngày nhân đôi DOM, rất nặng với nhiều ngày/dòng. */
   const [showDailyBreakdown, setShowDailyBreakdown] = useState(false);
+  /** Toggle xem raw input rows theo từng ngày (để soi key/dedupe). */
+  const [dailyRawOpenByDate, setDailyRawOpenByDate] = useState(() => ({}));
   /** Hủy request detail_reports cũ khi đổi ngày/tab (tránh chờ lâu + state lỗi thời). */
   const fetchMktSeqRef = useRef(0);
   const fetchMktAbortRef = useRef(null);
@@ -828,16 +950,26 @@ export default function XemBaoCaoMKT() {
       return true;
     });
 
-    const rows = filteredRaw
-      .map((row) => mapRawRowToProcessRow(row))
+    const dedupedRaw = dedupeMktDetailReportRows(filteredRaw);
+    const mappedRows = dedupedRaw.map((row) => mapRawRowToProcessRow(row));
+
+    // Tổng hợp theo Team + Tên để tránh lặp tên và cộng đúng số liệu.
+    const rows = groupProcessRowsByTeamAndName(mappedRows)
       .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
 
     const total = deriveTotalsFromSums(sumProcessRows(rows));
 
     let dailyData = [];
     if (activeTab === 'DetailedReport') {
+      const keyOccurrences = countRowsByMktDetailKey(filteredRaw);
+      // Chỉ gom «chi tiết theo ngày» khi key xuất hiện đúng 1 lần sau lọc (2+ dòng trùng key → không đưa vào bảng ngày).
+      const rowsEligibleForDaily = dedupedRaw.filter((row) => {
+        const k = buildMktDetailReportRowKey(row);
+        return k && keyOccurrences.get(k) === 1;
+      });
+
       const byDay = new Map();
-      for (const row of filteredRaw) {
+      for (const row of rowsEligibleForDaily) {
         const key = ymdKeyFromReportRow(row);
         if (!key) continue;
         if (!byDay.has(key)) byDay.set(key, []);
@@ -847,11 +979,13 @@ export default function XemBaoCaoMKT() {
       dailyData = Array.from(byDay.entries())
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([date, dayRaw]) => {
-          const dayRows = dayRaw
-            .map((r) => mapRawRowToProcessRow(r))
-            .sort((a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || ''));
+          const dayMappedRows = dayRaw.map((r) => mapRawRowToProcessRow(r));
+          const dayRows = groupProcessRowsByTeamAndName(dayMappedRows).sort(
+            (a, b) => (a.team || '').localeCompare(b.team || '') || (a.name || '').localeCompare(b.name || '')
+          );
           return {
             date,
+            rawInputRows: dayRaw,
             rows: dayRows,
             total: deriveTotalsFromSums(sumProcessRows(dayRows)),
           };
@@ -867,6 +1001,8 @@ export default function XemBaoCaoMKT() {
       return { asia: [], nonAsia: [], summary: [] };
     }
     if (!deferredData.length) return { asia: [], nonAsia: [], summary: [] };
+
+    const marketRows = dedupeMktDetailReportRows(deferredData);
 
     const processGroup = (records, showMarketColumns = true) => {
       const productGroups = {};
@@ -950,7 +1086,7 @@ export default function XemBaoCaoMKT() {
     const nonAsiaList = [];
     const nonAsiaMarketsLower = MARKET_GROUPS['Ngoài Châu Á'].map(m => m.toLowerCase());
 
-    deferredData.forEach((r) => {
+    marketRows.forEach((r) => {
       const market = (r['Thị_trường'] || '').toLowerCase();
       if (nonAsiaMarketsLower.some(m => market.includes(m))) {
         nonAsiaList.push(r);
@@ -962,7 +1098,7 @@ export default function XemBaoCaoMKT() {
     return {
       nonAsia: processGroup(nonAsiaList, true),
       asia: processGroup(asiaList, true),
-      summary: processGroup(deferredData, false)
+      summary: processGroup(marketRows, false)
     };
 
   }, [deferredData, selectedProduct, selectedMarket, selectedTeam, activeTab]);
@@ -1526,12 +1662,107 @@ export default function XemBaoCaoMKT() {
                       {/* Daily Breakdown — tắt mặc định: giảm lag khi nhiều ngày */}
                       {showDailyBreakdown && processData.dailyData.length > 0 && processData.dailyData.map((dayData, dIdx) => (
                         <div key={dIdx} style={{ marginTop: '30px' }}>
-                          <h3 style={{ borderBottom: '2px solid #2d7c2d', paddingBottom: '5px', marginBottom: '10px' }}>
-                            {dayData.date.split('-').reverse().join('/')}
-                          </h3>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'flex-end',
+                              justifyContent: 'space-between',
+                              gap: '12px',
+                              borderBottom: '2px solid #2d7c2d',
+                              paddingBottom: '5px',
+                              marginBottom: '10px',
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <h3 style={{ margin: 0 }}>
+                              {dayData.date.split('-').reverse().join('/')}
+                            </h3>
+                          </div>
+
+                          {dailyRawOpenByDate?.[dayData.date] && Array.isArray(dayData.rawInputRows) && (
+                            <div style={{ marginBottom: '12px' }}>
+                              <div style={{ fontSize: '13px', color: '#555', marginBottom: '6px' }}>
+                                Đầu vào (đã dedupe theo key). Cột <b>Key</b> là `buildMktDetailReportRowKey`.
+                              </div>
+                              <div className="table-responsive-container">
+                                <table className="report-table" style={{ marginTop: 0 }}>
+                                  <thead>
+                                    <tr>
+                                      <th className="green-header">#</th>
+                                      <th className="green-header text-left">Team</th>
+                                      <th className="green-header text-left">Tên</th>
+                                      <th className="green-header text-left">Sản phẩm</th>
+                                      <th className="green-header text-left">Thị trường</th>
+                                      <th className="green-header text-left">Ca</th>
+                                      <th className="green-header">Số Mess</th>
+                                      <th className="green-header">CPQC</th>
+                                      <th className="green-header">Số đơn</th>
+                                      <th className="green-header">Số đơn TT</th>
+                                      <th className="green-header text-left">Key</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {dayData.rawInputRows.map((r, i) => (
+                                      <tr key={i}>
+                                        <td className="text-center">{i + 1}</td>
+                                        <td className="text-left">{r?.['Team'] || ''}</td>
+                                        <td className="text-left">{r?.['Tên'] || ''}</td>
+                                        <td className="text-left">{r?.['Sản_phẩm'] || ''}</td>
+                                        <td className="text-left">{r?.['Thị_trường'] || ''}</td>
+                                        <td className="text-left">{r?.['ca'] || ''}</td>
+                                        <td>{fmtNum(parseIntegerVi(r?.['Số_Mess_Cmt']))}</td>
+                                        <td>{fmtCurrency(parseMoneyNumber(r?.['CPQC']) ?? 0)}</td>
+                                        <td>{fmtNum(parseIntegerVi(r?.['Số đơn']))}</td>
+                                        <td style={{ backgroundColor: parseIntegerVi(r?.['Số đơn thực tế']) > 0 ? '#e8f5e9' : 'transparent' }}>
+                                          {fmtNum(parseIntegerVi(r?.['Số đơn thực tế']))}
+                                        </td>
+                                        <td className="text-left" style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                                          {buildMktDetailReportRowKey(r)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                    {dayData.rawInputRows.length === 0 && (
+                                      <tr>
+                                        <td colSpan={11} className="text-center" style={{ padding: '14px' }}>
+                                          Không có data đầu vào cho ngày này
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
                           <table className="report-table" style={{ marginTop: '10px' }}>
                             <thead>
                               <tr>
+                                <th className="green-header" style={{ width: '44px' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const dateKey = dayData.date;
+                                      setDailyRawOpenByDate((prev) => ({
+                                        ...prev,
+                                        [dateKey]: !prev?.[dateKey],
+                                      }));
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      background: dailyRawOpenByDate?.[dayData.date] ? '#1f6f3d' : '#2d7c2d',
+                                      border: '1px solid #1f6f3d',
+                                      color: 'white',
+                                      borderRadius: '6px',
+                                      padding: '4px 6px',
+                                      cursor: 'pointer',
+                                      fontSize: '12px',
+                                      lineHeight: 1.2,
+                                    }}
+                                    title="Xem các dòng detail_reports (đầu vào) dùng để tính bảng ngày"
+                                  >
+                                    {dailyRawOpenByDate?.[dayData.date] ? 'Ẩn' : 'Xem'}
+                                  </button>
+                                </th>
                                 {visibleColumns.stt && <th className="green-header">STT</th>}
                                 {visibleColumns.team && <th className="green-header">Team</th>}
                                 {visibleColumns.marketing && <th className="green-header">Marketing</th>}
@@ -1552,7 +1783,7 @@ export default function XemBaoCaoMKT() {
                             <tbody>
                               <tr className="total-row">
                                 {(visibleColumns.stt || visibleColumns.team || visibleColumns.marketing) && (
-                                  <td colSpan={(visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center total-label">TỔNG CỘNG</td>
+                                  <td colSpan={1 + (visibleColumns.stt ? 1 : 0) + (visibleColumns.team ? 1 : 0) + (visibleColumns.marketing ? 1 : 0)} className="text-center total-label">TỔNG CỘNG</td>
                                 )}
                                 {visibleColumns.mess && <td className="total-value">{fmtNum(dayData.total.mess)}</td>}
                                 {visibleColumns.cpqc && <td className="total-value">{fmtCurrency(dayData.total.cpqc)}</td>}
@@ -1571,6 +1802,7 @@ export default function XemBaoCaoMKT() {
                               </tr>
                               {dayData.rows.map((row, rIdx) => (
                                 <tr key={rIdx}>
+                                  <td />
                                   {visibleColumns.stt && <td className="text-center">{rIdx + 1}</td>}
                                   {visibleColumns.team && <td className="text-left">{row.team}</td>}
                                   {visibleColumns.marketing && <td className="text-left">{row.name}</td>}

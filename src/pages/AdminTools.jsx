@@ -1373,7 +1373,7 @@ const AdminTools = () => {
             'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (tổng VND mọi đơn), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
             'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result, fallback payment_status).\n\n' +
             'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
-            'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n' +
+            'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo dòng thiếu, nhưng chỉ khi Tên trong orders khớp với các `Tên` đang có trong detail_reports.\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
         if (!ok) return;
@@ -1398,7 +1398,7 @@ const AdminTools = () => {
             const result = await recalcMktSoDonThucTeFromOrders({
                 startDate: normStart,
                 endDate: normEnd,
-                createMissingRows: true, // Có key trong orders mà thiếu ở detail_reports => tự tạo dòng
+                createMissingRows: true,
             });
 
             toast.dismiss();
@@ -4578,9 +4578,9 @@ const AdminTools = () => {
                             </h3>
                             <p className="text-sm text-gray-600 mb-4">
                                 Tính lại theo Key: <span className="font-medium">Ngày + Tên (MKT) + Sản phẩm + Thị trường</span> khớp <span className="font-medium">orders</span> (marketing_staff, country), tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
-                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key (tổng VND không loại đơn Hủy). <span className="font-medium">Số đơn hoàn hủy thực tế</span> và <span className="font-medium">Doanh số hoàn hủy thực tế</span>: chỉ đơn có Kết quả Check dạng Hủy/Huỷ (ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>); VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key trong <span className="font-medium">detail_reports</span>.
+                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key (tổng VND không loại đơn Hủy). <span className="font-medium">Số đơn hoàn hủy thực tế</span> và <span className="font-medium">Doanh số hoàn hủy thực tế</span>: chỉ đơn có Kết quả Check dạng Hủy/Huỷ (ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>); VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Không tạo dòng mới trong <span className="font-medium">detail_reports</span>.
                                 {' '}
-                                <span className="font-medium text-gray-800">Tự điền khi trống:</span> cột <span className="font-medium">Email</span> và <span className="font-medium">Team</span> trên dòng hiện có — lấy từ bảng <span className="font-medium">users</span> (khớp tên và email khi có đủ hai), không có thì từ <span className="font-medium">human_resources</span>; dòng tạo mới dùng cùng thứ tự, Team cuối cùng có thể lấy từ đơn hoặc mặc định MKT.
+                                <span className="font-medium text-gray-800">Tự điền khi trống:</span> cột <span className="font-medium">Email</span> và <span className="font-medium">Team</span> trên các dòng hiện có — lấy từ bảng <span className="font-medium">users</span> (khớp tên và email khi có đủ hai), không có thì từ <span className="font-medium">human_resources</span>.
                             </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">

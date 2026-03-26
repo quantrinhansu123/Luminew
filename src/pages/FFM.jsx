@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import MultiSelect from '../components/MultiSelect';
 import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
@@ -60,6 +60,14 @@ function assignRowIndexByOrderDate(rows) {
 /** Lô đầu nhỏ để lên UI nhanh; các lô sau rộng hơn. */
 const FFM_FIRST_BATCH_SIZE = 400;
 const FFM_NEXT_BATCH_SIZE = 1000;
+/** Kéo chuột ≥ px này thì coi là bôi vùng; nhỏ hơn thì coi là click để focus ô (sau mouseup). */
+const DRAG_FOCUS_THRESHOLD_PX = 5;
+/** Các key trong filterValues không xử lý trong vòng Object.entries (đã lọc riêng). */
+const FFM_FILTER_SKIP_KEYS = new Set([
+  'market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status',
+  'packing_date_status', 'delivery_status_filter', 'delivery_status_search',
+  'us_shipping_fee_status', 'us_shipping_fee_search'
+]);
 const HIDDEN_FFM_COLUMNS = new Set(['Payment Bill', 'Payment Image']);
 const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Kết quả Check',
@@ -80,8 +88,142 @@ function getTodayDateStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Giá trị gốc ngày tracking từ row (khớp thứ tự với ffmEnrichedRows). */
+function getTrackingDateRawFFM(row) {
+  return (
+    row['tracking_check_date'] ||
+    row.tracking_check_date ||
+    row['Ngày có mã tracking'] ||
+    row['thoigiangiaohangffm'] ||
+    row['Ngày Kế toán đối soát với FFM lần 1']
+  );
+}
+
+/**
+ * Lấy phần ngày từ chuỗi datetime (dd/mm/yyyy, dd/mm/yyyy HH:mm, ISO YYYY-MM-DD…).
+ * Trước đây chỉ xử lý khi có khoảng trắng → dd/mm không dấu cách bị lọc sai.
+ */
+function extractDateFromDateTime(dateTimeString) {
+  if (!dateTimeString) return '';
+  const str = String(dateTimeString).trim();
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const dayPart = str.split(/\s|T/)[0];
+  if (dayPart.includes('/')) {
+    const parts = dayPart.split('/');
+    if (parts.length === 3) {
+      const d = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const y = parseInt(parts[2], 10);
+      if (y >= 1000 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+    }
+  }
+  return str;
+}
+
+/** Chuẩn về YYYY-MM-DD để so sánh chuỗi (tránh lệch timezone của new Date('YYYY-MM-DD')). */
+function normalizeToYmdForCompare(val) {
+  if (val === null || val === undefined || val === '') return '';
+  const str = String(val).trim();
+  if (!str) return '';
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const dayPart = str.split(/\s|T/)[0];
+  if (dayPart.includes('/')) {
+    const parts = dayPart.split('/');
+    if (parts.length === 3) {
+      const d = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const y = parseInt(parts[2], 10);
+      if (y >= 1000 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+    }
+  }
+  const dt = new Date(str);
+  if (Number.isNaN(dt.getTime())) return '';
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+/** Ngày theo «Bộ lọc theo ngày» (Từ ngày / Tới ngày) — cùng quy tắc với cột hiển thị. */
+function getOmDateYmdFromRow(row, activeDateType) {
+  if (activeDateType === 'Ngày đẩy đơn') {
+    const v = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
+    return normalizeToYmdForCompare(v);
+  }
+  if (activeDateType === 'Ngày có mã tracking') {
+    const raw = getTrackingDateRawFFM(row);
+    const step = extractDateFromDateTime(raw) || raw;
+    return normalizeToYmdForCompare(step);
+  }
+  return normalizeToYmdForCompare(row[activeDateType]);
+}
+
 function isEditableColFFM(colName) {
   return FFM_ALLOWED_EDIT_COLUMNS.has(String(colName || '').trim());
+}
+
+/** Giá trị UI gốc (sau pending) cho một ô — dùng khi fill / paste. */
+function getFfmRowColRaw(row, colName, pendingChanges) {
+  const orderId = row[PRIMARY_KEY_COLUMN];
+  const key = COLUMN_MAPPING[colName] || colName;
+  let val = '';
+  if (colName === 'Mã Tracking') {
+    val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
+  } else if (colName === 'Ngày đẩy đơn') {
+    val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
+  } else if (colName === 'Payment Bill') {
+    val = row['Payment Bill'] ?? row.payment_bill ?? row[key] ?? '';
+  } else if (colName === 'Payment Image') {
+    val = row['Payment Image'] ?? row.payment_image ?? row[key] ?? '';
+  } else {
+    val = row[key] ?? row[colName] ?? row[colName.replace(/ /g, '_')] ?? '';
+  }
+  const pendingInfo = pendingChanges.get(orderId)?.get(key);
+  if (pendingInfo) val = pendingInfo.newValue;
+  return { dataKey: key, raw: String(val ?? '') };
+}
+
+/** Highlight khi kéo — cập nhật class trực tiếp, không setState mỗi frame (tránh re-render cả bảng). */
+function getFfDragTargetCells() {
+  const root = document.querySelector('[data-ffm-grid-root]');
+  return root
+    ? root.querySelectorAll('td[data-ffm-r][data-ffm-c]')
+    : document.querySelectorAll('td[data-ffm-r][data-ffm-c]');
+}
+
+function applyFfDragDomSelection(minR, maxR, minC, maxC) {
+  const DRAG = 'ffm-drag-select';
+  const edges = ['selection-border-top', 'selection-border-bottom', 'selection-border-left', 'selection-border-right'];
+  getFfDragTargetCells().forEach((el) => {
+    const r = +el.getAttribute('data-ffm-r');
+    const c = +el.getAttribute('data-ffm-c');
+    const inSel = r >= minR && r <= maxR && c >= minC && c <= maxC;
+    el.classList.remove(DRAG, ...edges);
+    if (inSel) {
+      el.classList.add(DRAG);
+      if (r === minR) el.classList.add('selection-border-top');
+      if (r === maxR) el.classList.add('selection-border-bottom');
+      if (c === minC) el.classList.add('selection-border-left');
+      if (c === maxC) el.classList.add('selection-border-right');
+    }
+  });
+}
+
+function clearFfDragDomSelection() {
+  const DRAG = 'ffm-drag-select';
+  const edges = ['selection-border-top', 'selection-border-bottom', 'selection-border-left', 'selection-border-right'];
+  getFfDragTargetCells().forEach((el) => {
+    el.classList.remove(DRAG, ...edges);
+  });
+}
+
+function clearFfFillPreview() {
+  getFfDragTargetCells().forEach((el) => {
+    el.classList.remove('ffm-fill-preview');
+  });
 }
 
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
@@ -151,11 +293,12 @@ function FFM() {
     us_shipping_fee_search: ''
   });
   const [localFilterValues, setLocalFilterValues] = useState(filterValues);
+  const deferredFilterValues = useDeferredValue(filterValues);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      setFilterValues(localFilterValues);
-    }, 300);
+      startTransition(() => setFilterValues(localFilterValues));
+    }, 200);
     return () => clearTimeout(timeoutId);
   }, [localFilterValues]);
 
@@ -192,6 +335,13 @@ function FFM() {
   const [copiedData, setCopiedData] = useState(null);
   const [copiedSelection, setCopiedSelection] = useState(null);
   const isSelecting = useRef(false);
+  const tableRef = useRef(null);
+  const dragAnchorRef = useRef({ r: 0, c: 0 });
+  const dragEndRef = useRef({ r: 0, c: 0 });
+  const dragListenersRef = useRef({ move: null, up: null });
+  const fillListenersRef = useRef({ move: null, up: null });
+  const dragStartClientRef = useRef({ x: 0, y: 0 });
+  const [isDraggingSelection, setIsDraggingSelection] = useState(false);
 
   const [mgtNoiBoOrder, setMgtNoiBoOrder] = useState([]);
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Hà Nội không (dựa trên can_day_ffm)
@@ -252,25 +402,16 @@ function FFM() {
       try {
         const parsed = JSON.parse(storedChanges);
         const map = new Map();
-        const initialDbQueue = [];
         for (const id in parsed) {
           const innerMap = new Map();
           for (const key in parsed[id]) {
             innerMap.set(key, parsed[id][key]);
-            initialDbQueue.push({
-              orderId: id,
-              colKey: key,
-              newValue: parsed[id][key].newValue,
-              originalValue: parsed[id][key].originalValue
-            });
           }
           map.set(id, innerMap);
         }
         setPendingChanges(map);
-        dbQueueRef.current = initialDbQueue;
-        if (initialDbQueue.length > 0) {
-          setTimeout(() => processDbQueue(), 1000);
-        }
+        // Không tự gửi DB khi load — user bấm «Xác nhận lưu» (tránh lưu ngầm sau khi sửa bảng).
+        dbQueueRef.current = [];
       } catch (e) {
         console.error('Error loading pending changes', e);
       }
@@ -297,16 +438,6 @@ function FFM() {
 
   const removeToast = (id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
-
-  const extractDateFromDateTime = (dateTimeString) => {
-    if (!dateTimeString) return '';
-    const str = String(dateTimeString).trim();
-    if (str.includes(' ')) {
-      const [d, m, y] = str.split(' ')[0].split('/').map(Number);
-      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    }
-    return str;
   };
 
   const formatDate = (dateString) => {
@@ -557,6 +688,7 @@ function FFM() {
   };
 
   const refreshData = async () => {
+    dbQueueRef.current = [];
     setPendingChanges(new Map());
     const defaultFilters = {
       market: [],
@@ -578,6 +710,7 @@ function FFM() {
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
     setCurrentPage(1);
+    savePendingToLocalStorage(new Map());
     await loadData();
   };
   const savePendingToLocalStorage = (newPending, newLegacy = new Map()) => {
@@ -626,22 +759,19 @@ function FFM() {
     }
   }, [visibleColumns]);
 
-  const getFilteredData = useMemo(() => {
-    let data = [...allData];
-
-    data = data.map((row, rIdx) => {
+  /** Gộp pending + cột ngày suy ra — chỉ tính lại khi allData / pendingChanges đổi (không tính lại mỗi lần đổi filter). */
+  const ffmEnrichedRows = useMemo(() => {
+    const n = allData.length;
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const row = allData[i];
       const orderId = row[PRIMARY_KEY_COLUMN];
-      let rowCopy = { ...row };
+      const rowCopy = { ...row };
 
       rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(row['time_dayon'] || row.time_dayon || row['Ngày Kế toán đối soát với FFM lần 2']);
 
-      const rawTrackingDate = row['tracking_check_date'] || row.tracking_check_date || row['Ngày có mã tracking'] || row['thoigiangiaohangffm'] || row['Ngày Kế toán đối soát với FFM lần 1'];
+      const rawTrackingDate = getTrackingDateRawFFM(row);
       rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(rawTrackingDate);
-
-      // Debug log for tracking date (only for first 5 rows to avoid spam)
-      if (rIdx < 5 && rawTrackingDate) {
-        console.log(`[FFM DEBUG] Row ${row[PRIMARY_KEY_COLUMN]}: rawTrackingDate=${rawTrackingDate}, extracted=${rowCopy['Ngày có mã tracking']}`);
-      }
 
       const pending = pendingChanges.get(orderId);
       if (pending) {
@@ -649,13 +779,20 @@ function FFM() {
           rowCopy[key] = info.newValue;
         });
       }
-      return rowCopy;
-    });
+      out[i] = rowCopy;
+    }
+    return out;
+  }, [allData, pendingChanges]);
+
+  const getFilteredData = useMemo(() => {
+    let data = ffmEnrichedRows;
+    const fv = deferredFilterValues;
 
     // ORDER_MANAGEMENT filtering
     {
       // FFM: API giữ đơn có mã tracking HOẶC (MGT + Kết quả Check=OK)
       // Tracking code được filter ở client-side theo tab đã chọn
+      // Thứ tự nguồn đã theo rowIndex (assignRowIndexByOrderDate) — filter giữ nguyên thứ tự, không sort lại.
 
       if (omActiveTeam === 'mgt_noi_bo') {
         const orderedIds = new Set(mgtNoiBoOrder);
@@ -668,55 +805,68 @@ function FFM() {
       if (ffmBranchFilter !== 'all') {
         data = data.filter((row) => matchesFfmBranchFilter(getTeamStringFFM(row), ffmBranchFilter));
       }
-
-      // Sort by rowIndex
-      data.sort((a, b) => Number(a['rowIndex'] || 0) - Number(b['rowIndex'] || 0));
     }
 
     const activeDateType = omDateType;
 
-    if (filterValues.market.length > 0) {
-      const set = new Set(filterValues.market);
+    if (fv.market.length > 0) {
+      const set = new Set(fv.market);
       data = data.filter((row) => set.has(row['Khu vực'] || row['khu vực']));
     }
-    if (filterValues.product.length > 0) {
-      const set = new Set(filterValues.product);
+    if (fv.product.length > 0) {
+      const set = new Set(fv.product);
       data = data.filter((row) => set.has(row['Mặt hàng']));
     }
 
     if (dateFrom) {
-      const d = new Date(dateFrom);
-      d.setHours(0, 0, 0, 0);
+      const fromYmd = dateFrom;
       data = data.filter((row) => {
-        let val = row[activeDateType];
-        // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
-        if (activeDateType === 'Ngày đẩy đơn') {
-          val = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
-        }
-        if (!val) return false;
-        return new Date(val).getTime() >= d.getTime();
+        const cellYmd = getOmDateYmdFromRow(row, activeDateType);
+        if (!cellYmd) return false;
+        return cellYmd >= fromYmd;
       });
     }
     if (dateTo) {
-      const d = new Date(dateTo);
-      d.setHours(23, 59, 59, 999);
+      const toYmd = dateTo;
       data = data.filter((row) => {
-        let val = row[activeDateType];
-        // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
-        if (activeDateType === 'Ngày đẩy đơn') {
-          val = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
-        }
-        if (!val) return false;
-        return new Date(val).getTime() <= d.getTime();
+        const cellYmd = getOmDateYmdFromRow(row, activeDateType);
+        if (!cellYmd) return false;
+        return cellYmd <= toYmd;
       });
     }
 
-    Object.entries(filterValues).forEach(([key, val]) => {
-      if (['market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status', 'packing_date_status', 'delivery_status_filter', 'delivery_status_search', 'us_shipping_fee_status', 'us_shipping_fee_search'].includes(key)) return;
+    Object.entries(fv).forEach(([key, val]) => {
+      if (FFM_FILTER_SKIP_KEYS.has(key)) return;
       if (Array.isArray(val) && val.length === 0) return;
       if (typeof val === 'string' && val.trim() === '') return;
 
       const dataKey = COLUMN_MAPPING[key] || key;
+      const isDateColFilter = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key);
+
+      if (isDateColFilter) {
+        const filterYmd = normalizeToYmdForCompare(val);
+        if (!filterYmd) return;
+        data = data.filter((row) => {
+          let cellYmd = '';
+          if (key === 'Ngày có mã tracking') {
+            const raw = getTrackingDateRawFFM(row);
+            const v = row['Ngày có mã tracking'] || extractDateFromDateTime(raw) || raw;
+            cellYmd = normalizeToYmdForCompare(v);
+          } else if (key === 'Ngày đẩy đơn') {
+            const v = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
+            cellYmd = normalizeToYmdForCompare(v);
+          } else {
+            const cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+            cellYmd = normalizeToYmdForCompare(String(cellValue).trim());
+          }
+          if (!cellYmd) return false;
+          // Ô date trên tiêu đề cột = đúng ngày đó (không phải «từ ngày» — khoảng ngày dùng Từ/Tới + Bộ lọc theo ngày).
+          return cellYmd === filterYmd;
+        });
+        return;
+      }
+
+      const valSearchLower = String(val).toLowerCase();
 
       data = data.filter((row) => {
         let cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
@@ -729,31 +879,18 @@ function FFM() {
           return selected.includes(cellValue);
         }
 
-        if (['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key)) {
-          if (!cellValue) return false;
-          // Đặc biệt xử lý "Ngày đẩy đơn" - lấy từ time_dayon
-          if (key === 'Ngày đẩy đơn') {
-            cellValue = row['time_dayon'] || row.time_dayon || cellValue;
-          }
-          const dVal = new Date(cellValue);
-          dVal.setHours(0, 0, 0, 0);
-          const fVal = new Date(val);
-          fVal.setHours(0, 0, 0, 0);
-          return dVal >= fVal;
-        }
-
-        return cellValue.toLowerCase().includes(String(val).toLowerCase());
+        return cellValue.toLowerCase().includes(valSearchLower);
       });
     });
 
     // Handle Dropdown Filters: Packing Date, Delivery Status, Shipping Fee
-    if (filterValues.packing_date_status && filterValues.packing_date_status !== 'Tất cả') {
-      const status = filterValues.packing_date_status;
+    if (fv.packing_date_status && fv.packing_date_status !== 'Tất cả') {
+      const status = fv.packing_date_status;
       const today = getTodayDateStr();
       const yesterdayDate = new Date();
       yesterdayDate.setDate(yesterdayDate.getDate() - 1);
       const yesterday = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`;
-      const customDate = filterValues['Ngày đóng hàng'];
+      const customDate = fv['Ngày đóng hàng'];
 
       data = data.filter(row => {
         const val = row['Ngày đóng hàng'] || '';
@@ -767,9 +904,9 @@ function FFM() {
       });
     }
 
-    if (filterValues.delivery_status_filter && filterValues.delivery_status_filter !== 'Tất cả') {
-      const status = filterValues.delivery_status_filter;
-      const search = filterValues.delivery_status_search ? filterValues.delivery_status_search.toLowerCase() : '';
+    if (fv.delivery_status_filter && fv.delivery_status_filter !== 'Tất cả') {
+      const status = fv.delivery_status_filter;
+      const search = fv.delivery_status_search ? fv.delivery_status_search.toLowerCase() : '';
 
       data = data.filter(row => {
         const val = String(row['Trạng thái giao hàng'] || '').trim();
@@ -781,9 +918,9 @@ function FFM() {
       });
     }
 
-    if (filterValues.us_shipping_fee_status && filterValues.us_shipping_fee_status !== 'Tất cả') {
-      const status = filterValues.us_shipping_fee_status;
-      const search = filterValues.us_shipping_fee_search;
+    if (fv.us_shipping_fee_status && fv.us_shipping_fee_status !== 'Tất cả') {
+      const status = fv.us_shipping_fee_status;
+      const search = fv.us_shipping_fee_search;
 
       data = data.filter(row => {
         const rawVal = row['Ngày đối soát kế toán'] || row['Phí ship nội địa Mỹ (usd)'] || row.shipping_fee || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
@@ -799,10 +936,14 @@ function FFM() {
       });
     }
 
-    if (filterValues.tracking_status || filterValues.tracking_include || filterValues.tracking_exclude) {
-      const inc = filterValues.tracking_include ? String(filterValues.tracking_include).toLowerCase() : '';
-      const exc = filterValues.tracking_exclude ? String(filterValues.tracking_exclude).toLowerCase() : '';
-      const status = filterValues.tracking_status || 'Tình trạng mã';
+    if (fv.tracking_status || fv.tracking_include || fv.tracking_exclude) {
+      const inc = fv.tracking_include ? String(fv.tracking_include).toLowerCase() : '';
+      const exc = fv.tracking_exclude ? String(fv.tracking_exclude).toLowerCase() : '';
+      const status = fv.tracking_status || 'Tình trạng mã';
+      const incMultiLine = inc && inc.includes('\n');
+      const incLinesSet = incMultiLine
+        ? new Set(inc.split('\n').map((t) => t.trim()).filter(Boolean).map((t) => t.toLowerCase()))
+        : null;
 
       data = data.filter((row) => {
         // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
@@ -818,11 +959,10 @@ function FFM() {
         if (status === 'Tình trạng mã') {
           if (exc && lowerCode.includes(exc)) return false;
           if (inc) {
-            if (inc.includes('\n')) {
-              const codes = new Set(inc.split('\n').map((t) => t.trim()).filter(Boolean).map(t => t.toLowerCase()));
-              if (!codes.has(lowerCode)) return false;
-            } else {
-              if (!lowerCode.includes(inc)) return false;
+            if (incLinesSet) {
+              if (!incLinesSet.has(lowerCode)) return false;
+            } else if (!lowerCode.includes(inc)) {
+              return false;
             }
           }
         }
@@ -865,7 +1005,7 @@ function FFM() {
     }
 
     return data;
-  }, [allData, pendingChanges, omActiveTeam, omDateType, filterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence]);
+  }, [ffmEnrichedRows, omActiveTeam, omDateType, deferredFilterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
@@ -976,7 +1116,12 @@ function FFM() {
     }
   }, [addToast, removeToast, deepCloneMapOfMaps]);
 
-  const pushChange = useCallback((changesArray) => {
+  /**
+   * @param {Array} changesArray
+   * @param {{ deferDbSave?: boolean }} options — deferDbSave: true = chỉ UI + localStorage (sửa trực tiếp trên bảng / dán); false = đưa vào hàng đợi DB (vd. Thêm nhanh).
+   */
+  const pushChange = useCallback((changesArray, options = {}) => {
+    const { deferDbSave = false } = options;
     if (!changesArray || changesArray.length === 0) return;
 
     // 1. History Stack
@@ -989,8 +1134,10 @@ function FFM() {
     changeHistoryRef.current = finalHistory;
     historyIndexRef.current = finalHistory.length - 1;
 
-    // 2. Add to DB Queue & UI state
-    dbQueueRef.current.push(...changesArray);
+    // 2. DB queue (chỉ khi không trì hoãn — sửa bảng phải bấm «Xác nhận lưu»)
+    if (!deferDbSave) {
+      dbQueueRef.current.push(...changesArray);
+    }
 
     setPendingChanges(prev => {
       const next = deepCloneMapOfMaps(prev);
@@ -1002,8 +1149,9 @@ function FFM() {
       return next;
     });
 
-    // 3. Trigger worker
-    setTimeout(() => processDbQueue(), 10);
+    if (!deferDbSave) {
+      setTimeout(() => processDbQueue(), 10);
+    }
   }, [deepCloneMapOfMaps, processDbQueue]);
 
   const handleUndo = useCallback(() => {
@@ -1022,8 +1170,6 @@ function FFM() {
       originalValue: change.newValue
     }));
 
-    dbQueueRef.current.push(...undoChanges);
-
     setPendingChanges(prev => {
       const next = deepCloneMapOfMaps(prev);
       undoChanges.forEach(({ orderId, colKey, newValue, originalValue }) => {
@@ -1036,8 +1182,7 @@ function FFM() {
 
     historyIndexRef.current = currentIndex - 1;
     addToast('Đã hoàn tác', 'success', 2000);
-    setTimeout(() => processDbQueue(), 10);
-  }, [addToast, processDbQueue, deepCloneMapOfMaps]);
+  }, [addToast, deepCloneMapOfMaps]);
 
   const handleRedo = useCallback(() => {
     const currentIndex = historyIndexRef.current;
@@ -1058,8 +1203,6 @@ function FFM() {
       originalValue: change.originalValue
     }));
 
-    dbQueueRef.current.push(...redoChanges);
-
     setPendingChanges(prev => {
       const next = deepCloneMapOfMaps(prev);
       redoChanges.forEach(({ orderId, colKey, newValue, originalValue }) => {
@@ -1072,8 +1215,7 @@ function FFM() {
 
     historyIndexRef.current = nextIndex;
     addToast('Đã làm lại', 'success', 2000);
-    setTimeout(() => processDbQueue(), 10);
-  }, [addToast, processDbQueue, deepCloneMapOfMaps]);
+  }, [addToast, deepCloneMapOfMaps]);
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     const originalRow = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
@@ -1112,17 +1254,29 @@ function FFM() {
     }
 
 
-    pushChange(changes);
+    pushChange(changes, { deferDbSave: true });
   }, [allData, pendingChanges, pushChange]);
 
-  const handleUpdateAll = async () => {
+  const handleUpdateAll = useCallback(async () => {
     setSyncPopoverOpen(false);
-    if (dbQueueRef.current.length === 0) {
-      addToast('Không có thay đổi cần cập nhật', 'info');
+    const newQueue = [];
+    pendingChanges.forEach((cols, orderId) => {
+      cols.forEach((info, colKey) => {
+        newQueue.push({
+          orderId,
+          colKey,
+          newValue: info.newValue,
+          originalValue: info.originalValue
+        });
+      });
+    });
+    if (newQueue.length === 0) {
+      addToast('Không có thay đổi cần lưu', 'info');
       return;
     }
+    dbQueueRef.current = newQueue;
     processDbQueue();
-  };
+  }, [pendingChanges, addToast, processDbQueue]);
   const handleQuickSync = (rows) => {
     const changesArray = [];
     const COL_KEYS = FFM_QUICK_ADD_COLUMNS;
@@ -1270,44 +1424,238 @@ function FFM() {
     };
   }, [copiedSelection]);
 
-  const handleMouseDown = useCallback((rowIndex, colIndex, e) => {
-    if (e.button !== 0) return;
-    const target = e.target;
-    if (target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
-    e.preventDefault();
-
-    if (e.shiftKey && selection.startRow !== null) {
-      setSelection((prev) => ({ ...prev, endRow: rowIndex, endCol: colIndex }));
-    } else {
-      isSelecting.current = true;
-      setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
-      setCopiedSelection(null);
-    }
-  }, [selection.startRow]);
-
-  const throttledSetSelection = useRef(
-    rafThrottle((rowIndex, colIndex) => {
-      setSelection((prev) => ({ ...prev, endRow: rowIndex, endCol: colIndex }));
+  const paintDragThrottled = useRef(
+    rafThrottle((minR, maxR, minC, maxC) => {
+      applyFfDragDomSelection(minR, maxR, minC, maxC);
     })
   ).current;
+
+  const removeDragListeners = useCallback(() => {
+    const L = dragListenersRef.current;
+    if (L.move) {
+      document.removeEventListener('mousemove', L.move);
+      document.removeEventListener('mouseup', L.up);
+      dragListenersRef.current = { move: null, up: null };
+    }
+  }, []);
+
+  const removeFillDragListeners = useCallback(() => {
+    const L = fillListenersRef.current;
+    if (L.move) {
+      document.removeEventListener('mousemove', L.move);
+      document.removeEventListener('mouseup', L.up);
+      fillListenersRef.current = { move: null, up: null };
+    }
+  }, []);
+
+  const updateDragFromCell = useCallback(
+    (r, c) => {
+      if (!isSelecting.current) return;
+      dragEndRef.current = { r, c };
+      const sr = dragAnchorRef.current.r;
+      const sc = dragAnchorRef.current.c;
+      paintDragThrottled(
+        Math.min(sr, r),
+        Math.max(sr, r),
+        Math.min(sc, c),
+        Math.max(sc, c)
+      );
+    },
+    [paintDragThrottled]
+  );
+
+  useEffect(() => {
+    return () => {
+      removeDragListeners();
+      removeFillDragListeners();
+      clearFfDragDomSelection();
+      clearFfFillPreview();
+    };
+  }, [removeDragListeners, removeFillDragListeners]);
+
+  const handleFillHandleMouseDown = useCallback(
+    (rIdx, cIdx, colName, e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!isEditableColFFM(colName)) return;
+
+      removeFillDragListeners();
+      removeDragListeners();
+      if (isSelecting.current) {
+        isSelecting.current = false;
+        setIsDraggingSelection(false);
+      }
+      clearFfDragDomSelection();
+      clearFfFillPreview();
+
+      const viewData = paginatedData;
+      const anchorRow = viewData[rIdx];
+      if (!anchorRow) return;
+      const { dataKey, raw: fillValue } = getFfmRowColRaw(anchorRow, colName, pendingChanges);
+
+      let endR = rIdx;
+
+      const paintPreview = (r0, r1) => {
+        clearFfFillPreview();
+        const minR = Math.min(r0, r1);
+        const maxR = Math.max(r0, r1);
+        const root = document.querySelector('[data-ffm-grid-root]');
+        for (let r = minR; r <= maxR; r++) {
+          const td = root?.querySelector(`td[data-ffm-r="${r}"][data-ffm-c="${cIdx}"]`);
+          td?.classList.add('ffm-fill-preview');
+        }
+      };
+
+      paintPreview(rIdx, rIdx);
+
+      const onMove = (ev) => {
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        const td = el?.closest?.('td[data-ffm-r]');
+        if (!td) return;
+        const tr = +td.getAttribute('data-ffm-r');
+        const tc = +td.getAttribute('data-ffm-c');
+        if (Number.isNaN(tr) || Number.isNaN(tc)) return;
+        if (tc !== cIdx) return;
+        if (tr < rIdx) return;
+        endR = Math.min(tr, viewData.length - 1);
+        paintPreview(rIdx, endR);
+      };
+
+      const onUp = () => {
+        removeFillDragListeners();
+        clearFfFillPreview();
+        clearFfDragDomSelection();
+
+        if (endR <= rIdx) {
+          startTransition(() => {
+            setSelection({ startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
+          });
+          return;
+        }
+
+        const fillChanges = [];
+        for (let r = rIdx + 1; r <= endR; r++) {
+          const targetRow = viewData[r];
+          const tid = targetRow[PRIMARY_KEY_COLUMN];
+          const { raw: cur } = getFfmRowColRaw(targetRow, colName, pendingChanges);
+          if (String(fillValue) === String(cur)) continue;
+
+          fillChanges.push({
+            orderId: tid,
+            colKey: dataKey,
+            originalValue: String(cur),
+            newValue: String(fillValue)
+          });
+
+          if (dataKey === 'Mã Tracking' && String(fillValue).trim() !== '') {
+            const todayStr = getTodayDateStr();
+            const uiCol = 'Ngày có mã tracking';
+            const pendingInfo = pendingChanges.get(tid)?.get(uiCol);
+            const rowDate = targetRow[uiCol] ?? targetRow.ngay_co_ma_tracking ?? '';
+            const currentUiVal = pendingInfo ? pendingInfo.newValue : rowDate;
+            if (String(currentUiVal) !== todayStr) {
+              fillChanges.push({
+                orderId: tid,
+                colKey: uiCol,
+                originalValue: String(currentUiVal || ''),
+                newValue: todayStr
+              });
+            }
+          }
+        }
+
+        const primaryCount = fillChanges.filter((c) => c.colKey === dataKey).length;
+        if (primaryCount > 0) {
+          pushChange(fillChanges, { deferDbSave: true });
+          addToast(`Đã copy ${primaryCount} ô xuống`, 'success', 2000);
+        } else {
+          addToast('Các ô bên dưới đã cùng giá trị', 'info', 1800);
+        }
+
+        startTransition(() => {
+          setSelection({ startRow: rIdx, startCol: cIdx, endRow: endR, endCol: cIdx });
+        });
+      };
+
+      fillListenersRef.current = { move: onMove, up: onUp };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [paginatedData, pendingChanges, pushChange, addToast, removeFillDragListeners, removeDragListeners]
+  );
+
+  const handleMouseDown = useCallback(
+    (rowIndex, colIndex, e) => {
+      if (e.button !== 0) return;
+      if (e.target?.closest?.('[data-ffm-fill-handle]')) return;
+      e.preventDefault();
+
+      if (e.shiftKey && selection.startRow !== null) {
+        setSelection((prev) => ({ ...prev, endRow: rowIndex, endCol: colIndex }));
+        return;
+      }
+
+      removeDragListeners();
+      dragStartClientRef.current = { x: e.clientX, y: e.clientY };
+      dragAnchorRef.current = { r: rowIndex, c: colIndex };
+      dragEndRef.current = { r: rowIndex, c: colIndex };
+      isSelecting.current = true;
+      setIsDraggingSelection(true);
+      setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
+      setCopiedSelection(null);
+
+      applyFfDragDomSelection(rowIndex, rowIndex, colIndex, colIndex);
+
+      const onMove = (ev) => {
+        if (!isSelecting.current) return;
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        const td = el?.closest?.('td[data-ffm-r]');
+        if (!td) return;
+        const tr = +td.getAttribute('data-ffm-r');
+        const tc = +td.getAttribute('data-ffm-c');
+        if (Number.isNaN(tr) || Number.isNaN(tc)) return;
+        updateDragFromCell(tr, tc);
+      };
+
+      const onUp = (ev) => {
+        removeDragListeners();
+        isSelecting.current = false;
+        clearFfDragDomSelection();
+        const { r: er, c: ec } = dragEndRef.current;
+        const { r: sr, c: sc } = dragAnchorRef.current;
+        const dx = ev.clientX - dragStartClientRef.current.x;
+        const dy = ev.clientY - dragStartClientRef.current.y;
+        const movedEnough = Math.hypot(dx, dy) >= DRAG_FOCUS_THRESHOLD_PX;
+        const multiCell = sr !== er || sc !== ec;
+        setIsDraggingSelection(false);
+        startTransition(() => {
+          setSelection({ startRow: sr, startCol: sc, endRow: er, endCol: ec });
+        });
+        if (!movedEnough && !multiCell) {
+          requestAnimationFrame(() => {
+            const root = document.querySelector('[data-ffm-grid-root]');
+            const td = root?.querySelector(`td[data-ffm-r="${sr}"][data-ffm-c="${sc}"]`);
+            const focusable = td?.querySelector('input:not([type="hidden"]), select, textarea');
+            if (focusable) focusable.focus();
+          });
+        }
+      };
+
+      dragListenersRef.current = { move: onMove, up: onUp };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [selection.startRow, removeDragListeners, updateDragFromCell]
+  );
 
   const handleMouseEnter = useCallback(
     (rowIndex, colIndex) => {
       if (isSelecting.current) {
-        throttledSetSelection(rowIndex, colIndex);
+        updateDragFromCell(rowIndex, colIndex);
       }
     },
-    [throttledSetSelection]
+    [updateDragFromCell]
   );
-
-  const handleMouseUp = useCallback(() => {
-    isSelecting.current = false;
-  }, []);
-
-  useEffect(() => {
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => document.removeEventListener('mouseup', handleMouseUp);
-  }, [handleMouseUp]);
 
   const getSelectionBounds = useCallback(() => selectionBounds, [selectionBounds]);
 
@@ -1347,6 +1695,63 @@ function FFM() {
       });
   }, [selection, paginatedData, currentColumns, selectionBounds]);
 
+  const handleClearSelection = useCallback(() => {
+    if (selection.startRow === null) return;
+    const bounds = selectionBounds;
+    if (!bounds) return;
+
+    const viewData = paginatedData;
+    const deleteChanges = [];
+    const seen = new Set();
+
+    const appendDelete = (orderId, colKey, currentUiVal) => {
+      if (String(currentUiVal) === '') return;
+      const k = `${orderId}\0${colKey}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      deleteChanges.push({
+        orderId,
+        colKey,
+        originalValue: String(currentUiVal),
+        newValue: ''
+      });
+    };
+
+    for (let r = bounds.minRow; r <= bounds.maxRow && r < viewData.length; r++) {
+      const rowData = viewData[r];
+      const orderId = rowData[PRIMARY_KEY_COLUMN];
+
+      for (let c = bounds.minCol; c <= bounds.maxCol && c < currentColumns.length; c++) {
+        const colName = currentColumns[c];
+        if (!isEditableColFFM(colName)) continue;
+
+        const dataKey = COLUMN_MAPPING[colName] || colName;
+        const originalVal = rowData[dataKey] ?? '';
+        const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
+        const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
+
+        appendDelete(orderId, dataKey, currentUiVal);
+
+        if (dataKey === 'Mã Tracking' || dataKey === 'tracking_code') {
+          const uiCol = 'Ngày có mã tracking';
+          const pendingDate = pendingChanges.get(orderId)?.get(uiCol);
+          const rowDate = rowData[uiCol] ?? rowData.ngay_co_ma_tracking ?? '';
+          const currentDateVal = pendingDate ? pendingDate.newValue : rowDate;
+          if (String(currentDateVal || '').trim() !== '') {
+            appendDelete(orderId, uiCol, currentDateVal);
+          }
+        }
+      }
+    }
+
+    if (deleteChanges.length === 0) {
+      addToast('Không có ô nào để xóa', 'info', 2000);
+      return;
+    }
+    pushChange(deleteChanges, { deferDbSave: true });
+    addToast(`Đã xóa ${deleteChanges.length} ô`, 'success', 2000);
+  }, [selection, selectionBounds, paginatedData, currentColumns, pendingChanges, pushChange, addToast]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (quickAddModalOpen) return;
@@ -1373,6 +1778,28 @@ function FFM() {
         setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
         setCopiedSelection(null);
         setCopiedData(null);
+        return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selection.startRow === null) return;
+        const bounds = getSelectionBounds();
+        if (!bounds) return;
+
+        const isSingleCell = bounds.minRow === bounds.maxRow && bounds.minCol === bounds.maxCol;
+        if (isInInput && isSingleCell) {
+          if (active.tagName === 'SELECT') {
+            e.preventDefault();
+            handleClearSelection();
+            return;
+          }
+          const hasSel = active.selectionStart !== active.selectionEnd;
+          const partial = hasSel && (active.selectionEnd - active.selectionStart) < active.value.length;
+          if (partial) return;
+          if (!hasSel) return;
+        }
+        e.preventDefault();
+        handleClearSelection();
         return;
       }
 
@@ -1439,7 +1866,7 @@ function FFM() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selection, quickAddModalOpen, handleCopy, getSelectionBounds, paginatedData.length, currentColumns.length, handleUndo, handleRedo, paginatedData, currentColumns]);
+  }, [selection, quickAddModalOpen, handleCopy, handleClearSelection, getSelectionBounds, paginatedData.length, currentColumns.length, handleUndo, handleRedo, paginatedData, currentColumns]);
 
   useEffect(() => {
     const handlePaste = (e) => {
@@ -1563,7 +1990,7 @@ function FFM() {
       setCopiedData(null);
 
       if (pasteChanges.length > 0) {
-        pushChange(pasteChanges);
+        pushChange(pasteChanges, { deferDbSave: true });
         const msg = skippedCount > 0 ? `✅ Đã dán ${updatedCount} ô (${skippedCount} ô không thể sửa)` : `✅ Đã dán ${updatedCount} ô dữ liệu`;
         addToast(msg, 'success', 2500);
       } else {
@@ -1572,7 +1999,7 @@ function FFM() {
     };
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [selection, pendingChanges, quickAddModalOpen, currentColumns, paginatedData, getSelectionBounds, effectiveFixedColumns]);
+  }, [selection, pendingChanges, quickAddModalOpen, currentColumns, paginatedData, getSelectionBounds, effectiveFixedColumns, pushChange, addToast]);
 
   const calculatedSummary = useMemo(() => {
     if (!selectionBounds) return null;
@@ -1636,20 +2063,65 @@ function FFM() {
   /** 
    * Tính toán offset cho các cột sticky để tránh đè lên nhau.
    */
-  const stickyOffsets = useMemo(() => {
-    const offsets = [];
-    let currentLeft = 0;
-    for (let i = 0; i < currentColumns.length; i++) {
-      offsets[i] = currentLeft;
-      if (i < effectiveFixedColumns) {
-        currentLeft += getColumnWidthPx(currentColumns[i]);
-      }
+  const [stickyOffsets, setStickyOffsets] = useState([]);
+
+  // Lấy offset left cho từng cột sticky.
+  // Ưu tiên dùng offsets đo được từ DOM; fallback về cộng width cấu hình nếu chưa đo kịp.
+  const getStickyLeftPx = useCallback((colIdx) => {
+    const measured = stickyOffsets[colIdx];
+    if (Number.isFinite(measured)) return measured;
+
+    let left = 0;
+    for (let i = 0; i < colIdx; i += 1) {
+      left += getColumnWidthPx(currentColumns[i]);
     }
-    return offsets;
-  }, [currentColumns, effectiveFixedColumns, getColumnWidthPx]);
+    return left;
+  }, [stickyOffsets, currentColumns, getColumnWidthPx]);
+
+  // Đo width thực tế của header để freeze cột khớp tuyệt đối khi cuộn ngang.
+  useLayoutEffect(() => {
+    const recalcStickyOffsets = () => {
+      const tableEl = tableRef.current;
+      if (!tableEl || !currentColumns.length) {
+        setStickyOffsets([]);
+        return;
+      }
+
+      const thList = Array.from(tableEl.querySelectorAll('thead tr:first-child th[data-col-idx]')).sort(
+        (a, b) => Number(a.getAttribute('data-col-idx')) - Number(b.getAttribute('data-col-idx'))
+      );
+
+      const widthByIdx = new Map();
+      thList.forEach((th) => {
+        const idx = Number(th.getAttribute('data-col-idx'));
+        if (Number.isFinite(idx)) {
+          widthByIdx.set(idx, th.getBoundingClientRect().width || 0);
+        }
+      });
+
+      const offsets = [];
+      let left = 0;
+      for (let i = 0; i < currentColumns.length; i += 1) {
+        offsets[i] = left;
+        const w = widthByIdx.get(i) || getColumnWidthPx(currentColumns[i]);
+        left += w;
+      }
+      setStickyOffsets(offsets);
+    };
+
+    recalcStickyOffsets();
+    const raf = requestAnimationFrame(recalcStickyOffsets);
+    window.addEventListener('resize', recalcStickyOffsets);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', recalcStickyOffsets);
+    };
+  }, [tableRef, currentColumns, getColumnWidthPx]);
 
   /** Cố định > 0: tách cột trái ra khỏi vùng overflow-x (thanh kéo ngang chỉ nằm dưới phần cột cuộn). */
-  const splitPane = effectiveFixedColumns > 0;
+  // Bỏ tách 2 bảng (left/right) để chỉ hiển thị 1 bảng duy nhất.
+  // Freeze cột vẫn hoạt động nhờ nhánh "single table" với `position: sticky`.
+  const splitPane = false;
   const frozenCols = splitPane ? currentColumns.slice(0, effectiveFixedColumns) : [];
   const scrollCols = splitPane ? currentColumns.slice(effectiveFixedColumns) : currentColumns;
 
@@ -1669,18 +2141,36 @@ function FFM() {
       const leftHeadRow = leftTable.querySelector('thead tr');
       const rightHeadRow = rightTable.querySelector('thead tr');
 
+      const clearRow = (rowEl) => {
+        if (!rowEl) return;
+        rowEl.style.minHeight = '';
+        rowEl.style.height = '';
+        rowEl.querySelectorAll('td, th').forEach((cell) => {
+          cell.style.minHeight = '';
+          cell.style.height = '';
+        });
+      };
+
+      const applyRowHeight = (rowEl, rowH) => {
+        if (!rowEl || !rowH) return;
+        rowEl.style.minHeight = `${rowH}px`;
+        rowEl.style.height = `${rowH}px`;
+        rowEl.querySelectorAll('td, th').forEach((cell) => {
+          cell.style.minHeight = `${rowH}px`;
+          cell.style.height = `${rowH}px`;
+        });
+      };
+
       if (leftHeadRow && rightHeadRow) {
-        leftHeadRow.style.minHeight = '';
-        rightHeadRow.style.minHeight = '';
+        clearRow(leftHeadRow);
+        clearRow(rightHeadRow);
         const headH = Math.max(
           leftHeadRow.getBoundingClientRect().height,
           rightHeadRow.getBoundingClientRect().height
         );
         if (headH > 0) {
-          leftHeadRow.style.minHeight = `${headH}px`;
-          rightHeadRow.style.minHeight = `${headH}px`;
-          leftHeadRow.style.height = `${headH}px`;
-          rightHeadRow.style.height = `${headH}px`;
+          applyRowHeight(leftHeadRow, headH);
+          applyRowHeight(rightHeadRow, headH);
         }
       }
 
@@ -1689,46 +2179,55 @@ function FFM() {
       const n = Math.min(leftRows.length, rightRows.length);
 
       for (let i = 0; i < n; i += 1) {
-        leftRows[i].style.minHeight = '';
-        rightRows[i].style.minHeight = '';
+        clearRow(leftRows[i]);
+        clearRow(rightRows[i]);
       }
 
       for (let i = 0; i < n; i += 1) {
         const lh = leftRows[i].getBoundingClientRect().height;
         const rh = rightRows[i].getBoundingClientRect().height;
         const rowH = Math.max(lh, rh);
-        if (rowH > 0) {
-          leftRows[i].style.minHeight = `${rowH}px`;
-          leftRows[i].style.height = `${rowH}px`;
-          rightRows[i].style.minHeight = `${rowH}px`;
-          rightRows[i].style.height = `${rowH}px`;
-        }
+        if (rowH > 0) applyRowHeight(leftRows[i], rowH);
+        if (rowH > 0) applyRowHeight(rightRows[i], rowH);
       }
     };
 
+    let raf = 0;
+    const scheduleSync = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(syncRowHeights);
+    };
+
+    // Run at least twice to let layout settle (fonts, sticky header, etc.)
     syncRowHeights();
-    const raf = requestAnimationFrame(syncRowHeights);
+    scheduleSync();
 
     let ro = null;
     if (typeof ResizeObserver !== 'undefined') {
-      const leftWrap = document.querySelector('table[data-ffm-pane="left"]')?.parentElement;
-      const rightWrap = document.querySelector('table[data-ffm-pane="right"]')?.parentElement;
-      if (leftWrap && rightWrap) {
-        ro = new ResizeObserver(() => syncRowHeights());
-        ro.observe(leftWrap);
-        ro.observe(rightWrap);
-      }
+      // Observe the tables/tbody themselves (wrappers in flex are often `items-stretch`,
+      // their height can remain constant even when row content changes).
+      const leftTable = document.querySelector('table[data-ffm-pane="left"]');
+      const rightTable = document.querySelector('table[data-ffm-pane="right"]');
+      const leftTbody = document.querySelector('table[data-ffm-pane="left"] tbody');
+      const rightTbody = document.querySelector('table[data-ffm-pane="right"] tbody');
+      ro = new ResizeObserver(() => scheduleSync());
+      if (leftTable) ro.observe(leftTable);
+      if (rightTable) ro.observe(rightTable);
+      if (leftTbody) ro.observe(leftTbody);
+      if (rightTbody) ro.observe(rightTbody);
     }
 
-    const onResize = () => syncRowHeights();
+    const onResize = () => scheduleSync();
     window.addEventListener('resize', onResize);
 
     return () => {
-      cancelAnimationFrame(raf);
+      if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       ro?.disconnect();
     };
-  }, [splitPane, paginatedData, currentColumns, effectiveFixedColumns, loading]);
+    // Không phụ thuộc `paginatedData` (reference đổi mỗi lần pendingChanges/ffmEnrichedRows) — tránh
+    // syncRowHeights chạy lại khi chỉ sửa ô (gây gộp/lệch hàng). Dùng length + trang; ResizeObserver xử lý khi hàng cao đổi.
+  }, [splitPane, getFilteredData.length, currentPage, effectiveRowsPerPage, currentColumns, effectiveFixedColumns, loading]);
 
   const totalMoney = useMemo(() => {
     return getFilteredData.reduce((sum, row) => {
@@ -1741,6 +2240,11 @@ function FFM() {
   const getCellClass = useCallback((row, col, val, rIdx, cIdx) => {
     let classes =
       'px-4 py-2.5 border border-gray-200 text-sm min-h-[38px] min-w-max align-top whitespace-normal break-words overflow-visible box-border ';
+
+    // STT là cột cố định rất hẹp: tránh nội dung/header bị tràn do padding + overflow-visible.
+    if (col === 'STT') {
+      classes += '!px-2 !py-2.5 !whitespace-nowrap !break-words !overflow-hidden !text-ellipsis ';
+    }
 
     if (col === 'Kết quả Check' || col === 'Kết quả check') {
       const v = val.toLowerCase();
@@ -1770,10 +2274,12 @@ function FFM() {
     }
 
     if (!splitPane && cIdx < effectiveFixedColumns) {
-      classes += 'sticky z-10 bg-gray-50 ';
+      // Sticky positioning được set bằng inline style (để có `left` chuẩn).
+      classes += 'z-10 bg-gray-50 ';
     }
 
     if (
+      !isDraggingSelection &&
       selectionBounds &&
       rIdx >= selectionBounds.minRow &&
       rIdx <= selectionBounds.maxRow &&
@@ -1801,7 +2307,7 @@ function FFM() {
     }
 
     return classes;
-  }, [selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns, splitPane]);
+  }, [isDraggingSelection, selectionBounds, copiedBounds, pendingChanges, effectiveFixedColumns, splitPane]);
 
   const tableClassName = 'border-separate border-spacing-0 text-sm table-auto';
 
@@ -1982,9 +2488,11 @@ function FFM() {
     return (
       <td
         key={`${orderId}-${col}`}
-        className={className}
+        data-ffm-r={rIdx}
+        data-ffm-c={cIdx}
+        className={`${className}${isEditableColFFM(col) ? ' relative group' : ''}`}
         style={cellStyle}
-        onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}
+        onMouseDownCapture={(e) => handleMouseDown(rIdx, cIdx, e)}
         onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
       >
         {col === 'STT' ? (
@@ -2062,6 +2570,15 @@ function FFM() {
           />
         ) : (
           displayVal
+        )}
+        {isEditableColFFM(col) && (
+          <div
+            data-ffm-fill-handle
+            role="presentation"
+            className="absolute bottom-px right-px z-[60] h-2.5 w-2.5 cursor-ns-resize rounded-sm border border-white bg-[#1a73e8] opacity-50 shadow-sm transition-opacity group-hover:opacity-100 hover:!opacity-100 hover:bg-[#1557b0]"
+            title="Kéo xuống để copy giá trị ô này"
+            onMouseDown={(ev) => handleFillHandleMouseDown(rIdx, cIdx, col, ev)}
+          />
         )}
       </td>
     );
@@ -2226,8 +2743,13 @@ function FFM() {
                 </div>
               )}
             </button>
-            <button onClick={handleUpdateAll} className="bg-blue-500 hover:bg-blue-600 text-white px-2.5 py-1 rounded text-xs font-medium">
-              Cập nhật
+            <button
+              type="button"
+              onClick={handleUpdateAll}
+              title="Gửi các thay đổi đã sửa trên bảng (và dán) lên server"
+              className={`px-2.5 py-1 rounded text-xs font-medium text-white transition ${pendingChanges.size > 0 ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-300' : 'bg-blue-500 hover:bg-blue-600'}`}
+            >
+              Xác nhận lưu
             </button>
             <button onClick={() => setQuickAddModalOpen(true)} className="bg-indigo-500 hover:bg-indigo-600 text-white px-2.5 py-1 rounded text-xs font-medium">
               ⚡ Thêm nhanh
@@ -2275,7 +2797,10 @@ function FFM() {
         </div>
       </div>
 
-      <div className="bg-white shadow-md rounded border border-gray-200 relative isolate select-none">
+      <div
+        className={`bg-white shadow-md rounded border border-gray-200 relative isolate select-none${isDraggingSelection ? ' ffm-drag-active' : ''}`}
+        data-ffm-grid-root
+      >
         {loading ? (
           <div className="overflow-auto max-h-[72vh] flex justify-center items-center min-h-[240px] text-gray-500">
             Đang tải dữ liệu...
@@ -2285,15 +2810,19 @@ function FFM() {
             Không có dữ liệu phù hợp
           </div>
         ) : splitPane ? (
-          <div className="overflow-y-auto max-h-[72vh] flex flex-row items-start">
-            <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20">
+          <div className="min-h-0 max-h-[72vh] overflow-y-auto overflow-x-auto flex flex-row items-stretch overscroll-contain">
+            <div className="shrink-0 min-h-0 border-r-2 border-gray-300 bg-white z-20 overflow-x-hidden">
               <table data-ffm-pane="left" className={`${tableClassName} w-max`}>
-                <thead className="sticky top-0 z-[42]">
-                  <tr className="bg-gray-100 align-top">
+                <thead className="sticky top-0 z-[100] bg-[#f8f9fa]">
+                  <tr className="bg-[#f8f9fa] align-top shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
                     {frozenCols.map((col) => (
                       <th
                         key={`ff-${col}`}
-                        className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border"
+                        className={
+                          col === 'STT'
+                            ? 'px-2 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-nowrap overflow-hidden text-ellipsis box-border shadow-[0_1px_0_0_rgba(0,0,0,0.06)]'
+                            : 'px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border shadow-[0_1px_0_0_rgba(0,0,0,0.06)]'
+                        }
                         style={getColumnWidthStyles(col)}
                       >
                         <div className="font-semibold mb-1 text-gray-700">{col}</div>
@@ -2318,14 +2847,16 @@ function FFM() {
                 </tbody>
               </table>
             </div>
-            <div className="flex-1 min-w-0 overflow-x-auto">
+            {/* Dùng 1 vùng scroll dọc chung ở wrapper cha (`overflow-y-auto`).
+                Tránh `overflow-y-clip` vì có thể làm sai chiều cao scroll của cha. */}
+            <div className="flex-1 min-w-max min-h-0 overflow-x-visible overflow-y-visible">
               <table data-ffm-pane="right" className={`${tableClassName} w-max min-w-max`}>
-                <thead className="sticky top-0 z-[41]">
-                  <tr className="bg-gray-100 align-top">
+                <thead className="sticky top-0 z-[100] bg-[#f8f9fa]">
+                  <tr className="bg-[#f8f9fa] align-top shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
                     {scrollCols.map((col) => (
                       <th
                         key={`sf-${col}`}
-                        className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border"
+                        className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border shadow-[0_1px_0_0_rgba(0,0,0,0.06)]"
                         style={getColumnWidthStyles(col)}
                       >
                         <div className="font-semibold mb-1 text-gray-700">{col}</div>
@@ -2349,29 +2880,45 @@ function FFM() {
             </div>
           </div>
         ) : (
-          <div className="overflow-auto max-h-[72vh]">
-            <table className={`${tableClassName} w-max min-w-full`}>
-              <thead className="sticky top-0 z-30">
-                <tr className="bg-gray-100">
+          <div className="min-h-0 max-h-[72vh] overflow-auto overscroll-contain">
+            <table ref={tableRef} className={`${tableClassName} w-max min-w-full`}>
+              <thead className="sticky top-0 z-[100] bg-[#f8f9fa]">
+                <tr className="bg-[#f8f9fa] shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
                   {currentColumns.map((col, idx) => {
                     const colWidthStyles = getColumnWidthStyles(col);
+                    const lastFrozen = idx === effectiveFixedColumns - 1;
                     let stickyStyle = { ...colWidthStyles };
                     if (idx < effectiveFixedColumns) {
-                      const lastFrozen = idx === effectiveFixedColumns - 1;
                       stickyStyle = {
                         ...stickyStyle,
                         position: 'sticky',
-                        left: stickyOffsets[idx],
-                        zIndex: 41,
+                        top: 0,
+                            left: getStickyLeftPx(idx),
+                        zIndex: 43,
                         background: '#f8f9fa',
                         backgroundClip: 'padding-box',
                         ...(lastFrozen ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.12)' } : {})
+                      };
+                    } else {
+                      stickyStyle = {
+                        ...stickyStyle,
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 32,
+                        background: '#f8f9fa',
+                        backgroundClip: 'padding-box',
+                        boxShadow: 'inset 0 -1px 0 0 rgba(0,0,0,0.06)'
                       };
                     }
                     return (
                       <th
                         key={`filter-${col}`}
-                        className="px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border"
+                        data-col-idx={idx}
+                        className={
+                          col === 'STT'
+                            ? 'px-2 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-nowrap overflow-hidden text-ellipsis box-border'
+                            : 'px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border'
+                        }
                         style={stickyStyle}
                       >
                         <div className="font-semibold mb-1 text-gray-700">{col}</div>
@@ -2392,7 +2939,7 @@ function FFM() {
                         const cellStyle = cIdx < effectiveFixedColumns
                           ? {
                               position: 'sticky',
-                              left: stickyOffsets[cIdx],
+                              left: getStickyLeftPx(cIdx),
                               zIndex: 20,
                               ...colWidthStyles,
                               ...(lastFrozenCol ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
@@ -2454,6 +3001,8 @@ function FFM() {
             <span className="mx-2">|</span>
             <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Ctrl+V</kbd> Paste
             <span className="mx-2">|</span>
+            <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Del</kbd> Xóa ô
+            <span className="mx-2">|</span>
             <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Esc</kbd> Bỏ chọn
           </div>
         </div>
@@ -2490,6 +3039,7 @@ function FFM() {
           isOpen={syncPopoverOpen}
           onClose={() => setSyncPopoverOpen(false)}
           pendingChanges={pendingChanges}
+          applyButtonLabel="Xác nhận lưu"
           onApply={handleUpdateAll}
           onDiscard={() => {
             if (confirm('Hủy bỏ tất cả thay đổi?')) {

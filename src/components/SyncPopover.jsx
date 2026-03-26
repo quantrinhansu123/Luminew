@@ -6,7 +6,8 @@ const SyncPopover = ({
     pendingChanges = new Map(),
     legacyChanges = new Map(),
     onApply,
-    onDiscard
+    onDiscard,
+    applyButtonLabel = 'Lưu tất cả'
 }) => {
     if (!isOpen) return null;
 
@@ -79,7 +80,7 @@ const SyncPopover = ({
                         onClick={onApply}
                         className="px-4 py-2 bg-success text-white rounded hover:bg-successHover transition"
                     >
-                        Lưu tất cả
+                        {applyButtonLabel}
                     </button>
                 </div>
             </div>

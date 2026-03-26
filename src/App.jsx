@@ -137,7 +137,7 @@ function AppShell() {
             />
             <Route path="/nhap-bao-cao-cskh" element={<ProtectedRoute><NhapBaoCaoCSKH /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
-            {/* Mặc định: view HTML viewNsMoiNhanh.html (iframe). Bản React: /xem-bao-cao-mkt-react */}
+            {/* MKT: /xem-bao-cao-mkt trỏ thẳng tới HTML legacy (iframe) */}
             <Route
               path="/xem-bao-cao-mkt"
               element={

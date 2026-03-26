@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
+import { buildMktDetailReportRowKey } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
 import './BaoCaoSale.css'; // Reusing styles for consistency
@@ -643,17 +644,35 @@ export default function DanhSachBaoCaoTayMKT() {
     // Tổng kết theo toàn bộ dữ liệu đã lọc (không phụ thuộc phân trang)
     const totalsByFiltered = useMemo(() => {
         const rows = reportsAfterFilters || [];
-        return rows.reduce(
-            (acc, r) => {
-                acc.cpqc += Number(r?.['CPQC'] || 0);
-                acc.mess += Number(r?.['Số_Mess_Cmt'] || 0);
-                const realValues = (r && r.id && realValuesMap[r.id]) ? realValuesMap[r.id] : null;
-                acc.soDon += Number(realValues?.so_don_thuc_te || 0);
-                acc.doanhSo += Number(realValues?.doanh_so_thuc_te || 0);
-                return acc;
-            },
-            { cpqc: 0, mess: 0, soDon: 0, doanhSo: 0 }
-        );
+        const cpqc = rows.reduce((s, r) => s + Number(r?.['CPQC'] || 0), 0);
+        const mess = rows.reduce((s, r) => s + Number(r?.['Số_Mess_Cmt'] || 0), 0);
+
+        // Cùng key (Ngày+Tên+SP+TT+ca) có thể có 2 dòng trùng trong DB — mỗi dòng đều query orders → cùng Số đơn.
+        // Tổng cộng chỉ cộng Số đơn / Doanh số thực tế MỘT LẦN / key (lấy max nếu một dòng chưa kịp tính realValues).
+        const byDetailKey = new Map();
+        for (const r of rows) {
+            const k = buildMktDetailReportRowKey(r);
+            const realValues = r && r.id && realValuesMap[r.id] ? realValuesMap[r.id] : null;
+            const sd = Number(realValues?.so_don_thuc_te || 0);
+            const ds = Number(realValues?.doanh_so_thuc_te || 0);
+            const prev = byDetailKey.get(k);
+            if (!prev) {
+                byDetailKey.set(k, { sd, ds });
+            } else {
+                byDetailKey.set(k, {
+                    sd: Math.max(prev.sd, sd),
+                    ds: Math.max(prev.ds, ds),
+                });
+            }
+        }
+        let soDon = 0;
+        let doanhSo = 0;
+        for (const { sd, ds } of byDetailKey.values()) {
+            soDon += sd;
+            doanhSo += ds;
+        }
+
+        return { cpqc, mess, soDon, doanhSo };
     }, [reportsAfterFilters, realValuesMap]);
 
     // Calculate pagination
