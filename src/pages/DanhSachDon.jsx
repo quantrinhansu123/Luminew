@@ -112,6 +112,7 @@ function DanhSachDon() {
   const [syncing, setSyncing] = useState(false); // State for sync process
   const [isFixingTeams, setIsFixingTeams] = useState(false); // State for fixing missing teams
   const [isFixingShift, setIsFixingShift] = useState(false); // Chỉnh ca: Giữa ca → Giữa ca,Hết ca
+  const [isFillingPaymentCurrency, setIsFillingPaymentCurrency] = useState(false); // Tự điền Loại tiền theo Khu vực
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -477,6 +478,97 @@ function DanhSachDon() {
       alert(`❌ Lỗi tải dữ liệu: ${error.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const inferPaymentCurrencyFromArea = (areaRaw) => {
+    const s = String(areaRaw ?? '').trim();
+    if (!s) return '';
+    const n = s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+    if (n === 'us' || n.includes('u.s') || n.includes('usa') || n.includes('my')) return 'USD';
+    if (n.includes('nhat') || n.includes('cd nhat')) return 'JPY';
+    if (n.includes('han quoc') || n.includes('korea')) return 'KRW';
+    if (n.includes('canada')) return 'CAD';
+    if (n.includes('uc') || n.includes('australia')) return 'AUD';
+    if (n.includes('anh') || n.includes('uk') || n.includes('england')) return 'GBP';
+    return 'VND';
+  };
+
+  const handleAutoFillPaymentCurrencyFromArea = async () => {
+    const rows = filteredData || [];
+    if (rows.length === 0) {
+      toast.info('Không có đơn nào để xử lý.', { autoClose: 1500, hideProgressBar: true });
+      return;
+    }
+
+    const rowsToUpdate = rows
+      .map((r) => {
+        const orderCode = String(r?.['Mã đơn hàng'] ?? '').trim();
+        const existing = String(r?.['Loại tiền thanh toán'] ?? '').trim();
+        if (!orderCode) return null;
+        if (existing) return null; // chỉ điền khi đang trống
+        const currency = inferPaymentCurrencyFromArea(r?.['Khu vực']);
+        if (!currency) return null;
+        return { orderCode, currency };
+      })
+      .filter(Boolean);
+
+    if (rowsToUpdate.length === 0) {
+      toast.info('Tất cả đơn đang hiển thị đã có "Loại tiền thanh toán".', { autoClose: 2000, hideProgressBar: true });
+      return;
+    }
+
+    const preview = rowsToUpdate
+      .slice(0, 10)
+      .map((x) => `${x.orderCode} → ${x.currency}`)
+      .join('\n');
+
+    if (
+      !window.confirm(
+        `Tự điền "Loại tiền thanh toán" theo "Khu vực" cho các đơn đang hiển thị (chỉ các đơn đang trống).\n\nSẽ cập nhật: ${rowsToUpdate.length} đơn.\n\nVí dụ:\n${preview}${rowsToUpdate.length > 10 ? '\n…' : ''}`
+      )
+    ) {
+      return;
+    }
+
+    setIsFillingPaymentCurrency(true);
+    try {
+      let success = 0;
+      const chunkSize = 10;
+      for (let i = 0; i < rowsToUpdate.length; i += chunkSize) {
+        const chunk = rowsToUpdate.slice(i, i + chunkSize);
+        await Promise.all(
+          chunk.map(async (u) => {
+            const { error } = await supabase
+              .from('orders')
+              .update({ payment_currency: u.currency })
+              .eq('order_code', u.orderCode);
+            if (!error) success++;
+          })
+        );
+      }
+
+      // Update local UI state immediately
+      const byCode = new Map(rowsToUpdate.map((u) => [u.orderCode, u.currency]));
+      setAllData((prev) =>
+        (prev || []).map((r) => {
+          const code = String(r?.['Mã đơn hàng'] ?? '').trim();
+          const currency = byCode.get(code);
+          if (!currency) return r;
+          return { ...r, 'Loại tiền thanh toán': currency };
+        })
+      );
+
+      toast.success(`✅ Đã tự điền Loại tiền thanh toán: ${success}/${rowsToUpdate.length} đơn`, {
+        autoClose: 2500,
+        hideProgressBar: true,
+      });
+    } catch (err) {
+      console.error('Auto fill payment currency error:', err);
+      toast.error(`❌ Lỗi tự điền Loại tiền thanh toán: ${err?.message || String(err)}`);
+    } finally {
+      setIsFillingPaymentCurrency(false);
     }
   };
 
@@ -1699,11 +1791,31 @@ function DanhSachDon() {
                   }, 0).toLocaleString('vi-VN')} ₫
                 </span>
               </div>
+              {canEdit(permissionCode) && (
+                <button
+                  onClick={handleAutoFillPaymentCurrencyFromArea}
+                  disabled={syncing || loading || deleting || isFixingTeams || isFixingShift || isFillingPaymentCurrency}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                  title='Tự điền "Loại tiền thanh toán" theo "Khu vực" (chỉ dòng đang trống)'
+                >
+                  {isFillingPaymentCurrency ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      Đang điền...
+                    </>
+                  ) : (
+                    <>
+                      <Settings className="w-4 h-4" />
+                      Điền loại tiền
+                    </>
+                  )}
+                </button>
+              )}
               {isAdmin && (
                 <>
                   <button
                     onClick={handleFixMissingTeams}
-                    disabled={syncing || loading || deleting || isFixingTeams || isFixingShift}
+                    disabled={syncing || loading || deleting || isFixingTeams || isFixingShift || isFillingPaymentCurrency}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
                     {isFixingTeams ? (
@@ -1720,7 +1832,7 @@ function DanhSachDon() {
                   </button>
                   <button
                     onClick={handleFixGiuaCaShift}
-                    disabled={syncing || loading || deleting || isFixingTeams || isFixingShift}
+                    disabled={syncing || loading || deleting || isFixingTeams || isFixingShift || isFillingPaymentCurrency}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
                     {isFixingShift ? (
