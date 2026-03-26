@@ -153,6 +153,7 @@ export default function NhapDonMoi({ isEdit = false }) {
     const productRef = useRef(null); // Ref for Product dropdown
     const [activeTab, setActiveTab] = useState("khach-hang");
     const [isSaving, setIsSaving] = useState(false);
+    const [submitAttempted, setSubmitAttempted] = useState(false);
 
 
 
@@ -185,7 +186,7 @@ export default function NhapDonMoi({ isEdit = false }) {
         "quatang": "", "slq": 0,
 
         "sale_price": 0, // Giá bán
-        "paymentType": "VND", // Loại tiền (Currency)
+        "paymentType": "", // Loại tiền (Currency) - bắt buộc chọn
         "exchange_rate": 25000, // Tỷ giá mặc định (ví dụ)
         "tong-tien": 0, // Tổng tiền VNĐ
         "hinh-thuc": "", // Hình thức thanh toán (text)
@@ -1079,6 +1080,7 @@ export default function NhapDonMoi({ isEdit = false }) {
     };
 
     const handleSave = async () => {
+        setSubmitAttempted(true);
         // Validation
         // Kiểm tra xem MKT có phải là tùy chọn đặc biệt không (không cần page)
         const specialMktOptions = ['MKT chưa nhập page', 'MKT LumiGlobal_HN', 'MKT LumiGlobal_HCM'];
@@ -1094,6 +1096,16 @@ export default function NhapDonMoi({ isEdit = false }) {
         // Validation - Khu vực bắt buộc cho cả tạo mới và edit
         if (!formData.country || formData.country.trim() === "") {
             alert("⚠️ Vui lòng chọn Khu vực! Đây là trường bắt buộc.");
+            return;
+        }
+
+        // Validation - Bắt buộc Hình thức thanh toán và Loại tiền
+        if (!String(formData["hinh-thuc"] || "").trim()) {
+            alert("⚠️ Vui lòng chọn Hình thức thanh toán! Đây là trường bắt buộc.");
+            return;
+        }
+        if (!String(formData.paymentType || "").trim()) {
+            alert("⚠️ Vui lòng chọn Loại tiền! Đây là trường bắt buộc.");
             return;
         }
 
@@ -1821,24 +1833,45 @@ export default function NhapDonMoi({ isEdit = false }) {
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="phone">Phone*</Label>
-                                                <Input id="phone" value={formData.phone} onChange={handleInputChange} placeholder="Số điện thoại..." />
+                                                <Input
+                                                    id="phone"
+                                                    value={formData.phone}
+                                                    onChange={handleInputChange}
+                                                    placeholder="Số điện thoại..."
+                                                    className={cn(
+                                                        submitAttempted && !String(formData.phone || '').trim() && 'border-red-500 ring-1 ring-red-300'
+                                                    )}
+                                                />
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="ten-kh">Tên*</Label>
-                                                <Input id="ten-kh" value={formData["ten-kh"]} onChange={handleInputChange} placeholder="Họ và tên khách hàng..." />
+                                                <Input
+                                                    id="ten-kh"
+                                                    value={formData["ten-kh"]}
+                                                    onChange={handleInputChange}
+                                                    placeholder="Họ và tên khách hàng..."
+                                                    className={cn(
+                                                        submitAttempted && !String(formData["ten-kh"] || '').trim() && 'border-red-500 ring-1 ring-red-300'
+                                                    )}
+                                                />
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="add">Add*</Label>
                                                 <Input id="add" value={formData.add} onChange={handleInputChange} placeholder="Địa chỉ chi tiết..." />
                                             </div>
                                             <div className="space-y-2">
-                                                <Label htmlFor="country">Khu vực*</Label>
+                                                <Label htmlFor="country" className={cn(submitAttempted && !String(formData.country || '').trim() && 'text-red-600 font-bold')}>
+                                                    Khu vực*
+                                                </Label>
                                                 <select
                                                     id="country"
                                                     value={formData.country}
                                                     onChange={handleInputChange}
                                                     required
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]"
+                                                    className={cn(
+                                                        "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]",
+                                                        submitAttempted && !String(formData.country || '').trim() && 'border-red-500 ring-1 ring-red-300'
+                                                    )}
                                                 >
                                                     <option value="">Chọn khu vực...</option>
                                                     {AREA_LIST.map(a => <option key={a} value={a}>{a}</option>)}
@@ -2015,8 +2048,19 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                         <Input id="sale_price" type="number" value={formData.sale_price || ""} onChange={handleInputChange} placeholder="0" />
                                                     </div>
                                                     <div className="space-y-2">
-                                                        <Label>Loại tiền</Label>
-                                                        <select id="paymentType" value={formData.paymentType} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]">
+                                                        <Label className={cn(submitAttempted && !String(formData.paymentType || '').trim() && 'text-red-600 font-bold')}>
+                                                            Loại tiền*
+                                                        </Label>
+                                                        <select
+                                                            id="paymentType"
+                                                            value={formData.paymentType}
+                                                            onChange={handleInputChange}
+                                                            className={cn(
+                                                                "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]",
+                                                                submitAttempted && !String(formData.paymentType || '').trim() && 'border-red-500 ring-1 ring-red-300'
+                                                            )}
+                                                        >
+                                                            <option value="">Chọn loại tiền...</option>
                                                             {CURRENCY_LIST.map(c => <option key={c} value={c}>{c}</option>)}
                                                         </select>
                                                     </div>
@@ -2040,8 +2084,21 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                         </div>
                                                     </div>
                                                     <div className="space-y-2">
-                                                        <Label htmlFor="hinh-thuc">Hình thức thanh toán</Label>
-                                                        <select id="hinh-thuc" value={formData["hinh-thuc"]} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]">
+                                                        <Label
+                                                            htmlFor="hinh-thuc"
+                                                            className={cn(submitAttempted && !String(formData["hinh-thuc"] || "").trim() && 'text-red-600 font-bold')}
+                                                        >
+                                                            Hình thức thanh toán*
+                                                        </Label>
+                                                        <select
+                                                            id="hinh-thuc"
+                                                            value={formData["hinh-thuc"]}
+                                                            onChange={handleInputChange}
+                                                            className={cn(
+                                                                "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d]",
+                                                                submitAttempted && !String(formData["hinh-thuc"] || "").trim() && 'border-red-500 ring-1 ring-red-300'
+                                                            )}
+                                                        >
                                                             <option value="">Chọn hình thức...</option>
                                                             {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                                                         </select>
