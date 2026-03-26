@@ -2813,8 +2813,8 @@ function FFM() {
           <div className="min-h-0 max-h-[72vh] overflow-y-auto overflow-x-auto flex flex-row items-stretch overscroll-contain">
             <div className="shrink-0 min-h-0 border-r-2 border-gray-300 bg-white z-20 overflow-x-hidden">
               <table data-ffm-pane="left" className={`${tableClassName} w-max`}>
-                <thead className="sticky top-0 z-[100] bg-[#f8f9fa]">
-                  <tr className="bg-[#f8f9fa] align-top shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
+                <thead className="relative">
+                  <tr className="sticky top-0 z-[100] bg-[#f8f9fa] align-top shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
                     {frozenCols.map((col) => (
                       <th
                         key={`ff-${col}`}
@@ -2851,8 +2851,8 @@ function FFM() {
                 Tránh `overflow-y-clip` vì có thể làm sai chiều cao scroll của cha. */}
             <div className="flex-1 min-w-max min-h-0 overflow-x-visible overflow-y-visible">
               <table data-ffm-pane="right" className={`${tableClassName} w-max min-w-max`}>
-                <thead className="sticky top-0 z-[100] bg-[#f8f9fa]">
-                  <tr className="bg-[#f8f9fa] align-top shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
+                <thead className="relative">
+                  <tr className="sticky top-0 z-[100] bg-[#f8f9fa] align-top shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
                     {scrollCols.map((col) => (
                       <th
                         key={`sf-${col}`}
@@ -2882,7 +2882,7 @@ function FFM() {
         ) : (
           <div className="min-h-0 max-h-[72vh] overflow-auto overscroll-contain">
             <table ref={tableRef} className={`${tableClassName} w-max min-w-full`}>
-              <thead className="sticky top-0 z-[100] bg-[#f8f9fa]">
+              <thead className="relative">
                 <tr className="bg-[#f8f9fa] shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
                   {currentColumns.map((col, idx) => {
                     const colWidthStyles = getColumnWidthStyles(col);
@@ -2894,9 +2894,12 @@ function FFM() {
                         position: 'sticky',
                         top: 0,
                             left: getStickyLeftPx(idx),
-                        zIndex: 43,
+                        zIndex: 1100,
                         background: '#f8f9fa',
                         backgroundClip: 'padding-box',
+                        // selection.css đang set `contain: layout style paint` cho td/th
+                        // có thể làm `position: sticky` hoạt động không ổn định.
+                        contain: 'none',
                         ...(lastFrozen ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.12)' } : {})
                       };
                     } else {
@@ -2904,9 +2907,10 @@ function FFM() {
                         ...stickyStyle,
                         position: 'sticky',
                         top: 0,
-                        zIndex: 32,
+                        zIndex: 1050,
                         background: '#f8f9fa',
                         backgroundClip: 'padding-box',
+                        contain: 'none',
                         boxShadow: 'inset 0 -1px 0 0 rgba(0,0,0,0.06)'
                       };
                     }
