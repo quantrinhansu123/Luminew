@@ -152,6 +152,7 @@ function VanDon() {
   const [copiedData, setCopiedData] = useState(null);
   const [copiedSelection, setCopiedSelection] = useState(null);
   const [stickyOffsets, setStickyOffsets] = useState([]);
+  const [firstDataRowTop, setFirstDataRowTop] = useState(0); // sticky top cho dòng dữ liệu đầu tiên
   const isSelecting = useRef(false);
   const tableRef = useRef(null);
 
@@ -810,7 +811,9 @@ function VanDon() {
       maxCol: Math.max(copiedSelection.startCol, copiedSelection.endCol)
     };
   }, [copiedSelection]);
+  // Tab chỉ xem: khóa sửa hoàn toàn.
   const isReadonlyAllTab = bolActiveTab === 'readonly_all';
+  const isReadonlyEditTab = bolActiveTab === 'readonly_all';
 
   // --- Filtering Logic ---
   // Filter out hidden columns from allColumns
@@ -881,6 +884,7 @@ function VanDon() {
     const isAddCol = (col === "Add");
     const isCityCol = (col === "City");
     const isProductCol = (col === "Mặt hàng");
+    const isProductNameCol = (col === "Tên mặt hàng 1" || col === "Tên mặt hàng 2");
     const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
     if (isQtyCol) return 52;
     if (isCheckCol) return 150;
@@ -888,6 +892,7 @@ function VanDon() {
     if (isAddCol) return 400;
     if (isCityCol) return 140;
     if (isProductCol) return 160;
+    if (isProductNameCol) return 260;
     return 120;
   }, []);
 
@@ -897,6 +902,7 @@ function VanDon() {
     const isAddCol = (col === "Add");
     const isCityCol = (col === "City");
     const isProductCol = (col === "Mặt hàng");
+    const isProductNameCol = (col === "Tên mặt hàng 1" || col === "Tên mặt hàng 2");
     const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
     if (isQtyCol) return { minWidth: '48px', maxWidth: '58px', width: '52px' };
@@ -905,6 +911,7 @@ function VanDon() {
     if (isAddCol) return { minWidth: '380px', maxWidth: '450px', width: '400px' };
     if (isCityCol) return { minWidth: '130px', maxWidth: '200px', width: '140px' };
     if (isProductCol) return { minWidth: '150px', maxWidth: '220px', width: '160px' };
+    if (isProductNameCol) return { minWidth: '220px', maxWidth: '420px', width: '260px' };
     return { minWidth: '120px', width: '120px' };
   }, []);
 
@@ -952,6 +959,30 @@ function VanDon() {
     window.addEventListener('resize', recalcStickyOffsets);
     return () => window.removeEventListener('resize', recalcStickyOffsets);
   }, [currentColumns, checkboxStickyPad, getColumnWidthPx, filterValues, localFilterValues, isLongTextExpanded]);
+
+  /** Đóng băng dòng dữ liệu đầu tiên (rIdx=0) ngay dưới header khi cuộn dọc */
+  useLayoutEffect(() => {
+    const root = tableRef.current;
+    if (!root) return;
+
+    const calcTop = () => {
+      // splitPane: có 2 thead, lấy max height để top khớp
+      if (splitPane) {
+        const left = root.querySelector('[data-vandon-pane="left"]');
+        const right = root.querySelector('[data-vandon-pane="right"]');
+        const lh = left?.querySelector('thead')?.getBoundingClientRect?.().height || 0;
+        const rh = right?.querySelector('thead')?.getBoundingClientRect?.().height || 0;
+        setFirstDataRowTop(Math.max(lh, rh));
+        return;
+      }
+      const h = root.querySelector('thead')?.getBoundingClientRect?.().height || 0;
+      setFirstDataRowTop(h);
+    };
+
+    calcTop();
+    window.addEventListener('resize', calcTop);
+    return () => window.removeEventListener('resize', calcTop);
+  }, [splitPane, currentColumns.length, fixedColumns, bolActiveTab, viewMode]);
 
   /**
    * Chế độ freeze tách 2 <table> trái/phải: thead/tbody tự tính chiều cao khác nhau → lệch dòng.
@@ -1763,7 +1794,12 @@ function VanDon() {
   }, [addToast, processDbQueue, deepCloneMapOfMaps]);
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
-    if (isReadonlyAllTab) return;
+    if (isReadonlyEditTab) return;
+    // Tab "Dữ liệu đơn hàng": một số cột chỉ xem
+    if (bolActiveTab === 'all') {
+      const k = String(colKey || '').trim().toLowerCase();
+      if (k === 'đơn vị vận chuyển' || k === 'mã tracking') return;
+    }
     const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
@@ -1774,7 +1810,7 @@ function VanDon() {
     if (String(newValue) === String(stepOriginalValue)) return; // Không có thay đổi gì thực sự
 
     pushChange([{ orderId, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
-  }, [allData, pendingChanges, pushChange, isReadonlyAllTab]);
+  }, [allData, pendingChanges, pushChange, isReadonlyEditTab, bolActiveTab]);
 
   const handleUpdateAll = async () => {
     setSyncPopoverOpen(false);
@@ -2291,6 +2327,11 @@ function VanDon() {
           : ''
         : val;
 
+    const colLower = String(col || '').trim().toLowerCase();
+    const isCarrierCol = colLower === 'đơn vị vận chuyển';
+    const isTrackingCol = colLower === 'mã tracking';
+    const isReadonlyOrderDataTab = bolActiveTab === 'all';
+
     return (
       <td
         key={`${orderId}-${col}`}
@@ -2301,7 +2342,7 @@ function VanDon() {
       >
         {col === 'STT' ? (
           row.rowIndex || (currentPage - 1) * rowsPerPage + rIdx + 1
-        ) : isReadonlyAllTab ? (
+        ) : isReadonlyEditTab || (isReadonlyOrderDataTab && (isCarrierCol || isTrackingCol)) ? (
           displayVal
         ) : DROPDOWN_OPTIONS[col] ? (
           <select
@@ -2365,6 +2406,23 @@ function VanDon() {
         )}
       </td>
     );
+  };
+
+  // Không cho double click chọn/kéo text để "mang data đi" trong bảng (trừ input/select đang chỉnh sửa).
+  const blockTableDoubleClickCopy = (e) => {
+    const target = e?.target;
+    if (!target) return;
+    // Cho phép double click trong các input/select/textarea để user vẫn sửa được.
+    const editable = target.closest?.('input, textarea, select, [contenteditable="true"]');
+    if (editable) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const blockTableDragStart = (e) => {
+    // Chặn drag text/drag selection từ bảng.
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   if (!canView('ORDERS_LIST')) {
@@ -2607,9 +2665,9 @@ function VanDon() {
             </button>
             <button
               onClick={handleUpdateAll}
-              disabled={isReadonlyAllTab}
+              disabled={isReadonlyEditTab}
               className="p-1 px-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-              title={isReadonlyAllTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Cập nhật thay đổi'}
+              title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Cập nhật thay đổi'}
             >
               ✅ Cập nhật
             </button>
@@ -2712,9 +2770,39 @@ function VanDon() {
               ref={tableRef}
               className="flex-1 min-h-0 overflow-y-auto flex flex-row items-start select-none relative"
               style={{ isolation: 'isolate' }}
+              onDoubleClickCapture={blockTableDoubleClickCopy}
+              onDragStartCapture={blockTableDragStart}
             >
-              <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20 self-start">
-                <table className="border-collapse w-max text-[13px] leading-tight" data-vandon-pane="left">
+              <div className="shrink-0 border-r-2 border-gray-300 bg-white z-20 self-start overflow-y-hidden">
+                {paginatedData.length > 0 && (
+                  <div className="sticky" style={{ top: firstDataRowTop, zIndex: 1500 }}>
+                    <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight">
+                      <tbody>
+                        <tr className="bg-white">
+                          {bolActiveTab === 'hanoi' && (
+                            <td
+                              className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
+                              style={{ position: 'sticky', left: 0, zIndex: 4100, backgroundColor: '#f9fafb' }}
+                            />
+                          )}
+                          {frozenCols.map((col, i) => {
+                            const colWidthStyles = getColumnWidthStyles(col);
+                            const lastF = i === frozenCols.length - 1;
+                            const cellStyle = {
+                              ...colWidthStyles,
+                              position: 'relative',
+                              zIndex: 10,
+                              background: '#ffffff',
+                              ...(lastF ? { boxShadow: '2px 0 0 #e5e7eb' } : {})
+                            };
+                            return renderVanDonDataCell(paginatedData[0], 0, col, i, cellStyle);
+                          })}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight" data-vandon-pane="left">
                   <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
                     <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
                       {bolActiveTab === 'hanoi' && (
@@ -2743,7 +2831,7 @@ function VanDon() {
                     </tr>
                   </thead>
                   <tbody style={{ position: 'relative', zIndex: 0 }}>
-                    {paginatedData.map((row, rIdx) => {
+                    {paginatedData.slice(1).map((row, rIdx) => {
                       const orderId = row[PRIMARY_KEY_COLUMN];
                       return (
                         <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
@@ -2777,7 +2865,7 @@ function VanDon() {
                               zIndex: 10,
                               ...(lastF ? { boxShadow: '2px 0 0 #e5e7eb' } : {})
                             };
-                            return renderVanDonDataCell(row, rIdx, col, i, cellStyle);
+                            return renderVanDonDataCell(row, rIdx + 1, col, i, cellStyle);
                           })}
                         </tr>
                       );
@@ -2785,8 +2873,23 @@ function VanDon() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex-1 min-w-0 overflow-x-auto min-h-0 self-start">
-                <table className="border-collapse w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
+              <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden min-h-0 self-start">
+                {paginatedData.length > 0 && (
+                  <div className="sticky" style={{ top: firstDataRowTop, zIndex: 4000 }}>
+                    <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight">
+                      <tbody>
+                        <tr className="bg-white">
+                          {scrollCols.map((col, i) => {
+                            const cIdx = effectiveFixedColumns + i;
+                            const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 10, background: '#ffffff' };
+                            return renderVanDonDataCell(paginatedData[0], 0, col, cIdx, cellStyle);
+                          })}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
                   <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
                     <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
                       {scrollCols.map((col, i) =>
@@ -2800,14 +2903,14 @@ function VanDon() {
                     </tr>
                   </thead>
                   <tbody style={{ position: 'relative', zIndex: 0 }}>
-                    {paginatedData.map((row, rIdx) => {
+                    {paginatedData.slice(1).map((row, rIdx) => {
                       const orderId = row[PRIMARY_KEY_COLUMN];
                       return (
                         <tr key={`${orderId}-right`} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
                           {scrollCols.map((col, i) => {
                             const cIdx = effectiveFixedColumns + i;
                             const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 10 };
-                            return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
+                            return renderVanDonDataCell(row, rIdx + 1, col, cIdx, cellStyle);
                           })}
                         </tr>
                       );
@@ -2821,8 +2924,42 @@ function VanDon() {
               ref={tableRef}
               className="overflow-auto relative select-none flex-1 min-h-0"
               style={{ overflowX: 'auto', overflowY: 'auto', isolation: 'isolate' }}
+              onDoubleClickCapture={blockTableDoubleClickCopy}
+              onDragStartCapture={blockTableDragStart}
             >
-              <table className="w-full border-collapse min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
+                {paginatedData.length > 0 && (
+                  <div className="sticky" style={{ top: firstDataRowTop, zIndex: 1500 }}>
+                  <table className="w-full border-separate border-spacing-0 min-w-[2500px] text-[13px] leading-tight">
+                    <tbody>
+                      <tr className="bg-white">
+                        {bolActiveTab === 'hanoi' && (
+                          <td
+                            className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
+                            style={{ position: 'sticky', left: 0, zIndex: 4100, backgroundColor: '#f9fafb' }}
+                          />
+                        )}
+                        {currentColumns.map((col, cIdx) => {
+                          const cellStickyLeft = getStickyLeftPx(cIdx);
+                          const colWidthStyles = getColumnWidthStyles(col);
+                          const cellStyle =
+                            cIdx < effectiveFixedColumns
+                              ? {
+                                  position: 'sticky',
+                                  left: cellStickyLeft,
+                                  zIndex: 4100,
+                                  background: '#ffffff',
+                                  ...colWidthStyles,
+                                  boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
+                                }
+                              : { position: 'relative', zIndex: 10, background: '#ffffff', ...colWidthStyles };
+                          return renderVanDonDataCell(paginatedData[0], 0, col, cIdx, cellStyle);
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <table className="w-full border-separate border-spacing-0 min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
                 <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 1000, backgroundColor: 'white' }}>
                   <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 1000 }}>
                     {bolActiveTab === 'hanoi' && (
@@ -2851,7 +2988,7 @@ function VanDon() {
                   </tr>
                 </thead>
                 <tbody style={{ position: 'relative', zIndex: 0 }}>
-                  {paginatedData.map((row, rIdx) => {
+                  {paginatedData.slice(1).map((row, rIdx) => {
                     const orderId = row[PRIMARY_KEY_COLUMN];
                     return (
                       <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
@@ -2889,7 +3026,7 @@ function VanDon() {
                                   boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
                                 }
                               : { position: 'relative', zIndex: 10, ...colWidthStyles };
-                          return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
+                          return renderVanDonDataCell(row, rIdx + 1, col, cIdx, cellStyle);
                         })}
                       </tr>
                     );
