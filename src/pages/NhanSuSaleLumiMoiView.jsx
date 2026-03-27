@@ -21,6 +21,7 @@ import {
   formatNumber,
   formatPercent,
   summarizeAndSortSalesData,
+  aggregateTotalFromFlatList,
   dedupeSalesReportRowsByTTKey,
   uniqueSorted,
 } from '../utils/nhanSuSaleLumiMoiLogic';
@@ -555,8 +556,9 @@ export default function NhanSuSaleLumiMoiView({
       };
     }
 
-    const { flatList, total } = summarizeAndSortSalesData(deferredFilteredDeduped);
+    const { flatList } = summarizeAndSortSalesData(deferredFilteredDeduped);
     const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
+    const total = aggregateTotalFromFlatList(flatListFiltered);
     const doanhSoMap = {};
     flatListFiltered.forEach((item) => {
       doanhSoMap[item.name] = item.doanhThuChotThucTe;
@@ -1122,8 +1124,9 @@ function DailyBreakdownSauHuy({ filteredData }) {
     <div className="daily-breakdown">
       {sortedDates.map((date) => {
         const dailyData = groupedByDate[date];
-        const { flatList, total } = summarizeAndSortSalesData(dailyData);
+        const { flatList } = summarizeAndSortSalesData(dailyData);
         const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
+        const total = aggregateTotalFromFlatList(flatListFiltered);
         const soDonSauHuyTotal = total.soDonThucTe - total.soDonHoanHuyThucTe;
         const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
         const totalRateSauHuy = total.mess ? soDonSauHuyTotal / total.mess : 0;
@@ -1212,8 +1215,9 @@ function DailyBreakdownChot({ filteredData }) {
     <div className="daily-breakdown">
       {sortedDates.map((date) => {
         const dailyData = groupedByDate[date];
-        const { flatList, total } = summarizeAndSortSalesData(dailyData);
+        const { flatList } = summarizeAndSortSalesData(dailyData);
         const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
+        const total = aggregateTotalFromFlatList(flatListFiltered);
         const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
         return (
           <div key={date}>

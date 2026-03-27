@@ -34,6 +34,35 @@ const BULK_THRESHOLD = 1;
 /** Độ rộng cột checkbox (tab Hà Nội) — bù `left` cho cột sticky kế bên */
 const VAN_DON_CHECKBOX_COL_PX = 50;
 
+/** Chuẩn hóa header cột (NFC) — tránh lệch ký tự Unicode so với EDITABLE_COLS. */
+function normalizeColHeader(col) {
+  if (col == null || col === '') return '';
+  return String(col).normalize('NFC').trim();
+}
+
+function colInList(col, list) {
+  const n = normalizeColHeader(col);
+  if (!n) return false;
+  for (let i = 0; i < list.length; i++) {
+    if (normalizeColHeader(list[i]) === n) return true;
+  }
+  return false;
+}
+
+/** TableVirtuoso chỉ bọc sẵn <tr> — không được trả về <tr> từ itemContent (tránh <tr> lồng <tr>, DOM hỏng). */
+function VanDonVirtuosoTable({ style, ...props }) {
+  return (
+    <table
+      {...props}
+      className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed"
+      style={{ ...style, tableLayout: 'fixed' }}
+    />
+  );
+}
+
+const VanDonVirtuosoTableBody = React.forwardRef((props, ref) => <tbody {...props} ref={ref} />);
+VanDonVirtuosoTableBody.displayName = 'VanDonVirtuosoTableBody';
+
 /** Khi ghép đơn chưa lưu vào kết quả API sau đổi bộ lọc — chỉ giữ dòng phù hợp tab (tránh lệch với Đơn Nhật/Hà Nội). */
 function rowMatchesBolTabForInject(row, tab) {
   if (tab === 'hanoi') {
@@ -119,15 +148,6 @@ function VanDon() {
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã'
   });
-  const [localFilterValues, setLocalFilterValues] = useState(filterValues);
-
-  // Debounce filter updates
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setFilterValues(localFilterValues);
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, [localFilterValues]);
 
   // Calculate 3 days ago (today, yesterday, day before yesterday)
   const getThreeDaysAgo = () => {
@@ -415,6 +435,8 @@ function VanDon() {
       product: filterValues.product,
       nv_sale: filterValues.nv_sale,
       nv_mkt: filterValues.nv_mkt,
+      nv_van_don: filterValues.nv_van_don,
+      shipping_unit: filterValues.shipping_unit,
       dateFrom: enableDateFilter ? dateFrom : undefined,
       dateTo: enableDateFilter ? dateTo : undefined,
       dateType: bolDateType,
@@ -425,7 +447,7 @@ function VanDon() {
     };
     console.log('🔍 [VanDon] Active Filters:', filters);
     return filters;
-  }, [bolActiveTab, omActiveTeam, filterValues, enableDateFilter, dateFrom, dateTo, currentPage, rowsPerPage, useBackendPagination]);
+  }, [bolActiveTab, omActiveTeam, filterValues, enableDateFilter, dateFrom, dateTo, bolDateType, currentPage, rowsPerPage, useBackendPagination]);
 
   const {
     data: queryResult,
@@ -433,19 +455,29 @@ function VanDon() {
     isFetching,
     refetch: refetchVanDonData
   } = useQuery({
-    queryKey: ['vanDon', activeFilters, selectedPersonnelNames.length, isAdmin],
+    queryKey: ['vanDon', activeFilters, selectedPersonnelNames.slice().sort().join('|'), isAdmin],
     queryFn: async () => {
       console.log('🚀 [VanDon] Query Function Started. useBackendPagination:', useBackendPagination, 'permissionsLoading:', permissionsLoading);
       if (!useBackendPagination || permissionsLoading) return null;
 
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
-      const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || "";
+      const userName = [
+        localStorage.getItem("username"),
+        user?.['Họ_và_tên'],
+        user?.['Họ và tên'],
+        user?.['Họ Và Tên'],
+        user?.full_name,
+        user?.name,
+      ]
+        .map((v) => String(v || "").trim())
+        .find(Boolean) || "";
       const isManager = isAdmin || ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
 
       let allAllowedNames = [];
       if (!isManager) {
-        allAllowedNames = selectedPersonnelNames.length > 0 ? selectedPersonnelNames : [userName];
+        const picked = (selectedPersonnelNames || []).map((n) => String(n || "").trim()).filter(Boolean);
+        allAllowedNames = picked.length > 0 ? picked : (userName ? [userName] : []);
       }
 
       const result = await API.fetchVanDon({
@@ -456,10 +488,12 @@ function VanDon() {
         product: activeFilters.product,
         nv_sale: activeFilters.nv_sale,
         nv_mkt: activeFilters.nv_mkt,
+        nv_van_don: activeFilters.nv_van_don,
+        shipping_unit: activeFilters.shipping_unit,
         dateFrom: activeFilters.dateFrom,
         dateTo: activeFilters.dateTo,
         dateType: activeFilters.dateType,
-        allowedStaff: isManager ? undefined : allAllowedNames
+        allowedStaff: isManager ? undefined : (allAllowedNames.length > 0 ? allAllowedNames : undefined),
       });
 
       console.log('✅ [VanDon] fetchVanDon Result:', {
@@ -508,9 +542,11 @@ function VanDon() {
       const orderId = row[PRIMARY_KEY_COLUMN];
       let rowCopy = { ...row };
 
-      // Computed columns
+      // Computed columns (giữ giá trị map từ DB nếu không có cột “lần 1”)
       rowCopy["Ngày đẩy đơn"] = extractDateFromDateTime(row["Ngày Kế toán đối soát với FFM lần 2"]);
-      rowCopy["Ngày có mã tracking"] = extractDateFromDateTime(row["Ngày Kế toán đối soát với FFM lần 1"]);
+      rowCopy["Ngày có mã tracking"] = extractDateFromDateTime(
+        row["Ngày Kế toán đối soát với FFM lần 1"] ?? row["Ngày có mã tracking"]
+      );
 
       const pending = pendingChanges.get(orderId);
       if (pending) {
@@ -673,32 +709,47 @@ function VanDon() {
       console.warn('⚠️ [Filter Error] Lỗi khi xử lý Market/Product filter:', err);
     }
 
-    // Date Range (only if enabled) - Áp dụng cho tất cả users
+    // Date Range (toolbar "Lọc thời gian") — cùng quy tắc chuẩn hóa ngày với lọc cột & API (YYYY-MM-DD)
     if (enableDateFilter) {
       if (dateFrom) {
-        const d = new Date(dateFrom);
-        d.setHours(0, 0, 0, 0);
-        data = data.filter(row => {
+        const fromNorm = String(dateFrom).split('T')[0];
+        data = data.filter((row) => {
           const val = row[activeDateType];
           if (!val) return false;
-          return new Date(val).getTime() >= d.getTime();
+          const rowDay = extractDateFromDateTime(val);
+          return rowDay && rowDay >= fromNorm;
         });
       }
       if (dateTo) {
-        const d = new Date(dateTo);
-        d.setHours(23, 59, 59, 999);
-        data = data.filter(row => {
+        const toNorm = String(dateTo).split('T')[0];
+        data = data.filter((row) => {
           const val = row[activeDateType];
           if (!val) return false;
-          return new Date(val).getTime() <= d.getTime();
+          const rowDay = extractDateFromDateTime(val);
+          return rowDay && rowDay <= toNorm;
         });
       }
     }
+
+    // Cột ngày trùng với "Loại ngày+ khoảng" trên toolbar → đã lọc ở trên, bỏ lọc 1 ngày ở header cho tránh lệch / chồng hai bộ lọc
+    const DATE_FILTER_KEYS = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'];
+    const toolbarDateOverrideKeys =
+      activeDateType === 'Ngày đẩy đơn'
+        ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
+        : new Set([activeDateType]);
 
     // Column Filters (Text & Dropdown) - Áp dụng cho tất cả users (bao gồm Admin nếu họ muốn filter)
     Object.entries(filterValues).forEach(([key, val]) => {
       // Skip các filter đặc biệt đã được xử lý riêng
       if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
+
+      if (
+        enableDateFilter &&
+        DATE_FILTER_KEYS.includes(key) &&
+        toolbarDateOverrideKeys.has(key)
+      ) {
+        return;
+      }
 
       // Skip nếu giá trị rỗng
       if (val === null || val === undefined) return;
@@ -864,7 +915,6 @@ function VanDon() {
       tracking_status: 'Tình trạng mã'
     };
     setFilterValues(defaultFilters);
-    setLocalFilterValues(defaultFilters);
     setDateFrom(isAdmin ? '' : getThreeDaysAgo());
     setDateTo(isAdmin ? '' : getToday());
     setEnableDateFilter(!isAdmin);
@@ -888,46 +938,65 @@ function VanDon() {
     }
   }, [showPhanFFMDropdown]);
 
-  // Load selected personnel names for current user
+  // Danh sách tên được xem đơn: users.selected_personnel + bảng danh_sach_van_don (chủ + người sửa hộ)
   useEffect(() => {
-     const loadSelectedPersonnel = async () => {
+    const loadSelectedPersonnel = async () => {
       try {
+        const userJson = localStorage.getItem("user");
+        const user = userJson ? JSON.parse(userJson) : null;
         const userEmail = localStorage.getItem("userEmail") || "";
-        const userName = localStorage.getItem("username") || "";
+        const userName = [
+          localStorage.getItem("username"),
+          user?.['Họ_và_tên'],
+          user?.['Họ và tên'],
+          user?.['Họ Và Tên'],
+          user?.full_name,
+          user?.name,
+        ]
+          .map((v) => String(v || "").trim())
+          .find(Boolean) || "";
 
         if (!userEmail && !userName) {
           setSelectedPersonnelNames([]);
           return;
         }
 
-        let allAllowed = [];
+        const allAllowed = [];
 
-        // 1. Load from users.selected_personnel (existing logic)
         if (userEmail) {
           const userEmailLower = userEmail.toLowerCase().trim();
           const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
-          const fromRbac = personnelMap[userEmailLower] || [];
-          allAllowed = [...allAllowed, ...fromRbac];
+          allAllowed.push(...(personnelMap[userEmailLower] || []));
         }
 
-        // 2. Load from substitute mapping (new logic)
-        if (userName) {
-          const substituteNames = await rbacService.getSubstitutePersonnel(userName);
-          allAllowed = [...allAllowed, ...substituteNames];
-          
-          // Also allow the user's own name
-          allAllowed.push(userName);
+        const nameCandidates = new Set();
+        if (userName) nameCandidates.add(userName);
+        if (userEmail) {
+          const { data: urow } = await supabase
+            .from('users')
+            .select('name, username')
+            .eq('email', userEmail.trim())
+            .maybeSingle();
+          const n1 = (urow?.name || '').trim();
+          const n2 = (urow?.username || '').trim();
+          if (n1) nameCandidates.add(n1);
+          if (n2) nameCandidates.add(n2);
         }
 
-        // 3. Clean and deduplicate
-        const validNames = [...new Set(allAllowed)]
-          .map(name => String(name).trim())
-          .filter(name => name.length > 0 && !name.includes('@'));
+        const fromVanDonList = await rbacService.getVanDonVisibleNames({
+          userNames: Array.from(nameCandidates),
+          userEmail,
+        });
+        allAllowed.push(...fromVanDonList);
+
+        const validNames = [...new Set(allAllowed.map((n) => String(n || "").trim()))].filter(
+          (name) => name.length > 0 && !name.includes('@')
+        );
 
         console.log('📝 [VanDon] Final allowed personnel names:', validNames);
         setSelectedPersonnelNames(validNames);
       } catch (error) {
-        console.error('❌ [VanDon] Error loading selected personnel:', error);
+        console.error('❌ [VanDon] Error loading allowed names:', error);
         setSelectedPersonnelNames([]);
       }
     };
@@ -992,18 +1061,19 @@ function VanDon() {
     }
   }, [canViewHaNoi, bolActiveTab, isAdmin]);
 
-  // Sync filters with role once it's loaded
+  /** Khởi tạo lọc ngày theo role một lần khi quyền tải xong — tránh reset liên tục và tránh admin “tưởng” chọn ngày nhưng Áp dụng tắt. */
+  const roleDateFilterInitRef = useRef(false);
   useEffect(() => {
-    if (!permissionsLoading) {
-      if (isAdmin) {
-        setEnableDateFilter(false);
-        setDateFrom('');
-        setDateTo('');
-      } else {
-        setEnableDateFilter(true);
-        setDateFrom(getThreeDaysAgo());
-        setDateTo(getToday());
-      }
+    if (permissionsLoading || roleDateFilterInitRef.current) return;
+    roleDateFilterInitRef.current = true;
+    if (isAdmin) {
+      setEnableDateFilter(false);
+      setDateFrom('');
+      setDateTo('');
+    } else {
+      setEnableDateFilter(true);
+      setDateFrom(getThreeDaysAgo());
+      setDateTo(getToday());
     }
   }, [permissionsLoading, isAdmin]);
 
@@ -1014,7 +1084,7 @@ function VanDon() {
       refetchVanDonData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.shipping_unit, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
+  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, filterValues.shipping_unit, bolDateType, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.slice().sort().join('|'), permissionsLoading]);
 
 
   // Đóng tab / F5: cảnh báo + ghi nháp localStorage ngay (tránh mất dữ liệu).
@@ -1375,7 +1445,7 @@ function VanDon() {
     recalcStickyOffsets();
     window.addEventListener('resize', recalcStickyOffsets);
     return () => window.removeEventListener('resize', recalcStickyOffsets);
-  }, [currentColumns, checkboxStickyPad, getColumnWidthPx, filterValues, localFilterValues, isLongTextExpanded]);
+  }, [currentColumns, checkboxStickyPad, getColumnWidthPx, filterValues, isLongTextExpanded]);
 
 
   // Virtualization is handled by react-virtuoso, so we no longer need manual height sync
@@ -1427,14 +1497,13 @@ function VanDon() {
     }
   }, []);
 
-  //12
   // Lăn chuột luôn cuộn phần nội dung bảng, header vẫn đứng yên (sticky).
   const handleTableWheel = useCallback((e) => {
     const root = tableRef.current;
     if (!root) return;
     const dy = Number(e?.deltaY || 0);
     if (!dy) return;
- 
+
     const max = Math.max(0, root.scrollHeight - root.clientHeight);
     const next = Math.max(0, Math.min(max, root.scrollTop + dy));
     if (next === root.scrollTop) return;
@@ -1862,7 +1931,6 @@ function VanDon() {
     // Tab "Dữ liệu đơn hàng": một số cột chỉ xem
     if (bolActiveTab === 'all') {
       const k = String(colKey || '').trim().toLowerCase();
-      // Cho phép sửa "Trạng thái giao hàng NB" ở tab Dữ liệu đơn hàng
       if (k === 'đơn vị vận chuyển' || k === 'mã tracking') return;
     }
     const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
@@ -1921,6 +1989,26 @@ function VanDon() {
       setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
       isSelecting.current = false;
       return;
+    }
+
+    // Bảng dùng user-select:none — click vào padding <td> không đi vào textarea/input.
+    // Focus ô nhập trong cùng <td> để gõ được (tránh coi là bắt đầu kéo chọn vùng).
+    const td = target.closest?.('td');
+    if (td) {
+      const editor = td.querySelector('input:not([type="checkbox"]), textarea, select');
+      if (editor && !editor.disabled && !editor.getAttribute('readonly')) {
+        editor.focus();
+        if (editor.tagName === 'INPUT' && typeof editor.select === 'function') {
+          try {
+            editor.select();
+          } catch {
+            /* ignore */
+          }
+        }
+        setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
+        isSelecting.current = false;
+        return;
+      }
     }
 
     // Bắt đầu selection drag
@@ -2143,7 +2231,7 @@ function VanDon() {
           for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
             if (c >= currentColumns.length) continue;
             const colName = currentColumns[c];
-            if (!EDITABLE_COLS.includes(colName)) continue;
+            if (!colInList(colName, EDITABLE_COLS)) continue;
 
             const dataKey = COLUMN_MAPPING[colName] || colName;
             const baseValue = rowData[dataKey] ?? '';
@@ -2170,7 +2258,7 @@ function VanDon() {
             if (targetColIdx >= currentColumns.length || val === '') return;
 
             const colName = currentColumns[targetColIdx];
-            if (!EDITABLE_COLS.includes(colName)) return; // Skip read-only
+            if (!colInList(colName, EDITABLE_COLS)) return; // Skip read-only
 
             const dataKey = COLUMN_MAPPING[colName] || colName;
             const baseValue = rowData[dataKey] ?? '';
@@ -2234,17 +2322,22 @@ function VanDon() {
   // Simplified cell class
   const getCellClass = (row, col, val, rIdx, cIdx) => {
     const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
-    const isStatusNBCol = (col === "Trạng thái giao hàng NB");
-    const isPayStatusCol = (col === "Trạng thái thu tiền");
     const isStatusCol = (col === "Trạng thái giao hàng");
     const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
+    const isLongTextEditable =
+      viewMode === 'BILL_OF_LADING' &&
+      colInList(col, LONG_TEXT_COLS) &&
+      colInList(col, EDITABLE_COLS) &&
+      bolActiveTab !== 'readonly_all';
 
     // Default cell sizing
     // NOTE: For select-based columns, avoid vertical padding so the select can fill the cell height cleanly.
-    let classes = `${(isCheckCol || isStatusCol || isStatusNBCol || isPayStatusCol) ? "py-0" : "py-2.5"} border border-gray-200 text-sm h-[38px] whitespace-nowrap `;
+    let classes = `${(isCheckCol || isStatusCol) ? "py-0" : "py-2.5"} border border-gray-200 text-sm ${
+      isLongTextEditable ? (isLongTextExpanded ? "min-h-[140px] h-auto" : "min-h-[56px] h-auto") : "h-[38px]"
+    } whitespace-nowrap `;
 
     // Padding adjustment for specific columns
-    if (isCheckCol || isStatusNBCol || isPayStatusCol || isStatusCol) {
+    if (isCheckCol) {
       classes += "pl-2 pr-3 ";
     } else if (isQtyCol) {
       classes += "px-1 ";
@@ -2264,12 +2357,18 @@ function VanDon() {
     }
 
     // Long Text
-    if (viewMode === 'BILL_OF_LADING' && LONG_TEXT_COLS.includes(col)) {
+    if (viewMode === 'BILL_OF_LADING' && colInList(col, LONG_TEXT_COLS) && !isLongTextEditable) {
       classes = classes.replace('whitespace-nowrap', isLongTextExpanded ? "whitespace-pre-wrap max-w-xs break-words bg-yellow-50" : "whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] cursor-pointer");
+    }
+    if (isLongTextEditable) {
+      classes = classes.replace(
+        'whitespace-nowrap',
+        isLongTextExpanded ? "whitespace-pre-wrap max-w-md break-words align-top" : "whitespace-pre-wrap max-w-[240px] align-top"
+      );
     }
 
     // Editable
-    const isEditable = EDITABLE_COLS.includes(col);
+    const isEditable = colInList(col, EDITABLE_COLS);
     if (isEditable) {
       const orderId = row[PRIMARY_KEY_COLUMN];
       if (pendingChanges.get(orderId)?.has(COLUMN_MAPPING[col] || col)) {
@@ -2300,6 +2399,25 @@ function VanDon() {
 
     return classes;
   };
+
+  const vanDonVirtuosoComponents = useMemo(() => {
+    const TableRow = React.forwardRef(({ item, children, ...rest }, ref) => {
+      const orderId = item?.[PRIMARY_KEY_COLUMN];
+      const isSelected = orderId != null && selectedRows.has(orderId);
+      const mergedClass = [rest.className, isSelected ? 'bg-blue-50' : ''].filter(Boolean).join(' ').trim();
+      return (
+        <tr ref={ref} {...rest} className={mergedClass || undefined}>
+          {children}
+        </tr>
+      );
+    });
+    TableRow.displayName = 'VanDonVirtuosoTableRow';
+    return {
+      Table: VanDonVirtuosoTable,
+      TableBody: VanDonVirtuosoTableBody,
+      TableRow
+    };
+  }, [selectedRows]);
 
   const renderVanDonFilterTh = (col, idx, positionStyle, showFreezeShadow) => {
     const key = COLUMN_MAPPING[col] || col;
@@ -2336,29 +2454,29 @@ function VanDon() {
           <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
             <select
               className="w-full text-[13px] px-2 py-1.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-              value={localFilterValues.tracking_status || 'Tình trạng mã'}
-              onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_status: e.target.value }))}
+              value={filterValues.tracking_status || 'Tình trạng mã'}
+              onChange={(e) => setFilterValues((p) => ({ ...p, tracking_status: e.target.value }))}
             >
               <option value="Tình trạng mã">Tình trạng mã</option>
               <option value="Tất cả có mã">Tất cả có mã</option>
               <option value="Trống">Trống</option>
               <option value="Toàn số">Toàn số</option>
             </select>
-            {(localFilterValues.tracking_status === 'Tình trạng mã' || !localFilterValues.tracking_status) && (
+            {(filterValues.tracking_status === 'Tình trạng mã' || !filterValues.tracking_status) && (
               <>
                 <input
                   className="w-full text-sm px-2 py-1.5 border rounded"
                   style={{ zIndex: 1002 }}
                   placeholder="Bao gồm..."
-                  value={localFilterValues.tracking_include}
-                  onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
+                  value={filterValues.tracking_include || ''}
+                  onChange={(e) => setFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
                 />
                 <input
                   className="w-full text-sm px-2 py-1.5 border rounded"
                   style={{ zIndex: 1002 }}
                   placeholder="Loại trừ..."
-                  value={localFilterValues.tracking_exclude}
-                  onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
+                  value={filterValues.tracking_exclude || ''}
+                  onChange={(e) => setFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
                 />
               </>
             )}
@@ -2386,8 +2504,8 @@ function VanDon() {
             className="w-full text-sm px-2 py-1.5 border rounded shadow-sm"
             style={{ zIndex: 1002 }}
             placeholder="..."
-            value={localFilterValues[filterKey] || ''}
-            onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+            value={filterValues[filterKey] || ''}
+            onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
           />
         )}
       </th>
@@ -2434,15 +2552,11 @@ function VanDon() {
         {col === 'STT' ? (
           row.rowIndex || (currentPage - 1) * effectiveRowsPerPage + rIdx + 1
         ) : isReadonlyEditTab || (isReadonlyOrderDataTab && (isCarrierCol || isTrackingCol)) ? (
-          // Tab "Dữ liệu đơn hàng": chỉ khóa "Đơn vị vận chuyển" và "Mã Tracking"
           displayVal
         ) : DROPDOWN_OPTIONS[col] ? (
           <select
             className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
             value={String(val)}
-            onMouseDown={(e) => e.stopPropagation()}
-            onMouseUp={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
             {DROPDOWN_OPTIONS[col].map((o) => (
@@ -2456,9 +2570,6 @@ function VanDon() {
             className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
             style={{ padding: 0, margin: 0, lineHeight: '38px' }}
             value={String(val)}
-            onMouseDown={(e) => e.stopPropagation()}
-            onMouseUp={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
             {getCellEditSelectOptions(col)
@@ -2469,7 +2580,36 @@ function VanDon() {
                 </option>
               ))}
           </select>
-        ) : EDITABLE_COLS.includes(col) ? (
+        ) : colInList(col, EDITABLE_COLS) && colInList(col, LONG_TEXT_COLS) ? (
+          <textarea
+            key={`${orderId}-${col}-${String(displayVal)}`}
+            defaultValue={String(displayVal)}
+            rows={isLongTextExpanded ? 6 : 2}
+            onBlur={(e) => {
+              const newValue = e.target.value;
+              if (newValue !== String(displayVal)) {
+                handleCellChange(orderId, key, newValue);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.target.value = String(displayVal);
+                e.target.blur();
+              } else if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                const newValue = e.target.value;
+                if (newValue !== String(displayVal)) {
+                  handleCellChange(orderId, key, newValue);
+                }
+                e.target.blur();
+              }
+            }}
+            onFocus={(e) => {
+              setSelection({ startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
+            }}
+            className="block w-full min-h-[2.5rem] outline-none bg-transparent border-none p-0 text-sm resize-y leading-snug"
+          />
+        ) : colInList(col, EDITABLE_COLS) ? (
           <input
             key={`${orderId}-${col}-${String(displayVal)}`}
             type="text"
@@ -2630,8 +2770,10 @@ function VanDon() {
                   type="date"
                   value={dateFrom || ''}
                   onChange={(e) => {
-                    setDateFrom(e.target.value);
+                    const v = e.target.value;
+                    setDateFrom(v);
                     setCurrentPage(1);
+                    if (v) setEnableDateFilter(true);
                   }}
                   className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Từ ngày"
@@ -2641,8 +2783,10 @@ function VanDon() {
                   type="date"
                   value={dateTo || ''}
                   onChange={(e) => {
-                    setDateTo(e.target.value);
+                    const v = e.target.value;
+                    setDateTo(v);
                     setCurrentPage(1);
+                    if (v) setEnableDateFilter(true);
                   }}
                   className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Đến ngày"
@@ -2979,18 +3123,12 @@ function VanDon() {
                         }
                       }
                     }}
-                    components={{
-                      Table: ({ style, ...props }) => (
-                        <table {...props} className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed" style={{ ...style, tableLayout: 'fixed' }} />
-                      ),
-                      TableBody: React.forwardRef((props, ref) => <tbody {...props} ref={ref} />)
-
-                    }}
+                    components={vanDonVirtuosoComponents}
                     itemContent={(rIdx, row) => {
                       const orderId = row[PRIMARY_KEY_COLUMN];
                       const isSelected = selectedRows.has(orderId);
                       return (
-                        <tr key={orderId || rIdx} className={isSelected ? 'bg-blue-50' : ''}>
+                        <>
                           {bolActiveTab === 'hanoi' && (
                             <td
                               className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300]"
@@ -3026,7 +3164,7 @@ function VanDon() {
                               : { position: 'relative', zIndex: 10, ...colWidthStyles };
                             return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
                           })}
-                        </tr>
+                        </>
                       );
                     }}
                   />

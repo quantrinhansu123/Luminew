@@ -382,6 +382,83 @@ export const getSubstitutePersonnel = async (username) => {
     }
 };
 
+/**
+ * Tên NV vận đơn được xem trên trang /van-don (theo `danh_sach_van_don`):
+ * - Dòng có `ho_va_ten` khớp user (chuẩn hóa + chứa chuỗi khi đủ dài)
+ * - Hoặc một alias user khớp phần tử trong `nguoi_sua_ho`
+ */
+export const getVanDonVisibleNames = async ({ userName, userNames, userEmail } = {}) => {
+    const normKey = (s) =>
+        String(s || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ');
+
+    const rawTargets = [
+        ...(Array.isArray(userNames) ? userNames : []),
+        userName,
+        userEmail,
+    ].filter((v) => v != null && String(v).trim() !== '');
+
+    const normalizedTargets = [...new Set(rawTargets.map((v) => normKey(v)))].filter(Boolean);
+
+    if (normalizedTargets.length === 0) return [];
+
+    const looseMatch = (a, b) => {
+        const x = normKey(a);
+        const y = normKey(b);
+        if (!x || !y) return false;
+        if (x === y) return true;
+        if (x.length >= 4 && y.length >= 4 && (x.includes(y) || y.includes(x))) return true;
+        return false;
+    };
+
+    const matchesAnyTarget = (candidate) =>
+        normalizedTargets.some((t) => looseMatch(t, candidate));
+
+    const parseNameList = (rawVal) => {
+        if (!rawVal) return [];
+        if (Array.isArray(rawVal)) return rawVal.map((x) => String(x || '').trim()).filter(Boolean);
+        if (typeof rawVal === 'string') {
+            const s = rawVal.trim();
+            if (!s) return [];
+            try {
+                const parsed = JSON.parse(s);
+                if (Array.isArray(parsed)) return parsed.map((x) => String(x || '').trim()).filter(Boolean);
+            } catch {
+                /* fallthrough */
+            }
+            return s.split(',').map((x) => x.trim()).filter(Boolean);
+        }
+        return [];
+    };
+
+    try {
+        const { data, error } = await supabase
+            .from('danh_sach_van_don')
+            .select('ho_va_ten, nguoi_sua_ho');
+        if (error) throw error;
+
+        const allowedNames = new Set();
+        for (const row of data || []) {
+            const ownerName = String(row?.ho_va_ten || '').trim();
+            if (!ownerName) continue;
+
+            const helpers = parseNameList(row?.nguoi_sua_ho);
+
+            const matchesOwner = matchesAnyTarget(ownerName);
+            const matchesHelper = helpers.some((h) => matchesAnyTarget(h));
+            if (matchesOwner || matchesHelper) {
+                allowedNames.add(ownerName);
+            }
+        }
+        return Array.from(allowedNames);
+    } catch (error) {
+        console.error('Error fetching van don visible names:', error);
+        return [];
+    }
+};
+
 // Get employee names from emails
 export const getEmployeeNamesByEmails = async (emails) => {
     if (!emails || emails.length === 0) return {};

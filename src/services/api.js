@@ -326,8 +326,8 @@ export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy)
             // UNLESS it's a known direct key
             if (columnKey === 'delivery_status') dbKey = 'delivery_status';
 
-            // FFM Specific Mappings
-            if (columnKey === 'Ghi chú vận đơn') dbKey = 'vandon_note';
+            // FFM Specific Mappings (đồng bộ tên cột app)
+            if (columnKey === 'Ghi chú vận đơn' || columnKey === 'Ghi chú của VĐ') dbKey = 'vandon_note';
             if (columnKey === 'Ngày đẩy đơn') dbKey = 'accounting_check_date';
         }
 
@@ -545,8 +545,8 @@ export const updateBatch = async (rows, modifiedBy) => {
                     if (appKey === 'Trạng thái giao hàng NB') dbKey = 'delivery_status_nb';
                     if (appKey === 'delivery_status') dbKey = 'delivery_status';
 
-                    // FFM Specific Mappings
-                    if (appKey === 'Ghi chú vận đơn') dbKey = 'vandon_note';
+                    // FFM Specific Mappings (đồng bộ tên cột app)
+                    if (appKey === 'Ghi chú vận đơn' || appKey === 'Ghi chú của VĐ') dbKey = 'vandon_note';
                     if (appKey === 'Ngày đẩy đơn') dbKey = 'accounting_check_date';
                 }
 
@@ -598,6 +598,8 @@ export const fetchVanDon = async (options = {}) => {
         nv_mkt = [],
         /** Multi-select tên NV Vận đơn (khớp cột delivery_staff) */
         nv_van_don = [],
+        /** Multi-select đơn vị vận chuyển (cột shipping_unit) */
+        shipping_unit = [],
         dateFrom,
         dateTo,
         allowedStaff // Array of names allowed to view
@@ -710,6 +712,9 @@ const VAN_DON_SELECT_QUERY = [
         if (nv_van_don !== undefined && nv_van_don !== null && Array.isArray(nv_van_don) && nv_van_don.length > 0) {
             applyEmptyOrInFilter('delivery_staff', nv_van_don);
         }
+        if (shipping_unit !== undefined && shipping_unit !== null && Array.isArray(shipping_unit) && shipping_unit.length > 0) {
+            applyEmptyOrInFilter('shipping_unit', shipping_unit);
+        }
 
         const dateColumnMapping = {
             'Ngày lên đơn': 'order_date',
@@ -728,14 +733,14 @@ const VAN_DON_SELECT_QUERY = [
 
         // --- PERSONNEL PERMISSION FILTER ---
         if (Array.isArray(allowedStaff) && allowedStaff.length > 0) {
-            // Logic: Row is visible if sale_staff OR marketing_staff OR delivery_staff matches ANY of the allowed names.
-            // Using ilike for case-insensitive matching.
-            // match string: column.ilike.%value%
-
+            // Row visible nếu sale_staff, marketing_staff HOẶC delivery_staff khớp một trong các tên được phép.
             const conditions = [];
-            allowedStaff.forEach(staffName => {
+            allowedStaff.forEach((staffName) => {
                 if (!staffName) return;
-                const safeName = staffName.trim();
+                const safeName = String(staffName).trim();
+                if (!safeName) return;
+                conditions.push(`sale_staff.ilike.%${safeName}%`);
+                conditions.push(`marketing_staff.ilike.%${safeName}%`);
                 conditions.push(`delivery_staff.ilike.%${safeName}%`);
             });
 

@@ -348,7 +348,9 @@ export async function fetchSalesReportsFromSupabase(startDateStr, endDateStr, si
       .select(SALES_REPORTS_SELECT)
       .gte('date', startDateStr)
       .lte('date', endDateStr)
+      // Thứ tự cố định (date + id) — tránh trùng/sót khi phân trang nhiều trang 1000 dòng.
       .order('date', { ascending: false })
+      .order('id', { ascending: true })
       .range(from, from + PAGE - 1);
 
     const { data, error } = await q;
@@ -538,14 +540,21 @@ export function summarizeAndSortSalesData(data) {
         a.team.localeCompare(b.team) || b.chot - a.chot || a.name.localeCompare(b.name)
     );
 
-  const total = flatList.reduce((acc, item) => {
+  const total = aggregateTotalFromFlatList(flatList);
+
+  return { flatList, total };
+}
+
+/** Cộng các chỉ số từ danh sách đã gom (vd. sau khi loại team «Đã nghỉ» để khớp TỔNG với dòng hiển thị). */
+export function aggregateTotalFromFlatList(flatList) {
+  const tmpl = initialSummary();
+  if (!Array.isArray(flatList) || flatList.length === 0) return initialSummary();
+  return flatList.reduce((acc, item) => {
     Object.keys(tmpl).forEach((key) => {
       acc[key] += item[key];
     });
     return acc;
   }, initialSummary());
-
-  return { flatList, total };
 }
 
 /** Lọc rawData theo restricted + ngày + checkbox (giống applyFilters HTML) */
