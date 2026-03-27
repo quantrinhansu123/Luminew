@@ -6,10 +6,7 @@ import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
-import {
-    recalcSaleOrderCountFromOrders,
-    SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
-} from '../services/saleRecalcOrderCountFromOrders';
+import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
 import * as ApiService from '../services/api';
 
@@ -1529,9 +1526,7 @@ const AdminTools = () => {
         const ok = window.confirm(
             'Tính lại sales_reports: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).\n\n' +
             'Key match giữa orders (sale_staff) và sales_reports (name, date, shift, product, market).\n\n' +
-            (SALES_REPORTS_AUTO_CREATE_MISSING_ROWS
-                ? 'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo thêm dòng mới nếu thiếu key.\n\n'
-                : 'Tạm thời: chỉ cập nhật các dòng đã có — không tạo dòng mới từ orders.\n\n') +
+            'Giống Báo cáo MKT: cập nhật dòng hiện có và tự tạo dòng mới nếu thiếu key (Hết ca / Giữa ca).\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
         if (!ok) return;
@@ -1556,15 +1551,26 @@ const AdminTools = () => {
             const result = await recalcSaleOrderCountFromOrders({
                 startDate: normStart,
                 endDate: normEnd,
+                createMissingForHetCa: true,
+                createMissingForGiuaCa: true,
             });
 
             toast.dismiss();
             const n = result.upserted ?? result.upsertCount ?? 0;
-            toast.success(`Hoàn tất: cập nhật ${n} dòng.`);
+            const created = result.createdMissing ?? 0;
+            const updated = result.updatedExisting ?? 0;
+            toast.success(
+                `Hoàn tất: ${n} thao tác (cập nhật ${updated} dòng, tạo mới ${created} dòng).`
+            );
             setSaleRecalcResult(result);
         } catch (error) {
             console.error('Recalc sales_reports error:', error);
-            toast.error('Lỗi tính lại sales_reports: ' + (error?.message || String(error)));
+            toast.dismiss();
+            const msg = error?.message || String(error);
+            const fetchHint = /failed to fetch/i.test(msg)
+                ? ' Thao tác chỉ gọi Supabase (orders, sales_reports, human_resources). Kiểm tra: mạng/VPN, .env có VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY, dự án Supabase không bị pause, thử tắt extension chặn request.'
+                : '';
+            toast.error('Lỗi tính lại sales_reports: ' + msg + fetchHint, { autoClose: 12000 });
         } finally {
             setSaleRecalcLoading(false);
         }

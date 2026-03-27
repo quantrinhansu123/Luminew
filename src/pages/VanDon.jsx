@@ -32,6 +32,23 @@ const BULK_THRESHOLD = 1;
 /** Độ rộng cột checkbox (tab Hà Nội) — bù `left` cho cột sticky kế bên */
 const VAN_DON_CHECKBOX_COL_PX = 52;
 
+/** Khi ghép đơn chưa lưu vào kết quả API sau đổi bộ lọc — chỉ giữ dòng phù hợp tab (tránh lệch với Đơn Nhật/Hà Nội). */
+function rowMatchesBolTabForInject(row, tab) {
+  if (tab === 'hanoi') {
+    const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+    const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+    const isCheckOk = checkResult.toLowerCase() === 'ok';
+    const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
+    return isCheckOk && isDeliveryUnitEmpty;
+  }
+  if (tab === 'japan') {
+    const country = String(row.country || row['Country'] || row['Khu vực'] || '').trim();
+    return country === 'Nhật Bản' || country === 'CĐ Nhật Bản' ||
+      country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
+  }
+  return true;
+}
+
 function VanDon() {
   const { canView, role, loading: permissionsLoading } = usePermissions();
   const roleLower = (role || '').toLowerCase();
@@ -53,12 +70,22 @@ function VanDon() {
 
   // --- Action Queue & History Architecture ---
   const [pendingChanges, setPendingChanges] = useState(new Map()); // UI ONLY: yellow highlight
+  const pendingChangesRef = useRef(pendingChanges);
+  useLayoutEffect(() => {
+    pendingChangesRef.current = pendingChanges;
+  }, [pendingChanges]);
+
   const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
 
   const changeHistoryRef = useRef([]); // Stack for Ctrl-Z
   const historyIndexRef = useRef(-1);
   const dbQueueRef = useRef([]); // FIFO Queue for Backend
   const isProcessingQueue = useRef(false);
+  /** Bản ghi đầy đủ (đã merge pending) cho mỗi mã đơn — dùng khi đổi lọc khiến API không trả lại dòng đó. */
+  const pendingRowSnapshotsRef = useRef(new Map());
+
+  const hasUnsavedDraft = () =>
+    pendingChangesRef.current.size > 0 || dbQueueRef.current.length > 0;
 
   // --- Common Filter State ---
   const [filterValues, setFilterValues] = useState({
@@ -128,7 +155,7 @@ function VanDon() {
   const [omShowDuplicateTracking, setOmShowDuplicateTracking] = useState(false);
 
   // --- Bill of Lading Specific State ---
-  const [bolActiveTab, setBolActiveTab] = useState('all'); // all, japan, hanoi
+  const [bolActiveTab, setBolActiveTab] = useState('all'); // all, ca_nhan, readonly_all, japan, hanoi
   const [bolDateType, setBolDateType] = useState('Ngày lên đơn');
   const [isLongTextExpanded, setIsLongTextExpanded] = useState(false);
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Đẩy đơn Hà Nội không
@@ -199,7 +226,7 @@ function VanDon() {
   useEffect(() => {
     // Only load data on mount, subsequent loads handled by filter/pagination useEffect
     const storedChanges = localStorage.getItem('speegoPendingChanges');
-    if (storedChanges) {
+        if (storedChanges) {
       try {
         const parsed = JSON.parse(storedChanges);
         const map = new Map();
@@ -231,6 +258,17 @@ function VanDon() {
         }
       } catch (e) {
         console.error("Error loading pending changes", e);
+      }
+    }
+    const storedSnaps = localStorage.getItem('speegoPendingRowSnapshots');
+    if (storedSnaps) {
+      try {
+        const parsed = JSON.parse(storedSnaps);
+        Object.entries(parsed).forEach(([id, row]) => {
+          if (row && typeof row === 'object') pendingRowSnapshotsRef.current.set(id, row);
+        });
+      } catch (e) {
+        console.error('Error loading pending row snapshots', e);
       }
     }
   }, []);
@@ -317,6 +355,22 @@ function VanDon() {
     }
   };
 
+  /** Ghép các đơn có thay đổi chưa lưu nhưng không còn trong trang API (do đổi bộ lọc / trang). */
+  const mergePendingRowsIntoFetchedData = (rows) => {
+    const pending = pendingChangesRef.current;
+    if (!pending || pending.size === 0) return rows;
+    const ids = new Set(rows.map(r => r[PRIMARY_KEY_COLUMN]));
+    const extra = [];
+    pending.forEach((_, orderId) => {
+      if (ids.has(orderId)) return;
+      const snap = pendingRowSnapshotsRef.current.get(orderId);
+      if (!snap) return;
+      if (!rowMatchesBolTabForInject(snap, bolActiveTab)) return;
+      extra.push({ ...snap });
+    });
+    return extra.length ? [...rows, ...extra] : rows;
+  };
+
   // --- Data Loading ---
   const loadData = async () => {
     if (isLoadingDataRef.current) return;
@@ -324,6 +378,22 @@ function VanDon() {
     setLoading(true);
     try {
       console.log('Starting data load...');
+
+      const rebuildMissingPendingSnapshots = (mergedRows) => {
+        pendingChangesRef.current.forEach((_, orderId) => {
+          if (pendingRowSnapshotsRef.current.has(orderId)) return;
+          const row = mergedRows.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
+          if (!row) return;
+          const pmap = pendingChangesRef.current.get(orderId);
+          if (!pmap || pmap.size === 0) return;
+          const copy = { ...row };
+          pmap.forEach((info, key) => {
+            copy[key] = info.newValue;
+          });
+          pendingRowSnapshotsRef.current.set(orderId, copy);
+        });
+        savePendingToLocalStorage(pendingChangesRef.current);
+      };
 
       // --- 1. PREPARE PERMISSIONS & ALLOWED NAMES BEFORE FETCHING ---
       const userJson = localStorage.getItem("user");
@@ -389,6 +459,22 @@ function VanDon() {
         }
       }
 
+      // Tab "Đơn cá nhân": cần họ tên trong localStorage để lọc đơn
+      if (bolActiveTab === 'ca_nhan' && !(userName || '').trim()) {
+        addToast('⚠️ Không xác định được tên hiển thị (họ tên). Vui lòng đăng nhập lại.', 'warning', 5000);
+        setAllData([]);
+        setTotalRecords(0);
+        try {
+          const mgtOrder = await API.fetchMGTNoiBoOrders();
+          setMgtNoiBoOrder(mgtOrder);
+        } catch (e) {
+          console.error('Error loading MGT Noi Bo orders:', e);
+        }
+        setLoading(false);
+        isLoadingDataRef.current = false;
+        return;
+      }
+
       // --- 2. FETCH DATA WITH BACKEND PERMISSIONS ---
       if (useBackendPagination) {
         const isReadonlyAllTab = bolActiveTab === 'readonly_all';
@@ -396,14 +482,18 @@ function VanDon() {
         const activeTeam = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined)));
         const activeStatus = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (enableDateFilter ? undefined : (filterValues.status || undefined)));
         const isJapanTab = bolActiveTab === 'japan';
+        const isPersonalTab = bolActiveTab === 'ca_nhan';
         // Admin: KHÔNG filter theo market/product/date (xem tất cả)
         const marketFilter = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (isJapanTab ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market));
         const productFilter = isReadonlyAllTab ? undefined : (isAdmin ? undefined : filterValues.product);
         const shouldApplyDateFilter = !isReadonlyAllTab && enableDateFilter && !isAdmin;
 
-        // Admin/Manager: không filter theo nhân sự (luôn xem tất cả)
-        // Pass allowedStaff to API ONLY if not Manager AND Not Japan Tab AND Not Admin
-        const apiAllowedStaff = (!isManager && !isJapanTab && !isAdmin) ? allAllowedNames : undefined;
+        // Tab Đơn cá nhân: chỉ đơn có NV Sale / MKT / Vận đơn khớp tên tài khoản (không gộp selected_personnel).
+        // Admin/Manager: không filter nhân sự trừ khi đang ở tab cá nhân.
+        const personalStaffOnly = isPersonalTab && userName?.trim() ? [userName.trim()] : undefined;
+        const apiAllowedStaff = isPersonalTab
+          ? personalStaffOnly
+          : ((!isManager && !isJapanTab && !isAdmin) ? allAllowedNames : undefined);
 
         console.log('🚀 [VanDon] Fetching API - isAdmin:', isAdmin, 'allowedStaff:', apiAllowedStaff, 'activeTeam:', activeTeam, 'marketFilter:', marketFilter);
 
@@ -488,7 +578,9 @@ function VanDon() {
           });
         }
 
-        setAllData(filteredData);
+        const mergedBackend = mergePendingRowsIntoFetchedData(filteredData);
+        setAllData(mergedBackend);
+        rebuildMissingPendingSnapshots(mergedBackend);
         setTotalRecords(filteredTotal);
 
         if (filteredData.length === 0 && filteredTotal === 0) {
@@ -504,7 +596,9 @@ function VanDon() {
         // --- PREPARE PERMISSIONS & ALLOWED NAMES FOR CLIENT-SIDE FILTERING ---
         // userJson, user, userName, isManager are already defined above
         let allAllowedNamesFallback = [];
-        if (!isManager) {
+        if (bolActiveTab === 'ca_nhan') {
+          allAllowedNamesFallback = userName ? [userName] : [];
+        } else if (!isManager) {
           if (selectedPersonnelNames.length > 0) {
             allAllowedNamesFallback = [...new Set([...selectedPersonnelNames, ...allAllowedNames])]; // allAllowedNames from above is allowedDeliveryStaffNames
             console.log('📝 [VanDon Fallback] Using selectedPersonnelNames + allowedDeliveryStaffNames:', allAllowedNamesFallback);
@@ -520,7 +614,8 @@ function VanDon() {
         const normalizeNameForMatchFallback = (str) => String(str || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
         const matchesPersonnelFilterFallback = (row) => {
-          if (isManager || allAllowedNamesFallback.length === 0) return true;
+          if (allAllowedNamesFallback.length === 0) return true;
+          if (isManager && bolActiveTab !== 'ca_nhan') return true;
           const s = normalizeNameForMatchFallback(row.sale_staff || row["Nhân viên Sale"]);
           const m = normalizeNameForMatchFallback(row.marketing_staff || row["Nhân viên MKT"]);
           const d = normalizeNameForMatchFallback(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"]);
@@ -534,7 +629,10 @@ function VanDon() {
         const isJapanTab = bolActiveTab === 'japan';
         const isHanoiTab = bolActiveTab === 'hanoi';
 
-        if (isJapanTab) {
+        if (bolActiveTab === 'ca_nhan' && !(userName || '').trim()) {
+          data = [];
+          addToast('⚠️ Không xác định được tên hiển thị (họ tên). Vui lòng đăng nhập lại.', 'warning', 5000);
+        } else if (isJapanTab) {
           data = data.filter(r => {
             const c = String(r.country || r['Khu vực'] || '').toLowerCase();
             return c === 'nhật bản' || c === 'cđ nhật bản';
@@ -555,8 +653,8 @@ function VanDon() {
           });
           console.log('🏛️ [VanDon Fallback] Tab Hà Nội - Filtered by Check="OK" and empty Đơn vị vận chuyển:', data.length, 'orders');
         } else {
-          // Filter by personnel for non-manager and non-Japan tabs
-          if (!isManager && allAllowedNamesFallback.length > 0) {
+          // Tab Đơn cá nhân: luôn lọc theo tên (kể cả manager). Các tab khác: chỉ non-manager.
+          if (allAllowedNamesFallback.length > 0 && (bolActiveTab === 'ca_nhan' || !isManager)) {
             data = data.filter(r => matchesPersonnelFilterFallback(r));
             console.log('🔍 [VanDon Fallback] Filtering by personnel:', allAllowedNamesFallback);
           } else if (!isManager && userName) {
@@ -572,9 +670,11 @@ function VanDon() {
           }
         }
 
-        setAllData(data);
-        setTotalRecords(data.length);
-        addToast(`✅ Đã tải ${data.length} đơn hàng (Client Mode)`, 'success', 2000);
+        const mergedClient = mergePendingRowsIntoFetchedData(data);
+        setAllData(mergedClient);
+        rebuildMissingPendingSnapshots(mergedClient);
+        setTotalRecords(mergedClient.length);
+        addToast(`✅ Đã tải ${mergedClient.length} đơn hàng (Client Mode)`, 'success', 2000);
       }
 
       // Load MGT Noi Bo orders (This block runs after both backend and client pagination logic)
@@ -594,8 +694,25 @@ function VanDon() {
     }
   };
 
-  const refreshData = async () => {
+  const refreshData = async (opts = {}) => {
+    const skipUnsavedCheck = opts.skipUnsavedCheck === true;
+    const hasUnsaved =
+      pendingChanges.size > 0 ||
+      dbQueueRef.current.length > 0 ||
+      changeHistoryRef.current.length > 0;
+    if (!skipUnsavedCheck && hasUnsaved) {
+      const ok = window.confirm(
+        'Bạn có thay đổi chưa lưu (chưa nhấn Xác nhận lưu). Xóa lọc sẽ bỏ các thay đổi này. Tiếp tục?'
+      );
+      if (!ok) return;
+    }
+    dbQueueRef.current = [];
+    changeHistoryRef.current = [];
+    historyIndexRef.current = -1;
+    pendingRowSnapshotsRef.current.clear();
     setPendingChanges(new Map());
+    localStorage.removeItem('speegoPendingChanges');
+    localStorage.removeItem('speegoPendingRowSnapshots');
     // Reset tất cả filter values về default
     const defaultFilters = {
       market: [],
@@ -733,7 +850,7 @@ function VanDon() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, filterValues.shipping_unit, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
 
-  const savePendingToLocalStorage = (newPending) => {
+  const savePendingToLocalStorage = useCallback((newPending) => {
     const changesToSave = {};
     if (newPending && newPending.size > 0) {
       newPending.forEach((val, id) => {
@@ -741,7 +858,31 @@ function VanDon() {
       });
     }
     localStorage.setItem('speegoPendingChanges', JSON.stringify(changesToSave));
-  };
+    const snaps = {};
+    pendingRowSnapshotsRef.current.forEach((row, id) => {
+      snaps[id] = row;
+    });
+    if (Object.keys(snaps).length > 0) {
+      localStorage.setItem('speegoPendingRowSnapshots', JSON.stringify(snaps));
+    } else {
+      localStorage.removeItem('speegoPendingRowSnapshots');
+    }
+  }, []);
+
+  // Đóng tab / F5: cảnh báo + ghi nháp localStorage ngay (tránh mất dữ liệu).
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (!hasUnsavedDraft()) return;
+      savePendingToLocalStorage(pendingChangesRef.current);
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [savePendingToLocalStorage]);
+
+  // Chặn điều hướng SPA trong app cần `createBrowserRouter` (data router). App dùng BrowserRouter
+  // nên không dùng useBlocker; nháp vẫn lưu localStorage + cảnh báo khi đóng tab/F5 (beforeunload).
 
   const deepCloneMapOfMaps = useCallback((sourceMap) => {
     const clone = new Map();
@@ -749,6 +890,23 @@ function VanDon() {
       sourceMap.forEach((innerMap, key) => { clone.set(key, new Map(innerMap)); });
     }
     return clone;
+  }, []);
+
+  const upsertPendingRowSnapshot = useCallback((orderId, pendingMap, allDataRows) => {
+    const pmap = pendingMap.get(orderId);
+    if (!pmap || pmap.size === 0) {
+      pendingRowSnapshotsRef.current.delete(orderId);
+      return;
+    }
+    const rows = allDataRows || [];
+    let base = rows.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
+    if (!base) base = pendingRowSnapshotsRef.current.get(orderId);
+    if (!base) return;
+    const row = { ...base };
+    pmap.forEach((info, key) => {
+      row[key] = info.newValue;
+    });
+    pendingRowSnapshotsRef.current.set(orderId, row);
   }, []);
 
   // Handle Phân FFM - Update "Đơn vị vận chuyển" and "Ngày Kế toán đối soát với FFM lần 2" for selected rows
@@ -1185,14 +1343,8 @@ function VanDon() {
 
     e.preventDefault();
     root.scrollTop = next;
-
-    if (splitPane) {
-      const left = splitLeftPaneRef.current;
-      const right = splitRightPaneRef.current;
-      if (left) left.scrollTop = next;
-      if (right) right.scrollTop = next;
-    }
-  }, [splitPane]);
+    /* Cuộn dọc chỉ trên root (tableRef); pane trái/phải di chuyển theo nội dung, không gán scrollTop riêng. */
+  }, []);
 
   /** Khi ẩn bớt cột, hạ số cố định nếu đang vượt quá số cột hiển thị */
   useEffect(() => {
@@ -1287,14 +1439,34 @@ function VanDon() {
     return Array.from(values).sort();
   }, [allData]);
 
-  const getMultiSelectOptions = (col) => {
-    const key = COLUMN_MAPPING[col] || col;
+  /**
+   * Bộ lọc (toolbar + hàng filter): chỉ giá trị đang có trong dữ liệu + "Trống" / __EMPTY__ —
+   * không liệt kê toàn bộ DROPDOWN_OPTIONS (trạng thái mặc định hệ thống không xuất hiện trong data).
+   */
+  const getFilterMultiSelectOptions = (col) => {
     const emptyValues = ['Trống'];
-    // Backward-compat: keep old sentinel if something set it in state/localStorage.
     const legacyEmpty = ['__EMPTY__'];
-    if (DROPDOWN_OPTIONS[col]) return [...emptyValues, ...legacyEmpty, ...DROPDOWN_OPTIONS[col]];
-    if (DROPDOWN_OPTIONS[key]) return [...emptyValues, ...legacyEmpty, ...DROPDOWN_OPTIONS[key]];
-    return [...emptyValues, ...legacyEmpty, ...getUniqueValues(col)];
+    const fromData = getUniqueValues(col);
+    const sorted = [...fromData].sort((a, b) =>
+      String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
+    );
+    return [...emptyValues, ...legacyEmpty, ...sorted];
+  };
+
+  /** Ô chỉnh sửa trong bảng: vẫn gộp preset DROPDOWN + giá trị đã có trong data (cho phép chọn trạng thái chuẩn). */
+  const getCellEditSelectOptions = (col) => {
+    const key = COLUMN_MAPPING[col] || col;
+    const preset = DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key];
+    const fromData = getUniqueValues(col);
+    if (preset) {
+      const merged = new Set([...preset, ...fromData]);
+      return Array.from(merged).sort((a, b) => {
+        if (a === '') return -1;
+        if (b === '') return 1;
+        return String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true });
+      });
+    }
+    return fromData;
   };
 
   const getFilteredData = useMemo(() => {
@@ -1800,8 +1972,15 @@ function VanDon() {
             batchToProcess.forEach(({ orderId, colKey }) => {
               if (next.has(orderId)) {
                 next.get(orderId).delete(colKey);
-                if (next.get(orderId).size === 0) next.delete(orderId);
+                if (next.get(orderId).size === 0) {
+                  next.delete(orderId);
+                  pendingRowSnapshotsRef.current.delete(orderId);
+                }
               }
+            });
+            const touchedOrderIds = new Set(batchToProcess.map((b) => b.orderId));
+            touchedOrderIds.forEach((orderId) => {
+              if (next.has(orderId)) upsertPendingRowSnapshot(orderId, next, latestData);
             });
             savePendingToLocalStorage(next);
             return next;
@@ -1811,7 +1990,7 @@ function VanDon() {
     } finally {
       isProcessingQueue.current = false;
     }
-  }, [addToast, removeToast, saveToShippingReports, deepCloneMapOfMaps]);
+  }, [addToast, removeToast, saveToShippingReports, deepCloneMapOfMaps, upsertPendingRowSnapshot]);
 
   // --- New Stack-Based History ---
   const pushChange = useCallback((changesArray) => {
@@ -1836,13 +2015,15 @@ function VanDon() {
         if (!next.has(orderId)) next.set(orderId, new Map());
         next.get(orderId).set(colKey, { newValue, originalValue });
       });
+      changesArray.forEach(({ orderId }) => {
+        upsertPendingRowSnapshot(orderId, next, allData);
+      });
       savePendingToLocalStorage(next);
       return next;
     });
 
-    // 3. Trigger worker
-    setTimeout(() => processDbQueue(), 10);
-  }, [deepCloneMapOfMaps, processDbQueue]);
+    // Không gọi processDbQueue ở đây — chỉ lưu DB khi user nhấn "Xác nhận lưu".
+  }, [deepCloneMapOfMaps, upsertPendingRowSnapshot, allData]);
 
   // Undo last change
   const handleUndo = useCallback(() => {
@@ -1871,14 +2052,16 @@ function VanDon() {
         if (!next.has(orderId)) next.set(orderId, new Map());
         next.get(orderId).set(colKey, { newValue, originalValue });
       });
+      undoChanges.forEach(({ orderId }) => {
+        upsertPendingRowSnapshot(orderId, next, allData);
+      });
       savePendingToLocalStorage(next);
       return next;
     });
 
     historyIndexRef.current = currentIndex - 1;
-    addToast('Đã hoàn tác', 'success', 2000);
-    setTimeout(() => processDbQueue(), 10);
-  }, [addToast, processDbQueue, deepCloneMapOfMaps]);
+    addToast('Đã hoàn tác (chưa lưu DB — nhấn Xác nhận lưu để ghi)', 'success', 2500);
+  }, [addToast, deepCloneMapOfMaps, upsertPendingRowSnapshot, allData]);
 
   // Redo last undone change
   const handleRedo = useCallback(() => {
@@ -1908,14 +2091,16 @@ function VanDon() {
         if (!next.has(orderId)) next.set(orderId, new Map());
         next.get(orderId).set(colKey, { newValue, originalValue });
       });
+      redoChanges.forEach(({ orderId }) => {
+        upsertPendingRowSnapshot(orderId, next, allData);
+      });
       savePendingToLocalStorage(next);
       return next;
     });
 
     historyIndexRef.current = nextIndex;
-    addToast('Đã làm lại', 'success', 2000);
-    setTimeout(() => processDbQueue(), 10);
-  }, [addToast, processDbQueue, deepCloneMapOfMaps]);
+    addToast('Đã làm lại (chưa lưu DB — nhấn Xác nhận lưu để ghi)', 'success', 2500);
+  }, [addToast, deepCloneMapOfMaps, upsertPendingRowSnapshot, allData]);
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     if (isReadonlyEditTab) return;
@@ -1939,10 +2124,10 @@ function VanDon() {
   const handleUpdateAll = async () => {
     setSyncPopoverOpen(false);
     if (dbQueueRef.current.length === 0) {
-      addToast('Không có thay đổi cần cập nhật', 'info');
+      addToast('Không có thay đổi cần lưu', 'info');
       return;
     }
-    processDbQueue();
+    await processDbQueue();
   };
 
 
@@ -2228,7 +2413,7 @@ function VanDon() {
 
       if (historyChanges.length > 0) {
         pushChange(historyChanges);
-        addToast(`Đã dán ${historyChanges.length} ô. Đang đưa vào hàng đợi xử lý...`, 'info', 1500);
+        addToast(`Đã dán ${historyChanges.length} ô. Nhấn "Xác nhận lưu" để ghi xuống CSDL.`, 'info', 2500);
       }
     };
 
@@ -2405,7 +2590,7 @@ function VanDon() {
           <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
             <MultiSelect
               label="Lọc..."
-              options={getMultiSelectOptions(col)}
+              options={getFilterMultiSelectOptions(col)}
               selected={filterValues[filterKey] || []}
               onChange={(vals) => setFilterValues((p) => ({ ...p, [filterKey]: vals }))}
             />
@@ -2503,7 +2688,7 @@ function VanDon() {
             value={String(val)}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
-            {getMultiSelectOptions(key)
+            {getCellEditSelectOptions(col)
               .filter((o) => o !== 'Trống' && o !== '__EMPTY__')
               .map((o) => (
                 <option key={o} value={o}>
@@ -2571,7 +2756,7 @@ function VanDon() {
 
   /* End Component Logic */
   return (
-    <div className="bg-gray-50 flex flex-col h-screen overflow-hidden">
+    <div className="bg-gray-50 flex flex-col h-[100dvh] min-h-0 overflow-hidden">
       {/* Header Bar - Now including Tabs and Main Actions */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0">
         <div className="max-w-full mx-auto px-4 py-2">
@@ -2593,6 +2778,7 @@ function VanDon() {
             <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200">
               {[
                 { id: 'all', label: 'Dữ liệu đơn hàng', icon: '📋' },
+                { id: 'ca_nhan', label: 'Đơn cá nhân', icon: '👤' },
                 { id: 'readonly_all', label: 'Xem tất cả (khóa sửa)', icon: '👁️' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
                 { id: 'hanoi', label: 'Đẩy đơn Hà Nội', icon: '🏛️' }
@@ -2645,11 +2831,12 @@ function VanDon() {
         </div>
       </div>
 
-      {/* Main Content Area - Scrollable but compact */}
-      <div className="flex-1 min-h-0 flex flex-col p-2 space-y-2 overflow-hidden bg-[#f4f7fa]">
+      {/* Main: không overflow-hidden — để dropdown bộ lọc (MultiSelect) không bị cắt; cuộn chỉ ở vùng bảng bên dưới */}
+      <div className="flex-1 min-h-0 flex flex-col p-2 space-y-2 bg-[#f4f7fa] overflow-x-hidden">
 
-        {/* Toolbar Actions Row */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2 flex flex-wrap items-center gap-3">
+        {/* Toolbar: hàng 1 = lọc; hàng 2 = thao tác + tổng tiền (tránh flex-wrap + ml-auto lệch dòng) */}
+        <div className="relative z-20 bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2 flex flex-col gap-2 flex-shrink-0">
+          <div className="flex flex-wrap items-center gap-3">
           {/* Date Filter */}
           <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
             <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📅 Lọc thời gian:</label>
@@ -2694,9 +2881,9 @@ function VanDon() {
           <div className="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200">
             <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🌍 Thị trường:</label>
             <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
-              <MultiSelect
-                label="Chọn thị trường..."
-                options={getMultiSelectOptions('Khu vực')}
+            <MultiSelect
+              label="Chọn thị trường..."
+                options={getFilterMultiSelectOptions('Khu vực')}
                 selected={filterValues.market || []}
                 onChange={(vals) => {
                   setFilterValues(prev => ({ ...prev, market: vals }));
@@ -2709,9 +2896,9 @@ function VanDon() {
           <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
             <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📦 Sản phẩm:</label>
             <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
-              <MultiSelect
-                label="Chọn sản phẩm..."
-                options={getMultiSelectOptions('Mặt hàng')}
+            <MultiSelect
+              label="Chọn sản phẩm..."
+                options={getFilterMultiSelectOptions('Mặt hàng')}
                 selected={filterValues.product || []}
                 onChange={(vals) => {
                   setFilterValues(prev => ({ ...prev, product: vals }));
@@ -2726,7 +2913,7 @@ function VanDon() {
             <div className="relative" style={{ minWidth: '160px', zIndex: 1001 }}>
               <MultiSelect
                 label="Chọn NV Sale..."
-                options={getMultiSelectOptions('Nhân viên Sale')}
+                options={getFilterMultiSelectOptions('Nhân viên Sale')}
                 selected={filterValues.nv_sale || []}
                 onChange={(vals) => {
                   setFilterValues((prev) => ({ ...prev, nv_sale: vals }));
@@ -2741,7 +2928,7 @@ function VanDon() {
             <div className="relative" style={{ minWidth: '160px', zIndex: 1000 }}>
               <MultiSelect
                 label="Chọn NV MKT..."
-                options={getMultiSelectOptions('Nhân viên MKT')}
+                options={getFilterMultiSelectOptions('Nhân viên MKT')}
                 selected={filterValues.nv_mkt || []}
                 onChange={(vals) => {
                   setFilterValues((prev) => ({ ...prev, nv_mkt: vals }));
@@ -2756,7 +2943,7 @@ function VanDon() {
             <div className="relative" style={{ minWidth: '160px', zIndex: 999 }}>
               <MultiSelect
                 label="Chọn NV Vận đơn..."
-                options={getMultiSelectOptions('NV Vận đơn')}
+                options={getFilterMultiSelectOptions('NV Vận đơn')}
                 selected={filterValues.nv_van_don || []}
                 onChange={(vals) => {
                   setFilterValues((prev) => ({ ...prev, nv_van_don: vals }));
@@ -2771,7 +2958,7 @@ function VanDon() {
             <div className="relative" style={{ minWidth: '170px', zIndex: 998 }}>
               <MultiSelect
                 label="Chọn đơn vị..."
-                options={getMultiSelectOptions('Đơn vị vận chuyển')}
+                options={getFilterMultiSelectOptions('Đơn vị vận chuyển')}
                 selected={filterValues.shipping_unit || []}
                 onChange={(vals) => {
                   setFilterValues((prev) => ({ ...prev, shipping_unit: vals }));
@@ -2780,9 +2967,11 @@ function VanDon() {
               />
             </div>
           </div>
+          </div>
 
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-gray-100 pt-2">
           {/* Toolbar Actions Group */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={refreshData}
               className="p-1 px-2 hover:bg-red-50 text-red-600 rounded text-xs transition-colors flex items-center gap-1 group flex-shrink-0"
@@ -2807,9 +2996,9 @@ function VanDon() {
               onClick={handleUpdateAll}
               disabled={isReadonlyEditTab}
               className="p-1 px-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-              title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Cập nhật thay đổi'}
+              title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Ghi các thay đổi đang chờ xuống CSDL'}
             >
-              ✅ Cập nhật
+              ✅ Xác nhận lưu
             </button>
 
             <button onClick={() => setShowColumnSettings(true)} className="p-1 px-2 bg-gray-600 hover:bg-gray-700 text-white rounded text-xs font-bold transition-all flex items-center gap-1">
@@ -2889,34 +3078,36 @@ function VanDon() {
             )}
           </div>
 
-          {/* Stats on the far right */}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
             <div className="text-right flex flex-col items-end">
               <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
               <span className="text-sm font-black text-emerald-600 leading-none">{totalMoney.toLocaleString('vi-VN')} ₫</span>
             </div>
           </div>
+          </div>
         </div>
 
 
-        {/* Table Area - Optimized for Height */}
-        <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col min-h-0 relative">
+        {/* Table Area - Optimized for Height (basis-0 + min-h-0: flex-1 thực sự lấy hết chiều cao còn lại) */}
+        <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col min-h-0 basis-0">
           {loading ? (
             <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-500">Đang tải dữ liệu...</div>
           ) : paginatedData.length === 0 ? (
             <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-500 italic">Không có dữ liệu phù hợp</div>
           ) : splitPane ? (
+            /* Chỉ lớp ngoài cuộn — không gộp flex-row + overflow trên cùng một node (dễ mất scrollbar dọc). */
             <div
               ref={tableRef}
-              className="flex-1 min-h-0 overflow-y-scroll flex flex-row items-start select-none relative"
+              className="flex-1 min-h-0 basis-0 overflow-y-auto overflow-x-auto select-none relative"
               style={{ isolation: 'isolate', overscrollBehavior: 'contain' }}
               onDoubleClickCapture={blockTableDoubleClickCopy}
               onDragStartCapture={blockTableDragStart}
               onWheelCapture={handleTableWheel}
             >
+              <div className="flex flex-row items-stretch w-max min-h-min">
               <div
                 ref={splitLeftPaneRef}
-                className="shrink-0 border-r-2 border-gray-300 bg-white z-20 min-h-0 overflow-y-visible"
+                className="shrink-0 border-r-2 border-gray-300 bg-white z-20 min-h-0 min-w-0 overflow-x-hidden overflow-y-hidden self-stretch"
                 style={{ overscrollBehavior: 'contain' }}
               >
                 <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight" data-vandon-pane="left">
@@ -2996,7 +3187,7 @@ function VanDon() {
                   splitRightPaneRef.current = el;
                   horizontalScrollHostRef.current = el;
                 }}
-                className="flex-1 min-w-0 overflow-x-auto overflow-y-visible min-h-0"
+                className="flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-hidden self-stretch"
                 style={{ overscrollBehavior: 'contain' }}
               >
                 <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
@@ -3028,6 +3219,7 @@ function VanDon() {
                   </tbody>
                 </table>
               </div>
+              </div>
             </div>
           ) : (
             <div
@@ -3035,8 +3227,8 @@ function VanDon() {
                 tableRef.current = el;
                 horizontalScrollHostRef.current = el;
               }}
-              className="overflow-auto relative select-none flex-1 min-h-0"
-              style={{ overflowX: 'auto', overflowY: 'scroll', isolation: 'isolate', overscrollBehavior: 'contain' }}
+              className="overflow-y-auto overflow-x-auto relative select-none flex-1 min-h-0 basis-0"
+              style={{ isolation: 'isolate', overscrollBehavior: 'contain' }}
               onDoubleClickCapture={blockTableDoubleClickCopy}
               onDragStartCapture={blockTableDragStart}
               onWheelCapture={handleTableWheel}
@@ -3118,14 +3310,14 @@ function VanDon() {
               </table>
             </div>
           )}
-        </div>
-        {paginatedData.length > 0 && (
-          <div className="bg-white border border-gray-200 rounded-md px-2 py-1">
-            <div ref={horizontalScrollbarRef} className="overflow-x-auto overflow-y-hidden h-3">
-              <div style={{ width: Math.max(horizontalTrackWidth, 1), height: 1 }} />
+          {paginatedData.length > 0 && (
+            <div className="flex-shrink-0 border-t border-gray-100 bg-white px-2 py-1">
+              <div ref={horizontalScrollbarRef} className="overflow-x-auto overflow-y-hidden h-3">
+                <div style={{ width: Math.max(horizontalTrackWidth, 1), height: 1 }} />
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
         {/* Pagination Footer - Also compact */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2 flex-shrink-0">
           <div className="flex justify-between items-center gap-4">
@@ -3252,13 +3444,18 @@ function VanDon() {
           pendingChanges={pendingChanges}
           legacyChanges={new Map()}
           onApply={handleUpdateAll}
+          applyButtonLabel="Xác nhận lưu"
           onDiscard={() => {
-            if (confirm("Hủy bỏ tất cả thay đổi?")) {
-              setPendingChanges(new Map());
-              localStorage.removeItem('speegoPendingChanges');
-              setSyncPopoverOpen(false);
-              refreshData();
-            }
+            if (!window.confirm('Hủy bỏ tất cả thay đổi chưa lưu?')) return;
+            dbQueueRef.current = [];
+            changeHistoryRef.current = [];
+            historyIndexRef.current = -1;
+            pendingRowSnapshotsRef.current.clear();
+            setPendingChanges(new Map());
+            localStorage.removeItem('speegoPendingChanges');
+            localStorage.removeItem('speegoPendingRowSnapshots');
+            setSyncPopoverOpen(false);
+            void refreshData({ skipUnsavedCheck: true });
           }}
         />
       </Suspense>

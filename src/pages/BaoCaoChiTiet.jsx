@@ -8,13 +8,20 @@ import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 import { isDateInRange, parseSmartDate } from '../utils/dateParsing';
 
+function isManagerRole(roleStr, legacyStr) {
+    const r = (roleStr || '').toLowerCase();
+    const l = (legacyStr || '').toLowerCase();
+    const mgr = ['admin', 'director', 'manager', 'super_admin', 'finance', 'administrator'];
+    return mgr.includes(r) || mgr.includes(l);
+}
+
 function BaoCaoChiTiet() {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const teamFilter = searchParams.get('team'); // 'RD' or null
 
     // Permission Logic
-    const { canView, role } = usePermissions();
+    const { canView, role, loading: permissionsLoading } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_ORDERS' : 'MKT_ORDERS';
 
     // Get User Name for filtering
@@ -31,14 +38,22 @@ function BaoCaoChiTiet() {
     const [filterMarket, setFilterMarket] = useState([]);
     const [filterProduct, setFilterProduct] = useState([]);
     const [filterStatus, setFilterStatus] = useState([]);
+    // User thường: mặc định 3 ngày. Admin/Manager: sau khi load quyền → để trống = xem full (lọc theo ngày tùy chọn).
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() - 3);
         return d.toISOString().split('T')[0];
     });
-    const [endDate, setEndDate] = useState(() => {
-        return new Date().toISOString().split('T')[0];
-    });
+    const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+    useEffect(() => {
+        if (permissionsLoading) return;
+        const legacy = localStorage.getItem('userRole') || '';
+        if (isManagerRole(role, legacy)) {
+            setStartDate('');
+            setEndDate('');
+        }
+    }, [permissionsLoading, role]);
 
     const [filterBranch, setFilterBranch] = useState('');
     const [userBranchMap, setUserBranchMap] = useState({});
@@ -241,28 +256,35 @@ function BaoCaoChiTiet() {
             let query = supabase.from('orders').select('*');
 
             // --- USER FILTER (Re-applied) ---
-            // Only Admin/Director/Manager/Finance sees all. Staff sees only their own.
-            // checking role for 'admin', 'director', 'manager', 'finance'
+            // Admin/Director/Manager/Finance: không lọc NV (xem full). Staff: chỉ đơn MKT của mình.
+            const legacyRole = localStorage.getItem('userRole') || '';
             const roleLower = (role || '').toLowerCase();
-            const isManager = ['admin', 'director', 'manager', 'super_admin', 'finance'].includes(roleLower);
+            const isManager = isManagerRole(role, legacyRole);
 
             if (!isManager && userName) {
-                // Filter by marketing_staff
-                query = query.ilike('marketing_staff', userName);
+                query = query.ilike('marketing_staff', `%${String(userName).trim()}%`);
             }
 
+            query = query.order('order_date', { ascending: false });
 
-
-            if (startDate && endDate) {
+            if (isManager) {
+                // Full dữ liệu: không ép khoảng ngày khi UI để trống; có chọn ngày thì thu hẹp trên server.
+                if (startDate && endDate) {
+                    query = query
+                        .gte('order_date', startDate)
+                        .lte('order_date', `${endDate}T23:59:59`);
+                }
+                query = query.limit(40000);
+            } else if (startDate && endDate) {
                 query = query
                     .gte('order_date', startDate)
-                    .lte('order_date', `${endDate}T23:59:59`);
+                    .lte('order_date', `${endDate}T23:59:59`)
+                    .limit(20000);
             } else {
-                // Limit if no date, but we have default so this is fallback
                 query = query.limit(100);
             }
 
-            const { data: supaData, error: supaError } = await query.order('order_date', { ascending: false });
+            const { data: supaData, error: supaError } = await query;
 
             if (supaError) throw supaError;
 
@@ -281,8 +303,10 @@ function BaoCaoChiTiet() {
     };
 
     useEffect(() => {
+        if (permissionsLoading) return;
         loadData();
-    }, [startDate, endDate, role, userName]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [startDate, endDate, role, userName, permissionsLoading]);
 
     // Fetch user branch mapping
     useEffect(() => {

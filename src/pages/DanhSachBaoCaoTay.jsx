@@ -5,7 +5,6 @@ import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../services/supabaseClient';
-import { rowMatchesPersonnelList } from '../utils/nhanSuSaleLumiMoiLogic';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -96,14 +95,6 @@ export default function DanhSachBaoCaoTay() {
     const [personnelSearch, setPersonnelSearch] = useState('');
     /** Lọc bảng theo chuỗi tên (giống tìm nhanh báo cáo MKT). */
     const [staffTableSearch, setStaffTableSearch] = useState('');
-    /** Chuỗi ổn định để refetch khi đổi checkbox nhân sự (mảng `filters.personnel` đổi reference). */
-    const personnelFilterKey = useMemo(
-        () =>
-            [...(filters.personnel || [])]
-                .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }))
-                .join('|'),
-        [filters.personnel]
-    );
     const [deleting, setDeleting] = useState(false);
     const [sortColumn, setSortColumn] = useState(null);
     const [sortDirection, setSortDirection] = useState('asc');
@@ -417,7 +408,6 @@ export default function DanhSachBaoCaoTay() {
         filters.markets,
         selectedPersonnelNames,
         isAdmin,
-        personnelFilterKey,
     ]);
 
     useEffect(() => {
@@ -1260,9 +1250,19 @@ export default function DanhSachBaoCaoTay() {
         let rows = manualReports || [];
         const selected = filters.personnel || [];
         if (selected.length > 0) {
-            rows = rows.filter((item) =>
-                selected.some((p) => rowMatchesPersonnelList(String(item?.name || ''), [p]))
-            );
+            const selectedCanon = selected
+                .map((name) => canonicalPersonName(name))
+                .filter(Boolean);
+            rows = rows.filter((item) => {
+                const rowName = canonicalPersonName(item?.name || '');
+                if (!rowName) return false;
+                return selectedCanon.some(
+                    (allowedName) =>
+                        rowName === allowedName ||
+                        rowName.includes(allowedName) ||
+                        allowedName.includes(rowName)
+                );
+            });
         }
         const q = staffTableSearch.trim().toLowerCase();
         if (q) {
@@ -1915,15 +1915,15 @@ export default function DanhSachBaoCaoTay() {
 
             {/* Edit Modal */}
             {editingReport && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white p-6 rounded-lg w-96 shadow-xl relative">
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white p-6 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl relative">
                         <h3 className="text-lg font-bold mb-4 text-blue-600 border-b pb-2">Sửa Báo Cáo Sale</h3>
 
                         <div className="mb-4 text-sm text-gray-600">
                             <p><strong>Nhân viên:</strong> {editingReport.name}</p>
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                             <div>
                                 <label className="block text-sm font-medium mb-1">Ngày <span className="text-red-500">*</span>:</label>
                                 <input
@@ -1977,7 +1977,7 @@ export default function DanhSachBaoCaoTay() {
                                     ))}
                                 </select>
                             </div>
-                            <div>
+                            <div className="sm:col-span-2">
                                 <label className="block text-sm font-medium mb-1">Chi nhánh:</label>
                                 <select
                                     name="branch"

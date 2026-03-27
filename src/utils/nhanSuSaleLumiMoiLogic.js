@@ -442,6 +442,66 @@ const initialSummary = () => ({
   doanhSoSauHoanHuyThucTe: 0,
 });
 
+function numMax(a, b) {
+  const x = Number(a) || 0;
+  const y = Number(b) || 0;
+  return Math.max(x, y);
+}
+
+/**
+ * Khóa logic giống công thức đếm đơn (Ngày + Tên + SP + TT), không gồm ca — tránh cộng dồn trùng bản ghi.
+ */
+export function buildSalesReportRowDedupeKey(r) {
+  const ngay = String(r?.ngay ?? '')
+    .trim()
+    .slice(0, 10);
+  const ten = normalizeViAscii(r?.ten ?? '');
+  const sp = normalizeViAscii(r?.sanPham ?? '');
+  const tt = normalizeViAscii(r?.thiTruong ?? '');
+  return `${ngay}|${ten}|${sp}|${tt}`;
+}
+
+function mergeDuplicateSalesReportRows(prev, next) {
+  const merged = {
+    ...prev,
+    soMessCmt: numMax(prev.soMessCmt, next.soMessCmt),
+    soDon: numMax(prev.soDon, next.soDon),
+    dsChot: numMax(prev.dsChot, next.dsChot),
+    phanHoi: numMax(prev.phanHoi, next.phanHoi),
+    doanhSoDi: numMax(prev.doanhSoDi, next.doanhSoDi),
+    soDonHuy: numMax(prev.soDonHuy, next.soDonHuy),
+    doanhSoHuy: numMax(prev.doanhSoHuy, next.doanhSoHuy),
+    soDonThanhCong: numMax(prev.soDonThanhCong, next.soDonThanhCong),
+    doanhSoThanhCong: numMax(prev.doanhSoThanhCong, next.doanhSoThanhCong),
+    soDonThucTe: numMax(prev.soDonThucTe, next.soDonThucTe),
+    doanhThuChotThucTe: numMax(prev.doanhThuChotThucTe, next.doanhThuChotThucTe),
+    doanhSoDiThucTe: numMax(prev.doanhSoDiThucTe, next.doanhSoDiThucTe),
+    soDonHoanHuyThucTe: numMax(prev.soDonHoanHuyThucTe, next.soDonHoanHuyThucTe),
+    doanhSoHoanHuyThucTe: numMax(prev.doanhSoHoanHuyThucTe, next.doanhSoHoanHuyThucTe),
+  };
+  merged.doanhSoSauHoanHuyThucTe =
+    (Number(merged.doanhThuChotThucTe) || 0) - (Number(merged.doanhSoHoanHuyThucTe) || 0);
+  return merged;
+}
+
+/**
+ * Gộp các dòng trùng khóa (Ngày + Tên + Sản phẩm + Thị trường) — không gồm ca.
+ * Dùng max trên từng chỉ số để không nhân đôi "Số đơn TT" khi có 2+ dòng cùng key (vd. nhập trùng hoặc 2 ca).
+ */
+export function dedupeSalesReportRowsByTTKey(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const map = new Map();
+  for (const r of rows) {
+    const k = buildSalesReportRowDedupeKey(r);
+    if (!map.has(k)) {
+      map.set(k, { ...r });
+      continue;
+    }
+    map.set(k, mergeDuplicateSalesReportRows(map.get(k), r));
+  }
+  return Array.from(map.values());
+}
+
 export function summarizeAndSortSalesData(data) {
   const summaryData = {};
   const tmpl = initialSummary();

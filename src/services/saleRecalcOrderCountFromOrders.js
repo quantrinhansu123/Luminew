@@ -132,12 +132,21 @@ async function fetchHumanResourceEmailLookup() {
   return buildEmailByNameLookup(data || []);
 }
 
+/** Lỗi fetch/Supabase kiểu mạng — dùng fallback chạy từng request (giống mktRecalc). */
+function isNetworkError(e) {
+  const raw = e?.message || String(e);
+  return (
+    e?.name === 'TypeError' ||
+    (typeof raw === 'string' && raw.toLowerCase().includes('failed to fetch')) ||
+    (typeof raw === 'string' && raw.toLowerCase().includes('networkerror'))
+  );
+}
+
 /**
- * Tạm thời tắt: khi false, recalc chỉ UPDATE các dòng sales_reports đã có,
- * không INSERT dòng mới từ orders (Hết ca / Giữa ca).
- * Bật lại tự tạo dòng thiếu: đổi thành true.
+ * Giống Báo cáo MKT (`createMissingRows`): khi true, recalc vừa UPDATE dòng đã có,
+ * vừa INSERT dòng mới cho key (ngày + tên + SP + TT + ca) có trong orders nhưng chưa có trong sales_reports.
  */
-export const SALES_REPORTS_AUTO_CREATE_MISSING_ROWS = false;
+export const SALES_REPORTS_AUTO_CREATE_MISSING_ROWS = true;
 
 /**
  * Từ `orders` ghi `sales_reports`: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).
@@ -157,11 +166,10 @@ export async function recalcSaleOrderCountFromOrders({
     throw new Error('Khoảng ngày không hợp lệ. Vui lòng truyền startDate/endDate dạng YYYY-MM-DD.');
   }
 
-  const [reports, orders, hrEmailLookup] = await Promise.all([
-    fetchAllSalesReportsInRange(normalizedStart, normalizedEnd),
-    fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd),
-    fetchHumanResourceEmailLookup(),
-  ]);
+  // Tuần tự — tránh mở quá nhiều kết nối cùng lúc (dễ Failed to fetch trên mạng yếu / giới hạn trình duyệt).
+  const reports = await fetchAllSalesReportsInRange(normalizedStart, normalizedEnd);
+  const orders = await fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd);
+  const hrEmailLookup = await fetchHumanResourceEmailLookup();
 
   // Tách theo ca cho dòng "Giữa ca". Dòng "Hết ca" trên sales_reports dùng countsHetCaAllOrders:
   // mỗi đơn chỉ cộng 1 lần nhưng gồm cả đơn chỉ Giữa ca + chỉ Hết ca + gộp 2 ca (tổng cả ngày/key).
@@ -352,27 +360,45 @@ export async function recalcSaleOrderCountFromOrders({
     };
   }
 
-  const UPDATE_CHUNK = 80;
+  // Đồng thời thấp (giống detail_reports/MKT); lỗi mạng → cập nhật từng dòng.
+  const UPDATE_CONCURRENCY = 4;
   let touched = 0;
 
-  for (let i = 0; i < updateRows.length; i += UPDATE_CHUNK) {
-    const chunk = updateRows.slice(i, i + UPDATE_CHUNK);
-    const results = await Promise.all(
-      chunk.map((row) => {
+  for (let i = 0; i < updateRows.length; i += UPDATE_CONCURRENCY) {
+    const chunk = updateRows.slice(i, i + UPDATE_CONCURRENCY);
+    try {
+      const results = await Promise.all(
+        chunk.map((row) => {
+          const { id, ...rest } = row;
+          return supabase.from('sales_reports').update(rest).eq('id', id);
+        })
+      );
+      const firstErr = results.find((r) => r.error)?.error;
+      if (firstErr) throw firstErr;
+    } catch (e) {
+      if (!isNetworkError(e)) throw e;
+      for (const row of chunk) {
         const { id, ...rest } = row;
-        return supabase.from('sales_reports').update(rest).eq('id', id);
-      })
-    );
-    const firstErr = results.find((r) => r.error)?.error;
-    if (firstErr) throw firstErr;
+        const { error } = await supabase.from('sales_reports').update(rest).eq('id', id);
+        if (error) throw error;
+      }
+    }
     touched += chunk.length;
   }
 
   const INSERT_CHUNK = 200;
   for (let i = 0; i < createRows.length; i += INSERT_CHUNK) {
     const chunk = createRows.slice(i, i + INSERT_CHUNK);
-    const { error } = await supabase.from('sales_reports').insert(chunk);
-    if (error) throw error;
+    try {
+      const { error } = await supabase.from('sales_reports').insert(chunk);
+      if (error) throw error;
+    } catch (e) {
+      if (chunk.length <= 1) throw e;
+      for (const row of chunk) {
+        const { error: e2 } = await supabase.from('sales_reports').insert([row]);
+        if (e2) throw e2;
+      }
+    }
     touched += chunk.length;
   }
 

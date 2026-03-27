@@ -21,6 +21,7 @@ import {
   formatNumber,
   formatPercent,
   summarizeAndSortSalesData,
+  dedupeSalesReportRowsByTTKey,
   uniqueSorted,
 } from '../utils/nhanSuSaleLumiMoiLogic';
 
@@ -508,8 +509,14 @@ export default function NhanSuSaleLumiMoiView({
   /** Tính lại bảng sau khi React rảnh — bớt lag khi đổi checkbox / ngày (dữ liệu lớn). */
   const deferredFiltered = useDeferredValue(filteredData);
 
+  /** Trùng key Ngày+Tên+SP+TT → gộp trước khi cộng Số đơn TT (tránh nhân đôi). */
+  const deferredFilteredDeduped = useMemo(
+    () => dedupeSalesReportRowsByTTKey(deferredFiltered),
+    [deferredFiltered]
+  );
+
   const summaryMain = useMemo(() => {
-    const { flatList, total } = summarizeAndSortSalesData(deferredFiltered);
+    const { flatList, total } = summarizeAndSortSalesData(deferredFilteredDeduped);
     const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
     const doanhSoMap = {};
     flatListFiltered.forEach((item) => {
@@ -532,7 +539,7 @@ export default function NhanSuSaleLumiMoiView({
       soDonHuyTotal,
       tiLeHuyTotal,
     };
-  }, [deferredFiltered]);
+  }, [deferredFilteredDeduped]);
 
   const onTabClick = (tab) => {
     setActiveTab(tab);
@@ -939,7 +946,7 @@ restrictedForPopulate,
                 </tbody>
               </table>
             </div>
-            {activeTab === 'sau-huy' && <DailyBreakdownSauHuy filteredData={deferredFiltered} />}
+            {activeTab === 'sau-huy' && <DailyBreakdownSauHuy filteredData={deferredFilteredDeduped} />}
           </div>
 
           <div id="tab-chot" className={`tab-content ${activeTab === 'chot' ? 'active' : ''}`}>
@@ -999,7 +1006,7 @@ restrictedForPopulate,
                 </tbody>
               </table>
             </div>
-            {activeTab === 'chot' && <DailyBreakdownChot filteredData={deferredFiltered} />}
+            {activeTab === 'chot' && <DailyBreakdownChot filteredData={deferredFilteredDeduped} />}
           </div>
 
           <div id="tab-kpi-sale" className={`tab-content ${activeTab === 'kpi-sale' ? 'active' : ''}`}>

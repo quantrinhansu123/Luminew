@@ -378,6 +378,8 @@ function ReportForm() {
             const result = await recalcSaleOrderCountFromOrders({
               startDate,
               endDate,
+              createMissingForHetCa: true,
+              createMissingForGiuaCa: true,
             });
             console.log(`✅ Đã tự động cập nhật sales_reports TT:`, result);
           }
