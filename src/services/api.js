@@ -736,8 +736,6 @@ const VAN_DON_SELECT_QUERY = [
             allowedStaff.forEach(staffName => {
                 if (!staffName) return;
                 const safeName = staffName.trim();
-                conditions.push(`sale_staff.ilike.%${safeName}%`);
-                conditions.push(`marketing_staff.ilike.%${safeName}%`);
                 conditions.push(`delivery_staff.ilike.%${safeName}%`);
             });
 

@@ -334,9 +334,51 @@ export const getSelectedPersonnel = async (emails) => {
             }
         });
         return personnelMap;
-    } catch (error) {
+  } catch (error) {
         console.error("Error fetching selected personnel:", error);
         return {};
+    }
+};
+
+// Get substitute personnel mappings (Người sửa hộ)
+// Returns array of ho_va_ten where the given username is listed in nguoi_sua_ho
+export const getSubstitutePersonnel = async (username) => {
+    if (!username) return [];
+
+    try {
+        console.log('🔍 [rbacService] Fetching substitute mappings for:', username);
+        const { data, error } = await supabase
+            .from('danh_sach_van_don')
+            .select('ho_va_ten, nguoi_sua_ho');
+
+        if (error) throw error;
+        if (!data) return [];
+
+        const substituteForNames = data.filter(record => {
+            let helpers = [];
+            if (record.nguoi_sua_ho) {
+                if (Array.isArray(record.nguoi_sua_ho)) {
+                    helpers = record.nguoi_sua_ho;
+                } else if (typeof record.nguoi_sua_ho === 'string') {
+                    try {
+                        const parsed = JSON.parse(record.nguoi_sua_ho);
+                        helpers = Array.isArray(parsed) ? parsed : [record.nguoi_sua_ho];
+                    } catch {
+                        helpers = record.nguoi_sua_ho.trim() ? [record.nguoi_sua_ho] : [];
+                    }
+                }
+            }
+            
+            // Case-insensitive comparison
+            const searchName = String(username).toLowerCase().trim();
+            return helpers.some(h => String(h).toLowerCase().trim() === searchName);
+        }).map(record => record.ho_va_ten).filter(Boolean);
+
+        console.log('✅ [rbacService] Found substitute for names:', substituteForNames);
+        return substituteForNames;
+    } catch (error) {
+        console.error("❌ [rbacService] Error fetching substitute personnel:", error);
+        return [];
     }
 };
 

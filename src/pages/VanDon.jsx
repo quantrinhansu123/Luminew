@@ -890,25 +890,41 @@ function VanDon() {
 
   // Load selected personnel names for current user
   useEffect(() => {
-    const loadSelectedPersonnel = async () => {
+     const loadSelectedPersonnel = async () => {
       try {
         const userEmail = localStorage.getItem("userEmail") || "";
+        const userName = localStorage.getItem("username") || "";
 
-        if (!userEmail) {
+        if (!userEmail && !userName) {
           setSelectedPersonnelNames([]);
           return;
         }
 
-        const userEmailLower = userEmail.toLowerCase().trim();
-        const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
-        const personnelNames = personnelMap[userEmailLower] || [];
+        let allAllowed = [];
 
-        const validNames = personnelNames.filter(name => {
-          const nameStr = String(name).trim();
-          return nameStr.length > 0 && !nameStr.includes('@');
-        });
+        // 1. Load from users.selected_personnel (existing logic)
+        if (userEmail) {
+          const userEmailLower = userEmail.toLowerCase().trim();
+          const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
+          const fromRbac = personnelMap[userEmailLower] || [];
+          allAllowed = [...allAllowed, ...fromRbac];
+        }
 
-        console.log('📝 [VanDon] Valid personnel names:', validNames);
+        // 2. Load from substitute mapping (new logic)
+        if (userName) {
+          const substituteNames = await rbacService.getSubstitutePersonnel(userName);
+          allAllowed = [...allAllowed, ...substituteNames];
+          
+          // Also allow the user's own name
+          allAllowed.push(userName);
+        }
+
+        // 3. Clean and deduplicate
+        const validNames = [...new Set(allAllowed)]
+          .map(name => String(name).trim())
+          .filter(name => name.length > 0 && !name.includes('@'));
+
+        console.log('📝 [VanDon] Final allowed personnel names:', validNames);
         setSelectedPersonnelNames(validNames);
       } catch (error) {
         console.error('❌ [VanDon] Error loading selected personnel:', error);
