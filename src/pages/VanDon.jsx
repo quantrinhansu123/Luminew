@@ -1,5 +1,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { TableVirtuoso } from 'react-virtuoso';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import MultiSelect from '../components/MultiSelect';
@@ -8,7 +10,6 @@ import * as API from '../services/api';
 import * as rbacService from '../services/rbacService';
 import '../styles/selection.css';
 import { supabase } from '../supabase/config';
-import { Pagination } from '../components/shared/Pagination';
 
 import {
   BILL_LADING_COLUMNS, COLUMN_MAPPING,
@@ -31,7 +32,7 @@ const SyncPopover = lazy(() => import('../components/SyncPopover'));
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
 /** Độ rộng cột checkbox (tab Hà Nội) — bù `left` cho cột sticky kế bên */
-const VAN_DON_CHECKBOX_COL_PX = 52;
+const VAN_DON_CHECKBOX_COL_PX = 50;
 
 /** Khi ghép đơn chưa lưu vào kết quả API sau đổi bộ lọc — chỉ giữ dòng phù hợp tab (tránh lệch với Đơn Nhật/Hà Nội). */
 function rowMatchesBolTabForInject(row, tab) {
@@ -60,10 +61,7 @@ function VanDon() {
   // --- Data State ---
 
   // --- Data State ---
-  const [allData, setAllData] = useState([]);
   const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
-  const [loading, setLoading] = useState(false);
-  const [totalRecords, setTotalRecords] = useState(0);
   const [useBackendPagination, setUseBackendPagination] = useState(true); // Enable backend pagination
   // Always use BILL_OF_LADING view - ORDER_MANAGEMENT is hidden
   const [viewMode] = useState('BILL_OF_LADING');
@@ -84,6 +82,25 @@ function VanDon() {
   const isProcessingQueue = useRef(false);
   /** Bản ghi đầy đủ (đã merge pending) cho mỗi mã đơn — dùng khi đổi lọc khiến API không trả lại dòng đó. */
   const pendingRowSnapshotsRef = useRef(new Map());
+
+  const savePendingToLocalStorage = useCallback((newPending) => {
+    const changesToSave = {};
+    if (newPending && newPending.size > 0) {
+      newPending.forEach((val, id) => {
+        changesToSave[id] = Object.fromEntries(val);
+      });
+    }
+    localStorage.setItem('speegoPendingChanges', JSON.stringify(changesToSave));
+    const snaps = {};
+    pendingRowSnapshotsRef.current.forEach((row, id) => {
+      snaps[id] = row;
+    });
+    if (Object.keys(snaps).length > 0) {
+      localStorage.setItem('speegoPendingRowSnapshots', JSON.stringify(snaps));
+    } else {
+      localStorage.removeItem('speegoPendingRowSnapshots');
+    }
+  }, []);
 
   const hasUnsavedDraft = () =>
     pendingChangesRef.current.size > 0 || dbQueueRef.current.length > 0;
@@ -189,10 +206,11 @@ function VanDon() {
   const [copiedData, setCopiedData] = useState(null);
   const [copiedSelection, setCopiedSelection] = useState(null);
   const [stickyOffsets, setStickyOffsets] = useState([]);
-  const [firstDataRowTop, setFirstDataRowTop] = useState(0); // sticky top cho dòng dữ liệu đầu tiên
   const [horizontalTrackWidth, setHorizontalTrackWidth] = useState(0);
   const isSelecting = useRef(false);
   const tableRef = useRef(null);
+  const vanDonHeaderContainerRef = useRef(null);
+  const vanDonScrollContainerRef = useRef(null);
   const splitLeftPaneRef = useRef(null);
   const splitRightPaneRef = useRef(null);
   const horizontalScrollHostRef = useRef(null);
@@ -372,326 +390,117 @@ function VanDon() {
     return extra.length ? [...rows, ...extra] : rows;
   };
 
-  // --- Data Loading ---
-  const loadData = async () => {
-    if (isLoadingDataRef.current) return;
-    isLoadingDataRef.current = true;
-    setLoading(true);
-    try {
-      console.log('Starting data load...');
+  // --- Data Loading with React Query ---
+  const queryClient = useQueryClient();
 
-      const rebuildMissingPendingSnapshots = (mergedRows) => {
-        pendingChangesRef.current.forEach((_, orderId) => {
-          if (pendingRowSnapshotsRef.current.has(orderId)) return;
-          const row = mergedRows.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
-          if (!row) return;
-          const pmap = pendingChangesRef.current.get(orderId);
-          if (!pmap || pmap.size === 0) return;
-          const copy = { ...row };
-          pmap.forEach((info, key) => {
-            copy[key] = info.newValue;
-          });
-          pendingRowSnapshotsRef.current.set(orderId, copy);
-        });
-        savePendingToLocalStorage(pendingChangesRef.current);
-      };
+  // Create stable filter object for query key
+  const activeFilters = useMemo(() => {
+    const filters = {
+      team: bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined),
+      market: bolActiveTab === 'japan' ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market,
+      product: filterValues.product,
+      nv_sale: filterValues.nv_sale,
+      nv_mkt: filterValues.nv_mkt,
+      dateFrom: enableDateFilter ? dateFrom : undefined,
+      dateTo: enableDateFilter ? dateTo : undefined,
+      tab: bolActiveTab,
+      page: currentPage,
+      limit: rowsPerPage,
+      useBackend: useBackendPagination
+    };
+    console.log('🔍 [VanDon] Active Filters:', filters);
+    return filters;
+  }, [bolActiveTab, omActiveTeam, filterValues, enableDateFilter, dateFrom, dateTo, currentPage, rowsPerPage, useBackendPagination]);
 
-      // --- 1. PREPARE PERMISSIONS & ALLOWED NAMES BEFORE FETCHING ---
+  const {
+    data: queryResult,
+    isLoading: isQueryLoading,
+    isFetching,
+    refetch: refetchVanDonData
+  } = useQuery({
+    queryKey: ['vanDon', activeFilters, selectedPersonnelNames.length, isAdmin],
+    queryFn: async () => {
+      console.log('🚀 [VanDon] Query Function Started. useBackendPagination:', useBackendPagination, 'permissionsLoading:', permissionsLoading);
+      if (!useBackendPagination || permissionsLoading) return null;
+      
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
-      const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
-      // Admin luôn được coi là Manager để có full quyền
+      const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || "";
       const isManager = isAdmin || ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
 
       let allAllowedNames = [];
-
-      // If not manager, we must calculate allowed names
       if (!isManager) {
-        // Load nguoi_sua_ho từ danh_sach_van_don
-        let allowedDeliveryStaffNames = [];
-        if (userName) {
-          try {
-            const { data: vanDonRecords, error: vanDonError } = await supabase
-              .from('danh_sach_van_don')
-              .select('ho_va_ten, nguoi_sua_ho');
-
-            if (!vanDonError && vanDonRecords) {
-              const relevantRecords = vanDonRecords.filter(record => {
-                let nguoiSuaHo = [];
-                if (record.nguoi_sua_ho) {
-                  if (Array.isArray(record.nguoi_sua_ho)) {
-                    nguoiSuaHo = record.nguoi_sua_ho;
-                  } else if (typeof record.nguoi_sua_ho === 'string') {
-                    try {
-                      const parsed = JSON.parse(record.nguoi_sua_ho);
-                      nguoiSuaHo = Array.isArray(parsed) ? parsed : [record.nguoi_sua_ho];
-                    } catch {
-                      nguoiSuaHo = record.nguoi_sua_ho.trim() ? [record.nguoi_sua_ho] : [];
-                    }
-                  }
-                }
-                const isOwnRecord = record.ho_va_ten && record.ho_va_ten.toLowerCase().trim() === userName.toLowerCase().trim();
-                const isInNguoiSuaHo = nguoiSuaHo.some(name => name && name.toLowerCase().trim() === userName.toLowerCase().trim());
-                return isOwnRecord || isInNguoiSuaHo;
-              });
-
-              allowedDeliveryStaffNames = relevantRecords.map(r => r.ho_va_ten).filter(Boolean);
-              if (userName && !allowedDeliveryStaffNames.includes(userName)) {
-                allowedDeliveryStaffNames.push(userName);
-              }
-              console.log('🔐 [VanDon] Loaded allowed delivery staff names:', allowedDeliveryStaffNames);
-            }
-          } catch (err) {
-            console.error('❌ [VanDon] Error loading nguoi_sua_ho:', err);
-            allowedDeliveryStaffNames = userName ? [userName] : [];
-          }
-        }
-
-        // Merge sources
-        if (selectedPersonnelNames.length > 0) {
-          allAllowedNames = [...new Set([...selectedPersonnelNames, ...allowedDeliveryStaffNames])];
-          console.log('📝 [VanDon] Using selectedPersonnelNames + allowedDeliveryStaffNames:', allAllowedNames);
-        } else if (allowedDeliveryStaffNames.length > 0) {
-          allAllowedNames = allowedDeliveryStaffNames;
-          console.log('📝 [VanDon] Using only allowedDeliveryStaffNames:', allAllowedNames);
-        } else if (userName) {
-          allAllowedNames = [userName];
-          console.log('📝 [VanDon] Fallback: Using userName only:', allAllowedNames);
-        }
+        allAllowedNames = selectedPersonnelNames.length > 0 ? selectedPersonnelNames : [userName];
       }
 
-      // Tab "Đơn cá nhân": cần họ tên trong localStorage để lọc đơn
-      if (bolActiveTab === 'ca_nhan' && !(userName || '').trim()) {
-        addToast('⚠️ Không xác định được tên hiển thị (họ tên). Vui lòng đăng nhập lại.', 'warning', 5000);
-        setAllData([]);
-        setTotalRecords(0);
-        try {
-          const mgtOrder = await API.fetchMGTNoiBoOrders();
-          setMgtNoiBoOrder(mgtOrder);
-        } catch (e) {
-          console.error('Error loading MGT Noi Bo orders:', e);
-        }
-        setLoading(false);
-        isLoadingDataRef.current = false;
-        return;
+      const result = await API.fetchVanDon({
+        page: currentPage,
+        limit: rowsPerPage,
+        team: activeFilters.team,
+        market: activeFilters.market,
+        product: activeFilters.product,
+        nv_sale: activeFilters.nv_sale,
+        nv_mkt: activeFilters.nv_mkt,
+        dateFrom: activeFilters.dateFrom,
+        dateTo: activeFilters.dateTo,
+        allowedStaff: isManager ? undefined : allAllowedNames
+      });
+
+      console.log('✅ [VanDon] fetchVanDon Result:', { 
+        count: result.data?.length || 0, 
+        total: result.total, 
+        isManager,
+        allowedStaff: isManager ? 'ALL' : allAllowedNames
+      });
+
+      if (result.error) {
+        console.error('❌ [VanDon] API Error:', result.error);
+        throw new Error(result.error);
       }
+      
+      // Load MGT Noi Bo in background if needed
+      API.fetchMGTNoiBoOrders().then(mgtOrder => setMgtNoiBoOrder(mgtOrder));
 
-      // --- 2. FETCH DATA WITH BACKEND PERMISSIONS ---
-      if (useBackendPagination) {
-        const isReadonlyAllTab = bolActiveTab === 'readonly_all';
-        // Admin: xem tất cả dữ liệu, KHÔNG bị filter bởi bất kỳ filter nào
-        const activeTeam = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined)));
-        const activeStatus = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (enableDateFilter ? undefined : (filterValues.status || undefined)));
-        const isJapanTab = bolActiveTab === 'japan';
-        const isPersonalTab = bolActiveTab === 'ca_nhan';
-        // Admin: KHÔNG filter theo market/product/date (xem tất cả)
-        const marketFilter = isReadonlyAllTab ? undefined : (isAdmin ? undefined : (isJapanTab ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market));
-        const productFilter = isReadonlyAllTab ? undefined : (isAdmin ? undefined : filterValues.product);
-        const shouldApplyDateFilter = !isReadonlyAllTab && enableDateFilter && !isAdmin;
+      return result;
+    },
+    enabled: useBackendPagination && !permissionsLoading,
+    keepPreviousData: true,
+  });
 
-        // Tab Đơn cá nhân: chỉ đơn có NV Sale / MKT / Vận đơn khớp tên tài khoản (không gộp selected_personnel).
-        // Admin/Manager: không filter nhân sự trừ khi đang ở tab cá nhân.
-        const personalStaffOnly = isPersonalTab && userName?.trim() ? [userName.trim()] : undefined;
-        const apiAllowedStaff = isPersonalTab
-          ? personalStaffOnly
-          : ((!isManager && !isJapanTab && !isAdmin) ? allAllowedNames : undefined);
-
-        console.log('🚀 [VanDon] Fetching API - isAdmin:', isAdmin, 'allowedStaff:', apiAllowedStaff, 'activeTeam:', activeTeam, 'marketFilter:', marketFilter);
-
-        // Luôn dùng server-side pagination để tránh lag khi dữ liệu lớn.
-        // Trước đây admin tải 100k dòng/lần gây đơ UI.
-        const fetchLimit = clampRowsPerPage(rowsPerPage);
-        const fetchPage = Math.max(1, Number(currentPage) || 1);
-
-        const saleStaffApi =
-          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale : undefined);
-        const mktStaffApi =
-          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_mkt?.length ? filterValues.nv_mkt : undefined);
-        const result = await API.fetchVanDon({
-          page: fetchPage,
-          limit: fetchLimit,
-          team: activeTeam,
-          status: activeStatus,
-          market: marketFilter,
-          product: productFilter,
-          nv_sale: saleStaffApi?.length ? saleStaffApi : undefined,
-          nv_mkt: mktStaffApi?.length ? mktStaffApi : undefined,
-          // NV vận đơn lọc client-side để dropdown toolbar không bị co option sau mỗi lần chọn.
-          dateFrom: shouldApplyDateFilter ? dateFrom : undefined,
-          dateTo: shouldApplyDateFilter ? dateTo : undefined,
-          allowedStaff: apiAllowedStaff
-        });
-
-        if (result.error) {
-          throw new Error(result.error);
-        }
-
-        let filteredData = result.data;
-        let filteredTotal = result.total;
-
-        // --- 3. CLIENT SIDE POST-PROCESSING (Hanoi Tab, etc) ---
-
-        // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn OK và đơn vị vận chuyển trống (áp dụng cho cả Admin)
-        if (bolActiveTab === 'hanoi') {
-          filteredData = result.data.filter(row => {
+  const allData = useMemo(() => {
+    let rows = queryResult?.data || [];
+    if (bolActiveTab === 'hanoi') {
+           rows = rows.filter(row => {
             const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
             const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-
-            // Kết quả Check phải là "Ok" hoặc "OK"
-            const isCheckOk = checkResult.toLowerCase() === 'ok';
-            // Đơn vị vận chuyển phải trống hoặc null
-            const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
-
-            return isCheckOk && isDeliveryUnitEmpty;
+            return checkResult.toLowerCase() === 'ok' && (!deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null');
           });
-          filteredTotal = filteredData.length;
-          console.log('🏛️ [VanDon Backend] Tab Hà Nội - Filtered by Check="OK" and empty Đơn vị vận chuyển:', filteredData.length, 'orders');
-        }
-
-        // Tab "Đơn Nhật": không filter theo selectedPersonnelNames (đã filter ở API level)
-        else if (isJapanTab) {
-          // Tab "Đơn Nhật": đã filter theo country ở API level, chỉ cần bỏ filter nhân sự
-          console.log('🇯🇵 [VanDon Backend] Japan tab - already filtered by country at API level, no personnel filter');
-          filteredData = result.data; // Data đã được filter theo country ở API
-          filteredTotal = result.total; // Total đã đúng từ API
-        } else {
-          // Standard tabs - already filtered by backend
-          // No extra client filtering needed
-        }
-
-        // Debug: Kiểm tra đơn hàng cụ thể (chỉ log, không block)
-        if (isAdmin) {
-          const debugCodes = ['Bonb11bf9db', 'Kemb5a90cf6'];
-          debugCodes.forEach(debugCode => {
-            const found = result.data.find(row => {
-              const orderCode = row['Mã đơn hàng'] || row.order_code || row['order_code'];
-              return orderCode === debugCode;
-            });
-            if (found) {
-              console.log('✅ [DEBUG] Tìm thấy đơn hàng', debugCode, 'trong result.data');
-            } else {
-              console.log('❌ [DEBUG] KHÔNG tìm thấy đơn hàng', debugCode, 'trong result.data');
-              console.log('  - Total:', result.total, 'Page:', result.page, '/', result.totalPages);
-            }
-          });
-        }
-
-        const mergedBackend = mergePendingRowsIntoFetchedData(filteredData);
-        setAllData(mergedBackend);
-        rebuildMissingPendingSnapshots(mergedBackend);
-        setTotalRecords(filteredTotal);
-
-        if (filteredData.length === 0 && filteredTotal === 0) {
-          addToast('⚠️ Không tìm thấy dữ liệu phù hợp', 'warning', 3000);
-        } else {
-          addToast(`✅ Đã tải ${filteredData.length}/${filteredTotal} đơn hàng (trang ${result.page}/${result.totalPages})`, 'success', 2000);
-        }
-
-      } else {
-        // Fallback: Load all data (Client Side Pagination) logic...
-        let data = await API.fetchOrders();
-
-        // --- PREPARE PERMISSIONS & ALLOWED NAMES FOR CLIENT-SIDE FILTERING ---
-        // userJson, user, userName, isManager are already defined above
-        let allAllowedNamesFallback = [];
-        if (bolActiveTab === 'ca_nhan') {
-          allAllowedNamesFallback = userName ? [userName] : [];
-        } else if (!isManager) {
-          if (selectedPersonnelNames.length > 0) {
-            allAllowedNamesFallback = [...new Set([...selectedPersonnelNames, ...allAllowedNames])]; // allAllowedNames from above is allowedDeliveryStaffNames
-            console.log('📝 [VanDon Fallback] Using selectedPersonnelNames + allowedDeliveryStaffNames:', allAllowedNamesFallback);
-          } else if (allAllowedNames.length > 0) { // allAllowedNames from above is allowedDeliveryStaffNames
-            allAllowedNamesFallback = allAllowedNames;
-            console.log('📝 [VanDon Fallback] Using only allowedDeliveryStaffNames:', allAllowedNamesFallback);
-          } else if (userName) {
-            allAllowedNamesFallback = [userName];
-            console.log('📝 [VanDon Fallback] Fallback: Using userName only:', allAllowedNamesFallback);
-          }
-        }
-
-        const normalizeNameForMatchFallback = (str) => String(str || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-        const matchesPersonnelFilterFallback = (row) => {
-          if (allAllowedNamesFallback.length === 0) return true;
-          if (isManager && bolActiveTab !== 'ca_nhan') return true;
-          const s = normalizeNameForMatchFallback(row.sale_staff || row["Nhân viên Sale"]);
-          const m = normalizeNameForMatchFallback(row.marketing_staff || row["Nhân viên MKT"]);
-          const d = normalizeNameForMatchFallback(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"]);
-          return allAllowedNamesFallback.some(n => {
-            const nn = normalizeNameForMatchFallback(n);
-            return s.includes(nn) || m.includes(nn) || d.includes(nn) || nn.includes(s) || nn.includes(m) || nn.includes(d);
-          });
-        };
-
-        // --- CLIENT-SIDE FILTERING ---
-        const isJapanTab = bolActiveTab === 'japan';
-        const isHanoiTab = bolActiveTab === 'hanoi';
-
-        if (bolActiveTab === 'ca_nhan' && !(userName || '').trim()) {
-          data = [];
-          addToast('⚠️ Không xác định được tên hiển thị (họ tên). Vui lòng đăng nhập lại.', 'warning', 5000);
-        } else if (isJapanTab) {
-          data = data.filter(r => {
-            const c = String(r.country || r['Khu vực'] || '').toLowerCase();
-            return c === 'nhật bản' || c === 'cđ nhật bản';
-          });
-          console.log('🇯🇵 [VanDon Fallback] Japan tab - filtering by country only');
-        } else if (isHanoiTab) {
-          // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn OK và đơn vị vận chuyển trống
-          data = data.filter(r => {
-            const checkResult = String(r['Kết quả Check'] || r['Kết quả check'] || '').trim();
-            const deliveryUnit = String(r['Đơn vị vận chuyển'] || r['Đơn vị Vận chuyển'] || '').trim();
-
-            // Kết quả Check phải là "Ok" hoặc "OK"
-            const isCheckOk = checkResult.toLowerCase() === 'ok';
-            // Đơn vị vận chuyển phải trống hoặc null
-            const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
-
-            return isCheckOk && isDeliveryUnitEmpty;
-          });
-          console.log('🏛️ [VanDon Fallback] Tab Hà Nội - Filtered by Check="OK" and empty Đơn vị vận chuyển:', data.length, 'orders');
-        } else {
-          // Tab Đơn cá nhân: luôn lọc theo tên (kể cả manager). Các tab khác: chỉ non-manager.
-          if (allAllowedNamesFallback.length > 0 && (bolActiveTab === 'ca_nhan' || !isManager)) {
-            data = data.filter(r => matchesPersonnelFilterFallback(r));
-            console.log('🔍 [VanDon Fallback] Filtering by personnel:', allAllowedNamesFallback);
-          } else if (!isManager && userName) {
-            // Fallback: If no specific personnel names, filter by current userName
-            const uNorm = normalizeNameForMatchFallback(userName);
-            data = data.filter(r => {
-              const s = normalizeNameForMatchFallback(r.sale_staff || r["Nhân viên Sale"]);
-              const m = normalizeNameForMatchFallback(r.marketing_staff || r["Nhân viên MKT"]);
-              const d = normalizeNameForMatchFallback(r.delivery_staff || r["NV Vận đơn"] || r["Nhân viên Vận đơn"]);
-              return s.includes(uNorm) || m.includes(uNorm) || d.includes(uNorm) || uNorm.includes(s) || uNorm.includes(m) || uNorm.includes(d);
-            });
-            console.log('🔍 [VanDon Fallback] Fallback filtering by username:', userName);
-          }
-        }
-
-        const mergedClient = mergePendingRowsIntoFetchedData(data);
-        setAllData(mergedClient);
-        rebuildMissingPendingSnapshots(mergedClient);
-        setTotalRecords(mergedClient.length);
-        addToast(`✅ Đã tải ${mergedClient.length} đơn hàng (Client Mode)`, 'success', 2000);
-      }
-
-      // Load MGT Noi Bo orders (This block runs after both backend and client pagination logic)
-      try {
-        const mgtOrder = await API.fetchMGTNoiBoOrders();
-        setMgtNoiBoOrder(mgtOrder);
-      } catch (e) {
-        console.error('Error loading MGT Noi Bo orders:', e);
-      }
-
-    } catch (error) {
-      console.error('Load data error:', error);
-      addToast(`❌ Lỗi tải dữ liệu: ${error.message}. Vui lòng thử lại.`, 'error', 8000);
-    } finally {
-      setLoading(false);
-      isLoadingDataRef.current = false;
     }
-  };
+    const result = mergePendingRowsIntoFetchedData(rows);
+    console.log('📊 [VanDon] Final allData length:', result.length);
+    return result;
+  }, [queryResult?.data, bolActiveTab]);
 
+  const totalRecords = queryResult?.total || 0;
+  // totalPages is calculated below based on pagination mode
+
+  // Rebuild missing snapshots when data arrives
+  useEffect(() => {
+    if (queryResult?.data) {
+      queryResult.data.forEach((row) => {
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          if (pendingChangesRef.current.has(orderId) && !pendingRowSnapshotsRef.current.has(orderId)) {
+            const pmap = pendingChangesRef.current.get(orderId);
+            const copy = { ...row };
+            pmap.forEach((info, key) => { copy[key] = info.newValue; });
+            pendingRowSnapshotsRef.current.set(orderId, copy);
+          }
+      });
+      savePendingToLocalStorage(pendingChangesRef.current);
+    }
+  }, [queryResult?.data, savePendingToLocalStorage]);
+
+  const loadData = () => refetchVanDonData();
   const refreshData = async (opts = {}) => {
     const skipUnsavedCheck = opts.skipUnsavedCheck === true;
     const hasUnsaved =
@@ -711,16 +520,10 @@ function VanDon() {
     setPendingChanges(new Map());
     localStorage.removeItem('speegoPendingChanges');
     localStorage.removeItem('speegoPendingRowSnapshots');
-    // Reset tất cả filter values về default
+    // Reset filters
     const defaultFilters = {
-      market: [],
-      product: [],
-      nv_sale: [],
-      nv_mkt: [],
-      nv_van_don: [],
-      shipping_unit: [],
-      tracking_include: '',
-      tracking_exclude: '',
+      market: [], product: [], nv_sale: [], nv_mkt: [], nv_van_don: [],
+      shipping_unit: [], tracking_include: '', tracking_exclude: '',
       tracking_status: 'Tình trạng mã'
     };
     setFilterValues(defaultFilters);
@@ -729,7 +532,7 @@ function VanDon() {
     setDateTo(isAdmin ? '' : getToday());
     setEnableDateFilter(!isAdmin);
     setCurrentPage(1);
-    await loadData();
+    await queryClient.invalidateQueries(['vanDon']);
   };
 
   // Close dropdown when clicking outside
@@ -836,36 +639,30 @@ function VanDon() {
     }
   }, [canViewHaNoi, bolActiveTab, isAdmin]);
 
+  // Sync filters with role once it's loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      if (isAdmin) {
+        setEnableDateFilter(false);
+        setDateFrom('');
+        setDateTo('');
+      } else {
+        setEnableDateFilter(true);
+        setDateFrom(getThreeDaysAgo());
+        setDateTo(getToday());
+      }
+    }
+  }, [permissionsLoading, isAdmin]);
+
   // Reload data when filters or pagination change (if using backend)
   // Don't skip initial mount - let it load on mount
   useEffect(() => {
     if (useBackendPagination && !permissionsLoading) {
-      const timeoutId = setTimeout(() => {
-        loadData();
-      }, 100); // Small delay to ensure state is ready
-      return () => clearTimeout(timeoutId);
+      refetchVanDonData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.shipping_unit, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
 
-  const savePendingToLocalStorage = useCallback((newPending) => {
-    const changesToSave = {};
-    if (newPending && newPending.size > 0) {
-      newPending.forEach((val, id) => {
-        changesToSave[id] = Object.fromEntries(val);
-      });
-    }
-    localStorage.setItem('speegoPendingChanges', JSON.stringify(changesToSave));
-    const snaps = {};
-    pendingRowSnapshotsRef.current.forEach((row, id) => {
-      snaps[id] = row;
-    });
-    if (Object.keys(snaps).length > 0) {
-      localStorage.setItem('speegoPendingRowSnapshots', JSON.stringify(snaps));
-    } else {
-      localStorage.removeItem('speegoPendingRowSnapshots');
-    }
-  }, []);
 
   // Đóng tab / F5: cảnh báo + ghi nháp localStorage ngay (tránh mất dữ liệu).
   useEffect(() => {
@@ -1062,13 +859,35 @@ function VanDon() {
 
   /** Độ rộng cố định theo từng cột để tính offset sticky chính xác khi cuộn ngang. */
   const getColumnWidthPx = useCallback((col) => {
-    const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
-    const isNameCol = (col === "Name*");
-    const isAddCol = (col === "Add");
-    const isCityCol = (col === "City");
-    const isProductCol = (col === "Mặt hàng");
-    const isProductNameCol = (col === "Tên mặt hàng 1" || col === "Tên mặt hàng 2");
-    const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
+    const c = String(col || "").trim();
+    const cl = c.toLowerCase();
+
+    // Specific Width Cases (Approximate to fit text)
+    if (cl === "mã đơn hàng") return 150;
+    if (cl === "mã tracking") return 180;
+    if (cl === "lý do") return 150;
+    if (cl === "trạng thái thu tiền") return 150;
+    if (cl === "ghi chú của vđ" || cl === "ghi chú") return 200;
+    if (cl === "ngày lên đơn") return 150;
+    if (cl === "phone*") return 140;
+
+    if (cl === "trạng thái giao hàng nb") return 240;
+    if (cl === "nhân viên sale") return 140;
+    if (cl === "nhân viên mkt") return 140;
+    if (cl === "nv vận đơn") return 140;
+    if (cl === "đơn vị vận chuyển") return 140;
+    if (cl === "số tiền của đơn hàng đã về tk cty") return 320;
+    if (cl === "kế toán xác nhận thu tiền về") return 260;
+    if (cl === "ngày kế toán đối soát với ffm lần 2" || cl.includes("đối soát với ffm lần 2")) return 320;
+
+    const isCheckCol = (cl === "kết quả check");
+    const isNameCol = (cl === "name*");
+    const isAddCol = (cl === "add");
+    const isCityCol = (cl === "city");
+    const isProductCol = (cl === "mặt hàng");
+    const isProductNameCol = (cl === "tên mặt hàng 1" || cl === "tên mặt hàng 2");
+    const isQtyCol = cl === "số lượng mặt hàng 1" || cl === "số lượng mặt hàng 2";
+    
     if (isQtyCol) return 52;
     if (isCheckCol) return 150;
     if (isNameCol) return 220;
@@ -1080,23 +899,16 @@ function VanDon() {
   }, []);
 
   const getColumnWidthStyles = useCallback((col) => {
-    const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
-    const isNameCol = (col === "Name*");
-    const isAddCol = (col === "Add");
-    const isCityCol = (col === "City");
-    const isProductCol = (col === "Mặt hàng");
-    const isProductNameCol = (col === "Tên mặt hàng 1" || col === "Tên mặt hàng 2");
-    const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
+    const w = getColumnWidthPx(col) + 'px';
 
-    if (isQtyCol) return { minWidth: '48px', maxWidth: '58px', width: '52px' };
-    if (isCheckCol) return { minWidth: '140px', maxWidth: '160px', width: '150px' };
-    if (isNameCol) return { minWidth: '200px', maxWidth: '250px', width: '220px' };
-    if (isAddCol) return { minWidth: '380px', maxWidth: '450px', width: '400px' };
-    if (isCityCol) return { minWidth: '130px', maxWidth: '200px', width: '140px' };
-    if (isProductCol) return { minWidth: '150px', maxWidth: '220px', width: '160px' };
-    if (isProductNameCol) return { minWidth: '220px', maxWidth: '420px', width: '260px' };
-    return { minWidth: '120px', width: '120px' };
-  }, []);
+    return {
+      width: w,
+      minWidth: w,
+      maxWidth: w,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis'
+    };
+  }, [getColumnWidthPx]);
 
   /** Left offset cho cột sticky = checkboxPad + tổng width các cột trước đó. */
   const getStickyLeftPx = useCallback((colIdx) => {
@@ -1111,13 +923,13 @@ function VanDon() {
   /** Đo width thực tế của header để freeze cột khớp tuyệt đối khi kéo ngang. */
   useLayoutEffect(() => {
     const recalcStickyOffsets = () => {
-      const tableEl = tableRef.current;
-      if (!tableEl || !currentColumns.length) {
+      const headerEl = vanDonHeaderContainerRef.current;
+      if (!headerEl || !currentColumns.length) {
         setStickyOffsets([]);
         return;
       }
 
-      const thList = Array.from(tableEl.querySelectorAll('thead tr:first-child th[data-col-idx]')).sort(
+      const thList = Array.from(headerEl.querySelectorAll('th[data-col-idx]')).sort(
         (a, b) => Number(a.getAttribute('data-col-idx')) - Number(b.getAttribute('data-col-idx'))
       );
       const widthByIdx = new Map();
@@ -1143,123 +955,9 @@ function VanDon() {
     return () => window.removeEventListener('resize', recalcStickyOffsets);
   }, [currentColumns, checkboxStickyPad, getColumnWidthPx, filterValues, localFilterValues, isLongTextExpanded]);
 
-  /** Đóng băng dòng dữ liệu đầu tiên (rIdx=0) ngay dưới header khi cuộn dọc */
-  useLayoutEffect(() => {
-    const root = tableRef.current;
-    if (!root) return;
 
-    const calcTop = () => {
-      const fallback = 0; // chiều cao header+filter tối thiểu để tránh pinned-row đè lên vùng cố định
-      // splitPane: có 2 thead, lấy max height để top khớp
-      if (splitPane) {
-        const left = root.querySelector('[data-vandon-pane="left"]');
-        const right = root.querySelector('[data-vandon-pane="right"]');
-        const lh = left?.querySelector('thead')?.getBoundingClientRect?.().height || 0;
-        const rh = right?.querySelector('thead')?.getBoundingClientRect?.().height || 0;
-        const h = Math.max(lh, rh);
-        setFirstDataRowTop(Math.max(fallback, h));
-        if (h <= 0) requestAnimationFrame(calcTop);
-        return;
-      }
-      const h = root.querySelector('thead')?.getBoundingClientRect?.().height || 0;
-      setFirstDataRowTop(Math.max(fallback, h));
-      if (h <= 0) requestAnimationFrame(calcTop);
-    };
-
-    calcTop();
-    const raf = requestAnimationFrame(calcTop);
-    window.addEventListener('resize', calcTop);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', calcTop);
-    };
-  }, [splitPane, currentColumns.length, fixedColumns, bolActiveTab, viewMode]);
-
-  /**
-   * Chế độ freeze tách 2 <table> trái/phải: thead/tbody tự tính chiều cao khác nhau → lệch dòng.
-   * Đồng bộ minHeight của hàng tiêu đề + bộ lọc và từng cặp hàng dữ liệu giữa hai bảng.
-   */
-  useLayoutEffect(() => {
-    if (!splitPane) return;
-
-    const sync = () => {
-      const root = tableRef.current;
-      if (!root) return;
-      const leftTable = root.querySelector('[data-vandon-pane="left"]');
-      const rightTable = root.querySelector('[data-vandon-pane="right"]');
-      if (!leftTable || !rightTable) return;
-
-      const leftHeadRow = leftTable.querySelector('thead tr');
-      const rightHeadRow = rightTable.querySelector('thead tr');
-      if (leftHeadRow && rightHeadRow) {
-        leftHeadRow.style.minHeight = '';
-        rightHeadRow.style.minHeight = '';
-        leftHeadRow.style.height = '';
-        rightHeadRow.style.height = '';
-        const headH = Math.max(
-          leftHeadRow.getBoundingClientRect().height,
-          rightHeadRow.getBoundingClientRect().height
-        );
-        if (headH > 0) {
-          leftHeadRow.style.minHeight = `${headH}px`;
-          rightHeadRow.style.minHeight = `${headH}px`;
-          // Ép chiều cao header để tránh lệch “nhìn thấy” giữa hai bảng
-          // (khi nội dung header có khác biệt do editor lọc).
-          leftHeadRow.style.height = `${headH}px`;
-          rightHeadRow.style.height = `${headH}px`;
-        }
-      }
-
-      const leftRows = leftTable.querySelectorAll('tbody tr');
-      const rightRows = rightTable.querySelectorAll('tbody tr');
-      const n = Math.min(leftRows.length, rightRows.length);
-      for (let i = 0; i < n; i++) {
-        leftRows[i].style.minHeight = '';
-        rightRows[i].style.minHeight = '';
-      }
-      for (let i = 0; i < n; i++) {
-        const lh = leftRows[i].getBoundingClientRect().height;
-        const rh = rightRows[i].getBoundingClientRect().height;
-        const rowH = Math.max(lh, rh);
-        if (rowH > 0) {
-          leftRows[i].style.minHeight = `${rowH}px`;
-          rightRows[i].style.minHeight = `${rowH}px`;
-        }
-      }
-    };
-
-    sync();
-    const raf = requestAnimationFrame(() => sync());
-    const onResize = () => sync();
-    window.addEventListener('resize', onResize);
-
-    let ro;
-    if (typeof ResizeObserver !== 'undefined') {
-      ro = new ResizeObserver(() => sync());
-      const left = tableRef.current?.querySelector('[data-vandon-pane="left"]');
-      const right = tableRef.current?.querySelector('[data-vandon-pane="right"]');
-      if (left) ro.observe(left);
-      if (right) ro.observe(right);
-    }
-
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', onResize);
-      ro?.disconnect();
-    };
-  }, [
-    splitPane,
-    currentColumns,
-    effectiveFixedColumns,
-    currentPage,
-    rowsPerPage,
-    filterValues,
-    localFilterValues,
-    isLongTextExpanded,
-    bolActiveTab,
-    loading,
-    stickyOffsets,
-  ]);
+  // Virtualization is handled by react-virtuoso, so we no longer need manual height sync
+  // or ResizeObservers. We keep only essentials.
 
   // Thanh cuộn ngang phụ dưới bảng để không phải kéo xuống cuối mới cuộn ngang.
   useLayoutEffect(() => {
@@ -1296,37 +994,16 @@ function VanDon() {
       window.removeEventListener('resize', updateWidth);
       ro?.disconnect();
     };
-  }, [splitPane, currentColumns.length, currentPage, rowsPerPage, isLongTextExpanded, loading]);
+  }, [currentColumns.length, currentPage, rowsPerPage, isLongTextExpanded, isQueryLoading]);
 
-  // Đồng bộ cuộn dọc giữa 2 pane trái/phải trong chế độ split.
-  useLayoutEffect(() => {
-    if (!splitPane) return;
-    const left = splitLeftPaneRef.current;
-    const right = splitRightPaneRef.current;
-    if (!left || !right) return;
-
-    let syncing = false;
-    const syncTo = (from, to) => {
-      if (syncing) return;
-      syncing = true;
-      to.scrollTop = from.scrollTop;
-      requestAnimationFrame(() => {
-        syncing = false;
-      });
-    };
-
-    const onLeftScroll = () => syncTo(left, right);
-    const onRightScroll = () => syncTo(right, left);
-
-    left.addEventListener('scroll', onLeftScroll, { passive: true });
-    right.addEventListener('scroll', onRightScroll, { passive: true });
-    right.scrollTop = left.scrollTop;
-
-    return () => {
-      left.removeEventListener('scroll', onLeftScroll);
-      right.removeEventListener('scroll', onRightScroll);
-    };
-  }, [splitPane, currentPage, rowsPerPage, loading]);
+  // Scroll sync not needed with Virtuoso + single table logic
+  // Scroll sync for separate header (FFM style)
+  const onTableScroll = useCallback((e) => {
+    // Sync the horizontal position of the separate header div with the table's scroller
+    if (vanDonHeaderContainerRef.current) {
+      vanDonHeaderContainerRef.current.scrollLeft = e.target.scrollLeft;
+    }
+  }, []);
 
   // Lăn chuột luôn cuộn phần nội dung bảng, header vẫn đứng yên (sticky).
   const handleTableWheel = useCallback((e) => {
@@ -2462,7 +2139,7 @@ function VanDon() {
 
     // Default cell sizing
     // NOTE: For select-based columns, avoid vertical padding so the select can fill the cell height cleanly.
-    let classes = `${(isCheckCol || isStatusCol) ? "py-0" : "py-2"} border border-gray-200 text-sm h-[38px] whitespace-nowrap `;
+    let classes = `${(isCheckCol || isStatusCol) ? "py-0" : "py-2.5"} border border-gray-200 text-sm h-[38px] whitespace-nowrap `;
 
     // Padding adjustment for specific columns
     if (isCheckCol) {
@@ -2470,7 +2147,7 @@ function VanDon() {
     } else if (isQtyCol) {
       classes += "px-1 ";
     } else {
-      classes += "px-3 ";
+      classes += "px-4 ";
     }
 
     if (isQtyCol) {
@@ -2536,7 +2213,7 @@ function VanDon() {
       <th
         data-col-idx={idx}
         key={`filter-${col}-${idx}`}
-        className={`py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : isQtyCol ? '' : 'px-4'}`}
+        className={`py-2.5 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : isQtyCol ? '' : 'px-4'}`}
         style={{
           ...positionStyle,
           position: 'sticky',
@@ -2642,18 +2319,7 @@ function VanDon() {
     const isTrackingCol = colLower === 'mã tracking';
     const isReadonlyOrderDataTab = bolActiveTab === 'all';
 
-    const mergedCellStyle = (() => {
-      const s = { ...(cellStyle || {}) };
-      if (rIdx === 0) {
-        // Sticky "dòng đầu tiên" ngay dưới header. Không dùng overlay để tránh lệch/nhân đôi dòng.
-        s.position = s.position || 'sticky';
-        s.top = firstDataRowTop;
-        s.zIndex = Math.max(Number(s.zIndex) || 0, 5000);
-        // đảm bảo nền không bị trong suốt khi đè lên các dòng phía dưới
-        if (!('background' in s) && !('backgroundColor' in s)) s.background = '#ffffff';
-      }
-      return s;
-    })();
+    const mergedCellStyle = { ...(cellStyle || {}) };
 
     return (
       <td
@@ -2817,12 +2483,12 @@ function VanDon() {
                 </span>
               </div>
               <button
-                onClick={loadData}
-                disabled={loading}
+                onClick={() => refetchVanDonData()}
+                disabled={isQueryLoading}
                 className="px-3 py-1.5 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-md text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
               >
-                {loading ? <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></div> : <span>🔄</span>}
-                {loading ? '...' : 'TẢI LẠI'}
+                {isQueryLoading ? <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></div> : <span>🔄</span>}
+                {isQueryLoading ? '...' : 'TẢI LẠI'}
               </button>
             </div>
           </div>
@@ -2833,46 +2499,7 @@ function VanDon() {
       <div className="flex-1 min-h-0 grid grid-rows-[auto,1fr,auto] gap-1 p-1 bg-[#f4f7fa] min-w-0 overflow-hidden">
 
         {/* Toolbar: hàng 0 = số dòng/trang; hàng 1 = lọc; hàng 2 = thao tác + tổng tiền */}
-        <div className="relative z-20 bg-white rounded-lg shadow-sm border border-gray-200 px-2 py-1 flex flex-col gap-1 overflow-x-hidden min-w-0">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2 border-b border-gray-100">
-            <span className="text-xs font-black text-[#F37021] uppercase tracking-tight whitespace-nowrap">Số dòng / trang</span>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 bg-orange-50/90 px-2.5 py-1.5 rounded-lg border border-orange-100 min-w-0">
-              <label className="text-xs font-bold text-gray-600 whitespace-nowrap">Hiển thị:</label>
-              <select
-                className="border-none bg-transparent text-xs font-black text-[#F37021] focus:ring-0 p-0 cursor-pointer max-w-[120px]"
-                value={rowsPerPage}
-                onChange={(e) => {
-                  const value = clampRowsPerPage(Number(e.target.value));
-                  setRowsPerPage(value);
-                  setCurrentPage(1);
-                }}
-              >
-                <option value="50">50 dòng</option>
-                <option value="100">100 dòng</option>
-                <option value="200">200 dòng</option>
-                <option value="500">500 dòng</option>
-              </select>
-              <span className="text-xs text-gray-400">|</span>
-              <input
-                type="number"
-                min="50"
-                max="500"
-                value={rowsPerPage}
-                onChange={(e) => {
-                  const value = clampRowsPerPage(Number(e.target.value));
-                  setRowsPerPage(value);
-                  setCurrentPage(1);
-                }}
-                onBlur={(e) => {
-                  setRowsPerPage(clampRowsPerPage(Number(e.target.value)));
-                }}
-                className="w-16 text-xs font-bold text-[#F37021] border border-orange-200 rounded px-1 py-0.5 bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Tùy chỉnh"
-                title="50–500 dòng mỗi trang"
-              />
-              <span className="text-xs text-gray-500">dòng/trang (max 500)</span>
-            </div>
-          </div>
+        <div className="relative z-[10500] bg-white rounded-lg shadow-sm border border-gray-200 px-2 py-1 flex flex-col gap-1 min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             {/* Date Filter */}
             <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">
@@ -3085,7 +2712,7 @@ function VanDon() {
                     📦 Phân FFM {selectedRows.size > 0 && `(${selectedRows.size})`}
                   </button>
                   {showPhanFFMDropdown && selectedRows.size > 0 && (
-                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50 min-w-[150px]">
+                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-[12000] min-w-[150px]">
                       <button
                         onClick={async () => {
                           await handlePhanFFM('MGT');
@@ -3108,6 +2735,8 @@ function VanDon() {
                   )}
                 </div>
               )}
+
+
               {isReadonlyAllTab && (
                 <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200 text-[11px] font-semibold text-gray-600">
                   Chế độ chỉ xem - không cho sửa
@@ -3125,238 +2754,166 @@ function VanDon() {
         </div>
 
 
-        {/* Table Area - Optimized for Height (basis-0 + min-h-0: flex-1 thực sự lấy hết chiều cao còn lại) */}
-        <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0 max-h-[calc(100vh-250px)]">
-          {loading ? (
-            <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-500">Đang tải dữ liệu...</div>
-          ) : paginatedData.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-500 italic">Không có dữ liệu phù hợp</div>
-          ) : splitPane ? (
-            /* Chỉ lớp ngoài cuộn — không gộp flex-row + overflow trên cùng một node (dễ mất scrollbar dọc). */
-            <div
-              ref={tableRef}
-              className="flex-1 min-h-0 basis-0 overflow-y-auto overflow-x-auto select-none relative"
-              style={{ isolation: 'isolate', overscrollBehavior: 'contain' }}
-              onDoubleClickCapture={blockTableDoubleClickCopy}
-              onDragStartCapture={blockTableDragStart}
-              onWheelCapture={handleTableWheel}
-            >
-              <div className="flex flex-row items-stretch w-max min-h-min">
-                <div
-                  ref={splitLeftPaneRef}
-                  className="shrink-0 border-r-2 border-gray-300 bg-white z-20 min-h-0 min-w-0 overflow-x-hidden overflow-y-hidden self-stretch"
-                  style={{ overscrollBehavior: 'contain' }}
-                >
-                  <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight" data-vandon-pane="left">
-                    <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
-                      <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
-                        {bolActiveTab === 'hanoi' && (
-                          <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', top: 0, left: 0, zIndex: 10100, background: '#f8f9fa' }}>
-                            <div className="flex items-center justify-center">
-                              <input
-                                type="checkbox"
-                                checked={paginatedData.length > 0 && paginatedData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
-                                onChange={(e) => {
-                                  if (e.target.checked) selectAllRows();
-                                  else deselectAllRows();
-                                }}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                              />
-                            </div>
-                          </th>
-                        )}
-                        {frozenCols.map((col, i) =>
-                          renderVanDonFilterTh(
-                            col,
-                            i,
-                            { position: 'relative', zIndex: 10200, background: '#f8f9fa' },
-                            i === frozenCols.length - 1
-                          )
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody style={{ position: 'relative', zIndex: 0 }}>
-                      {paginatedData.map((row, rIdx) => {
-                        const orderId = row[PRIMARY_KEY_COLUMN];
-                        return (
-                          <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
-                            {bolActiveTab === 'hanoi' && (
-                              <td
-                                className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
-                                style={{
-                                  position: 'sticky',
-                                  top: rIdx === 0 ? firstDataRowTop : undefined,
-                                  left: 0,
-                                  zIndex: rIdx === 0 ? 5200 : 3300,
-                                  backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb'
-                                }}
-                              >
-                                <div className="flex items-center justify-center">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedRows.has(orderId)}
-                                    onChange={() => toggleRowSelection(orderId)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                                  />
-                                </div>
-                              </td>
-                            )}
-                            {frozenCols.map((col, i) => {
-                              const colWidthStyles = getColumnWidthStyles(col);
-                              const lastF = i === frozenCols.length - 1;
-                              const cellStyle = {
-                                ...colWidthStyles,
-                                position: 'relative',
-                                zIndex: 10,
-                                ...(lastF ? { boxShadow: '2px 0 0 #e5e7eb' } : {})
-                              };
-                              return renderVanDonDataCell(row, rIdx, col, i, cellStyle);
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <div
-                  ref={(el) => {
-                    splitRightPaneRef.current = el;
-                    horizontalScrollHostRef.current = el;
-                  }}
-                  className="flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-hidden self-stretch"
-                  style={{ overscrollBehavior: 'contain' }}
-                >
-                  <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
-                    <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
-                      <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
-                        {scrollCols.map((col, i) =>
-                          renderVanDonFilterTh(
-                            col,
-                            effectiveFixedColumns + i,
-                            { position: 'relative', zIndex: 10200 },
-                            false
-                          )
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody style={{ position: 'relative', zIndex: 0 }}>
-                      {paginatedData.map((row, rIdx) => {
-                        const orderId = row[PRIMARY_KEY_COLUMN];
-                        return (
-                          <tr key={`${orderId}-right`} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
-                            {scrollCols.map((col, i) => {
-                              const cIdx = effectiveFixedColumns + i;
-                              const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 10 };
-                              return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+        <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0 flex-1">
+          {isQueryLoading ? (
+            <div className="flex-1 flex flex-col items-center justify-center min-h-[400px] bg-white rounded-lg">
+              <div className="relative w-16 h-16 mb-4">
+                 <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
+                 <div className="absolute inset-0 border-4 border-[#0052cc] border-t-transparent rounded-full animate-spin"></div>
               </div>
+              <p className="text-gray-500 font-medium animate-pulse text-lg">Đang tải dữ liệu vận đơn...</p>
             </div>
           ) : (
-            <div
-              ref={(el) => {
-                tableRef.current = el;
-                horizontalScrollHostRef.current = el;
-              }}
-              className="overflow-y-auto overflow-x-auto relative select-none flex-1 min-h-0 basis-0"
-              style={{ isolation: 'isolate', overscrollBehavior: 'contain' }}
-              onDoubleClickCapture={blockTableDoubleClickCopy}
-              onDragStartCapture={blockTableDragStart}
-              onWheelCapture={handleTableWheel}
-            >
-              <table className="w-full border-separate border-spacing-0 min-w-[2500px] text-[13px] leading-tight" style={{ position: 'relative' }}>
-                <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
-                  <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
-                    {bolActiveTab === 'hanoi' && (
-                      <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', top: 0, left: 0, zIndex: 10100, background: '#f8f9fa' }}>
-                        <div className="flex items-center justify-center">
-                          <input
-                            type="checkbox"
-                            checked={paginatedData.length > 0 && paginatedData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
-                            onChange={(e) => {
-                              if (e.target.checked) selectAllRows();
-                              else deselectAllRows();
-                            }}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                          />
-                        </div>
-                      </th>
-                    )}
-                    {currentColumns.map((col, idx) => {
-                      const stickyLeft = getStickyLeftPx(idx);
-                      const stickyStyle =
-                        idx < effectiveFixedColumns
-                          ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa' }
-                          : { position: 'relative', zIndex: 10200 };
-                      return renderVanDonFilterTh(col, idx, stickyStyle, idx === effectiveFixedColumns - 1);
-                    })}
-                  </tr>
-                </thead>
-                <tbody style={{ position: 'relative', zIndex: 0 }}>
-                  {paginatedData.map((row, rIdx) => {
-                    const orderId = row[PRIMARY_KEY_COLUMN];
-                    return (
-                      <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
-                        {bolActiveTab === 'hanoi' && (
-                          <td
-                            className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
-                            style={{
-                              position: 'sticky',
-                              top: rIdx === 0 ? firstDataRowTop : undefined,
-                              left: 0,
-                              zIndex: rIdx === 0 ? 5200 : 3300,
-                              backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb'
-                            }}
-                          >
-                            <div className="flex items-center justify-center">
-                              <input
-                                type="checkbox"
-                                checked={selectedRows.has(orderId)}
-                                onChange={() => toggleRowSelection(orderId)}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                              />
-                            </div>
-                          </td>
-                        )}
-                        {currentColumns.map((col, cIdx) => {
-                          const cellStickyLeft = getStickyLeftPx(cIdx);
-                          const colWidthStyles = getColumnWidthStyles(col);
-                          const cellStyle =
-                            cIdx < effectiveFixedColumns
-                              ? {
+            <div className="flex-1 flex flex-col min-h-0 bg-white">
+               {/* 1. FIXED HEADER AREA (FFM Style) */}
+               <div
+                 ref={vanDonHeaderContainerRef}
+                 className="overflow-hidden border-b-2 border-gray-300 bg-[#f8f9fa] shrink-0 shadow-sm"
+                 style={{ paddingRight: '15px' }}
+               >
+                 <table
+                   className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed"
+                   style={{ tableLayout: 'fixed' }}
+                 >
+                   <thead className="bg-[#f8f9fa]">
+                     <tr className="bg-gray-100 align-top">
+                       {bolActiveTab === 'hanoi' && (
+                         <th className="py-2.5 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap px-2 sticky left-0 z-[10100]" style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }}>
+                           <div className="flex items-center justify-center">
+                             <input
+                               type="checkbox"
+                               checked={getFilteredData.length > 0 && getFilteredData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
+                               onChange={(e) => {
+                                 if (e.target.checked) selectAllRows();
+                                 else deselectAllRows();
+                               }}
+                               className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                             />
+                           </div>
+                         </th>
+                       )}
+                       {currentColumns.map((col, idx) => {
+                         const stickyLeft = getStickyLeftPx(idx);
+                         const isFixed = idx < effectiveFixedColumns;
+                         const style = isFixed 
+                           ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa' }
+                           : { position: 'relative', zIndex: 10200 };
+                         return renderVanDonFilterTh(col, idx, style, isFixed && idx === effectiveFixedColumns - 1);
+                       })}
+                     </tr>
+                   </thead>
+                 </table>
+               </div>
+
+               {/* 2. SCROLLABLE BODY (Virtualized) */}
+               <TableVirtuoso
+                 data={getFilteredData}
+                 style={{ height: '100%', width: '100%' }}
+                 scrollerRef={(el) => {
+                   if (el) {
+                     tableRef.current = el;
+                     horizontalScrollHostRef.current = el;
+                     el.addEventListener('scroll', onTableScroll);
+                   }
+                 }}
+                 components={{
+                   Table: ({ style, ...props }) => (
+                     <table {...props} className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed" style={{ ...style, tableLayout: 'fixed' }} />
+                   )
+                 }}
+                itemContent={(rIdx, row) => {
+                  const orderId = row[PRIMARY_KEY_COLUMN];
+                  const isSelected = selectedRows.has(orderId);
+                  return (
+                    <>
+                      {bolActiveTab === 'hanoi' && (
+                        <td
+                          className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300]"
+                          style={{
+                             width: VAN_DON_CHECKBOX_COL_PX,
+                             minWidth: VAN_DON_CHECKBOX_COL_PX,
+                             backgroundColor: isSelected ? '#dbeafe' : '#f9fafb'
+                          }}
+                        >
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleRowSelection(orderId)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                            />
+                          </div>
+                        </td>
+                      )}
+                      {currentColumns.map((col, cIdx) => {
+                        const cellStickyLeft = getStickyLeftPx(cIdx);
+                        const isFixed = cIdx < effectiveFixedColumns;
+                        const colWidthStyles = getColumnWidthStyles(col);
+                        const cellStyle = isFixed
+                            ? {
                                 position: 'sticky',
                                 left: cellStickyLeft,
                                 zIndex: 3100,
                                 ...colWidthStyles,
                                 boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
                               }
-                              : { position: 'relative', zIndex: 10, ...colWidthStyles };
-                          return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            : { position: 'relative', zIndex: 10, ...colWidthStyles };
+                        return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
+                      })}
+                    </>
+                  );
+                }}
+              />
             </div>
           )}
         </div>
-        {/* Pagination Footer */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 w-full min-w-0 overflow-hidden">
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={useBackendPagination ? totalRecords : getFilteredData.length}
-            itemsPerPage={effectiveRowsPerPage}
-            onPageChange={(page) => setCurrentPage(page)}
-          />
+
+        {/* Improved Pagination Footer (FFM Style) */}
+        <div className="bg-white p-3 rounded-lg shadow-sm mt-3 flex justify-center items-center gap-4 border border-gray-200">
+          <button
+            disabled={currentPage <= 1 || isQueryLoading}
+            onClick={() => setCurrentPage((p) => p - 1)}
+            className="px-4 py-2 bg-[#0052cc] text-white rounded disabled:bg-gray-300 font-bold shadow-sm hover:bg-[#0747a6] transition-colors flex items-center gap-2"
+          >
+            <span> Trang trước</span>
+          </button>
+
+          <div className="flex items-center gap-1.5 min-w-[120px] justify-center">
+             <span className="text-sm font-bold text-gray-700 bg-gray-100 px-4 py-2 rounded-full border border-gray-200 shadow-inner">
+               Trang {currentPage} / {totalPages || 1}
+             </span>
+             {totalRecords > 0 && (
+               <span className="text-[10px] text-gray-400 font-bold uppercase ml-1">
+                 ({(useBackendPagination ? totalRecords : getFilteredData.length).toLocaleString()} kết quả)
+               </span>
+             )}
+          </div>
+
+          <button
+            disabled={currentPage >= totalPages || isQueryLoading}
+            onClick={() => setCurrentPage((p) => p + 1)}
+            className="px-4 py-2 bg-[#0052cc] text-white rounded disabled:bg-gray-300 font-bold shadow-sm hover:bg-[#0747a6] transition-colors flex items-center gap-2"
+          >
+            <span>Trang sau </span>
+          </button>
+
+          <div className="flex items-center gap-2 ml-4 bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100">
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-tighter">Số dòng:</label>
+            <select
+              className="border-none bg-transparent text-sm font-black text-[#0052cc] focus:ring-0 p-0 cursor-pointer"
+              value={rowsPerPage}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setRowsPerPage(val);
+                setCurrentPage(1);
+              }}
+            >
+              {[50, 70, 100, 200, 500].map(v => (
+                <option key={v} value={v}>{v} dòng</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
