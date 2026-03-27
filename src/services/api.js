@@ -39,6 +39,7 @@ export const DB_TO_APP_MAPPING = {
     "gift_quantity": "Số lượng quà kèm",
     "delivery_status_nb": "Trạng thái giao hàng NB",
     "payment_currency": "Loại tiền thanh toán",
+    // Thời gian giao dự kiến: hiển thị gộp với thoigiangiaohangffm (xử lý trong mapSupabaseOrderToApp)
     "estimated_delivery_date": "Thời gian giao dự kiến",
     "warehouse_fee": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
     "note_caps": "GHI CHÚ",
@@ -60,6 +61,25 @@ const mapSupabaseOrderToApp = (sOrder) => {
             appOrder[appKey] = sOrder[dbKey];
         }
     });
+
+    // Thời gian giao dự kiến: một trong hai trống thì lấy bên còn lại; cả hai đều có thì lấy estimated_delivery_date
+    const estEd = sOrder.estimated_delivery_date;
+    const ffmEd = sOrder.thoigiangiaohangffm;
+    const isEmptyMergedDate = (v) =>
+        v === undefined ||
+        v === null ||
+        (typeof v === 'string' && v.trim() === '');
+    const hasEst = !isEmptyMergedDate(estEd);
+    const hasFfm = !isEmptyMergedDate(ffmEd);
+    if (hasEst && hasFfm) {
+        appOrder['Thời gian giao dự kiến'] = estEd;
+    } else if (hasEst) {
+        appOrder['Thời gian giao dự kiến'] = estEd;
+    } else if (hasFfm) {
+        appOrder['Thời gian giao dự kiến'] = ffmEd;
+    } else {
+        appOrder['Thời gian giao dự kiến'] = null;
+    }
 
     // Giá bán: ưu tiên sale_price; null/undefined thì dùng goods_amount (dữ liệu cũ)
     if (sOrder.sale_price !== undefined && sOrder.sale_price !== null) {

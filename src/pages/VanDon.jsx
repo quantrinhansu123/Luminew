@@ -506,9 +506,6 @@ function VanDon() {
           (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_sale?.length ? filterValues.nv_sale : undefined);
         const mktStaffApi =
           (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_mkt?.length ? filterValues.nv_mkt : undefined);
-        const vanDonStaffApi =
-          (isAdmin || isReadonlyAllTab) ? undefined : (filterValues.nv_van_don?.length ? filterValues.nv_van_don : undefined);
-
         const result = await API.fetchVanDon({
           page: fetchPage,
           limit: fetchLimit,
@@ -518,7 +515,7 @@ function VanDon() {
           product: productFilter,
           nv_sale: saleStaffApi?.length ? saleStaffApi : undefined,
           nv_mkt: mktStaffApi?.length ? mktStaffApi : undefined,
-          nv_van_don: vanDonStaffApi?.length ? vanDonStaffApi : undefined,
+          // NV vận đơn lọc client-side để dropdown toolbar không bị co option sau mỗi lần chọn.
           dateFrom: shouldApplyDateFilter ? dateFrom : undefined,
           dateTo: shouldApplyDateFilter ? dateTo : undefined,
           allowedStaff: apiAllowedStaff
@@ -848,7 +845,7 @@ function VanDon() {
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, filterValues.shipping_unit, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
+  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.shipping_unit, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.length, permissionsLoading]);
 
   const savePendingToLocalStorage = useCallback((newPending) => {
     const changesToSave = {};
