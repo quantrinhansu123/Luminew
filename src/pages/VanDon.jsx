@@ -328,10 +328,22 @@ function VanDon() {
   const extractDateFromDateTime = (dateTimeString) => {
     if (!dateTimeString) return '';
     const str = String(dateTimeString).trim();
-    if (str.includes(' ')) {
-      const [d, m, y] = str.split(' ')[0].split('/').map(Number);
-      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    
+    // Case 1: Standard YYYY-MM-DD[...]
+    if (str.match(/^\d{4}-\d{2}-\d{2}/)) {
+      return str.split('T')[0].split(' ')[0];
     }
+    
+    // Case 2: DD/MM/YYYY[...]
+    if (str.includes('/')) {
+      const parts = str.split(' ')[0].split('/');
+      if (parts.length === 3) {
+        const [d, m, y] = parts.map(Number);
+        const fullYear = y < 100 ? 2000 + y : y;
+        return `${fullYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+    }
+    
     return str;
   };
 
@@ -405,6 +417,7 @@ function VanDon() {
       nv_mkt: filterValues.nv_mkt,
       dateFrom: enableDateFilter ? dateFrom : undefined,
       dateTo: enableDateFilter ? dateTo : undefined,
+      dateType: bolDateType,
       tab: bolActiveTab,
       page: currentPage,
       limit: rowsPerPage,
@@ -445,6 +458,7 @@ function VanDon() {
         nv_mkt: activeFilters.nv_mkt,
         dateFrom: activeFilters.dateFrom,
         dateTo: activeFilters.dateTo,
+        dateType: activeFilters.dateType,
         allowedStaff: isManager ? undefined : allAllowedNames
       });
 
@@ -717,17 +731,16 @@ function VanDon() {
               return selected.includes(cellValue);
             }
 
-            // Date columns logic
+            // Date columns logic - Exact match for per-column filter
             if (["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(key)) {
               if (!cellValue) return false;
-              if (typeof val !== 'string') return true; // Skip nếu không phải string
-              const dVal = new Date(cellValue);
-              if (isNaN(dVal.getTime())) return false;
-              dVal.setHours(0, 0, 0, 0);
-              const fVal = new Date(val);
-              if (isNaN(fVal.getTime())) return true; // Skip nếu date không hợp lệ
-              fVal.setHours(0, 0, 0, 0);
-              return dVal >= fVal;
+              if (typeof val !== 'string') return true;
+              
+              const rowDate = extractDateFromDateTime(cellValue);
+              const filterDate = extractDateFromDateTime(val);
+              
+              if (!rowDate || !filterDate) return true;
+              return rowDate === filterDate;
             }
 
             // Text search - case insensitive, partial match
@@ -2570,10 +2583,22 @@ function VanDon() {
         {/* Toolbar: hàng 0 = số dòng/trang; hàng 1 = lọc; hàng 2 = thao tác + tổng tiền */}
         <div className="relative z-[100] bg-white rounded-lg shadow-sm border border-gray-200 px-2 py-1 flex flex-col gap-1 min-w-0">
           <div className="flex flex-wrap items-center gap-3">
-            {/* Date Filter */}
             <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">
               <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📅 Lọc thời gian:</label>
               <div className="flex items-center gap-2">
+                <select
+                  className="text-xs px-2 py-1 border border-gray-300 rounded bg-white font-bold text-blue-800"
+                  value={bolDateType}
+                  onChange={(e) => {
+                    setBolDateType(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="Ngày lên đơn">📅 Lên đơn</option>
+                  <option value="Ngày đóng hàng">📦 Đóng hàng</option>
+                  <option value="Ngày đẩy đơn">🚀 Đẩy đơn</option>
+                  <option value="Ngày có mã tracking">🎫 Có Tracking</option>
+                </select>
                 <input
                   type="date"
                   value={dateFrom || ''}

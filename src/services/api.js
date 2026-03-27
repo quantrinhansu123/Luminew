@@ -711,11 +711,19 @@ const VAN_DON_SELECT_QUERY = [
             applyEmptyOrInFilter('delivery_staff', nv_van_don);
         }
 
+        const dateColumnMapping = {
+            'Ngày lên đơn': 'order_date',
+            'Ngày đóng hàng': 'ngaydonghang',
+            'Ngày đẩy đơn': 'accounting_check_date',
+            'Ngày có mã tracking': 'tracking_check_date'
+        };
+        const dateColumn = dateColumnMapping[options.dateType] || 'order_date';
+
         if (dateFrom) {
-            query = query.gte('order_date', dateFrom);
+            query = query.gte(dateColumn, dateFrom);
         }
         if (dateTo) {
-            query = query.lte('order_date', dateTo);
+            query = query.lte(dateColumn, dateTo);
         }
 
         // --- PERSONNEL PERMISSION FILTER ---
