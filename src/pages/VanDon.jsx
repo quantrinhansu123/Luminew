@@ -2196,6 +2196,7 @@ function VanDon() {
       return sum + num;
     }, 0);
   }, [getFilteredData]);
+  const totalOrdersCount = getFilteredData.length;
 
   const teams = Array.from(new Set(allData.map(r => r[TEAM_COLUMN_NAME]).filter(Boolean))).sort();
 
@@ -2812,11 +2813,14 @@ function VanDon() {
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
-              <div className="text-right flex flex-col items-end">
-                <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
-                <span className="text-sm font-black text-emerald-600 leading-none">{totalMoney.toLocaleString('vi-VN')} ₫</span>
-              </div>
+          <div className="flex items-center gap-4 flex-shrink-0 sm:ml-auto">
+            <div className="text-right flex flex-col items-end">
+              <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Số lượng đơn</span>
+              <span className="text-sm font-black text-blue-600 leading-none tabular-nums">{totalOrdersCount.toLocaleString('vi-VN')}</span>
+            </div>
+            <div className="text-right flex flex-col items-end">
+              <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
+              <span className="text-sm font-black text-emerald-600 leading-none">{totalMoney.toLocaleString('vi-VN')} ₫</span>
             </div>
           </div>
         </div>
