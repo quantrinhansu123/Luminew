@@ -1427,13 +1427,14 @@ function VanDon() {
     }
   }, []);
 
+  //12
   // Lăn chuột luôn cuộn phần nội dung bảng, header vẫn đứng yên (sticky).
   const handleTableWheel = useCallback((e) => {
     const root = tableRef.current;
     if (!root) return;
     const dy = Number(e?.deltaY || 0);
     if (!dy) return;
-
+ 
     const max = Math.max(0, root.scrollHeight - root.clientHeight);
     const next = Math.max(0, Math.min(max, root.scrollTop + dy));
     if (next === root.scrollTop) return;
