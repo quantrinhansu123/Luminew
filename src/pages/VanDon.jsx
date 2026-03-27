@@ -1149,7 +1149,7 @@ function VanDon() {
     if (!root) return;
 
     const calcTop = () => {
-      const fallback = 96; // chiều cao header+filter tối thiểu để tránh pinned-row đè lên vùng cố định
+      const fallback = 0; // chiều cao header+filter tối thiểu để tránh pinned-row đè lên vùng cố định
       // splitPane: có 2 thead, lấy max height để top khớp
       if (splitPane) {
         const left = root.querySelector('[data-vandon-pane="left"]');
