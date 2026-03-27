@@ -144,6 +144,53 @@ function normalizeViAscii(s) {
     .trim();
 }
 
+/** Chuỗi có dạng email (dùng để biết `sales_reports.name` nhập nhầm email). */
+export function looksLikeEmail(s) {
+  const t = String(s || '').trim();
+  if (!t.includes('@')) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(t);
+}
+
+/**
+ * Map email (lowercase) → Họ tên từ bảng users (shape giống fetchEmployeeDataForRestrict).
+ * Có thể truyền nhiều mảng; mảng trước ưu tiên, sau chỉ thêm key chưa có.
+ */
+export function buildEmployeeEmailToNameMap(...employeeRowArrays) {
+  const m = new Map();
+  for (const rows of employeeRowArrays) {
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const em = String(row.Email ?? row.email ?? '')
+        .toLowerCase()
+        .trim();
+      const name = String(row['Họ Và Tên'] ?? row.name ?? '').trim();
+      if (em && name && !m.has(em)) m.set(em, name);
+    }
+  }
+  return m;
+}
+
+/**
+ * Hiển thị tên Sale trên UI: nếu `ten` là email thì ưu tiên tên từ users; ngược lại giữ `ten`.
+ * (Dòng báo cáo vẫn nhóm theo `ten` gốc trong DB.)
+ */
+export function displayNameForSaleReportKey(ten, rowEmail, emailToNameMap) {
+  const t = String(ten || '').trim();
+  if (!t) return '';
+  const map = emailToNameMap instanceof Map ? emailToNameMap : new Map();
+  const tLower = t.toLowerCase();
+  if (looksLikeEmail(t)) {
+    const fromMap = map.get(tLower);
+    if (fromMap) return fromMap;
+  }
+  const re = String(rowEmail || '').toLowerCase().trim();
+  if (re && (tLower === re || looksLikeEmail(t))) {
+    const fromMap = map.get(re);
+    if (fromMap) return fromMap;
+  }
+  return t;
+}
+
 /**
  * Khớp `name` trên dòng báo cáo (`ten`) với danh sách trong `users.selected_personnel` (tên hoặc email đã resolve sang tên).
  * Dùng chuẩn hóa + contains giống DanhSachVanDon.
@@ -167,6 +214,18 @@ export function rowMatchesPersonnelList(ten, allowedList) {
     if (!n) return false;
     return row === n || row.includes(n) || n.includes(row);
   });
+}
+
+/** Dòng báo cáo raw có khớp một mục lọc nhân sự (tên hoặc email trên selected_personnel / checkbox). */
+export function reportRowMatchesPersonnelOption(r, option) {
+  const o = String(option ?? '').trim();
+  if (!o || !r) return false;
+  const ol = o.toLowerCase();
+  const ten = String(r.ten ?? '').trim();
+  const em = String(r.email ?? '').toLowerCase().trim();
+  if (ten === o) return true;
+  if (em && em === ol) return true;
+  return rowMatchesPersonnelList(ten, [o]);
 }
 
 /**
@@ -622,14 +681,15 @@ export function filterRawData({
       caAll || (selectedShifts && selectedShifts.includes(String(r.ca)));
     const isTeamOk =
       teamAll || (selectedTeams && selectedTeams.includes(String(r.team)));
-    /** Chỉ lọc theo tên khi đã bỏ "Tất cả" và có ít nhất một tên chọn — tránh nameSel=[] xóa hết dòng. */
-    const applyingNameSubset =
-      nameAll === false &&
-      Array.isArray(selectedNames) &&
-      selectedNames.length > 0;
-    const isNameOk =
-      !applyingNameSubset ||
-      selectedNames.some((n) => rowMatchesPersonnelList(r.ten, [n]));
+    /** Bỏ "Tất cả": chỉ hiện dòng khớp tên đã chọn; không chọn ai thì không còn dòng (tắt hết). */
+    let isNameOk = true;
+    if (nameAll === false) {
+      if (!Array.isArray(selectedNames) || selectedNames.length === 0) {
+        isNameOk = false;
+      } else {
+        isNameOk = selectedNames.some((n) => rowMatchesPersonnelList(r.ten, [n]));
+      }
+    }
     return isDateOk && isProductOk && isMarketOk && isShiftOk && isTeamOk && isNameOk;
   });
 }

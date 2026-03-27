@@ -1,7 +1,8 @@
 /**
  * View React — trùng layout & logic với nhanSuSaleLumiMoi.html
  */
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 import usePermissions from '../hooks/usePermissions';
@@ -24,6 +25,9 @@ import {
   aggregateTotalFromFlatList,
   dedupeSalesReportRowsByTTKey,
   uniqueSorted,
+  buildEmployeeEmailToNameMap,
+  displayNameForSaleReportKey,
+  reportRowMatchesPersonnelOption,
 } from '../utils/nhanSuSaleLumiMoiLogic';
 
 const LOGO_URL =
@@ -101,6 +105,21 @@ async function fetchEmployeeDataForRestrict() {
   }
 }
 
+/** Chỉ email + tên — để resolve hiển thị (gồm user không có id_appsheet). RLS có thể giới hạn. */
+async function fetchUsersEmailNameForDisplayMap() {
+  try {
+    const { data, error } = await supabase.from('users').select('email, name, username');
+    if (error) throw error;
+    return (data || []).map((u) => ({
+      Email: (u.email || '').trim(),
+      'Họ Và Tên': (u.name || u.username || '').trim(),
+    }));
+  } catch (e) {
+    console.warn('[NhanSuSaleLumiMoi] users email→name map:', e);
+    return [];
+  }
+}
+
 function normalizeTeamLabel(s) {
   return String(s || '')
     .trim()
@@ -152,6 +171,7 @@ export default function NhanSuSaleLumiMoiView({
   const [loading, setLoading] = useState(true);
   const [rawData, setRawData] = useState([]);
   const [employeeData, setEmployeeData] = useState([]);
+  const [userEmailNameRows, setUserEmailNameRows] = useState([]);
 
   const [reportTitle, setReportTitle] = useState('DỮ LIỆU TỔNG HỢP');
   const [isRestrictedView, setIsRestrictedView] = useState(false);
@@ -165,6 +185,13 @@ export default function NhanSuSaleLumiMoiView({
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  /** Tăng khi bấm «Tải dữ liệu» — ép gọi lại API theo Từ/Đến ngày hiện tại. */
+  const [loadRequestId, setLoadRequestId] = useState(0);
+  /**
+   * id Appsheet đã từng chạy resetFilterLists thành công (có user + raw).
+   * Khác id → reset; cùng id mà có raw mới → chỉ sync (giữ Sản phẩm/Ca/Team/TT/Tên Sale).
+   */
+  const lastFullFilterResetIdRef = useRef(null);
 
   const [productAll, setProductAll] = useState(true);
   const [productSel, setProductSel] = useState([]);
@@ -180,7 +207,10 @@ export default function NhanSuSaleLumiMoiView({
   const [nameAllApplied, setNameAllApplied] = useState(true);
   const [nameSelApplied, setNameSelApplied] = useState([]);
   const [nameSearchInput, setNameSearchInput] = useState('');
-  const [nameSearchApplied, setNameSearchApplied] = useState('');
+  const [personnelDdOpen, setPersonnelDdOpen] = useState(false);
+  const personnelDdTriggerRef = useRef(null);
+  const personnelDdPanelRef = useRef(null);
+  const [personnelDdPos, setPersonnelDdPos] = useState({ top: 0, left: 0, width: 0 });
 
   const [activeTab, setActiveTab] = useState('sau-huy');
   const [selectedRowKey, setSelectedRowKey] = useState(null);
@@ -269,6 +299,17 @@ export default function NhanSuSaleLumiMoiView({
     };
   }, [setDefaultDates]);
 
+  const applyNameFiltersFromSidebar = useCallback(() => {
+    if (!showPersonnelNameFilter) return;
+    setNameAllApplied(nameAll);
+    setNameSelApplied([...nameSel]);
+  }, [showPersonnelNameFilter, nameAll, nameSel]);
+
+  const handleLoadReportData = useCallback(() => {
+    applyNameFiltersFromSidebar();
+    setLoadRequestId((n) => n + 1);
+  }, [applyNameFiltersFromSidebar]);
+
   /** Dữ liệu `sales_reports` (Supabase / fallback API) theo bộ lọc ngày. Phân quyền `?id=`: users Supabase. */
   useEffect(() => {
     if (!startDate || !endDate) return;
@@ -277,9 +318,10 @@ export default function NhanSuSaleLumiMoiView({
     (async () => {
       setLoading(true);
       try {
-        const [mappedRaw, emp] = await Promise.all([
+        const [mappedRaw, emp, emailNameRows] = await Promise.all([
           fetchSalesReportsMapped(startDate, endDate, ac.signal),
           fetchEmployeeDataForRestrict(),
+          fetchUsersEmailNameForDisplayMap(),
         ]);
         if (cancelled) return;
         const exactWant = normalizeTeamLabel(teamExactFilter);
@@ -295,6 +337,7 @@ export default function NhanSuSaleLumiMoiView({
           }
         }
         setEmployeeData(emp);
+        setUserEmailNameRows(emailNameRows);
         setRawData(mapped);
       } catch (e) {
         if (e?.name === 'AbortError') return;
@@ -308,7 +351,7 @@ export default function NhanSuSaleLumiMoiView({
       cancelled = true;
       ac.abort();
     };
-  }, [startDate, endDate, teamKeyword, teamExactFilter]);
+  }, [startDate, endDate, teamKeyword, teamExactFilter, loadRequestId]);
 
   /** Phân quyền + bộ lọc + iframe — chạy khi có dữ liệu hoặc đổi id (không gọi lại API). */
   useEffect(() => {
@@ -340,6 +383,28 @@ export default function NhanSuSaleLumiMoiView({
       setMarketSel(uniqueSorted(dataForFilters, 'thiTruong'));
     };
 
+    const syncFilterSelectionsToNewData = (restricted, branch, team, names, emailForRow) => {
+      const dataForFilters = filterRawForRestrictedPopulate(
+        mapped,
+        restricted,
+        branch,
+        team,
+        names,
+        null,
+        emailForRow
+      );
+      const products = uniqueSorted(dataForFilters, 'sanPham');
+      const cas = uniqueSorted(dataForFilters, 'ca').map(String);
+      const teams = uniqueSorted(dataForFilters, 'team');
+      const markets = uniqueSorted(dataForFilters, 'thiTruong');
+      setProductSel((prev) => prev.filter((p) => products.includes(p)));
+      setCaSel((prev) => prev.filter((c) => cas.includes(String(c))));
+      setTeamSel((prev) => prev.filter((t) => teams.includes(t)));
+      setMarketSel((prev) => prev.filter((m) => markets.includes(m)));
+    };
+
+    const AGGREGATE_FILTER_CTX = '__aggregate__';
+
     if (!idFromUrl) {
       setIsRestrictedView(false);
       setAllowedNames([]);
@@ -351,7 +416,15 @@ export default function NhanSuSaleLumiMoiView({
       setIframeVanDon(buildVanDonEmbedUrl(''));
       setReportTitle('DỮ LIỆU TỔNG HỢP');
       setAllowedUserEmail(null);
-      resetFilterLists(false, null, null, [], null);
+      if (mapped.length === 0) {
+        return;
+      }
+      if (lastFullFilterResetIdRef.current !== AGGREGATE_FILTER_CTX) {
+        resetFilterLists(false, null, null, [], null);
+        lastFullFilterResetIdRef.current = AGGREGATE_FILTER_CTX;
+      } else {
+        syncFilterSelectionsToNewData(false, null, null, [], null);
+      }
       return;
     }
 
@@ -374,6 +447,7 @@ export default function NhanSuSaleLumiMoiView({
       setAllowedBranch(null);
       setCurrentUserInfo(null);
       setShowThuCongTab(false);
+      lastFullFilterResetIdRef.current = null;
       resetFilterLists(true, null, null, [], null);
       return;
     }
@@ -439,7 +513,22 @@ export default function NhanSuSaleLumiMoiView({
     setIframeKpi(buildKpiEmbedUrl(idFromUrl));
     setIframeVanDon(buildVanDonEmbedUrl(idFromUrl));
 
-    resetFilterLists(restricted, branch, team, names, userEmailForRowMatch);
+    if (!currentUserRecord) {
+      lastFullFilterResetIdRef.current = null;
+      resetFilterLists(restricted, branch, team, names, userEmailForRowMatch);
+      return;
+    }
+
+    if (mapped.length === 0) {
+      return;
+    }
+
+    if (lastFullFilterResetIdRef.current !== idFromUrl) {
+      resetFilterLists(restricted, branch, team, names, userEmailForRowMatch);
+      lastFullFilterResetIdRef.current = idFromUrl;
+    } else {
+      syncFilterSelectionsToNewData(restricted, branch, team, names, userEmailForRowMatch);
+    }
   }, [idSheet, employeeData, rawData]);
 
   const filteredData = useMemo(() => {
@@ -503,24 +592,133 @@ export default function NhanSuSaleLumiMoiView({
     [rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames, allowedPersonnelNames, allowedUserEmail]
   );
 
-  /** Checkbox Tên Sale: ưu tiên danh sách `selected_personnel`; không có thì theo tên trong báo cáo. */
+  /**
+   * Checkbox Tên Sale: nếu có selected_personnel — chỉ hiện mục có ít nhất một dòng báo cáo
+   * trong khoảng ngày đã tải (tránh hiện email/tên cấu hình nhưng không có record sales_reports).
+   * Không có selected_personnel (admin): danh sách theo `ten` trên dữ liệu đã tải.
+   */
   const personnelNameFilterOptions = useMemo(() => {
     if (!showPersonnelNameFilter) return [];
+    const fromReport = uniqueSorted(restrictedForPopulate, 'ten');
     if (allowedPersonnelNames && allowedPersonnelNames.length > 0) {
-      return [...allowedPersonnelNames].sort((a, b) =>
+      const hasRow = (opt) =>
+        restrictedForPopulate.some((r) => reportRowMatchesPersonnelOption(r, opt));
+      return [...allowedPersonnelNames].filter(hasRow).sort((a, b) =>
         String(a).localeCompare(String(b), 'vi')
       );
     }
-    return uniqueSorted(restrictedForPopulate, 'ten');
+    return fromReport;
   }, [showPersonnelNameFilter, allowedPersonnelNames, restrictedForPopulate]);
 
+  useEffect(() => {
+    if (!showPersonnelNameFilter) return;
+    if (personnelNameFilterOptions.length === 0) {
+      setNameSel([]);
+      setNameSelApplied([]);
+      setNameAll(true);
+      setNameAllApplied(true);
+      return;
+    }
+    const ok = new Set(personnelNameFilterOptions);
+    setNameSel((prev) => {
+      const next = prev.filter((k) => ok.has(k));
+      return next.length === prev.length ? prev : next;
+    });
+    setNameSelApplied((prev) => {
+      const next = prev.filter((k) => ok.has(k));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [personnelNameFilterOptions, showPersonnelNameFilter]);
+
+  const emailToDisplayName = useMemo(
+    () => buildEmployeeEmailToNameMap(employeeData, userEmailNameRows),
+    [employeeData, userEmailNameRows]
+  );
+
+  /** Email trên dòng báo cáo theo từng `ten` (để resolve tên khi cột name trong DB là email). */
+  const tenToRowEmail = useMemo(() => {
+    const m = new Map();
+    for (const r of restrictedForPopulate) {
+      const t = r.ten;
+      if (t == null || !String(t).trim()) continue;
+      if (!m.has(t)) m.set(t, String(r.email || '').trim());
+    }
+    return m;
+  }, [restrictedForPopulate]);
+
+  const formatSaleDisplayName = useCallback(
+    (ten) => displayNameForSaleReportKey(ten, tenToRowEmail.get(ten) || '', emailToDisplayName),
+    [tenToRowEmail, emailToDisplayName]
+  );
+
   const filteredPersonnelNameOptions = useMemo(() => {
-    const q = String(nameSearchApplied || '').trim().toLowerCase();
+    const q = String(nameSearchInput || '').trim().toLowerCase();
     if (!q) return personnelNameFilterOptions;
-    return personnelNameFilterOptions.filter((val) =>
-      String(val || '').toLowerCase().includes(q)
-    );
-  }, [personnelNameFilterOptions, nameSearchApplied]);
+    return personnelNameFilterOptions.filter((val) => {
+      const raw = String(val || '').toLowerCase();
+      const label = String(formatSaleDisplayName(val) || '').toLowerCase();
+      return raw.includes(q) || label.includes(q);
+    });
+  }, [personnelNameFilterOptions, nameSearchInput, formatSaleDisplayName]);
+
+  const personnelDdSummary = useMemo(() => {
+    if (!personnelNameFilterOptions.length) return '—';
+    if (nameAll) return 'Tất cả';
+    if (nameSel.length === 0) return 'Chưa chọn nhân sự';
+    if (nameSel.length === 1) return formatSaleDisplayName(nameSel[0]);
+    return `${nameSel.length} nhân sự`;
+  }, [nameAll, nameSel, personnelNameFilterOptions.length, formatSaleDisplayName]);
+
+  useEffect(() => {
+    if (!personnelDdOpen) return;
+    const place = () => {
+      const el = personnelDdTriggerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setPersonnelDdPos({
+        top: r.bottom + 4,
+        left: r.left,
+        width: Math.max(r.width, 260),
+      });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [personnelDdOpen]);
+
+  useEffect(() => {
+    if (!personnelDdOpen) return;
+    const onDown = (e) => {
+      const t = e.target;
+      if (
+        personnelDdTriggerRef.current?.contains(t) ||
+        personnelDdPanelRef.current?.contains(t)
+      ) {
+        return;
+      }
+      setPersonnelDdOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setPersonnelDdOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [personnelDdOpen]);
+
+  const commitPersonnelSelection = useCallback((nextAll, nextSel) => {
+    setNameAll(nextAll);
+    setNameSel(nextSel);
+    setNameAllApplied(nextAll);
+    setNameSelApplied([...nextSel]);
+  }, []);
 
   const shouldComputeMainFormulas = activeTab === 'sau-huy' || activeTab === 'chot';
 
@@ -625,86 +823,137 @@ export default function NhanSuSaleLumiMoiView({
             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </label>
 
-          {showPersonnelNameFilter && personnelNameFilterOptions.length > 0 && (
+          <button
+            type="button"
+            className="nssl-load-data-btn"
+            onClick={handleLoadReportData}
+            disabled={loading || !startDate || !endDate}
+            title={
+              !startDate || !endDate
+                ? 'Chọn đủ Từ ngày và Đến ngày'
+                : 'Tải lại từ máy chủ theo khoảng ngày và áp dụng lọc Tên Sale (nếu có)'
+            }
+          >
+            {loading ? 'Đang tải…' : 'Tải dữ liệu'}
+          </button>
+
+          {showPersonnelNameFilter && (
             <>
               <h3>Tên Sale</h3>
               <p className="nssl-filter-hint">
                 {allowedPersonnelNames?.length
-                  ? 'Danh sách theo selected_personnel trên tài khoản.'
+                  ? 'Theo selected_personnel — chỉ hiện người có dòng báo cáo trong khoảng ngày đã tải (tránh mục “ảo” không có trong sales_reports).'
                   : 'Danh sách theo tên có trong báo cáo (quyền xem tất cả).'}
               </p>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={nameAll}
-                  onChange={() => {
-                    if (nameAll) {
-                      setNameAll(false);
-                      setNameSel([...personnelNameFilterOptions]);
-                    } else {
-                      setNameAll(true);
-                      setNameSel([]);
-                    }
-                  }}
-                />{' '}
-                Tất cả
-              </label>
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  type="text"
-                  value={nameSearchInput}
-                  onChange={(e) => setNameSearchInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      setNameSearchApplied(nameSearchInput);
-                      setNameAllApplied(nameAll);
-                      setNameSelApplied([...nameSel]);
-                    }
-                  }}
-                  className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
-                  placeholder="Nhập Tên Sale..."
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNameSearchApplied(nameSearchInput);
-                    setNameAllApplied(nameAll);
-                    setNameSelApplied([...nameSel]);
-                  }}
-                  className="px-3 py-1 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  Tìm
-                </button>
-              </div>
-              <div className="indent">
-                {filteredPersonnelNameOptions.map((val) => (
-                  <label key={val}>
-                    <input
-                      type="checkbox"
-                      checked={nameAll || nameSel.includes(val)}
-                      onChange={() => {
-                        if (nameAll) {
-                          setNameAll(false);
-                          setNameSel([val]);
-                          return;
-                        }
-                        const next = nameSel.includes(val)
-                          ? nameSel.filter((x) => x !== val)
-                          : [...nameSel, val];
-                        setNameSel(next);
-                        if (next.length === personnelNameFilterOptions.length) {
-                          setNameAll(true);
-                          setNameSel([]);
-                        }
-                      }}
-                    />{' '}
-                    {val}
-                  </label>
-                ))}
-                {filteredPersonnelNameOptions.length === 0 && (
-                  <div className="text-xs text-gray-500 italic">Không có tên phù hợp</div>
-                )}
-              </div>
+              {personnelNameFilterOptions.length === 0 ? (
+                <p className="nssl-filter-hint" style={{ marginTop: 0 }}>
+                  Không có nhân sự nào trong phạm vi có dữ liệu báo cáo cho khoảng ngày này. Thử mở rộng ngày hoặc bấm «Tải dữ liệu».
+                </p>
+              ) : (
+                <div className="nssl-personnel-dd-wrap">
+                  <button
+                    type="button"
+                    ref={personnelDdTriggerRef}
+                    className="nssl-personnel-dd-trigger"
+                    onClick={() => setPersonnelDdOpen((o) => !o)}
+                    title={personnelDdSummary}
+                  >
+                    <span className="nssl-personnel-dd-trigger-text">{personnelDdSummary}</span>
+                    <span className="nssl-personnel-dd-chevron" aria-hidden>
+                      {personnelDdOpen ? '▲' : '▼'}
+                    </span>
+                  </button>
+                  {personnelDdOpen &&
+                    createPortal(
+                      <div
+                        ref={personnelDdPanelRef}
+                        className="nssl-personnel-dd-panel"
+                        style={{
+                          position: 'fixed',
+                          top: personnelDdPos.top,
+                          left: personnelDdPos.left,
+                          width: personnelDdPos.width,
+                        }}
+                        role="listbox"
+                        aria-multiselectable="true"
+                      >
+                        <div className="nssl-personnel-dd-search">
+                          <input
+                            type="text"
+                            value={nameSearchInput}
+                            onChange={(e) => setNameSearchInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') setPersonnelDdOpen(false);
+                            }}
+                            className="nssl-personnel-dd-search-input"
+                            placeholder="Tìm tên Sale…"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="nssl-personnel-dd-scroll">
+                          <label className="nssl-personnel-dd-row nssl-personnel-dd-row-master">
+                            <input
+                              type="checkbox"
+                              checked={nameAll}
+                              onChange={() => {
+                                if (nameAll) {
+                                  commitPersonnelSelection(false, []);
+                                } else {
+                                  commitPersonnelSelection(true, []);
+                                }
+                              }}
+                            />
+                            <span>Tất cả</span>
+                          </label>
+                          {filteredPersonnelNameOptions.map((val) => {
+                            const showLabel = formatSaleDisplayName(val);
+                            const hint = showLabel !== val ? val : undefined;
+                            return (
+                              <label
+                                key={val}
+                                className="nssl-personnel-dd-row"
+                                title={hint ? `Trên báo cáo (DB): ${val}` : undefined}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={nameAll || nameSel.includes(val)}
+                                  onChange={() => {
+                                    if (nameAll) {
+                                      commitPersonnelSelection(false, [val]);
+                                      return;
+                                    }
+                                    const next = nameSel.includes(val)
+                                      ? nameSel.filter((x) => x !== val)
+                                      : [...nameSel, val];
+                                    if (next.length === personnelNameFilterOptions.length) {
+                                      commitPersonnelSelection(true, []);
+                                    } else {
+                                      commitPersonnelSelection(false, next);
+                                    }
+                                  }}
+                                />
+                                <span>{showLabel}</span>
+                              </label>
+                            );
+                          })}
+                          {filteredPersonnelNameOptions.length === 0 && (
+                            <div className="nssl-personnel-dd-empty">Không có tên phù hợp</div>
+                          )}
+                        </div>
+                        <div className="nssl-personnel-dd-footer">
+                          <button
+                            type="button"
+                            className="nssl-personnel-dd-done"
+                            onClick={() => setPersonnelDdOpen(false)}
+                          >
+                            Xong
+                          </button>
+                        </div>
+                      </div>,
+                      document.body
+                    )}
+                </div>
+              )}
             </>
           )}
 
@@ -1003,7 +1252,12 @@ restrictedForPopulate,
                       >
                         <td className="text-center">{index + 1}</td>
                         <td className="text-left">{item.team}</td>
-                        <td className="text-left">{item.name}</td>
+                        <td
+                          className="text-left"
+                          title={formatSaleDisplayName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
+                        >
+                          {formatSaleDisplayName(item.name)}
+                        </td>
                         <td>{formatNumber(soDonHuy)}</td>
                         <td>{formatNumber(soDonTT)}</td>
                         <td>{formatNumber(soDonSauHuy)}</td>
@@ -1017,7 +1271,9 @@ restrictedForPopulate,
                 </tbody>
               </table>
             </div>
-            {activeTab === 'sau-huy' && <DailyBreakdownSauHuy filteredData={deferredFilteredDeduped} />}
+            {activeTab === 'sau-huy' && (
+              <DailyBreakdownSauHuy filteredData={deferredFilteredDeduped} formatSaleName={formatSaleDisplayName} />
+            )}
           </div>
 
           <div id="tab-chot" className={`tab-content ${activeTab === 'chot' ? 'active' : ''}`}>
@@ -1063,7 +1319,12 @@ restrictedForPopulate,
                       >
                         <td className="text-center">{index + 1}</td>
                         <td className="text-left">{item.team}</td>
-                        <td className="text-left">{item.name}</td>
+                        <td
+                          className="text-left"
+                          title={formatSaleDisplayName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
+                        >
+                          {formatSaleDisplayName(item.name)}
+                        </td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
                         <td>{formatNumber(item.don)}</td>
@@ -1077,7 +1338,9 @@ restrictedForPopulate,
                 </tbody>
               </table>
             </div>
-            {activeTab === 'chot' && <DailyBreakdownChot filteredData={deferredFilteredDeduped} />}
+            {activeTab === 'chot' && (
+              <DailyBreakdownChot filteredData={deferredFilteredDeduped} formatSaleName={formatSaleDisplayName} />
+            )}
           </div>
 
           <div id="tab-kpi-sale" className={`tab-content ${activeTab === 'kpi-sale' ? 'active' : ''}`}>
@@ -1101,7 +1364,7 @@ restrictedForPopulate,
   );
 }
 
-function DailyBreakdownSauHuy({ filteredData }) {
+function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t }) {
   if (!filteredData.length) {
     return (
       <div className="daily-breakdown">
@@ -1171,7 +1434,12 @@ function DailyBreakdownSauHuy({ filteredData }) {
                       <tr key={`${date}-${item.name}`} style={{ '--row-index': index }}>
                         <td className="text-center">{index + 1}</td>
                         <td className="text-left">{item.team}</td>
-                        <td className="text-left">{item.name}</td>
+                        <td
+                          className="text-left"
+                          title={formatSaleName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
+                        >
+                          {formatSaleName(item.name)}
+                        </td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
                         <td>{formatNumber(item.soDonThucTe)}</td>
@@ -1192,7 +1460,7 @@ function DailyBreakdownSauHuy({ filteredData }) {
   );
 }
 
-function DailyBreakdownChot({ filteredData }) {
+function DailyBreakdownChot({ filteredData, formatSaleName = (t) => t }) {
   if (!filteredData.length) {
     return (
       <div className="daily-breakdown">
@@ -1258,7 +1526,12 @@ function DailyBreakdownChot({ filteredData }) {
                       <tr key={`${date}-${item.name}`} style={{ '--row-index': index }}>
                         <td className="text-center">{index + 1}</td>
                         <td className="text-left">{item.team}</td>
-                        <td className="text-left">{item.name}</td>
+                        <td
+                          className="text-left"
+                          title={formatSaleName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
+                        >
+                          {formatSaleName(item.name)}
+                        </td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
                         <td>{formatNumber(item.don)}</td>

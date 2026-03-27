@@ -276,6 +276,181 @@
   font-size: 0.95em;
 }
 
+.nssl-root .sidebar .nssl-load-data-btn {
+  display: block;
+  width: 100%;
+  margin: 8px 0 16px;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95em;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--primary-color);
+  color: #fff;
+  font-family: var(--font-main);
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.nssl-root .sidebar .nssl-load-data-btn:hover:not(:disabled) {
+  background: var(--primary-dark);
+}
+
+.nssl-root .sidebar .nssl-load-data-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Lọc Tên Sale — dropdown (panel render ra document.body) */
+.nssl-root .sidebar .nssl-personnel-dd-wrap {
+  margin: 8px 0 16px;
+}
+
+.nssl-root .sidebar .nssl-personnel-dd-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--text-dark);
+  cursor: pointer;
+  font-family: var(--font-main);
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nssl-root .sidebar .nssl-personnel-dd-trigger:hover {
+  border-color: var(--primary-light);
+  box-shadow: 0 1px 4px rgba(74, 110, 35, 0.12);
+}
+
+.nssl-root .sidebar .nssl-personnel-dd-trigger-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nssl-root .sidebar .nssl-personnel-dd-chevron {
+  flex-shrink: 0;
+  font-size: 0.7em;
+  color: var(--text-light);
+}
+
+.nssl-personnel-dd-panel {
+  --dd-border: #e0e0e0;
+  --dd-text: #333;
+  --dd-muted: #777;
+  --dd-bg-soft: #f8f9fa;
+  --dd-primary: #4a6e23;
+  --dd-primary-dark: #2e4617;
+  z-index: 10050;
+  background: #fff;
+  border: 1px solid var(--dd-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  max-height: min(340px, calc(100vh - 24px));
+  display: flex;
+  flex-direction: column;
+  font-family: 'Roboto', Arial, sans-serif;
+}
+
+.nssl-personnel-dd-search {
+  padding: 8px;
+  border-bottom: 1px solid var(--dd-border);
+}
+
+.nssl-personnel-dd-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--dd-border);
+  border-radius: 6px;
+  font-size: 0.9em;
+  font-family: inherit;
+}
+
+.nssl-personnel-dd-search-input:focus {
+  outline: none;
+  border-color: var(--dd-primary);
+  box-shadow: 0 0 0 2px rgba(74, 110, 35, 0.2);
+}
+
+.nssl-personnel-dd-scroll {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: 240px;
+}
+
+.nssl-personnel-dd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin: 0;
+  cursor: pointer;
+  font-size: 0.92em;
+  color: var(--dd-text);
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.nssl-personnel-dd-row:last-of-type {
+  border-bottom: none;
+}
+
+.nssl-personnel-dd-row:hover {
+  background: var(--bg-light);
+}
+
+.nssl-personnel-dd-row-master {
+  font-weight: 700;
+  background: #fafafa;
+}
+
+.nssl-personnel-dd-row input[type='checkbox'] {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.nssl-personnel-dd-empty {
+  padding: 12px;
+  font-size: 0.85em;
+  color: var(--dd-muted);
+  font-style: italic;
+}
+
+.nssl-personnel-dd-footer {
+  padding: 8px;
+  border-top: 1px solid var(--dd-border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nssl-personnel-dd-done {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--dd-primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85em;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.nssl-personnel-dd-done:hover {
+  background: var(--dd-primary-dark);
+}
+
 .nssl-root .sidebar input[type='checkbox'] {
   margin-right: 8px;
   transform: scale(1.1);
