@@ -2829,10 +2829,49 @@ function VanDon() {
       </div>
 
       {/* Main: không overflow-hidden — để dropdown bộ lọc (MultiSelect) không bị cắt; cuộn chỉ ở vùng bảng bên dưới */}
-      <div className="flex-1 min-h-0 flex flex-col p-2 space-y-2 bg-[#f4f7fa] overflow-x-hidden">
+      <div className="flex-1 min-h-0 flex flex-col p-2 space-y-2 bg-[#f4f7fa] min-w-0">
 
-        {/* Toolbar: hàng 1 = lọc; hàng 2 = thao tác + tổng tiền (tránh flex-wrap + ml-auto lệch dòng) */}
-        <div className="relative z-20 bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2 flex flex-col gap-2 flex-shrink-0">
+        {/* Toolbar: hàng 0 = số dòng/trang; hàng 1 = lọc; hàng 2 = thao tác + tổng tiền */}
+        <div className="relative z-20 bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2 flex flex-col gap-2 flex-shrink-0 overflow-x-hidden min-w-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2 border-b border-gray-100">
+            <span className="text-xs font-black text-[#F37021] uppercase tracking-tight whitespace-nowrap">Số dòng / trang</span>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 bg-orange-50/90 px-2.5 py-1.5 rounded-lg border border-orange-100 min-w-0">
+              <label className="text-xs font-bold text-gray-600 whitespace-nowrap">Hiển thị:</label>
+              <select
+                className="border-none bg-transparent text-xs font-black text-[#F37021] focus:ring-0 p-0 cursor-pointer max-w-[120px]"
+                value={rowsPerPage}
+                onChange={(e) => {
+                  const value = clampRowsPerPage(Number(e.target.value));
+                  setRowsPerPage(value);
+                  setCurrentPage(1);
+                }}
+              >
+                <option value="50">50 dòng</option>
+                <option value="100">100 dòng</option>
+                <option value="200">200 dòng</option>
+                <option value="500">500 dòng</option>
+              </select>
+              <span className="text-xs text-gray-400">|</span>
+              <input
+                type="number"
+                min="50"
+                max="500"
+                value={rowsPerPage}
+                onChange={(e) => {
+                  const value = clampRowsPerPage(Number(e.target.value));
+                  setRowsPerPage(value);
+                  setCurrentPage(1);
+                }}
+                onBlur={(e) => {
+                  setRowsPerPage(clampRowsPerPage(Number(e.target.value)));
+                }}
+                className="w-16 text-xs font-bold text-[#F37021] border border-orange-200 rounded px-1 py-0.5 bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Tùy chỉnh"
+                title="50–500 dòng mỗi trang"
+              />
+              <span className="text-xs text-gray-500">dòng/trang (max 500)</span>
+            </div>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
           {/* Date Filter */}
           <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
@@ -3315,68 +3354,28 @@ function VanDon() {
             </div>
           )}
         </div>
-        {/* Pagination Footer - Also compact */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2 flex-shrink-0">
-          <div className="flex justify-between items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Trang</span>
-              <div className="flex items-center bg-gray-100 rounded-lg p-1 border border-gray-200">
-                <button
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage(p => p - 1)}
-                  className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-50 text-gray-700 rounded shadow-sm disabled:opacity-30 disabled:shadow-none transition-all"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="text-xs font-bold text-gray-700 px-3 bg-white mx-1 py-1 rounded border border-gray-200 min-w-[60px] text-center shadow-inner">
-                  {currentPage} <span className="font-normal text-gray-400">/</span> {totalPages || 1}
-                </span>
-                <button
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage(p => p + 1)}
-                  className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-50 text-gray-700 rounded shadow-sm disabled:opacity-30 disabled:shadow-none transition-all"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 bg-gray-50 px-2 py-1 rounded border border-gray-100">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-tighter">Hiển thị:</label>
-                <select
-                  className="border-none bg-transparent text-xs font-black text-[#F37021] focus:ring-0 p-0 cursor-pointer"
-                  value={rowsPerPage}
-                  onChange={e => {
-                    const value = clampRowsPerPage(Number(e.target.value));
-                    setRowsPerPage(value);
-                    setCurrentPage(1);
-                  }}
-                >
-                  <option value="50">50 dòng</option>
-                  <option value="100">100 dòng</option>
-                  <option value="200">200 dòng</option>
-                  <option value="500">500 dòng</option>
-                </select>
-                <span className="text-xs text-gray-400">|</span>
-                <input
-                  type="number"
-                  min="50"
-                  max="500"
-                  value={rowsPerPage}
-                  onChange={e => {
-                    const value = clampRowsPerPage(Number(e.target.value));
-                    setRowsPerPage(value);
-                    setCurrentPage(1);
-                  }}
-                  onBlur={e => {
-                    setRowsPerPage(clampRowsPerPage(Number(e.target.value)));
-                  }}
-                  className="w-16 text-xs font-bold text-[#F37021] border border-gray-300 rounded px-1 py-0.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Tùy chỉnh"
-                />
-                <span className="text-xs text-gray-400">dòng/trang</span>
-              </div>
+        {/* Pagination Footer — chỉ chuyển trang (số dòng/trang đã chuyển lên đầu toolbar) */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 sm:px-4 py-2 flex-shrink-0 w-full min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Trang</span>
+            <div className="flex items-center bg-gray-100 rounded-lg p-1 border border-gray-200">
+              <button
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage(p => p - 1)}
+                className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-50 text-gray-700 rounded shadow-sm disabled:opacity-30 disabled:shadow-none transition-all"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-bold text-gray-700 px-3 bg-white mx-1 py-1 rounded border border-gray-200 min-w-[60px] text-center shadow-inner">
+                {currentPage} <span className="font-normal text-gray-400">/</span> {totalPages || 1}
+              </span>
+              <button
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(p => p + 1)}
+                className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-50 text-gray-700 rounded shadow-sm disabled:opacity-30 disabled:shadow-none transition-all"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>

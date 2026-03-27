@@ -473,7 +473,7 @@ export async function recalcMktSoDonThucTeFromOrders({
     'Giữa ca': new Map(),
   };
 
-  // B2: Số đơn thực tế = count mọi đơn khớp key; Doanh số TT = tổng VND mọi đơn (không loại Hủy); đơn/DS hủy chỉ khi Check = Hủy
+  // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy). Ghi Số đơn thực tế & Doanh số TT = tổng − phần hủy.
   for (const order of orders || []) {
     const groups = orderShiftToGroups(order.shift);
     if (!groups.length) continue;
@@ -547,10 +547,12 @@ export async function recalcMktSoDonThucTeFromOrders({
     const key = buildKey(r['Ngày'], r['Tên'], r['Sản_phẩm'], r['Thị_trường']);
     const primaryGroup = gs.length === 2 ? 'Hết ca' : gs[0];
     const agg = countsByGroup[primaryGroup]?.get(key);
-    const count = agg?.count || 0;
+    const grossCount = agg?.count || 0;
     const soDonHoanHuyTT = agg?.cancelCount ?? 0;
     const dsHoanHuyTT = agg?.cancelRevenueVnd ?? 0;
-    const doanhSoTT = agg?.totalRevenueVnd ?? 0;
+    const grossDoanhSoTT = agg?.totalRevenueVnd ?? 0;
+    const count = Math.max(0, grossCount - soDonHoanHuyTT);
+    const doanhSoTT = Math.max(0, grossDoanhSoTT - dsHoanHuyTT);
 
     if (!r.id) continue;
     const resolved = resolveUserTeamEmail(r['Tên'], r['Email'], usersLookup);
@@ -618,6 +620,10 @@ export async function recalcMktSoDonThucTeFromOrders({
         const hrTeam = teamFromNameHr(canonicalName, hrEmailLookup);
         const resolvedTeam = resolved.team || hrTeam || entry.sample.team || 'MKT';
 
+        const cc = entry.cancelCount ?? 0;
+        const crv = entry.cancelRevenueVnd ?? 0;
+        const netSoDon = Math.max(0, (entry.count ?? 0) - cc);
+        const netDoanhSoTT = Math.max(0, (entry.totalRevenueVnd ?? 0) - crv);
         const row = {
           id: makeId(),
           'Tên': canonicalName,
@@ -627,10 +633,10 @@ export async function recalcMktSoDonThucTeFromOrders({
           'Sản_phẩm': entry.sample.product,
           'Thị_trường': entry.sample.market,
           'Team': resolvedTeam,
-          'Số đơn thực tế': entry.count,
-          'Doanh số TT': entry.totalRevenueVnd ?? 0,
-          'Số đơn hoàn hủy thực tế': entry.cancelCount ?? 0,
-          'Doanh số hoàn hủy thực tế': entry.cancelRevenueVnd ?? 0,
+          'Số đơn thực tế': netSoDon,
+          'Doanh số TT': netDoanhSoTT,
+          'Số đơn hoàn hủy thực tế': cc,
+          'Doanh số hoàn hủy thực tế': crv,
         };
         createRows.push(row);
 
@@ -714,7 +720,7 @@ export async function recalcMktSoDonThucTeFromOrders({
 }
 
 /**
- * Sau khi Lưu / Cập nhật đơn (nhap-don): tính lại Số đơn thực tế, Doanh số TT (tổng VND mọi đơn khớp key), đơn/DS hoàn hủy thực tế (chỉ đơn Check = Hủy).
+ * Sau khi Lưu / Cập nhật đơn (nhap-don): tính lại Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế (chỉ đơn Check = Hủy).
  *
  * @param {string} newOrderDate - Ngày đơn sau lưu (YYYY-MM-DD hoặc string DB)
  * @param {string} [previousOrderDate] - Khi sửa đơn: ngày đơn trước khi đổi (để tính lại cả ngày cũ)
