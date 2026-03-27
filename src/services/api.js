@@ -367,13 +367,15 @@ const ffmOrderPassesFilter = (row) => {
     const hasTracking = tracking.length > 0;
     const checkResult = String(row.check_result || '').trim();
     const isCheckOK = checkResult.toUpperCase() === 'OK';
-    const hasMgt = String(row.shipping_unit || '').toLowerCase().includes('mgt');
+    const shippingUnit = String(row.shipping_unit || '').toLowerCase();
+    const hasValidCarrier = shippingUnit.includes('mgt') || shippingUnit.includes('t&t') || shippingUnit.includes('t&t');
+    
     if (hasTracking) return true;
-    return hasMgt && isCheckOK;
+    return hasValidCarrier && isCheckOK;
 };
 
 /**
- * Một lô FFM: song song MGT + có tracking, gộp theo order_code, lọc, map app.
+ * Một lô FFM: song song MGT/T&T + có tracking, gộp theo order_code, lọc, map app.
  * Dùng incremental: gọi lần lượt với nextMgtFrom / nextTrackedFrom cho đến khi cả hai exhausted.
  */
 export const fetchFFMOrdersBatch = async ({
@@ -413,7 +415,7 @@ export const fetchFFMOrdersBatch = async ({
         : supabase
               .from('orders')
               .select('*')
-              .ilike('shipping_unit', '%MGT%')
+              .or('shipping_unit.ilike.%MGT%,shipping_unit.ilike.%T&T%')
               .order('order_date', { ascending: false })
               .range(mgtFrom, mgtFrom + pageSize - 1);
 
@@ -821,5 +823,44 @@ export const fetchGoogleSheetData = async () => {
     } catch (error) {
         console.error('fetchGoogleSheetData error:', error);
         return [];
+    }
+};
+/** Ghi log chuẩn bị đẩy FFM */
+export const createFfmPushLogs = async (orderIds, carrier, pushedBy) => {
+    try {
+        const batchId = crypto.randomUUID();
+        const rows = orderIds.map(id => ({
+            order_code: id,
+            carrier: carrier,
+            pushed_by: pushedBy,
+            batch_id: batchId,
+            status: 'pending'
+        }));
+        
+        const { data, error } = await supabase
+            .from('ffm_push_logs')
+            .insert(rows)
+            .select();
+            
+        if (error) throw error;
+        return { batchId, logs: data };
+    } catch (err) {
+        console.error('Error creating FfmPushLogs:', err);
+        throw err;
+    }
+};
+
+/** Cập nhật trạng thái log sau xác nhận */
+export const updateFfmPushLogStatus = async (batchId, status) => {
+    try {
+        const { error } = await supabase
+            .from('ffm_push_logs')
+            .update({ status })
+            .eq('batch_id', batchId);
+            
+        if (error) throw error;
+    } catch (err) {
+        console.error('Error updating FfmPushLogStatus:', err);
+        throw err;
     }
 };

@@ -57,7 +57,7 @@ const SyncPopover = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-[1050] flex justify-center items-center p-4" onClick={onClose}>
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-[20000] flex justify-center items-center p-4" onClick={onClose}>
             <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center p-4 border-b border-gray-200">
                     <h4 className="text-lg font-bold text-gray-800">Quản lý các thay đổi đang chờ</h4>
