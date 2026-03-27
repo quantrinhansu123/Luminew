@@ -8,6 +8,7 @@ import * as API from '../services/api';
 import * as rbacService from '../services/rbacService';
 import '../styles/selection.css';
 import { supabase } from '../supabase/config';
+import { Pagination } from '../components/shared/Pagination';
 
 import {
   BILL_LADING_COLUMNS, COLUMN_MAPPING,
@@ -226,7 +227,7 @@ function VanDon() {
   useEffect(() => {
     // Only load data on mount, subsequent loads handled by filter/pagination useEffect
     const storedChanges = localStorage.getItem('speegoPendingChanges');
-        if (storedChanges) {
+    if (storedChanges) {
       try {
         const parsed = JSON.parse(storedChanges);
         const map = new Map();
@@ -1590,17 +1591,17 @@ function VanDon() {
       if (filterValues.market && Array.isArray(filterValues.market) && filterValues.market.length > 0) {
         const set = new Set(filterValues.market);
         data = data.filter(row => {
-            const market = String(row["Khu vực"] || row["khu vực"] || '').trim();
-            if ((set.has('Trống') || set.has('__EMPTY__')) && !market) return true;
-            return market && set.has(market);
+          const market = String(row["Khu vực"] || row["khu vực"] || '').trim();
+          if ((set.has('Trống') || set.has('__EMPTY__')) && !market) return true;
+          return market && set.has(market);
         });
       }
       if (filterValues.product && Array.isArray(filterValues.product) && filterValues.product.length > 0) {
         const set = new Set(filterValues.product);
         data = data.filter(row => {
-            const product = String(row["Mặt hàng"] || '').trim();
-            if ((set.has('Trống') || set.has('__EMPTY__')) && !product) return true;
-            return product && set.has(product);
+          const product = String(row["Mặt hàng"] || '').trim();
+          if ((set.has('Trống') || set.has('__EMPTY__')) && !product) return true;
+          return product && set.has(product);
         });
       }
       if (filterValues.nv_sale && Array.isArray(filterValues.nv_sale) && filterValues.nv_sale.length > 0) {
@@ -2219,10 +2220,10 @@ function VanDon() {
         const activeEl = document.activeElement;
         const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
         const isSingleCell = bounds.minRow === bounds.maxRow && bounds.minCol === bounds.maxCol;
-        
+
         // If user manually selected a PART of the text, let browser handle it naturally
-        if (isInput && isSingleCell && activeEl.selectionStart !== activeEl.selectionEnd && 
-            (activeEl.selectionEnd - activeEl.selectionStart) < activeEl.value.length) {
+        if (isInput && isSingleCell && activeEl.selectionStart !== activeEl.selectionEnd &&
+          (activeEl.selectionEnd - activeEl.selectionStart) < activeEl.value.length) {
           return;
         }
 
@@ -2753,10 +2754,10 @@ function VanDon() {
 
   /* End Component Logic */
   return (
-    <div className="bg-gray-50 flex flex-col h-[100dvh] min-h-0 overflow-hidden">
+    <div className="bg-gray-50 flex flex-col h-[calc(100vh-64px)] min-h-0 overflow-hidden">
       {/* Header Bar - Now including Tabs and Main Actions */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0">
-        <div className="max-w-full mx-auto px-4 py-2">
+        <div className="max-w-full mx-auto px-4 py-1">
           <div className="flex items-center justify-between gap-4">
             {/* Left: Logo & Title (Smaller) */}
             <div className="flex items-center gap-3">
@@ -2788,7 +2789,7 @@ function VanDon() {
               }).map(tab => (
                 <button
                   key={tab.id}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${bolActiveTab === tab.id
+                  className={`px-4 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${bolActiveTab === tab.id
                     ? 'bg-white text-[#F37021] shadow-sm'
                     : 'text-gray-600 hover:bg-white/50 hover:text-[#F37021]'
                     }`}
@@ -2829,10 +2830,10 @@ function VanDon() {
       </div>
 
       {/* Main: không overflow-hidden — để dropdown bộ lọc (MultiSelect) không bị cắt; cuộn chỉ ở vùng bảng bên dưới */}
-      <div className="flex-1 min-h-0 flex flex-col p-2 space-y-2 bg-[#f4f7fa] min-w-0">
+      <div className="flex-1 min-h-0 grid grid-rows-[auto,1fr,auto] gap-1 p-1 bg-[#f4f7fa] min-w-0 overflow-hidden">
 
         {/* Toolbar: hàng 0 = số dòng/trang; hàng 1 = lọc; hàng 2 = thao tác + tổng tiền */}
-        <div className="relative z-20 bg-white rounded-lg shadow-sm border border-gray-200 px-3 py-2 flex flex-col gap-2 flex-shrink-0 overflow-x-hidden min-w-0">
+        <div className="relative z-20 bg-white rounded-lg shadow-sm border border-gray-200 px-2 py-1 flex flex-col gap-1 overflow-x-hidden min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2 border-b border-gray-100">
             <span className="text-xs font-black text-[#F37021] uppercase tracking-tight whitespace-nowrap">Số dòng / trang</span>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 bg-orange-50/90 px-2.5 py-1.5 rounded-lg border border-orange-100 min-w-0">
@@ -2873,259 +2874,259 @@ function VanDon() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-          {/* Date Filter */}
-          <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📅 Lọc thời gian:</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={dateFrom || ''}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Từ ngày"
-              />
-              <span className="text-xs text-gray-500 font-bold">→</span>
-              <input
-                type="date"
-                value={dateTo || ''}
-                onChange={(e) => {
-                  setDateTo(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Đến ngày"
-              />
-              <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+            {/* Date Filter */}
+            <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">
+              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📅 Lọc thời gian:</label>
+              <div className="flex items-center gap-2">
                 <input
-                  type="checkbox"
-                  checked={enableDateFilter}
+                  type="date"
+                  value={dateFrom || ''}
                   onChange={(e) => {
-                    setEnableDateFilter(e.target.checked);
+                    setDateFrom(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-3 h-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Từ ngày"
                 />
-                <span>Áp dụng</span>
-              </label>
+                <span className="text-xs text-gray-500 font-bold">→</span>
+                <input
+                  type="date"
+                  value={dateTo || ''}
+                  onChange={(e) => {
+                    setDateTo(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Đến ngày"
+                />
+                <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enableDateFilter}
+                    onChange={(e) => {
+                      setEnableDateFilter(e.target.checked);
+                      setCurrentPage(1);
+                    }}
+                    className="w-3 h-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span>Áp dụng</span>
+                </label>
+              </div>
             </div>
-          </div>
 
-          {/* Market & Product Filters */}
-          <div className="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🌍 Thị trường:</label>
-            <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
-            <MultiSelect
-              label="Chọn thị trường..."
-                options={getFilterMultiSelectOptions('Khu vực')}
-                selected={filterValues.market || []}
-                onChange={(vals) => {
-                  setFilterValues(prev => ({ ...prev, market: vals }));
-                  setCurrentPage(1);
-                }}
-              />
+            {/* Market & Product Filters */}
+            <div className="flex items-center gap-1 bg-purple-50 px-2 py-1 rounded-lg border border-purple-200">
+              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🌍 Thị trường:</label>
+              <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
+                <MultiSelect
+                  label="Chọn thị trường..."
+                  options={getFilterMultiSelectOptions('Khu vực')}
+                  selected={filterValues.market || []}
+                  onChange={(vals) => {
+                    setFilterValues(prev => ({ ...prev, market: vals }));
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📦 Sản phẩm:</label>
-            <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
-            <MultiSelect
-              label="Chọn sản phẩm..."
-                options={getFilterMultiSelectOptions('Mặt hàng')}
-                selected={filterValues.product || []}
-                onChange={(vals) => {
-                  setFilterValues(prev => ({ ...prev, product: vals }));
-                  setCurrentPage(1);
-                }}
-              />
+            <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded-lg border border-green-200">
+              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📦 Sản phẩm:</label>
+              <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
+                <MultiSelect
+                  label="Chọn sản phẩm..."
+                  options={getFilterMultiSelectOptions('Mặt hàng')}
+                  selected={filterValues.product || []}
+                  onChange={(vals) => {
+                    setFilterValues(prev => ({ ...prev, product: vals }));
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">👤 NV Sale:</label>
-            <div className="relative" style={{ minWidth: '160px', zIndex: 1001 }}>
-              <MultiSelect
-                label="Chọn NV Sale..."
-                options={getFilterMultiSelectOptions('Nhân viên Sale')}
-                selected={filterValues.nv_sale || []}
-                onChange={(vals) => {
-                  setFilterValues((prev) => ({ ...prev, nv_sale: vals }));
-                  setCurrentPage(1);
-                }}
-              />
+            <div className="flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200">
+              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">👤 NV Sale:</label>
+              <div className="relative" style={{ minWidth: '160px', zIndex: 1001 }}>
+                <MultiSelect
+                  label="Chọn NV Sale..."
+                  options={getFilterMultiSelectOptions('Nhân viên Sale')}
+                  selected={filterValues.nv_sale || []}
+                  onChange={(vals) => {
+                    setFilterValues((prev) => ({ ...prev, nv_sale: vals }));
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-200">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📣 NV MKT:</label>
-            <div className="relative" style={{ minWidth: '160px', zIndex: 1000 }}>
-              <MultiSelect
-                label="Chọn NV MKT..."
-                options={getFilterMultiSelectOptions('Nhân viên MKT')}
-                selected={filterValues.nv_mkt || []}
-                onChange={(vals) => {
-                  setFilterValues((prev) => ({ ...prev, nv_mkt: vals }));
-                  setCurrentPage(1);
-                }}
-              />
+            <div className="flex items-center gap-1 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200"> {/* Changed py-1 to py-0.5 */}
+              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📣 NV MKT:</label>
+              <div className="relative" style={{ minWidth: '160px', zIndex: 1000 }}>
+                <MultiSelect
+                  label="Chọn NV MKT..."
+                  options={getFilterMultiSelectOptions('Nhân viên MKT')}
+                  selected={filterValues.nv_mkt || []}
+                  onChange={(vals) => {
+                    setFilterValues((prev) => ({ ...prev, nv_mkt: vals }));
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-200">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🚚 NV Vận đơn:</label>
-            <div className="relative" style={{ minWidth: '160px', zIndex: 999 }}>
-              <MultiSelect
-                label="Chọn NV Vận đơn..."
-                options={getFilterMultiSelectOptions('NV Vận đơn')}
-                selected={filterValues.nv_van_don || []}
-                onChange={(vals) => {
-                  setFilterValues((prev) => ({ ...prev, nv_van_don: vals }));
-                  setCurrentPage(1);
-                }}
-              />
+            <div className="flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-200">
+              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🚚 NV Vận đơn:</label>
+              <div className="relative" style={{ minWidth: '160px', zIndex: 999 }}>
+                <MultiSelect
+                  label="Chọn NV Vận đơn..."
+                  options={getFilterMultiSelectOptions('NV Vận đơn')}
+                  selected={filterValues.nv_van_don || []}
+                  onChange={(vals) => {
+                    setFilterValues((prev) => ({ ...prev, nv_van_don: vals }));
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 bg-cyan-50 px-3 py-1.5 rounded-lg border border-cyan-200">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🚛 ĐV Vận chuyển:</label>
-            <div className="relative" style={{ minWidth: '170px', zIndex: 998 }}>
-              <MultiSelect
-                label="Chọn đơn vị..."
-                options={getFilterMultiSelectOptions('Đơn vị vận chuyển')}
-                selected={filterValues.shipping_unit || []}
-                onChange={(vals) => {
-                  setFilterValues((prev) => ({ ...prev, shipping_unit: vals }));
-                  setCurrentPage(1);
-                }}
-              />
+            <div className="flex items-center gap-1 bg-cyan-50 px-2 py-1 rounded-lg border border-cyan-200">
+              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🚛 ĐV Vận chuyển:</label>
+              <div className="relative" style={{ minWidth: '170px', zIndex: 998 }}>
+                <MultiSelect
+                  label="Chọn đơn vị..."
+                  options={getFilterMultiSelectOptions('Đơn vị vận chuyển')}
+                  selected={filterValues.shipping_unit || []}
+                  onChange={(vals) => {
+                    setFilterValues((prev) => ({ ...prev, shipping_unit: vals }));
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
             </div>
-          </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-gray-100 pt-2">
-          {/* Toolbar Actions Group */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={refreshData}
-              className="p-1 px-2 hover:bg-red-50 text-red-600 rounded text-xs transition-colors flex items-center gap-1 group flex-shrink-0"
-              title="Xóa tất cả bộ lọc"
-            >
-              <span className="group-hover:rotate-90 transition-transform text-[10px]">✕</span>
-              <span className="font-bold">XÓA LỌC</span>
-            </button>
-            <div className="h-4 w-px bg-gray-300 mx-1"></div>
-            <button
-              onClick={() => setSyncPopoverOpen(true)}
-              className="p-1 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-bold transition-all flex items-center gap-1.5 relative border border-blue-100"
-            >
-              🔄 Trạng thái
-              {pendingChanges.size > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] px-1 rounded-full shadow-sm">
-                  {pendingChanges.size}
+            {/* Toolbar Actions Group */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={refreshData}
+                className="p-1 px-2 hover:bg-red-50 text-red-600 rounded text-xs transition-colors flex items-center gap-1 group flex-shrink-0"
+                title="Xóa tất cả bộ lọc"
+              >
+                <span className="group-hover:rotate-90 transition-transform text-[10px]">✕</span>
+                <span className="font-bold">XÓA LỌC</span>
+              </button>
+              <div className="h-4 w-px bg-gray-300 mx-1"></div>
+              <button
+                onClick={() => setSyncPopoverOpen(true)}
+                className="p-1 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-bold transition-all flex items-center gap-1.5 relative border border-blue-100"
+              >
+                🔄 Trạng thái
+                {pendingChanges.size > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] px-1 rounded-full shadow-sm">
+                    {pendingChanges.size}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={handleUpdateAll}
+                disabled={isReadonlyEditTab}
+                className="p-1 px-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Ghi các thay đổi đang chờ xuống CSDL'}
+              >
+                ✅ Xác nhận lưu
+              </button>
+
+              <button onClick={() => setShowColumnSettings(true)} className="p-1 px-2 bg-gray-600 hover:bg-gray-700 text-white rounded text-xs font-bold transition-all flex items-center gap-1">
+                ⚙️ Cài đặt cột
+              </button>
+
+              <div
+                className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100"
+                title="Cố định chỉ ảnh hưởng khi kéo ngang (freeze cột), KHÔNG khóa chỉnh sửa ô. Nhập 0 để không ghim cột dữ liệu (cột checkbox tab Hà Nội vẫn ghim riêng)."
+              >
+                Cố định (freeze):
+                <input
+                  type="number"
+                  min={Math.min(2, currentColumns.length)}
+                  max={currentColumns.length}
+                  className="w-10 border-none bg-transparent focus:ring-0 text-center font-bold text-[#F37021]"
+                  value={fixedColumns}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === '') {
+                      setFixedColumns(Math.min(2, currentColumns.length));
+                      return;
+                    }
+                    const v = Number(raw);
+                    const minFixed = Math.min(2, currentColumns.length);
+                    setFixedColumns(Number.isFinite(v) ? Math.max(minFixed, v) : minFixed);
+                  }}
+                  onBlur={() => {
+                    const minFixed = Math.min(2, currentColumns.length);
+                    setFixedColumns((p) =>
+                      Math.max(minFixed, Math.min(Math.floor(Number(p) || minFixed), currentColumns.length))
+                    );
+                  }}
+                />
+                <span className="text-[10px] opacity-70 tabular-nums">/ {currentColumns.length}</span>
+                <span className="text-[10px] text-gray-400 ml-1">vẫn sửa được</span>
+              </div>
+
+              {/* Phân FFM button - chỉ hiển thị trong tab Hà Nội */}
+              {bolActiveTab === 'hanoi' && (
+                <div className="relative" ref={phanFFMRef}>
+                  <button
+                    onClick={() => setShowPhanFFMDropdown(!showPhanFFMDropdown)}
+                    disabled={selectedRows.size === 0}
+                    className="p-1 px-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm"
+                  >
+                    📦 Phân FFM {selectedRows.size > 0 && `(${selectedRows.size})`}
+                  </button>
+                  {showPhanFFMDropdown && selectedRows.size > 0 && (
+                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50 min-w-[150px]">
+                      <button
+                        onClick={async () => {
+                          await handlePhanFFM('MGT');
+                          setShowPhanFFMDropdown(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 first:rounded-t-lg"
+                      >
+                        MGT
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await handlePhanFFM('T&T');
+                          setShowPhanFFMDropdown(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 last:rounded-b-lg"
+                      >
+                        T&T
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {isReadonlyAllTab && (
+                <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200 text-[11px] font-semibold text-gray-600">
+                  Chế độ chỉ xem - không cho sửa
                 </span>
               )}
-            </button>
-            <button
-              onClick={handleUpdateAll}
-              disabled={isReadonlyEditTab}
-              className="p-1 px-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-              title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Ghi các thay đổi đang chờ xuống CSDL'}
-            >
-              ✅ Xác nhận lưu
-            </button>
-
-            <button onClick={() => setShowColumnSettings(true)} className="p-1 px-2 bg-gray-600 hover:bg-gray-700 text-white rounded text-xs font-bold transition-all flex items-center gap-1">
-              ⚙️ Cài đặt cột
-            </button>
-
-            <div
-              className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100"
-              title="Cố định chỉ ảnh hưởng khi kéo ngang (freeze cột), KHÔNG khóa chỉnh sửa ô. Nhập 0 để không ghim cột dữ liệu (cột checkbox tab Hà Nội vẫn ghim riêng)."
-            >
-              Cố định (freeze):
-              <input
-                type="number"
-                min={Math.min(2, currentColumns.length)}
-                max={currentColumns.length}
-                className="w-10 border-none bg-transparent focus:ring-0 text-center font-bold text-[#F37021]"
-                value={fixedColumns}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === '') {
-                    setFixedColumns(Math.min(2, currentColumns.length));
-                    return;
-                  }
-                  const v = Number(raw);
-                  const minFixed = Math.min(2, currentColumns.length);
-                  setFixedColumns(Number.isFinite(v) ? Math.max(minFixed, v) : minFixed);
-                }}
-                onBlur={() => {
-                  const minFixed = Math.min(2, currentColumns.length);
-                  setFixedColumns((p) =>
-                    Math.max(minFixed, Math.min(Math.floor(Number(p) || minFixed), currentColumns.length))
-                  );
-                }}
-              />
-              <span className="text-[10px] opacity-70 tabular-nums">/ {currentColumns.length}</span>
-              <span className="text-[10px] text-gray-400 ml-1">vẫn sửa được</span>
             </div>
 
-            {/* Phân FFM button - chỉ hiển thị trong tab Hà Nội */}
-            {bolActiveTab === 'hanoi' && (
-              <div className="relative" ref={phanFFMRef}>
-                <button
-                  onClick={() => setShowPhanFFMDropdown(!showPhanFFMDropdown)}
-                  disabled={selectedRows.size === 0}
-                  className="p-1 px-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm"
-                >
-                  📦 Phân FFM {selectedRows.size > 0 && `(${selectedRows.size})`}
-                </button>
-                {showPhanFFMDropdown && selectedRows.size > 0 && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50 min-w-[150px]">
-                    <button
-                      onClick={async () => {
-                        await handlePhanFFM('MGT');
-                        setShowPhanFFMDropdown(false);
-                      }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 first:rounded-t-lg"
-                    >
-                      MGT
-                    </button>
-                    <button
-                      onClick={async () => {
-                        await handlePhanFFM('T&T');
-                        setShowPhanFFMDropdown(false);
-                      }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 last:rounded-b-lg"
-                    >
-                      T&T
-                    </button>
-                  </div>
-                )}
+            <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
+              <div className="text-right flex flex-col items-end">
+                <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
+                <span className="text-sm font-black text-emerald-600 leading-none">{totalMoney.toLocaleString('vi-VN')} ₫</span>
               </div>
-            )}
-            {isReadonlyAllTab && (
-              <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200 text-[11px] font-semibold text-gray-600">
-                Chế độ chỉ xem - không cho sửa
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
-            <div className="text-right flex flex-col items-end">
-              <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
-              <span className="text-sm font-black text-emerald-600 leading-none">{totalMoney.toLocaleString('vi-VN')} ₫</span>
             </div>
-          </div>
           </div>
         </div>
 
 
         {/* Table Area - Optimized for Height (basis-0 + min-h-0: flex-1 thực sự lấy hết chiều cao còn lại) */}
-        <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col min-h-0 basis-0">
+        <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0 max-h-[calc(100vh-250px)]">
           {loading ? (
             <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-500">Đang tải dữ liệu...</div>
           ) : paginatedData.length === 0 ? (
@@ -3141,120 +3142,120 @@ function VanDon() {
               onWheelCapture={handleTableWheel}
             >
               <div className="flex flex-row items-stretch w-max min-h-min">
-              <div
-                ref={splitLeftPaneRef}
-                className="shrink-0 border-r-2 border-gray-300 bg-white z-20 min-h-0 min-w-0 overflow-x-hidden overflow-y-hidden self-stretch"
-                style={{ overscrollBehavior: 'contain' }}
-              >
-                <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight" data-vandon-pane="left">
-                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
-                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
-                      {bolActiveTab === 'hanoi' && (
-                        <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', top: 0, left: 0, zIndex: 10100, background: '#f8f9fa' }}>
-                          <div className="flex items-center justify-center">
-                            <input
-                              type="checkbox"
-                              checked={paginatedData.length > 0 && paginatedData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
-                              onChange={(e) => {
-                                if (e.target.checked) selectAllRows();
-                                else deselectAllRows();
-                              }}
-                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                            />
-                          </div>
-                        </th>
-                      )}
-                      {frozenCols.map((col, i) =>
-                        renderVanDonFilterTh(
-                          col,
-                          i,
-                          { position: 'relative', zIndex: 10200, background: '#f8f9fa' },
-                          i === frozenCols.length - 1
-                        )
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody style={{ position: 'relative', zIndex: 0 }}>
-                    {paginatedData.map((row, rIdx) => {
-                      const orderId = row[PRIMARY_KEY_COLUMN];
-                      return (
-                        <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
-                          {bolActiveTab === 'hanoi' && (
-                            <td
-                              className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
-                              style={{
-                                position: 'sticky',
-                                top: rIdx === 0 ? firstDataRowTop : undefined,
-                                left: 0,
-                                zIndex: rIdx === 0 ? 5200 : 3300,
-                                backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb'
-                              }}
-                            >
-                              <div className="flex items-center justify-center">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedRows.has(orderId)}
-                                  onChange={() => toggleRowSelection(orderId)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                                />
-                              </div>
-                            </td>
-                          )}
-                          {frozenCols.map((col, i) => {
-                            const colWidthStyles = getColumnWidthStyles(col);
-                            const lastF = i === frozenCols.length - 1;
-                            const cellStyle = {
-                              ...colWidthStyles,
-                              position: 'relative',
-                              zIndex: 10,
-                              ...(lastF ? { boxShadow: '2px 0 0 #e5e7eb' } : {})
-                            };
-                            return renderVanDonDataCell(row, rIdx, col, i, cellStyle);
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div
-                ref={(el) => {
-                  splitRightPaneRef.current = el;
-                  horizontalScrollHostRef.current = el;
-                }}
-                className="flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-hidden self-stretch"
-                style={{ overscrollBehavior: 'contain' }}
-              >
-                <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
-                  <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
-                    <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
-                      {scrollCols.map((col, i) =>
-                        renderVanDonFilterTh(
-                          col,
-                          effectiveFixedColumns + i,
-                          { position: 'relative', zIndex: 10200 },
-                          false
-                        )
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody style={{ position: 'relative', zIndex: 0 }}>
-                    {paginatedData.map((row, rIdx) => {
-                      const orderId = row[PRIMARY_KEY_COLUMN];
-                      return (
-                        <tr key={`${orderId}-right`} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
-                          {scrollCols.map((col, i) => {
-                            const cIdx = effectiveFixedColumns + i;
-                            const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 10 };
-                            return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                <div
+                  ref={splitLeftPaneRef}
+                  className="shrink-0 border-r-2 border-gray-300 bg-white z-20 min-h-0 min-w-0 overflow-x-hidden overflow-y-hidden self-stretch"
+                  style={{ overscrollBehavior: 'contain' }}
+                >
+                  <table className="border-separate border-spacing-0 w-max text-[13px] leading-tight" data-vandon-pane="left">
+                    <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
+                      <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
+                        {bolActiveTab === 'hanoi' && (
+                          <th className="py-2 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] relative whitespace-nowrap px-2" style={{ position: 'sticky', top: 0, left: 0, zIndex: 10100, background: '#f8f9fa' }}>
+                            <div className="flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                checked={paginatedData.length > 0 && paginatedData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
+                                onChange={(e) => {
+                                  if (e.target.checked) selectAllRows();
+                                  else deselectAllRows();
+                                }}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                              />
+                            </div>
+                          </th>
+                        )}
+                        {frozenCols.map((col, i) =>
+                          renderVanDonFilterTh(
+                            col,
+                            i,
+                            { position: 'relative', zIndex: 10200, background: '#f8f9fa' },
+                            i === frozenCols.length - 1
+                          )
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody style={{ position: 'relative', zIndex: 0 }}>
+                      {paginatedData.map((row, rIdx) => {
+                        const orderId = row[PRIMARY_KEY_COLUMN];
+                        return (
+                          <tr key={orderId} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
+                            {bolActiveTab === 'hanoi' && (
+                              <td
+                                className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 bg-gray-50 sticky left-0 z-10"
+                                style={{
+                                  position: 'sticky',
+                                  top: rIdx === 0 ? firstDataRowTop : undefined,
+                                  left: 0,
+                                  zIndex: rIdx === 0 ? 5200 : 3300,
+                                  backgroundColor: selectedRows.has(orderId) ? '#dbeafe' : '#f9fafb'
+                                }}
+                              >
+                                <div className="flex items-center justify-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedRows.has(orderId)}
+                                    onChange={() => toggleRowSelection(orderId)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                  />
+                                </div>
+                              </td>
+                            )}
+                            {frozenCols.map((col, i) => {
+                              const colWidthStyles = getColumnWidthStyles(col);
+                              const lastF = i === frozenCols.length - 1;
+                              const cellStyle = {
+                                ...colWidthStyles,
+                                position: 'relative',
+                                zIndex: 10,
+                                ...(lastF ? { boxShadow: '2px 0 0 #e5e7eb' } : {})
+                              };
+                              return renderVanDonDataCell(row, rIdx, col, i, cellStyle);
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div
+                  ref={(el) => {
+                    splitRightPaneRef.current = el;
+                    horizontalScrollHostRef.current = el;
+                  }}
+                  className="flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-hidden self-stretch"
+                  style={{ overscrollBehavior: 'contain' }}
+                >
+                  <table className="border-separate border-spacing-0 w-max min-w-max text-[13px] leading-tight" data-vandon-pane="right">
+                    <thead className="sticky top-0 shadow-sm bg-white" style={{ position: 'sticky', top: 0, zIndex: 10000, backgroundColor: 'white' }}>
+                      <tr className="bg-gray-100 align-top" style={{ position: 'relative', zIndex: 10000 }}>
+                        {scrollCols.map((col, i) =>
+                          renderVanDonFilterTh(
+                            col,
+                            effectiveFixedColumns + i,
+                            { position: 'relative', zIndex: 10200 },
+                            false
+                          )
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody style={{ position: 'relative', zIndex: 0 }}>
+                      {paginatedData.map((row, rIdx) => {
+                        const orderId = row[PRIMARY_KEY_COLUMN];
+                        return (
+                          <tr key={`${orderId}-right`} className={`hover:bg-[#E8EAF6] transition-colors ${selectedRows.has(orderId) ? 'bg-blue-50' : ''}`}>
+                            {scrollCols.map((col, i) => {
+                              const cIdx = effectiveFixedColumns + i;
+                              const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 10 };
+                              return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           ) : (
@@ -3330,12 +3331,12 @@ function VanDon() {
                           const cellStyle =
                             cIdx < effectiveFixedColumns
                               ? {
-                                  position: 'sticky',
-                                  left: cellStickyLeft,
-                                  zIndex: 3100,
-                                  ...colWidthStyles,
-                                  boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
-                                }
+                                position: 'sticky',
+                                left: cellStickyLeft,
+                                zIndex: 3100,
+                                ...colWidthStyles,
+                                boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
+                              }
                               : { position: 'relative', zIndex: 10, ...colWidthStyles };
                           return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
                         })}
@@ -3346,38 +3347,16 @@ function VanDon() {
               </table>
             </div>
           )}
-          {paginatedData.length > 0 && (
-            <div className="flex-shrink-0 border-t border-gray-100 bg-white px-2 py-1">
-              <div ref={horizontalScrollbarRef} className="overflow-x-auto overflow-y-hidden h-3">
-                <div style={{ width: Math.max(horizontalTrackWidth, 1), height: 1 }} />
-              </div>
-            </div>
-          )}
         </div>
-        {/* Pagination Footer — chỉ chuyển trang (số dòng/trang đã chuyển lên đầu toolbar) */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 sm:px-4 py-2 flex-shrink-0 w-full min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Trang</span>
-            <div className="flex items-center bg-gray-100 rounded-lg p-1 border border-gray-200">
-              <button
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage(p => p - 1)}
-                className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-50 text-gray-700 rounded shadow-sm disabled:opacity-30 disabled:shadow-none transition-all"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="text-xs font-bold text-gray-700 px-3 bg-white mx-1 py-1 rounded border border-gray-200 min-w-[60px] text-center shadow-inner">
-                {currentPage} <span className="font-normal text-gray-400">/</span> {totalPages || 1}
-              </span>
-              <button
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage(p => p + 1)}
-                className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-50 text-gray-700 rounded shadow-sm disabled:opacity-30 disabled:shadow-none transition-all"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+        {/* Pagination Footer */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 w-full min-w-0 overflow-hidden">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={useBackendPagination ? totalRecords : getFilteredData.length}
+            itemsPerPage={effectiveRowsPerPage}
+            onPageChange={(page) => setCurrentPage(page)}
+          />
         </div>
       </div>
 
