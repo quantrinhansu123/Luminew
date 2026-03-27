@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions'; // Added missing import
 import { recalcMktSoDonAfterOrderSave } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { recalcSaleOrderCountAfterOrderSave } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
 
 const ADMIN_MAIL = import.meta.env.VITE_ADMIN_MAIL || "admin@marketing.com";
@@ -1298,6 +1299,7 @@ export default function NhapDonMoi({ isEdit = false }) {
 
             const query = supabase.from('orders');
             let result;
+            let existingOrderSnapshot = null;
 
             if (isEdit) {
                 // Khi edit, sử dụng UPDATE với order_code làm điều kiện
@@ -1308,7 +1310,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // QUAN TRỌNG: Kiểm tra đơn hàng có tồn tại không trước khi update
                 const { data: existingOrder, error: checkError } = await supabase
                     .from('orders')
-                    .select('id, order_code')
+                    .select('id, order_code, order_date, marketing_staff, product, country')
                     .eq('order_code', orderCode)
                     .maybeSingle();
 
@@ -1320,6 +1322,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 if (!existingOrder) {
                     throw new Error(`⚠️ Không tìm thấy đơn hàng với mã: ${orderCode}. Đơn hàng có thể đã bị xóa hoặc mã đơn hàng không đúng.`);
                 }
+                existingOrderSnapshot = existingOrder;
 
                 console.log(`🔄 Updating order with code: ${orderCode} (ID: ${existingOrder.id})`);
                 console.log(`📦 Payload keys:`, Object.keys(orderPayload));
@@ -1413,15 +1416,58 @@ export default function NhapDonMoi({ isEdit = false }) {
             }
 
             if (saveOkForMktSync) {
+                const newMktKey = {
+                    date: orderDateValue,
+                    name: selectedMkt,
+                    product: formData.productMain,
+                    market: formData.country,
+                };
+                const oldMktKey = (isEdit && existingOrderSnapshot)
+                    ? {
+                        date: existingOrderSnapshot.order_date,
+                        name: existingOrderSnapshot.marketing_staff,
+                        product: existingOrderSnapshot.product,
+                        market: existingOrderSnapshot.country,
+                    }
+                    : null;
                 void recalcMktSoDonAfterOrderSave({
                     newOrderDate: orderDateValue,
                     previousOrderDate,
+                    newOrderKey: newMktKey,
+                    previousOrderKey: oldMktKey,
                 })
                     .then((r) => {
                         if (r?.skipped) return;
                         console.log('✅ Đã đồng bộ Số đơn TT (Báo cáo MKT):', r?.upserted ?? r);
                     })
                     .catch((err) => console.error('⚠️ Đồng bộ Số đơn TT (MKT) sau lưu đơn:', err));
+
+                const newSaleKey = {
+                    date: orderDateValue,
+                    name: selectedSale,
+                    product: formData.productMain,
+                    market: formData.country,
+                };
+                const oldSaleKey = (isEdit && existingOrderSnapshot)
+                    ? {
+                        date: existingOrderSnapshot.order_date,
+                        name: existingOrderSnapshot.sale_staff,
+                        product: existingOrderSnapshot.product,
+                        market: existingOrderSnapshot.country,
+                    }
+                    : null;
+                void recalcSaleOrderCountAfterOrderSave({
+                    newOrderDate: orderDateValue,
+                    previousOrderDate,
+                    newOrderKey: newSaleKey,
+                    previousOrderKey: oldSaleKey,
+                    createMissingForHetCa: true,
+                })
+                    .then((r) => {
+                        if (r?.skipped) return;
+                        console.log('✅ Đã đồng bộ sales_reports (key-scoped):', r?.upserted ?? r);
+                    })
+                    .catch((err) => console.error('⚠️ Đồng bộ sales_reports sau lưu đơn:', err));
             }
 
             // Optional: Reset form or Redirect

@@ -83,6 +83,15 @@ function normalizeDateStr(dateVal) {
   return s;
 }
 
+function nextDateStr(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** Parse cột ca giống orders.shift: một ca hoặc "Giữa ca,Hết ca" → 2 nhóm. */
 function reportCaToGroups(caVal) {
   return orderShiftToGroups(caVal);
@@ -328,6 +337,54 @@ async function fetchAllOrdersInRange(startDate, endDate) {
   return orders;
 }
 
+async function fetchReportsForExactKeys(exactKeys) {
+  const rows = [];
+  const seen = new Set();
+  for (const k of exactKeys) {
+    const { data, error } = await supabase
+      .from('detail_reports')
+      .select('*')
+      .eq('Ngày', k.date)
+      .eq('Tên', k.name)
+      .eq('Sản_phẩm', k.product)
+      .eq('Thị_trường', k.market);
+    if (error) throw error;
+    for (const r of data || []) {
+      const id = r?.id ? String(r.id) : `${r?.['Ngày'] || ''}|${r?.['Tên'] || ''}|${r?.['Sản_phẩm'] || ''}|${r?.['Thị_trường'] || ''}|${r?.ca || ''}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      rows.push(r);
+    }
+  }
+  return rows;
+}
+
+async function fetchOrdersForExactKeys(exactKeys) {
+  const rows = [];
+  const seen = new Set();
+  for (const k of exactKeys) {
+    const next = nextDateStr(k.date);
+    const { data, error } = await supabase
+      .from('orders')
+      .select(
+        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+      )
+      .gte('order_date', k.date)
+      .lt('order_date', next)
+      .eq('marketing_staff', k.name)
+      .eq('product', k.product)
+      .eq('country', k.market);
+    if (error) throw error;
+    for (const r of data || []) {
+      const id = String(r?.order_code || '');
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      rows.push(r);
+    }
+  }
+  return rows;
+}
+
 async function fetchHumanResourceEmailLookup() {
   const { data, error } = await supabase
     .from('human_resources')
@@ -425,6 +482,8 @@ export async function recalcMktSoDonThucTeFromOrders({
   dryRun = false,
   // Bỏ tính năng "thêm dòng mới": chỉ cập nhật các dòng đã có sẵn trong detail_reports.
   createMissingRows = false,
+  // Chỉ tính đúng các key này (không quét key khác trong ngày) khi có truyền vào.
+  exactKeys = null,
 } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
@@ -433,18 +492,33 @@ export async function recalcMktSoDonThucTeFromOrders({
     throw new Error('Khoảng ngày không hợp lệ. Vui lòng truyền startDate/endDate dạng YYYY-MM-DD.');
   }
 
+  const normalizedExactKeys = Array.isArray(exactKeys)
+    ? exactKeys
+        .map((k) => ({
+          date: normalizeDateStr(k?.date),
+          name: String(k?.name || '').trim(),
+          product: String(k?.product || '').trim(),
+          market: String(k?.market || '').trim(),
+        }))
+        .filter((k) => k.date && k.name && k.product && k.market)
+    : [];
+
   // Tuần tự để lỗi báo đúng bảng (Promise.all chỉ thấy “Failed to fetch” chung)
   let reports;
   let orders;
   let hrEmailLookup;
   let usersLookup;
   try {
-    reports = await fetchAllReportsInRange(normalizedStart, normalizedEnd);
+    reports = normalizedExactKeys.length > 0
+      ? await fetchReportsForExactKeys(normalizedExactKeys)
+      : await fetchAllReportsInRange(normalizedStart, normalizedEnd);
   } catch (e) {
     throw wrapRecalcReadError('detail_reports', e);
   }
   try {
-    orders = await fetchAllOrdersInRange(normalizedStart, normalizedEnd);
+    orders = normalizedExactKeys.length > 0
+      ? await fetchOrdersForExactKeys(normalizedExactKeys)
+      : await fetchAllOrdersInRange(normalizedStart, normalizedEnd);
   } catch (e) {
     throw wrapRecalcReadError('orders', e);
   }
@@ -723,9 +797,44 @@ export async function recalcMktSoDonThucTeFromOrders({
  * Sau khi Lưu / Cập nhật đơn (nhap-don): tính lại Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế (chỉ đơn Check = Hủy).
  *
  * @param {string} newOrderDate - Ngày đơn sau lưu (YYYY-MM-DD hoặc string DB)
- * @param {string} [previousOrderDate] - Khi sửa đơn: ngày đơn trước khi đổi (để tính lại cả ngày cũ)
+ * @param {string} [previousOrderDate] - Khi sửa đơn: ngày đơn trước khi đổi (fallback khi không có key cũ/mới)
+ * @param {{date:string,name:string,product:string,market:string}} [newOrderKey]
+ * @param {{date:string,name:string,product:string,market:string}} [previousOrderKey]
  */
-export async function recalcMktSoDonAfterOrderSave({ newOrderDate, previousOrderDate, createMissingRows = true } = {}) {
+export async function recalcMktSoDonAfterOrderSave({
+  newOrderDate,
+  previousOrderDate,
+  newOrderKey,
+  previousOrderKey,
+  createMissingRows = true,
+} = {}) {
+  const exactKeys = [newOrderKey, previousOrderKey]
+    .filter(Boolean)
+    .map((k) => ({
+      date: normalizeDateStr(k.date),
+      name: String(k.name || '').trim(),
+      product: String(k.product || '').trim(),
+      market: String(k.market || '').trim(),
+    }))
+    .filter((k) => k.date && k.name && k.product && k.market);
+
+  if (exactKeys.length > 0) {
+    const keyMap = new Map();
+    exactKeys.forEach((k) => {
+      const id = buildKey(k.date, k.name, k.product, k.market);
+      if (!keyMap.has(id)) keyMap.set(id, k);
+    });
+    const dedupedKeys = Array.from(keyMap.values());
+    const dates = dedupedKeys.map((k) => k.date).sort();
+    return recalcMktSoDonThucTeFromOrders({
+      startDate: dates[0],
+      endDate: dates[dates.length - 1],
+      dryRun: false,
+      createMissingRows,
+      exactKeys: dedupedKeys,
+    });
+  }
+
   const n = normalizeDateStr(newOrderDate);
   const p = previousOrderDate != null && previousOrderDate !== '' ? normalizeDateStr(previousOrderDate) : '';
   if (!n && !p) {

@@ -40,6 +40,15 @@ function normalizeDateStr(dateVal) {
   return s;
 }
 
+function nextDateStr(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * Parse ca để nhận diện dòng sales_reports thuộc slot nào.
  * Lưu ý: aggregate số liệu bên dưới đã bỏ điều kiện ca (mọi ca dùng chung cùng một tổng theo key).
@@ -120,6 +129,54 @@ async function fetchAllOrdersInRangeForSale(startDate, endDate) {
   return orders;
 }
 
+async function fetchSalesReportsForExactKeys(exactKeys) {
+  const rows = [];
+  const seen = new Set();
+  for (const k of exactKeys) {
+    const { data, error } = await supabase
+      .from('sales_reports')
+      .select('*')
+      .eq('date', k.date)
+      .eq('name', k.name)
+      .eq('product', k.product)
+      .eq('market', k.market);
+    if (error) throw error;
+    for (const r of data || []) {
+      const id = r?.id ? String(r.id) : `${r?.date || ''}|${r?.name || ''}|${r?.product || ''}|${r?.market || ''}|${r?.shift || ''}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      rows.push(r);
+    }
+  }
+  return rows;
+}
+
+async function fetchOrdersForExactKeysForSale(exactKeys) {
+  const rows = [];
+  const seen = new Set();
+  for (const k of exactKeys) {
+    const next = nextDateStr(k.date);
+    const { data, error } = await supabase
+      .from('orders')
+      .select(
+        'order_code, order_date, sale_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+      )
+      .gte('order_date', k.date)
+      .lt('order_date', next)
+      .eq('sale_staff', k.name)
+      .eq('product', k.product)
+      .eq('country', k.market);
+    if (error) throw error;
+    for (const r of data || []) {
+      const id = String(r?.order_code || '');
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      rows.push(r);
+    }
+  }
+  return rows;
+}
+
 async function fetchHumanResourceEmailLookup() {
   const { data, error } = await supabase.from('human_resources').select('"Họ Và Tên", email');
 
@@ -155,6 +212,8 @@ export async function recalcSaleOrderCountFromOrders({
   endDate,
   dryRun = false,
   createMissingForHetCa = SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
+  // Chỉ tính đúng các key này (không quét key khác trong ngày) khi có truyền vào.
+  exactKeys = null,
 } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
@@ -163,9 +222,24 @@ export async function recalcSaleOrderCountFromOrders({
     throw new Error('Khoảng ngày không hợp lệ. Vui lòng truyền startDate/endDate dạng YYYY-MM-DD.');
   }
 
+  const normalizedExactKeys = Array.isArray(exactKeys)
+    ? exactKeys
+        .map((k) => ({
+          date: normalizeDateStr(k?.date),
+          name: String(k?.name || '').trim(),
+          product: String(k?.product || '').trim(),
+          market: String(k?.market || '').trim(),
+        }))
+        .filter((k) => k.date && k.name && k.product && k.market)
+    : [];
+
   // Tuần tự — tránh mở quá nhiều kết nối cùng lúc (dễ Failed to fetch trên mạng yếu / giới hạn trình duyệt).
-  const reports = await fetchAllSalesReportsInRange(normalizedStart, normalizedEnd);
-  const orders = await fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd);
+  const reports = normalizedExactKeys.length > 0
+    ? await fetchSalesReportsForExactKeys(normalizedExactKeys)
+    : await fetchAllSalesReportsInRange(normalizedStart, normalizedEnd);
+  const orders = normalizedExactKeys.length > 0
+    ? await fetchOrdersForExactKeysForSale(normalizedExactKeys)
+    : await fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd);
   const hrEmailLookup = await fetchHumanResourceEmailLookup();
 
   // Bỏ điều kiện ca: cùng một key thì Hết ca/Giữa ca dùng cùng tổng.
@@ -379,4 +453,50 @@ export async function recalcSaleOrderCountFromOrders({
     upserted: touched,
     previewRows,
   };
+}
+
+export async function recalcSaleOrderCountAfterOrderSave({
+  newOrderDate,
+  previousOrderDate,
+  newOrderKey,
+  previousOrderKey,
+  createMissingForHetCa = SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
+} = {}) {
+  const exactKeys = [newOrderKey, previousOrderKey]
+    .filter(Boolean)
+    .map((k) => ({
+      date: normalizeDateStr(k.date),
+      name: String(k.name || '').trim(),
+      product: String(k.product || '').trim(),
+      market: String(k.market || '').trim(),
+    }))
+    .filter((k) => k.date && k.name && k.product && k.market);
+
+  if (exactKeys.length > 0) {
+    const dedupMap = new Map();
+    exactKeys.forEach((k) => {
+      const id = buildKey(k.date, k.name, k.product, k.market);
+      if (!dedupMap.has(id)) dedupMap.set(id, k);
+    });
+    const deduped = Array.from(dedupMap.values());
+    const dates = deduped.map((k) => k.date).sort();
+    return recalcSaleOrderCountFromOrders({
+      startDate: dates[0],
+      endDate: dates[dates.length - 1],
+      dryRun: false,
+      createMissingForHetCa,
+      exactKeys: deduped,
+    });
+  }
+
+  const n = normalizeDateStr(newOrderDate);
+  const p = previousOrderDate != null && previousOrderDate !== '' ? normalizeDateStr(previousOrderDate) : '';
+  if (!n && !p) return { skipped: true, reason: 'no_dates' };
+  const dates = [n, p].filter(Boolean).sort();
+  return recalcSaleOrderCountFromOrders({
+    startDate: dates[0],
+    endDate: dates[dates.length - 1],
+    dryRun: false,
+    createMissingForHetCa,
+  });
 }
