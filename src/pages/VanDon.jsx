@@ -3179,6 +3179,7 @@ function VanDon() {
         defaultColumns={viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS.filter(col => !HIDDEN_COLUMNS.includes(col))}
       />
     </div>
+    </div>
   );
 }
 

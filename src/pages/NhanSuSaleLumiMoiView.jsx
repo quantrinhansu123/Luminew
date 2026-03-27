@@ -175,6 +175,11 @@ export default function NhanSuSaleLumiMoiView({
   const [marketSel, setMarketSel] = useState([]);
   const [nameAll, setNameAll] = useState(true);
   const [nameSel, setNameSel] = useState([]);
+  // Trạng thái đã áp dụng thực tế vào dữ liệu (chỉ cập nhật khi bấm "Tìm")
+  const [nameAllApplied, setNameAllApplied] = useState(true);
+  const [nameSelApplied, setNameSelApplied] = useState([]);
+  const [nameSearchInput, setNameSearchInput] = useState('');
+  const [nameSearchApplied, setNameSearchApplied] = useState('');
 
   const [activeTab, setActiveTab] = useState('sau-huy');
   const [selectedRowKey, setSelectedRowKey] = useState(null);
@@ -326,6 +331,8 @@ export default function NhanSuSaleLumiMoiView({
       setMarketAll(true);
       setNameAll(true);
       setNameSel([]);
+      setNameAllApplied(true);
+      setNameSelApplied([]);
       setProductSel(uniqueSorted(dataForFilters, 'sanPham'));
       setCaSel(uniqueSorted(dataForFilters, 'ca').map(String));
       setTeamSel(uniqueSorted(dataForFilters, 'team').map(String));
@@ -453,9 +460,9 @@ export default function NhanSuSaleLumiMoiView({
       selectedTeams: teamAll ? null : teamSel,
       marketAll,
       selectedMarkets: marketAll ? null : marketSel,
-      nameAll: showPersonnelNameFilter ? nameAll : true,
+      nameAll: showPersonnelNameFilter ? nameAllApplied : true,
       selectedNames:
-        showPersonnelNameFilter && !nameAll ? nameSel : null,
+        showPersonnelNameFilter && !nameAllApplied ? nameSelApplied : null,
     });
   }, [
     rawData,
@@ -476,8 +483,8 @@ export default function NhanSuSaleLumiMoiView({
     marketAll,
     marketSel,
     showPersonnelNameFilter,
-    nameAll,
-    nameSel,
+    nameAllApplied,
+    nameSelApplied,
   ]);
 
   /** Dùng chung cho sidebar — tránh gọi filterRawForRestrictedPopulate hàng chục lần mỗi render */
@@ -506,16 +513,48 @@ export default function NhanSuSaleLumiMoiView({
     return uniqueSorted(restrictedForPopulate, 'ten');
   }, [showPersonnelNameFilter, allowedPersonnelNames, restrictedForPopulate]);
 
+  const filteredPersonnelNameOptions = useMemo(() => {
+    const q = String(nameSearchApplied || '').trim().toLowerCase();
+    if (!q) return personnelNameFilterOptions;
+    return personnelNameFilterOptions.filter((val) =>
+      String(val || '').toLowerCase().includes(q)
+    );
+  }, [personnelNameFilterOptions, nameSearchApplied]);
+
+  const shouldComputeMainFormulas = activeTab === 'sau-huy' || activeTab === 'chot';
+
   /** Tính lại bảng sau khi React rảnh — bớt lag khi đổi checkbox / ngày (dữ liệu lớn). */
   const deferredFiltered = useDeferredValue(filteredData);
 
   /** Trùng key Ngày+Tên+SP+TT → gộp trước khi cộng Số đơn TT (tránh nhân đôi). */
   const deferredFilteredDeduped = useMemo(
-    () => dedupeSalesReportRowsByTTKey(deferredFiltered),
-    [deferredFiltered]
+    () => (shouldComputeMainFormulas ? dedupeSalesReportRowsByTTKey(deferredFiltered) : []),
+    [deferredFiltered, shouldComputeMainFormulas]
   );
 
   const summaryMain = useMemo(() => {
+    if (!shouldComputeMainFormulas) {
+      return {
+        flatListFiltered: [],
+        total: {
+          mess: 0,
+          phanHoi: 0,
+          don: 0,
+          soDonThucTe: 0,
+          chot: 0,
+          doanhThuChotThucTe: 0,
+          soDonHoanHuyThucTe: 0,
+          doanhSoHoanHuyThucTe: 0,
+        },
+        doanhSoMap: {},
+        soDonSauHuyTotal2: 0,
+        dsSauHuyTTTotal: 0,
+        totalRateSauHuy: 0,
+        soDonHuyTotal: 0,
+        tiLeHuyTotal: 0,
+      };
+    }
+
     const { flatList, total } = summarizeAndSortSalesData(deferredFilteredDeduped);
     const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
     const doanhSoMap = {};
@@ -539,7 +578,7 @@ export default function NhanSuSaleLumiMoiView({
       soDonHuyTotal,
       tiLeHuyTotal,
     };
-  }, [deferredFilteredDeduped]);
+  }, [deferredFilteredDeduped, shouldComputeMainFormulas]);
 
   const onTabClick = (tab) => {
     setActiveTab(tab);
@@ -608,8 +647,35 @@ export default function NhanSuSaleLumiMoiView({
                 />{' '}
                 Tất cả
               </label>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={nameSearchInput}
+                  onChange={(e) => setNameSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setNameSearchApplied(nameSearchInput);
+                      setNameAllApplied(nameAll);
+                      setNameSelApplied([...nameSel]);
+                    }
+                  }}
+                  className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
+                  placeholder="Nhập Tên Sale..."
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNameSearchApplied(nameSearchInput);
+                    setNameAllApplied(nameAll);
+                    setNameSelApplied([...nameSel]);
+                  }}
+                  className="px-3 py-1 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  Tìm
+                </button>
+              </div>
               <div className="indent">
-                {personnelNameFilterOptions.map((val) => (
+                {filteredPersonnelNameOptions.map((val) => (
                   <label key={val}>
                     <input
                       type="checkbox"
@@ -633,6 +699,9 @@ export default function NhanSuSaleLumiMoiView({
                     {val}
                   </label>
                 ))}
+                {filteredPersonnelNameOptions.length === 0 && (
+                  <div className="text-xs text-gray-500 italic">Không có tên phù hợp</div>
+                )}
               </div>
             </>
           )}

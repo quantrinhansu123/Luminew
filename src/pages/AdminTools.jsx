@@ -81,25 +81,6 @@ const AdminTools = () => {
     });
     const [mktRecalcResult, setMktRecalcResult] = useState(null);
 
-    // MKT cleanup: Xóa các dòng detail_reports có Số mess=0 (hoặc trống) và CPQC=0 (hoặc trống)
-    const [emptyMktCleanupLoading, setEmptyMktCleanupLoading] = useState(false);
-    const [emptyMktCleanupStartDate, setEmptyMktCleanupStartDate] = useState(() => {
-        const today = new Date();
-        const d = new Date(today);
-        d.setDate(d.getDate() - 30);
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    });
-    const [emptyMktCleanupEndDate, setEmptyMktCleanupEndDate] = useState(() => {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    });
-
     // Sale reports: order_count từ orders (sale_staff)
     const [saleRecalcLoading, setSaleRecalcLoading] = useState(false);
     const [saleRecalcStartDate, setSaleRecalcStartDate] = useState(() => {
@@ -1368,7 +1349,7 @@ const AdminTools = () => {
 
         const ok = window.confirm(
             'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
-            'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result, fallback payment_status).\n\n' +
+            'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
             'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
             'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo dòng thiếu, nhưng chỉ khi Tên trong orders khớp với các `Tên` đang có trong detail_reports.\n\n' +
             'Bạn có chắc muốn chạy không?'
@@ -1413,120 +1394,13 @@ const AdminTools = () => {
         }
     };
 
-    // --- MKT cleanup: delete detail_reports rows with empty mess/cpqc ---
-    const handleDeleteEmptyMessAndCpqcRows = async () => {
-        if (emptyMktCleanupLoading) return;
-
-        const ok = window.confirm(
-            'Xóa các dòng detail_reports không có dữ liệu MKT?\n\n' +
-            'Điều kiện:\n' +
-            '- Số mess (Số_Mess_Cmt) == 0 hoặc trống\n' +
-            '- CPQC == 0 hoặc trống\n\n' +
-            'Áp dụng theo khoảng ngày bạn chọn.\n\n' +
-            'Bạn có chắc muốn xóa không?'
-        );
-        if (!ok) return;
-
-        const normStart = String(emptyMktCleanupStartDate || '').trim();
-        const normEnd = String(emptyMktCleanupEndDate || '').trim();
-        if (!normStart || !normEnd) {
-            alert('Vui lòng nhập đầy đủ TỪ NGÀY và ĐẾN NGÀY.');
-            return;
-        }
-        if (normStart > normEnd) {
-            alert('Từ ngày phải <= đến ngày.');
-            return;
-        }
-
-        // Helpers (copy logic từ phía XemBaoCaoMKT)
-        const parseIntegerVi = (v) => {
-            if (v == null || v === '') return 0;
-            if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
-            const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
-            const n = parseInt(s, 10);
-            return Number.isFinite(n) ? n : 0;
-        };
-        const parseNumberVi = (v) => {
-            if (v == null || v === '') return 0;
-            if (typeof v === 'number' && Number.isFinite(v)) return v;
-            const s = String(v).trim();
-            const stripped = s.replace(/[^\d.-]/g, '');
-            const n = Number(stripped);
-            return Number.isFinite(n) ? n : 0;
-        };
-
-        try {
-            setEmptyMktCleanupLoading(true);
-            const toastId = toast.info('Đang quét + xóa detail_reports (có thể mất vài phút)...', { autoClose: false });
-
-            let totalDeleted = 0;
-            const PAGE_SIZE = 1000;
-            let from = 0;
-
-            while (true) {
-                const { data: rows, error } = await supabase
-                    .from('detail_reports')
-                    .select('id, "Ngày", "Số_Mess_Cmt", "CPQC"')
-                    .gte('Ngày', normStart)
-                    .lte('Ngày', normEnd)
-                    .order('id', { ascending: true })
-                    .range(from, from + PAGE_SIZE - 1);
-
-                if (error) throw error;
-                if (!rows || rows.length === 0) break;
-
-                const idsToDelete = [];
-                for (const r of rows) {
-                    const messVal = parseIntegerVi(r?.['Số_Mess_Cmt']);
-                    const cpqcVal = parseNumberVi(r?.['CPQC']);
-                    if (messVal === 0 && cpqcVal === 0 && r?.id) {
-                        idsToDelete.push(r.id);
-                    }
-                }
-
-                // Delete in batches
-                const BATCH_SIZE = 500;
-                if (idsToDelete.length > 0) {
-                    for (let i = 0; i < idsToDelete.length; i += BATCH_SIZE) {
-                        const batch = idsToDelete.slice(i, i + BATCH_SIZE);
-                        const { error: delErr } = await supabase
-                            .from('detail_reports')
-                            .delete()
-                            .in('id', batch);
-                        if (delErr) throw delErr;
-                        totalDeleted += batch.length;
-                    }
-                }
-
-                if (rows.length < PAGE_SIZE) break;
-                from += PAGE_SIZE;
-            }
-
-            // Clear detail_reports cache used by XemBaoCaoMKT
-            try {
-                const keys = Object.keys(sessionStorage || {}).filter((k) => k.startsWith('mkt_detail_reports_v1:'));
-                keys.forEach((k) => sessionStorage.removeItem(k));
-            } catch {
-                // ignore
-            }
-
-            toast.dismiss(toastId);
-            toast.success(`Đã xóa ${totalDeleted} dòng detail_reports (mess=0 & CPQC=0) trong khoảng ngày đã chọn.`);
-        } catch (error) {
-            console.error('MKT cleanup error:', error);
-            toast.error('Lỗi khi xóa dữ liệu MKT: ' + (error?.message || String(error)));
-        } finally {
-            setEmptyMktCleanupLoading(false);
-        }
-    };
-
     const handleRecalcSaleOrderCount = async () => {
         if (saleRecalcLoading) return;
 
         const ok = window.confirm(
             'Tính lại sales_reports: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).\n\n' +
             'Key match giữa orders (sale_staff) và sales_reports (name, date, shift, product, market).\n\n' +
-            'Giống Báo cáo MKT: cập nhật dòng hiện có và tự tạo dòng mới nếu thiếu key (Hết ca / Giữa ca).\n\n' +
+            'Không tách theo ca khi cộng số: dòng Hết ca và Giữa ca cùng dùng tổng theo key. Vẫn cập nhật dòng hiện có; khi thiếu key chỉ tự tạo dòng Hết ca.\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
         if (!ok) return;
@@ -1552,7 +1426,7 @@ const AdminTools = () => {
                 startDate: normStart,
                 endDate: normEnd,
                 createMissingForHetCa: true,
-                createMissingForGiuaCa: true,
+
             });
 
             toast.dismiss();
@@ -4584,7 +4458,7 @@ const AdminTools = () => {
                             </h3>
                             <p className="text-sm text-gray-600 mb-4">
                                 Tính lại theo Key: <span className="font-medium">Ngày + Tên (MKT) + Sản phẩm + Thị trường</span> khớp <span className="font-medium">orders</span> (marketing_staff, country), tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
-                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key, <span className="font-medium">đã trừ</span> số đơn và VND có Kết quả Check Hủy (ghi riêng ở <span className="font-medium">Số đơn hoàn hủy thực tế</span> / <span className="font-medium">Doanh số hoàn hủy thực tế</span>). Hủy: ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>; VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Không tạo dòng mới trong <span className="font-medium">detail_reports</span>.
+                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key, <span className="font-medium">đã trừ</span> số đơn và VND có Kết quả Check Hủy (ghi riêng ở <span className="font-medium">Số đơn hoàn hủy thực tế</span> / <span className="font-medium">Doanh số hoàn hủy thực tế</span>). Hủy: theo <span className="font-medium">check_result</span>; VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Không tạo dòng mới trong <span className="font-medium">detail_reports</span>.
                                 {' '}
                                 <span className="font-medium text-gray-800">Tự điền khi trống:</span> cột <span className="font-medium">Email</span> và <span className="font-medium">Team</span> trên các dòng hiện có — lấy từ bảng <span className="font-medium">users</span> (khớp tên và email khi có đủ hai), không có thì từ <span className="font-medium">human_resources</span>.
                             </p>
@@ -4690,54 +4564,6 @@ const AdminTools = () => {
                             )}
                         </div>
 
-                        {/* MKT CLEANUP */}
-                        <div className="border border-gray-200 rounded-lg p-5 bg-white">
-                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-2">
-                                <Trash2 className="w-5 h-5 text-red-600" />
-                                Xóa dòng MKT rỗng (Số mess=0 & CPQC=0)
-                            </h3>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Quét bảng <span className="font-medium">detail_reports</span> theo khoảng ngày và xóa các dòng mà <span className="font-medium">Số_Mess_Cmt</span> == 0 (hoặc trống) đồng thời <span className="font-medium">CPQC</span> == 0 (hoặc trống).
-                            </p>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                                <label className="block">
-                                    <span className="text-sm font-medium text-gray-700">Từ ngày</span>
-                                    <input
-                                        type="date"
-                                        value={emptyMktCleanupStartDate}
-                                        onChange={(e) => setEmptyMktCleanupStartDate(e.target.value)}
-                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                                    />
-                                </label>
-                                <label className="block">
-                                    <span className="text-sm font-medium text-gray-700">Đến ngày</span>
-                                    <input
-                                        type="date"
-                                        value={emptyMktCleanupEndDate}
-                                        onChange={(e) => setEmptyMktCleanupEndDate(e.target.value)}
-                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                                    />
-                                </label>
-                            </div>
-
-                            <button
-                                onClick={handleDeleteEmptyMessAndCpqcRows}
-                                disabled={emptyMktCleanupLoading || loading}
-                                className="w-full py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
-                            >
-                                {emptyMktCleanupLoading ? (
-                                    <>
-                                        <span className="animate-spin">⏳</span> Đang xóa...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Trash2 size={18} /> Xóa
-                                    </>
-                                )}
-                            </button>
-                        </div>
-
                         {/* SALES_REPORTS: order_count + revenue + cancel + revenue_cancel_actual */}
                         <div className="border border-gray-200 rounded-lg p-5 bg-white">
                             <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-2">
@@ -4745,8 +4571,8 @@ const AdminTools = () => {
                                 Cập nhật Báo cáo Sale (sales_reports)
                             </h3>
                             <p className="text-sm text-gray-600 mb-4">
-                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (NV Sale) + Sản phẩm + Thị trường</span>, nguồn đơn: <span className="font-medium">orders.sale_staff</span>, <span className="font-medium">country</span>. Dòng báo cáo <span className="font-medium">Hết ca</span>: tổng mọi đơn khớp key (gồm cả đơn chỉ Giữa ca, chỉ Hết ca và gộp 2 ca; mỗi đơn chỉ cộng một lần). Dòng <span className="font-medium">Giữa ca</span>: chỉ đơn có ca Giữa ca (theo parse shift).
-                                Ghi <span className="font-medium">order_count</span> (mọi đơn khớp key), <span className="font-medium">revenue_actual</span> (tổng VND mọi đơn khớp), <span className="font-medium">order_cancel_count_actual</span> và <span className="font-medium">revenue_cancel_actual</span> (số đơn hủy + tổng VND chỉ các đơn đó; Kết quả Check Hủy/Huỷ, ưu tiên <span className="font-medium">check_result</span>, fallback <span className="font-medium">payment_status</span>). Tiền VND: total_amount_vnd → total_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key.
+                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (NV Sale) + Sản phẩm + Thị trường</span>, nguồn đơn: <span className="font-medium">orders.sale_staff</span>, <span className="font-medium">country</span>. <span className="font-medium">Không tách theo ca khi cộng số</span>: dòng báo cáo <span className="font-medium">Hết ca</span> và <span className="font-medium">Giữa ca</span> cùng dùng tổng mọi đơn khớp key.
+                                Ghi <span className="font-medium">order_count</span> (mọi đơn khớp key), <span className="font-medium">revenue_actual</span> (tổng VND mọi đơn khớp), <span className="font-medium">order_cancel_count_actual</span> và <span className="font-medium">revenue_cancel_actual</span> (số đơn hủy + tổng VND chỉ các đơn đó; Kết quả Check Hủy/Huỷ theo <span className="font-medium">check_result</span>). Tiền VND: total_amount_vnd → total_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key.
                             </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">

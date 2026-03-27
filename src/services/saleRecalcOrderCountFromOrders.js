@@ -41,10 +41,8 @@ function normalizeDateStr(dateVal) {
 }
 
 /**
- * Cùng rule parse ca với đơn (orders.shift).
- * Dòng báo cáo chỉ một ca: ["Hết ca"] hoặc ["Giữa ca"].
- * Chuỗi kiểu "Giữa ca,Hết ca" → ["Hết ca","Giữa ca"] (2 nhóm) — recalc coi dòng đó là slot Hết ca,
- * chỉ đăng ký tồn tại Hết ca|key để có thể tạo thêm dòng Giữa ca nếu thiếu.
+ * Parse ca để nhận diện dòng sales_reports thuộc slot nào.
+ * Lưu ý: aggregate số liệu bên dưới đã bỏ điều kiện ca (mọi ca dùng chung cùng một tổng theo key).
  */
 function orderShiftToGroups(shiftVal) {
   const shiftLower = normalizeStr(shiftVal);
@@ -157,7 +155,6 @@ export async function recalcSaleOrderCountFromOrders({
   endDate,
   dryRun = false,
   createMissingForHetCa = SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
-  createMissingForGiuaCa = SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
 } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
@@ -171,23 +168,18 @@ export async function recalcSaleOrderCountFromOrders({
   const orders = await fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd);
   const hrEmailLookup = await fetchHumanResourceEmailLookup();
 
-  // Tách theo ca cho dòng "Giữa ca". Dòng "Hết ca" trên sales_reports dùng countsHetCaAllOrders:
-  // mỗi đơn chỉ cộng 1 lần nhưng gồm cả đơn chỉ Giữa ca + chỉ Hết ca + gộp 2 ca (tổng cả ngày/key).
-  const countsByGroupGiuaCa = new Map();
-  /** Key → tổng đơn/VND cho dòng báo cáo shift "Hết ca" (gom mọi đơn có ca hợp lệ, không tách Giữa/Hết). */
-  const countsHetCaAllOrders = new Map();
+  // Bỏ điều kiện ca: cùng một key thì Hết ca/Giữa ca dùng cùng tổng.
+  // Key -> { count, revenueVnd, cancelCount, cancelRevenueVnd, sample }
+  const countsAllByKey = new Map();
 
   for (const order of orders || []) {
-    const groups = orderShiftToGroups(order.shift);
-    if (!groups.length) continue;
-
     const key = buildKey(order.order_date, order.sale_staff, order.product, order.country);
     if (!key || !normalizeStr(order.sale_staff)) continue;
 
     const vnd = orderAmountVnd(order);
     const huy = isCheckResultHuy(getCheckResult(order));
 
-    const exAll = countsHetCaAllOrders.get(key);
+    const exAll = countsAllByKey.get(key);
     if (exAll) {
       exAll.count += 1;
       exAll.revenueVnd += vnd;
@@ -196,7 +188,7 @@ export async function recalcSaleOrderCountFromOrders({
         exAll.cancelRevenueVnd += vnd;
       }
     } else {
-      countsHetCaAllOrders.set(key, {
+      countsAllByKey.set(key, {
         count: 1,
         revenueVnd: vnd,
         cancelCount: huy ? 1 : 0,
@@ -211,31 +203,6 @@ export async function recalcSaleOrderCountFromOrders({
       });
     }
 
-    if (groups.includes('Giữa ca')) {
-      const existing = countsByGroupGiuaCa.get(key);
-      if (existing) {
-        existing.count += 1;
-        existing.revenueVnd += vnd;
-        if (huy) {
-          existing.cancelCount += 1;
-          existing.cancelRevenueVnd += vnd;
-        }
-      } else {
-        countsByGroupGiuaCa.set(key, {
-          count: 1,
-          revenueVnd: vnd,
-          cancelCount: huy ? 1 : 0,
-          cancelRevenueVnd: huy ? vnd : 0,
-          sample: {
-            date: normalizeDateStr(order.order_date),
-            name: String(order.sale_staff || '').trim(),
-            product: String(order.product || '').trim(),
-            market: String(order.country || '').trim(),
-            team: String(order.team || '').trim(),
-          },
-        });
-      }
-    }
   }
 
   const existingByShiftKey = new Set();
@@ -262,8 +229,7 @@ export async function recalcSaleOrderCountFromOrders({
     if (!gs.length) continue;
     const key = buildKey(r.date, r.name, r.product, r.market);
     const primaryGroup = gs.length === 2 ? 'Hết ca' : gs[0];
-    const useHetCaTotal = gs.length === 2 || primaryGroup === 'Hết ca';
-    const agg = useHetCaTotal ? countsHetCaAllOrders.get(key) : countsByGroupGiuaCa.get(key);
+    const agg = countsAllByKey.get(key);
     const count = agg?.count || 0;
     const revenueActual = agg?.revenueVnd ?? 0;
     const cancelActual = agg?.cancelCount ?? 0;
@@ -302,11 +268,11 @@ export async function recalcSaleOrderCountFromOrders({
     }
   }
 
-  for (const group of ['Hết ca', 'Giữa ca']) {
+  // Chỉ tạo dòng thiếu cho "Hết ca" (không auto-create "Giữa ca").
+  for (const group of ['Hết ca']) {
     if (group === 'Hết ca' && !createMissingForHetCa) continue;
-    if (group === 'Giữa ca' && !createMissingForGiuaCa) continue;
 
-    const mapForGroup = group === 'Hết ca' ? countsHetCaAllOrders : countsByGroupGiuaCa;
+    const mapForGroup = countsAllByKey;
     for (const [key, entry] of mapForGroup.entries()) {
       const exists = existingByShiftKey.has(`${group}|${key}`);
       if (exists) continue;

@@ -1,8 +1,6 @@
-/** Giống Kết quả Check trên UI: ưu tiên check_result, fallback payment_status */
+/** Dùng đúng cột Kết quả Check: chỉ lấy check_result */
 export function getCheckResult(order) {
-  const a = String(order?.check_result ?? '').trim();
-  if (a) return a;
-  return String(order?.payment_status ?? '').trim();
+  return String(order?.check_result ?? '').trim();
 }
 
 /** Chuẩn hóa để khớp Hủy / Huỷ */
