@@ -3064,12 +3064,11 @@ function FFM() {
         data-ffm-grid-root
       >
         {loading ? (
-          <div className="h-full flex justify-center items-center text-gray-500 bg-white">
-            Đang tải dữ liệu...
-          </div>
-        ) : paginatedData.length === 0 ? (
-          <div className="h-full flex justify-center items-center text-gray-500 italic bg-white">
-            Không có dữ liệu phù hợp
+          <div className="flex-1 flex flex-col justify-center items-center text-gray-500 bg-white">
+            <div className="flex flex-col items-center gap-3">
+              <div className="animate-spin h-10 w-10 border-4 border-blue-500 border-t-transparent rounded-full shadow-sm"></div>
+              <span className="font-medium animate-pulse">Đang tải dữ liệu đơn hàng...</span>
+            </div>
           </div>
         ) : splitPane ? (
           <div className="h-full overflow-y-auto overflow-x-auto flex flex-row items-stretch overscroll-contain">
@@ -3094,24 +3093,37 @@ function FFM() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedData.map((row, rIdx) => (
-                    <tr key={String(row[PRIMARY_KEY_COLUMN])} className="hover:bg-[#E8EAF6] transition-colors">
-                      {frozenCols.map((col, i) => {
-                        const lastF = i === frozenCols.length - 1;
-                        const cellStyle = {
-                          ...getColumnWidthStyles(col),
-                          ...(lastF ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
-                        };
-                        return renderFfmDataCell(row, rIdx, col, i, cellStyle);
-                      })}
+                  {paginatedData.length > 0 ? (
+                    paginatedData.map((row, rIdx) => (
+                      <tr key={String(row[PRIMARY_KEY_COLUMN])} className="hover:bg-[#E8EAF6] transition-colors">
+                        {frozenCols.map((col, i) => {
+                          const lastF = i === frozenCols.length - 1;
+                          const cellStyle = {
+                            ...getColumnWidthStyles(col),
+                            ...(lastF ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
+                          };
+                          return renderFfmDataCell(row, rIdx, col, i, cellStyle);
+                        })}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr className="h-0 pointer-events-none">
+                      {frozenCols.map((col, i) => (
+                        <td key={i} style={getColumnWidthStyles(col)} className="p-0 border-none"></td>
+                      ))}
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
             {/* Dùng 1 vùng scroll dọc chung ở wrapper cha (`overflow-y-auto`).
                 Tránh `overflow-y-clip` vì có thể làm sai chiều cao scroll của cha. */}
-            <div className="flex-1 min-w-max min-h-0 overflow-x-visible overflow-y-visible">
+            <div className="flex-1 min-w-max min-h-0 overflow-x-visible overflow-y-visible relative">
+              {paginatedData.length === 0 && (
+                <div className="sticky left-0 w-full h-64 flex justify-center items-center text-gray-500 italic z-50 pointer-events-none">
+                  Không có dữ liệu phù hợp
+                </div>
+              )}
               <table data-ffm-pane="right" className={`${tableClassName} w-max min-w-max`}>
                 <thead className="relative">
                   <tr className="sticky top-0 z-[100] bg-[#f8f9fa] align-top shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
@@ -3128,15 +3140,23 @@ function FFM() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedData.map((row, rIdx) => (
-                    <tr key={String(row[PRIMARY_KEY_COLUMN])} className="hover:bg-[#E8EAF6] transition-colors">
-                      {scrollCols.map((col, i) => {
-                        const cIdx = effectiveFixedColumns + i;
-                        const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 0 };
-                        return renderFfmDataCell(row, rIdx, col, cIdx, cellStyle);
-                      })}
+                  {paginatedData.length > 0 ? (
+                    paginatedData.map((row, rIdx) => (
+                      <tr key={String(row[PRIMARY_KEY_COLUMN])} className="hover:bg-[#E8EAF6] transition-colors">
+                        {scrollCols.map((col, i) => {
+                          const cIdx = effectiveFixedColumns + i;
+                          const cellStyle = { ...getColumnWidthStyles(col), position: 'relative', zIndex: 0 };
+                          return renderFfmDataCell(row, rIdx, col, cIdx, cellStyle);
+                        })}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr className="h-0 pointer-events-none">
+                      {scrollCols.map((col, i) => (
+                        <td key={i} style={getColumnWidthStyles(col)} className="p-0 border-none"></td>
+                      ))}
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -3204,36 +3224,49 @@ function FFM() {
             {/* 2. SCROLLABLE BODY AREA */}
             <div
               ref={ffmScrollContainerRef}
-              className="flex-1 overflow-auto overscroll-contain bg-white"
+              className="flex-1 overflow-auto overscroll-contain bg-white relative"
               onScroll={(e) => {
                 if (ffmHeaderContainerRef.current) {
                   ffmHeaderContainerRef.current.scrollLeft = e.target.scrollLeft;
                 }
               }}
             >
+              {paginatedData.length === 0 && (
+                <div className="sticky left-0 w-full h-64 flex justify-center items-center text-gray-500 italic z-50 pointer-events-none">
+                  Không có dữ liệu phù hợp
+                </div>
+              )}
               <table ref={tableRef} className={`${tableClassName} w-max`} style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
                 <tbody>
-                  {paginatedData.map((row, rIdx) => {
-                    const orderId = row[PRIMARY_KEY_COLUMN];
-                    return (
-                      <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
-                        {currentColumns.map((col, cIdx) => {
-                          const colWidthStyles = getColumnWidthStyles(col);
-                          const lastFrozenCol = cIdx === effectiveFixedColumns - 1;
-                          const cellStyle = cIdx < effectiveFixedColumns
-                            ? {
-                              position: 'sticky',
-                              left: getStickyLeftPx(cIdx),
-                              zIndex: 20,
-                              ...colWidthStyles,
-                              ...(lastFrozenCol ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
-                            }
-                            : { ...colWidthStyles };
-                          return renderFfmDataCell(row, rIdx, col, cIdx, cellStyle);
-                        })}
-                      </tr>
-                    );
-                  })}
+                  {paginatedData.length > 0 ? (
+                    paginatedData.map((row, rIdx) => {
+                      const orderId = row[PRIMARY_KEY_COLUMN];
+                      return (
+                        <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
+                          {currentColumns.map((col, cIdx) => {
+                            const colWidthStyles = getColumnWidthStyles(col);
+                            const lastFrozenCol = cIdx === effectiveFixedColumns - 1;
+                            const cellStyle = cIdx < effectiveFixedColumns
+                              ? {
+                                position: 'sticky',
+                                left: getStickyLeftPx(cIdx),
+                                zIndex: 20,
+                                ...colWidthStyles,
+                                ...(lastFrozenCol ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
+                              }
+                              : { ...colWidthStyles };
+                            return renderFfmDataCell(row, rIdx, col, cIdx, cellStyle);
+                          })}
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr className="h-0 pointer-events-none">
+                      {currentColumns.map((col, idx) => (
+                        <td key={idx} style={getColumnWidthStyles(col)} className="p-0 border-none"></td>
+                      ))}
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
