@@ -356,6 +356,8 @@ function FFM() {
   const ffmDragPrevBoundsRef = useRef(null); // { minR, maxR, minC, maxC } | null
   const tableRef = useRef(null);
   const ffmScrollContainerRef = useRef(null);
+  const ffmHeaderContainerRef = useRef(null);
+  const headerTableRef = useRef(null);
   const dragAnchorRef = useRef({ r: 0, c: 0 });
   const dragEndRef = useRef({ r: 0, c: 0 });
   const dragListenersRef = useRef({ move: null, up: null });
@@ -920,153 +922,153 @@ function FFM() {
     }
 
     Object.entries(fv).forEach(([key, val]) => {
-        if (FFM_FILTER_SKIP_KEYS.has(key)) return;
-        if (Array.isArray(val) && val.length === 0) return;
-        if (typeof val === 'string' && val.trim() === '') return;
+      if (FFM_FILTER_SKIP_KEYS.has(key)) return;
+      if (Array.isArray(val) && val.length === 0) return;
+      if (typeof val === 'string' && val.trim() === '') return;
 
-        const dataKey = COLUMN_MAPPING[key] || key;
-        const isDateColFilter = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key);
+      const dataKey = COLUMN_MAPPING[key] || key;
+      const isDateColFilter = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key);
 
-        // MultiSelect (dạng mảng) phải match đúng theo danh sách đã chọn,
-        // tránh rơi vào nhánh substring và dẫn đến cảm giác "lọc tự ý".
-        if (Array.isArray(val)) {
-          data = data.filter((row) => {
-            let cellValue =
-              row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
-            cellValue = String(cellValue).trim();
-            const selected = val;
-            if (selected.length === 0) return true;
-            if (cellValue === '' && selected.includes('__EMPTY__')) return true;
-            return selected.includes(cellValue);
-          });
-          return;
-        }
-
-        if (isDateColFilter) {
-          const filterYmd = normalizeToYmdForCompare(val);
-          if (!filterYmd) return;
-          data = data.filter((row) => {
-            let cellYmd = '';
-            if (key === 'Ngày có mã tracking') {
-              const raw = getTrackingDateRawFFM(row);
-              const v = row['Ngày có mã tracking'] || extractDateFromDateTime(raw) || raw;
-              cellYmd = normalizeToYmdForCompare(v);
-            } else if (key === 'Ngày đẩy đơn') {
-              const v = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
-              cellYmd = normalizeToYmdForCompare(v);
-            } else {
-              const cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
-              cellYmd = normalizeToYmdForCompare(String(cellValue).trim());
-            }
-            if (!cellYmd) return false;
-            // Ô date trên tiêu đề cột = đúng ngày đó (không phải «từ ngày» — khoảng ngày dùng Từ/Tới + Bộ lọc theo ngày).
-            return cellYmd === filterYmd;
-          });
-          return;
-        }
-
-        const valSearchLower = String(val).toLowerCase();
-
+      // MultiSelect (dạng mảng) phải match đúng theo danh sách đã chọn,
+      // tránh rơi vào nhánh substring và dẫn đến cảm giác "lọc tự ý".
+      if (Array.isArray(val)) {
         data = data.filter((row) => {
-          let cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+          let cellValue =
+            row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
           cellValue = String(cellValue).trim();
-
-          if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)) {
-            const selected = val;
-            if (selected.length === 0) return true;
-            if (cellValue === '' && selected.includes('__EMPTY__')) return true;
-            return selected.includes(cellValue);
-          }
-
-          return cellValue.toLowerCase().includes(valSearchLower);
+          const selected = val;
+          if (selected.length === 0) return true;
+          if (cellValue === '' && selected.includes('__EMPTY__')) return true;
+          return selected.includes(cellValue);
         });
+        return;
+      }
+
+      if (isDateColFilter) {
+        const filterYmd = normalizeToYmdForCompare(val);
+        if (!filterYmd) return;
+        data = data.filter((row) => {
+          let cellYmd = '';
+          if (key === 'Ngày có mã tracking') {
+            const raw = getTrackingDateRawFFM(row);
+            const v = row['Ngày có mã tracking'] || extractDateFromDateTime(raw) || raw;
+            cellYmd = normalizeToYmdForCompare(v);
+          } else if (key === 'Ngày đẩy đơn') {
+            const v = row['time_dayon'] || row.time_dayon || row['Ngày đẩy đơn'];
+            cellYmd = normalizeToYmdForCompare(v);
+          } else {
+            const cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+            cellYmd = normalizeToYmdForCompare(String(cellValue).trim());
+          }
+          if (!cellYmd) return false;
+          // Ô date trên tiêu đề cột = đúng ngày đó (không phải «từ ngày» — khoảng ngày dùng Từ/Tới + Bộ lọc theo ngày).
+          return cellYmd === filterYmd;
+        });
+        return;
+      }
+
+      const valSearchLower = String(val).toLowerCase();
+
+      data = data.filter((row) => {
+        let cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+        cellValue = String(cellValue).trim();
+
+        if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)) {
+          const selected = val;
+          if (selected.length === 0) return true;
+          if (cellValue === '' && selected.includes('__EMPTY__')) return true;
+          return selected.includes(cellValue);
+        }
+
+        return cellValue.toLowerCase().includes(valSearchLower);
       });
+    });
 
-      // Handle Dropdown Filters: Packing Date, Delivery Status, Shipping Fee
-      if (fv.packing_date_status && fv.packing_date_status !== 'Tất cả') {
-        const status = fv.packing_date_status;
-        const today = getTodayDateStr();
-        const yesterdayDate = new Date();
-        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-        const yesterday = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`;
-        const customDate = fv['Ngày đóng hàng'];
+    // Handle Dropdown Filters: Packing Date, Delivery Status, Shipping Fee
+    if (fv.packing_date_status && fv.packing_date_status !== 'Tất cả') {
+      const status = fv.packing_date_status;
+      const today = getTodayDateStr();
+      const yesterdayDate = new Date();
+      yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+      const yesterday = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`;
+      const customDate = fv['Ngày đóng hàng'];
 
-        data = data.filter(row => {
-          const val = row['Ngày đóng hàng'] || '';
-          if (status === 'Trống') return !val || String(val).trim() === '';
+      data = data.filter(row => {
+        const val = row['Ngày đóng hàng'] || '';
+        if (status === 'Trống') return !val || String(val).trim() === '';
 
-          const dateStr = extractDateFromDateTime(val);
-          if (status === 'Hôm nay') return dateStr === today;
-          if (status === 'Hôm qua') return dateStr === yesterday;
-          if (status === 'Ngày cụ thể' && customDate) return dateStr === customDate;
-          return true;
-        });
-      }
+        const dateStr = extractDateFromDateTime(val);
+        if (status === 'Hôm nay') return dateStr === today;
+        if (status === 'Hôm qua') return dateStr === yesterday;
+        if (status === 'Ngày cụ thể' && customDate) return dateStr === customDate;
+        return true;
+      });
+    }
 
-      if (fv.delivery_status_filter && fv.delivery_status_filter !== 'Tất cả') {
-        const status = fv.delivery_status_filter;
-        const search = fv.delivery_status_search ? fv.delivery_status_search.toLowerCase() : '';
+    if (fv.delivery_status_filter && fv.delivery_status_filter !== 'Tất cả') {
+      const status = fv.delivery_status_filter;
+      const search = fv.delivery_status_search ? fv.delivery_status_search.toLowerCase() : '';
 
-        data = data.filter(row => {
-          const val = String(row['Trạng thái giao hàng'] || '').trim();
-          if (status === 'Trống') return val === '' || val === 'null';
-          if (status === 'Tìm kiếm...') {
-            return search ? val.toLowerCase().includes(search) : true;
-          }
-          return val === status;
-        });
-      }
+      data = data.filter(row => {
+        const val = String(row['Trạng thái giao hàng'] || '').trim();
+        if (status === 'Trống') return val === '' || val === 'null';
+        if (status === 'Tìm kiếm...') {
+          return search ? val.toLowerCase().includes(search) : true;
+        }
+        return val === status;
+      });
+    }
 
-      if (fv.us_shipping_fee_status && fv.us_shipping_fee_status !== 'Tất cả') {
-        const status = fv.us_shipping_fee_status;
-        const search = fv.us_shipping_fee_search;
+    if (fv.us_shipping_fee_status && fv.us_shipping_fee_status !== 'Tất cả') {
+      const status = fv.us_shipping_fee_status;
+      const search = fv.us_shipping_fee_search;
 
-        data = data.filter(row => {
-          const rawVal = row['Ngày đối soát kế toán'] || row['Phí ship nội địa Mỹ (usd)'] || row.shipping_fee || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
-          const numVal = parseFloat(String(rawVal).replace(/[^\d.-]/g, ''));
+      data = data.filter(row => {
+        const rawVal = row['Ngày đối soát kế toán'] || row['Phí ship nội địa Mỹ (usd)'] || row.shipping_fee || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
+        const numVal = parseFloat(String(rawVal).replace(/[^\d.-]/g, ''));
 
-          if (status === 'Trống') return (rawVal === '' || rawVal === null);
-          if (status === 'Miễn phí (0)') return numVal === 0;
-          if (status === 'Có phí (>0)') return numVal > 0;
-          if (status === 'Giá trị cụ thể' && search !== '') {
-            return parseFloat(search) === numVal || String(rawVal).includes(search);
-          }
-          return true;
-        });
-      }
+        if (status === 'Trống') return (rawVal === '' || rawVal === null);
+        if (status === 'Miễn phí (0)') return numVal === 0;
+        if (status === 'Có phí (>0)') return numVal > 0;
+        if (status === 'Giá trị cụ thể' && search !== '') {
+          return parseFloat(search) === numVal || String(rawVal).includes(search);
+        }
+        return true;
+      });
+    }
 
     if (fv.tracking_status || fv.tracking_include || fv.tracking_exclude) {
-        const inc = fv.tracking_include ? String(fv.tracking_include).toLowerCase() : '';
-        const exc = fv.tracking_exclude ? String(fv.tracking_exclude).toLowerCase() : '';
-        const status = fv.tracking_status || 'Tình trạng mã';
-        const incMultiLine = inc && inc.includes('\n');
-        const incLinesSet = incMultiLine
-          ? new Set(inc.split('\n').map((t) => t.trim()).filter(Boolean).map((t) => t.toLowerCase()))
-          : null;
+      const inc = fv.tracking_include ? String(fv.tracking_include).toLowerCase() : '';
+      const exc = fv.tracking_exclude ? String(fv.tracking_exclude).toLowerCase() : '';
+      const status = fv.tracking_status || 'Tình trạng mã';
+      const incMultiLine = inc && inc.includes('\n');
+      const incLinesSet = incMultiLine
+        ? new Set(inc.split('\n').map((t) => t.trim()).filter(Boolean).map((t) => t.toLowerCase()))
+        : null;
 
-        data = data.filter((row) => {
-          // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
-          const code = String(row['tracking_code'] || row['Mã Tracking'] || '').trim();
-          const lowerCode = code.toLowerCase();
+      data = data.filter((row) => {
+        // Kiểm tra cả tracking_code (database) và Mã Tracking (display name)
+        const code = String(row['tracking_code'] || row['Mã Tracking'] || '').trim();
+        const lowerCode = code.toLowerCase();
 
-          // Status Filter Logic
-          if (status === 'Tất cả có mã' && code === '') return false;
-          if (status === 'Trống' && code !== '') return false;
-          if (status === 'Toàn số' && (code === '' || !/^\d+$/.test(code))) return false;
+        // Status Filter Logic
+        if (status === 'Tất cả có mã' && code === '') return false;
+        if (status === 'Trống' && code !== '') return false;
+        if (status === 'Toàn số' && (code === '' || !/^\d+$/.test(code))) return false;
 
-          // Only apply include/exclude if in 'Tình trạng mã' state
-          if (status === 'Tình trạng mã') {
-            if (exc && lowerCode.includes(exc)) return false;
-            if (inc) {
-              if (incLinesSet) {
-                if (!incLinesSet.has(lowerCode)) return false;
-              } else if (!lowerCode.includes(inc)) {
-                return false;
-              }
+        // Only apply include/exclude if in 'Tình trạng mã' state
+        if (status === 'Tình trạng mã') {
+          if (exc && lowerCode.includes(exc)) return false;
+          if (inc) {
+            if (incLinesSet) {
+              if (!incLinesSet.has(lowerCode)) return false;
+            } else if (!lowerCode.includes(inc)) {
+              return false;
             }
           }
-          return true;
-        });
+        }
+        return true;
+      });
     }
 
     // Filter by tracking code status - This logic is now handled by filterValues.tracking_status
@@ -2279,19 +2281,37 @@ function FFM() {
     if (col === 'Mã đơn hàng') return 150;
     if (col === 'Kết quả Check' || col === 'Kết quả check') return checkResultColumnWidthPx;
     if (col === 'Mã Tracking') return 260;
-    if (col === 'Add') return 250; // Giảm xuống 250px theo yêu cầu
-    return 120;
+    if (col === 'Add') return 280;
+    if (col === 'Name' || col === 'Name*') return 350;
+    if (col === 'Ngày lên đơn') return 150;
+    if (col === 'Ghi chú') return 400;
+    if (col === 'GHI CHÚ') return 150;
+    if (col === 'Phone' || col === 'Phone*') return 140;
+    if (col === 'City') return 150;
+    if (col === 'Mặt hàng') return 240;
+    if (String(col).startsWith('Tên mặt hàng') || String(col).startsWith('Số lượng mặt hàng')) return 240;
+
+    // Heuristic: Tự động tính width theo độ dài tên tiêu đề (fit content on head)
+    const textLen = String(col).length;
+    const estimated = 40 + (textLen * 8.5); // Padding + estimate char width
+    return Math.max(120, Math.min(400, Math.ceil(estimated)));
   }, [checkResultColumnWidthPx]);
 
   const getColumnWidthStyles = useCallback((col) => {
     const w = getColumnWidthPx(col);
-    if (col === 'Add') return { minWidth: '220px', maxWidth: '350px', width: '250px' };
-    if (col === 'STT') return { minWidth: '50px', width: '50px' };
-    if (col === 'Mã đơn hàng') return { minWidth: '150px', width: '150px' };
-    if (col === 'Kết quả Check' || col === 'Kết quả check') return { minWidth: `${checkResultColumnWidthPx}px`, width: `${checkResultColumnWidthPx}px`, maxWidth: `${checkResultColumnWidthPx}px` };
-    if (col === 'Mã Tracking') return { minWidth: '260px', width: '260px' };
-    return { minWidth: `${w}px` };
-  }, [getColumnWidthPx, checkResultColumnWidthPx]);
+    // Trả về kích thước cố định tuyệt đối cho table-layout: fixed
+    const style = {
+      width: `${w}px`,
+      minWidth: `${w}px`,
+      maxWidth: `${w}px`,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis'
+    };
+    if (col === 'Add') {
+      return { ...style, width: '250px', minWidth: '250px', maxWidth: '250px' };
+    }
+    return style;
+  }, [getColumnWidthPx]);
 
   /** 
    * Tính toán offset cho các cột sticky để tránh đè lên nhau.
@@ -2314,7 +2334,7 @@ function FFM() {
   // Đo width thực tế của header để freeze cột khớp tuyệt đối khi cuộn ngang.
   useLayoutEffect(() => {
     const recalcStickyOffsets = () => {
-      const tableEl = tableRef.current;
+      const tableEl = headerTableRef.current;
       if (!tableEl || !currentColumns.length) {
         setStickyOffsets([]);
         return;
@@ -2761,12 +2781,12 @@ function FFM() {
             {DROPDOWN_OPTIONS['Payment Bill']?.map((o) => (
               <option key={o} value={o}>{o || '-- Chọn --'}</option>
             )) || (
-              <>
-                <option value="">-- Chọn --</option>
-                <option value="Có bill">Có bill</option>
-                <option value="Bill một phần">Bill một phần</option>
-              </>
-            )}
+                <>
+                  <option value="">-- Chọn --</option>
+                  <option value="Có bill">Có bill</option>
+                  <option value="Bill một phần">Bill một phần</option>
+                </>
+              )}
           </select>
         ) : col === 'Payment Image' ? (
           <Suspense fallback={<span className="text-gray-400">...</span>}>
@@ -2823,7 +2843,7 @@ function FFM() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col p-2 font-sans text-gray-800 bg-[#f8f9fa]">
+    <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden font-sans text-gray-800 bg-[#f8f9fa] p-2">
       {/* Header */}
       <div className="bg-white rounded-lg shadow-sm p-2 mb-2">
         <div className="flex items-center justify-between">
@@ -2952,7 +2972,7 @@ function FFM() {
       </div>
 
       {/* Action Bar */}
-      <div className="sticky top-0 z-[40] bg-white rounded-lg shadow-sm border border-gray-200 mb-2 p-2">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-2 p-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           {/* Left: Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -3040,19 +3060,19 @@ function FFM() {
       </div>
 
       <div
-        className={`bg-white shadow-md rounded border border-gray-200 relative isolate select-none${isDraggingSelection ? ' ffm-drag-active' : ''}`}
+        className={`bg-white rounded border border-gray-200 relative flex flex-col flex-1 min-h-0 overflow-hidden select-none${isDraggingSelection ? ' ffm-drag-active' : ''}`}
         data-ffm-grid-root
       >
         {loading ? (
-          <div className="overflow-auto max-h-[72vh] flex justify-center items-center min-h-[240px] text-gray-500">
+          <div className="h-full flex justify-center items-center text-gray-500 bg-white">
             Đang tải dữ liệu...
           </div>
         ) : paginatedData.length === 0 ? (
-          <div className="overflow-auto max-h-[72vh] flex justify-center items-center min-h-[240px] text-gray-500 italic">
+          <div className="h-full flex justify-center items-center text-gray-500 italic bg-white">
             Không có dữ liệu phù hợp
           </div>
         ) : splitPane ? (
-          <div className="min-h-0 max-h-[72vh] overflow-y-auto overflow-x-auto flex flex-row items-stretch overscroll-contain">
+          <div className="h-full overflow-y-auto overflow-x-auto flex flex-row items-stretch overscroll-contain">
             <div className="shrink-0 min-h-0 border-r-2 border-gray-300 bg-white z-20 overflow-x-hidden">
               <table data-ffm-pane="left" className={`${tableClassName} w-max`}>
                 <thead className="relative">
@@ -3122,82 +3142,101 @@ function FFM() {
             </div>
           </div>
         ) : (
-          <div ref={ffmScrollContainerRef} className="min-h-0 max-h-[72vh] overflow-auto overscroll-contain">
-            <table ref={tableRef} className={`${tableClassName} w-max min-w-full`}>
-              <thead className="relative">
-                <tr className="bg-[#f8f9fa] shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
-                  {currentColumns.map((col, idx) => {
-                    const colWidthStyles = getColumnWidthStyles(col);
-                    const lastFrozen = idx === effectiveFixedColumns - 1;
-                    let stickyStyle = { ...colWidthStyles };
-                    if (idx < effectiveFixedColumns) {
-                      stickyStyle = {
-                        ...stickyStyle,
-                        position: 'sticky',
-                        top: 0,
-                            left: getStickyLeftPx(idx),
-                        zIndex: 1100,
-                        background: '#f8f9fa',
-                        backgroundClip: 'padding-box',
-                        // selection.css đang set `contain: layout style paint` cho td/th
-                        // có thể làm `position: sticky` hoạt động không ổn định.
-                        contain: 'none',
-                        ...(lastFrozen ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.12)' } : {})
-                      };
-                    } else {
-                      stickyStyle = {
-                        ...stickyStyle,
-                        position: 'sticky',
-                        top: 0,
-                        zIndex: 1050,
-                        background: '#f8f9fa',
-                        backgroundClip: 'padding-box',
-                        contain: 'none',
-                        boxShadow: 'inset 0 -1px 0 0 rgba(0,0,0,0.06)'
-                      };
-                    }
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-white">
+            {/* 1. FIXED HEADER AREA */}
+            <div
+              ref={ffmHeaderContainerRef}
+              className="overflow-hidden border-b-2 border-gray-300 bg-[#f8f9fa] shrink-0 shadow-sm"
+              style={{ paddingRight: '15px' }}
+            >
+              <table
+                ref={headerTableRef}
+                className={`${tableClassName} w-max`}
+                style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}
+              >
+                <thead className="bg-[#f8f9fa]">
+                  <tr className="bg-[#f8f9fa] align-top">
+                    {currentColumns.map((col, idx) => {
+                      const colWidthStyles = getColumnWidthStyles(col);
+                      const lastFrozen = idx === effectiveFixedColumns - 1;
+                      let stickyStyle = { ...colWidthStyles };
+
+                      // Vẫn hỗ trợ freeze cột ngang cho header
+                      if (idx < effectiveFixedColumns) {
+                        stickyStyle = {
+                          ...stickyStyle,
+                          position: 'sticky',
+                          left: getStickyLeftPx(idx),
+                          zIndex: 11000,
+                          background: '#f8f9fa',
+                          backgroundClip: 'padding-box',
+                          contain: 'none',
+                          ...(lastFrozen ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.12)' } : {})
+                        };
+                      } else {
+                        stickyStyle = {
+                          ...stickyStyle,
+                          background: '#f8f9fa',
+                        };
+                      }
+
+                      return (
+                        <th
+                          key={`head-${col}`}
+                          data-col-idx={idx}
+                          className={
+                            col === 'STT'
+                              ? 'px-2 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-nowrap overflow-hidden text-ellipsis box-border'
+                              : 'px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border'
+                          }
+                          style={stickyStyle}
+                        >
+                          <div className="font-semibold mb-1 text-gray-700">{col}</div>
+                          {renderColumnFilterEditor(col)}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+              </table>
+            </div>
+
+            {/* 2. SCROLLABLE BODY AREA */}
+            <div
+              ref={ffmScrollContainerRef}
+              className="flex-1 overflow-auto overscroll-contain bg-white"
+              onScroll={(e) => {
+                if (ffmHeaderContainerRef.current) {
+                  ffmHeaderContainerRef.current.scrollLeft = e.target.scrollLeft;
+                }
+              }}
+            >
+              <table ref={tableRef} className={`${tableClassName} w-max`} style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
+                <tbody>
+                  {paginatedData.map((row, rIdx) => {
+                    const orderId = row[PRIMARY_KEY_COLUMN];
                     return (
-                      <th
-                        key={`filter-${col}`}
-                        data-col-idx={idx}
-                        className={
-                          col === 'STT'
-                            ? 'px-2 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-nowrap overflow-hidden text-ellipsis box-border'
-                            : 'px-4 py-2.5 border-b-2 border-r border-gray-300 min-w-max align-top bg-[#f8f9fa] whitespace-normal box-border'
-                        }
-                        style={stickyStyle}
-                      >
-                        <div className="font-semibold mb-1 text-gray-700">{col}</div>
-                        {renderColumnFilterEditor(col)}
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedData.map((row, rIdx) => {
-                  const orderId = row[PRIMARY_KEY_COLUMN];
-                  return (
-                    <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
-                      {currentColumns.map((col, cIdx) => {
-                        const colWidthStyles = getColumnWidthStyles(col);
-                        const lastFrozenCol = cIdx === effectiveFixedColumns - 1;
-                        const cellStyle = cIdx < effectiveFixedColumns
-                          ? {
+                      <tr key={orderId} className="hover:bg-[#E8EAF6] transition-colors">
+                        {currentColumns.map((col, cIdx) => {
+                          const colWidthStyles = getColumnWidthStyles(col);
+                          const lastFrozenCol = cIdx === effectiveFixedColumns - 1;
+                          const cellStyle = cIdx < effectiveFixedColumns
+                            ? {
                               position: 'sticky',
                               left: getStickyLeftPx(cIdx),
                               zIndex: 20,
                               ...colWidthStyles,
                               ...(lastFrozenCol ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
                             }
-                          : { ...colWidthStyles, position: 'relative', zIndex: 0 };
-                        return renderFfmDataCell(row, rIdx, col, cIdx, cellStyle);
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            : { ...colWidthStyles };
+                          return renderFfmDataCell(row, rIdx, col, cIdx, cellStyle);
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

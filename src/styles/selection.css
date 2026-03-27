@@ -25,8 +25,8 @@ table {
   user-select: none;
   
   /* Enable GPU acceleration for smoother rendering */
-  transform: translateZ(0);
-  will-change: auto;
+  /* transform: translateZ(0); */
+  /* will-change: auto; */
 }
 
 /* Allow text selection in input fields */
@@ -42,7 +42,7 @@ table textarea {
 /* Optimize cell rendering */
 td, th {
   /* Use contain for better rendering performance */
-  contain: layout style paint;
+  /* contain: layout style paint; */
   
   /* Prevent layout shifts */
   box-sizing: border-box;
