@@ -14,6 +14,7 @@ import {
   TEAM_COLUMN_NAME
 } from '../types';
 import { rafThrottle } from '../utils/throttle';
+import * as XLSX from 'xlsx';
 
 /** Giá trị Team / chi nhánh từ row (FFM) */
 function getTeamStringFFM(row) {
@@ -69,6 +70,21 @@ const FFM_FILTER_SKIP_KEYS = new Set([
   'us_shipping_fee_status', 'us_shipping_fee_search'
 ]);
 const HIDDEN_FFM_COLUMNS = new Set(['Payment Bill', 'Payment Image']);
+
+/** Xuất Excel: các cột khớp bộ lọc bảng (Mã đơn, Tracking + cột trong UI FFM). */
+const FFM_EXCEL_EXPORT_COLUMNS = [
+  PRIMARY_KEY_COLUMN,
+  'Mã Tracking',
+  'Ngày đóng hàng',
+  'Trạng thái giao hàng',
+  'GHI CHÚ',
+  'Thời gian giao dự kiến',
+  'Ngày Kế toán đối soát với FFM lần 2',
+  'Ngày đẩy đơn',
+  'Ngày có mã tracking',
+  'Ngày đối soát kế toán',
+  'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+];
 const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Kết quả Check',
   'Kết quả check',
@@ -486,6 +502,40 @@ function FFM() {
       return String(dateString);
     }
   };
+
+  /** Giá trị ô xuất Excel — khớp render bảng + thay đổi pending. */
+  const getFfmExportCellValue = useCallback(
+    (row, col) => {
+      const orderId = row[PRIMARY_KEY_COLUMN];
+      const key = COLUMN_MAPPING[col] || col;
+      let val = '';
+      if (col === 'Mã Tracking') {
+        val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
+      } else if (col === 'Ngày đẩy đơn') {
+        val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
+      } else if (col === 'Ngày có mã tracking') {
+        const raw = getTrackingDateRawFFM(row);
+        val = row['Ngày có mã tracking'] ?? extractDateFromDateTime(raw) ?? raw ?? '';
+      } else {
+        val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
+      }
+      const pendingInfo = pendingChanges.get(orderId)?.get(key);
+      if (pendingInfo) val = pendingInfo.newValue;
+      const dateCols = [
+        'Ngày lên đơn',
+        'Ngày đóng hàng',
+        'Ngày đẩy đơn',
+        'Ngày có mã tracking',
+        'Ngày Kế toán đối soát với FFM lần 2',
+        'Thời gian giao dự kiến',
+      ];
+      if (dateCols.includes(col)) {
+        return formatDate(val);
+      }
+      return val === null || val === undefined ? '' : String(val);
+    },
+    [pendingChanges]
+  );
 
   const getTodayYmd = () => {
     const now = new Date();
@@ -1056,6 +1106,27 @@ function FFM() {
     // Lọc dựa trên data gốc (không pending), sau đó map sang row có pending để UI thể hiện ngay thay đổi.
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
   }, [ffmEnrichedRowsForFilter, ffmRenderRowMap, omActiveTeam, omDateType, deferredFilterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence]);
+
+  const handleExportFilteredExcel = useCallback(() => {
+    const rows = getFilteredData;
+    if (!rows.length) {
+      addToast('Không có dữ liệu phù hợp bộ lọc để xuất.', 'error');
+      return;
+    }
+    const dataToExport = rows.map((row) => {
+      const obj = {};
+      for (const col of FFM_EXCEL_EXPORT_COLUMNS) {
+        obj[col] = getFfmExportCellValue(row, col);
+      }
+      return obj;
+    });
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    XLSX.utils.book_append_sheet(wb, ws, 'FFM');
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    XLSX.writeFile(wb, `FFM_loc_${stamp}.xlsx`);
+    addToast(`Đã xuất ${rows.length} dòng ra Excel.`, 'success');
+  }, [getFilteredData, getFfmExportCellValue, addToast]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
@@ -2916,6 +2987,14 @@ function FFM() {
             </button>
             <button onClick={() => setQuickAddModalOpen(true)} className="bg-indigo-500 hover:bg-indigo-600 text-white px-2.5 py-1 rounded text-xs font-medium">
               ⚡ Thêm nhanh
+            </button>
+            <button
+              type="button"
+              onClick={handleExportFilteredExcel}
+              title="Tải Excel các cột đã chọn — theo đúng bộ lọc hiện tại (Mã đơn, Tracking, ngày, trạng thái, GHI CHÚ, …)"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-xs font-medium transition"
+            >
+              ⬇ Tải Excel (theo lọc)
             </button>
             <button onClick={() => setShowColumnSettings(true)} className="bg-gray-600 hover:bg-gray-700 text-white px-2.5 py-1 rounded text-xs font-medium transition flex items-center gap-1">
               ⚙️ Cài đặt cột

@@ -1271,51 +1271,12 @@ export default function DanhSachBaoCaoTay() {
         return rows;
     }, [manualReports, filters.personnel, staffTableSearch]);
 
-    // Gộp dữ liệu theo ngày + tên để lấy giá trị cùng tên theo từng ngày.
+    // Hiển thị từng dòng báo cáo, không gộp theo ngày + tên (mỗi bản ghi một hàng, đủ thao tác).
     const reportsGroupedByDateAndName = useMemo(() => {
-        const normalizeName = (value) =>
-            String(value || '')
-                .trim()
-                .replace(/\s+/g, ' ')
-                .toLowerCase();
-
-        const grouped = new Map();
-        for (const row of reportsAfterPersonnelFilter || []) {
-            const date = String(row?.date || '').trim();
-            const nameRaw = String(row?.name || '').trim();
-            const nameKey = normalizeName(nameRaw);
-            if (!date || !nameKey) continue;
-
-            const key = `${date}__${nameKey}`;
-            const current = grouped.get(key);
-            if (!current) {
-                grouped.set(key, {
-                    ...row,
-                    _sourceCount: 1,
-                    mess_count: Number(row?.mess_count || 0),
-                    response_count: Number(row?.response_count || 0),
-                    order_count: Number(row?.order_count || 0),
-                    order_cancel_count: Number(row?.order_cancel_count || 0),
-                    revenue_actual: Number(row?.revenue_actual || 0),
-                    revenue_cancel_actual: Number(row?.revenue_cancel_actual || 0),
-                    order_go: Number(row?.order_go || 0),
-                    revenue_go_actual: Number(row?.revenue_go_actual || 0),
-                });
-                continue;
-            }
-
-            current._sourceCount += 1;
-            current.mess_count += Number(row?.mess_count || 0);
-            current.response_count += Number(row?.response_count || 0);
-            current.order_count += Number(row?.order_count || 0);
-            current.order_cancel_count += Number(row?.order_cancel_count || 0);
-            current.revenue_actual += Number(row?.revenue_actual || 0);
-            current.revenue_cancel_actual += Number(row?.revenue_cancel_actual || 0);
-            current.order_go += Number(row?.order_go || 0);
-            current.revenue_go_actual += Number(row?.revenue_go_actual || 0);
-        }
-
-        return Array.from(grouped.values());
+        return (reportsAfterPersonnelFilter || []).map((row) => ({
+            ...row,
+            _sourceCount: 1,
+        }));
     }, [reportsAfterPersonnelFilter]);
 
     const reportTableTotals = useMemo(() => {
