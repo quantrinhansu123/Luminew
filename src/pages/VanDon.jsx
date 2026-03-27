@@ -1861,6 +1861,7 @@ function VanDon() {
     // Tab "Dữ liệu đơn hàng": một số cột chỉ xem
     if (bolActiveTab === 'all') {
       const k = String(colKey || '').trim().toLowerCase();
+      // Cho phép sửa "Trạng thái giao hàng NB" ở tab Dữ liệu đơn hàng
       if (k === 'đơn vị vận chuyển' || k === 'mã tracking') return;
     }
     const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
@@ -2232,15 +2233,17 @@ function VanDon() {
   // Simplified cell class
   const getCellClass = (row, col, val, rIdx, cIdx) => {
     const isCheckCol = (col === "Kết quả Check" || col === "Kết quả check");
+    const isStatusNBCol = (col === "Trạng thái giao hàng NB");
+    const isPayStatusCol = (col === "Trạng thái thu tiền");
     const isStatusCol = (col === "Trạng thái giao hàng");
     const isQtyCol = col === "Số lượng mặt hàng 1" || col === "Số lượng mặt hàng 2";
 
     // Default cell sizing
     // NOTE: For select-based columns, avoid vertical padding so the select can fill the cell height cleanly.
-    let classes = `${(isCheckCol || isStatusCol) ? "py-0" : "py-2.5"} border border-gray-200 text-sm h-[38px] whitespace-nowrap `;
+    let classes = `${(isCheckCol || isStatusCol || isStatusNBCol || isPayStatusCol) ? "py-0" : "py-2.5"} border border-gray-200 text-sm h-[38px] whitespace-nowrap `;
 
     // Padding adjustment for specific columns
-    if (isCheckCol) {
+    if (isCheckCol || isStatusNBCol || isPayStatusCol || isStatusCol) {
       classes += "pl-2 pr-3 ";
     } else if (isQtyCol) {
       classes += "px-1 ";
@@ -2430,11 +2433,15 @@ function VanDon() {
         {col === 'STT' ? (
           row.rowIndex || (currentPage - 1) * effectiveRowsPerPage + rIdx + 1
         ) : isReadonlyEditTab || (isReadonlyOrderDataTab && (isCarrierCol || isTrackingCol)) ? (
+          // Tab "Dữ liệu đơn hàng": chỉ khóa "Đơn vị vận chuyển" và "Mã Tracking"
           displayVal
         ) : DROPDOWN_OPTIONS[col] ? (
           <select
             className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
             value={String(val)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
             {DROPDOWN_OPTIONS[col].map((o) => (
@@ -2448,6 +2455,9 @@ function VanDon() {
             className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
             style={{ padding: 0, margin: 0, lineHeight: '38px' }}
             value={String(val)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
             {getCellEditSelectOptions(col)
