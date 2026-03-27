@@ -424,7 +424,7 @@ function VanDon() {
     queryFn: async () => {
       console.log('🚀 [VanDon] Query Function Started. useBackendPagination:', useBackendPagination, 'permissionsLoading:', permissionsLoading);
       if (!useBackendPagination || permissionsLoading) return null;
-      
+
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || "";
@@ -448,9 +448,9 @@ function VanDon() {
         allowedStaff: isManager ? undefined : allAllowedNames
       });
 
-      console.log('✅ [VanDon] fetchVanDon Result:', { 
-        count: result.data?.length || 0, 
-        total: result.total, 
+      console.log('✅ [VanDon] fetchVanDon Result:', {
+        count: result.data?.length || 0,
+        total: result.total,
         isManager,
         allowedStaff: isManager ? 'ALL' : allAllowedNames
       });
@@ -459,7 +459,7 @@ function VanDon() {
         console.error('❌ [VanDon] API Error:', result.error);
         throw new Error(result.error);
       }
-      
+
       // Load MGT Noi Bo in background if needed
       API.fetchMGTNoiBoOrders().then(mgtOrder => setMgtNoiBoOrder(mgtOrder));
 
@@ -472,11 +472,11 @@ function VanDon() {
   const allData = useMemo(() => {
     let rows = queryResult?.data || [];
     if (bolActiveTab === 'hanoi') {
-           rows = rows.filter(row => {
-            const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-            const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-            return checkResult.toLowerCase() === 'ok' && (!deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null');
-          });
+      rows = rows.filter(row => {
+        const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+        const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+        return checkResult.toLowerCase() === 'ok' && (!deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null');
+      });
     }
     const result = mergePendingRowsIntoFetchedData(rows);
     console.log('📊 [VanDon] Final allData length:', result.length);
@@ -812,13 +812,13 @@ function VanDon() {
   useEffect(() => {
     if (queryResult?.data) {
       queryResult.data.forEach((row) => {
-          const orderId = row[PRIMARY_KEY_COLUMN];
-          if (pendingChangesRef.current.has(orderId) && !pendingRowSnapshotsRef.current.has(orderId)) {
-            const pmap = pendingChangesRef.current.get(orderId);
-            const copy = { ...row };
-            pmap.forEach((info, key) => { copy[key] = info.newValue; });
-            pendingRowSnapshotsRef.current.set(orderId, copy);
-          }
+        const orderId = row[PRIMARY_KEY_COLUMN];
+        if (pendingChangesRef.current.has(orderId) && !pendingRowSnapshotsRef.current.has(orderId)) {
+          const pmap = pendingChangesRef.current.get(orderId);
+          const copy = { ...row };
+          pmap.forEach((info, key) => { copy[key] = info.newValue; });
+          pendingRowSnapshotsRef.current.set(orderId, copy);
+        }
       });
       savePendingToLocalStorage(pendingChangesRef.current);
     }
@@ -1044,7 +1044,7 @@ function VanDon() {
 
       // Create log records with 'pending' status
       const { batchId } = await API.createFfmPushLogs(orderIds, carrierName, currentUser);
-      
+
       removeToast(toastId);
 
       // Show the confirmation dialog
@@ -1072,23 +1072,23 @@ function VanDon() {
     const historyChanges = [];
     orderIds.forEach(orderId => {
       const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
-      
+
       // Update Carrier if different
       const originalCarrierValue = originalRow ? String(originalRow[carrierKey] || '') : '';
-      historyChanges.push({ 
-        orderId, 
-        colKey: carrierKey, 
-        originalValue: originalCarrierValue, 
-        newValue: carrier 
+      historyChanges.push({
+        orderId,
+        colKey: carrierKey,
+        originalValue: originalCarrierValue,
+        newValue: carrier
       });
 
       // Update Push Date
       const originalDateValue = originalRow ? String(originalRow[accountingDateKey] || '') : '';
-      historyChanges.push({ 
-        orderId, 
-        colKey: accountingDateKey, 
-        originalValue: originalDateValue, 
-        newValue: now 
+      historyChanges.push({
+        orderId,
+        colKey: accountingDateKey,
+        originalValue: originalDateValue,
+        newValue: now
       });
     });
 
@@ -1113,7 +1113,7 @@ function VanDon() {
   const cancelPushFinal = async () => {
     if (!confirmPushData) return;
     const { batchId } = confirmPushData;
-    
+
     try {
       await API.updateFfmPushLogStatus(batchId, 'cancelled');
     } catch (err) {
@@ -1234,19 +1234,19 @@ function VanDon() {
   const scrollCols = splitPane ? currentColumns.slice(effectiveFixedColumns) : [];
 
   const checkboxStickyPad = bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0;
-  
+
   /** Tính toán độ rộng cột Nhân viên MKT dựa trên nội dung dài nhất trong data */
   const mktColumnWidth = useMemo(() => {
     if (!allData || allData.length === 0) return 140;
-    
+
     let maxLen = 0;
     allData.forEach(row => {
       const name = String(row["Nhân viên MKT"] || row["marketing_staff"] || "").trim();
       if (name.length > maxLen) maxLen = name.length;
     });
-    
+
     // Ước tính 8px mỗi ký tự + padding (khoảng 140px cho 12-15 ký tự, 200px cho 20 ký tự)
-    const estimated = maxLen * 8.5 + 40; 
+    const estimated = maxLen * 8.5 + 40;
     return Math.max(140, Math.min(estimated, 400)); // Min 140, Max 400
   }, [allData]);
 
@@ -1280,7 +1280,7 @@ function VanDon() {
     const isProductCol = (cl === "mặt hàng");
     const isProductNameCol = (cl === "tên mặt hàng 1" || cl === "tên mặt hàng 2");
     const isQtyCol = cl === "số lượng mặt hàng 1" || cl === "số lượng mặt hàng 2";
-    
+
     if (isQtyCol) return 52;
     if (isCheckCol) return 150;
     if (isNameCol) return 220;
@@ -2813,372 +2813,374 @@ function VanDon() {
               )}
             </div>
 
-          <div className="flex items-center gap-4 flex-shrink-0 sm:ml-auto">
-            <div className="text-right flex flex-col items-end">
-              <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Số lượng đơn</span>
-              <span className="text-sm font-black text-blue-600 leading-none tabular-nums">{totalOrdersCount.toLocaleString('vi-VN')}</span>
-            </div>
-            <div className="text-right flex flex-col items-end">
-              <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
-              <span className="text-sm font-black text-emerald-600 leading-none">{totalMoney.toLocaleString('vi-VN')} ₫</span>
-            </div>
-          </div>
-        </div>
-
-
-        <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0 flex-1">
-          {isQueryLoading ? (
-            <div className="flex-1 flex flex-col items-center justify-center min-h-[400px] bg-white rounded-lg">
-              <div className="relative w-16 h-16 mb-4">
-                 <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
-                 <div className="absolute inset-0 border-4 border-[#0052cc] border-t-transparent rounded-full animate-spin"></div>
+            <div className="flex items-center gap-4 flex-shrink-0 sm:ml-auto">
+              <div className="text-right flex flex-col items-end">
+                <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Số lượng đơn</span>
+                <span className="text-sm font-black text-blue-600 leading-none tabular-nums">{totalOrdersCount.toLocaleString('vi-VN')}</span>
               </div>
-              <p className="text-gray-500 font-medium animate-pulse text-lg">Đang tải dữ liệu vận đơn...</p>
+              <div className="text-right flex flex-col items-end">
+                <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
+                <span className="text-sm font-black text-emerald-600 leading-none">{totalMoney.toLocaleString('vi-VN')} ₫</span>
+              </div>
             </div>
-          ) : (
-            <div className="flex-1 flex flex-col min-h-0 bg-white">
-               {/* 1. FIXED HEADER AREA (FFM Style) */}
-               <div
-                 ref={vanDonHeaderContainerRef}
-                 className="overflow-hidden border-b-2 border-gray-300 bg-[#f8f9fa] shrink-0 shadow-sm"
-                 style={{ paddingRight: '15px' }}
-               >
-                 <table
-                   className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed"
-                   style={{ tableLayout: 'fixed' }}
-                 >
-                   <thead className="bg-[#f8f9fa]">
-                     <tr className="bg-gray-100 align-top">
-                       {bolActiveTab === 'hanoi' && (
-                         <th className="py-2.5 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap px-2 sticky left-0 z-[10100]" style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }}>
-                           <div className="flex items-center justify-center">
-                             <input
-                               type="checkbox"
-                               checked={getFilteredData.length > 0 && getFilteredData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
-                               onChange={(e) => {
-                                 if (e.target.checked) selectAllRows();
-                                 else deselectAllRows();
-                               }}
-                               className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                             />
-                           </div>
-                         </th>
-                       )}
-                       {currentColumns.map((col, idx) => {
-                         const stickyLeft = getStickyLeftPx(idx);
-                         const isFixed = idx < effectiveFixedColumns;
-                         const style = isFixed 
-                           ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa' }
-                           : { position: 'relative', zIndex: 10200 };
-                         return renderVanDonFilterTh(col, idx, style, isFixed && idx === effectiveFixedColumns - 1);
-                       })}
-                     </tr>
-                   </thead>
-                 </table>
-               </div>
-
-               {/* 2. SCROLLABLE BODY (Virtualized) */}
-               {getFilteredData.length === 0 ? (
-                 <div
-                   className="flex-1 overflow-auto overscroll-contain bg-white relative"
-                   onScroll={onTableScroll}
-                   ref={(el) => {
-                     if (el) {
-                       tableRef.current = el;
-                       horizontalScrollHostRef.current = el;
-                       // Duy trì vị trí scroll khi chuyển giữa các state
-                       if (vanDonHeaderContainerRef.current) {
-                           el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
-                       }
-                     }
-                   }}
-                 >
-                   <div className="sticky left-0 w-full h-64 flex justify-center items-center text-gray-500 italic z-50 pointer-events-none">
-                     Không tìm thấy dữ liệu phù hợp
-                   </div>
-                   <table
-                     className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed font-sans"
-                     style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}
-                   >
-                     <tbody>
-                       <tr className="h-0 pointer-events-none">
-                         {bolActiveTab === 'hanoi' && (
-                           <td style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }} className="p-0 border-none" />
-                         )}
-                         {currentColumns.map((col, idx) => (
-                           <td key={idx} style={getColumnWidthStyles(col)} className="p-0 border-none" />
-                         ))}
-                       </tr>
-                     </tbody>
-                   </table>
-                 </div>
-               ) : (
-                 <TableVirtuoso
-                   data={getFilteredData}
-                   style={{ height: '100%', width: '100%' }}
-                   scrollerRef={(el) => {
-                     if (el) {
-                       tableRef.current = el;
-                       horizontalScrollHostRef.current = el;
-                       el.addEventListener('scroll', onTableScroll);
-                       // Duy trì vị trí scroll khi chuyển giữa các state
-                       if (vanDonHeaderContainerRef.current) {
-                           el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
-                       }
-                     }
-                   }}
-                   components={{
-                     Table: ({ style, ...props }) => (
-                       <table {...props} className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed" style={{ ...style, tableLayout: 'fixed' }} />
-                     )
-                   }}
-                   itemContent={(rIdx, row) => {
-                     const orderId = row[PRIMARY_KEY_COLUMN];
-                     const isSelected = selectedRows.has(orderId);
-                     return (
-                       <>
-                         {bolActiveTab === 'hanoi' && (
-                           <td
-                             className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300]"
-                             style={{
-                               width: VAN_DON_CHECKBOX_COL_PX,
-                               minWidth: VAN_DON_CHECKBOX_COL_PX,
-                               backgroundColor: isSelected ? '#dbeafe' : '#f9fafb'
-                             }}
-                           >
-                             <div className="flex items-center justify-center">
-                               <input
-                                 type="checkbox"
-                                 checked={isSelected}
-                                 onChange={() => toggleRowSelection(orderId)}
-                                 onClick={(e) => e.stopPropagation()}
-                                 className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                               />
-                             </div>
-                           </td>
-                         )}
-                         {currentColumns.map((col, cIdx) => {
-                           const cellStickyLeft = getStickyLeftPx(cIdx);
-                           const isFixed = cIdx < effectiveFixedColumns;
-                           const colWidthStyles = getColumnWidthStyles(col);
-                           const cellStyle = isFixed
-                             ? {
-                               position: 'sticky',
-                               left: cellStickyLeft,
-                               zIndex: 3100,
-                               ...colWidthStyles,
-                               boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
-                             }
-                             : { position: 'relative', zIndex: 10, ...colWidthStyles };
-                           return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
-                         })}
-                       </>
-                     );
-                   }}
-                 />
-               )}
-            </div>
-          )}
-        </div>
-
-        {/* Improved Pagination Footer (FFM Style) */}
-        <div className="bg-white p-3 rounded-lg shadow-sm mt-3 flex justify-center items-center gap-4 border border-gray-200">
-          <button
-            disabled={currentPage <= 1 || isQueryLoading}
-            onClick={() => setCurrentPage((p) => p - 1)}
-            className="px-4 py-2 bg-[#0052cc] text-white rounded disabled:bg-gray-300 font-bold shadow-sm hover:bg-[#0747a6] transition-colors flex items-center gap-2"
-          >
-            <span> Trang trước</span>
-          </button>
-
-          <div className="flex items-center gap-1.5 min-w-[120px] justify-center">
-             <span className="text-sm font-bold text-gray-700 bg-gray-100 px-4 py-2 rounded-full border border-gray-200 shadow-inner">
-               Trang {currentPage} / {totalPages || 1}
-             </span>
-             {totalRecords > 0 && (
-               <span className="text-[10px] text-gray-400 font-bold uppercase ml-1">
-                 ({(useBackendPagination ? totalRecords : getFilteredData.length).toLocaleString()} kết quả)
-               </span>
-             )}
           </div>
 
-          <button
-            disabled={currentPage >= totalPages || isQueryLoading}
-            onClick={() => setCurrentPage((p) => p + 1)}
-            className="px-4 py-2 bg-[#0052cc] text-white rounded disabled:bg-gray-300 font-bold shadow-sm hover:bg-[#0747a6] transition-colors flex items-center gap-2"
-          >
-            <span>Trang sau </span>
-          </button>
 
-          <div className="flex items-center gap-2 ml-4 bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-tighter">Số dòng:</label>
-            <select
-              className="border-none bg-transparent text-sm font-black text-[#0052cc] focus:ring-0 p-0 cursor-pointer"
-              value={rowsPerPage}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                setRowsPerPage(val);
-                setCurrentPage(1);
-              }}
+          <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0 flex-1">
+            {isQueryLoading ? (
+              <div className="flex-1 flex flex-col items-center justify-center min-h-[400px] bg-white rounded-lg">
+                <div className="relative w-16 h-16 mb-4">
+                  <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
+                  <div className="absolute inset-0 border-4 border-[#0052cc] border-t-transparent rounded-full animate-spin"></div>
+                </div>
+                <p className="text-gray-500 font-medium animate-pulse text-lg">Đang tải dữ liệu vận đơn...</p>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col min-h-0 bg-white">
+                {/* 1. FIXED HEADER AREA (FFM Style) */}
+                <div
+                  ref={vanDonHeaderContainerRef}
+                  className="overflow-hidden border-b-2 border-gray-300 bg-[#f8f9fa] shrink-0 shadow-sm"
+                  style={{ paddingRight: '15px' }}
+                >
+                  <table
+                    className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed"
+                    style={{ tableLayout: 'fixed' }}
+                  >
+                    <thead className="bg-[#f8f9fa]">
+                      <tr className="bg-gray-100 align-top">
+                        {bolActiveTab === 'hanoi' && (
+                          <th className="py-2.5 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap px-2 sticky left-0 z-[10100]" style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }}>
+                            <div className="flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                checked={getFilteredData.length > 0 && getFilteredData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
+                                onChange={(e) => {
+                                  if (e.target.checked) selectAllRows();
+                                  else deselectAllRows();
+                                }}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                              />
+                            </div>
+                          </th>
+                        )}
+                        {currentColumns.map((col, idx) => {
+                          const stickyLeft = getStickyLeftPx(idx);
+                          const isFixed = idx < effectiveFixedColumns;
+                          const style = isFixed
+                            ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa' }
+                            : { position: 'relative', zIndex: 10200 };
+                          return renderVanDonFilterTh(col, idx, style, isFixed && idx === effectiveFixedColumns - 1);
+                        })}
+                      </tr>
+                    </thead>
+                  </table>
+                </div>
+
+                {/* 2. SCROLLABLE BODY (Virtualized) */}
+                {getFilteredData.length === 0 ? (
+                  <div
+                    className="flex-1 overflow-auto overscroll-contain bg-white relative"
+                    onScroll={onTableScroll}
+                    ref={(el) => {
+                      if (el) {
+                        tableRef.current = el;
+                        horizontalScrollHostRef.current = el;
+                        // Duy trì vị trí scroll khi chuyển giữa các state
+                        if (vanDonHeaderContainerRef.current) {
+                          el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
+                        }
+                      }
+                    }}
+                  >
+                    <div className="sticky left-0 w-full h-64 flex justify-center items-center text-gray-500 italic z-50 pointer-events-none">
+                      Không tìm thấy dữ liệu phù hợp
+                    </div>
+                    <table
+                      className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed font-sans"
+                      style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}
+                    >
+                      <tbody>
+                        <tr className="h-0 pointer-events-none">
+                          {bolActiveTab === 'hanoi' && (
+                            <td style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }} className="p-0 border-none" />
+                          )}
+                          {currentColumns.map((col, idx) => (
+                            <td key={idx} style={getColumnWidthStyles(col)} className="p-0 border-none" />
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <TableVirtuoso
+                    data={getFilteredData}
+                    style={{ height: '430px', width: '100%' }}
+                    scrollerRef={(el) => {
+                      if (el) {
+                        tableRef.current = el;
+                        horizontalScrollHostRef.current = el;
+                        el.addEventListener('scroll', onTableScroll);
+                        // Duy trì vị trí scroll khi chuyển giữa các state
+                        if (vanDonHeaderContainerRef.current) {
+                          el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
+                        }
+                      }
+                    }}
+                    components={{
+                      Table: ({ style, ...props }) => (
+                        <table {...props} className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed" style={{ ...style, tableLayout: 'fixed' }} />
+                      ),
+                      TableBody: React.forwardRef((props, ref) => <tbody {...props} ref={ref} />)
+
+                    }}
+                    itemContent={(rIdx, row) => {
+                      const orderId = row[PRIMARY_KEY_COLUMN];
+                      const isSelected = selectedRows.has(orderId);
+                      return (
+                        <tr key={orderId || rIdx} className={isSelected ? 'bg-blue-50' : ''}>
+                          {bolActiveTab === 'hanoi' && (
+                            <td
+                              className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300]"
+                              style={{
+                                width: VAN_DON_CHECKBOX_COL_PX,
+                                minWidth: VAN_DON_CHECKBOX_COL_PX,
+                                backgroundColor: isSelected ? '#dbeafe' : '#f9fafb'
+                              }}
+                            >
+                              <div className="flex items-center justify-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleRowSelection(orderId)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                />
+                              </div>
+                            </td>
+                          )}
+                          {currentColumns.map((col, cIdx) => {
+                            const cellStickyLeft = getStickyLeftPx(cIdx);
+                            const isFixed = cIdx < effectiveFixedColumns;
+                            const colWidthStyles = getColumnWidthStyles(col);
+                            const cellStyle = isFixed
+                              ? {
+                                position: 'sticky',
+                                left: cellStickyLeft,
+                                zIndex: 3100,
+                                ...colWidthStyles,
+                                boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
+                              }
+                              : { position: 'relative', zIndex: 10, ...colWidthStyles };
+                            return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
+                          })}
+                        </tr>
+                      );
+                    }}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Improved Pagination Footer (FFM Style) */}
+          <div className="bg-white p-3 rounded-lg shadow-sm mt-3 flex justify-center items-center gap-4 border border-gray-200">
+            <button
+              disabled={currentPage <= 1 || isQueryLoading}
+              onClick={() => setCurrentPage((p) => p - 1)}
+              className="px-4 py-2 bg-[#0052cc] text-white rounded disabled:bg-gray-300 font-bold shadow-sm hover:bg-[#0747a6] transition-colors flex items-center gap-2"
             >
-              {[50, 70, 100, 200, 500].map(v => (
-                <option key={v} value={v}>{v} dòng</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
+              <span> Trang trước</span>
+            </button>
 
+            <div className="flex items-center gap-1.5 min-w-[120px] justify-center">
+              <span className="text-sm font-bold text-gray-700 bg-gray-100 px-4 py-2 rounded-full border border-gray-200 shadow-inner">
+                Trang {currentPage} / {totalPages || 1}
+              </span>
+              {totalRecords > 0 && (
+                <span className="text-[10px] text-gray-400 font-bold uppercase ml-1">
+                  ({(useBackendPagination ? totalRecords : getFilteredData.length).toLocaleString()} kết quả)
+                </span>
+              )}
+            </div>
 
-      {/* Selection Summary Bar */}
-      {calculatedSummary && calculatedSummary.count > 1 && (
-        <div className="selection-summary-bar">
-          <div className="summary-item">
-            <span className="summary-label">Số ô</span>
-            <span className="summary-value">{calculatedSummary.count}</span>
-          </div>
-          {calculatedSummary.sum !== 0 && (
-            <>
-              <div className="divider"></div>
-              <div className="summary-item">
-                <span className="summary-label">Tổng</span>
-                <span className="summary-value">{calculatedSummary.sum.toLocaleString('vi-VN')}</span>
-              </div>
-              <div className="divider"></div>
-              <div className="summary-item">
-                <span className="summary-label">TB</span>
-                <span className="summary-value">{calculatedSummary.avg.toLocaleString('vi-VN', { maximumFractionDigits: 2 })}</span>
-              </div>
-            </>
-          )}
-          <div className="divider"></div>
-          <div className="text-xs opacity-70">
-            <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Ctrl+C</kbd> Copy
-            <span className="mx-2">|</span>
-            <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Ctrl+V</kbd> Paste
-            <span className="mx-2">|</span>
-            <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Esc</kbd> Bỏ chọn
-          </div>
-        </div>
-      )}
+            <button
+              disabled={currentPage >= totalPages || isQueryLoading}
+              onClick={() => setCurrentPage((p) => p + 1)}
+              className="px-4 py-2 bg-[#0052cc] text-white rounded disabled:bg-gray-300 font-bold shadow-sm hover:bg-[#0747a6] transition-colors flex items-center gap-2"
+            >
+              <span>Trang sau </span>
+            </button>
 
-      {/* Toast Container */}
-      <div className="fixed top-5 right-5 z-[50000] flex flex-col gap-2 pointer-events-none">
-        {toasts.map(t => (
-          <div key={t.id} className={`pointer-events-auto min-w-[300px] p-4 rounded shadow-lg bg-white border-l-4 transform transition-all animate-in slide-in-from-right-10 duration-300 ${t.type === 'success' ? 'border-green-500 bg-green-50' :
-            t.type === 'error' ? 'border-red-500 bg-red-50' :
-              t.type === 'loading' ? 'border-blue-500 bg-blue-50' : 'border-blue-500 bg-white'
-            }`}>
-            <div className="flex justify-between items-start">
-              <div className="flex items-center gap-3">
-                {t.type === 'loading' && <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>}
-                <span className="text-sm font-medium text-gray-800">{t.message}</span>
-              </div>
-              <button onClick={() => removeToast(t.id)} className="text-gray-400 hover:text-gray-600 font-bold">&times;</button>
+            <div className="flex items-center gap-2 ml-4 bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100">
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-tighter">Số dòng:</label>
+              <select
+                className="border-none bg-transparent text-sm font-black text-[#0052cc] focus:ring-0 p-0 cursor-pointer"
+                value={rowsPerPage}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setRowsPerPage(val);
+                  setCurrentPage(1);
+                }}
+              >
+                {[50, 70, 100, 200, 500].map(v => (
+                  <option key={v} value={v}>{v} dòng</option>
+                ))}
+              </select>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
 
-      {/* Sync Popover */}
-      <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>}>
-        <SyncPopover
-          isOpen={syncPopoverOpen}
-          onClose={() => setSyncPopoverOpen(false)}
-          pendingChanges={pendingChanges}
-          legacyChanges={new Map()}
-          onApply={handleUpdateAll}
-          applyButtonLabel="Xác nhận lưu"
-          onDiscard={() => {
-            if (!window.confirm('Hủy bỏ tất cả thay đổi chưa lưu?')) return;
-            dbQueueRef.current = [];
-            changeHistoryRef.current = [];
-            historyIndexRef.current = -1;
-            pendingRowSnapshotsRef.current.clear();
-            setPendingChanges(new Map());
-            localStorage.removeItem('speegoPendingChanges');
-            localStorage.removeItem('speegoPendingRowSnapshots');
-            setSyncPopoverOpen(false);
-            void refreshData({ skipUnsavedCheck: true });
+
+        {/* Selection Summary Bar */}
+        {calculatedSummary && calculatedSummary.count > 1 && (
+          <div className="selection-summary-bar">
+            <div className="summary-item">
+              <span className="summary-label">Số ô</span>
+              <span className="summary-value">{calculatedSummary.count}</span>
+            </div>
+            {calculatedSummary.sum !== 0 && (
+              <>
+                <div className="divider"></div>
+                <div className="summary-item">
+                  <span className="summary-label">Tổng</span>
+                  <span className="summary-value">{calculatedSummary.sum.toLocaleString('vi-VN')}</span>
+                </div>
+                <div className="divider"></div>
+                <div className="summary-item">
+                  <span className="summary-label">TB</span>
+                  <span className="summary-value">{calculatedSummary.avg.toLocaleString('vi-VN', { maximumFractionDigits: 2 })}</span>
+                </div>
+              </>
+            )}
+            <div className="divider"></div>
+            <div className="text-xs opacity-70">
+              <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Ctrl+C</kbd> Copy
+              <span className="mx-2">|</span>
+              <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Ctrl+V</kbd> Paste
+              <span className="mx-2">|</span>
+              <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] mr-1">Esc</kbd> Bỏ chọn
+            </div>
+          </div>
+        )}
+
+        {/* Toast Container */}
+        <div className="fixed top-5 right-5 z-[50000] flex flex-col gap-2 pointer-events-none">
+          {toasts.map(t => (
+            <div key={t.id} className={`pointer-events-auto min-w-[300px] p-4 rounded shadow-lg bg-white border-l-4 transform transition-all animate-in slide-in-from-right-10 duration-300 ${t.type === 'success' ? 'border-green-500 bg-green-50' :
+              t.type === 'error' ? 'border-red-500 bg-red-50' :
+                t.type === 'loading' ? 'border-blue-500 bg-blue-50' : 'border-blue-500 bg-white'
+              }`}>
+              <div className="flex justify-between items-start">
+                <div className="flex items-center gap-3">
+                  {t.type === 'loading' && <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>}
+                  <span className="text-sm font-medium text-gray-800">{t.message}</span>
+                </div>
+                <button onClick={() => removeToast(t.id)} className="text-gray-400 hover:text-gray-600 font-bold">&times;</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Sync Popover */}
+        <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>}>
+          <SyncPopover
+            isOpen={syncPopoverOpen}
+            onClose={() => setSyncPopoverOpen(false)}
+            pendingChanges={pendingChanges}
+            legacyChanges={new Map()}
+            onApply={handleUpdateAll}
+            applyButtonLabel="Xác nhận lưu"
+            onDiscard={() => {
+              if (!window.confirm('Hủy bỏ tất cả thay đổi chưa lưu?')) return;
+              dbQueueRef.current = [];
+              changeHistoryRef.current = [];
+              historyIndexRef.current = -1;
+              pendingRowSnapshotsRef.current.clear();
+              setPendingChanges(new Map());
+              localStorage.removeItem('speegoPendingChanges');
+              localStorage.removeItem('speegoPendingRowSnapshots');
+              setSyncPopoverOpen(false);
+              void refreshData({ skipUnsavedCheck: true });
+            }}
+          />
+        </Suspense>
+
+        {/* Quick Add Modal */}
+
+
+        {/* FFM Push Confirmation Modal */}
+        {confirmPushData && (
+          <div className="fixed inset-0 z-[20000] flex items-center justify-center pointer-events-auto">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300"
+              onClick={cancelPushFinal}
+            ></div>
+            <div className="relative bg-white/90 dark:bg-slate-800/90 backdrop-blur-md rounded-2xl shadow-2xl border border-white/20 p-8 max-w-md w-full mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Background Accent */}
+              <div className="absolute top-0 right-0 -mr-16 -mt-16 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl"></div>
+              <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl"></div>
+
+              <div className="flex flex-col items-center text-center space-y-6">
+                <div className="w-20 h-20 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center">
+                  <ChevronRight className="w-10 h-10 rotate-90" />
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
+                    Xác nhận đẩy đơn
+                  </h3>
+                  <p className="text-slate-500 dark:text-slate-400 text-lg leading-relaxed">
+                    Bạn có chắc chắn muốn đẩy <span className="font-bold text-blue-600 dark:text-blue-400">{confirmPushData.count}</span> đơn hàng
+                    sang đơn vị vận chuyển <span className="font-bold px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-slate-900 dark:text-slate-200">{confirmPushData.carrier}</span>?
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <button
+                    onClick={cancelPushFinal}
+                    className="flex-1 px-6 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all duration-200 active:scale-[0.98]"
+                  >
+                    Để sau
+                  </button>
+                  <button
+                    onClick={confirmPushFinal}
+                    className="flex-1 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-lg shadow-blue-500/25 transition-all duration-200 active:scale-[0.98]"
+                  >
+                    Xác nhận đẩy
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Column Settings Modal */}
+        <ColumnSettingsModal
+          isOpen={showColumnSettings}
+          onClose={() => setShowColumnSettings(false)}
+          allColumns={allColumns}
+          visibleColumns={visibleColumns}
+          onToggleColumn={(col) => setVisibleColumns(prev => ({ ...prev, [col]: !prev[col] }))}
+          onSelectAll={() => {
+            const all = {};
+            allColumns.forEach(col => { all[col] = true; });
+            setVisibleColumns(all);
           }}
+          onDeselectAll={() => {
+            const none = {};
+            allColumns.forEach(col => { none[col] = false; });
+            setVisibleColumns(none);
+          }}
+          onResetDefault={() => {
+            const defaultCols = {};
+            const defaults = viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS.filter(col => !HIDDEN_COLUMNS.includes(col));
+            defaults.forEach(col => { defaultCols[col] = true; });
+            setVisibleColumns(defaultCols);
+          }}
+          defaultColumns={viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS.filter(col => !HIDDEN_COLUMNS.includes(col))}
         />
-      </Suspense>
-
-      {/* Quick Add Modal */}
-
-
-      {/* FFM Push Confirmation Modal */}
-      {confirmPushData && (
-        <div className="fixed inset-0 z-[20000] flex items-center justify-center pointer-events-auto">
-          <div 
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300"
-            onClick={cancelPushFinal}
-          ></div>
-          <div className="relative bg-white/90 dark:bg-slate-800/90 backdrop-blur-md rounded-2xl shadow-2xl border border-white/20 p-8 max-w-md w-full mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
-            {/* Background Accent */}
-            <div className="absolute top-0 right-0 -mr-16 -mt-16 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl"></div>
-            <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl"></div>
-
-            <div className="flex flex-col items-center text-center space-y-6">
-              <div className="w-20 h-20 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center">
-                <ChevronRight className="w-10 h-10 rotate-90" />
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-                  Xác nhận đẩy đơn
-                </h3>
-                <p className="text-slate-500 dark:text-slate-400 text-lg leading-relaxed">
-                  Bạn có chắc chắn muốn đẩy <span className="font-bold text-blue-600 dark:text-blue-400">{confirmPushData.count}</span> đơn hàng 
-                  sang đơn vị vận chuyển <span className="font-bold px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-slate-900 dark:text-slate-200">{confirmPushData.carrier}</span>?
-                </p>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 w-full">
-                <button
-                  onClick={cancelPushFinal}
-                  className="flex-1 px-6 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all duration-200 active:scale-[0.98]"
-                >
-                  Để sau
-                </button>
-                <button
-                  onClick={confirmPushFinal}
-                  className="flex-1 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-lg shadow-blue-500/25 transition-all duration-200 active:scale-[0.98]"
-                >
-                  Xác nhận đẩy
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Column Settings Modal */}
-      <ColumnSettingsModal
-        isOpen={showColumnSettings}
-        onClose={() => setShowColumnSettings(false)}
-        allColumns={allColumns}
-        visibleColumns={visibleColumns}
-        onToggleColumn={(col) => setVisibleColumns(prev => ({ ...prev, [col]: !prev[col] }))}
-        onSelectAll={() => {
-          const all = {};
-          allColumns.forEach(col => { all[col] = true; });
-          setVisibleColumns(all);
-        }}
-        onDeselectAll={() => {
-          const none = {};
-          allColumns.forEach(col => { none[col] = false; });
-          setVisibleColumns(none);
-        }}
-        onResetDefault={() => {
-          const defaultCols = {};
-          const defaults = viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS.filter(col => !HIDDEN_COLUMNS.includes(col));
-          defaults.forEach(col => { defaultCols[col] = true; });
-          setVisibleColumns(defaultCols);
-        }}
-        defaultColumns={viewMode === 'ORDER_MANAGEMENT' ? allColumns : DEFAULT_BILL_LADING_COLUMNS.filter(col => !HIDDEN_COLUMNS.includes(col))}
-      />
-    </div>
+      </div>
     </div>
   );
 }
