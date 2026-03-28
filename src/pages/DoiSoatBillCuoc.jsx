@@ -1404,6 +1404,9 @@ function DoiSoatBillCuoc() {
         return;
       }
 
+      let rowsToInsert = recordsToInsert;
+      let billImportSkippedNoOrder = 0;
+
       if (activeTab === 'bill' || activeTab === 'bill_view') {
         recordsToInsert.forEach((r) => {
           const d = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
@@ -1411,6 +1414,66 @@ function DoiSoatBillCuoc() {
           r.ma_don_hang = d || null;
           r.ma_tracking = t || null;
         });
+
+        const trackingNeed = [
+          ...new Set(
+            recordsToInsert
+              .filter((r) => !r.ma_don_hang && r.ma_tracking)
+              .map((r) => String(r.ma_tracking).trim())
+              .filter(Boolean)
+          ),
+        ];
+        const trackingToOrder = new Map();
+        if (trackingNeed.length > 0) {
+          const bs = 1000;
+          for (let i = 0; i < trackingNeed.length; i += bs) {
+            const batch = trackingNeed.slice(i, i + bs);
+            const { data: ordRows, error: ordErr } = await supabase
+              .from('orders')
+              .select('order_code, tracking_code')
+              .in('tracking_code', batch);
+            if (!ordErr && ordRows) {
+              ordRows.forEach((o) => {
+                const tc =
+                  o.tracking_code != null && o.tracking_code !== ''
+                    ? String(o.tracking_code).trim()
+                    : '';
+                if (tc && !trackingToOrder.has(tc)) {
+                  trackingToOrder.set(tc, o.order_code);
+                }
+              });
+            }
+          }
+        }
+
+        const billFiltered = [];
+        for (const r of recordsToInsert) {
+          let mdh = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
+          if (!mdh && r.ma_tracking) {
+            const oc = trackingToOrder.get(String(r.ma_tracking).trim());
+            if (oc) {
+              r.ma_don_hang = oc;
+              mdh = oc;
+            }
+          }
+          if (!mdh) {
+            billImportSkippedNoOrder++;
+            continue;
+          }
+          billFiltered.push(r);
+        }
+        rowsToInsert = billFiltered;
+
+        if (rowsToInsert.length === 0) {
+          alert(
+            billImportSkippedNoOrder > 0
+              ? `Không thể nhập: mỗi dòng cần có Mã đơn hàng, hoặc Mã Tracking khớp một đơn trong bảng orders. Đã bỏ qua ${billImportSkippedNoOrder} dòng không gán được mã đơn. (Nếu cần lưu chỉ tracking khi chưa có đơn, chạy migration ALTER ma_don_hang NULL trên chi_tiet_bill_tien.)`
+              : 'Không có dòng bill hợp lệ để nhập.'
+          );
+          setUploading(false);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
       } else if (tableName === 'chitiet_cuoc') {
         recordsToInsert.forEach((r) => {
           const d = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
@@ -1421,18 +1484,24 @@ function DoiSoatBillCuoc() {
       // Insert vào database
       const { data, error } = await supabase
         .from(tableName)
-        .insert(recordsToInsert)
+        .insert(rowsToInsert)
         .select();
 
       if (error) {
         if (error.code === '23505') {
-          alert(`Một số dữ liệu đã tồn tại trong hệ thống. Đã thêm ${recordsToInsert.length} bản ghi mới.`);
+          alert(`Một số dữ liệu đã tồn tại trong hệ thống. Đã thêm ${rowsToInsert.length} bản ghi mới.`);
         } else {
           throw error;
         }
       } else {
         const successCount = data?.length || 0;
-        alert(`Đã nhập thành công ${successCount} bản ghi từ file Excel!`);
+        const billSkipNote =
+          activeTab === 'bill' || activeTab === 'bill_view'
+            ? billImportSkippedNoOrder > 0
+              ? ` Đã bỏ qua ${billImportSkippedNoOrder} dòng không có mã đơn (và tracking không khớp đơn nào).`
+              : ''
+            : '';
+        alert(`Đã nhập thành công ${successCount} bản ghi từ file Excel!${billSkipNote}`);
         
         // Reload data
         const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
@@ -1871,6 +1940,9 @@ function DoiSoatBillCuoc() {
                             if (col.key.includes('ngay') || col.key.includes('date')) {
                               if (col.key === 'ngay_update') {
                                 formattedValue = formatDateTime(displayValue);
+                              } else if (col.key === 'ngay_doi_soat_cuoc') {
+                                formattedValue =
+                                  displayValue === '' || displayValue == null ? '' : String(displayValue);
                               } else {
                                 formattedValue = formatDate(displayValue);
                               }
@@ -1892,13 +1964,16 @@ function DoiSoatBillCuoc() {
                           }
 
                           const hasChange = rowPendingChanges.has(col.key);
-                          const isDateField = col.key.includes('ngay') || col.key.includes('date');
+                          const isDateField =
+                            (col.key.includes('ngay') || col.key.includes('date')) &&
+                            col.key !== 'ngay_doi_soat_cuoc';
                           const isNumberField =
-                            col.key.includes('tien') ||
-                            col.key.includes('so_tien') ||
-                            col.key.includes('ty_gia') ||
-                            col.key.includes('cuoc') ||
-                            col.key === 'stt';
+                            !col.key.includes('ngay') &&
+                            (col.key.includes('tien') ||
+                              col.key.includes('so_tien') ||
+                              col.key.includes('ty_gia') ||
+                              col.key.includes('cuoc') ||
+                              col.key === 'stt');
                           const isCurrencyField = col.key === 'don_vi_tien';
 
                       const isSelected = selectionBounds && 
@@ -1981,12 +2056,16 @@ function DoiSoatBillCuoc() {
                               ) : (
                                 <input
                                   type="text"
-                                  value={displayValue || ''}
+                                  value={displayValue != null ? String(displayValue) : ''}
                                   onChange={(e) => {
                                     handleCellChange(rowId, col.key, e.target.value);
                                   }}
                                   className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                                  placeholder=""
+                                  placeholder={
+                                    col.key === 'ngay_doi_soat_cuoc'
+                                      ? 'vd: 2026-03-28 hoặc 28/03/2026'
+                                      : ''
+                                  }
                                 />
                               )}
                             </td>
