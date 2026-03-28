@@ -234,6 +234,9 @@ function VanDon() {
     tracking_status: 'Tình trạng mã'
   });
 
+  /** Tra nhanh theo SĐT / tên / địa chỉ — chỉ lọc client, không đưa vào query API. */
+  const [customerQuickSearch, setCustomerQuickSearch] = useState('');
+
   // Calculate 3 days ago (today, yesterday, day before yesterday)
   const getThreeDaysAgo = () => {
     const today = new Date();
@@ -849,6 +852,28 @@ function VanDon() {
     // --- COMMON FILTERS ---
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : bolDateType;
 
+    const traCuuKhach = strNorm(customerQuickSearch);
+    if (traCuuKhach) {
+      const qLower = traCuuKhach.toLowerCase();
+      const digitsOnly = (s) => String(s ?? '').replace(/\D/g, '');
+      const qDigits = digitsOnly(traCuuKhach);
+      data = data.filter((row) => {
+        const orderId = row[PRIMARY_KEY_COLUMN];
+        const nameO = getPendingOriginal(orderId, 'Name*', 'customer_name');
+        const phoneO = getPendingOriginal(orderId, 'Phone*', 'customer_phone');
+        const addO = getPendingOriginal(orderId, 'Add', 'customer_address');
+        const name = strNorm(nameO !== undefined ? nameO : row['Name*'] ?? row.customer_name).toLowerCase();
+        const phoneRaw = phoneO !== undefined ? phoneO : row['Phone*'] ?? row.customer_phone ?? '';
+        const addr = strNorm(addO !== undefined ? addO : row['Add'] ?? row.customer_address).toLowerCase();
+        if (name.includes(qLower)) return true;
+        if (addr.includes(qLower)) return true;
+        const phoneLower = String(phoneRaw).toLowerCase();
+        if (phoneLower.includes(qLower)) return true;
+        if (qDigits.length >= 3 && digitsOnly(phoneRaw).includes(qDigits)) return true;
+        return false;
+      });
+    }
+
     // Market & Product — tab Đơn Nhật / Đẩy Hà Nội: không lọc lại Khu vực / NV trên toolbar (tránh ẩn đơn Nhật trong hàng đợi Hà Nội)
     const queueTabSkipMarketAndNvToolbar = bolActiveTab === 'japan' || bolActiveTab === 'hanoi';
     try {
@@ -1096,7 +1121,7 @@ function VanDon() {
     }
 
     return data;
-  }, [allData, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, dateFrom, dateTo, enableDateFilter, mgtNoiBoOrder, isAdmin]);
+  }, [allData, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, customerQuickSearch, dateFrom, dateTo, enableDateFilter, mgtNoiBoOrder, isAdmin]);
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
@@ -1160,6 +1185,7 @@ function VanDon() {
       tracking_status: 'Tình trạng mã'
     };
     setFilterValues(defaultFilters);
+    setCustomerQuickSearch('');
     setDateFrom(isAdmin ? '' : getThreeDaysAgo());
     setDateTo(isAdmin ? '' : getToday());
     setEnableDateFilter(!isAdmin);
@@ -3152,6 +3178,36 @@ function VanDon() {
 
         {/* Toolbar: hàng 0 = số dòng/trang; hàng 1 = lọc; hàng 2 = thao tác + tổng tiền */}
         <div className="relative z-[100] bg-white rounded-lg shadow-sm border border-gray-200 px-2 py-1 flex flex-col gap-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 w-full border-b border-gray-100 pb-1.5 mb-0.5">
+            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap shrink-0" htmlFor="van-don-customer-quick-search">
+              🔎 Tra SĐT / tên / địa chỉ:
+            </label>
+            <input
+              id="van-don-customer-quick-search"
+              type="search"
+              enterKeyHint="search"
+              autoComplete="off"
+              placeholder="Nhập SĐT, tên khách hoặc địa chỉ…"
+              value={customerQuickSearch}
+              onChange={(e) => {
+                setCustomerQuickSearch(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="flex-1 min-w-[200px] max-w-2xl text-xs px-2 py-1 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#F37021] focus:border-[#F37021] bg-white"
+            />
+            {customerQuickSearch.trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomerQuickSearch('');
+                  setCurrentPage(1);
+                }}
+                className="text-xs text-gray-500 hover:text-gray-800 px-1.5 py-0.5 rounded border border-gray-200 hover:bg-gray-50 shrink-0"
+              >
+                Xóa
+              </button>
+            ) : null}
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">
               <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📅 Lọc thời gian:</label>
