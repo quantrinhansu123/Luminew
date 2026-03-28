@@ -21,6 +21,23 @@ function getTeamStringFFM(row) {
   return String(row[TEAM_COLUMN_NAME] ?? row.team ?? '').trim();
 }
 
+/** Chuỗi đơn vị vận chuyển sau khi map (FFM). */
+function getFfmShippingUnitString(row) {
+  return String(
+    row['Đơn vị vận chuyển'] ??
+      row['Đơn_vị_vận_chuyển'] ??
+      row.shipping_unit ??
+      ''
+  ).trim();
+}
+
+/** Chỉ đơn T&T (khớp lọc Supabase shipping_unit ilike %T&T%). */
+function isFfmTtCarrierRow(row) {
+  const u = getFfmShippingUnitString(row).toLowerCase();
+  if (!u) return false;
+  return u.includes('t&t');
+}
+
 /** Lọc Chi nhánh: all | hanoi | hcm */
 function matchesFfmBranchFilter(teamStr, filter) {
   if (filter === 'all') return true;
@@ -67,7 +84,7 @@ const DRAG_FOCUS_THRESHOLD_PX = 5;
 const FFM_FILTER_SKIP_KEYS = new Set([
   'market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status',
   'packing_date_status', 'delivery_status_filter', 'delivery_status_search',
-  'us_shipping_fee_status', 'us_shipping_fee_search'
+  'us_shipping_fee_search'
 ]);
 const HIDDEN_FFM_COLUMNS = new Set(['Payment Bill', 'Payment Image']);
 
@@ -248,8 +265,10 @@ const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal
 const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
 
 
-function FFM() {
+function FFM({ variant = 'MGT' }) {
   const { canView } = usePermissions();
+  const visibleColumnsStorageKey =
+    variant === 'TT' ? 'ffm_TT_visibleColumns' : 'ffm_MGT_visibleColumns';
   const ffmColumns = useMemo(
     () => ORDER_MGMT_COLUMNS.filter((col) => !HIDDEN_FFM_COLUMNS.has(col)),
     []
@@ -269,7 +288,10 @@ function FFM() {
 
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState(() => {
-    const saved = localStorage.getItem('ffm_visibleColumns');
+    let saved = localStorage.getItem(visibleColumnsStorageKey);
+    if (!saved && variant !== 'TT') {
+      saved = localStorage.getItem('ffm_visibleColumns');
+    }
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -279,7 +301,7 @@ function FFM() {
           parsed[newShipCol] = parsed[oldShipCol];
           delete parsed[oldShipCol];
           try {
-            localStorage.setItem('ffm_visibleColumns', JSON.stringify(parsed));
+            localStorage.setItem(visibleColumnsStorageKey, JSON.stringify(parsed));
           } catch (_) { /* ignore */ }
         }
         return parsed;
@@ -305,7 +327,6 @@ function FFM() {
     packing_date_status: 'Tất cả',
     delivery_status_filter: 'Tất cả',
     delivery_status_search: '',
-    us_shipping_fee_status: 'Tất cả',
     us_shipping_fee_search: ''
   });
   const [localFilterValues, setLocalFilterValues] = useState(filterValues);
@@ -757,7 +778,6 @@ function FFM() {
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
       delivery_status_search: '',
-      us_shipping_fee_status: 'Tất cả',
       us_shipping_fee_search: ''
     };
     setFilterValues(defaultFilters);
@@ -812,9 +832,9 @@ function FFM() {
   // Save column visibility to localStorage
   useEffect(() => {
     if (Object.keys(visibleColumns).length > 0) {
-      localStorage.setItem('ffm_visibleColumns', JSON.stringify(visibleColumns));
+      localStorage.setItem(visibleColumnsStorageKey, JSON.stringify(visibleColumns));
     }
-  }, [visibleColumns]);
+  }, [visibleColumns, visibleColumnsStorageKey]);
 
   /** Dữ liệu nền cho FILTER: chỉ dùng dữ liệu gốc + cột ngày suy ra (không trộn pending). */
   const ffmEnrichedRowsForFilter = useMemo(() => {
@@ -874,9 +894,13 @@ function FFM() {
     let data = ffmEnrichedRowsForFilter;
     const fv = deferredFilterValues;
 
+    if (variant === 'TT') {
+      data = data.filter(isFfmTtCarrierRow);
+    }
+
     // ORDER_MANAGEMENT filtering
     {
-      // FFM: API giữ đơn có mã tracking HOẶC (MGT + Kết quả Check=OK)
+      // FFM: API giữ đơn có mã tracking HOẶC đơn vị vận chuyển MGT/T&T (không cần Kết quả Check=OK)
       // Tracking code được filter ở client-side theo tab đã chọn
       // Thứ tự nguồn đã theo rowIndex (assignRowIndexByOrderDate) — filter giữ nguyên thứ tự, không sort lại.
 
@@ -967,7 +991,7 @@ function FFM() {
         return;
       }
 
-      const valSearchLower = String(val).toLowerCase();
+      const valSearchLower = String(val).trim().toLowerCase();
 
       data = data.filter((row) => {
         let cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
@@ -1007,7 +1031,7 @@ function FFM() {
 
     if (fv.delivery_status_filter && fv.delivery_status_filter !== 'Tất cả') {
       const status = fv.delivery_status_filter;
-      const search = fv.delivery_status_search ? fv.delivery_status_search.toLowerCase() : '';
+      const search = fv.delivery_status_search ? String(fv.delivery_status_search).trim().toLowerCase() : '';
 
       data = data.filter(row => {
         const val = String(row['Trạng thái giao hàng'] || '').trim();
@@ -1019,27 +1043,25 @@ function FFM() {
       });
     }
 
-    if (fv.us_shipping_fee_status && fv.us_shipping_fee_status !== 'Tất cả') {
-      const status = fv.us_shipping_fee_status;
-      const search = fv.us_shipping_fee_search;
-
-      data = data.filter(row => {
-        const rawVal = row['Ngày đối soát kế toán'] || row['Phí ship nội địa Mỹ (usd)'] || row.shipping_fee || row['Phí_ship_nội_địa_Mỹ_(usd)'] || '';
-        const numVal = parseFloat(String(rawVal).replace(/[^\d.-]/g, ''));
-
-        if (status === 'Trống') return (rawVal === '' || rawVal === null);
-        if (status === 'Miễn phí (0)') return numVal === 0;
-        if (status === 'Có phí (>0)') return numVal > 0;
-        if (status === 'Giá trị cụ thể' && search !== '') {
-          return parseFloat(search) === numVal || String(rawVal).includes(search);
-        }
-        return true;
+    const shipFeeSearch =
+      fv.us_shipping_fee_search != null && String(fv.us_shipping_fee_search).trim() !== ''
+        ? String(fv.us_shipping_fee_search).trim().toLowerCase()
+        : '';
+    if (shipFeeSearch) {
+      data = data.filter((row) => {
+        const rawVal =
+          row['Ngày đối soát kế toán'] ||
+          row['Phí ship nội địa Mỹ (usd)'] ||
+          row.shipping_fee ||
+          row['Phí_ship_nội_địa_Mỹ_(usd)'] ||
+          '';
+        return String(rawVal).trim().toLowerCase().includes(shipFeeSearch);
       });
     }
 
     if (fv.tracking_status || fv.tracking_include || fv.tracking_exclude) {
-      const inc = fv.tracking_include ? String(fv.tracking_include).toLowerCase() : '';
-      const exc = fv.tracking_exclude ? String(fv.tracking_exclude).toLowerCase() : '';
+      const inc = fv.tracking_include ? String(fv.tracking_include).trim().toLowerCase() : '';
+      const exc = fv.tracking_exclude ? String(fv.tracking_exclude).trim().toLowerCase() : '';
       const status = fv.tracking_status || 'Tình trạng mã';
       const incMultiLine = inc && inc.includes('\n');
       const incLinesSet = incMultiLine
@@ -1107,7 +1129,47 @@ function FFM() {
 
     // Lọc dựa trên data gốc (không pending), sau đó map sang row có pending để UI thể hiện ngay thay đổi.
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
-  }, [ffmEnrichedRowsForFilter, ffmRenderRowMap, omActiveTeam, omDateType, deferredFilterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence]);
+  }, [ffmEnrichedRowsForFilter, ffmRenderRowMap, omActiveTeam, omDateType, deferredFilterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant]);
+
+  /** Xóa mọi lọc hiển thị (ô dưới tiêu đề cột, Từ/Tới ngày, bộ lọc nhanh) — không tải lại DB, không xóa thay đổi chưa lưu. */
+  const clearFfmDisplayFilters = useCallback(() => {
+    const next = {
+      market: [],
+      product: [],
+      tracking_include: '',
+      tracking_exclude: '',
+      tracking_status: 'Tình trạng mã',
+      ['Kết quả Check']: [],
+      packing_date_status: 'Tất cả',
+      delivery_status_filter: 'Tất cả',
+      delivery_status_search: '',
+      us_shipping_fee_search: ''
+    };
+    ffmColumns.forEach((col) => {
+      if (col === 'STT') return;
+      if (col === 'Khu vực' || col === 'Mặt hàng') return;
+      if (Object.prototype.hasOwnProperty.call(next, col)) return;
+      const multi =
+        !!DROPDOWN_OPTIONS[col] ||
+        [
+          'Trạng thái giao hàng NB',
+          'Trạng thái thu tiền',
+          'Trạng thái giao hàng',
+          'Payment Bill',
+          'Trạng thái cskh',
+          'GHI CHÚ'
+        ].includes(col);
+      next[col] = multi ? [] : '';
+    });
+    setLocalFilterValues(next);
+    setDateFrom('');
+    setDateTo('');
+    setFfmBranchFilter('all');
+    setFfmTrackingPresence('all');
+    setOmActiveTeam('all');
+    setCurrentPage(1);
+    addToast('Đã xóa bộ lọc hiển thị (giữ nguyên dữ liệu đã tải).', 'success', 2500);
+  }, [ffmColumns, addToast]);
 
   const handleExportFilteredExcel = useCallback(() => {
     const rows = getFilteredData;
@@ -1124,11 +1186,12 @@ function FFM() {
     });
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(dataToExport);
-    XLSX.utils.book_append_sheet(wb, ws, 'FFM');
+    const sheetTag = variant === 'TT' ? 'FFM_TT' : 'FFM_MGT';
+    XLSX.utils.book_append_sheet(wb, ws, sheetTag);
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    XLSX.writeFile(wb, `FFM_loc_${stamp}.xlsx`);
+    XLSX.writeFile(wb, `${sheetTag}_loc_${stamp}.xlsx`);
     addToast(`Đã xuất ${rows.length} dòng ra Excel.`, 'success');
-  }, [getFilteredData, getFfmExportCellValue, addToast]);
+  }, [getFilteredData, getFfmExportCellValue, addToast, variant]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
@@ -1491,6 +1554,37 @@ function FFM() {
     return getFilteredData.slice((currentPage - 1) * effectiveRowsPerPage, currentPage * effectiveRowsPerPage);
   }, [getFilteredData, currentPage, effectiveRowsPerPage]);
   const totalPages = Math.ceil(getFilteredData.length / effectiveRowsPerPage);
+
+  const renderFfmEmptyOverlay = () => {
+    if (paginatedData.length > 0) return null;
+    const filtered = getFilteredData.length;
+    const loaded = allData.length;
+    return (
+      <div className="sticky left-0 w-full min-h-48 flex flex-col justify-center items-center gap-2 z-[60] px-4 py-6 mx-2 my-2 bg-amber-50 border border-amber-200 rounded-lg text-center shadow-sm">
+        <p className="text-gray-800 font-medium not-italic text-sm">
+          {loaded === 0
+            ? 'Chưa có đơn nào được tải (hoặc không khớp điều kiện FFM trên Supabase).'
+            : filtered === 0
+              ? `Không có dòng nào khớp bộ lọc — đang có ${loaded.toLocaleString('vi-VN')} đơn đã tải.`
+              : 'Không có dữ liệu trên trang này.'}
+        </p>
+        {loaded > 0 && filtered === 0 && (
+          <p className="text-xs text-gray-600 not-italic max-w-lg">
+            Thường do ô lọc dưới tiêu đề cột (ví dụ <strong>Mã đơn hàng</strong>), khoảng <strong>Từ / Tới ngày</strong>, hoặc <strong>Bộ lọc</strong> (Chi nhánh, Tracking, Thị trường…). Xóa nội dung ô lọc hoặc bấm nút bên dưới.
+          </p>
+        )}
+        {loaded > 0 && filtered === 0 && (
+          <button
+            type="button"
+            onClick={clearFfmDisplayFilters}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded shadow"
+          >
+            Xóa lọc để hiện lại dữ liệu
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const handleDownloadExcel = () => {
     const data = getFilteredData;
@@ -2657,26 +2751,13 @@ function FFM() {
     if (col === 'Ngày đối soát kế toán' || col === 'Phí ship nội địa Mỹ (usd)' || col === 'Phí ship nội địa mỹ') {
       return (
         <div className="flex flex-col gap-1.5 relative">
-          <select
-            className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
-            value={localFilterValues.us_shipping_fee_status || 'Tất cả'}
-            onChange={(e) => setLocalFilterValues((p) => ({ ...p, us_shipping_fee_status: e.target.value }))}
-          >
-            <option value="Tất cả">Tất cả</option>
-            <option value="Miễn phí (0)">Miễn phí (0)</option>
-            <option value="Có phí (>0)">Có phí (&gt;0)</option>
-            <option value="Trống">Trống</option>
-            <option value="Giá trị cụ thể">Giá trị cụ thể</option>
-          </select>
-          {localFilterValues.us_shipping_fee_status === 'Giá trị cụ thể' && (
-            <input
-              type="text"
-              className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-              placeholder="Nhập phí..."
-              value={localFilterValues.us_shipping_fee_search || ''}
-              onChange={(e) => setLocalFilterValues((p) => ({ ...p, us_shipping_fee_search: e.target.value }))}
-            />
-          )}
+          <input
+            type="text"
+            className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+            placeholder="Lọc theo nội dung ô..."
+            value={localFilterValues.us_shipping_fee_search || ''}
+            onChange={(e) => setLocalFilterValues((p) => ({ ...p, us_shipping_fee_search: e.target.value }))}
+          />
         </div>
       );
     }
@@ -2848,15 +2929,23 @@ function FFM() {
       <div className="bg-white rounded-lg shadow-sm p-2 mb-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img
-              src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
-              alt="Header"
-              className="h-7 object-contain"
-            />
-            <h2 className="text-lg font-bold text-gray-700">HỆ THỐNG QUẢN LÝ SPEEGO</h2>
+            {variant !== 'TT' && (
+              <img
+                src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
+                alt="Header"
+                className="h-7 object-contain"
+              />
+            )}
+            <h2 className="text-lg font-bold text-gray-700">
+              {variant === 'TT' ? 'HỆ THỐNG QUẢN LÝ LUMI-T&T' : 'HỆ THỐNG QUẢN LÝ SPEEGO'}
+            </h2>
             <div className="flex items-center gap-1.5 text-xs">
               <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
-              <span className="text-gray-600">{allData.length} đơn hàng</span>
+              <span className="text-gray-600" title="Số đơn sau bộ lọc / số đơn đã tải">
+                {getFilteredData.length !== allData.length
+                  ? `${getFilteredData.length.toLocaleString('vi-VN')} / ${allData.length.toLocaleString('vi-VN')} sau lọc`
+                  : `${allData.length.toLocaleString('vi-VN')} đơn hàng`}
+              </span>
             </div>
           </div>
         </div>
@@ -2962,8 +3051,12 @@ function FFM() {
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[110px]">
-                <button onClick={refreshData} className="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs transition shadow-sm">
-                  🗑️ Xóa lọc
+                <button
+                  onClick={refreshData}
+                  className="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs transition shadow-sm"
+                  title="Xóa lọc, xóa thay đổi chưa lưu và tải lại dữ liệu từ server"
+                >
+                  🗑️ Xóa lọc + Load lại
                 </button>
               </div>
             </div>
@@ -2978,6 +3071,15 @@ function FFM() {
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={loadData} disabled={loading} className="bg-green-500 hover:bg-green-600 text-white px-2.5 py-1 rounded text-xs font-medium transition disabled:opacity-50">
               {loading ? '...' : '↻ Load'}
+            </button>
+            <button
+              type="button"
+              onClick={clearFfmDisplayFilters}
+              disabled={loading}
+              title="Xóa ô lọc cột, Từ/Tới ngày, Chi nhánh… — không tải lại, không xóa thay đổi chưa lưu"
+              className="bg-slate-500 hover:bg-slate-600 text-white px-2.5 py-1 rounded text-xs font-medium transition disabled:opacity-50"
+            >
+              ⊗ Xóa lọc hiển thị
             </button>
             {ffmHasMore && !ffmBackgroundLoading && (
               <button
@@ -3119,11 +3221,7 @@ function FFM() {
             {/* Dùng 1 vùng scroll dọc chung ở wrapper cha (`overflow-y-auto`).
                 Tránh `overflow-y-clip` vì có thể làm sai chiều cao scroll của cha. */}
             <div className="flex-1 min-w-max min-h-0 overflow-x-visible overflow-y-visible relative">
-              {paginatedData.length === 0 && (
-                <div className="sticky left-0 w-full h-64 flex justify-center items-center text-gray-500 italic z-50 pointer-events-none">
-                  Không có dữ liệu phù hợp
-                </div>
-              )}
+              {renderFfmEmptyOverlay()}
               <table data-ffm-pane="right" className={`${tableClassName} w-max min-w-max`}>
                 <thead className="relative">
                   <tr className="sticky top-0 z-[100] bg-[#f8f9fa] align-top shadow-[0_2px_6px_rgba(0,0,0,0.06)]">
@@ -3231,11 +3329,7 @@ function FFM() {
                 }
               }}
             >
-              {paginatedData.length === 0 && (
-                <div className="sticky left-0 w-full h-64 flex justify-center items-center text-gray-500 italic z-50 pointer-events-none">
-                  Không có dữ liệu phù hợp
-                </div>
-              )}
+              {renderFfmEmptyOverlay()}
               <table ref={tableRef} className={`${tableClassName} w-max`} style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
                 <tbody>
                   {paginatedData.length > 0 ? (

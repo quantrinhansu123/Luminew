@@ -643,7 +643,7 @@ export const MODULE_PAGES = {
             { code: 'ORDERS_NEW', name: 'Nhập đơn mới', path: '/nhap-don' },
             { code: 'ORDERS_UPDATE', name: 'Chỉnh sửa đơn', path: '/chinh-sua-don' },
             { code: 'ORDERS_REPORT', name: 'Báo cáo vận đơn', path: '/bao-cao-van-don' },
-            { code: 'ORDERS_FFM', name: 'FFM', path: '/ffm' },
+            { code: 'ORDERS_FFM', name: 'FFM (MGT / T&T)', path: '/ffm_MGT' },
             { code: 'ORDERS_HISTORY', name: 'Lịch sử thay đổi', path: '/lich-su-van-don' }
         ]
     },

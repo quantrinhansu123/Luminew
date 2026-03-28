@@ -48,7 +48,6 @@ import NhapBaoCaoSale from './pages/NhapBaoCaoSale';
 import NhapDonMoi from './pages/NhapDonMoi';
 import Profile from './pages/Profile';
 import QuanLyCSKH from './pages/QuanLyCSKH';
-import QuanLyXe from './pages/QuanLyXe';
 import ReportDashboard from './pages/ReportDashboard';
 import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
@@ -124,7 +123,6 @@ function AppShell() {
             <Route path="/chinh-sua-don" element={<ProtectedRoute><NhapDonMoi isEdit={true} /></ProtectedRoute>} />
 
             <Route path="/quan-ly-cskh" element={<ProtectedRoute><QuanLyCSKH /></ProtectedRoute>} />
-            <Route path="/quan-ly-xe" element={<ProtectedRoute><QuanLyXe /></ProtectedRoute>} />
             <Route path="/don-chia-cskh" element={<ProtectedRoute><DonChiaCSKH /></ProtectedRoute>} />
             <Route
               path="/xem-bao-cao-cskh"
@@ -157,7 +155,9 @@ function AppShell() {
             <Route path="/danh-sach-bao-cao-tay-mkt" element={<ProtectedRoute><DanhSachBaoCaoTayMKT /></ProtectedRoute>} />
             <Route path="/test-mkt" element={<ProtectedRoute><TestMKT /></ProtectedRoute>} />
             <Route path="/test-bao-cao-orders" element={<ProtectedRoute><TestBaoCaoOrders /></ProtectedRoute>} />
-            <Route path="/ffm" element={<ProtectedRoute><FFM /></ProtectedRoute>} />
+            <Route path="/ffm_MGT" element={<ProtectedRoute><FFM variant="MGT" /></ProtectedRoute>} />
+            <Route path="/ffm_TT" element={<ProtectedRoute><FFM variant="TT" /></ProtectedRoute>} />
+            <Route path="/ffm" element={<Navigate to="/ffm_MGT" replace />} />
             <Route path="/dien-bill" element={<ProtectedRoute><DienBill /></ProtectedRoute>} />
             <Route path="/doi-soat-bill-cuoc" element={<ProtectedRoute><DoiSoatBillCuoc /></ProtectedRoute>} />
             <Route path="/quan-ly-ty-gia" element={<ProtectedRoute><QuanLyTyGia /></ProtectedRoute>} />

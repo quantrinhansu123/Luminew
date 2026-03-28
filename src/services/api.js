@@ -130,6 +130,10 @@ const mapSupabaseOrderToApp = (sOrder) => {
     if (appOrder["Ngày đối soát kế toán"] !== undefined && appOrder["Ngày đối soát kế toán"] !== null) {
         appOrder["Ngày đối soát kế toán"] = String(appOrder["Ngày đối soát kế toán"]);
     }
+    for (const k of ['shipping_unit', 'tracking_code', 'Đơn vị vận chuyển', 'Mã Tracking']) {
+        const v = appOrder[k];
+        if (typeof v === 'string') appOrder[k] = v.trim();
+    }
     return appOrder;
 };
 
@@ -365,13 +369,11 @@ export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy)
 const ffmOrderPassesFilter = (row) => {
     const tracking = String(row.tracking_code ?? '').trim();
     const hasTracking = tracking.length > 0;
-    const checkResult = String(row.check_result || '').trim();
-    const isCheckOK = checkResult.toUpperCase() === 'OK';
-    const shippingUnit = String(row.shipping_unit || '').toLowerCase();
-    const hasValidCarrier = shippingUnit.includes('mgt') || shippingUnit.includes('t&t') || shippingUnit.includes('t&t');
-    
+    const shippingUnit = String(row.shipping_unit ?? '').trim().toLowerCase();
+    const hasValidCarrier = shippingUnit.includes('mgt') || shippingUnit.includes('t&t');
+
     if (hasTracking) return true;
-    return hasValidCarrier && isCheckOK;
+    return hasValidCarrier;
 };
 
 /**
@@ -581,7 +583,22 @@ export const updateBatch = async (rows, modifiedBy) => {
 
 // End of module
 
+/**
+ * Cột orders cho trang /van-don — giữ khớp view SQL `public.van_don_page`
+ * (supabase/migrations/van_don_page_view_and_distinct.sql).
+ */
+export const VAN_DON_PAGE_COLUMN_LIST = [
+    'order_code', 'customer_name', 'customer_phone', 'customer_address', 'city', 'state', 'country', 'zipcode',
+    'product', 'total_amount_vnd', 'payment_method', 'payment_method_text', 'tracking_code', 'shipping_fee',
+    'marketing_staff', 'sale_staff', 'team', 'delivery_staff', 'delivery_status', 'payment_status', 'note', 'reason',
+    'order_date', 'sale_price', 'goods_amount', 'shipping_unit', 'accountant_confirm', 'created_at', 'ngaydonghang',
+    'check_result', 'vandon_note', 'product_name_1', 'quantity_1', 'product_name_2', 'quantity_2', 'gift', 'gift_item', 'gift_quantity', 'gift_qty',
+    'delivery_status_nb', 'payment_currency', 'estimated_delivery_date', 'thoigiangiaohangffm', 'warehouse_fee',
+    'note_caps', 'accounting_check_date', 'tracking_check_date', 'reconciled_amount', 'payment_bill', 'payment_image',
+    'ngayupbill', 'reconciled_vnd', 'cskh_status'
+];
 
+const VAN_DON_SELECT_QUERY = VAN_DON_PAGE_COLUMN_LIST.join(',');
 
 // Fetch Van Don data với pagination và filters từ backend (NOW SUPABASE)
 export const fetchVanDon = async (options = {}) => {
@@ -602,7 +619,9 @@ export const fetchVanDon = async (options = {}) => {
         shipping_unit = [],
         dateFrom,
         dateTo,
-        allowedStaff // Array of names allowed to view
+        allowedStaff, // Array of names allowed to view
+        /** Tab Đơn cá nhân /van-don: chỉ đơn có delivery_staff khớp tên (không dùng % — so khớp nguyên chuỗi, không phân biệt hoa thường). */
+        deliveryStaffSelfFilter
     } = options;
 
     const mode = getDataSourceMode();
@@ -645,123 +664,126 @@ export const fetchVanDon = async (options = {}) => {
         };
     }
 
-// Danh sách cột DB cần thiết cho VanDon page
-const VAN_DON_SELECT_QUERY = [
-    "order_code", "customer_name", "customer_phone", "customer_address", "city", "state", "country", "zipcode", 
-    "product", "total_amount_vnd", "payment_method", "payment_method_text", "tracking_code", "shipping_fee", 
-    "marketing_staff", "sale_staff", "team", "delivery_staff", "delivery_status", "payment_status", "note", "reason", 
-    "order_date", "sale_price", "goods_amount", "shipping_unit", "accountant_confirm", "created_at", "ngaydonghang", 
-    "check_result", "vandon_note", "product_name_1", "quantity_1", "product_name_2", "quantity_2", "gift", "gift_item", "gift_quantity", "gift_qty", 
-    "delivery_status_nb", "payment_currency", "estimated_delivery_date", "thoigiangiaohangffm", "warehouse_fee", 
-    "note_caps", "accounting_check_date", "tracking_check_date", "reconciled_amount", "payment_bill", "payment_image", 
-    "ngayupbill", "reconciled_vnd"
-].join(',');
-
     try {
         console.log('Fetching Van Don properties from Supabase...');
 
-        let query = supabase
-            .from('orders')
-            .select(VAN_DON_SELECT_QUERY, { count: 'exact' });
+        const pageFrom = (page - 1) * limit;
+        const pageTo = pageFrom + limit - 1;
 
-        // --- FILTERS ---
-        if (team && team !== 'all') {
-            query = query.eq('team', team);
-        }
+        /** Escape giá trị trong PostgREST `in.(...)` khi ghép vào `.or(...)`. */
+        const orEncodeInList = (vals) =>
+            vals.map((v) => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',');
 
-        // Status map: "Trạng thái giao hàng"
-        if (status) {
-            query = query.ilike('delivery_status', `%${status}%`);
-        }
+        const buildFilteredVanDonQuery = (tableName) => {
+            let query = supabase.from(tableName).select(VAN_DON_SELECT_QUERY, { count: 'exact' });
 
-        // Market & Product: hỗ trợ filter "Trống" => country/product rỗng hoặc null
-        const applyEmptyOrInFilter = (field, value) => {
-            const hasEmpty = Array.isArray(value) ? value.includes('Trống') || value.includes('__EMPTY__') : value === 'Trống' || value === '__EMPTY__';
-            const inValues = Array.isArray(value)
-                ? value.filter((x) => x && x !== 'Trống' && x !== '__EMPTY__')
-                : (typeof value === 'string' && value && value !== 'Trống' && value !== '__EMPTY__' ? [value] : []);
-
-            if (inValues.length > 0 && hasEmpty) {
-                query = query.in(field, inValues).or(`${field}.eq.,${field}.is.null`);
-            } else if (inValues.length > 0) {
-                query = query.in(field, inValues);
-            } else if (hasEmpty) {
-                query = query.or(`${field}.eq.,${field}.is.null`);
+            if (team && team !== 'all') {
+                query = query.eq('team', team);
             }
+
+            if (status) {
+                query = query.ilike('delivery_status', `%${status}%`);
+            }
+
+            const applyEmptyOrInFilter = (field, value) => {
+                const hasEmpty = Array.isArray(value) ? value.includes('Trống') || value.includes('__EMPTY__') : value === 'Trống' || value === '__EMPTY__';
+                const inValues = Array.isArray(value)
+                    ? value.filter((x) => x && x !== 'Trống' && x !== '__EMPTY__')
+                    : (typeof value === 'string' && value && value !== 'Trống' && value !== '__EMPTY__' ? [value] : []);
+
+                if (inValues.length > 0 && hasEmpty) {
+                    const enc = orEncodeInList(inValues);
+                    query = query.or(`${field}.in.(${enc}),${field}.is.null,${field}.eq.`);
+                } else if (inValues.length > 0) {
+                    query = query.in(field, inValues);
+                } else if (hasEmpty) {
+                    query = query.or(`${field}.is.null,${field}.eq.`);
+                }
+            };
+
+            if (market !== undefined && market !== null) {
+                if (Array.isArray(market) ? market.length > 0 : typeof market === 'string' && market) {
+                    applyEmptyOrInFilter('country', market);
+                }
+            }
+
+            if (product !== undefined && product !== null) {
+                if (Array.isArray(product) ? product.length > 0 : typeof product === 'string' && product) {
+                    applyEmptyOrInFilter('product', product);
+                }
+            }
+
+            if (nv_sale !== undefined && nv_sale !== null && Array.isArray(nv_sale) && nv_sale.length > 0) {
+                applyEmptyOrInFilter('sale_staff', nv_sale);
+            }
+            if (nv_mkt !== undefined && nv_mkt !== null && Array.isArray(nv_mkt) && nv_mkt.length > 0) {
+                applyEmptyOrInFilter('marketing_staff', nv_mkt);
+            }
+            if (nv_van_don !== undefined && nv_van_don !== null && Array.isArray(nv_van_don) && nv_van_don.length > 0) {
+                applyEmptyOrInFilter('delivery_staff', nv_van_don);
+            }
+            if (shipping_unit !== undefined && shipping_unit !== null && Array.isArray(shipping_unit) && shipping_unit.length > 0) {
+                applyEmptyOrInFilter('shipping_unit', shipping_unit);
+            }
+
+            if (deliveryStaffSelfFilter !== undefined && deliveryStaffSelfFilter !== null && String(deliveryStaffSelfFilter).trim() !== '') {
+                query = query.ilike('delivery_staff', String(deliveryStaffSelfFilter).trim());
+            }
+
+            const dateColumnMapping = {
+                'Ngày lên đơn': 'order_date',
+                'Ngày đóng hàng': 'ngaydonghang',
+                'Ngày đẩy đơn': 'accounting_check_date',
+                'Ngày có mã tracking': 'tracking_check_date'
+            };
+            const dateColumn = dateColumnMapping[options.dateType] || 'order_date';
+
+            if (dateFrom) {
+                query = query.gte(dateColumn, dateFrom);
+            }
+            if (dateTo) {
+                query = query.lte(dateColumn, dateTo);
+            }
+
+            if (Array.isArray(allowedStaff) && allowedStaff.length > 0) {
+                const conditions = [];
+                allowedStaff.forEach((staffName) => {
+                    if (!staffName) return;
+                    const safeName = String(staffName).trim();
+                    if (!safeName) return;
+                    conditions.push(`sale_staff.ilike.%${safeName}%`);
+                    conditions.push(`marketing_staff.ilike.%${safeName}%`);
+                    conditions.push(`delivery_staff.ilike.%${safeName}%`);
+                });
+
+                if (conditions.length > 0) {
+                    query = query.or(conditions.join(','));
+                }
+            }
+
+            return query.range(pageFrom, pageTo).order('order_date', { ascending: false });
         };
 
-        if (market !== undefined && market !== null) {
-            if (Array.isArray(market) ? market.length > 0 : typeof market === 'string' && market) {
-                applyEmptyOrInFilter('country', market); // 'market' comes from 'Khu vực', which maps to 'country'
-            }
-        }
-
-        if (product !== undefined && product !== null) {
-            if (Array.isArray(product) ? product.length > 0 : typeof product === 'string' && product) {
-                applyEmptyOrInFilter('product', product);
-            }
-        }
-
-        // NV Sale / NV MKT / NV Vận đơn: hỗ trợ filter "Trống" => staff rỗng hoặc null
-        if (nv_sale !== undefined && nv_sale !== null && Array.isArray(nv_sale) && nv_sale.length > 0) {
-            applyEmptyOrInFilter('sale_staff', nv_sale);
-        }
-        if (nv_mkt !== undefined && nv_mkt !== null && Array.isArray(nv_mkt) && nv_mkt.length > 0) {
-            applyEmptyOrInFilter('marketing_staff', nv_mkt);
-        }
-        if (nv_van_don !== undefined && nv_van_don !== null && Array.isArray(nv_van_don) && nv_van_don.length > 0) {
-            applyEmptyOrInFilter('delivery_staff', nv_van_don);
-        }
-        if (shipping_unit !== undefined && shipping_unit !== null && Array.isArray(shipping_unit) && shipping_unit.length > 0) {
-            applyEmptyOrInFilter('shipping_unit', shipping_unit);
-        }
-
-        const dateColumnMapping = {
-            'Ngày lên đơn': 'order_date',
-            'Ngày đóng hàng': 'ngaydonghang',
-            'Ngày đẩy đơn': 'accounting_check_date',
-            'Ngày có mã tracking': 'tracking_check_date'
+        const isVanDonPageUnavailableError = (err) => {
+            if (!err) return false;
+            const code = String(err.code || '');
+            const msg = String(err.message || '').toLowerCase();
+            return (
+                code === '42P01' ||
+                code === 'PGRST205' ||
+                (msg.includes('van_don_page') &&
+                    (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('could not find')))
+            );
         };
-        const dateColumn = dateColumnMapping[options.dateType] || 'order_date';
 
-        if (dateFrom) {
-            query = query.gte(dateColumn, dateFrom);
-        }
-        if (dateTo) {
-            query = query.lte(dateColumn, dateTo);
-        }
-
-        // --- PERSONNEL PERMISSION FILTER ---
-        if (Array.isArray(allowedStaff) && allowedStaff.length > 0) {
-            // Row visible nếu sale_staff, marketing_staff HOẶC delivery_staff khớp một trong các tên được phép.
-            const conditions = [];
-            allowedStaff.forEach((staffName) => {
-                if (!staffName) return;
-                const safeName = String(staffName).trim();
-                if (!safeName) return;
-                conditions.push(`sale_staff.ilike.%${safeName}%`);
-                conditions.push(`marketing_staff.ilike.%${safeName}%`);
-                conditions.push(`delivery_staff.ilike.%${safeName}%`);
-            });
-
-            if (conditions.length > 0) {
-                query = query.or(conditions.join(','));
-            }
-        }
-
-        // --- PAGINATION ---
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
-
-        // Debug: Kiểm tra đơn hàng trước khi pagination (không block query chính)
         try {
             const debugOrderCode = 'Kemb5a90cf6';
             const { data: debugCheck, error: debugError } = await supabase
                 .from('orders')
                 .select('order_code, order_date, team, country, sale_staff, marketing_staff, delivery_staff')
                 .eq('order_code', debugOrderCode)
-                .maybeSingle(); // Dùng maybeSingle thay vì single để không throw error nếu không tìm thấy
-            
+                .maybeSingle();
+
             if (debugCheck && !debugError) {
                 console.log('🔍 [API DEBUG] Tìm thấy đơn hàng', debugOrderCode, 'trong database:');
                 console.log('  - Order date:', debugCheck.order_date);
@@ -770,8 +792,7 @@ const VAN_DON_SELECT_QUERY = [
                 console.log('  - Sale staff:', debugCheck.sale_staff);
                 console.log('  - Marketing staff:', debugCheck.marketing_staff);
                 console.log('  - Delivery staff:', debugCheck.delivery_staff);
-                
-                // Kiểm tra xem đơn hàng có pass các filter không
+
                 if (team && team !== 'all' && debugCheck.team !== team) {
                     console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi team filter:', team);
                 }
@@ -791,16 +812,19 @@ const VAN_DON_SELECT_QUERY = [
             console.warn('⚠️ [API DEBUG] Lỗi trong debug code (không ảnh hưởng query chính):', debugErr);
         }
 
-        query = query.range(from, to).order('order_date', { ascending: false });
+        let { data, error, count } = await buildFilteredVanDonQuery('van_don_page');
 
-        const { data, error, count } = await query;
+        if (error && isVanDonPageUnavailableError(error)) {
+            console.warn('[fetchVanDon] van_don_page không dùng được, thử lại với bảng orders:', error.message);
+            ({ data, error, count } = await buildFilteredVanDonQuery('orders'));
+        }
 
         if (error) {
             console.error('Supabase fetch error:', error);
             throw error;
         }
 
-        const mappedData = data.map(mapSupabaseOrderToApp);
+        const mappedData = (data || []).map(mapSupabaseOrderToApp);
 
         return {
             data: mappedData,
@@ -821,6 +845,57 @@ const VAN_DON_SELECT_QUERY = [
             error: error.message
         };
     }
+};
+
+/** Một cột DB → các tiêu đề cột UI Van Đơn dùng chung danh sách distinct (một RPC / cột DB). */
+const VAN_DON_DISTINCT_DB_TO_UI_KEYS = {
+    country: ['Khu vực'],
+    product: ['Mặt hàng'],
+    sale_staff: ['Nhân viên Sale'],
+    marketing_staff: ['Nhân viên MKT'],
+    delivery_staff: ['NV Vận đơn'],
+    shipping_unit: ['Đơn vị vận chuyển'],
+    check_result: ['Kết quả Check', 'Kết quả check'],
+    delivery_status_nb: ['Trạng thái giao hàng NB'],
+    payment_status: ['Trạng thái thu tiền'],
+    delivery_status: ['Trạng thái giao hàng'],
+    note_caps: ['GHI CHÚ'],
+    vandon_note: ['Ghi chú của VĐ'],
+    payment_bill: ['Payment Bill'],
+    cskh_status: ['Trạng thái cskh']
+};
+
+/**
+ * Giá trị distinct trên view `van_don_page` (RPC `get_orders_distinct_values`) — cùng tập cột trang /van-don.
+ * Chưa chạy migration SQL → RPC lỗi → trả {} (VanDon fallback unique trên trang hiện tại).
+ */
+export const fetchVanDonDistinctFilterOptions = async () => {
+    if (getDataSourceMode() === 'test') {
+        return {};
+    }
+    const out = {};
+    const dbCols = Object.keys(VAN_DON_DISTINCT_DB_TO_UI_KEYS);
+    await Promise.all(
+        dbCols.map(async (dbCol) => {
+            try {
+                const { data, error } = await supabase.rpc('get_orders_distinct_values', { p_column: dbCol });
+                if (error) {
+                    console.warn('[fetchVanDonDistinctFilterOptions] RPC', dbCol, error.message);
+                    return;
+                }
+                const vals = (data || [])
+                    .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
+                    .filter(Boolean);
+                const uiKeys = VAN_DON_DISTINCT_DB_TO_UI_KEYS[dbCol] || [];
+                for (const k of uiKeys) {
+                    out[k] = vals;
+                }
+            } catch (e) {
+                console.warn('[fetchVanDonDistinctFilterOptions]', dbCol, e);
+            }
+        })
+    );
+    return out;
 };
 
 export const fetchGoogleSheetData = async () => {

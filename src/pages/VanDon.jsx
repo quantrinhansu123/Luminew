@@ -63,6 +63,77 @@ function VanDonVirtuosoTable({ style, ...props }) {
 const VanDonVirtuosoTableBody = React.forwardRef((props, ref) => <tbody {...props} ref={ref} />);
 VanDonVirtuosoTableBody.displayName = 'VanDonVirtuosoTableBody';
 
+/** Cuộn ngang + dọc trên cùng một scroller; `overflow: hidden` mặc định của ô không áp dụng lên `sticky` (xem VanDonVirtuoso). */
+const VanDonVirtuosoScroller = React.forwardRef(({ style, ...props }, ref) => (
+  <div
+    {...props}
+    ref={ref}
+    style={{
+      ...style,
+      overflow: 'auto',
+      WebkitOverflowScrolling: 'touch',
+    }}
+  />
+));
+VanDonVirtuosoScroller.displayName = 'VanDonVirtuosoScroller';
+
+/** Tên hiển thị phiên đăng nhập — khớp với cột NV Vận đơn / delivery_staff (tab Đơn cá nhân). */
+function getVanDonSessionDisplayName() {
+  try {
+    const userJson = localStorage.getItem('user');
+    const user = userJson ? JSON.parse(userJson) : null;
+    const parts = [
+      localStorage.getItem('username'),
+      user?.['Họ_và_tên'],
+      user?.['Họ và tên'],
+      user?.['Họ Và Tên'],
+      user?.full_name,
+      user?.name
+    ];
+    return parts.map((v) => String(v || '').trim()).find(Boolean) || '';
+  } catch {
+    return '';
+  }
+}
+
+function normalizeVanDonNameKey(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Các khóa tên coi là bản thân — không đưa vào `allowedStaff` (tab Đơn nhắc hộ). */
+function getVanDonSelfNameKeySet() {
+  try {
+    const userJson = localStorage.getItem('user');
+    const user = userJson ? JSON.parse(userJson) : null;
+    const parts = [
+      localStorage.getItem('username'),
+      user?.['Họ_và_tên'],
+      user?.['Họ và tên'],
+      user?.['Họ Và Tên'],
+      user?.full_name,
+      user?.name,
+      user?.username,
+    ];
+    const set = new Set();
+    for (const p of parts) {
+      const k = normalizeVanDonNameKey(p);
+      if (k) set.add(k);
+    }
+    return set;
+  } catch {
+    return new Set();
+  }
+}
+
+function isVanDonStaffNameSelf(candidate, selfKeys) {
+  const c = normalizeVanDonNameKey(candidate);
+  if (!c || selfKeys.size === 0) return false;
+  return selfKeys.has(c);
+}
+
 /** Khi ghép đơn chưa lưu vào kết quả API sau đổi bộ lọc — chỉ giữ dòng phù hợp tab (tránh lệch với Đơn Nhật/Hà Nội). */
 function rowMatchesBolTabForInject(row, tab) {
   if (tab === 'hanoi') {
@@ -76,6 +147,12 @@ function rowMatchesBolTabForInject(row, tab) {
     const country = String(row.country || row['Country'] || row['Khu vực'] || '').trim();
     return country === 'Nhật Bản' || country === 'CĐ Nhật Bản' ||
       country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
+  }
+  if (tab === 'ca_nhan') {
+    const n = getVanDonSessionDisplayName().trim().toLowerCase();
+    if (!n) return false;
+    const ds = String(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim().toLowerCase();
+    return ds === n;
   }
   return true;
 }
@@ -201,9 +278,11 @@ function VanDon() {
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Đẩy đơn Hà Nội không
 
   // --- Pagination ---
+  /** Tab readonly_all: cho phép tới 1000 dòng/trang; các tab khác tối đa 500. */
+  const maxRowsPerPageForTab = bolActiveTab === 'readonly_all' ? 1000 : 500;
   const clampRowsPerPage = (v) => {
     const n = Number(v) || 50;
-    return Math.max(50, Math.min(n, 500));
+    return Math.max(50, Math.min(n, maxRowsPerPageForTab));
   };
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(() => {
@@ -211,7 +290,7 @@ function VanDon() {
     return clampRowsPerPage(saved ? Number(saved) : 50);
   });
 
-  // Save rowsPerPage to localStorage
+  // Save rowsPerPage to localStorage; rút về max tab khi đổi tab (vd: 1000 → 500)
   useEffect(() => {
     const normalized = clampRowsPerPage(rowsPerPage);
     if (normalized !== rowsPerPage) {
@@ -219,7 +298,7 @@ function VanDon() {
       return;
     }
     localStorage.setItem('vanDon_rowsPerPage', String(normalized));
-  }, [rowsPerPage]);
+  }, [rowsPerPage, bolActiveTab]);
 
   // --- Selection & Clipboard ---
   const [selection, setSelection] = useState({
@@ -429,6 +508,7 @@ function VanDon() {
 
   // Create stable filter object for query key
   const activeFilters = useMemo(() => {
+    const sessionName = getVanDonSessionDisplayName().trim();
     const filters = {
       team: bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined),
       market: bolActiveTab === 'japan' ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market,
@@ -441,6 +521,8 @@ function VanDon() {
       dateTo: enableDateFilter ? dateTo : undefined,
       dateType: bolDateType,
       tab: bolActiveTab,
+      /** Tab Đơn cá nhân: lọc delivery_staff khớp tên đăng nhập (đưa vào queryKey). */
+      deliveryStaffSelfFilter: bolActiveTab === 'ca_nhan' ? sessionName : undefined,
       page: currentPage,
       limit: rowsPerPage,
       useBackend: useBackendPagination
@@ -477,7 +559,33 @@ function VanDon() {
       let allAllowedNames = [];
       if (!isManager) {
         const picked = (selectedPersonnelNames || []).map((n) => String(n || "").trim()).filter(Boolean);
-        allAllowedNames = picked.length > 0 ? picked : (userName ? [userName] : []);
+        const selfKeys = getVanDonSelfNameKeySet();
+        /** Chỉ tên từ RBAC; loại mọi mục trùng / gần trùng tên đăng nhập — không fallback `userName` (tránh tự OR theo bản thân). */
+        allAllowedNames = picked.filter((n) => !isVanDonStaffNameSelf(n, selfKeys));
+      }
+
+      const selfDeliveryName =
+        activeFilters.tab === 'ca_nhan' ? String(activeFilters.deliveryStaffSelfFilter || userName || '').trim() : '';
+
+      if (activeFilters.tab === 'ca_nhan' && !selfDeliveryName) {
+        return {
+          data: [],
+          total: 0,
+          page: currentPage,
+          limit: rowsPerPage,
+          totalPages: 0
+        };
+      }
+
+      /** Tab khác `ca_nhan` cần `allowedStaff`: nếu sau khi trừ bản thân không còn tên, không gọi API không lọc NV (sẽ lộ dữ liệu). */
+      if (!isManager && activeFilters.tab !== 'ca_nhan' && allAllowedNames.length === 0) {
+        return {
+          data: [],
+          total: 0,
+          page: currentPage,
+          limit: rowsPerPage,
+          totalPages: 0
+        };
       }
 
       const result = await API.fetchVanDon({
@@ -494,6 +602,7 @@ function VanDon() {
         dateTo: activeFilters.dateTo,
         dateType: activeFilters.dateType,
         allowedStaff: isManager ? undefined : (allAllowedNames.length > 0 ? allAllowedNames : undefined),
+        deliveryStaffSelfFilter: selfDeliveryName || undefined
       });
 
       console.log('✅ [VanDon] fetchVanDon Result:', {
@@ -515,6 +624,15 @@ function VanDon() {
     },
     enabled: useBackendPagination && !permissionsLoading,
     keepPreviousData: true,
+  });
+
+  const { data: vanDonDistinctFilterOptions = {} } = useQuery({
+    queryKey: ['vanDonDistinctFilterOptions'],
+    queryFn: () => API.fetchVanDonDistinctFilterOptions(),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: 1,
+    enabled: !permissionsLoading
   });
 
   const allData = useMemo(() => {
@@ -619,6 +737,14 @@ function VanDon() {
             return country === 'Nhật Bản' || country === 'CĐ Nhật Bản' ||
               country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
           });
+        } else if (bolActiveTab === 'ca_nhan') {
+          const n = getVanDonSessionDisplayName().trim().toLowerCase();
+          data = n
+            ? data.filter((row) => {
+                const ds = String(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim().toLowerCase();
+                return ds === n;
+              })
+            : [];
         } else if (bolActiveTab === 'hanoi') {
           // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn có Team="Hà Nội", Kết quả Check="Ok", Mã Tracking trống/null và Đơn vị vận chuyển trống/null
           data = data.filter(row => {
@@ -920,6 +1046,7 @@ function VanDon() {
     setEnableDateFilter(!isAdmin);
     setCurrentPage(1);
     await queryClient.invalidateQueries(['vanDon']);
+    queryClient.invalidateQueries({ queryKey: ['vanDonDistinctFilterOptions'] });
   };
 
   // Close dropdown when clicking outside
@@ -1607,18 +1734,23 @@ function VanDon() {
   }, [allData]);
 
   /**
-   * Bộ lọc (toolbar + hàng filter): chỉ giá trị đang có trong dữ liệu + "Trống" / __EMPTY__ —
-   * không liệt kê toàn bộ DROPDOWN_OPTIONS (trạng thái mặc định hệ thống không xuất hiện trong data).
+   * Bộ lọc MultiSelect: ưu tiên distinct từ Supabase (RPC `get_orders_distinct_values` trên `orders`);
+   * nếu chưa có / lỗi RPC thì fallback unique trên trang hiện tại (phân trang backend).
    */
-  const getFilterMultiSelectOptions = (col) => {
-    const emptyValues = ['Trống'];
-    const legacyEmpty = ['__EMPTY__'];
-    const fromData = getUniqueValues(col);
-    const sorted = [...fromData].sort((a, b) =>
-      String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
-    );
-    return [...emptyValues, ...legacyEmpty, ...sorted];
-  };
+  const getFilterMultiSelectOptions = useCallback(
+    (col) => {
+      const emptyValues = ['Trống'];
+      const legacyEmpty = ['__EMPTY__'];
+      const fromDb = vanDonDistinctFilterOptions[col];
+      const fromPage = getUniqueValues(col);
+      const base = Array.isArray(fromDb) && fromDb.length > 0 ? fromDb : fromPage;
+      const sorted = [...base].sort((a, b) =>
+        String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
+      );
+      return [...emptyValues, ...legacyEmpty, ...sorted];
+    },
+    [getUniqueValues, vanDonDistinctFilterOptions]
+  );
 
   /** Ô chỉnh sửa trong bảng: vẫn gộp preset DROPDOWN + giá trị đã có trong data (cho phép chọn trạng thái chuẩn). */
   const getCellEditSelectOptions = (col) => {
@@ -1928,7 +2060,7 @@ function VanDon() {
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     if (isReadonlyEditTab) return;
-    // Tab "Dữ liệu đơn hàng": một số cột chỉ xem
+    // Tab "Đơn nhắc hộ": một số cột chỉ xem
     if (bolActiveTab === 'all') {
       const k = String(colKey || '').trim().toLowerCase();
       if (k === 'đơn vị vận chuyển' || k === 'mã tracking') return;
@@ -2413,13 +2545,14 @@ function VanDon() {
     });
     TableRow.displayName = 'VanDonVirtuosoTableRow';
     return {
+      Scroller: VanDonVirtuosoScroller,
       Table: VanDonVirtuosoTable,
       TableBody: VanDonVirtuosoTableBody,
       TableRow
     };
   }, [selectedRows]);
 
-  const renderVanDonFilterTh = (col, idx, positionStyle, showFreezeShadow) => {
+  const renderVanDonFilterTh = (col, idx, positionStyle, showFreezeShadow, isFixedCol) => {
     const key = COLUMN_MAPPING[col] || col;
     const filterKey = col;
     const isCheckCol = col === 'Kết quả Check' || col === 'Kết quả check';
@@ -2429,19 +2562,34 @@ function VanDon() {
     const isProductCol = col === 'Mặt hàng';
     const isQtyCol = col === 'Số lượng mặt hàng 1' || col === 'Số lượng mặt hàng 2';
 
+    const widthStyles = getColumnWidthStyles(col);
+    /** `overflow: hidden` trên chính phần tử sticky làm hỏng sticky ngang trên nhiều trình duyệt. */
+    const cellWidthStyles = isFixedCol
+      ? { ...widthStyles, overflow: 'visible', textOverflow: 'clip' }
+      : widthStyles;
+
+    const headerCellStyle = isFixedCol
+      ? {
+          ...cellWidthStyles,
+          ...positionStyle,
+          position: 'sticky',
+          top: 0,
+          background: '#f8f9fa',
+          backgroundClip: 'padding-box',
+          boxShadow: showFreezeShadow ? '2px 0 0 #d1d5db' : undefined,
+        }
+      : {
+          ...widthStyles,
+          ...positionStyle,
+          background: '#f8f9fa',
+        };
+
     return (
       <th
         data-col-idx={idx}
         key={`filter-${col}-${idx}`}
         className={`py-2.5 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : isQtyCol ? '' : 'px-4'}`}
-        style={{
-          ...positionStyle,
-          position: 'sticky',
-          top: 0,
-          ...getColumnWidthStyles(col),
-          background: '#f8f9fa',
-          boxShadow: showFreezeShadow ? '2px 0 0 #d1d5db' : undefined
-        }}
+        style={headerCellStyle}
       >
         <div
           className={`font-semibold mb-2 text-gray-700 ${isQtyCol ? 'text-[11px] leading-tight whitespace-normal break-words' : 'text-sm whitespace-nowrap'} ${isCheckCol ? 'text-left' : ''}`}
@@ -2690,7 +2838,7 @@ function VanDon() {
             {/* Middle: Tabs (Moved here) */}
             <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200">
               {[
-                { id: 'all', label: 'Dữ liệu đơn hàng', icon: '📋' },
+                { id: 'all', label: 'Đơn nhắc hộ', icon: '📋' },
                 { id: 'ca_nhan', label: 'Đơn cá nhân', icon: '👤' },
                 { id: 'readonly_all', label: 'Xem tất cả (khóa sửa)', icon: '👁️' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
@@ -3066,7 +3214,7 @@ function VanDon() {
                           const style = isFixed
                             ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa' }
                             : { position: 'relative', zIndex: 10200 };
-                          return renderVanDonFilterTh(col, idx, style, isFixed && idx === effectiveFixedColumns - 1);
+                          return renderVanDonFilterTh(col, idx, style, isFixed && idx === effectiveFixedColumns - 1, isFixed);
                         })}
                       </tr>
                     </thead>
@@ -3159,6 +3307,8 @@ function VanDon() {
                                 left: cellStickyLeft,
                                 zIndex: 3100,
                                 ...colWidthStyles,
+                                overflow: 'visible',
+                                textOverflow: 'clip',
                                 boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
                               }
                               : { position: 'relative', zIndex: 10, ...colWidthStyles };
@@ -3213,7 +3363,7 @@ function VanDon() {
                   setCurrentPage(1);
                 }}
               >
-                {[50, 70, 100, 200, 500].map(v => (
+                {(bolActiveTab === 'readonly_all' ? [50, 70, 100, 200, 500, 1000] : [50, 70, 100, 200, 500]).map((v) => (
                   <option key={v} value={v}>{v} dòng</option>
                 ))}
               </select>
