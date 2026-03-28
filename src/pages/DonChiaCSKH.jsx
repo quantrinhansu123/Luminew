@@ -13,6 +13,7 @@ import {
   orderRangeToCreatedAtIsoBounds,
   sortOrdersByDisplayDateDesc,
 } from '../utils/dateParsing';
+import { resolveTrackingFromOrder } from '../utils/orderTracking';
 
 // Helper Functions
 const getRowValue = (row, ...keys) => {
@@ -47,6 +48,7 @@ const parseMoney = (moneyString) => {
 const DON_CHIA_CSKH_PAGE_SIZE = 1000;
 
 function mapDonChiaOrderToFriendly(item) {
+  const tracking = resolveTrackingFromOrder(item);
   return {
     id: item.id,
     /** Khớp cột Supabase `orders` — dùng cho xuất Excel */
@@ -66,12 +68,13 @@ function mapDonChiaOrderToFriendly(item) {
     "Tổng tiền VNĐ": item.total_amount_vnd,
     "Loại tiền": item.payment_type,
     "Hình thức thanh toán": item.payment_method_text || item.payment_method,
-    "Mã Tracking": item.tracking_code,
+    "Mã Tracking": tracking,
+    tracking_code: tracking,
     "Nhân viên Marketing": item.marketing_staff,
     "Nhân viên Sale": item.sale_staff,
     "Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
-    "Kết quả Check": item.payment_status,
+    "Kết quả Check": item.check_result,
     "Ghi chú": item.note,
     "CSKH": item.cskh ? String(item.cskh).trim() : '',
     "Trạng thái cskh": item.cskh_status != null && item.cskh_status !== '' ? String(item.cskh_status) : '',
@@ -221,7 +224,7 @@ function DonChiaCSKH() {
 
   const [quickFilter, setQuickFilter] = useState('today');
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [rowsPerPage, setRowsPerPage] = useState(1000);
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -258,6 +261,7 @@ function DonChiaCSKH() {
     'Khu vực',
     'Mặt hàng',
     'Mã Tracking',
+    'Kết quả Check',
     'CSKH',
     'Trạng thái cskh',
     'Trạng thái giao hàng',
@@ -393,7 +397,22 @@ function DonChiaCSKH() {
   // Helper function để kiểm tra xem tên cột có phải là tiếng Anh không (cột DB gốc)
   const isEnglishColumn = (columnName) => {
     // Giữ lại các cột đặc biệt đã được sử dụng trong hệ thống
-    const specialColumns = ['Name*', 'Phone*', 'Add', 'City', 'State', 'Zipcode', 'Team', 'CSKH'];
+    const specialColumns = [
+      'Name*',
+      'Phone*',
+      'Add',
+      'City',
+      'State',
+      'Zipcode',
+      'Team',
+      'CSKH',
+      'Mã đơn hàng',
+      'Mã Tracking',
+      'Kết quả Check',
+      'Trạng thái thu tiền',
+      'Trạng thái giao hàng',
+      'Trạng thái cskh',
+    ];
     if (specialColumns.includes(columnName)) return false;
     
     // Kiểm tra snake_case (có dấu gạch dưới) - đây là tên cột DB
@@ -538,7 +557,14 @@ function DonChiaCSKH() {
         updated['Trạng thái cskh'] = true;
         changed = true;
       }
-      
+
+      ['Mã đơn hàng', 'Mã Tracking', 'Kết quả Check'].forEach((col) => {
+        if (updated[col] !== true) {
+          updated[col] = true;
+          changed = true;
+        }
+      });
+
       return changed ? updated : prev;
     });
   }, []); // Only run once on mount
@@ -1003,7 +1029,14 @@ function DonChiaCSKH() {
         const rowValues = displayColumns.map(col => {
           let value = filteredRow[col];
 
-          if (value === undefined || value === null) {
+          if (col === 'CSKH') {
+            value = filteredRow['CSKH'];
+            value = value != null && value !== '' ? String(value).trim() : '';
+          } else if (col === 'Mã Tracking') {
+            value = filteredRow['Mã Tracking'] ?? filteredRow.tracking_code;
+          } else if (col === 'Kết quả Check') {
+            value = filteredRow['Kết quả Check'] ?? filteredRow.check_result;
+          } else if (value === undefined || value === null) {
             const key = COLUMN_MAPPING[col];
             if (key) value = filteredRow[key];
           }
@@ -2068,6 +2101,10 @@ function DonChiaCSKH() {
                           value = row['CSKH'];
                           // Đảm bảo là string và trim
                           value = value ? String(value).trim() : '';
+                        } else if (col === 'Mã Tracking') {
+                          value = row['Mã Tracking'] ?? row.tracking_code;
+                        } else if (col === 'Kết quả Check') {
+                          value = row['Kết quả Check'] ?? row.check_result;
                         } else if (value === undefined || value === null) {
                           const key = COLUMN_MAPPING[col];
                           if (key) value = row[key];
@@ -2149,6 +2186,8 @@ function DonChiaCSKH() {
                 <option value="50">50</option>
                 <option value="100">100</option>
                 <option value="200">200</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
               </select>
             </div>
 

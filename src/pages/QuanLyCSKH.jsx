@@ -11,9 +11,21 @@ import {
   orderRangeToCreatedAtIsoBounds,
   sortOrdersByDisplayDateDesc,
 } from '../utils/dateParsing';
+import { resolveTrackingFromOrder } from '../utils/orderTracking';
+
+const QUICK_FILTER_OPTIONS = [
+  { value: 'today', label: 'Hôm nay' },
+  { value: 'yesterday', label: 'Hôm qua' },
+  { value: 'this-week', label: 'Tuần này' },
+  { value: 'last-week', label: 'Tuần trước' },
+  { value: 'this-month', label: 'Tháng này' },
+  { value: 'last-month', label: 'Tháng trước' },
+  { value: 'this-year', label: 'Năm nay' },
+];
 
 /** Map một dòng orders (Supabase) → object hiển thị (tiếng Việt) */
 function mapOrderRowToFriendlyCSKH(item) {
+  const tracking = resolveTrackingFromOrder(item);
   return {
     id: item.id,
     "Mã đơn hàng": item.order_code,
@@ -30,12 +42,13 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Tổng tiền VNĐ": item.total_amount_vnd,
     "Loại tiền": item.payment_type,
     "Hình thức thanh toán": item.payment_method_text || item.payment_method,
-    "Mã Tracking": item.tracking_code,
+    "Mã Tracking": tracking,
+    tracking_code: tracking,
     "Nhân viên Marketing": item.marketing_staff,
     "Nhân viên Sale": item.sale_staff,
     "Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
-    "Kết quả Check": item.payment_status,
+    "Kết quả Check": item.check_result,
     "Ghi chú": item.note,
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
@@ -97,6 +110,7 @@ function applyCSKHClientFilters(data, ctx) {
     filterMarket,
     filterProduct,
     filterStatus,
+    filterCheckResult,
     filterSale,
     filterMKT,
     sortColumn,
@@ -141,6 +155,17 @@ function applyCSKHClientFilters(data, ctx) {
     rows = rows.filter((row) => {
       const status = row["Trạng thái giao hàng"];
       return filterStatus.includes(String(status).trim());
+    });
+  }
+
+  if (filterCheckResult.length > 0) {
+    rows = rows.filter((row) => {
+      const raw = row["Kết quả Check"] ?? row.check_result;
+      const checkStr = raw ? String(raw).trim() : '';
+      if (filterCheckResult.includes('(Trống)')) {
+        if (!checkStr) return true;
+      }
+      return filterCheckResult.includes(checkStr);
     });
   }
 
@@ -193,10 +218,26 @@ function QuanLyCSKH() {
   const [filterMarket, setFilterMarket] = useState([]);
   const [filterProduct, setFilterProduct] = useState([]);
   const [filterStatus, setFilterStatus] = useState([]);
+  const [filterCheckResult, setFilterCheckResult] = useState([]);
   const [filterSale, setFilterSale] = useState([]); // Filter by NV Sale (multi-select checkbox)
   const [filterMKT, setFilterMKT] = useState([]); // Filter by MKT (multi-select checkbox)
+  const [showMarketFilter, setShowMarketFilter] = useState(false);
+  const [showProductFilter, setShowProductFilter] = useState(false);
+  const [showStatusFilter, setShowStatusFilter] = useState(false);
+  const [showCheckResultFilter, setShowCheckResultFilter] = useState(false);
+  const [showQuickFilter, setShowQuickFilter] = useState(false);
   const [showSaleFilter, setShowSaleFilter] = useState(false);
   const [showMKTFilter, setShowMKTFilter] = useState(false);
+
+  const closeAllFilterDropdowns = () => {
+    setShowMarketFilter(false);
+    setShowProductFilter(false);
+    setShowStatusFilter(false);
+    setShowCheckResultFilter(false);
+    setShowQuickFilter(false);
+    setShowSaleFilter(false);
+    setShowMKTFilter(false);
+  };
 
   // Date state - default to last 3 days
   // Helper function để format date theo LOCAL time (tránh lỗi timezone trên Vercel)
@@ -216,7 +257,7 @@ function QuanLyCSKH() {
 
   const [quickFilter, setQuickFilter] = useState('today');
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [rowsPerPage, setRowsPerPage] = useState(1000);
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -249,6 +290,7 @@ function QuanLyCSKH() {
     'Khu vực',
     'Mặt hàng',
     'Mã Tracking',
+    'Kết quả Check',
     'CSKH',
     'Trạng thái giao hàng',
     'Tổng tiền VNĐ',
@@ -357,7 +399,21 @@ function QuanLyCSKH() {
   // Helper function để kiểm tra xem tên cột có phải là tiếng Anh không (cột DB gốc)
   const isEnglishColumn = (columnName) => {
     // Giữ lại các cột đặc biệt đã được sử dụng trong hệ thống
-    const specialColumns = ['Name*', 'Phone*', 'Add', 'City', 'State', 'Zipcode', 'Team', 'CSKH'];
+    const specialColumns = [
+      'Name*',
+      'Phone*',
+      'Add',
+      'City',
+      'State',
+      'Zipcode',
+      'Team',
+      'CSKH',
+      'Mã đơn hàng',
+      'Mã Tracking',
+      'Kết quả Check',
+      'Trạng thái thu tiền',
+      'Trạng thái giao hàng',
+    ];
     if (specialColumns.includes(columnName)) return false;
 
     // Kiểm tra snake_case (có dấu gạch dưới) - đây là tên cột DB
@@ -475,6 +531,15 @@ function QuanLyCSKH() {
       // Ensure default columns are present
       defaultColumns.forEach(col => {
         if (updated[col] === undefined) {
+          updated[col] = true;
+          changed = true;
+        }
+      });
+
+      // Cột vận hành: luôn hiện (localStorage cũ có thể đã tắt nhầm)
+      const alwaysShowCols = ['Mã đơn hàng', 'Mã Tracking', 'Kết quả Check'];
+      alwaysShowCols.forEach((col) => {
+        if (updated[col] !== true) {
           updated[col] = true;
           changed = true;
         }
@@ -631,6 +696,20 @@ function QuanLyCSKH() {
     return Array.from(statuses).sort();
   }, [allData]);
 
+  const uniqueCheckResults = useMemo(() => {
+    const set = new Set();
+    let hasEmpty = false;
+    allData.forEach((row) => {
+      const raw = row['Kết quả Check'] ?? row.check_result;
+      const s = raw ? String(raw).trim() : '';
+      if (s) set.add(s);
+      else hasEmpty = true;
+    });
+    const sorted = Array.from(set).sort();
+    if (hasEmpty) return ['(Trống)', ...sorted];
+    return sorted;
+  }, [allData]);
+
   // Get unique Sale staff names from data
   const uniqueSale = useMemo(() => {
     const sales = new Set();
@@ -732,12 +811,13 @@ function QuanLyCSKH() {
       filterMarket,
       filterProduct,
       filterStatus,
+      filterCheckResult,
       filterSale,
       filterMKT,
       sortColumn,
       sortDirection,
     });
-  }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterSale, filterMKT, sortColumn, sortDirection]);
+  }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSale, filterMKT, sortColumn, sortDirection]);
 
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
@@ -758,6 +838,10 @@ function QuanLyCSKH() {
           if (col === 'CSKH') {
             value = filteredRow['CSKH'];
             value = value != null && value !== '' ? String(value).trim() : '';
+          } else if (col === 'Mã Tracking') {
+            value = filteredRow['Mã Tracking'] ?? filteredRow.tracking_code;
+          } else if (col === 'Kết quả Check') {
+            value = filteredRow['Kết quả Check'] ?? filteredRow.check_result;
           } else if (value === undefined || value === null) {
             const key = COLUMN_MAPPING[col];
             if (key) value = filteredRow[key];
@@ -1035,8 +1119,8 @@ function QuanLyCSKH() {
       {/* Main Content */}
       <div className="max-w-full mx-auto px-6 py-6">
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-          <div className="flex flex-wrap items-end gap-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6 relative">
+          <div className="flex flex-wrap items-end gap-4 relative z-50">
             {/* Search by Order Code */}
             <div className="min-w-[200px]">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tìm theo mã đơn hàng</label>
@@ -1080,58 +1164,344 @@ function QuanLyCSKH() {
               )}
             </div>
 
-            {/* Market Filter */}
-            <div className="min-w-[150px]">
+            {/* Market Filter - checkbox */}
+            <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Khu vực</label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={filterMarket[0] || ''}
-                onChange={(e) => setFilterMarket(e.target.value ? [e.target.value] : [])}
-              >
-                <option value="">Tất cả</option>
-                {uniqueMarkets.map(market => (
-                  <option key={market} value={market}>{market}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showMarketFilter) setShowMarketFilter(false);
+                    else {
+                      setShowProductFilter(false);
+                      setShowStatusFilter(false);
+                      setShowQuickFilter(false);
+                      setShowCheckResultFilter(false);
+                      setShowSaleFilter(false);
+                      setShowMKTFilter(false);
+                      setShowMarketFilter(true);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterMarket.length === 0
+                      ? 'Tất cả'
+                      : filterMarket.length === 1
+                        ? filterMarket[0]
+                        : `Đã chọn ${filterMarket.length}`}
+                  </span>
+                  <span className="ml-2">{showMarketFilter ? '▲' : '▼'}</span>
+                </button>
+                {showMarketFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn khu vực:</span>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFilterMarket([...uniqueMarkets])}
+                            className="text-xs text-green-600 hover:text-green-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFilterMarket([])}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
+                      </div>
+                      {uniqueMarkets.map((market) => {
+                        const isChecked = filterMarket.includes(market);
+                        return (
+                          <label
+                            key={market}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterMarket([...filterMarket, market]);
+                                } else {
+                                  setFilterMarket(filterMarket.filter((m) => m !== market));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{market}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Product Filter */}
-            <div className="min-w-[150px]">
+            {/* Product Filter - checkbox */}
+            <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Mặt hàng</label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={filterProduct[0] || ''}
-                onChange={(e) => setFilterProduct(e.target.value ? [e.target.value] : [])}
-              >
-                <option value="">Tất cả</option>
-                {uniqueProducts.map(product => (
-                  <option key={product} value={product}>{product}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showProductFilter) setShowProductFilter(false);
+                    else {
+                      setShowMarketFilter(false);
+                      setShowStatusFilter(false);
+                      setShowQuickFilter(false);
+                      setShowCheckResultFilter(false);
+                      setShowSaleFilter(false);
+                      setShowMKTFilter(false);
+                      setShowProductFilter(true);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterProduct.length === 0
+                      ? 'Tất cả'
+                      : filterProduct.length === 1
+                        ? filterProduct[0]
+                        : `Đã chọn ${filterProduct.length}`}
+                  </span>
+                  <span className="ml-2">{showProductFilter ? '▲' : '▼'}</span>
+                </button>
+                {showProductFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn mặt hàng:</span>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFilterProduct([...uniqueProducts])}
+                            className="text-xs text-green-600 hover:text-green-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFilterProduct([])}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
+                      </div>
+                      {uniqueProducts.map((product) => {
+                        const isChecked = filterProduct.includes(product);
+                        return (
+                          <label
+                            key={product}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterProduct([...filterProduct, product]);
+                                } else {
+                                  setFilterProduct(filterProduct.filter((p) => p !== product));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{product}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Status Filter */}
-            <div className="min-w-[150px]">
+            {/* Status Filter - checkbox */}
+            <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái</label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={filterStatus[0] || ''}
-                onChange={(e) => setFilterStatus(e.target.value ? [e.target.value] : [])}
-              >
-                <option value="">Tất cả</option>
-                {uniqueStatuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showStatusFilter) setShowStatusFilter(false);
+                    else {
+                      setShowMarketFilter(false);
+                      setShowProductFilter(false);
+                      setShowQuickFilter(false);
+                      setShowCheckResultFilter(false);
+                      setShowSaleFilter(false);
+                      setShowMKTFilter(false);
+                      setShowStatusFilter(true);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterStatus.length === 0
+                      ? 'Tất cả'
+                      : filterStatus.length === 1
+                        ? filterStatus[0]
+                        : `Đã chọn ${filterStatus.length}`}
+                  </span>
+                  <span className="ml-2">{showStatusFilter ? '▲' : '▼'}</span>
+                </button>
+                {showStatusFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn trạng thái:</span>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFilterStatus([...uniqueStatuses])}
+                            className="text-xs text-green-600 hover:text-green-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFilterStatus([])}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
+                      </div>
+                      {uniqueStatuses.map((status) => {
+                        const isChecked = filterStatus.includes(status);
+                        return (
+                          <label
+                            key={status}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterStatus([...filterStatus, status]);
+                                } else {
+                                  setFilterStatus(filterStatus.filter((s) => s !== status));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{status}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Kết quả Check - checkbox */}
+            <div className="min-w-[200px] relative z-50">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Kết quả Check</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showCheckResultFilter) setShowCheckResultFilter(false);
+                    else {
+                      setShowMarketFilter(false);
+                      setShowProductFilter(false);
+                      setShowStatusFilter(false);
+                      setShowQuickFilter(false);
+                      setShowSaleFilter(false);
+                      setShowMKTFilter(false);
+                      setShowCheckResultFilter(true);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterCheckResult.length === 0
+                      ? 'Tất cả'
+                      : filterCheckResult.length === 1
+                        ? filterCheckResult[0]
+                        : `Đã chọn ${filterCheckResult.length}`}
+                  </span>
+                  <span className="ml-2">{showCheckResultFilter ? '▲' : '▼'}</span>
+                </button>
+                {showCheckResultFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn kết quả:</span>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFilterCheckResult([...uniqueCheckResults])}
+                            className="text-xs text-green-600 hover:text-green-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFilterCheckResult([])}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
+                      </div>
+                      {uniqueCheckResults.map((cr) => {
+                        const isChecked = filterCheckResult.includes(cr);
+                        return (
+                          <label
+                            key={cr}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterCheckResult([...filterCheckResult, cr]);
+                                } else {
+                                  setFilterCheckResult(filterCheckResult.filter((v) => v !== cr));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{cr}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Sale Filter - Multi-select với checkbox */}
-            <div className="min-w-[200px] relative">
+            <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc theo NV Sale</label>
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setShowSaleFilter(!showSaleFilter)}
+                  onClick={() => {
+                    if (showSaleFilter) setShowSaleFilter(false);
+                    else {
+                      setShowMarketFilter(false);
+                      setShowProductFilter(false);
+                      setShowStatusFilter(false);
+                      setShowCheckResultFilter(false);
+                      setShowQuickFilter(false);
+                      setShowMKTFilter(false);
+                      setShowSaleFilter(true);
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
@@ -1141,7 +1511,7 @@ function QuanLyCSKH() {
                         ? filterSale[0]
                         : `Đã chọn ${filterSale.length}`}
                   </span>
-                  <span className="ml-2">▼</span>
+                  <span className="ml-2">{showSaleFilter ? '▲' : '▼'}</span>
                 </button>
 
                 {showSaleFilter && (
@@ -1197,23 +1567,26 @@ function QuanLyCSKH() {
                   </div>
                 )}
               </div>
-
-              {/* Click outside to close */}
-              {showSaleFilter && (
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowSaleFilter(false)}
-                />
-              )}
             </div>
 
             {/* MKT Filter - Multi-select với checkbox */}
-            <div className="min-w-[200px] relative">
+            <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc theo MKT</label>
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setShowMKTFilter(!showMKTFilter)}
+                  onClick={() => {
+                    if (showMKTFilter) setShowMKTFilter(false);
+                    else {
+                      setShowMarketFilter(false);
+                      setShowProductFilter(false);
+                      setShowStatusFilter(false);
+                      setShowCheckResultFilter(false);
+                      setShowQuickFilter(false);
+                      setShowSaleFilter(false);
+                      setShowMKTFilter(true);
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
@@ -1223,7 +1596,7 @@ function QuanLyCSKH() {
                         ? filterMKT[0]
                         : `Đã chọn ${filterMKT.length}`}
                   </span>
-                  <span className="ml-2">▼</span>
+                  <span className="ml-2">{showMKTFilter ? '▲' : '▼'}</span>
                 </button>
 
                 {showMKTFilter && (
@@ -1231,16 +1604,22 @@ function QuanLyCSKH() {
                     <div className="p-2">
                       <div className="flex items-center justify-between mb-2 pb-2 border-b">
                         <span className="text-xs font-semibold text-gray-700">Chọn MKT:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFilterMKT([]);
-                            setShowMKTFilter(false);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Bỏ chọn tất cả
-                        </button>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFilterMKT([...uniqueMKT])}
+                            className="text-xs text-green-600 hover:text-green-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFilterMKT([])}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
                       </div>
                       {uniqueMKT.map(mkt => {
                         const isChecked = filterMKT.includes(mkt);
@@ -1269,33 +1648,63 @@ function QuanLyCSKH() {
                   </div>
                 )}
               </div>
-
-              {/* Click outside to close */}
-              {showMKTFilter && (
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowMKTFilter(false)}
-                />
-              )}
             </div>
 
-            {/* Quick Filter */}
-            <div className="min-w-[180px]">
+            {/* Quick Filter - checkbox (một mốc thời gian tại một thời điểm) */}
+            <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc nhanh</label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={quickFilter}
-                onChange={(e) => handleQuickFilter(e.target.value)}
-              >
-                <option value="">-- Chọn --</option>
-                <option value="today">Hôm nay</option>
-                <option value="yesterday">Hôm qua</option>
-                <option value="this-week">Tuần này</option>
-                <option value="last-week">Tuần trước</option>
-                <option value="this-month">Tháng này</option>
-                <option value="last-month">Tháng trước</option>
-                <option value="this-year">Năm nay</option>
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showQuickFilter) setShowQuickFilter(false);
+                    else {
+                      setShowMarketFilter(false);
+                      setShowProductFilter(false);
+                      setShowStatusFilter(false);
+                      setShowCheckResultFilter(false);
+                      setShowSaleFilter(false);
+                      setShowMKTFilter(false);
+                      setShowQuickFilter(true);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {QUICK_FILTER_OPTIONS.find((o) => o.value === quickFilter)?.label ?? '-- Chọn --'}
+                  </span>
+                  <span className="ml-2">{showQuickFilter ? '▲' : '▼'}</span>
+                </button>
+                {showQuickFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <span className="text-xs font-semibold text-gray-700 block mb-2 pb-2 border-b">
+                        Chọn khoảng thời gian nhanh:
+                      </span>
+                      {QUICK_FILTER_OPTIONS.map((opt) => (
+                        <label
+                          key={opt.value}
+                          className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={quickFilter === opt.value}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                handleQuickFilter(opt.value);
+                              } else if (quickFilter === opt.value) {
+                                handleQuickFilter('');
+                              }
+                            }}
+                            className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Date Range Filter */}
@@ -1327,9 +1736,20 @@ function QuanLyCSKH() {
               <Settings className="w-4 h-4" />
               Cài đặt cột
             </button>
-
-
           </div>
+          {(showMarketFilter ||
+            showProductFilter ||
+            showStatusFilter ||
+            showCheckResultFilter ||
+            showQuickFilter ||
+            showSaleFilter ||
+            showMKTFilter) && (
+            <div
+              className="fixed inset-0 z-40"
+              aria-hidden
+              onClick={closeAllFilterDropdowns}
+            />
+          )}
         </div>
 
         {/* Table */}
@@ -1392,6 +1812,10 @@ function QuanLyCSKH() {
                         if (col === 'CSKH') {
                           value = row['CSKH'];
                           value = value != null && value !== '' ? String(value).trim() : '';
+                        } else if (col === 'Mã Tracking') {
+                          value = row['Mã Tracking'] ?? row.tracking_code;
+                        } else if (col === 'Kết quả Check') {
+                          value = row['Kết quả Check'] ?? row.check_result;
                         } else if (value === undefined || value === null) {
                           const key = COLUMN_MAPPING[col];
                           if (key) value = row[key];
@@ -1495,6 +1919,8 @@ function QuanLyCSKH() {
                 <option value="50">50</option>
                 <option value="100">100</option>
                 <option value="200">200</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
               </select>
             </div>
 
