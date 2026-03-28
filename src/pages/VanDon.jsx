@@ -608,12 +608,13 @@ function VanDon() {
         };
       }
 
-      /** Tab khác `ca_nhan` / `japan` / `hanoi` cần `allowedStaff`: nếu không còn tên, không gọi API không lọc NV (sẽ lộ dữ liệu). Đơn Nhật + Đẩy Hà Nội: không khóa theo nhân sự — đã có lọc country/team + quyền tab. */
+      /** Tab khác `ca_nhan` / `japan` / `hanoi` / `readonly_all` cần `allowedStaff`: nếu không còn tên, không gọi API không lọc NV (sẽ lộ dữ liệu). Đơn Nhật + Đẩy Hà Nội + Xem tất cả (khóa sửa): không khóa theo danh sách nhân sự — phạm vi đã gắn với tab / ngày / bộ lọc toolbar. */
       if (
         !isManager &&
         activeFilters.tab !== 'ca_nhan' &&
         activeFilters.tab !== 'japan' &&
         activeFilters.tab !== 'hanoi' &&
+        activeFilters.tab !== 'readonly_all' &&
         allAllowedNames.length === 0
       ) {
         return {
@@ -625,12 +626,13 @@ function VanDon() {
         };
       }
 
-      /** Đơn cá nhân / Đơn Nhật / Đẩy Hà Nội: không gửi `allowedStaff` (Hà Nội = full hàng đợi Team Hà Nội; cá nhân chỉ `deliveryStaffSelfFilter`). */
+      /** Đơn cá nhân / Đơn Nhật / Đẩy Hà Nội / Xem tất cả (khóa sửa): không gửi `allowedStaff` (Hà Nội = full hàng đợi Team Hà Nội; cá nhân chỉ `deliveryStaffSelfFilter`; readonly = xem toàn phạm vi theo ngày + bộ lọc). */
       const allowedStaffForRequest =
         isManager ||
         activeFilters.tab === 'ca_nhan' ||
         activeFilters.tab === 'japan' ||
-        activeFilters.tab === 'hanoi'
+        activeFilters.tab === 'hanoi' ||
+        activeFilters.tab === 'readonly_all'
           ? undefined
           : allAllowedNames.length > 0
             ? allAllowedNames
@@ -786,8 +788,8 @@ function VanDon() {
     } else {
       // --- BILL OF LADING FILTERING LOGIC ---
 
-      // Filter: đơn phải có ít nhất một tên nhân sự — Admin, Đơn Nhật, Đẩy Hà Nội không áp (hàng đợi FFM có thể thiếu cột NV / đơn Nhật)
-      if (!isAdmin && bolActiveTab !== 'japan' && bolActiveTab !== 'hanoi') {
+      // Filter: đơn phải có ít nhất một tên nhân sự — Admin, Đơn Nhật, Đẩy Hà Nội, Xem tất cả (khóa sửa) không áp (hàng đợi FFM có thể thiếu cột NV / đơn Nhật; tab chỉ xem cần đủ tập để lọc toolbar)
+      if (!isAdmin && bolActiveTab !== 'japan' && bolActiveTab !== 'hanoi' && bolActiveTab !== 'readonly_all') {
         const initialDataLength = data.length;
         data = data.filter(row => {
           const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
