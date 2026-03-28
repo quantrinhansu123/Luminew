@@ -87,6 +87,7 @@ export default function DanhSachBaoCaoTayMKT() {
     });
     const [personnelSearch, setPersonnelSearch] = useState('');
     const [syncing, setSyncing] = useState(false);
+    const [syncingTeamHanoi, setSyncingTeamHanoi] = useState(false);
     const [deleting, setDeleting] = useState(false);
     
     // Pagination state
@@ -837,6 +838,41 @@ export default function DanhSachBaoCaoTayMKT() {
         }
     };
 
+    /** Chỉ đổi ô Team đúng bằng "Hà Nội" → "HN-MKT" (không xóa dòng). */
+    const handleSyncTeamHanoiToHnMkt = async () => {
+        if (!isAdminOnly) return;
+        if (
+            !window.confirm(
+                'Đồng bộ Team: mọi bản ghi trong detail_reports có cột Team đúng bằng "Hà Nội" sẽ được đổi thành "HN-MKT".\n\nKhông xóa dữ liệu. Tiếp tục?'
+            )
+        ) {
+            return;
+        }
+        try {
+            setSyncingTeamHanoi(true);
+            const { count: nBefore, error: countErr } = await supabase
+                .from('detail_reports')
+                .select('*', { count: 'exact', head: true })
+                .eq('Team', 'Hà Nội');
+
+            if (countErr) throw countErr;
+
+            const { error } = await supabase
+                .from('detail_reports')
+                .update({ Team: 'HN-MKT' })
+                .eq('Team', 'Hà Nội');
+
+            if (error) throw error;
+            alert(`Đã cập nhật ${nBefore ?? 0} dòng (Team: Hà Nội → HN-MKT).`);
+            fetchData();
+        } catch (err) {
+            console.error('Sync Team Hà Nội error:', err);
+            alert('Lỗi khi đồng bộ Team: ' + (err.message || String(err)));
+        } finally {
+            setSyncingTeamHanoi(false);
+        }
+    };
+
     // Delete all data
     const handleDeleteAll = async () => {
         const confirm1 = window.confirm(
@@ -1252,6 +1288,26 @@ export default function DanhSachBaoCaoTayMKT() {
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY MARKETING</h2>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {isAdminOnly && (
+                                <button
+                                    type="button"
+                                    onClick={handleSyncTeamHanoiToHnMkt}
+                                    disabled={syncingTeamHanoi || loading || deleting || syncing}
+                                    className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    title='Chỉ cập nhật các dòng có Team đúng bằng "Hà Nội"'
+                                >
+                                    {syncingTeamHanoi ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang đồng bộ Team…
+                                        </>
+                                    ) : (
+                                        <>🏷️ Đồng bộ Team: Hà Nội → HN-MKT</>
+                                    )}
+                                </button>
+                            )}
+                        </div>
                         <div style={{ display: 'none', gap: '10px', flexWrap: 'wrap' }}>
                             {/* Chỉ Admin mới thấy nút đồng bộ (không bao gồm Finance) */}
                             {isAdminOnly && (
