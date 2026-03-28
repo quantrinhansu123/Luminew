@@ -548,7 +548,9 @@ function VanDon() {
     queryKey: [
       'vanDon',
       activeFilters,
-      activeFilters.tab === 'japan' ? 'no-personnel-scope' : selectedPersonnelNames.slice().sort().join('|'),
+      activeFilters.tab === 'japan' || activeFilters.tab === 'hanoi'
+        ? 'no-personnel-scope'
+        : selectedPersonnelNames.slice().sort().join('|'),
       isAdmin
     ],
     queryFn: async () => {
@@ -601,11 +603,12 @@ function VanDon() {
         };
       }
 
-      /** Tab khác `ca_nhan` / `japan` cần `allowedStaff`: nếu không còn tên, không gọi API không lọc NV (sẽ lộ dữ liệu). Tab Đơn Nhật: không khóa theo nhân sự — full đơn thị trường Nhật. */
+      /** Tab khác `ca_nhan` / `japan` / `hanoi` cần `allowedStaff`: nếu không còn tên, không gọi API không lọc NV (sẽ lộ dữ liệu). Đơn Nhật + Đẩy Hà Nội: không khóa theo nhân sự — đã có lọc country/team + quyền tab. */
       if (
         !isManager &&
         activeFilters.tab !== 'ca_nhan' &&
         activeFilters.tab !== 'japan' &&
+        activeFilters.tab !== 'hanoi' &&
         allAllowedNames.length === 0
       ) {
         return {
@@ -617,9 +620,12 @@ function VanDon() {
         };
       }
 
-      /** Đơn cá nhân / Đơn Nhật: không gửi `allowedStaff` (Nhật = full theo country; cá nhân chỉ `deliveryStaffSelfFilter`). */
+      /** Đơn cá nhân / Đơn Nhật / Đẩy Hà Nội: không gửi `allowedStaff` (Hà Nội = full hàng đợi Team Hà Nội; cá nhân chỉ `deliveryStaffSelfFilter`). */
       const allowedStaffForRequest =
-        isManager || activeFilters.tab === 'ca_nhan' || activeFilters.tab === 'japan'
+        isManager ||
+        activeFilters.tab === 'ca_nhan' ||
+        activeFilters.tab === 'japan' ||
+        activeFilters.tab === 'hanoi'
           ? undefined
           : allAllowedNames.length > 0
             ? allAllowedNames
@@ -775,8 +781,8 @@ function VanDon() {
     } else {
       // --- BILL OF LADING FILTERING LOGIC ---
 
-      // Filter: đơn phải có ít nhất một tên nhân sự — Admin và tab Đơn Nhật không áp (Nhật: full đơn country, không giới hạn NV)
-      if (!isAdmin && bolActiveTab !== 'japan') {
+      // Filter: đơn phải có ít nhất một tên nhân sự — Admin, Đơn Nhật, Đẩy Hà Nội không áp (hàng đợi FFM có thể thiếu cột NV / đơn Nhật)
+      if (!isAdmin && bolActiveTab !== 'japan' && bolActiveTab !== 'hanoi') {
         const initialDataLength = data.length;
         data = data.filter(row => {
           const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
@@ -841,11 +847,11 @@ function VanDon() {
     // --- COMMON FILTERS ---
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : bolDateType;
 
-    // Market & Product — tab Đơn Nhật: không lọc lại Khu vực / NV trên toolbar (tránh chồng với tab; hiện full đơn Nhật từ API)
-    const japanTabSkipMarketAndNvToolbar = bolActiveTab === 'japan';
+    // Market & Product — tab Đơn Nhật / Đẩy Hà Nội: không lọc lại Khu vực / NV trên toolbar (tránh ẩn đơn Nhật trong hàng đợi Hà Nội)
+    const queueTabSkipMarketAndNvToolbar = bolActiveTab === 'japan' || bolActiveTab === 'hanoi';
     try {
       if (
-        !japanTabSkipMarketAndNvToolbar &&
+        !queueTabSkipMarketAndNvToolbar &&
         filterValues.market &&
         Array.isArray(filterValues.market) &&
         filterValues.market.length > 0
@@ -870,7 +876,7 @@ function VanDon() {
         });
       }
       if (
-        !japanTabSkipMarketAndNvToolbar &&
+        !queueTabSkipMarketAndNvToolbar &&
         filterValues.nv_sale &&
         Array.isArray(filterValues.nv_sale) &&
         filterValues.nv_sale.length > 0
@@ -885,7 +891,7 @@ function VanDon() {
         });
       }
       if (
-        !japanTabSkipMarketAndNvToolbar &&
+        !queueTabSkipMarketAndNvToolbar &&
         filterValues.nv_mkt &&
         Array.isArray(filterValues.nv_mkt) &&
         filterValues.nv_mkt.length > 0
@@ -900,7 +906,7 @@ function VanDon() {
         });
       }
       if (
-        !japanTabSkipMarketAndNvToolbar &&
+        !queueTabSkipMarketAndNvToolbar &&
         filterValues.nv_van_don &&
         Array.isArray(filterValues.nv_van_don) &&
         filterValues.nv_van_don.length > 0
