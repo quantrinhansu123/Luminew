@@ -28,6 +28,7 @@ import {
   buildEmployeeEmailToNameMap,
   displayNameForSaleReportKey,
   reportRowMatchesPersonnelOption,
+  enrichSalesReportRowsWithBoPhan,
 } from '../utils/nhanSuSaleLumiMoiLogic';
 
 const LOGO_URL =
@@ -84,7 +85,7 @@ async function fetchEmployeeDataForRestrict() {
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('id_appsheet, email, name, username, role, team, branch, position')
+      .select('id_appsheet, email, name, username, role, team, branch, position, department')
       .not('id_appsheet', 'is', null);
     if (error) throw error;
     return (data || [])
@@ -95,6 +96,7 @@ async function fetchEmployeeDataForRestrict() {
         'Họ Và Tên': (u.name || u.username || '').trim(),
         'Chức vụ': (u.position || '').trim(),
         'Vị trí': (u.position || '').trim(),
+        'Bộ phận': (u.department || '').trim(),
         Team: (u.team || '').trim(),
         'Chi nhánh': (u.branch || '').trim(),
         'chi nhánh': (u.branch || '').trim(),
@@ -201,6 +203,9 @@ export default function NhanSuSaleLumiMoiView({
   const [teamSel, setTeamSel] = useState([]);
   const [marketAll, setMarketAll] = useState(true);
   const [marketSel, setMarketSel] = useState([]);
+  /** Sổ xuống: một giá trị hoặc '' = tất cả (theo dữ liệu cột tương ứng đã tải). */
+  const [boPhanPick, setBoPhanPick] = useState('');
+  const [viTriPick, setViTriPick] = useState('');
   const [nameAll, setNameAll] = useState(true);
   const [nameSel, setNameSel] = useState([]);
   // Trạng thái đã áp dụng thực tế vào dữ liệu (chỉ cập nhật khi bấm "Tìm")
@@ -338,7 +343,7 @@ export default function NhanSuSaleLumiMoiView({
         }
         setEmployeeData(emp);
         setUserEmailNameRows(emailNameRows);
-        setRawData(mapped);
+        setRawData(enrichSalesReportRowsWithBoPhan(mapped, emp));
       } catch (e) {
         if (e?.name === 'AbortError') return;
         console.error(e);
@@ -381,6 +386,8 @@ export default function NhanSuSaleLumiMoiView({
       setCaSel(uniqueSorted(dataForFilters, 'ca').map(String));
       setTeamSel(uniqueSorted(dataForFilters, 'team').map(String));
       setMarketSel(uniqueSorted(dataForFilters, 'thiTruong'));
+      setBoPhanPick('');
+      setViTriPick('');
     };
 
     const syncFilterSelectionsToNewData = (restricted, branch, team, names, emailForRow) => {
@@ -401,6 +408,10 @@ export default function NhanSuSaleLumiMoiView({
       setCaSel((prev) => prev.filter((c) => cas.includes(String(c))));
       setTeamSel((prev) => prev.filter((t) => teams.includes(t)));
       setMarketSel((prev) => prev.filter((m) => markets.includes(m)));
+      const boPhans = uniqueSorted(dataForFilters, 'boPhan');
+      const chucs = uniqueSorted(dataForFilters, 'chucVu');
+      setBoPhanPick((p) => (p && !boPhans.includes(p) ? '' : p));
+      setViTriPick((p) => (p && !chucs.includes(p) ? '' : p));
     };
 
     const AGGREGATE_FILTER_CTX = '__aggregate__';
@@ -553,6 +564,8 @@ export default function NhanSuSaleLumiMoiView({
       nameAll: showPersonnelNameFilter ? nameAllApplied : true,
       selectedNames:
         showPersonnelNameFilter && !nameAllApplied ? nameSelApplied : null,
+      boPhanPick,
+      chucVuPick: viTriPick,
     });
   }, [
     rawData,
@@ -575,6 +588,8 @@ export default function NhanSuSaleLumiMoiView({
     showPersonnelNameFilter,
     nameAllApplied,
     nameSelApplied,
+    boPhanPick,
+    viTriPick,
   ]);
 
   /** Dùng chung cho sidebar — tránh gọi filterRawForRestrictedPopulate hàng chục lần mỗi render */
@@ -590,6 +605,15 @@ export default function NhanSuSaleLumiMoiView({
         allowedUserEmail
       ),
     [rawData, isRestrictedView, allowedBranch, allowedTeam, allowedNames, allowedPersonnelNames, allowedUserEmail]
+  );
+
+  const boPhanOptions = useMemo(
+    () => uniqueSorted(restrictedForPopulate, 'boPhan'),
+    [restrictedForPopulate]
+  );
+  const viTriOptions = useMemo(
+    () => uniqueSorted(restrictedForPopulate, 'chucVu'),
+    [restrictedForPopulate]
   );
 
   /**
@@ -956,6 +980,36 @@ export default function NhanSuSaleLumiMoiView({
               )}
             </>
           )}
+
+          <h3>Bộ phận</h3>
+          <select
+            className="nssl-filter-select"
+            value={boPhanPick}
+            onChange={(e) => setBoPhanPick(e.target.value)}
+            aria-label="Lọc Bộ phận"
+          >
+            <option value="">— Tất cả —</option>
+            {boPhanOptions.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+
+          <h3>Vị trí</h3>
+          <select
+            className="nssl-filter-select"
+            value={viTriPick}
+            onChange={(e) => setViTriPick(e.target.value)}
+            aria-label="Lọc Vị trí"
+          >
+            <option value="">— Tất cả —</option>
+            {viTriOptions.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
 
           <h3>Sản phẩm</h3>
           <label>

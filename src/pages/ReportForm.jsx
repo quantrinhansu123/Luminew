@@ -1,13 +1,23 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { supabase } from '../services/supabaseClient';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 
-function ReportForm() {
-  const navigate = useNavigate();
+/** Phòng ban Sale trên `users.department` (chuẩn hóa, có cả biến thể tiếng Việt). */
+function isUserDepartmentSale(department) {
+  const raw = String(department ?? '').trim().toLowerCase();
+  if (!raw) return false;
+  if (raw.includes('presale')) return false;
+  if (raw === 'sale' || raw === 'sales') return true;
+  if (/\bsale\b/.test(raw)) return true;
+  const noTone = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/\b(bo phan|phong) sale\b/.test(noTone)) return true;
+  return false;
+}
 
+function ReportForm() {
   // Initial defaults for new rows
   const [defaultInfo, setDefaultInfo] = useState({
     name: '',
@@ -27,6 +37,108 @@ function ReportForm() {
   const [marketOptions, setMarketOptions] = useState([]);
   const [branchOptions, setBranchOptions] = useState([]);
   const [dropdownLoading, setDropdownLoading] = useState(false);
+  /** Nhân sự phòng Sale: { label, email, search } */
+  const [salePersonnel, setSalePersonnel] = useState([]);
+  const [openNameRowIdx, setOpenNameRowIdx] = useState(null);
+  const [nameDdPos, setNameDdPos] = useState({ top: 0, left: 0, width: 240 });
+  const nameInputRefs = useRef({});
+  const nameDdPanelRef = useRef(null);
+
+  // Danh sách NV Sale theo ô đang mở + chuỗi gõ
+  const filteredSalePersonnel = useMemo(() => {
+    if (openNameRowIdx === null) return [];
+    const q = String(reports[openNameRowIdx]?.name ?? '')
+      .trim()
+      .toLowerCase();
+    if (!q) return salePersonnel;
+    return salePersonnel.filter((p) => p.search.includes(q));
+  }, [openNameRowIdx, reports, salePersonnel]);
+
+  const placeNameDropdown = (idx) => {
+    const el = nameInputRefs.current[idx];
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setNameDdPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 220) });
+  };
+
+  useEffect(() => {
+    if (openNameRowIdx === null) return;
+    const place = () => placeNameDropdown(openNameRowIdx);
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [openNameRowIdx]);
+
+  useEffect(() => {
+    if (openNameRowIdx === null) return;
+    const onDown = (e) => {
+      const t = e.target;
+      const inputEl = nameInputRefs.current[openNameRowIdx];
+      if (inputEl?.contains(t) || nameDdPanelRef.current?.contains(t)) return;
+      setOpenNameRowIdx(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [openNameRowIdx]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('name, username, email, department')
+          .not('email', 'is', null);
+        if (error) throw error;
+        const list = [];
+        const seen = new Set();
+        for (const u of data || []) {
+          if (!isUserDepartmentSale(u.department)) continue;
+          const email = String(u.email || '').trim();
+          const key = email.toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          const label = String(u.name || u.username || '').trim() || email;
+          list.push({
+            label,
+            email,
+            search: `${label} ${email}`.toLowerCase(),
+          });
+        }
+        list.sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+        if (!cancelled) setSalePersonnel(list);
+      } catch (e) {
+        console.warn('[ReportForm] sale personnel:', e);
+        if (!cancelled) setSalePersonnel([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const pickSaleStaff = (reportIndex, person) => {
+    const newReports = [...reports];
+    newReports[reportIndex] = {
+      ...newReports[reportIndex],
+      name: person.label,
+      email: person.email,
+    };
+    setReports(newReports);
+    setOpenNameRowIdx(null);
+    const errorKey = `${reportIndex}-name`;
+    const errorKeyE = `${reportIndex}-email`;
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[errorKey];
+      delete next[errorKeyE];
+      return next;
+    });
+  };
 
   // Fetch dropdown data
   useEffect(() => {
@@ -465,12 +577,21 @@ function ReportForm() {
                   <div className="flex flex-col min-w-[7.5rem] shrink-0">
                     <label className="text-[10px] font-medium text-gray-500 mb-0.5 whitespace-nowrap">Tên NV</label>
                     <input
+                      ref={(el) => {
+                        nameInputRefs.current[idx] = el;
+                      }}
                       type="text"
                       name="name"
                       value={report.name}
                       onChange={(e) => handleReportChange(e, idx)}
+                      onFocus={() => {
+                        setOpenNameRowIdx(idx);
+                        requestAnimationFrame(() => placeNameDropdown(idx));
+                      }}
+                      autoComplete="off"
                       className={`w-full px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-name`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
-                      placeholder="Tên"
+                      placeholder={salePersonnel.length ? 'Gõ để tìm hoặc chọn…' : 'Tên'}
+                      title="Danh sách NV phòng Sale — gõ để lọc"
                     />
                   </div>
                   <div className="flex flex-col min-w-[10rem] shrink-0">
@@ -624,6 +745,41 @@ function ReportForm() {
           </div>
         </div>
       </div>
+
+      {openNameRowIdx !== null &&
+        salePersonnel.length > 0 &&
+        createPortal(
+          <div
+            ref={nameDdPanelRef}
+            className="fixed z-[10050] max-h-52 overflow-y-auto rounded-md border border-gray-200 bg-white py-1 text-xs shadow-lg"
+            style={{ top: nameDdPos.top, left: nameDdPos.left, width: nameDdPos.width }}
+            role="listbox"
+            aria-label="Nhân sự phòng Sale"
+          >
+            {filteredSalePersonnel.length === 0 ? (
+              <div className="px-3 py-2 text-gray-500">
+                Không có NV Sale khớp «{String(reports[openNameRowIdx]?.name ?? '').trim() || '…'}»
+              </div>
+            ) : (
+              filteredSalePersonnel.map((p) => (
+                <button
+                  key={p.email}
+                  type="button"
+                  role="option"
+                  className="flex w-full flex-col items-stretch px-3 py-1.5 text-left hover:bg-blue-50"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickSaleStaff(openNameRowIdx, p);
+                  }}
+                >
+                  <span className="font-medium text-gray-800">{p.label}</span>
+                  <span className="text-[10px] text-gray-500">{p.email}</span>
+                </button>
+              ))
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

@@ -616,6 +616,30 @@ export function aggregateTotalFromFlatList(flatList) {
   }, initialSummary());
 }
 
+/**
+ * Gắn `Bộ phận` (users.department) vào từng dòng báo cáo theo email, fallback theo tên NV.
+ */
+export function enrichSalesReportRowsWithBoPhan(rows, employeeRecords) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows || [];
+  const byEmail = new Map();
+  const byName = new Map();
+  for (const u of employeeRecords || []) {
+    const em = String(u.Email || '').toLowerCase().trim();
+    const bp = String(u['Bộ phận'] ?? '').trim();
+    const ten = String(u['Họ Và Tên'] || '').trim();
+    if (em) byEmail.set(em, bp);
+    if (ten) byName.set(ten, bp);
+  }
+  return rows.map((r) => {
+    const em = String(r.email || '').toLowerCase().trim();
+    const ten = String(r.ten || '').trim();
+    const fromEmail = em ? byEmail.get(em) : undefined;
+    const fromName = ten ? byName.get(ten) : undefined;
+    const boPhan = (fromEmail != null && fromEmail !== '' ? fromEmail : fromName) || '';
+    return { ...r, boPhan: String(boPhan || '').trim() };
+  });
+}
+
 /** Lọc rawData theo restricted + ngày + checkbox (giống applyFilters HTML) */
 export function filterRawData({
   rawData,
@@ -640,6 +664,10 @@ export function filterRawData({
   /** Lọc theo cột tên (ten); nameAll=true bỏ qua. */
   nameAll = true,
   selectedNames = null,
+  /** Chuỗi rỗng = tất cả — khớp `boPhan` (Bộ phận từ users.department). */
+  boPhanPick = '',
+  /** Chuỗi rỗng = tất cả — khớp `chucVu` (cột position / Vị trí trên báo cáo). */
+  chucVuPick = '',
 }) {
   const startDate = startDateStr ? new Date(startDateStr) : null;
   if (startDate) startDate.setHours(0, 0, 0, 0);
@@ -690,7 +718,11 @@ export function filterRawData({
         isNameOk = selectedNames.some((n) => rowMatchesPersonnelList(r.ten, [n]));
       }
     }
-    return isDateOk && isProductOk && isMarketOk && isShiftOk && isTeamOk && isNameOk;
+    const pickBp = String(boPhanPick || '').trim();
+    const isBoPhanOk = !pickBp || String(r.boPhan || '').trim() === pickBp;
+    const pickCv = String(chucVuPick || '').trim();
+    const isChucVuOk = !pickCv || String(r.chucVu || '').trim() === pickCv;
+    return isDateOk && isProductOk && isMarketOk && isShiftOk && isTeamOk && isNameOk && isBoPhanOk && isChucVuOk;
   });
 }
 

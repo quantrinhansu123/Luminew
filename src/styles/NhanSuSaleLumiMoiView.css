@@ -301,6 +301,28 @@
   cursor: not-allowed;
 }
 
+.nssl-root .sidebar .nssl-filter-select {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.95em;
+  font-weight: 500;
+  color: var(--text-dark);
+  background: #fff;
+  font-family: var(--font-main);
+  cursor: pointer;
+}
+
+.nssl-root .sidebar .nssl-filter-select:focus {
+  outline: none;
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 2px rgba(139, 195, 74, 0.25);
+}
+
 /* Lọc Tên Sale — dropdown (panel render ra document.body) */
 .nssl-root .sidebar .nssl-personnel-dd-wrap {
   margin: 8px 0 16px;
