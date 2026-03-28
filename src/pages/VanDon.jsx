@@ -545,7 +545,12 @@ function VanDon() {
     isFetching,
     refetch: refetchVanDonData
   } = useQuery({
-    queryKey: ['vanDon', activeFilters, selectedPersonnelNames.slice().sort().join('|'), isAdmin],
+    queryKey: [
+      'vanDon',
+      activeFilters,
+      activeFilters.tab === 'japan' ? 'no-personnel-scope' : selectedPersonnelNames.slice().sort().join('|'),
+      isAdmin
+    ],
     queryFn: async () => {
       console.log('🚀 [VanDon] Query Function Started. useBackendPagination:', useBackendPagination, 'permissionsLoading:', permissionsLoading);
       if (!useBackendPagination || permissionsLoading) return null;
@@ -596,8 +601,13 @@ function VanDon() {
         };
       }
 
-      /** Tab khác `ca_nhan` cần `allowedStaff`: nếu sau khi trừ bản thân không còn tên, không gọi API không lọc NV (sẽ lộ dữ liệu). */
-      if (!isManager && activeFilters.tab !== 'ca_nhan' && allAllowedNames.length === 0) {
+      /** Tab khác `ca_nhan` / `japan` cần `allowedStaff`: nếu không còn tên, không gọi API không lọc NV (sẽ lộ dữ liệu). Tab Đơn Nhật: không khóa theo nhân sự — full đơn thị trường Nhật. */
+      if (
+        !isManager &&
+        activeFilters.tab !== 'ca_nhan' &&
+        activeFilters.tab !== 'japan' &&
+        allAllowedNames.length === 0
+      ) {
         return {
           data: [],
           total: 0,
@@ -607,9 +617,9 @@ function VanDon() {
         };
       }
 
-      /** Tab Đơn cá nhân: chỉ lọc `delivery_staff` theo phiên — không kèm `allowedStaff` (AND sẽ loại hết đơn chỉ có tên mình trên NV vận đơn). */
+      /** Đơn cá nhân / Đơn Nhật: không gửi `allowedStaff` (Nhật = full theo country; cá nhân chỉ `deliveryStaffSelfFilter`). */
       const allowedStaffForRequest =
-        isManager || activeFilters.tab === 'ca_nhan'
+        isManager || activeFilters.tab === 'ca_nhan' || activeFilters.tab === 'japan'
           ? undefined
           : allAllowedNames.length > 0
             ? allAllowedNames
@@ -765,8 +775,8 @@ function VanDon() {
     } else {
       // --- BILL OF LADING FILTERING LOGIC ---
 
-      // Filter: Chỉ hiển thị đơn có ít nhất một tên nhân sự (không trống) - Admin không bị filter này
-      if (!isAdmin) {
+      // Filter: đơn phải có ít nhất một tên nhân sự — Admin và tab Đơn Nhật không áp (Nhật: full đơn country, không giới hạn NV)
+      if (!isAdmin && bolActiveTab !== 'japan') {
         const initialDataLength = data.length;
         data = data.filter(row => {
           const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
@@ -779,16 +789,16 @@ function VanDon() {
           );
         });
         console.log('🔍 [VanDon Client-side] Filtered out orders with empty personnel names:', initialDataLength - data.length, 'orders removed');
-      } else {
+      } else if (isAdmin) {
         console.log('👑 [VanDon Client-side] Admin - Không filter theo nhân sự (hiển thị tất cả)');
       }
 
       // Tab Logic - use early filtering to reduce dataset size (Admin không bị filter)
       if (!isAdmin) {
         if (bolActiveTab === 'japan') {
-          // Tab "Đơn Nhật": hiển thị full các đơn có country="Nhật Bản" hoặc "CĐ Nhật Bản"
+          // Tab "Đơn Nhật": full đơn thị trường Nhật (đã lọc country ở API; client khớp thêm cột Khu vực)
           data = data.filter(row => {
-            const country = String(row['country'] || row['Country'] || '').trim();
+            const country = String(row.country || row['Country'] || row['Khu vực'] || '').trim();
             return country === 'Nhật Bản' || country === 'CĐ Nhật Bản' ||
               country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
           });
@@ -831,9 +841,15 @@ function VanDon() {
     // --- COMMON FILTERS ---
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : bolDateType;
 
-    // Market & Product - Áp dụng cho tất cả users
+    // Market & Product — tab Đơn Nhật: không lọc lại Khu vực / NV trên toolbar (tránh chồng với tab; hiện full đơn Nhật từ API)
+    const japanTabSkipMarketAndNvToolbar = bolActiveTab === 'japan';
     try {
-      if (filterValues.market && Array.isArray(filterValues.market) && filterValues.market.length > 0) {
+      if (
+        !japanTabSkipMarketAndNvToolbar &&
+        filterValues.market &&
+        Array.isArray(filterValues.market) &&
+        filterValues.market.length > 0
+      ) {
         const set = new Set(filterValues.market);
         data = data.filter(row => {
           const orderId = row[PRIMARY_KEY_COLUMN];
@@ -853,7 +869,12 @@ function VanDon() {
           return !isVanDonSemanticEmpty(product) && set.has(product);
         });
       }
-      if (filterValues.nv_sale && Array.isArray(filterValues.nv_sale) && filterValues.nv_sale.length > 0) {
+      if (
+        !japanTabSkipMarketAndNvToolbar &&
+        filterValues.nv_sale &&
+        Array.isArray(filterValues.nv_sale) &&
+        filterValues.nv_sale.length > 0
+      ) {
         const set = new Set(filterValues.nv_sale);
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
@@ -863,7 +884,12 @@ function VanDon() {
           return !isVanDonSemanticEmpty(v) && set.has(v);
         });
       }
-      if (filterValues.nv_mkt && Array.isArray(filterValues.nv_mkt) && filterValues.nv_mkt.length > 0) {
+      if (
+        !japanTabSkipMarketAndNvToolbar &&
+        filterValues.nv_mkt &&
+        Array.isArray(filterValues.nv_mkt) &&
+        filterValues.nv_mkt.length > 0
+      ) {
         const set = new Set(filterValues.nv_mkt);
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
@@ -873,7 +899,12 @@ function VanDon() {
           return !isVanDonSemanticEmpty(v) && set.has(v);
         });
       }
-      if (filterValues.nv_van_don && Array.isArray(filterValues.nv_van_don) && filterValues.nv_van_don.length > 0) {
+      if (
+        !japanTabSkipMarketAndNvToolbar &&
+        filterValues.nv_van_don &&
+        Array.isArray(filterValues.nv_van_don) &&
+        filterValues.nv_van_don.length > 0
+      ) {
         const set = new Set(filterValues.nv_van_don);
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
