@@ -1,4 +1,5 @@
 import { PRIMARY_KEY_COLUMN, SETTINGS_KEY } from '../types';
+import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { supabase } from './supabaseClient';
 
 export const DB_TO_APP_MAPPING = {
@@ -880,7 +881,8 @@ export const fetchVanDonDistinctFilterOptions = async () => {
                 }
                 const vals = (data || [])
                     .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
-                    .filter(Boolean);
+                    .filter(Boolean)
+                    .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
                 const uiKeys = VAN_DON_DISTINCT_DB_TO_UI_KEYS[dbCol] || [];
                 for (const k of uiKeys) {
                     out[k] = vals;

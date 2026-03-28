@@ -10,6 +10,7 @@ import * as API from '../services/api';
 import * as rbacService from '../services/rbacService';
 import '../styles/selection.css';
 import { supabase } from '../supabase/config';
+import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 
 import {
   BILL_LADING_COLUMNS, COLUMN_MAPPING,
@@ -669,7 +670,7 @@ function VanDon() {
       rows = rows.filter(row => {
         const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
         const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-        return checkResult.toLowerCase() === 'ok' && (!deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null');
+        return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
       });
     }
     const result = mergePendingRowsIntoFetchedData(rows);
@@ -701,6 +702,22 @@ function VanDon() {
       return rowCopy;
     });
 
+    /** Giá trị gốc (trước khi sửa) để so khớp lọc — tránh hàng biến mất khi đổi ô chưa lưu. */
+    const getPendingOriginal = (orderId, ...keyCandidates) => {
+      const pmap = pendingChanges.get(orderId);
+      if (!pmap?.size) return undefined;
+      for (const k of keyCandidates) {
+        if (k && pmap.has(k)) return pmap.get(k).originalValue;
+      }
+      const lowers = keyCandidates.filter(Boolean).map((k) => String(k).toLowerCase());
+      for (const [colKey, info] of pmap.entries()) {
+        const lc = String(colKey || '').toLowerCase();
+        if (lowers.includes(lc)) return info.originalValue;
+      }
+      return undefined;
+    };
+    const strNorm = (v) => String(v ?? '').trim();
+
     if (viewMode === 'ORDER_MANAGEMENT') {
       // --- ORDER MANAGEMENT FILTERING LOGIC ---
 
@@ -722,17 +739,23 @@ function VanDon() {
       if (omShowDuplicateTracking) {
         const counts = new Map();
         data.forEach(r => {
-          const code = String(r['Mã Tracking'] || '').trim();
+          const oid = r[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(oid, 'Mã Tracking', 'Mã tracking');
+          const code = o !== undefined ? strNorm(o) : strNorm(r['Mã Tracking'] || '');
           if (code) counts.set(code, (counts.get(code) || 0) + 1);
         });
         data = data.filter(r => {
-          const code = String(r['Mã Tracking'] || '').trim();
+          const oid = r[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(oid, 'Mã Tracking', 'Mã tracking');
+          const code = o !== undefined ? strNorm(o) : strNorm(r['Mã Tracking'] || '');
           return (counts.get(code) || 0) > 1;
         });
         data.sort((a, b) => String(a['Mã Tracking']).localeCompare(String(b['Mã Tracking'])));
       } else {
         data = data.filter(row => {
-          const code = String(row['Mã Tracking'] || '').trim();
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, 'Mã Tracking', 'Mã tracking');
+          const code = o !== undefined ? strNorm(o) : strNorm(row['Mã Tracking'] || '');
           return omShowTracking ? code !== '' : !code;
         });
         // Sort by STT
@@ -749,7 +772,11 @@ function VanDon() {
           const saleStaff = String(row.sale_staff || row["Nhân viên Sale"] || '').trim();
           const mktStaff = String(row.marketing_staff || row["Nhân viên MKT"] || '').trim();
           const deliveryStaff = String(row.delivery_staff || row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').trim();
-          return saleStaff.length > 0 || mktStaff.length > 0 || deliveryStaff.length > 0;
+          return (
+            !isVanDonSemanticEmpty(saleStaff) ||
+            !isVanDonSemanticEmpty(mktStaff) ||
+            !isVanDonSemanticEmpty(deliveryStaff)
+          );
         });
         console.log('🔍 [VanDon Client-side] Filtered out orders with empty personnel names:', initialDataLength - data.length, 'orders removed');
       } else {
@@ -781,9 +808,9 @@ function VanDon() {
             // Kết quả Check phải là "Ok" hoặc "OK"
             const isCheckOk = checkResult.toLowerCase() === 'ok';
             // Mã Tracking phải trống hoặc null
-            const isTrackingEmpty = !tracking || tracking === '' || tracking === 'null';
+            const isTrackingEmpty = isVanDonSemanticEmpty(tracking);
             // Đơn vị vận chuyển phải trống hoặc null
-            const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
+            const isDeliveryUnitEmpty = isVanDonSemanticEmpty(deliveryUnit);
 
             return isTeamHanoi && isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
           });
@@ -809,49 +836,61 @@ function VanDon() {
       if (filterValues.market && Array.isArray(filterValues.market) && filterValues.market.length > 0) {
         const set = new Set(filterValues.market);
         data = data.filter(row => {
-          const market = String(row["Khu vực"] || row["khu vực"] || '').trim();
-          if ((set.has('Trống') || set.has('__EMPTY__')) && !market) return true;
-          return market && set.has(market);
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, 'Khu vực', 'khu vực', 'country');
+          const market = o !== undefined ? strNorm(o) : strNorm(row["Khu vực"] || row["khu vực"] || '');
+          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(market)) return true;
+          return !isVanDonSemanticEmpty(market) && set.has(market);
         });
       }
       if (filterValues.product && Array.isArray(filterValues.product) && filterValues.product.length > 0) {
         const set = new Set(filterValues.product);
         data = data.filter(row => {
-          const product = String(row["Mặt hàng"] || '').trim();
-          if ((set.has('Trống') || set.has('__EMPTY__')) && !product) return true;
-          return product && set.has(product);
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, 'Mặt hàng');
+          const product = o !== undefined ? strNorm(o) : strNorm(row["Mặt hàng"] || '');
+          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(product)) return true;
+          return !isVanDonSemanticEmpty(product) && set.has(product);
         });
       }
       if (filterValues.nv_sale && Array.isArray(filterValues.nv_sale) && filterValues.nv_sale.length > 0) {
         const set = new Set(filterValues.nv_sale);
         data = data.filter((row) => {
-          const v = String(row.sale_staff || row['Nhân viên Sale'] || '').trim();
-          if ((set.has('Trống') || set.has('__EMPTY__')) && !v) return true;
-          return v && set.has(v);
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, 'Nhân viên Sale', 'sale_staff');
+          const v = o !== undefined ? strNorm(o) : strNorm(row.sale_staff || row['Nhân viên Sale'] || '');
+          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+          return !isVanDonSemanticEmpty(v) && set.has(v);
         });
       }
       if (filterValues.nv_mkt && Array.isArray(filterValues.nv_mkt) && filterValues.nv_mkt.length > 0) {
         const set = new Set(filterValues.nv_mkt);
         data = data.filter((row) => {
-          const v = String(row.marketing_staff || row['Nhân viên MKT'] || '').trim();
-          if ((set.has('Trống') || set.has('__EMPTY__')) && !v) return true;
-          return v && set.has(v);
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, 'Nhân viên MKT', 'marketing_staff');
+          const v = o !== undefined ? strNorm(o) : strNorm(row.marketing_staff || row['Nhân viên MKT'] || '');
+          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+          return !isVanDonSemanticEmpty(v) && set.has(v);
         });
       }
       if (filterValues.nv_van_don && Array.isArray(filterValues.nv_van_don) && filterValues.nv_van_don.length > 0) {
         const set = new Set(filterValues.nv_van_don);
         data = data.filter((row) => {
-          const v = String(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim();
-          if ((set.has('Trống') || set.has('__EMPTY__')) && !v) return true;
-          return v && set.has(v);
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, 'NV Vận đơn', 'Nhân viên Vận đơn', 'delivery_staff');
+          const v = o !== undefined ? strNorm(o) : strNorm(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '');
+          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+          return !isVanDonSemanticEmpty(v) && set.has(v);
         });
       }
       if (filterValues.shipping_unit && Array.isArray(filterValues.shipping_unit) && filterValues.shipping_unit.length > 0) {
         const set = new Set(filterValues.shipping_unit);
         data = data.filter((row) => {
-          const v = String(row['Đơn vị vận chuyển'] || row['Đơn_vị_vận_chuyển'] || '').trim();
-          if ((set.has('Trống') || set.has('__EMPTY__')) && !v) return true;
-          return v && set.has(v);
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, 'Đơn vị vận chuyển', 'Đơn vị Vận chuyển', 'Đơn_vị_vận_chuyển');
+          const v = o !== undefined ? strNorm(o) : strNorm(row['Đơn vị vận chuyển'] || row['Đơn_vị_vận_chuyển'] || '');
+          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+          return !isVanDonSemanticEmpty(v) && set.has(v);
         });
       }
     } catch (err) {
@@ -863,18 +902,24 @@ function VanDon() {
       if (dateFrom) {
         const fromNorm = String(dateFrom).split('T')[0];
         data = data.filter((row) => {
-          const val = row[activeDateType];
-          if (!val) return false;
-          const rowDay = extractDateFromDateTime(val);
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, activeDateType, COLUMN_MAPPING[activeDateType]);
+          const raw = o !== undefined ? o : row[activeDateType];
+          if (isVanDonSemanticEmpty(raw)) return false;
+          if (!raw) return false;
+          const rowDay = extractDateFromDateTime(raw);
           return rowDay && rowDay >= fromNorm;
         });
       }
       if (dateTo) {
         const toNorm = String(dateTo).split('T')[0];
         data = data.filter((row) => {
-          const val = row[activeDateType];
-          if (!val) return false;
-          const rowDay = extractDateFromDateTime(val);
+          const orderId = row[PRIMARY_KEY_COLUMN];
+          const o = getPendingOriginal(orderId, activeDateType, COLUMN_MAPPING[activeDateType]);
+          const raw = o !== undefined ? o : row[activeDateType];
+          if (isVanDonSemanticEmpty(raw)) return false;
+          if (!raw) return false;
+          const rowDay = extractDateFromDateTime(raw);
           return rowDay && rowDay <= toNorm;
         });
       }
@@ -911,15 +956,24 @@ function VanDon() {
       try {
         data = data.filter(row => {
           try {
-            // Thử nhiều cách lấy giá trị từ row
-            // Đặc biệt cho "Mã đơn hàng", cần check cả order_code
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            // So khớp lọc theo giá trị gốc nếu ô đó đang có nháp chưa lưu (tránh mất hàng khi sửa)
             let cellValue = '';
             if (key === 'Mã đơn hàng') {
-              cellValue = row['Mã đơn hàng'] ?? row['order_code'] ?? row['orderCode'] ?? row[PRIMARY_KEY_COLUMN] ?? '';
+              const o = getPendingOriginal(orderId, 'Mã đơn hàng', 'order_code', 'orderCode', PRIMARY_KEY_COLUMN);
+              if (o !== undefined) cellValue = strNorm(o);
+              else cellValue = strNorm(row['Mã đơn hàng'] ?? row['order_code'] ?? row['orderCode'] ?? row[PRIMARY_KEY_COLUMN] ?? '');
             } else {
-              cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
+              const o = getPendingOriginal(
+                orderId,
+                key,
+                dataKey,
+                key.replace(/ /g, '_'),
+                String(dataKey || '').replace(/ /g, '_')
+              );
+              if (o !== undefined) cellValue = strNorm(o);
+              else cellValue = strNorm(row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '');
             }
-            cellValue = String(cellValue).trim();
 
             // Use exact match for dropdown columns in Bill of Lading, or specific cols in Order Mgmt
             if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(dataKey)) {
@@ -927,12 +981,13 @@ function VanDon() {
               if (!Array.isArray(val)) return true;
               const selected = val;
               if (selected.length === 0) return true;
-              if (cellValue === '' && (selected.includes('Trống') || selected.includes('__EMPTY__'))) return true;
+              if (isVanDonSemanticEmpty(cellValue) && (selected.includes('Trống') || selected.includes('__EMPTY__'))) return true;
               return selected.includes(cellValue);
             }
 
             // Date columns logic - Exact match for per-column filter
             if (["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(key)) {
+              if (isVanDonSemanticEmpty(cellValue)) return false;
               if (!cellValue) return false;
               if (typeof val !== 'string') return true;
               
@@ -968,13 +1023,15 @@ function VanDon() {
 
         data = data.filter(row => {
           try {
-            const code = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            const o = getPendingOriginal(orderId, 'Mã Tracking', 'Mã tracking');
+            const code = o !== undefined ? strNorm(o) : strNorm(row['Mã Tracking'] || row['Mã tracking'] || '');
             const lowerCode = code.toLowerCase();
 
             // Status Filter Logic
-            if (status === 'Tất cả có mã' && code === '') return false;
-            if (status === 'Trống' && code !== '') return false;
-            if (status === 'Toàn số' && (code === '' || !/^\d+$/.test(code))) return false;
+            if (status === 'Tất cả có mã' && isVanDonSemanticEmpty(code)) return false;
+            if (status === 'Trống' && !isVanDonSemanticEmpty(code)) return false;
+            if (status === 'Toàn số' && (isVanDonSemanticEmpty(code) || !/^\d+$/.test(code))) return false;
 
             // Only apply include/exclude if in 'Tình trạng mã' state
             if (status === 'Tình trạng mã') {
@@ -1751,7 +1808,7 @@ function VanDon() {
     allData.forEach(row => {
       // Thử nhiều cách lấy giá trị
       const val = String(row[key] || row[keyMapped] || row[key.replace(/ /g, '_')] || '').trim();
-      if (val) values.add(val);
+      if (val && !isVanDonSemanticEmpty(val)) values.add(val);
     });
     return Array.from(values).sort();
   }, [allData]);
@@ -1762,15 +1819,44 @@ function VanDon() {
    */
   const getFilterMultiSelectOptions = useCallback(
     (col) => {
-      const emptyValues = ['Trống'];
-      const legacyEmpty = ['__EMPTY__'];
+      const keyMapped = COLUMN_MAPPING[col] || col;
+      const preset = DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[keyMapped] || [];
+
+      /** Gộp bản ghi trùng không phân biệt hoa thường; ưu tiên đúng chuỗi trong DROPDOWN_OPTIONS. */
+      const pickBetterCase = (a, b) => {
+        const aEx = preset.some((p) => p !== '' && String(p) === String(a));
+        const bEx = preset.some((p) => p !== '' && String(p) === String(b));
+        if (aEx && !bEx) return a;
+        if (bEx && !aEx) return b;
+        const al = String(a).toLowerCase();
+        const bl = String(b).toLowerCase();
+        const piA = preset.findIndex((p) => p !== '' && String(p).toLowerCase() === al);
+        const piB = preset.findIndex((p) => p !== '' && String(p).toLowerCase() === bl);
+        if (piA !== -1 && piB === -1) return preset[piA];
+        if (piB !== -1 && piA === -1) return preset[piB];
+        if (piA !== -1 && piB !== -1) return preset[Math.min(piA, piB)];
+        return String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true }) <= 0 ? a : b;
+      };
+
       const fromDb = vanDonDistinctFilterOptions[col];
       const fromPage = getUniqueValues(col);
       const base = Array.isArray(fromDb) && fromDb.length > 0 ? fromDb : fromPage;
-      const sorted = [...base].sort((a, b) =>
+
+      const byLower = new Map();
+      for (const raw of base) {
+        if (isVanDonSemanticEmpty(raw)) continue;
+        const s = String(raw).trim();
+        const lk = s.toLowerCase();
+        if (!byLower.has(lk)) byLower.set(lk, s);
+        else byLower.set(lk, pickBetterCase(byLower.get(lk), s));
+      }
+
+      const merged = Array.from(byLower.values()).sort((a, b) =>
         String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
       );
-      return [...emptyValues, ...legacyEmpty, ...sorted];
+
+      // Một mục "Trống" cho ô trống; không thêm __EMPTY__ (vẫn tương thích khi selected còn __EMPTY__ từ bản cũ)
+      return ['Trống', ...merged];
     },
     [getUniqueValues, vanDonDistinctFilterOptions]
   );
@@ -1781,7 +1867,11 @@ function VanDon() {
     const preset = DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key];
     const fromData = getUniqueValues(col);
     if (preset) {
-      const merged = new Set([...preset, ...fromData]);
+      const merged = new Set();
+      for (const x of [...preset, ...fromData]) {
+        if (x === '') merged.add('');
+        else if (!isVanDonSemanticEmpty(x)) merged.add(x);
+      }
       return Array.from(merged).sort((a, b) => {
         if (a === '') return -1;
         if (b === '') return 1;
@@ -2744,7 +2834,7 @@ function VanDon() {
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
             {getCellEditSelectOptions(col)
-              .filter((o) => o !== 'Trống' && o !== '__EMPTY__')
+              .filter((o) => o === '' || !isVanDonSemanticEmpty(o))
               .map((o) => (
                 <option key={o} value={o}>
                   {o}

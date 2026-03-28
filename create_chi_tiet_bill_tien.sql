@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS public.chi_tiet_bill_tien (
     id SERIAL PRIMARY KEY,
     stt INTEGER,
-    ma_don_hang VARCHAR(100) NOT NULL,
+    ma_don_hang VARCHAR(100),
     ma_tracking VARCHAR(100),
     ngay_doi_soat DATE,
     ffm VARCHAR(50),

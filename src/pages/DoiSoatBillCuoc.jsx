@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 import * as XLSX from 'xlsx';
 
-// Mapping tên cột database -> tên hiển thị đầy đủ
+// Bill: đúng 10 cột theo mẫu đối soát (ngay_update / note lưu DB nhưng không hiện bảng & Excel)
 const BILL_TIEN_COLUMNS = [
   { key: 'stt', label: 'STT' },
   { key: 'ma_don_hang', label: 'Mã đơn hàng' },
@@ -15,10 +15,7 @@ const BILL_TIEN_COLUMNS = [
   { key: 'so_tien_doi_soat', label: 'Số tiền đối soát' },
   { key: 'ty_gia', label: 'Tỷ giá' },
   { key: 'tien_viet', label: 'Tiền Việt' },
-  { key: 'dem_lan_thanh_toan', label: 'Đếm lần thanh toán' },
-  { key: 'ngay_update', label: 'Ngày Update' },
-  { key: 'note', label: 'Note' },
-  { key: 'note_2', label: 'Note 2' },
+  { key: 'dem_lan_thanh_toan', label: 'Đếm lần thanh toán', computed: true },
 ];
 
 const CUOC_COLUMNS = [
@@ -71,10 +68,32 @@ function DoiSoatBillCuoc() {
 
       if (error) throw error;
 
-      // Lấy shipping_unit và payment_type từ bảng orders để map vào FFM và Đơn vị tiền
+      // Đếm số dòng bill trùng mã tracking (cột "Đếm lần thanh toán" — hệ thống tự tính)
+      const trackingPaymentCount = {};
+      (data || []).forEach((row) => {
+        const tk =
+          row.ma_tracking != null && row.ma_tracking !== ''
+            ? String(row.ma_tracking).trim()
+            : '';
+        if (tk) {
+          trackingPaymentCount[tk] = (trackingPaymentCount[tk] || 0) + 1;
+        }
+      });
+
+      // Lấy shipping_unit và payment_type từ orders theo mã đơn; theo mã tracking nếu thiếu mã đơn
       const orderCodes = [...new Set((data || []).map((row) => row.ma_don_hang).filter(Boolean))];
+      const trackingCodes = [
+        ...new Set(
+          (data || [])
+            .map((row) =>
+              row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : ''
+            )
+            .filter(Boolean)
+        ),
+      ];
       const shippingUnitMap = new Map();
       const paymentTypeMap = new Map();
+      const trackingOrderMap = new Map();
 
       if (orderCodes.length > 0) {
         const batchSize = 1000;
@@ -99,35 +118,67 @@ function DoiSoatBillCuoc() {
           }
         }
       }
-      
+
+      if (trackingCodes.length > 0) {
+        const batchSize = 1000;
+        for (let i = 0; i < trackingCodes.length; i += batchSize) {
+          const batch = trackingCodes.slice(i, i + batchSize);
+          const { data: byTracking, error: trErr } = await supabase
+            .from('orders')
+            .select('order_code, shipping_unit, payment_type, tracking_code')
+            .in('tracking_code', batch);
+
+          if (!trErr && byTracking) {
+            byTracking.forEach((order) => {
+              const tc =
+                order.tracking_code != null && order.tracking_code !== ''
+                  ? String(order.tracking_code).trim()
+                  : '';
+              if (tc && !trackingOrderMap.has(tc)) {
+                trackingOrderMap.set(tc, order);
+              }
+            });
+          }
+        }
+      }
+
+      const applyPaymentTypeToRow = (updatedRow, paymentType) => {
+        if (!paymentType) return;
+        const currencyMap = {
+          USD: 'USD',
+          AUD: 'AUD',
+          CAD: 'CAD',
+          JPY: 'YEN',
+          YEN: 'YEN',
+          ZELLE: 'USD',
+          COD: 'USD',
+        };
+        const mappedCurrency =
+          currencyMap[String(paymentType).toUpperCase()] || String(paymentType).toUpperCase();
+        if (CURRENCY_OPTIONS.includes(mappedCurrency)) {
+          updatedRow.don_vi_tien = mappedCurrency;
+        }
+      };
+
       // Tự động điền tỷ giá cho các hàng có đơn vị tiền tệ nhưng chưa có tỷ giá
       let processedData = (data || []).map((row) => {
         const updatedRow = { ...row };
 
-        // FFM lấy theo orders.shipping_unit khi ma_don_hang khớp orders.order_code
-        if (row.ma_don_hang) {
-          const shippingUnit = shippingUnitMap.get(row.ma_don_hang);
+        const tk =
+          row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
+        const fromTracking = tk ? trackingOrderMap.get(tk) : null;
+        const effectiveOrder = row.ma_don_hang || fromTracking?.order_code || null;
+
+        if (effectiveOrder) {
+          const shippingUnit = shippingUnitMap.get(effectiveOrder) || fromTracking?.shipping_unit;
           if (shippingUnit) {
             updatedRow.ffm = shippingUnit;
           }
-
-          const paymentType = paymentTypeMap.get(row.ma_don_hang);
-          if (paymentType) {
-            const currencyMap = {
-              USD: 'USD',
-              AUD: 'AUD',
-              CAD: 'CAD',
-              JPY: 'YEN',
-              YEN: 'YEN',
-              ZELLE: 'USD',
-              COD: 'USD',
-            };
-            const mappedCurrency = currencyMap[String(paymentType).toUpperCase()] || String(paymentType).toUpperCase();
-            if (CURRENCY_OPTIONS.includes(mappedCurrency)) {
-              updatedRow.don_vi_tien = mappedCurrency;
-            }
-          }
+          const paymentType = paymentTypeMap.get(effectiveOrder) || fromTracking?.payment_type;
+          applyPaymentTypeToRow(updatedRow, paymentType);
         }
+
+        updatedRow.dem_lan_thanh_toan = tk ? trackingPaymentCount[tk] : null;
 
         if (updatedRow.don_vi_tien && (!updatedRow.ty_gia || updatedRow.ty_gia === null || updatedRow.ty_gia === '')) {
           const currency = String(updatedRow.don_vi_tien).toUpperCase();
@@ -556,7 +607,9 @@ function DoiSoatBillCuoc() {
 
         const col = columns[targetColIndex];
         const colKey = col.key;
-        
+
+        if (col.computed) continue;
+
         // Skip read-only fields
         if (colKey === 'id' || colKey === 'created_at' || colKey === 'updated_at' || colKey === 'loc_trung') continue;
 
@@ -575,7 +628,7 @@ function DoiSoatBillCuoc() {
         if (colKey.includes('ngay') || colKey.includes('date')) {
           // Date field - keep as is or convert
           processedValue = pasteValue || null;
-        } else if (colKey.includes('tien') || colKey.includes('so_tien') || colKey.includes('ty_gia') || colKey.includes('cuoc') || colKey === 'stt' || colKey === 'dem_lan_thanh_toan') {
+        } else if (colKey.includes('tien') || colKey.includes('so_tien') || colKey.includes('ty_gia') || colKey.includes('cuoc') || colKey === 'stt') {
           // Number field
           processedValue = pasteValue === '' ? null : parseFloat(pasteValue);
           if (isNaN(processedValue)) processedValue = null;
@@ -767,12 +820,53 @@ function DoiSoatBillCuoc() {
 
       if (cuocError) throw cuocError;
 
-      // 2. Lấy tất cả dữ liệu từ chi_tiet_bill_tien để tính tổng tien_viet theo ma_don_hang
+      // 2. Lấy dữ liệu bill (mã đơn hoặc mã tracking → quy về mã đơn khi đồng bộ)
       const { data: billData, error: billError } = await supabase
         .from('chi_tiet_bill_tien')
-        .select('ma_don_hang, tien_viet');
+        .select('ma_don_hang, ma_tracking, tien_viet');
 
       if (billError) throw billError;
+
+      const billTrackings = [
+        ...new Set(
+          (billData || [])
+            .filter((r) => !r.ma_don_hang && r.ma_tracking)
+            .map((r) => String(r.ma_tracking).trim())
+            .filter(Boolean)
+        ),
+      ];
+      const billTrackingToOrder = new Map();
+      if (billTrackings.length > 0) {
+        const bs = 1000;
+        for (let i = 0; i < billTrackings.length; i += bs) {
+          const batch = billTrackings.slice(i, i + bs);
+          const { data: ordRows, error: boErr } = await supabase
+            .from('orders')
+            .select('order_code, tracking_code')
+            .in('tracking_code', batch);
+          if (!boErr && ordRows) {
+            ordRows.forEach((o) => {
+              const tc =
+                o.tracking_code != null && o.tracking_code !== ''
+                  ? String(o.tracking_code).trim()
+                  : '';
+              if (tc && !billTrackingToOrder.has(tc)) {
+                billTrackingToOrder.set(tc, o.order_code);
+              }
+            });
+          }
+        }
+      }
+
+      const resolveBillOrderCode = (row) => {
+        if (row.ma_don_hang) return row.ma_don_hang;
+        const tk =
+          row.ma_tracking != null && row.ma_tracking !== ''
+            ? String(row.ma_tracking).trim()
+            : '';
+        if (!tk) return null;
+        return billTrackingToOrder.get(tk) || null;
+      };
 
       // 3. Tính tổng shipping_cost từ chitiet_cuoc theo ma_don_hang
       const shippingCostMap = new Map();
@@ -786,12 +880,12 @@ function DoiSoatBillCuoc() {
         });
       }
 
-      // 4. Tính tổng total_vnd từ chi_tiet_bill_tien theo ma_don_hang
+      // 4. Tính tổng total_vnd từ chi_tiet_bill_tien theo mã đơn (sau khi quy từ tracking)
       const totalVndMap = new Map();
       if (billData) {
         billData.forEach((row) => {
-          if (row.ma_don_hang && row.tien_viet) {
-            const orderCode = row.ma_don_hang;
+          const orderCode = resolveBillOrderCode(row);
+          if (orderCode && row.tien_viet) {
             const currentTotal = totalVndMap.get(orderCode) || 0;
             totalVndMap.set(orderCode, currentTotal + (parseFloat(row.tien_viet) || 0));
           }
@@ -902,27 +996,62 @@ function DoiSoatBillCuoc() {
     }
   };
 
-  // Helper function to get payment_type from orders table
-  const getPaymentTypeFromOrder = async (orderCode) => {
-    if (!orderCode) return null;
+  const getOrderByTrackingCode = async (tracking) => {
+    const t = tracking != null ? String(tracking).trim() : '';
+    if (!t) return null;
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('payment_type')
-        .eq('order_code', orderCode)
-        .single();
-      
-      if (error || !data) return null;
-      return data.payment_type || null;
+        .select('order_code, shipping_unit, payment_type')
+        .eq('tracking_code', t)
+        .limit(1);
+
+      if (error || !data?.length) return null;
+      return data[0];
     } catch (err) {
-      console.error('Error fetching payment_type:', err);
+      console.error('Error fetching order by tracking:', err);
       return null;
     }
   };
 
+  const applyBillOrderDerivedFields = (rowId, orderRow) => {
+    if (!orderRow) return;
+    setPendingChanges((current) => {
+      const updated = new Map(current);
+      if (!updated.has(rowId)) {
+        updated.set(rowId, new Map());
+      }
+      const ch = updated.get(rowId);
+      if (orderRow.shipping_unit) {
+        ch.set('ffm', orderRow.shipping_unit);
+      }
+      if (orderRow.payment_type) {
+        const currencyMap = {
+          USD: 'USD',
+          AUD: 'AUD',
+          CAD: 'CAD',
+          JPY: 'YEN',
+          YEN: 'YEN',
+          Zelle: 'USD',
+          COD: 'USD',
+        };
+        const currency =
+          currencyMap[String(orderRow.payment_type).toUpperCase()] ||
+          String(orderRow.payment_type).toUpperCase();
+        if (CURRENCY_OPTIONS.includes(currency)) {
+          ch.set('don_vi_tien', currency);
+          const rate = exchangeRates[currency];
+          if (rate !== null && rate !== undefined) {
+            ch.set('ty_gia', rate);
+          }
+        }
+      }
+      return updated;
+    });
+  };
+
   // Handle cell change - lưu vào pending changes
   const handleCellChange = async (rowId, columnKey, newValue) => {
-    // Không cho sửa khi đang ở tab chỉ xem dữ liệu
     if (activeTab === 'bill_view' || activeTab === 'cuoc_view') return;
     setPendingChanges((prev) => {
       const next = new Map(prev);
@@ -930,60 +1059,45 @@ function DoiSoatBillCuoc() {
         next.set(rowId, new Map());
       }
       const rowChanges = next.get(rowId);
-      
-      // Lấy giá trị hiện tại từ data
+
       const currentData = getCurrentData();
       const currentRow = currentData.find((r) => r.id === rowId);
       const originalValue = currentRow?.[columnKey] ?? '';
-      
-      // Nếu giá trị mới khác giá trị gốc, thêm vào pending
+
       if (String(newValue) !== String(originalValue)) {
         rowChanges.set(columnKey, newValue);
       } else {
-        // Nếu giống giá trị gốc, xóa khỏi pending
         rowChanges.delete(columnKey);
         if (rowChanges.size === 0) {
           next.delete(rowId);
         }
       }
 
-      // Auto-fill exchange rate when currency changes - LUÔN tự động điền
-      // Check if this is a currency field (don_vi_tien or don_vi_tien_te)
       if ((columnKey === 'don_vi_tien' || columnKey === 'don_vi_tien_te') && newValue) {
         const currency = String(newValue).toUpperCase();
         const rate = exchangeRates[currency];
-        
+
         if (rate !== null && rate !== undefined) {
-          // Determine the exchange rate column key
-          const rateColumnKey = (activeTab === 'bill' || activeTab === 'bill_view') ? 'ty_gia' : 'ty_gia';
-          
-          // LUÔN tự động điền tỷ giá khi chọn đơn vị tiền tệ (không phụ thuộc vào giá trị hiện tại)
+          const rateColumnKey = 'ty_gia';
           rowChanges.set(rateColumnKey, rate);
         }
       }
-      
-      // Auto-fill exchange rate when ty_gia is empty but currency exists
-      // Nếu user xóa tỷ giá hoặc tỷ giá trống, tự động điền lại từ exchangeRates
+
       if (columnKey === 'ty_gia' && (!newValue || newValue === '' || newValue === null)) {
-        const currentData = getCurrentData();
-        const currentRow = currentData.find((r) => r.id === rowId);
-        const currencyKey = (activeTab === 'bill' || activeTab === 'bill_view') ? 'don_vi_tien' : 'don_vi_tien_te';
+        const currencyKey = activeTab === 'bill' || activeTab === 'bill_view' ? 'don_vi_tien' : 'don_vi_tien_te';
         const currency = currentRow?.[currencyKey];
-        
+
         if (currency) {
           const currencyUpper = String(currency).toUpperCase();
           const rate = exchangeRates[currencyUpper];
-          
+
           if (rate !== null && rate !== undefined) {
-            // Tự động điền lại tỷ giá từ cài đặt
             rowChanges.set('ty_gia', rate);
           }
         }
       }
 
-      // Auto-fill chi_nhanh when ma_don_hang changes (only for cuoc tab)
       if ((activeTab === 'cuoc' || activeTab === 'cuoc_view') && columnKey === 'ma_don_hang' && newValue) {
-        // Fetch chi_nhanh asynchronously
         getChiNhanhFromOrder(newValue).then((branch) => {
           if (branch) {
             setPendingChanges((current) => {
@@ -991,11 +1105,10 @@ function DoiSoatBillCuoc() {
               if (!updated.has(rowId)) {
                 updated.set(rowId, new Map());
               }
-              const rowChanges = updated.get(rowId);
-              // Only set if chi_nhanh is empty or not set
-              const currentRow = getCurrentData().find((r) => r.id === rowId);
-              if (!currentRow?.chi_nhanh) {
-                rowChanges.set('chi_nhanh', branch);
+              const rc = updated.get(rowId);
+              const cr = getCurrentData().find((r) => r.id === rowId);
+              if (!cr?.chi_nhanh) {
+                rc.set('chi_nhanh', branch);
               }
               return updated;
             });
@@ -1003,41 +1116,6 @@ function DoiSoatBillCuoc() {
         });
       }
 
-      // Auto-fill don_vi_tien from payment_type when ma_don_hang changes (only for bill tab)
-      if ((activeTab === 'bill' || activeTab === 'bill_view') && columnKey === 'ma_don_hang' && newValue) {
-        // Fetch payment_type asynchronously and map to don_vi_tien
-        getPaymentTypeFromOrder(newValue).then((paymentType) => {
-          if (paymentType) {
-            setPendingChanges((current) => {
-              const updated = new Map(current);
-              if (!updated.has(rowId)) {
-                updated.set(rowId, new Map());
-              }
-              const rowChanges = updated.get(rowId);
-              // Map payment_type to currency code
-              // Có thể cần mapping: Zelle -> USD, COD -> USD, etc.
-              // Tạm thời dùng trực tiếp payment_type nếu nó là currency code
-              const currencyMap = {
-                'USD': 'USD',
-                'AUD': 'AUD',
-                'CAD': 'CAD',
-                'JPY': 'YEN',
-                'YEN': 'YEN',
-                'Zelle': 'USD',
-                'COD': 'USD',
-              };
-              const currency = currencyMap[paymentType.toUpperCase()] || paymentType.toUpperCase();
-              if (CURRENCY_OPTIONS.includes(currency)) {
-                rowChanges.set('don_vi_tien', currency);
-              }
-              return updated;
-            });
-          }
-        });
-      }
-
-      // Tự động cập nhật ngay_update = today khi có bất kỳ thay đổi nào
-      // (trừ khi chính ngay_update được thay đổi)
       if (columnKey !== 'ngay_update') {
         const today = new Date().toISOString();
         rowChanges.set('ngay_update', today);
@@ -1045,6 +1123,23 @@ function DoiSoatBillCuoc() {
 
       return next;
     });
+
+    if ((activeTab === 'bill' || activeTab === 'bill_view') && columnKey === 'ma_don_hang' && newValue) {
+      supabase
+        .from('orders')
+        .select('order_code, shipping_unit, payment_type')
+        .eq('order_code', newValue)
+        .maybeSingle()
+        .then(({ data: ord }) => {
+          if (ord) applyBillOrderDerivedFields(rowId, ord);
+        });
+    }
+
+    if ((activeTab === 'bill' || activeTab === 'bill_view') && columnKey === 'ma_tracking' && newValue) {
+      getOrderByTrackingCode(newValue).then((ord) => {
+        if (ord) applyBillOrderDerivedFields(rowId, ord);
+      });
+    }
   };
 
   // Update database với pending changes
@@ -1065,8 +1160,7 @@ function DoiSoatBillCuoc() {
       pendingChanges.forEach((rowChanges, rowId) => {
         const updateObj = { id: rowId };
         rowChanges.forEach((value, columnKey) => {
-          // Skip loc_trung as it's a calculated field
-          if (columnKey !== 'loc_trung') {
+          if (columnKey !== 'loc_trung' && columnKey !== 'dem_lan_thanh_toan') {
             updateObj[columnKey] = value;
           }
         });
@@ -1107,58 +1201,48 @@ function DoiSoatBillCuoc() {
 
   // Tải mẫu Excel
   const handleDownloadTemplate = () => {
-    const columns = getCurrentColumns();
     const today = new Date().toISOString().split('T')[0];
     
     // Tạo dữ liệu mẫu với 3 dòng ví dụ
     const templateData = [];
     
     if (activeTab === 'bill' || activeTab === 'bill_view') {
-      // Mẫu cho tab Bill
+      // 10 cột mẫu: có thể chỉ điền mã đơn HOẶC mã tracking; cột đếm lần thanh toán để trống (hệ thống tự đếm)
       templateData.push({
-        'STT': 1,
+        STT: 1,
         'Mã đơn hàng': 'Bona272f26d',
-        'Mã Tracking': 'TRACK001',
+        'Mã Tracking': '',
         'Ngày đối soát': today,
-        'FFM': 'DHL',
+        FFM: '',
         'Đơn vị tiền': 'USD',
-        'Số tiền đối soát': 100.50,
+        'Số tiền đối soát': 100.5,
         'Tỷ giá': 25000,
         'Tiền Việt': 2512500,
-        'Đếm lần thanh toán': 1,
-        'Ngày Update': today,
-        'Note': 'Ghi chú mẫu 1',
-        'Note 2': 'Ghi chú mẫu 2'
+        'Đếm lần thanh toán': '',
       });
       templateData.push({
-        'STT': 2,
-        'Mã đơn hàng': 'Fit31b31704',
+        STT: 2,
+        'Mã đơn hàng': '',
         'Mã Tracking': 'TRACK002',
         'Ngày đối soát': today,
-        'FFM': 'FedEx',
+        FFM: '',
         'Đơn vị tiền': 'AUD',
         'Số tiền đối soát': 50.75,
         'Tỷ giá': 18000,
         'Tiền Việt': 913500,
-        'Đếm lần thanh toán': 1,
-        'Ngày Update': today,
-        'Note': 'Ghi chú mẫu 3',
-        'Note 2': ''
+        'Đếm lần thanh toán': '',
       });
       templateData.push({
-        'STT': 3,
+        STT: 3,
         'Mã đơn hàng': 'DG6da921bf',
         'Mã Tracking': 'TRACK003',
         'Ngày đối soát': today,
-        'FFM': 'UPS',
+        FFM: '',
         'Đơn vị tiền': 'CAD',
         'Số tiền đối soát': 75.25,
         'Tỷ giá': 19000,
         'Tiền Việt': 1429750,
-        'Đếm lần thanh toán': 2,
-        'Ngày Update': today,
-        'Note': '',
-        'Note 2': 'Ghi chú mẫu 4'
+        'Đếm lần thanh toán': '',
       });
     } else {
       // Mẫu cho tab Cước
@@ -1235,10 +1319,12 @@ function DoiSoatBillCuoc() {
       const columns = getCurrentColumns();
       const tableName = (activeTab === 'bill' || activeTab === 'bill_view') ? 'chi_tiet_bill_tien' : 'chitiet_cuoc';
       
-      // Helper function để map tên cột Excel (có thể là label) về key database
       const getColumnKey = (excelLabel) => {
-        const col = columns.find(c => c.label === excelLabel || c.label.toLowerCase() === excelLabel.toLowerCase());
-        return col ? col.key : null;
+        const col = columns.find(
+          (c) => c.label === excelLabel || c.label.toLowerCase() === String(excelLabel).toLowerCase()
+        );
+        if (!col || col.computed) return null;
+        return col.key;
       };
 
       // Map dữ liệu từ Excel vào format database
@@ -1274,7 +1360,7 @@ function DoiSoatBillCuoc() {
                   hasData = true;
                 }
               }
-            } else if (dbKey.includes('tien') || dbKey.includes('so_tien') || dbKey.includes('ty_gia') || dbKey.includes('cuoc') || dbKey === 'stt' || dbKey === 'dem_lan_thanh_toan') {
+            } else if (dbKey.includes('tien') || dbKey.includes('so_tien') || dbKey.includes('ty_gia') || dbKey.includes('cuoc') || dbKey === 'stt') {
               // Number field
               if (value !== null && value !== undefined && value !== '') {
                 const num = parseFloat(value);
@@ -1293,17 +1379,37 @@ function DoiSoatBillCuoc() {
           }
         });
 
-        // Chỉ thêm record nếu có ít nhất một trường dữ liệu
+        delete record.dem_lan_thanh_toan;
+
+        const mdh = record.ma_don_hang != null && String(record.ma_don_hang).trim() !== '';
+        const mtk = record.ma_tracking != null && String(record.ma_tracking).trim() !== '';
+        if ((activeTab === 'bill' || activeTab === 'bill_view') && !mdh && !mtk) {
+          continue;
+        }
+
         if (hasData) {
           recordsToInsert.push(record);
         }
       }
 
       if (recordsToInsert.length === 0) {
-        alert('Không tìm thấy dữ liệu hợp lệ trong file Excel. Vui lòng kiểm tra lại định dạng file.');
+        alert(
+          (activeTab === 'bill' || activeTab === 'bill_view')
+            ? 'Không có dòng hợp lệ: mỗi dòng bill cần có ít nhất Mã đơn hàng hoặc Mã Tracking.'
+            : 'Không tìm thấy dữ liệu hợp lệ trong file Excel. Vui lòng kiểm tra lại định dạng file.'
+        );
         setUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
         return;
+      }
+
+      if (activeTab === 'bill' || activeTab === 'bill_view') {
+        recordsToInsert.forEach((r) => {
+          const d = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
+          const t = r.ma_tracking != null ? String(r.ma_tracking).trim() : '';
+          r.ma_don_hang = d || null;
+          r.ma_tracking = t || null;
+        });
       }
 
       // Insert vào database
@@ -1341,15 +1447,15 @@ function DoiSoatBillCuoc() {
 
   // Thêm nhiều mã đơn hàng
   const handleAddOrderCodes = async () => {
-    const codes = parseOrderCodes(orderCodesInput);
-    
+    const codes = [...new Set(parseOrderCodes(orderCodesInput).map((c) => c.trim()).filter(Boolean))];
+
     if (codes.length === 0) {
-      alert('Vui lòng nhập ít nhất một mã đơn hàng');
+      alert('Vui lòng nhập ít nhất một mã (mã đơn hàng hoặc mã tracking — tab bill)');
       return;
     }
 
     if (codes.length > 1000) {
-      alert(`Số lượng mã đơn hàng vượt quá giới hạn 1000. Bạn đã nhập ${codes.length} mã.`);
+      alert(`Số lượng mã vượt quá giới hạn 1000. Bạn đã nhập ${codes.length} mã.`);
       return;
     }
 
@@ -1357,11 +1463,46 @@ function DoiSoatBillCuoc() {
     try {
       const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
       const tableName = isBillTab ? 'chi_tiet_bill_tien' : 'chitiet_cuoc';
-      
-      // Tạo mảng các bản ghi cần insert
-      const recordsToInsert = codes.map((code) => ({
-        ma_don_hang: code,
-      }));
+
+      let recordsToInsert;
+      if (isBillTab) {
+        const { data: hitByCode, error: e1 } = await supabase.from('orders').select('order_code').in('order_code', codes);
+        if (e1) throw e1;
+        const asOrder = new Set((hitByCode || []).map((o) => o.order_code));
+
+        const needTrack = codes.filter((c) => !asOrder.has(c));
+        const trackingToOrder = new Map();
+        if (needTrack.length > 0) {
+          const bs = 1000;
+          for (let i = 0; i < needTrack.length; i += bs) {
+            const batch = needTrack.slice(i, i + bs);
+            const { data: hitByTr, error: e2 } = await supabase
+              .from('orders')
+              .select('order_code, tracking_code')
+              .in('tracking_code', batch);
+            if (e2) throw e2;
+            (hitByTr || []).forEach((o) => {
+              const tc = o.tracking_code != null ? String(o.tracking_code).trim() : '';
+              if (tc && !trackingToOrder.has(tc)) {
+                trackingToOrder.set(tc, o.order_code);
+              }
+            });
+          }
+        }
+
+        recordsToInsert = codes.map((code) => {
+          if (asOrder.has(code)) {
+            return { ma_don_hang: code };
+          }
+          const oc = trackingToOrder.get(code);
+          if (oc) {
+            return { ma_don_hang: oc, ma_tracking: code };
+          }
+          return { ma_tracking: code, ma_don_hang: null };
+        });
+      } else {
+        recordsToInsert = codes.map((code) => ({ ma_don_hang: code }));
+      }
 
       // Insert vào database
       const { data, error } = await supabase
@@ -1596,6 +1737,12 @@ function DoiSoatBillCuoc() {
               <p className="text-lg font-semibold text-gray-800 mt-1">
                 Tổng số bản ghi: {getCurrentData().length}
               </p>
+              {(activeTab === 'bill' || activeTab === 'bill_view') && (
+                <p className="text-sm text-gray-600 mt-2 max-w-4xl">
+                  Bill: mỗi dòng cần ít nhất Mã đơn hàng hoặc Mã Tracking (một trong hai có thể để trống). Đếm lần thanh toán
+                  tự tính theo số dòng cùng mã tracking, không nhập tay.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -1649,6 +1796,7 @@ function DoiSoatBillCuoc() {
                           // Bỏ qua các trường không cho phép chỉnh sửa hoặc khi đang ở chế độ chỉ xem
                           const isReadOnly =
                             isViewMode ||
+                            col.computed ||
                             col.key === 'id' ||
                             col.key === 'created_at' ||
                             col.key === 'updated_at' ||
@@ -1707,15 +1855,24 @@ function DoiSoatBillCuoc() {
                               col.key.includes('tien') ||
                               col.key.includes('so_tien') ||
                               col.key.includes('ty_gia') ||
-                              col.key.includes('cuoc')
+                              col.key.includes('cuoc') ||
+                              col.key === 'dem_lan_thanh_toan'
                             ) {
-                              formattedValue = formatNumber(displayValue);
+                              formattedValue =
+                                col.key === 'dem_lan_thanh_toan' && displayValue !== '' && displayValue != null
+                                  ? String(displayValue)
+                                  : formatNumber(displayValue);
                             }
                           }
 
                           const hasChange = rowPendingChanges.has(col.key);
                           const isDateField = col.key.includes('ngay') || col.key.includes('date');
-                          const isNumberField = col.key.includes('tien') || col.key.includes('so_tien') || col.key.includes('ty_gia') || col.key.includes('cuoc') || col.key === 'stt' || col.key === 'dem_lan_thanh_toan';
+                          const isNumberField =
+                            col.key.includes('tien') ||
+                            col.key.includes('so_tien') ||
+                            col.key.includes('ty_gia') ||
+                            col.key.includes('cuoc') ||
+                            col.key === 'stt';
                           const isCurrencyField = col.key === 'don_vi_tien' || col.key === 'don_vi_tien_te';
 
                       const isSelected = selectionBounds && 
@@ -1856,7 +2013,9 @@ function DoiSoatBillCuoc() {
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <h2 className="text-lg font-bold text-gray-800">
-                Thêm mã đơn hàng - {activeTab === 'bill' || activeTab === 'bill_view' ? 'Nhập bill' : 'Nhập Cước'}
+                {activeTab === 'bill' || activeTab === 'bill_view'
+                  ? 'Thêm mã (đơn hàng hoặc tracking) — Nhập bill'
+                  : 'Thêm mã đơn hàng — Nhập Cước'}
               </h2>
               <button
                 onClick={() => {
@@ -1873,7 +2032,9 @@ function DoiSoatBillCuoc() {
             <div className="p-4 flex-1 overflow-y-auto">
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Dán danh sách mã đơn hàng (mỗi mã một dòng, tối đa 1000 mã):
+                  {activeTab === 'bill' || activeTab === 'bill_view'
+                    ? 'Dán danh sách mã đơn hàng hoặc mã tracking (mỗi dòng một mã, tối đa 1000):'
+                    : 'Dán danh sách mã đơn hàng (mỗi mã một dòng, tối đa 1000 mã):'}
                 </label>
                 <textarea
                   value={orderCodesInput}
@@ -1897,10 +2058,20 @@ function DoiSoatBillCuoc() {
                   <strong>Hướng dẫn:</strong>
                 </p>
                 <ul className="text-sm text-blue-700 mt-1 list-disc list-inside space-y-1">
-                  <li>Dán danh sách mã đơn hàng vào ô trên (mỗi mã một dòng)</li>
-                  <li>Tối đa 1000 mã đơn hàng mỗi lần thêm</li>
-                  <li>Hệ thống sẽ tự động tạo các dòng mới với mã đơn hàng tương ứng</li>
-                  <li>Các trường khác có thể để trống và điền sau</li>
+                  {activeTab === 'bill' || activeTab === 'bill_view' ? (
+                    <>
+                      <li>Tab bill: mỗi dòng là mã đơn hoặc mã tracking; hệ thống nhận diện theo bảng orders</li>
+                      <li>Tối đa 1000 mã mỗi lần thêm</li>
+                      <li>Các cột khác điền sau trên lưới hoặc qua Excel</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>Dán danh sách mã đơn hàng vào ô trên (mỗi mã một dòng)</li>
+                      <li>Tối đa 1000 mã đơn hàng mỗi lần thêm</li>
+                      <li>Hệ thống sẽ tự động tạo các dòng mới với mã đơn hàng tương ứng</li>
+                      <li>Các trường khác có thể để trống và điền sau</li>
+                    </>
+                  )}
                 </ul>
               </div>
             </div>
