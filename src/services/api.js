@@ -47,7 +47,27 @@ export const DB_TO_APP_MAPPING = {
     "tracking_check_date": "Ngày có mã tracking",
     "reconciled_amount": "Số tiền của đơn hàng đã về TK Cty",
     "payment_bill": "Payment Bill",
-    "payment_image": "Payment Image"
+    "payment_image": "Payment Image",
+    "ngayupbill": "Ngày up bill",
+    "reconciled_vnd": "Tiền đã thanh toán",
+    "cskh_status": "Trạng thái cskh"
+};
+
+/**
+ * Khóa cột từ UI (nhãn tiếng Việt HOẶC snake_case từ COLUMN_MAPPING) → tên cột bảng orders.
+ * Trước đây chỉ khớp nhãn Việt → các cột dùng colKey kiểu sale_staff bị bỏ qua khi batch save (dữ liệu không ghi / refetch lệch).
+ */
+const resolveAppKeyToDbKey = (appKey) => {
+    if (appKey == null || appKey === '') return null;
+    const byLabel = Object.keys(DB_TO_APP_MAPPING).find((k) => DB_TO_APP_MAPPING[k] === appKey);
+    if (byLabel) return byLabel;
+    if (Object.prototype.hasOwnProperty.call(DB_TO_APP_MAPPING, appKey)) return appKey;
+
+    if (appKey === 'Trạng thái giao hàng NB') return 'delivery_status_nb';
+    if (appKey === 'delivery_status') return 'delivery_status';
+    if (appKey === 'Ghi chú vận đơn' || appKey === 'Ghi chú của VĐ') return 'vandon_note';
+    if (appKey === 'Ngày đẩy đơn') return 'accounting_check_date';
+    return null;
 };
 
 const mapSupabaseOrderToApp = (sOrder) => {
@@ -316,25 +336,7 @@ const prepareValueForDB = (dbKey, value) => {
 
 export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy) => {
     try {
-        // Map App Key to DB Key
-        let dbKey = Object.keys(DB_TO_APP_MAPPING).find(key => DB_TO_APP_MAPPING[key] === columnKey);
-
-        // Special reverse mapping or fallback
-        if (!dbKey) {
-            // Handle simple keys or direct matches
-            if (columnKey === 'Trạng thái giao hàng NB') dbKey = 'delivery_status_nb';
-            // Default attempt: lowercase if needed? No, strict mapping prefered.
-            console.warn(`Could not map app key "${columnKey}" to DB key.`);
-            // Attempt generic match if key exists in table? 
-            // For now, if no mapping found, return error to avoid bad data
-            // UNLESS it's a known direct key
-            if (columnKey === 'delivery_status') dbKey = 'delivery_status';
-
-            // FFM Specific Mappings (đồng bộ tên cột app)
-            if (columnKey === 'Ghi chú vận đơn' || columnKey === 'Ghi chú của VĐ') dbKey = 'vandon_note';
-            if (columnKey === 'Ngày đẩy đơn') dbKey = 'accounting_check_date';
-        }
-
+        const dbKey = resolveAppKeyToDbKey(columnKey);
         if (!dbKey) throw new Error(`Không tìm thấy cột tương ứng trong DB cho: ${columnKey}`);
 
         const formattedValue = prepareValueForDB(dbKey, newValue);
@@ -536,22 +538,9 @@ export const updateBatch = async (rows, modifiedBy) => {
                 updatePayload.last_modified_by = modifiedBy;
             }
 
-            Object.keys(row).forEach(appKey => {
+            Object.keys(row).forEach((appKey) => {
                 if (appKey === PRIMARY_KEY_COLUMN) return;
-
-                // Map app key to db key
-                let dbKey = Object.keys(DB_TO_APP_MAPPING).find(k => DB_TO_APP_MAPPING[k] === appKey);
-
-                // Fallbacks
-                if (!dbKey) {
-                    if (appKey === 'Trạng thái giao hàng NB') dbKey = 'delivery_status_nb';
-                    if (appKey === 'delivery_status') dbKey = 'delivery_status';
-
-                    // FFM Specific Mappings (đồng bộ tên cột app)
-                    if (appKey === 'Ghi chú vận đơn' || appKey === 'Ghi chú của VĐ') dbKey = 'vandon_note';
-                    if (appKey === 'Ngày đẩy đơn') dbKey = 'accounting_check_date';
-                }
-
+                const dbKey = resolveAppKeyToDbKey(appKey);
                 if (dbKey) {
                     updatePayload[dbKey] = prepareValueForDB(dbKey, row[appKey]);
                 }
@@ -562,16 +551,19 @@ export const updateBatch = async (rows, modifiedBy) => {
 
         if (updates.length === 0) return { success: true, message: "Nothing to update" };
 
-        // Supabase upsert is efficient for bulk updates if PK is present
-        // 'order_code' is unique key.
-        const { data, error } = await supabase
-            .from('orders')
-            .upsert(updates, { onConflict: 'order_code' })
-            .select();
+        /** Chỉ `.update()` theo từng đơn — tránh `upsert` với payload thiếu cột (một số phiên bản/stack dễ gây hiểu nhầm hoặc ghi không đủ trường). */
+        let total = 0;
+        for (const u of updates) {
+            const { order_code: oc, ...payload } = u;
+            const keys = Object.keys(payload).filter((k) => k !== 'last_modified_by');
+            if (keys.length === 0) continue;
 
-        if (error) throw error;
+            const { data, error } = await supabase.from('orders').update(payload).eq('order_code', oc).select();
+            if (error) throw error;
+            total += data?.length || 0;
+        }
 
-        return { success: true, count: data.length };
+        return { success: true, count: total };
 
     } catch (error) {
         console.error('updateBatch Supabase error:', error);
@@ -727,7 +719,10 @@ export const fetchVanDon = async (options = {}) => {
             }
 
             if (deliveryStaffSelfFilter !== undefined && deliveryStaffSelfFilter !== null && String(deliveryStaffSelfFilter).trim() !== '') {
-                query = query.ilike('delivery_staff', String(deliveryStaffSelfFilter).trim());
+                const raw = String(deliveryStaffSelfFilter).trim();
+                /** Chuỗi con (escape % _) — cột NV vận đơn thường là họ tên đầy đủ hoặc có tiền tố/hậu tố. */
+                const esc = raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+                query = query.ilike('delivery_staff', `%${esc}%`);
             }
 
             const dateColumnMapping = {

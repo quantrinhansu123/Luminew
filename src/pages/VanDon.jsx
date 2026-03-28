@@ -134,6 +134,15 @@ function isVanDonStaffNameSelf(candidate, selfKeys) {
   return selfKeys.has(c);
 }
 
+/** Khớp tab Đơn cá nhân: đồng bộ với API `delivery_staff` ILIKE %tên% (tên phiên ≥ 3 ký tự mới dùng includes). */
+function vanDonDeliveryStaffIsSelf(row, sessionNorm) {
+  if (!sessionNorm) return false;
+  const ds = String(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim().toLowerCase();
+  if (ds === sessionNorm) return true;
+  if (sessionNorm.length >= 3 && ds.includes(sessionNorm)) return true;
+  return false;
+}
+
 /** Khi ghép đơn chưa lưu vào kết quả API sau đổi bộ lọc — chỉ giữ dòng phù hợp tab (tránh lệch với Đơn Nhật/Hà Nội). */
 function rowMatchesBolTabForInject(row, tab) {
   if (tab === 'hanoi') {
@@ -150,9 +159,7 @@ function rowMatchesBolTabForInject(row, tab) {
   }
   if (tab === 'ca_nhan') {
     const n = getVanDonSessionDisplayName().trim().toLowerCase();
-    if (!n) return false;
-    const ds = String(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim().toLowerCase();
-    return ds === n;
+    return vanDonDeliveryStaffIsSelf(row, n);
   }
   return true;
 }
@@ -560,8 +567,19 @@ function VanDon() {
       if (!isManager) {
         const picked = (selectedPersonnelNames || []).map((n) => String(n || "").trim()).filter(Boolean);
         const selfKeys = getVanDonSelfNameKeySet();
-        /** Chỉ tên từ RBAC; loại mọi mục trùng / gần trùng tên đăng nhập — không fallback `userName` (tránh tự OR theo bản thân). */
-        allAllowedNames = picked.filter((n) => !isVanDonStaffNameSelf(n, selfKeys));
+        const withoutSelf = picked.filter((n) => !isVanDonStaffNameSelf(n, selfKeys));
+        /**
+         * - Còn tên khác sau khi trừ bản thân → chỉ OR các tên đó (tab Đơn nhắc hộ không tự thêm mình).
+         * - RBAC chỉ có đúng tên mình → vẫn dùng `picked`, không để trang trắng.
+         * - RBAC rỗng → fallback `userName` như trước (môi trường chưa cấu hình danh sách).
+         */
+        if (withoutSelf.length > 0) {
+          allAllowedNames = withoutSelf;
+        } else if (picked.length > 0) {
+          allAllowedNames = picked;
+        } else if (userName) {
+          allAllowedNames = [userName];
+        }
       }
 
       const selfDeliveryName =
@@ -588,6 +606,14 @@ function VanDon() {
         };
       }
 
+      /** Tab Đơn cá nhân: chỉ lọc `delivery_staff` theo phiên — không kèm `allowedStaff` (AND sẽ loại hết đơn chỉ có tên mình trên NV vận đơn). */
+      const allowedStaffForRequest =
+        isManager || activeFilters.tab === 'ca_nhan'
+          ? undefined
+          : allAllowedNames.length > 0
+            ? allAllowedNames
+            : undefined;
+
       const result = await API.fetchVanDon({
         page: currentPage,
         limit: rowsPerPage,
@@ -601,7 +627,7 @@ function VanDon() {
         dateFrom: activeFilters.dateFrom,
         dateTo: activeFilters.dateTo,
         dateType: activeFilters.dateType,
-        allowedStaff: isManager ? undefined : (allAllowedNames.length > 0 ? allAllowedNames : undefined),
+        allowedStaff: allowedStaffForRequest,
         deliveryStaffSelfFilter: selfDeliveryName || undefined
       });
 
@@ -609,7 +635,9 @@ function VanDon() {
         count: result.data?.length || 0,
         total: result.total,
         isManager,
-        allowedStaff: isManager ? 'ALL' : allAllowedNames
+        tab: activeFilters.tab,
+        allowedStaff: isManager ? 'ALL' : allowedStaffForRequest ?? '(none)',
+        deliveryStaffSelfFilter: selfDeliveryName || '(none)'
       });
 
       if (result.error) {
@@ -739,12 +767,7 @@ function VanDon() {
           });
         } else if (bolActiveTab === 'ca_nhan') {
           const n = getVanDonSessionDisplayName().trim().toLowerCase();
-          data = n
-            ? data.filter((row) => {
-                const ds = String(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '').trim().toLowerCase();
-                return ds === n;
-              })
-            : [];
+          data = n ? data.filter((row) => vanDonDeliveryStaffIsSelf(row, n)) : [];
         } else if (bolActiveTab === 'hanoi') {
           // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn có Team="Hà Nội", Kết quả Check="Ok", Mã Tracking trống/null và Đơn vị vận chuyển trống/null
           data = data.filter(row => {
