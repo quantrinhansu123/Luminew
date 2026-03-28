@@ -1385,8 +1385,28 @@ function VanDon() {
 
       const toastId = addToast(`Đang chuẩn bị đẩy ${selectedCount} đơn...`, 'loading', 0);
 
-      // Create log records with 'pending' status
-      const { batchId } = await API.createFfmPushLogs(orderIds, carrierName, currentUser);
+      const emptyToNull = (v) => {
+        const x = v == null ? '' : String(v).trim();
+        return x === '' ? null : x;
+      };
+      const entries = orderIds.map((orderId) => {
+        const r = getFilteredData.find((x) => x[PRIMARY_KEY_COLUMN] === orderId);
+        let total_amount_vnd = null;
+        const rawTotal = r?.['Tổng tiền VNĐ'] ?? r?.total_amount_vnd;
+        if (rawTotal != null && rawTotal !== '') {
+          const n = Number(String(rawTotal).replace(/[^\d.-]/g, ''));
+          if (Number.isFinite(n)) total_amount_vnd = n;
+        }
+        return {
+          orderId,
+          product: emptyToNull(r?.['Mặt hàng'] ?? r?.product),
+          country: emptyToNull(r?.['Khu vực'] ?? r?.country),
+          chi_nhanh: emptyToNull(r?.[TEAM_COLUMN_NAME] ?? r?.['Chi nhánh'] ?? r?.chi_nhanh),
+          total_amount_vnd,
+        };
+      });
+
+      const { batchId } = await API.createFfmPushLogs(entries, carrierName, currentUser);
 
       removeToast(toastId);
 
