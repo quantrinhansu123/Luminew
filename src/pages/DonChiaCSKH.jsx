@@ -13,7 +13,7 @@ import {
   orderRangeToCreatedAtIsoBounds,
   sortOrdersByDisplayDateDesc,
 } from '../utils/dateParsing';
-import { resolveTrackingFromOrder } from '../utils/orderTracking';
+import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
 
 // Helper Functions
 const getRowValue = (row, ...keys) => {
@@ -83,7 +83,7 @@ function mapDonChiaOrderToFriendly(item) {
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount,
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier,
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
-    "Trạng thái thu tiền": item.payment_status_detail,
+    "Trạng thái thu tiền": resolveTrangThaiThuTienFromOrder(item),
     "Lý do": item.reason,
     "Page": item.page_name,
   };
@@ -297,8 +297,8 @@ function DonChiaCSKH() {
     'delivery_staff': 'Nhân viên Vận đơn',
     'note': 'Ghi chú',
     'reason': 'Lý do',
-    'payment_status': 'Trạng thái thanh toán',
-    'payment_status_detail': 'Trạng thái thu tiền',
+    'payment_status': 'Trạng thái thu tiền',
+    'payment_status_detail': 'Trạng thái thu tiền (chi tiết)',
     'check_result': 'Kết quả Check',
     'vandon_note': 'Ghi chú vận đơn',
     'shipping_fee': 'Phí ship',
@@ -1036,6 +1036,8 @@ function DonChiaCSKH() {
             value = filteredRow['Mã Tracking'] ?? filteredRow.tracking_code;
           } else if (col === 'Kết quả Check') {
             value = filteredRow['Kết quả Check'] ?? filteredRow.check_result;
+          } else if (col === 'Trạng thái thu tiền') {
+            value = filteredRow['Trạng thái thu tiền'] ?? filteredRow.payment_status_detail ?? filteredRow.payment_status;
           } else if (value === undefined || value === null) {
             const key = COLUMN_MAPPING[col];
             if (key) value = filteredRow[key];
@@ -2105,6 +2107,8 @@ function DonChiaCSKH() {
                           value = row['Mã Tracking'] ?? row.tracking_code;
                         } else if (col === 'Kết quả Check') {
                           value = row['Kết quả Check'] ?? row.check_result;
+                        } else if (col === 'Trạng thái thu tiền') {
+                          value = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
                         } else if (value === undefined || value === null) {
                           const key = COLUMN_MAPPING[col];
                           if (key) value = row[key];

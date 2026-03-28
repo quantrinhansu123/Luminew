@@ -317,6 +317,8 @@ function VanDon() {
   const [stickyOffsets, setStickyOffsets] = useState([]);
   const [horizontalTrackWidth, setHorizontalTrackWidth] = useState(0);
   const isSelecting = useRef(false);
+  /** Kéo chọn vùng ô: neo (anchor) + điểm bắt đầu chuột (kể cả khi mousedown trên input/select). */
+  const selectionPointerDragRef = useRef(null);
   const tableRef = useRef(null);
   const vanDonHeaderContainerRef = useRef(null);
   const vanDonScrollContainerRef = useRef(null);
@@ -2282,19 +2284,46 @@ function VanDon() {
   const handleMouseDown = (rowIdx, colIdx, e) => {
     if (e.button !== 0) return; // Only left click
 
-    // Nếu click vào input/select/textarea, vẫn cho phép selection nhưng không bắt đầu drag ngay
     const target = e.target;
-    const isInputElement = target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA';
+    const isInputElement =
+      target.tagName === 'INPUT' ||
+      target.tagName === 'SELECT' ||
+      target.tagName === 'TEXTAREA';
 
-    // Nếu click vào input/select, chỉ select cell đó, không bắt đầu drag
+    if (e.ctrlKey || e.metaKey) {
+      selectionPointerDragRef.current = null;
+      setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
+      isSelecting.current = false;
+      return;
+    }
+
+    if (e.shiftKey && selection.startRow !== null && selection.startCol !== null) {
+      selectionPointerDragRef.current = {
+        anchorRow: selection.startRow,
+        anchorCol: selection.startCol,
+        startX: e.clientX,
+        startY: e.clientY,
+      };
+      setSelection((prev) => ({ ...prev, endRow: rowIdx, endCol: colIdx }));
+      isSelecting.current = false;
+      return;
+    }
+
+    selectionPointerDragRef.current = {
+      anchorRow: rowIdx,
+      anchorCol: colIdx,
+      startX: e.clientX,
+      startY: e.clientY,
+    };
+
+    // Input/select/textarea: giữ chọn 1 ô; nếu kéo chuột qua ngưỡng → document mousemove mở vùng chọn (ngang + dọc)
     if (isInputElement) {
       setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
       isSelecting.current = false;
       return;
     }
 
-    // Bảng dùng user-select:none — click vào padding <td> không đi vào textarea/input.
-    // Focus ô nhập trong cùng <td> để gõ được (tránh coi là bắt đầu kéo chọn vùng).
+    // Click vào <td> (text chỉ đọc): focus editor nếu có; kéo vùng chờ ngưỡng giống input
     const td = target.closest?.('td');
     if (td) {
       const editor = td.querySelector('input:not([type="checkbox"]), textarea, select');
@@ -2313,20 +2342,9 @@ function VanDon() {
       }
     }
 
-    // Bắt đầu selection drag
+    // Ô chỉ hiển thị text: bắt đầu kéo vùng ngay (mouseenter vẫn hỗ trợ)
     isSelecting.current = true;
-
-    if (e.ctrlKey || e.metaKey) {
-      // Ctrl/Cmd click: thêm vào selection (multi-select)
-      // Tạm thời chỉ select cell đó, có thể mở rộng sau
-      setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
-    } else if (e.shiftKey && selection.startRow !== null && selection.startCol !== null) {
-      // Shift click: mở rộng selection từ điểm bắt đầu
-      setSelection(prev => ({ ...prev, endRow: rowIdx, endCol: colIdx }));
-    } else {
-      // Click thường: bắt đầu selection mới
-      setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
-    }
+    setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
   };
 
   const handleMouseEnter = (rowIdx, colIdx) => {
@@ -2341,8 +2359,66 @@ function VanDon() {
   };
 
   useEffect(() => {
+    const resolveCellFromPoint = (clientX, clientY) => {
+      const root = tableRef.current;
+      if (!root) return null;
+      const stack = document.elementsFromPoint(clientX, clientY);
+      if (!stack?.length) return null;
+      for (const el of stack) {
+        const td = el.closest?.('td[data-van-r]');
+        if (td && root.contains(td)) {
+          const r = Number(td.getAttribute('data-van-r'));
+          const c = Number(td.getAttribute('data-van-c'));
+          if (Number.isFinite(r) && Number.isFinite(c)) return { r, c };
+        }
+      }
+      return null;
+    };
+
+    const DRAG_THRESHOLD_PX = 4;
+
+    const handleMouseMove = (e) => {
+      const drag = selectionPointerDragRef.current;
+      if (!drag || (e.buttons & 1) !== 1) return;
+
+      const dx = Math.abs(e.clientX - drag.startX);
+      const dy = Math.abs(e.clientY - drag.startY);
+      const pastThreshold = dx >= DRAG_THRESHOLD_PX || dy >= DRAG_THRESHOLD_PX;
+
+      if (pastThreshold && !isSelecting.current) {
+        isSelecting.current = true;
+        const ae = document.activeElement;
+        if (
+          ae &&
+          tableRef.current?.contains(ae) &&
+          (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')
+        ) {
+          ae.blur();
+        }
+      }
+
+      if (!isSelecting.current) return;
+
+      e.preventDefault();
+      const cell = resolveCellFromPoint(e.clientX, e.clientY);
+      if (!cell) return;
+
+      setSelection({
+        startRow: drag.anchorRow,
+        startCol: drag.anchorCol,
+        endRow: cell.r,
+        endCol: cell.c,
+      });
+    };
+
     const handleMouseUp = () => {
+      selectionPointerDragRef.current = null;
       isSelecting.current = false;
+    };
+
+    const handleSelectStartCapture = (e) => {
+      if (!isSelecting.current || !tableRef.current?.contains(e.target)) return;
+      e.preventDefault();
     };
 
     // Clear selection khi click ra ngoài table (nhưng không clear khi click vào control buttons)
@@ -2361,10 +2437,14 @@ function VanDon() {
       }
     };
 
+    document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('selectstart', handleSelectStartCapture, true);
     document.addEventListener('click', handleClickOutside);
     return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('selectstart', handleSelectStartCapture, true);
       document.removeEventListener('click', handleClickOutside);
     };
   }, []);
@@ -2862,6 +2942,8 @@ function VanDon() {
     return (
       <td
         key={`${orderId}-${col}`}
+        data-van-r={rIdx}
+        data-van-c={cIdx}
         className={getCellClass(row, col, String(displayVal), rIdx, cIdx)}
         style={mergedCellStyle}
         onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}

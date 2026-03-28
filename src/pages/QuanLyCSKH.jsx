@@ -11,7 +11,7 @@ import {
   orderRangeToCreatedAtIsoBounds,
   sortOrdersByDisplayDateDesc,
 } from '../utils/dateParsing';
-import { resolveTrackingFromOrder } from '../utils/orderTracking';
+import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
 
 const QUICK_FILTER_OPTIONS = [
   { value: 'today', label: 'Hôm nay' },
@@ -55,7 +55,7 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount,
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier,
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
-    "Trạng thái thu tiền": item.payment_status_detail,
+    "Trạng thái thu tiền": resolveTrangThaiThuTienFromOrder(item),
     "Lý do": item.reason,
     "Page": item.page_name,
   };
@@ -110,6 +110,7 @@ function applyCSKHClientFilters(data, ctx) {
     filterMarket,
     filterProduct,
     filterStatus,
+    filterPaymentThuTien,
     filterCheckResult,
     filterSale,
     filterMKT,
@@ -155,6 +156,17 @@ function applyCSKHClientFilters(data, ctx) {
     rows = rows.filter((row) => {
       const status = row["Trạng thái giao hàng"];
       return filterStatus.includes(String(status).trim());
+    });
+  }
+
+  if (filterPaymentThuTien.length > 0) {
+    rows = rows.filter((row) => {
+      const raw = row["Trạng thái thu tiền"] ?? row.payment_status_detail ?? row.payment_status;
+      const s = raw ? String(raw).trim() : '';
+      if (filterPaymentThuTien.includes('(Trống)')) {
+        if (!s) return true;
+      }
+      return filterPaymentThuTien.includes(s);
     });
   }
 
@@ -218,12 +230,14 @@ function QuanLyCSKH() {
   const [filterMarket, setFilterMarket] = useState([]);
   const [filterProduct, setFilterProduct] = useState([]);
   const [filterStatus, setFilterStatus] = useState([]);
+  const [filterPaymentThuTien, setFilterPaymentThuTien] = useState([]);
   const [filterCheckResult, setFilterCheckResult] = useState([]);
   const [filterSale, setFilterSale] = useState([]); // Filter by NV Sale (multi-select checkbox)
   const [filterMKT, setFilterMKT] = useState([]); // Filter by MKT (multi-select checkbox)
   const [showMarketFilter, setShowMarketFilter] = useState(false);
   const [showProductFilter, setShowProductFilter] = useState(false);
   const [showStatusFilter, setShowStatusFilter] = useState(false);
+  const [showPaymentThuTienFilter, setShowPaymentThuTienFilter] = useState(false);
   const [showCheckResultFilter, setShowCheckResultFilter] = useState(false);
   const [showQuickFilter, setShowQuickFilter] = useState(false);
   const [showSaleFilter, setShowSaleFilter] = useState(false);
@@ -233,6 +247,7 @@ function QuanLyCSKH() {
     setShowMarketFilter(false);
     setShowProductFilter(false);
     setShowStatusFilter(false);
+    setShowPaymentThuTienFilter(false);
     setShowCheckResultFilter(false);
     setShowQuickFilter(false);
     setShowSaleFilter(false);
@@ -324,8 +339,8 @@ function QuanLyCSKH() {
     'delivery_staff': 'Nhân viên Vận đơn',
     'note': 'Ghi chú',
     'reason': 'Lý do',
-    'payment_status': 'Trạng thái thanh toán',
-    'payment_status_detail': 'Trạng thái thu tiền',
+    'payment_status': 'Trạng thái thu tiền',
+    'payment_status_detail': 'Trạng thái thu tiền (chi tiết)',
     'check_result': 'Kết quả Check',
     'vandon_note': 'Ghi chú vận đơn',
     'shipping_fee': 'Phí ship',
@@ -696,6 +711,20 @@ function QuanLyCSKH() {
     return Array.from(statuses).sort();
   }, [allData]);
 
+  const uniquePaymentThuTien = useMemo(() => {
+    const set = new Set();
+    let hasEmpty = false;
+    allData.forEach((row) => {
+      const raw = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
+      const s = raw ? String(raw).trim() : '';
+      if (s) set.add(s);
+      else hasEmpty = true;
+    });
+    const sorted = Array.from(set).sort();
+    if (hasEmpty) return ['(Trống)', ...sorted];
+    return sorted;
+  }, [allData]);
+
   const uniqueCheckResults = useMemo(() => {
     const set = new Set();
     let hasEmpty = false;
@@ -811,13 +840,14 @@ function QuanLyCSKH() {
       filterMarket,
       filterProduct,
       filterStatus,
+      filterPaymentThuTien,
       filterCheckResult,
       filterSale,
       filterMKT,
       sortColumn,
       sortDirection,
     });
-  }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSale, filterMKT, sortColumn, sortDirection]);
+  }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterPaymentThuTien, filterCheckResult, filterSale, filterMKT, sortColumn, sortDirection]);
 
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
@@ -842,6 +872,8 @@ function QuanLyCSKH() {
             value = filteredRow['Mã Tracking'] ?? filteredRow.tracking_code;
           } else if (col === 'Kết quả Check') {
             value = filteredRow['Kết quả Check'] ?? filteredRow.check_result;
+          } else if (col === 'Trạng thái thu tiền') {
+            value = filteredRow['Trạng thái thu tiền'] ?? filteredRow.payment_status_detail ?? filteredRow.payment_status;
           } else if (value === undefined || value === null) {
             const key = COLUMN_MAPPING[col];
             if (key) value = filteredRow[key];
@@ -1177,6 +1209,7 @@ function QuanLyCSKH() {
                       setShowStatusFilter(false);
                       setShowQuickFilter(false);
                       setShowCheckResultFilter(false);
+                      setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
                       setShowMarketFilter(true);
@@ -1257,6 +1290,7 @@ function QuanLyCSKH() {
                       setShowStatusFilter(false);
                       setShowQuickFilter(false);
                       setShowCheckResultFilter(false);
+                      setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
                       setShowProductFilter(true);
@@ -1337,6 +1371,7 @@ function QuanLyCSKH() {
                       setShowProductFilter(false);
                       setShowQuickFilter(false);
                       setShowCheckResultFilter(false);
+                      setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
                       setShowStatusFilter(true);
@@ -1404,6 +1439,87 @@ function QuanLyCSKH() {
               </div>
             </div>
 
+            {/* Trạng thái thu tiền - checkbox */}
+            <div className="min-w-[200px] relative z-50">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái thu tiền</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showPaymentThuTienFilter) setShowPaymentThuTienFilter(false);
+                    else {
+                      setShowMarketFilter(false);
+                      setShowProductFilter(false);
+                      setShowStatusFilter(false);
+                      setShowQuickFilter(false);
+                      setShowCheckResultFilter(false);
+                      setShowSaleFilter(false);
+                      setShowMKTFilter(false);
+                      setShowPaymentThuTienFilter(true);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterPaymentThuTien.length === 0
+                      ? 'Tất cả'
+                      : filterPaymentThuTien.length === 1
+                        ? filterPaymentThuTien[0]
+                        : `Đã chọn ${filterPaymentThuTien.length}`}
+                  </span>
+                  <span className="ml-2">{showPaymentThuTienFilter ? '▲' : '▼'}</span>
+                </button>
+                {showPaymentThuTienFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn trạng thái thu tiền:</span>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFilterPaymentThuTien([...uniquePaymentThuTien])}
+                            className="text-xs text-green-600 hover:text-green-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFilterPaymentThuTien([])}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
+                      </div>
+                      {uniquePaymentThuTien.map((pt) => {
+                        const isChecked = filterPaymentThuTien.includes(pt);
+                        return (
+                          <label
+                            key={pt}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterPaymentThuTien([...filterPaymentThuTien, pt]);
+                                } else {
+                                  setFilterPaymentThuTien(filterPaymentThuTien.filter((v) => v !== pt));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{pt}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Kết quả Check - checkbox */}
             <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Kết quả Check</label>
@@ -1417,6 +1533,7 @@ function QuanLyCSKH() {
                       setShowProductFilter(false);
                       setShowStatusFilter(false);
                       setShowQuickFilter(false);
+                      setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
                       setShowCheckResultFilter(true);
@@ -1497,6 +1614,7 @@ function QuanLyCSKH() {
                       setShowProductFilter(false);
                       setShowStatusFilter(false);
                       setShowCheckResultFilter(false);
+                      setShowPaymentThuTienFilter(false);
                       setShowQuickFilter(false);
                       setShowMKTFilter(false);
                       setShowSaleFilter(true);
@@ -1582,6 +1700,7 @@ function QuanLyCSKH() {
                       setShowProductFilter(false);
                       setShowStatusFilter(false);
                       setShowCheckResultFilter(false);
+                      setShowPaymentThuTienFilter(false);
                       setShowQuickFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(true);
@@ -1663,6 +1782,7 @@ function QuanLyCSKH() {
                       setShowProductFilter(false);
                       setShowStatusFilter(false);
                       setShowCheckResultFilter(false);
+                      setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
                       setShowQuickFilter(true);
@@ -1740,6 +1860,7 @@ function QuanLyCSKH() {
           {(showMarketFilter ||
             showProductFilter ||
             showStatusFilter ||
+            showPaymentThuTienFilter ||
             showCheckResultFilter ||
             showQuickFilter ||
             showSaleFilter ||
@@ -1816,6 +1937,8 @@ function QuanLyCSKH() {
                           value = row['Mã Tracking'] ?? row.tracking_code;
                         } else if (col === 'Kết quả Check') {
                           value = row['Kết quả Check'] ?? row.check_result;
+                        } else if (col === 'Trạng thái thu tiền') {
+                          value = row['Trạng thái thu tiền'] ?? row.payment_status_detail ?? row.payment_status;
                         } else if (value === undefined || value === null) {
                           const key = COLUMN_MAPPING[col];
                           if (key) value = row[key];

@@ -28,3 +28,14 @@ export function resolveTrackingFromOrder(item) {
   }
   return '';
 }
+
+/**
+ * Trạng thái thu tiền: dữ liệu F3/orders thường nằm ở `payment_status` (vd. "Có bill");
+ * `payment_status_detail` khi có giá trị bổ sung.
+ */
+export function resolveTrangThaiThuTienFromOrder(item) {
+  if (!item || typeof item !== 'object') return '';
+  const d = item.payment_status_detail != null ? String(item.payment_status_detail).trim() : '';
+  if (d) return d;
+  return item.payment_status != null ? String(item.payment_status).trim() : '';
+}
