@@ -278,14 +278,21 @@ function Home() {
           label: "ffm_MGT",
           icon: <ClipboardList className="w-4 h-4" />,
           path: "/ffm_MGT",
-          permission: 'ORDERS_FFM',
+          permission: 'ORDERS_FFM_MGT',
         },
         {
           id: "ffm-tt",
           label: "FFM_TT",
           icon: <Truck className="w-4 h-4" />,
           path: "/ffm_TT",
-          permission: 'ORDERS_FFM',
+          permission: 'ORDERS_FFM_TT',
+        },
+        {
+          id: "dien-bill",
+          label: "Điền bill",
+          icon: <FileText className="w-4 h-4" />,
+          path: "/dien-bill",
+          permission: 'ORDERS_DIEN_BILL',
         },
       ],
     },
@@ -777,7 +784,7 @@ function Home() {
           color: "bg-indigo-500",
           path: "/ffm_MGT",
           status: "Mở ứng dụng",
-          permission: 'ORDERS_FFM',
+          permission: 'ORDERS_FFM_MGT',
         },
         {
           title: "FFM_TT",
@@ -785,7 +792,7 @@ function Home() {
           color: "bg-violet-500",
           path: "/ffm_TT",
           status: "Mở ứng dụng",
-          permission: 'ORDERS_FFM',
+          permission: 'ORDERS_FFM_TT',
         },
         {
           title: "Điền bill",
@@ -793,7 +800,7 @@ function Home() {
           color: "bg-emerald-500",
           path: "/dien-bill",
           status: "Mở ứng dụng",
-          permission: 'ORDERS_FFM',
+          permission: 'ORDERS_DIEN_BILL',
         },
         {
           title: "Lịch sử thay đổi",
@@ -1194,6 +1201,10 @@ function Home() {
 
     // 3. Removed Team restrictions
 
+    // 3b. Một trong nhiều quyền (tùy chọn trên từng menu item)
+    if (item.permissionAny && Array.isArray(item.permissionAny) && item.permissionAny.length > 0) {
+      return item.permissionAny.some((code) => canView(code));
+    }
 
     // 4. Check explicit permission if present for leaf node
     if (item.permission) {
@@ -1494,7 +1505,9 @@ function Home() {
                   <div className="ml-4 mt-1 space-y-1">
                     {item.subItems.filter(subItem => {
                       if (subItem.adminOnly && !isAdminOrLeadership) return false;
-                      if (subItem.permission && !canView(subItem.permission)) return false;
+                      if (subItem.permissionAny?.length) {
+                        if (!subItem.permissionAny.some((c) => canView(c))) return false;
+                      } else if (subItem.permission && !canView(subItem.permission)) return false;
                       return true;
                     }).map((subItem) => (
                       subItem.isExternal ? (

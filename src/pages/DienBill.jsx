@@ -132,10 +132,10 @@ function DienBill() {
     }
   };
 
-  if (!canView('ORDERS_FFM')) {
+  if (!canView('ORDERS_DIEN_BILL') && !canView('ORDERS_FFM')) {
     return (
       <div className="p-8 text-center text-red-600 font-bold">
-        Bạn không có quyền truy cập trang này (ORDERS_FFM).
+        Bạn không có quyền truy cập trang này (ORDERS_DIEN_BILL).
       </div>
     );
   }

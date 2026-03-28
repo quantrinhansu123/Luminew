@@ -2919,8 +2919,13 @@ function FFM({ variant = 'MGT' }) {
     );
   };
 
-  if (!canView('ORDERS_FFM')) {
-    return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (ORDERS_FFM).</div>;
+  const ffmPageCode = variant === 'TT' ? 'ORDERS_FFM_TT' : 'ORDERS_FFM_MGT';
+  if (!canView(ffmPageCode) && !canView('ORDERS_FFM')) {
+    return (
+      <div className="p-8 text-center text-red-600 font-bold">
+        Bạn không có quyền truy cập trang này ({variant === 'TT' ? 'FFM T&T' : 'FFM MGT'}).
+      </div>
+    );
   }
 
   return (
