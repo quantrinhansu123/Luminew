@@ -386,10 +386,13 @@ export const getSubstitutePersonnel = async (username) => {
  * Tên NV vận đơn được xem trên trang /van-don (theo `danh_sach_van_don`):
  * - Dòng có `ho_va_ten` khớp user (chuẩn hóa + chứa chuỗi khi đủ dài)
  * - Hoặc một alias user khớp phần tử trong `nguoi_sua_ho`
+ * Khi user khớp một dòng: thêm cả **chủ** (`ho_va_ten`) và **mọi tên trong `nguoi_sua_ho`**
+ * (để tab Đơn nhắc hộ gồm đủ người được nhắc cùng nhóm, vd. chủ dòng + Bùi Thị Hảo trong nguoi_sua_ho).
  */
 export const getVanDonVisibleNames = async ({ userName, userNames, userEmail } = {}) => {
     const normKey = (s) =>
         String(s || '')
+            .normalize('NFC')
             .trim()
             .toLowerCase()
             .replace(/\s+/g, ' ');
@@ -450,6 +453,10 @@ export const getVanDonVisibleNames = async ({ userName, userNames, userEmail } =
             const matchesHelper = helpers.some((h) => matchesAnyTarget(h));
             if (matchesOwner || matchesHelper) {
                 allowedNames.add(ownerName);
+                for (const h of helpers) {
+                    const t = String(h || '').trim();
+                    if (t) allowedNames.add(t);
+                }
             }
         }
         return Array.from(allowedNames);
