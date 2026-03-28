@@ -2933,10 +2933,10 @@ function VanDon() {
     <div className="bg-gray-50 flex flex-col h-[calc(100vh-64px)] min-h-0 overflow-hidden">
       {/* Header Bar - Now including Tabs and Main Actions */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0">
-        <div className="max-w-full mx-auto px-4 py-1">
-          <div className="flex items-center justify-between gap-4">
+        <div className="max-w-full mx-auto px-4 py-1 min-w-0">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between min-w-0">
             {/* Left: Logo & Title (Smaller) */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0">
 
               <img
                 src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
@@ -2948,8 +2948,9 @@ function VanDon() {
               </div>
             </div>
 
-            {/* Middle: Tabs (Moved here) */}
-            <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+            {/* Middle: Tabs — overflow-x-auto để màn hẹp vẫn thấy Đơn Nhật / Hà Nội */}
+            <div className="min-w-0 w-full xl:flex-1 xl:max-w-none flex justify-center xl:px-2">
+              <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200 overflow-x-auto max-w-full [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5">
               {[
                 { id: 'all', label: 'Đơn nhắc hộ', icon: '📋' },
                 { id: 'ca_nhan', label: 'Đơn cá nhân', icon: '👤' },
@@ -2965,7 +2966,8 @@ function VanDon() {
               }).map(tab => (
                 <button
                   key={tab.id}
-                  className={`px-4 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${bolActiveTab === tab.id
+                  type="button"
+                  className={`shrink-0 whitespace-nowrap px-2 sm:px-3 md:px-4 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${bolActiveTab === tab.id
                     ? 'bg-white text-[#F37021] shadow-sm'
                     : 'text-gray-600 hover:bg-white/50 hover:text-[#F37021]'
                     }`}
@@ -2982,10 +2984,11 @@ function VanDon() {
                   <span>{tab.label}</span>
                 </button>
               ))}
+              </div>
             </div>
 
             {/* Right: Status & Actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0 justify-end xl:justify-start">
               <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded-md border border-gray-100">
                 <span className={`h-1.5 w-1.5 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
                 <span className="text-[10px] uppercase font-bold text-gray-500">
