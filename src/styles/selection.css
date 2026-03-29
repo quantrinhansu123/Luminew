@@ -214,3 +214,19 @@ td:hover {
   outline-offset: -2px;
   z-index: 5;
 }
+
+/* Vận đơn: dòng có nội dung cột Cảnh báo trùng — nền đỏ nhấp nháy */
+@keyframes van-don-canh-bao-blink {
+  0%,
+  100% {
+    background-color: #fecaca !important;
+  }
+  50% {
+    background-color: #f87171 !important;
+  }
+}
+
+.van-don-canh-bao-blink {
+  animation: van-don-canh-bao-blink 1s ease-in-out infinite;
+  color: #7f1d1d !important;
+}

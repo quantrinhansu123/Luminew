@@ -18,7 +18,7 @@ export const ORDER_MGMT_COLUMNS = [
 // --- VIEW 2: BILL OF LADING COLUMNS (New) ---
 export const BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Trạng thái giao hàng NB", "Lý do",
-    "Trạng thái thu tiền", "Ghi chú của VĐ", "Ngày lên đơn", "Name*", "Phone*", "Add",
+    "Trạng thái thu tiền", "Ghi chú của VĐ", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add",
     "City", "State", "Khu vực", "Zipcode", "Mặt hàng", "Tên mặt hàng 1", "Số lượng mặt hàng 1",
     "Tên mặt hàng 2", "Số lượng mặt hàng 2", "Quà tặng", "Số lượng quà kèm", "Giá bán",
     "Loại tiền thanh toán", "Tổng tiền VNĐ", "Hình thức thanh toán", "Ghi chú",
@@ -27,12 +27,12 @@ export const BILL_LADING_COLUMNS = [
     "Nhân viên Sale", "Nhân viên MKT", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
     "Ngày up bill", "Tiền đã thanh toán",
-    "Nhật ký", "Cảnh báo trùng"
+    "Nhật ký"
 ];
 
 // --- DEFAULT COLUMNS (Bill of Lading) ---
 export const DEFAULT_BILL_LADING_COLUMNS = [
-    "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Name*", "Phone*", "Add", "City", "State",
+    "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add", "City", "State",
     "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
     "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT"
 ];
@@ -63,7 +63,6 @@ export const EDITABLE_COLS = [
     "Payment Bill", "Payment Image",
     // Cột CSKH
     "Trạng thái cskh",
-    "Cảnh báo trùng",
     /** JSONB orders.log — hiển thị dạng text trên lưới; lưu qua API merge mảng */
     "Nhật ký"
 ];

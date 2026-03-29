@@ -1,4 +1,5 @@
 import { COLUMN_MAPPING, DROPDOWN_OPTIONS, PRIMARY_KEY_COLUMN, SETTINGS_KEY } from '../types';
+import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { formatOrderLogJsonbForDisplay, mergeOrderLogJsonb, parseOrderLogJsonb } from '../utils/orderLogJsonb';
 import { supabase } from './supabaseClient';
@@ -77,6 +78,7 @@ const resolveAppKeyToDbKey = (appKey) => {
     if (appKey === 'Ngày đẩy đơn') return 'accounting_check_date';
     /** Cột Nhật ký: fallback nếu nhãn lệch Unicode / mapping */
     if (nfc === 'Nhật ký'.normalize('NFC') || nfc === 'log' || appKey === 'log') return 'log';
+    if (nfc === 'Cảnh báo trùng'.normalize('NFC') || appKey === 'canh_bao') return 'canh_bao';
     return null;
 };
 
@@ -345,6 +347,10 @@ const prepareValueForDB = (dbKey, value) => {
 
     if (['order_date', 'created_at', 'estimated_delivery_date', 'accounting_check_date', 'ngayupbill', 'ngaydonghang', 'tracking_check_date'].includes(dbKey)) {
         return parseDateForDB(value);
+    }
+    if (ORDERS_NUMERIC_DB_KEYS.has(dbKey)) {
+        if (typeof value === 'string' && value.trim() === '') return null;
+        return parseVietnameseMoneyToNumber(value);
     }
     return value;
 };
@@ -1215,7 +1221,7 @@ export const createFfmPushLogs = async (orderIdsOrEntries, carrier, pushedBy) =>
             const id = isObj ? String(item.orderId ?? item.order_code ?? '').trim() : String(item ?? '').trim();
             const ex = isObj ? item : {};
             const n = ex.total_amount_vnd;
-            const totalNum = n != null && n !== '' && Number.isFinite(Number(n)) ? Number(n) : null;
+            const totalNum = parseVietnameseMoneyToNumber(n);
             return {
                 order_code: id,
                 carrier,

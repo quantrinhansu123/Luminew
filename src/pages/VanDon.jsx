@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TableVirtuoso } from 'react-virtuoso';
@@ -10,6 +10,7 @@ import * as API from '../services/api';
 import * as rbacService from '../services/rbacService';
 import '../styles/selection.css';
 import { supabase } from '../supabase/config';
+import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 
 import {
@@ -34,6 +35,14 @@ const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
 /** Độ rộng cột checkbox (tab Hà Nội) — bù `left` cho cột sticky kế bên */
 const VAN_DON_CHECKBOX_COL_PX = 50;
+/** Cột orders.canh_bao — luôn hiển thị trên mọi tab vận đơn */
+const VAN_DON_CANH_BAO_COLUMN = 'Cảnh báo trùng';
+
+function rowHasVanDonCanhBao(row) {
+  if (!row) return false;
+  const v = row[VAN_DON_CANH_BAO_COLUMN] ?? row.canh_bao;
+  return !isVanDonSemanticEmpty(v);
+}
 
 /** Chuẩn hóa header cột (NFC) — tránh lệch ký tự Unicode so với EDITABLE_COLS. */
 function normalizeColHeader(col) {
@@ -48,6 +57,12 @@ function colInList(col, list) {
     if (normalizeColHeader(list[i]) === n) return true;
   }
   return false;
+}
+
+/** Cột được sửa trực tiếp trên lưới vận đơn (Mã Tracking chỉ đọc; Cảnh báo trùng không nằm trong EDITABLE_COLS — mọi tab). */
+function isVanDonUserEditableColumn(col) {
+  if (!colInList(col, EDITABLE_COLS)) return false;
+  return normalizeColHeader(col) !== normalizeColHeader('Mã Tracking');
 }
 
 /** TableVirtuoso chỉ bọc sẵn <tr> — không được trả về <tr> từ itemContent (tránh <tr> lồng <tr>, DOM hỏng). */
@@ -145,7 +160,7 @@ function vanDonDeliveryStaffIsSelf(row, sessionNorm) {
 }
 
 /** Khi ghép đơn chưa lưu vào kết quả API sau đổi bộ lọc — chỉ giữ dòng phù hợp tab (tránh lệch với Đơn Nhật/Hà Nội). */
-function rowMatchesBolTabForInject(row, tab) {
+function rowMatchesBolTabForInject(row, tab, isAdminVanDonTab = false) {
   if (tab === 'hanoi') {
     const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
     const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
@@ -159,6 +174,7 @@ function rowMatchesBolTabForInject(row, tab) {
       country.toLowerCase() === 'nhật bản' || country.toLowerCase() === 'cđ nhật bản';
   }
   if (tab === 'ca_nhan') {
+    if (isAdminVanDonTab) return true;
     const n = getVanDonSessionDisplayName().trim().toLowerCase();
     return vanDonDeliveryStaffIsSelf(row, n);
   }
@@ -189,7 +205,6 @@ function VanDon() {
   }, [pendingChanges]);
 
   const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
-  const [shippingReportsPanelOpen, setShippingReportsPanelOpen] = useState(true);
 
   const changeHistoryRef = useRef([]); // Stack for Ctrl-Z
   const historyIndexRef = useRef(-1);
@@ -512,7 +527,7 @@ function VanDon() {
       if (ids.has(orderId)) return;
       const snap = pendingRowSnapshotsRef.current.get(orderId);
       if (!snap) return;
-      if (!rowMatchesBolTabForInject(snap, bolActiveTab)) return;
+      if (!rowMatchesBolTabForInject(snap, bolActiveTab, isAdmin)) return;
       extra.push({ ...snap });
     });
     return extra.length ? [...rows, ...extra] : rows;
@@ -568,8 +583,8 @@ function VanDon() {
       dateTo: enableDateFilter ? dateTo : undefined,
       dateType: bolDateType,
       tab: bolActiveTab,
-      /** Tab Đơn cá nhân: lọc delivery_staff khớp tên đăng nhập (đưa vào queryKey). */
-      deliveryStaffSelfFilter: bolActiveTab === 'ca_nhan' ? sessionName : undefined,
+      /** Tab Đơn cá nhân: lọc delivery_staff theo tên đăng nhập; admin xem toàn bộ — không gửi filter. */
+      deliveryStaffSelfFilter: bolActiveTab === 'ca_nhan' && !isAdmin ? sessionName : undefined,
       page: currentPage,
       limit: rowsPerPage,
       useBackend: useBackendPagination,
@@ -578,7 +593,7 @@ function VanDon() {
     };
     console.log('🔍 [VanDon] Active Filters:', filters);
     return filters;
-  }, [bolActiveTab, omActiveTeam, filterValues, enableDateFilter, dateFrom, dateTo, bolDateType, currentPage, rowsPerPage, useBackendPagination, serverColumnFilters, serverTrackingFilter]);
+  }, [bolActiveTab, omActiveTeam, filterValues, enableDateFilter, dateFrom, dateTo, bolDateType, currentPage, rowsPerPage, useBackendPagination, serverColumnFilters, serverTrackingFilter, isAdmin]);
 
   const {
     data: queryResult,
@@ -632,9 +647,11 @@ function VanDon() {
       }
 
       const selfDeliveryName =
-        activeFilters.tab === 'ca_nhan' ? String(activeFilters.deliveryStaffSelfFilter || userName || '').trim() : '';
+        activeFilters.tab === 'ca_nhan' && !isAdmin
+          ? String(activeFilters.deliveryStaffSelfFilter || userName || '').trim()
+          : '';
 
-      if (activeFilters.tab === 'ca_nhan' && !selfDeliveryName) {
+      if (activeFilters.tab === 'ca_nhan' && !isAdmin && !selfDeliveryName) {
         return {
           data: [],
           total: 0,
@@ -726,35 +743,6 @@ function VanDon() {
     retry: 1,
     enabled: !permissionsLoading
   });
-
-  const {
-    data: shippingReportRows = [],
-    isLoading: shippingReportsLoading,
-    isError: shippingReportsIsError,
-    error: shippingReportsError,
-    refetch: refetchShippingReports
-  } = useQuery({
-    queryKey: ['shipping_reports', 'van-don'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('shipping_reports')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(150);
-      if (error) throw error;
-      return data || [];
-    },
-    staleTime: 30 * 1000,
-    retry: false,
-    enabled: !permissionsLoading && canView('ORDERS_LIST'),
-  });
-
-  const shippingReportsTableMissing =
-    shippingReportsIsError &&
-    shippingReportsError &&
-    (String(shippingReportsError.message || '').includes('shipping_reports') ||
-      String(shippingReportsError.message || '').includes('schema cache') ||
-      shippingReportsError.code === 'PGRST205');
 
   const allData = useMemo(() => {
     let rows = queryResult?.data || [];
@@ -1483,12 +1471,8 @@ function VanDon() {
       };
       const entries = orderIds.map((orderId) => {
         const r = getFilteredData.find((x) => x[PRIMARY_KEY_COLUMN] === orderId);
-        let total_amount_vnd = null;
         const rawTotal = r?.['Tổng tiền VNĐ'] ?? r?.total_amount_vnd;
-        if (rawTotal != null && rawTotal !== '') {
-          const n = Number(String(rawTotal).replace(/[^\d.-]/g, ''));
-          if (Number.isFinite(n)) total_amount_vnd = n;
-        }
+        const total_amount_vnd = parseVietnameseMoneyToNumber(rawTotal);
         return {
           orderId,
           product: emptyToNull(r?.['Mặt hàng'] ?? r?.product),
@@ -1638,6 +1622,15 @@ function VanDon() {
     const filtered = allColumns.filter(col => visibleColumns[col] === true);
     let cols = filtered;
 
+    if (allColumns.includes(VAN_DON_CANH_BAO_COLUMN) && !cols.includes(VAN_DON_CANH_BAO_COLUMN)) {
+      const ngayIdx = cols.findIndex((c) => normalizeColHeader(c) === normalizeColHeader('Ngày lên đơn'));
+      if (ngayIdx >= 0) {
+        cols = [...cols.slice(0, ngayIdx + 1), VAN_DON_CANH_BAO_COLUMN, ...cols.slice(ngayIdx + 1)];
+      } else {
+        cols = [VAN_DON_CANH_BAO_COLUMN, ...cols];
+      }
+    }
+
     // Trong tab "Hà Nội", đẩy cột "Đơn vị vận chuyển" lên đầu
     if (bolActiveTab === 'hanoi') {
       const carrierCol = 'Đơn vị vận chuyển';
@@ -1743,6 +1736,7 @@ function VanDon() {
     if (isCityCol) return 140;
     if (isProductCol) return 160;
     if (isProductNameCol) return 260;
+    if (cl === 'cảnh báo trùng') return 240;
     return 120;
   }, [mktColumnWidth]);
 
@@ -2031,101 +2025,6 @@ function VanDon() {
   };
 
 
-  // Hàm lưu vào bảng shipping_reports
-  const saveToShippingReports = useCallback(async (updatedRows, currentData = null) => {
-    if (!updatedRows || updatedRows.length === 0) return;
-
-    try {
-      const currentUsername = localStorage.getItem('username') || 'Unknown';
-      const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-
-      // Sử dụng currentData nếu có, nếu không thì dùng allData
-      const dataSource = currentData || allData;
-
-      // Lấy dữ liệu đầy đủ từ dataSource cho các rows đã update
-      const reportsToSave = [];
-
-      for (const updatedRow of updatedRows) {
-        const orderId = updatedRow[PRIMARY_KEY_COLUMN];
-        const fullRow = dataSource.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
-        if (!fullRow) continue;
-
-        // Lấy các giá trị từ row (ưu tiên giá trị mới từ updatedRow, fallback về fullRow)
-        const product = (updatedRow['Mặt hàng'] || fullRow['Mặt hàng'] || '').trim();
-        const market = (updatedRow['Khu vực'] || fullRow['Khu vực'] || '').trim();
-        const checkResult = (updatedRow['Kết quả Check'] || updatedRow['Kết quả check'] || fullRow['Kết quả Check'] || fullRow['Kết quả check'] || '').trim();
-        const status = (updatedRow['Trạng thái giao hàng NB'] || fullRow['Trạng thái giao hàng NB'] || '').trim();
-        const deliveryStatus = (updatedRow['Trạng thái giao hàng'] || fullRow['Trạng thái giao hàng'] || '').trim();
-        const billStatus = (updatedRow['Trạng thái thu tiền'] || fullRow['Trạng thái thu tiền'] || '').trim();
-
-        // Chỉ lưu nếu có ít nhất một trong các trường quan trọng
-        if (product || market || checkResult || status || deliveryStatus || billStatus) {
-          reportsToSave.push({
-            name: currentUsername,
-            date: currentDate,
-            product: product || null,
-            market: market || null,
-            check_result: checkResult || null,
-            status: status || null,
-            delivery_status: deliveryStatus || null,
-            bill_status: billStatus || null,
-            created_by: currentUsername,
-            updated_by: currentUsername
-          });
-        }
-      }
-
-      if (reportsToSave.length === 0) return;
-
-      // Kiểm tra và insert/update từng record
-      for (const report of reportsToSave) {
-        // Lấy tất cả records có cùng name và date
-        const { data: candidates, error: queryError } = await supabase
-          .from('shipping_reports')
-          .select('*')
-          .eq('name', report.name)
-          .eq('date', report.date);
-
-        if (queryError) {
-          console.error('Error querying shipping_reports:', queryError);
-          continue;
-        }
-
-        // So sánh các trường khác để tìm record trùng khớp
-        const existing = candidates?.find(candidate => {
-          const normalize = (val) => (val || '').trim();
-          return (
-            normalize(candidate.product) === normalize(report.product) &&
-            normalize(candidate.market) === normalize(report.market) &&
-            normalize(candidate.check_result) === normalize(report.check_result) &&
-            normalize(candidate.status) === normalize(report.status) &&
-            normalize(candidate.delivery_status) === normalize(report.delivery_status) &&
-            normalize(candidate.bill_status) === normalize(report.bill_status)
-          );
-        });
-
-        if (existing) {
-          // Update nếu đã tồn tại
-          await supabase
-            .from('shipping_reports')
-            .update({
-              ...report,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', existing.id);
-        } else {
-          // Insert nếu chưa tồn tại
-          await supabase
-            .from('shipping_reports')
-            .insert([report]);
-        }
-      }
-    } catch (error) {
-      console.error('Error saving to shipping_reports:', error);
-      // Không hiển thị lỗi cho user để không làm gián đoạn flow chính
-    }
-  }, [allData]);
-
   // --- Change Management (Shared) ---
   const processDbQueue = useCallback(async () => {
     if (isProcessingQueue.current) return;
@@ -2170,8 +2069,6 @@ function VanDon() {
             if (idx > -1) latestData[idx] = { ...latestData[idx], ...updatedRow };
           });
 
-          saveToShippingReports(rowsToUpdate, latestData).catch(console.error);
-
           // Refresh data from server
           queryClient.invalidateQueries(['vanDon']);
 
@@ -2198,7 +2095,7 @@ function VanDon() {
     } finally {
       isProcessingQueue.current = false;
     }
-  }, [addToast, removeToast, saveToShippingReports, deepCloneMapOfMaps, upsertPendingRowSnapshot, allData, queryClient, savePendingToLocalStorage]);
+  }, [addToast, removeToast, deepCloneMapOfMaps, upsertPendingRowSnapshot, allData, queryClient, savePendingToLocalStorage]);
 
   // --- New Stack-Based History ---
   const pushChange = useCallback((changesArray) => {
@@ -2312,10 +2209,12 @@ function VanDon() {
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     if (isReadonlyEditTab) return;
+    const keyLc = String(colKey || '').trim().toLowerCase();
+    if (keyLc === 'tracking_code' || normalizeColHeader(colKey) === normalizeColHeader('Mã Tracking')) return;
+    if (keyLc === 'canh_bao' || normalizeColHeader(colKey) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN)) return;
     // Tab "Đơn nhắc hộ": một số cột chỉ xem
     if (bolActiveTab === 'all') {
-      const k = String(colKey || '').trim().toLowerCase();
-      if (k === 'đơn vị vận chuyển' || k === 'mã tracking') return;
+      if (keyLc === 'đơn vị vận chuyển' || keyLc === 'shipping_unit') return;
     }
     const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
@@ -2722,7 +2621,7 @@ function VanDon() {
           for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
             if (c >= currentColumns.length) continue;
             const colName = currentColumns[c];
-            if (!colInList(colName, EDITABLE_COLS)) continue;
+            if (!isVanDonUserEditableColumn(colName)) continue;
 
             const dataKey = COLUMN_MAPPING[colName] || colName;
             const baseValue = rowData[dataKey] ?? '';
@@ -2749,7 +2648,7 @@ function VanDon() {
             if (targetColIdx >= currentColumns.length || val === '') return;
 
             const colName = currentColumns[targetColIdx];
-            if (!colInList(colName, EDITABLE_COLS)) return; // Skip read-only
+            if (!isVanDonUserEditableColumn(colName)) return; // Skip read-only
 
             const dataKey = COLUMN_MAPPING[colName] || colName;
             const baseValue = rowData[dataKey] ?? '';
@@ -2822,7 +2721,7 @@ function VanDon() {
     const isLongTextEditable =
       viewMode === 'BILL_OF_LADING' &&
       colInList(col, LONG_TEXT_COLS) &&
-      colInList(col, EDITABLE_COLS) &&
+      isVanDonUserEditableColumn(col) &&
       bolActiveTab !== 'readonly_all';
 
     // Default cell sizing
@@ -2863,7 +2762,7 @@ function VanDon() {
     }
 
     // Editable
-    const isEditable = colInList(col, EDITABLE_COLS);
+    const isEditable = isVanDonUserEditableColumn(col);
     if (isEditable) {
       const orderId = row[PRIMARY_KEY_COLUMN];
       if (pendingChanges.get(orderId)?.has(COLUMN_MAPPING[col] || col)) {
@@ -2879,14 +2778,25 @@ function VanDon() {
     }
 
     // Selection - Highlight cell nếu nằm trong vùng selection
-    if (selectionBounds && rIdx >= selectionBounds.minRow && rIdx <= selectionBounds.maxRow &&
-      cIdx >= selectionBounds.minCol && cIdx <= selectionBounds.maxCol) {
+    const inSelection =
+      selectionBounds &&
+      rIdx >= selectionBounds.minRow &&
+      rIdx <= selectionBounds.maxRow &&
+      cIdx >= selectionBounds.minCol &&
+      cIdx <= selectionBounds.maxCol;
+    if (inSelection) {
       classes += "!bg-[#e3f2fd] ";
       // Thêm border cho các cạnh của vùng selection
       if (rIdx === selectionBounds.minRow) classes += "selection-border-top ";
       if (rIdx === selectionBounds.maxRow) classes += "selection-border-bottom ";
       if (cIdx === selectionBounds.minCol) classes += "selection-border-left ";
       if (cIdx === selectionBounds.maxCol) classes += "selection-border-right ";
+    } else if (rowHasVanDonCanhBao(row)) {
+      const oid = row[PRIMARY_KEY_COLUMN];
+      const pKey = COLUMN_MAPPING[col] || col;
+      if (!pendingChanges.get(oid)?.has(pKey)) {
+        classes += "van-don-canh-bao-blink ";
+      }
     }
 
     // Cursor style - hiển thị cursor cell khi hover (trừ khi đang trong input/select)
@@ -3048,6 +2958,7 @@ function VanDon() {
     const colLower = String(col || '').trim().toLowerCase();
     const isCarrierCol = colLower === 'đơn vị vận chuyển';
     const isTrackingCol = colLower === 'mã tracking';
+    const isCanhBaoCol = normalizeColHeader(col) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN);
     const isReadonlyOrderDataTab = bolActiveTab === 'all';
 
     const mergedCellStyle = { ...(cellStyle || {}) };
@@ -3064,8 +2975,14 @@ function VanDon() {
       >
         {col === 'STT' ? (
           row.rowIndex || (currentPage - 1) * effectiveRowsPerPage + rIdx + 1
-        ) : isReadonlyEditTab || (isReadonlyOrderDataTab && (isCarrierCol || isTrackingCol)) ? (
-          displayVal
+        ) : isReadonlyEditTab || isTrackingCol || isCanhBaoCol || (isReadonlyOrderDataTab && isCarrierCol) ? (
+          isCanhBaoCol ? (
+            <span className="whitespace-pre-wrap break-words align-top text-left inline-block max-w-full">
+              {displayVal}
+            </span>
+          ) : (
+            displayVal
+          )
         ) : DROPDOWN_OPTIONS[col] ? (
           <select
             className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
@@ -3093,7 +3010,7 @@ function VanDon() {
                 </option>
               ))}
           </select>
-        ) : colInList(col, EDITABLE_COLS) && colInList(col, LONG_TEXT_COLS) ? (
+        ) : isVanDonUserEditableColumn(col) && colInList(col, LONG_TEXT_COLS) ? (
           <textarea
             key={`${orderId}-${col}-${String(displayVal)}`}
             data-van-cell-sync="1"
@@ -3131,7 +3048,7 @@ function VanDon() {
             }}
             className="block w-full min-h-[2.5rem] outline-none bg-transparent border-none p-0 text-sm resize-y leading-snug"
           />
-        ) : colInList(col, EDITABLE_COLS) ? (
+        ) : isVanDonUserEditableColumn(col) ? (
           <input
             key={`${orderId}-${col}-${String(displayVal)}`}
             type="text"
@@ -3685,15 +3602,20 @@ function VanDon() {
                     itemContent={(rIdx, row) => {
                       const orderId = row[PRIMARY_KEY_COLUMN];
                       const isSelected = selectedRows.has(orderId);
+                      const hasCanhBao = rowHasVanDonCanhBao(row);
                       return (
                         <>
                           {bolActiveTab === 'hanoi' && (
                             <td
-                              className="py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300]"
+                              className={`py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300] ${hasCanhBao && !isSelected ? 'van-don-canh-bao-blink' : ''}`}
                               style={{
                                 width: VAN_DON_CHECKBOX_COL_PX,
                                 minWidth: VAN_DON_CHECKBOX_COL_PX,
-                                backgroundColor: isSelected ? '#dbeafe' : '#f9fafb'
+                                ...(isSelected
+                                  ? { backgroundColor: '#dbeafe' }
+                                  : hasCanhBao
+                                    ? {}
+                                    : { backgroundColor: '#f9fafb' })
                               }}
                             >
                               <div className="flex items-center justify-center">
@@ -3728,115 +3650,6 @@ function VanDon() {
                       );
                     }}
                   />
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Lịch sử shipping_reports (Supabase) */}
-          <div className="mt-2 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-0 shrink-0">
-            <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-gray-200">
-              <button
-                type="button"
-                onClick={() => setShippingReportsPanelOpen((o) => !o)}
-                className="flex-1 flex items-center gap-2 text-left min-w-0 hover:opacity-80"
-              >
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                  Lịch sử báo cáo vận đơn <span className="font-mono text-[10px] text-slate-500 normal-case">(shipping_reports)</span>
-                </span>
-                {shippingReportsPanelOpen ? <ChevronUp className="w-4 h-4 shrink-0 text-slate-500" /> : <ChevronDown className="w-4 h-4 shrink-0 text-slate-500" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => void refetchShippingReports()}
-                className="text-[11px] font-semibold text-[#0052cc] hover:underline px-2 py-1 rounded border border-transparent hover:border-blue-200 shrink-0"
-              >
-                Tải lại
-              </button>
-            </div>
-            {shippingReportsPanelOpen && (
-              <div className="max-h-[220px] overflow-auto">
-                {shippingReportsLoading ? (
-                  <div className="p-4 text-center text-sm text-gray-500">Đang tải lịch sử…</div>
-                ) : shippingReportsTableMissing ? (
-                  <div className="p-4 text-sm text-amber-800 bg-amber-50">
-                    Chưa có bảng <code className="font-mono text-xs">shipping_reports</code> trên Supabase. Chạy migration{' '}
-                    <code className="font-mono text-xs">supabase/migrations/shipping_reports.sql</code> rồi tải lại trang.
-                  </div>
-                ) : shippingReportsIsError ? (
-                  <div className="p-4 text-sm text-red-700">
-                    Không tải được lịch sử: {String(shippingReportsError?.message || 'Lỗi')}
-                  </div>
-                ) : shippingReportRows.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-gray-500">
-                    Chưa có dòng nào. Thêm bản ghi vào bảng <span className="font-mono text-xs">shipping_reports</span> (SQL hoặc app) để hiển thị tại đây.
-                  </div>
-                ) : (
-                  <table className="min-w-full text-xs text-left border-collapse">
-                    <thead className="bg-gray-100 text-gray-600 sticky top-0 z-[1]">
-                      <tr>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Thời điểm</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Mã đơn</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Ngày</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">NV</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">SP</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">TT</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Giao hàng</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Check</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">TT toán</th>
-                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Ghi chú</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {shippingReportRows.map((r) => {
-                        const ts = r.created_at ? new Date(r.created_at) : null;
-                        const tsStr =
-                          ts && Number.isFinite(ts.getTime())
-                            ? ts.toLocaleString('vi-VN', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })
-                            : '—';
-                        const ngayStr =
-                          r.ngay != null && r.ngay !== ''
-                            ? String(r.ngay).slice(0, 10)
-                            : '—';
-                        return (
-                          <tr key={r.id} className="hover:bg-gray-50">
-                            <td className="px-2 py-1 whitespace-nowrap text-gray-800">{tsStr}</td>
-                            <td className="px-2 py-1 font-mono text-[11px] max-w-[100px] truncate" title={r.order_code || ''}>
-                              {r.order_code || '—'}
-                            </td>
-                            <td className="px-2 py-1 whitespace-nowrap">{ngayStr}</td>
-                            <td className="px-2 py-1 max-w-[120px] truncate" title={r.nhan_vien || ''}>
-                              {r.nhan_vien || '—'}
-                            </td>
-                            <td className="px-2 py-1 max-w-[100px] truncate" title={r.san_pham || ''}>
-                              {r.san_pham || '—'}
-                            </td>
-                            <td className="px-2 py-1 max-w-[90px] truncate" title={r.thi_truong || ''}>
-                              {r.thi_truong || '—'}
-                            </td>
-                            <td className="px-2 py-1 max-w-[110px] truncate" title={r.trang_thai_giao_hang || ''}>
-                              {r.trang_thai_giao_hang || '—'}
-                            </td>
-                            <td className="px-2 py-1 max-w-[80px] truncate" title={r.ket_qua_check || ''}>
-                              {r.ket_qua_check || '—'}
-                            </td>
-                            <td className="px-2 py-1 max-w-[100px] truncate" title={r.trang_thai_thanh_toan || ''}>
-                              {r.trang_thai_thanh_toan || '—'}
-                            </td>
-                            <td className="px-2 py-1 max-w-[140px] truncate text-gray-600" title={r.ghi_chu || ''}>
-                              {r.ghi_chu || '—'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
                 )}
               </div>
             )}
