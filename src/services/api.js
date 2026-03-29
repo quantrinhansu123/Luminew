@@ -315,6 +315,18 @@ export const fetchOrders = async () => {
     }
 };
 
+/** Cột bảng `orders` kiểu numeric — giá trị từ lưới có thể là "4.725.000". */
+const ORDERS_NUMERIC_DB_KEYS = new Set([
+    'total_amount_vnd',
+    'sale_price',
+    'goods_amount',
+    'warehouse_fee',
+    'reconciled_amount',
+    'reconciled_vnd',
+    'quantity_1',
+    'quantity_2',
+    'gift_quantity',
+]);
 
 const parseDateForDB = (val) => {
     if (!val || typeof val !== 'string') return val;

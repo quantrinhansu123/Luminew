@@ -1,4 +1,4 @@
-import { Clock, History, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
+import { Calculator, Clock, History, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -11,6 +11,8 @@ import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '../utils/dateParsing';
+import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
+import { totalAmountVndFromLenDonFormula } from '../utils/totalAmountVndFromLenDon';
 import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
 
 /**
@@ -118,6 +120,7 @@ function DanhSachDon() {
   const [isFixingShift, setIsFixingShift] = useState(false); // Chỉnh ca: Giữa ca → Giữa ca,Hết ca
   const [isFillingPaymentCurrency, setIsFillingPaymentCurrency] = useState(false); // Tự điền Loại tiền theo Khu vực
   const [isClearingShippingInfo, setIsClearingShippingInfo] = useState(false); // Xóa NV vận đơn theo bộ lọc
+  const [isRecalculatingZeroTotalVnd, setIsRecalculatingZeroTotalVnd] = useState(false); // Tính lại Tổng tiền VNĐ (chỉ ô = 0)
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -293,6 +296,9 @@ function DanhSachDon() {
     "Loại tiền thanh toán": item.payment_currency || item.paymentCurrency || '',
     "Tên mặt hàng 1": item.product_name_1 || item.product,
     "Tổng tiền VNĐ": item.total_amount_vnd,
+    /** Dùng nội bộ: công thức lên đơn = sale_price * exchange_rate (không hiện trong picker nếu không thêm vào cột) */
+    _sale_price: item.sale_price,
+    _exchange_rate: item.exchange_rate,
     "Hình thức thanh toán": item.payment_method_text || item.payment_method, // payment_method_text is new
     "Mã Tracking": item.tracking_code,
     "Nhân viên Marketing": item.marketing_staff || item.marketingStaff || '',
@@ -584,6 +590,91 @@ function DanhSachDon() {
       toast.error(`❌ Lỗi tự điền Loại tiền thanh toán: ${err?.message || String(err)}`);
     } finally {
       setIsFillingPaymentCurrency(false);
+    }
+  };
+
+  /** Tổng tiền VNĐ = 0 hoặc trống → tính lại theo NhapDonMoi: sale_price × exchange_rate. Không đụng dòng đã có tổng ≠ 0. */
+  const handleRecalculateZeroTotalVnd = async () => {
+    const rows = filteredData || [];
+    if (rows.length === 0) {
+      toast.info('Không có đơn nào trong bộ lọc hiện tại.', { autoClose: 1500, hideProgressBar: true });
+      return;
+    }
+
+    const rowsToUpdate = rows
+      .map((r) => {
+        const orderCode = String(r?.['Mã đơn hàng'] ?? '').trim();
+        if (!orderCode) return null;
+
+        const rawTotal = r?.['Tổng tiền VNĐ'];
+        const cur = parseVietnameseMoneyToNumber(
+          rawTotal === '' || rawTotal == null ? null : rawTotal
+        );
+        const isZeroLike = cur === null || cur === 0;
+        if (!isZeroLike) return null;
+
+        const newTotal = totalAmountVndFromLenDonFormula(r._sale_price, r._exchange_rate);
+        if (!Number.isFinite(newTotal) || newTotal === 0) return null;
+
+        return { orderCode, newTotal };
+      })
+      .filter(Boolean);
+
+    if (rowsToUpdate.length === 0) {
+      toast.info(
+        'Không có đơn thỏa điều kiện: Tổng tiền VNĐ = 0 (hoặc trống) và có Giá bán × Tỷ giá > 0 trên hệ thống.',
+        { autoClose: 4000, hideProgressBar: true }
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        'Tính lại "Tổng tiền VNĐ" theo công thức lên đơn: Giá bán (ngoại tệ) × Tỷ giá (sale_price × exchange_rate).\n\n' +
+          'Chỉ cập nhật các đơn đang hiển thị có Tổng tiền VNĐ = 0 hoặc trống.\n' +
+          'Đơn đã có tổng tiền khác 0 sẽ không bị thay đổi.\n\n' +
+          `Số đơn sẽ cập nhật: ${rowsToUpdate.length}`
+      )
+    ) {
+      return;
+    }
+
+    setIsRecalculatingZeroTotalVnd(true);
+    try {
+      let success = 0;
+      const chunkSize = 10;
+      for (let i = 0; i < rowsToUpdate.length; i += chunkSize) {
+        const chunk = rowsToUpdate.slice(i, i + chunkSize);
+        await Promise.all(
+          chunk.map(async (u) => {
+            const { error } = await supabase
+              .from('orders')
+              .update({ total_amount_vnd: u.newTotal })
+              .eq('order_code', u.orderCode);
+            if (!error) success++;
+          })
+        );
+      }
+
+      const byCode = new Map(rowsToUpdate.map((u) => [u.orderCode, u.newTotal]));
+      setAllData((prev) =>
+        (prev || []).map((r) => {
+          const code = String(r?.['Mã đơn hàng'] ?? '').trim();
+          const nt = byCode.get(code);
+          if (nt === undefined) return r;
+          return { ...r, 'Tổng tiền VNĐ': nt };
+        })
+      );
+
+      toast.success(`Đã tính lại Tổng tiền VNĐ: ${success}/${rowsToUpdate.length} đơn`, {
+        autoClose: 2500,
+        hideProgressBar: true,
+      });
+    } catch (err) {
+      console.error('Recalculate total_amount_vnd error:', err);
+      toast.error(`Lỗi tính lại Tổng tiền VNĐ: ${err?.message || String(err)}`);
+    } finally {
+      setIsRecalculatingZeroTotalVnd(false);
     }
   };
 
@@ -1983,30 +2074,74 @@ function DanhSachDon() {
                 </span>
               </div>
               {canEdit(permissionCode) && (
-                <button
-                  onClick={handleAutoFillPaymentCurrencyFromArea}
-                  disabled={syncing || loading || deleting || isFixingTeams || isFixingShift || isFillingPaymentCurrency}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                  title='Tự điền "Loại tiền thanh toán" theo "Khu vực" (chỉ dòng đang trống)'
-                >
-                  {isFillingPaymentCurrency ? (
-                    <>
-                      <span className="animate-spin">⏳</span>
-                      Đang điền...
-                    </>
-                  ) : (
-                    <>
-                      <Settings className="w-4 h-4" />
-                      Điền loại tiền
-                    </>
-                  )}
-                </button>
+                <>
+                  <button
+                    onClick={handleAutoFillPaymentCurrencyFromArea}
+                    disabled={
+                      syncing ||
+                      loading ||
+                      deleting ||
+                      isFixingTeams ||
+                      isFixingShift ||
+                      isFillingPaymentCurrency ||
+                      isRecalculatingZeroTotalVnd
+                    }
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                    title='Tự điền "Loại tiền thanh toán" theo "Khu vực" (chỉ dòng đang trống)'
+                  >
+                    {isFillingPaymentCurrency ? (
+                      <>
+                        <span className="animate-spin">⏳</span>
+                        Đang điền...
+                      </>
+                    ) : (
+                      <>
+                        <Settings className="w-4 h-4" />
+                        Điền loại tiền
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleRecalculateZeroTotalVnd}
+                    disabled={
+                      syncing ||
+                      loading ||
+                      deleting ||
+                      isFixingTeams ||
+                      isFixingShift ||
+                      isFillingPaymentCurrency ||
+                      isRecalculatingZeroTotalVnd
+                    }
+                    className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                    title="Tính lại Tổng tiền VNĐ = Giá bán × Tỷ giá (như lên đơn). Chỉ các dòng đang = 0 hoặc trống trong bộ lọc hiện tại."
+                  >
+                    {isRecalculatingZeroTotalVnd ? (
+                      <>
+                        <span className="animate-spin">⏳</span>
+                        Đang tính...
+                      </>
+                    ) : (
+                      <>
+                        <Calculator className="w-4 h-4" />
+                        Tính lại tổng tiền (ô 0)
+                      </>
+                    )}
+                  </button>
+                </>
               )}
               {isAdmin && (
                 <>
                   <button
                     onClick={handleFixMissingTeams}
-                    disabled={syncing || loading || deleting || isFixingTeams || isFixingShift || isFillingPaymentCurrency}
+                    disabled={
+                      syncing ||
+                      loading ||
+                      deleting ||
+                      isFixingTeams ||
+                      isFixingShift ||
+                      isFillingPaymentCurrency ||
+                      isRecalculatingZeroTotalVnd
+                    }
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
                     {isFixingTeams ? (
@@ -2023,7 +2158,15 @@ function DanhSachDon() {
                   </button>
                   <button
                     onClick={handleFixGiuaCaShift}
-                    disabled={syncing || loading || deleting || isFixingTeams || isFixingShift || isFillingPaymentCurrency}
+                    disabled={
+                      syncing ||
+                      loading ||
+                      deleting ||
+                      isFixingTeams ||
+                      isFixingShift ||
+                      isFillingPaymentCurrency ||
+                      isRecalculatingZeroTotalVnd
+                    }
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
                     {isFixingShift ? (
@@ -2549,7 +2692,16 @@ function DanhSachDon() {
             {canEdit(permissionCode) && (
               <button
                 onClick={handleClearShippingInfoByFilters}
-                disabled={syncing || loading || deleting || isFixingTeams || isFixingShift || isFillingPaymentCurrency || isClearingShippingInfo}
+                disabled={
+                  syncing ||
+                  loading ||
+                  deleting ||
+                  isFixingTeams ||
+                  isFixingShift ||
+                  isFillingPaymentCurrency ||
+                  isRecalculatingZeroTotalVnd ||
+                  isClearingShippingInfo
+                }
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
                 title='Xóa cột "delivery_staff" cho các đơn trong bộ lọc hiện tại'
               >

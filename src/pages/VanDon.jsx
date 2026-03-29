@@ -65,6 +65,24 @@ function isVanDonUserEditableColumn(col) {
   return normalizeColHeader(col) !== normalizeColHeader('Mã Tracking');
 }
 
+/** Cột tiền/số trên lưới — so sánh theo giá trị số (4.725.000 ≡ 4725000), tránh ghi DB khi chỉ khác format. */
+function isVanDonMoneyGridAppKey(colKey) {
+  const n = normalizeColHeader(colKey);
+  return (
+    n === normalizeColHeader('Tổng tiền VNĐ') ||
+    n === normalizeColHeader('Tiền đã thanh toán') ||
+    n === normalizeColHeader('Giá bán')
+  );
+}
+
+function vanDonMoneyCellValuesEqual(a, b) {
+  const pa = parseVietnameseMoneyToNumber(a === '' || a == null ? null : a);
+  const pb = parseVietnameseMoneyToNumber(b === '' || b == null ? null : b);
+  if (pa === null && pb === null) return true;
+  if (pa === null || pb === null) return false;
+  return pa === pb;
+}
+
 /** TableVirtuoso chỉ bọc sẵn <tr> — không được trả về <tr> từ itemContent (tránh <tr> lồng <tr>, DOM hỏng). */
 function VanDonVirtuosoTable({ style, ...props }) {
   return (
@@ -2223,7 +2241,9 @@ function VanDon() {
     const pendingVal = pendingChanges.get(orderId)?.get(colKey);
     const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
-    if (String(newValue) === String(stepOriginalValue)) return; // Không có thay đổi gì thực sự
+    if (isVanDonMoneyGridAppKey(colKey)) {
+      if (vanDonMoneyCellValuesEqual(newValue, stepOriginalValue)) return;
+    } else if (String(newValue) === String(stepOriginalValue)) return;
 
     pushChange([{ orderId, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
   }, [allData, pendingChanges, pushChange, isReadonlyEditTab, bolActiveTab]);
@@ -2629,7 +2649,10 @@ function VanDon() {
             const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
             const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
-            if (String(val) !== String(stepOriginalValue)) {
+            const moneyChanged =
+              isVanDonMoneyGridAppKey(dataKey) && !vanDonMoneyCellValuesEqual(val, stepOriginalValue);
+            const textChanged = !isVanDonMoneyGridAppKey(dataKey) && String(val) !== String(stepOriginalValue);
+            if (moneyChanged || textChanged) {
               historyChanges.push({ orderId, colKey: dataKey, originalValue: String(stepOriginalValue), newValue: String(val) });
             }
           }
@@ -2656,7 +2679,10 @@ function VanDon() {
             const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
             const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
-            if (String(val) !== String(stepOriginalValue)) {
+            const moneyChangedP =
+              isVanDonMoneyGridAppKey(dataKey) && !vanDonMoneyCellValuesEqual(val, stepOriginalValue);
+            const textChangedP = !isVanDonMoneyGridAppKey(dataKey) && String(val) !== String(stepOriginalValue);
+            if (moneyChangedP || textChangedP) {
               historyChanges.push({ orderId, colKey: dataKey, originalValue: String(stepOriginalValue), newValue: String(val) });
             }
           });
@@ -2950,9 +2976,10 @@ function VanDon() {
     const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col)
       ? formatDate(val)
       : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
-        ? val !== '' && val !== null
-          ? Number(String(val).replace(/[^\d.-]/g, '')).toLocaleString('vi-VN')
-          : ''
+        ? (() => {
+            const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
+            return n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';
+          })()
         : val;
 
     const colLower = String(col || '').trim().toLowerCase();
@@ -3058,7 +3085,11 @@ function VanDon() {
             defaultValue={String(displayVal)}
             onBlur={(e) => {
               const newValue = e.target.value;
-              if (newValue !== String(displayVal)) {
+              if (isVanDonMoneyGridAppKey(key)) {
+                if (!vanDonMoneyCellValuesEqual(newValue, val)) {
+                  handleCellChange(orderId, key, newValue);
+                }
+              } else if (newValue !== String(displayVal)) {
                 handleCellChange(orderId, key, newValue);
               }
             }}
@@ -3066,7 +3097,11 @@ function VanDon() {
               if (e.key === 'Enter') {
                 e.preventDefault();
                 const newValue = e.target.value;
-                if (newValue !== String(displayVal)) {
+                if (isVanDonMoneyGridAppKey(key)) {
+                  if (!vanDonMoneyCellValuesEqual(newValue, val)) {
+                    handleCellChange(orderId, key, newValue);
+                  }
+                } else if (newValue !== String(displayVal)) {
                   handleCellChange(orderId, key, newValue);
                 }
                 e.target.blur();
