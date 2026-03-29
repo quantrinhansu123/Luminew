@@ -68,7 +68,15 @@ export const EDITABLE_COLS = [
 ];
 
 // Columns that expand with Ctrl+Enter
-export const LONG_TEXT_COLS = ["Lý do", "Ghi chú của VĐ", "Ghi chú", "GHI CHÚ", "Nhật ký", "Cảnh báo trùng"];
+export const LONG_TEXT_COLS = [
+    "Lý do",
+    "Ghi chú của VĐ",
+    "Ghi chú vận đơn",
+    "Ghi chú",
+    "GHI CHÚ",
+    "Nhật ký",
+    "Cảnh báo trùng"
+];
 
 export const COLUMN_MAPPING = {
     "Ghi chú vận đơn": "Ghi chú của VĐ",

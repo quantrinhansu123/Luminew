@@ -59,6 +59,45 @@ function colInList(col, list) {
   return false;
 }
 
+/** Giá trị ô lưới vận đơn: ưu tiên khóa đã map + fallback so khớp NFC mọi key trên row (tránh lệch Unicode / tên cột). */
+function getVanDonGridCellValue(row, colHeader) {
+  if (!row) return '';
+  const logical = COLUMN_MAPPING[colHeader] || colHeader;
+  const tryKeys = [logical, colHeader, String(logical).replace(/ /g, '_'), String(colHeader).replace(/ /g, '_')];
+  for (let i = 0; i < tryKeys.length; i++) {
+    const k = tryKeys[i];
+    if (k == null || k === '') continue;
+    if (!Object.prototype.hasOwnProperty.call(row, k)) continue;
+    const v = row[k];
+    if (v !== undefined && v !== null) return v;
+  }
+  const wantLog = normalizeColHeader(logical);
+  const wantHdr = normalizeColHeader(colHeader);
+  const keys = Object.keys(row);
+  for (let i = 0; i < keys.length; i++) {
+    const nk = normalizeColHeader(keys[i]);
+    if (nk === wantLog || nk === wantHdr) return row[keys[i]];
+  }
+  return '';
+}
+
+/**
+ * Mã đơn chuẩn cho một dòng — luôn string đã trim.
+ * PendingChanges dùng Map theo mã đơn: nếu nhiều dòng cùng `undefined`/'' hoặc number vs "123" không khớp,
+ * một lần sửa có thể áp nhầm lên cả chục dòng.
+ */
+function getVanDonRowOrderId(row) {
+  if (!row) return '';
+  const raw = row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? row.orderCode;
+  if (raw == null || raw === '') return '';
+  return String(raw).trim();
+}
+
+function normalizeVanDonOrderIdKey(id) {
+  if (id == null) return '';
+  return String(id).trim();
+}
+
 /** Cột được sửa trực tiếp trên lưới vận đơn (Mã Tracking chỉ đọc; Cảnh báo trùng không nằm trong EDITABLE_COLS — mọi tab). */
 function isVanDonUserEditableColumn(col) {
   if (!colInList(col, EDITABLE_COLS)) return false;
@@ -403,19 +442,21 @@ function VanDon() {
         const startupQueue = [];
 
         for (const id in parsed) {
+          const oid = normalizeVanDonOrderIdKey(id);
+          if (!oid) continue;
           const innerMap = new Map();
           for (const key in parsed[id]) {
             innerMap.set(key, parsed[id][key]);
 
             // Push into DB Queue directly from localStorage
             startupQueue.push({
-              orderId: id,
+              orderId: oid,
               colKey: key,
               originalValue: parsed[id][key].originalValue,
               newValue: parsed[id][key].newValue
             });
           }
-          map.set(id, innerMap);
+          map.set(oid, innerMap);
         }
 
         // Populate UI Map
@@ -435,7 +476,8 @@ function VanDon() {
       try {
         const parsed = JSON.parse(storedSnaps);
         Object.entries(parsed).forEach(([id, row]) => {
-          if (row && typeof row === 'object') pendingRowSnapshotsRef.current.set(id, row);
+          const oid = normalizeVanDonOrderIdKey(id);
+          if (oid && row && typeof row === 'object') pendingRowSnapshotsRef.current.set(oid, row);
         });
       } catch (e) {
         console.error('Error loading pending row snapshots', e);
@@ -541,10 +583,11 @@ function VanDon() {
   const mergePendingRowsIntoFetchedData = (rows) => {
     const pending = pendingChangesRef.current;
     if (!pending || pending.size === 0) return rows;
-    const ids = new Set(rows.map(r => r[PRIMARY_KEY_COLUMN]));
+    const ids = new Set(rows.map((r) => getVanDonRowOrderId(r)).filter(Boolean));
     const extra = [];
-    pending.forEach((_, orderId) => {
-      if (ids.has(orderId)) return;
+    pending.forEach((_, orderIdRaw) => {
+      const orderId = normalizeVanDonOrderIdKey(orderIdRaw);
+      if (!orderId || ids.has(orderId)) return;
       const snap = pendingRowSnapshotsRef.current.get(orderId);
       if (!snap) return;
       if (!rowMatchesBolTabForInject(snap, bolActiveTab, isAdmin)) return;
@@ -787,7 +830,7 @@ function VanDon() {
 
     // 1. Apply changes (Pending > Original)
     data = data.map(row => {
-      const orderId = row[PRIMARY_KEY_COLUMN];
+      const orderId = getVanDonRowOrderId(row);
       let rowCopy = { ...row };
 
       // Computed columns (giữ giá trị map từ DB nếu không có cột “lần 1”)
@@ -796,7 +839,7 @@ function VanDon() {
         row["Ngày Kế toán đối soát với FFM lần 1"] ?? row["Ngày có mã tracking"]
       );
 
-      const pending = pendingChanges.get(orderId);
+      const pending = orderId ? pendingChanges.get(orderId) : undefined;
       if (pending) {
         pending.forEach((info, key) => { rowCopy[key] = info.newValue; });
       }
@@ -1238,7 +1281,8 @@ function VanDon() {
   useEffect(() => {
     if (queryResult?.data) {
       queryResult.data.forEach((row) => {
-        const orderId = row[PRIMARY_KEY_COLUMN];
+        const orderId = getVanDonRowOrderId(row);
+        if (!orderId) return;
         if (pendingChangesRef.current.has(orderId) && !pendingRowSnapshotsRef.current.has(orderId)) {
           const pmap = pendingChangesRef.current.get(orderId);
           const copy = { ...row };
@@ -1482,8 +1526,8 @@ function VanDon() {
       return;
     }
     const rows = allDataRows || [];
-    let base = rows.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
-    if (!base) base = pendingRowSnapshotsRef.current.get(orderId);
+    let base = rows.find((r) => getVanDonRowOrderId(r) === normalizeVanDonOrderIdKey(orderId));
+    if (!base) base = pendingRowSnapshotsRef.current.get(normalizeVanDonOrderIdKey(orderId));
     if (!base) return;
     const row = { ...base };
     pmap.forEach((info, key) => {
@@ -1606,12 +1650,14 @@ function VanDon() {
 
   // Toggle row selection
   const toggleRowSelection = (orderId) => {
+    const oid = normalizeVanDonOrderIdKey(orderId);
+    if (!oid) return;
     setSelectedRows(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(orderId)) {
-        newSet.delete(orderId);
+      if (newSet.has(oid)) {
+        newSet.delete(oid);
       } else {
-        newSet.add(orderId);
+        newSet.add(oid);
       }
       return newSet;
     });
@@ -1619,7 +1665,7 @@ function VanDon() {
 
   // Select all rows on current page
   const selectAllRows = () => {
-    const allIds = new Set(paginatedData.map(row => row[PRIMARY_KEY_COLUMN]));
+    const allIds = new Set(paginatedData.map((row) => getVanDonRowOrderId(row)).filter(Boolean));
     setSelectedRows(allIds);
   };
 
@@ -2075,7 +2121,10 @@ function VanDon() {
     try {
       while (dbQueueRef.current.length > 0) {
         // Take everything currently in queue as a single batch
-        const batchToProcess = dbQueueRef.current.splice(0, dbQueueRef.current.length);
+        const batchToProcess = dbQueueRef.current
+          .splice(0, dbQueueRef.current.length)
+          .map((b) => ({ ...b, orderId: normalizeVanDonOrderIdKey(b.orderId) }))
+          .filter((b) => b.orderId);
 
         const rowsObjMap = new Map();
         batchToProcess.forEach(({ orderId, colKey, newValue }) => {
@@ -2106,7 +2155,8 @@ function VanDon() {
         if (success) {
           const latestData = [...allData];
           rowsToUpdate.forEach(updatedRow => {
-            const idx = latestData.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
+            const uid = normalizeVanDonOrderIdKey(updatedRow[PRIMARY_KEY_COLUMN]);
+            const idx = latestData.findIndex((r) => getVanDonRowOrderId(r) === uid);
             if (idx > -1) latestData[idx] = { ...latestData[idx], ...updatedRow };
           });
 
@@ -2116,15 +2166,16 @@ function VanDon() {
           setPendingChanges(prev => {
             const next = deepCloneMapOfMaps(prev);
             batchToProcess.forEach(({ orderId, colKey }) => {
-              if (next.has(orderId)) {
-                next.get(orderId).delete(colKey);
-                if (next.get(orderId).size === 0) {
-                  next.delete(orderId);
-                  pendingRowSnapshotsRef.current.delete(orderId);
+              const oid = normalizeVanDonOrderIdKey(orderId);
+              if (oid && next.has(oid)) {
+                next.get(oid).delete(colKey);
+                if (next.get(oid).size === 0) {
+                  next.delete(oid);
+                  pendingRowSnapshotsRef.current.delete(oid);
                 }
               }
             });
-            const touchedOrderIds = new Set(batchToProcess.map((b) => b.orderId));
+            const touchedOrderIds = new Set(batchToProcess.map((b) => normalizeVanDonOrderIdKey(b.orderId)).filter(Boolean));
             touchedOrderIds.forEach((orderId) => {
               if (next.has(orderId)) upsertPendingRowSnapshot(orderId, next, latestData);
             });
@@ -2142,26 +2193,34 @@ function VanDon() {
   const pushChange = useCallback((changesArray) => {
     if (!changesArray || changesArray.length === 0) return;
 
+    const normalized = changesArray
+      .map((c) => ({
+        ...c,
+        orderId: normalizeVanDonOrderIdKey(c.orderId),
+      }))
+      .filter((c) => c.orderId);
+    if (normalized.length === 0) return;
+
     // 1. History Stack
     const currentIndex = historyIndexRef.current;
     const currentHist = changeHistoryRef.current;
     const newHistory = currentHist.slice(0, currentIndex + 1);
 
-    newHistory.push({ timestamp: Date.now(), changes: changesArray });
+    newHistory.push({ timestamp: Date.now(), changes: normalized });
     const finalHistory = newHistory.slice(-50);
     changeHistoryRef.current = finalHistory;
     historyIndexRef.current = finalHistory.length - 1;
 
     // 2. Add to DB Queue & UI state
-    dbQueueRef.current.push(...changesArray);
+    dbQueueRef.current.push(...normalized);
 
     setPendingChanges(prev => {
       const next = deepCloneMapOfMaps(prev);
-      changesArray.forEach(({ orderId, colKey, newValue, originalValue }) => {
+      normalized.forEach(({ orderId, colKey, newValue, originalValue }) => {
         if (!next.has(orderId)) next.set(orderId, new Map());
         next.get(orderId).set(colKey, { newValue, originalValue });
       });
-      changesArray.forEach(({ orderId }) => {
+      normalized.forEach(({ orderId }) => {
         upsertPendingRowSnapshot(orderId, next, allData);
       });
       savePendingToLocalStorage(next);
@@ -2250,6 +2309,8 @@ function VanDon() {
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
     if (isReadonlyEditTab) return;
+    const oid = normalizeVanDonOrderIdKey(orderId);
+    if (!oid) return;
     const keyLc = String(colKey || '').trim().toLowerCase();
     if (keyLc === 'tracking_code' || normalizeColHeader(colKey) === normalizeColHeader('Mã Tracking')) return;
     if (keyLc === 'canh_bao' || normalizeColHeader(colKey) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN)) return;
@@ -2257,18 +2318,18 @@ function VanDon() {
     if (bolActiveTab === 'all') {
       if (keyLc === 'đơn vị vận chuyển' || keyLc === 'shipping_unit') return;
     }
-    const originalRow = allData.find(r => r[PRIMARY_KEY_COLUMN] === orderId);
+    const originalRow = allData.find((r) => getVanDonRowOrderId(r) === oid);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
     // Đảm bảo history ghi nhận đúng thao tác trung gian ngay cả khi chưa lưu server
-    const pendingVal = pendingChanges.get(orderId)?.get(colKey);
+    const pendingVal = pendingChanges.get(oid)?.get(colKey);
     const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
     if (isVanDonMoneyGridAppKey(colKey)) {
       if (vanDonMoneyCellValuesEqual(newValue, stepOriginalValue)) return;
     } else if (String(newValue) === String(stepOriginalValue)) return;
 
-    pushChange([{ orderId, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
+    pushChange([{ orderId: oid, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
   }, [allData, pendingChanges, pushChange, isReadonlyEditTab, bolActiveTab]);
 
   const handleUpdateAll = async () => {
@@ -2290,7 +2351,7 @@ function VanDon() {
       if (root) {
         root.querySelectorAll('[data-van-cell-sync="1"]').forEach((el) => {
           if (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT') return;
-          const orderId = el.getAttribute('data-van-order');
+          const orderId = normalizeVanDonOrderIdKey(el.getAttribute('data-van-order'));
           const colKey = el.getAttribute('data-van-col');
           if (!orderId || !colKey) return;
           handleCellChange(orderId, colKey, el.value);
@@ -2659,7 +2720,8 @@ function VanDon() {
         for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
           if (r >= paginatedData.length) continue;
           const rowData = paginatedData[r];
-          const orderId = rowData[PRIMARY_KEY_COLUMN];
+          const orderId = getVanDonRowOrderId(rowData);
+          if (!orderId) continue;
 
           for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
             if (c >= currentColumns.length) continue;
@@ -2687,7 +2749,8 @@ function VanDon() {
           if (targetRowIdx >= paginatedData.length) return;
 
           const rowData = paginatedData[targetRowIdx];
-          const orderId = rowData[PRIMARY_KEY_COLUMN];
+          const orderId = getVanDonRowOrderId(rowData);
+          if (!orderId) return;
 
           rowVals.forEach((val, cIdx) => {
             const targetColIdx = bounds.minCol + cIdx;
@@ -2813,8 +2876,8 @@ function VanDon() {
     // Editable
     const isEditable = isVanDonUserEditableColumn(col);
     if (isEditable) {
-      const orderId = row[PRIMARY_KEY_COLUMN];
-      if (pendingChanges.get(orderId)?.has(COLUMN_MAPPING[col] || col)) {
+      const oid = getVanDonRowOrderId(row);
+      if (oid && pendingChanges.get(oid)?.has(COLUMN_MAPPING[col] || col)) {
         classes += "!bg-yellow-300 ";
       } else {
         classes += "bg-[#e8f5e9] ";
@@ -2841,9 +2904,9 @@ function VanDon() {
       if (cIdx === selectionBounds.minCol) classes += "selection-border-left ";
       if (cIdx === selectionBounds.maxCol) classes += "selection-border-right ";
     } else if (rowHasVanDonCanhBao(row)) {
-      const oid = row[PRIMARY_KEY_COLUMN];
+      const oid = getVanDonRowOrderId(row);
       const pKey = COLUMN_MAPPING[col] || col;
-      if (!pendingChanges.get(oid)?.has(pKey)) {
+      if (!oid || !pendingChanges.get(oid)?.has(pKey)) {
         classes += "van-don-canh-bao-blink ";
       }
     }
@@ -2856,8 +2919,8 @@ function VanDon() {
 
   const vanDonVirtuosoComponents = useMemo(() => {
     const TableRow = React.forwardRef(({ item, children, ...rest }, ref) => {
-      const orderId = item?.[PRIMARY_KEY_COLUMN];
-      const isSelected = orderId != null && selectedRows.has(orderId);
+      const orderId = getVanDonRowOrderId(item);
+      const isSelected = Boolean(orderId && selectedRows.has(orderId));
       const mergedClass = [rest.className, isSelected ? 'bg-blue-50' : ''].filter(Boolean).join(' ').trim();
       return (
         <tr ref={ref} {...rest} className={mergedClass || undefined}>
@@ -3001,9 +3064,9 @@ function VanDon() {
   };
 
   const renderVanDonDataCell = (row, rIdx, col, cIdx, cellStyle) => {
-    const orderId = row[PRIMARY_KEY_COLUMN];
+    const orderId = getVanDonRowOrderId(row);
     const key = COLUMN_MAPPING[col] || col;
-    let val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
+    let val = getVanDonGridCellValue(row, col);
     if (!val && col === 'Ngày up bill') {
       val = row.ngayupbill ?? row.ngay_up_bill ?? '';
     }
@@ -3030,10 +3093,23 @@ function VanDon() {
     const isReadonlyOrderDataTab = bolActiveTab === 'all';
 
     const mergedCellStyle = { ...(cellStyle || {}) };
+    // Ô văn bản dài: bỏ overflow hidden trên <td> (cột không sticky) — tránh cắt textarea / khó click nhập.
+    if (
+      !isReadonlyEditTab &&
+      !isTrackingCol &&
+      !isCanhBaoCol &&
+      !(isReadonlyOrderDataTab && isCarrierCol) &&
+      isVanDonUserEditableColumn(col) &&
+      colInList(col, LONG_TEXT_COLS) &&
+      normalizeColHeader(col) !== normalizeColHeader(VAN_DON_CANH_BAO_COLUMN)
+    ) {
+      mergedCellStyle.overflow = 'visible';
+      mergedCellStyle.textOverflow = 'clip';
+    }
 
     return (
       <td
-        key={`${orderId}-${col}`}
+        key={`${orderId || `r${rIdx}`}-${col}`}
         data-van-r={rIdx}
         data-van-c={cIdx}
         className={getCellClass(row, col, String(displayVal), rIdx, cIdx)}
@@ -3043,7 +3119,7 @@ function VanDon() {
       >
         {col === 'STT' ? (
           row.rowIndex || (currentPage - 1) * effectiveRowsPerPage + rIdx + 1
-        ) : isReadonlyEditTab || isTrackingCol || isCanhBaoCol || (isReadonlyOrderDataTab && isCarrierCol) ? (
+        ) : isReadonlyEditTab || isTrackingCol || isCanhBaoCol || (isReadonlyOrderDataTab && isCarrierCol) || !orderId ? (
           isCanhBaoCol ? (
             <span className="whitespace-pre-wrap break-words align-top text-left inline-block max-w-full">
               {displayVal}
@@ -3188,11 +3264,11 @@ function VanDon() {
   /* End Component Logic */
   return (
     <div className="bg-gray-50 flex flex-col h-[calc(100vh-64px)] min-h-0 w-full max-w-none overflow-hidden">
-      {/* Một dòng: tiêu đề + tab + tìm + lọc (cuộn ngang khi hẹp) */}
+      {/* Hai hàng: (1) tiêu đề + tab + tìm + ngày — (2) bộ lọc MultiSelect + trạng thái + TẢI LẠI */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0 w-full">
-        <div className="w-full max-w-none mx-auto px-2 sm:px-3 py-0.5 min-w-0">
-          <div className="flex items-center gap-1.5 min-h-[28px] w-full min-w-0">
-            <div className="flex flex-nowrap items-center gap-1.5 min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
+        <div className="w-full max-w-none mx-auto px-2 sm:px-3 py-1.5 min-w-0 flex flex-col gap-1.5">
+          {/* Hàng 1 */}
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0 w-full">
             <div className="flex items-center gap-1.5 shrink-0">
               <img
                 src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
@@ -3330,6 +3406,11 @@ function VanDon() {
                 </label>
               </div>
             </div>
+          </div>
+
+          {/* Hàng 2 — bộ lọc MultiSelect + trạng thái / Tải lại (mọi tab) */}
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0 w-full justify-between sm:items-center">
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
             <div className="flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200 shrink-0" title="Thị trường">
               <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🌍</span>
               <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
@@ -3421,8 +3502,8 @@ function VanDon() {
               </div>
             </div>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0 border-l border-gray-200 pl-1.5 ml-0.5 bg-white">
-              <div className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded border border-gray-100">
+            <div className="flex items-center gap-1.5 shrink-0 border-t border-gray-200 pt-1.5 mt-0.5 sm:border-t-0 sm:pt-0 sm:mt-0 sm:border-l sm:border-gray-200 sm:pl-1.5 sm:ml-0.5 bg-white w-full sm:w-auto justify-end sm:justify-start">
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded border border-gray-100">
                 <span className={`h-1.5 w-1.5 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`} />
                 <span className="text-[9px] uppercase font-bold text-gray-500 whitespace-nowrap">
                   {allData.length > 0 ? `${allData.length} ĐƠN` : 'NO DATA'}
@@ -3448,7 +3529,7 @@ function VanDon() {
       {/* Main: flex cột — bảng chiếm hết chiều cao còn lại (full viewport trừ header/toolbar/pagination) */}
       <div className="flex-1 min-h-0 flex flex-col gap-0.5 p-0.5 bg-[#f4f7fa] w-full min-w-0 overflow-hidden">
 
-        {/* Thanh thao tác (tìm + lọc đã gộp vào header một dòng) */}
+        {/* Thanh thao tác bảng (bộ lọc chính nằm ở header 2 hàng phía trên) */}
         <div className="relative z-[100] shrink-0 bg-white rounded-md shadow-sm border border-gray-200 px-1.5 py-0.5 min-w-0 w-full">
           <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-0">
             {/* Toolbar Actions Group */}
@@ -3604,7 +3685,10 @@ function VanDon() {
                             <div className="flex items-center justify-center">
                               <input
                                 type="checkbox"
-                                checked={getFilteredData.length > 0 && getFilteredData.every((r) => selectedRows.has(r[PRIMARY_KEY_COLUMN]))}
+                                checked={(() => {
+                                  const withId = getFilteredData.map((r) => getVanDonRowOrderId(r)).filter(Boolean);
+                                  return withId.length > 0 && withId.every((id) => selectedRows.has(id));
+                                })()}
                                 onChange={(e) => {
                                   if (e.target.checked) selectAllRows();
                                   else deselectAllRows();
@@ -3680,8 +3764,8 @@ function VanDon() {
                     }}
                     components={vanDonVirtuosoComponents}
                     itemContent={(rIdx, row) => {
-                      const orderId = row[PRIMARY_KEY_COLUMN];
-                      const isSelected = selectedRows.has(orderId);
+                      const orderId = getVanDonRowOrderId(row);
+                      const isSelected = Boolean(orderId && selectedRows.has(orderId));
                       const hasCanhBao = rowHasVanDonCanhBao(row);
                       return (
                         <>
@@ -3702,9 +3786,10 @@ function VanDon() {
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
-                                  onChange={() => toggleRowSelection(orderId)}
+                                  disabled={!orderId}
+                                  onChange={() => orderId && toggleRowSelection(orderId)}
                                   onClick={(e) => e.stopPropagation()}
-                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 />
                               </div>
                             </td>

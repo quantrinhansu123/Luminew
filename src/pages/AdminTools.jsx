@@ -7,6 +7,7 @@ import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { syncBaoCaoVanDonFromOrders } from '../services/baoCaoVanDonSyncFromOrders';
+import { formatBaoCaoVanDonStatusHistogram } from '../utils/baoCaoVanDonFormat';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
 import * as ApiService from '../services/api';
@@ -1458,7 +1459,9 @@ const AdminTools = () => {
         const ok = window.confirm(
             'Đồng bộ bảng bao_cao_van_don từ orders (theo Từ ngày / Đến ngày phía trên).\n\n' +
             'Key: ngay + nhan_vien + san_pham + thi_truong khớp order_date + delivery_staff + product + country.\n' +
-            'Chưa có dòng thì insert; có rồi thì update. Trạng thái giao / kết quả check / thanh toán: giá trị phổ biến nhất trong nhóm đơn.\n\n' +
+            'Chưa có dòng thì insert; có rồi thì update.\n' +
+            'Cột trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan (jsonb): mỗi cột là object { "Giá trị": số đơn } trong nhóm key.\n' +
+            'Nguồn đếm: delivery_status, check_result, payment_status_detail (nếu trống thì payment_status). Gồm cả đơn order_date trống nhưng created_at trong khoảng.\n\n' +
             'Chạy?'
         );
         if (!ok) return;
@@ -4632,7 +4635,10 @@ const AdminTools = () => {
                                 <span>
                                     <span className="font-medium text-gray-800">Báo cáo vận đơn (bao_cao_van_don)</span> — nút riêng bên dưới: đồng bộ theo cùng khoảng ngày, key{' '}
                                     <span className="font-medium">ngay + nhan_vien + san_pham + thi_truong</span> từ{' '}
-                                    <span className="font-medium">order_date + delivery_staff + product + country</span> (insert nếu chưa có, update nếu có; trạng thái lấy mode trong nhóm đơn).
+                                    <span className="font-medium">order_date + delivery_staff + product + country</span>. Ba cột{' '}
+                                    <span className="font-medium">trang_thai_giao_hang / ket_qua_check / trang_thai_thanh_toan</span> là{' '}
+                                    <span className="font-medium">jsonb</span> dạng{' '}
+                                    <code className="text-xs bg-gray-100 px-1 rounded">{'{ "Trạng thái": số_lượng }'}</code> theo từng giá trị trong nhóm đơn (giá trị trống gộp vào <span className="font-medium">(Trống)</span>).
                                 </span>
                             </p>
 
@@ -4678,14 +4684,15 @@ const AdminTools = () => {
                                 onClick={handleSyncBaoCaoVanDonOnly}
                                 disabled={vanDonBaoCaoLoading || saleRecalcLoading || loading}
                                 className="w-full mt-3 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
+                                title="Gom đơn theo ngày (order_date hoặc ngày created_at) + NV vận đơn + SP + thị trường; đếm từng giá trị trạng thái giao / check / thanh toán → jsonb { giá trị: số đơn }"
                             >
                                 {vanDonBaoCaoLoading ? (
                                     <>
-                                        <span className="animate-spin">⏳</span> Đang đồng bộ vận đơn...
+                                        <span className="animate-spin">⏳</span> Đang đếm & đồng bộ...
                                     </>
                                 ) : (
                                     <>
-                                        <Package size={18} /> Cập nhật báo cáo vận đơn (bao_cao_van_don)
+                                        <Package size={18} /> Đếm trạng thái & cập nhật báo cáo vận đơn
                                     </>
                                 )}
                             </button>
@@ -4803,9 +4810,15 @@ const AdminTools = () => {
                                                             <td className="px-3 py-2 text-gray-700">{r.nhan_vien ?? '-'}</td>
                                                             <td className="px-3 py-2 text-gray-700">{r.san_pham ?? '-'}</td>
                                                             <td className="px-3 py-2 text-gray-700">{r.thi_truong ?? '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.trang_thai_giao_hang ?? '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.ket_qua_check ?? '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.trang_thai_thanh_toan ?? '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700 whitespace-pre-line text-xs align-top max-w-[220px]">
+                                                                {formatBaoCaoVanDonStatusHistogram(r.trang_thai_giao_hang)}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-gray-700 whitespace-pre-line text-xs align-top max-w-[220px]">
+                                                                {formatBaoCaoVanDonStatusHistogram(r.ket_qua_check)}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-gray-700 whitespace-pre-line text-xs align-top max-w-[220px]">
+                                                                {formatBaoCaoVanDonStatusHistogram(r.trang_thai_thanh_toan)}
+                                                            </td>
                                                             <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
                                                         </tr>
                                                     ))}

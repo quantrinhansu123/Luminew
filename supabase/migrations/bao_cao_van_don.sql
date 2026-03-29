@@ -7,9 +7,9 @@ create table if not exists public.bao_cao_van_don (
   nhan_vien text,
   san_pham text,
   thi_truong text,
-  trang_thai_giao_hang text,
-  ket_qua_check text,
-  trang_thai_thanh_toan text,
+  trang_thai_giao_hang jsonb not null default '{}'::jsonb,
+  ket_qua_check jsonb not null default '{}'::jsonb,
+  trang_thai_thanh_toan jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -19,9 +19,9 @@ comment on column public.bao_cao_van_don.ngay is 'Ngày báo cáo';
 comment on column public.bao_cao_van_don.nhan_vien is 'Nhân viên (sale / mkt / vận đơn — tùy nghiệp vụ ghi)';
 comment on column public.bao_cao_van_don.san_pham is 'Sản phẩm / mặt hàng';
 comment on column public.bao_cao_van_don.thi_truong is 'Thị trường / khu vực';
-comment on column public.bao_cao_van_don.trang_thai_giao_hang is 'Trạng thái giao hàng';
-comment on column public.bao_cao_van_don.ket_qua_check is 'Kết quả check';
-comment on column public.bao_cao_van_don.trang_thai_thanh_toan is 'Trạng thái thanh toán';
+comment on column public.bao_cao_van_don.trang_thai_giao_hang is 'jsonb { "Trạng thái": số đơn } theo nhóm key';
+comment on column public.bao_cao_van_don.ket_qua_check is 'jsonb { "Kết quả check": số đơn } theo nhóm key';
+comment on column public.bao_cao_van_don.trang_thai_thanh_toan is 'jsonb { "Trạng thái TT": số đơn } theo nhóm key';
 
 create index if not exists bao_cao_van_don_ngay_idx on public.bao_cao_van_don (ngay desc);
 create index if not exists bao_cao_van_don_nhan_vien_ngay_idx on public.bao_cao_van_don (nhan_vien, ngay desc);

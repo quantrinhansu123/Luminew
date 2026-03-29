@@ -1,4 +1,5 @@
 import { supabase } from '../supabase/config';
+import { orderRangeToCreatedAtIsoBounds } from '../utils/dateParsing';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
 
 function normalizeStr(str) {
@@ -68,6 +69,37 @@ function pickMode(values) {
   return best;
 }
 
+/** jsonb lưu DB: { "Giá trị (hoặc (Trống))": số đơn } */
+function countHistogram(rawValues) {
+  const counts = new Map();
+  for (const v of rawValues) {
+    const s = v == null ? '' : String(v).trim();
+    const key = s || '(Trống)';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return Object.fromEntries(counts);
+}
+
+/** Ngày lên đơn chuẩn; thiếu order_date thì lấy ngày từ created_at (khớp Danh sách đơn). */
+function effectiveOrderDateYmd(order) {
+  const od = normalizeDateStr(order?.order_date);
+  if (od) return od;
+  const ca = order?.created_at;
+  if (ca == null) return '';
+  const s = String(ca).trim();
+  if (s.includes('T')) return s.split('T')[0];
+  return normalizeDateStr(ca);
+}
+
+/** Trạng thái thanh toán: ưu tiên payment_status_detail (Trạng thái thu tiền trên UI), fallback payment_status. */
+function paymentLabelForHistogram(order) {
+  const d = order?.payment_status_detail;
+  const p = order?.payment_status;
+  const sd = d == null ? '' : String(d).trim();
+  if (sd) return sd;
+  return p == null ? '' : String(p).trim();
+}
+
 function makeId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `bcvd_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -82,6 +114,9 @@ function isNetworkError(e) {
   );
 }
 
+const VAN_DON_REPORT_ORDER_SELECT =
+  'order_code, order_date, created_at, delivery_staff, product, country, delivery_status, check_result, payment_status, payment_status_detail';
+
 async function fetchAllOrdersForVanDonReport(startDate, endDate) {
   const PAGE_SIZE = 2000;
   const orders = [];
@@ -90,9 +125,7 @@ async function fetchAllOrdersForVanDonReport(startDate, endDate) {
   while (true) {
     const { data, error } = await supabase
       .from('orders')
-      .select(
-        'order_date, delivery_staff, product, country, delivery_status, check_result, payment_status'
-      )
+      .select(VAN_DON_REPORT_ORDER_SELECT)
       .gte('order_date', startDate)
       .lte('order_date', endDate)
       .order('order_date', { ascending: false })
@@ -104,6 +137,37 @@ async function fetchAllOrdersForVanDonReport(startDate, endDate) {
     orders.push(...data);
     if (data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
+  }
+
+  const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+  if (cStart && cEnd) {
+    const seen = new Set((orders || []).map((o) => o.order_code).filter(Boolean));
+    let nFrom = 0;
+    for (let page = 0; page < 500; page++) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(VAN_DON_REPORT_ORDER_SELECT)
+        .is('order_date', null)
+        .gte('created_at', cStart)
+        .lte('created_at', cEnd)
+        .order('created_at', { ascending: false })
+        .range(nFrom, nFrom + PAGE_SIZE - 1);
+
+      if (error) {
+        console.warn('[baoCaoVanDonSync] Không gộp đơn order_date null:', error.message);
+        break;
+      }
+      const chunk = data || [];
+      for (const row of chunk) {
+        const oc = row.order_code;
+        if (oc && !seen.has(oc)) {
+          seen.add(oc);
+          orders.push(row);
+        }
+      }
+      if (chunk.length < PAGE_SIZE) break;
+      nFrom += PAGE_SIZE;
+    }
   }
 
   return orders;
@@ -137,7 +201,7 @@ async function fetchAllBaoCaoVanDonInRange(startDate, endDate) {
 /**
  * Từ `orders` ghi `bao_cao_van_don`: upsert theo key
  * (ngay ← order_date, nhan_vien ← delivery_staff, san_pham ← product, thi_truong ← country).
- * Cột trạng thái: mode theo nhóm đơn cùng key.
+ * Cột trạng thái: jsonb đếm số đơn theo từng giá trị trong nhóm key.
  */
 export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = false } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
@@ -154,13 +218,9 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
 
   const byKey = new Map();
   for (const order of orders || []) {
-    const k = buildVanDonReportKey(
-      order.order_date,
-      order.delivery_staff,
-      order.product,
-      order.country
-    );
-    if (!k || !normalizeDateStr(order.order_date)) continue;
+    const ngayEff = effectiveOrderDateYmd(order);
+    const k = buildVanDonReportKey(ngayEff, order.delivery_staff, order.product, order.country);
+    if (!k || !ngayEff) continue;
 
     let bucket = byKey.get(k);
     if (!bucket) {
@@ -187,14 +247,14 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
   for (const [key, { orders: list }] of byKey) {
     if (!list?.length) continue;
 
-    const ngay = normalizeDateStr(list[0].order_date);
+    const ngay = effectiveOrderDateYmd(list[0]);
     const nhan_vien = pickMode(list.map((o) => o.delivery_staff)) ?? '';
     const san_pham = pickMode(list.map((o) => o.product)) ?? '';
     const thi_truong = pickMode(list.map((o) => o.country)) ?? '';
 
-    const trang_thai_giao_hang = pickMode(list.map((o) => o.delivery_status)) ?? null;
-    const ket_qua_check = pickMode(list.map((o) => getCheckResult(o))) ?? null;
-    const trang_thai_thanh_toan = pickMode(list.map((o) => o.payment_status)) ?? null;
+    const trang_thai_giao_hang = countHistogram(list.map((o) => o.delivery_status));
+    const ket_qua_check = countHistogram(list.map((o) => getCheckResult(o)));
+    const trang_thai_thanh_toan = countHistogram(list.map((o) => paymentLabelForHistogram(o)));
 
     const patch = {
       ngay,
