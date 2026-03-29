@@ -1,6 +1,6 @@
 import { COLUMN_MAPPING, DROPDOWN_OPTIONS, PRIMARY_KEY_COLUMN, SETTINGS_KEY } from '../types';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
-import { formatOrderLogJsonbForDisplay } from '../utils/orderLogJsonb';
+import { formatOrderLogJsonbForDisplay, mergeOrderLogJsonb, parseOrderLogJsonb } from '../utils/orderLogJsonb';
 import { supabase } from './supabaseClient';
 
 export const DB_TO_APP_MAPPING = {
@@ -63,14 +63,20 @@ export const DB_TO_APP_MAPPING = {
  */
 const resolveAppKeyToDbKey = (appKey) => {
     if (appKey == null || appKey === '') return null;
-    const byLabel = Object.keys(DB_TO_APP_MAPPING).find((k) => DB_TO_APP_MAPPING[k] === appKey);
+    const nfc = String(appKey).normalize('NFC');
+    const byLabel = Object.keys(DB_TO_APP_MAPPING).find(
+        (k) => String(DB_TO_APP_MAPPING[k]).normalize('NFC') === nfc
+    );
     if (byLabel) return byLabel;
     if (Object.prototype.hasOwnProperty.call(DB_TO_APP_MAPPING, appKey)) return appKey;
+    if (Object.prototype.hasOwnProperty.call(DB_TO_APP_MAPPING, nfc)) return nfc;
 
     if (appKey === 'Trạng thái giao hàng NB') return 'delivery_status_nb';
     if (appKey === 'delivery_status') return 'delivery_status';
     if (appKey === 'Ghi chú vận đơn' || appKey === 'Ghi chú của VĐ') return 'vandon_note';
     if (appKey === 'Ngày đẩy đơn') return 'accounting_check_date';
+    /** Cột Nhật ký: fallback nếu nhãn lệch Unicode / mapping */
+    if (nfc === 'Nhật ký'.normalize('NFC') || nfc === 'log' || appKey === 'log') return 'log';
     return null;
 };
 
@@ -343,33 +349,76 @@ const prepareValueForDB = (dbKey, value) => {
     return value;
 };
 
+/** Chuẩn hóa xuống dòng để so khớp ô textarea với chuỗi format từ DB. */
+function normalizeVanDonLogDisplayText(s) {
+    return String(s ?? '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
+}
+
+/** Chuẩn hóa mảng log trước khi gửi Supabase (jsonb). */
+function sanitizeLogJsonbForSupabase(arr) {
+    if (!Array.isArray(arr)) return [];
+    try {
+        return JSON.parse(JSON.stringify(arr));
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Lưới vận đơn sửa "Nhật ký" dạng text (formatOrderLogJsonbForDisplay).
+ * Luôn merge thêm bản ghi khi còn nội dung — tránh bỏ qua do lệch so khớp chuỗi với DB.
+ */
+async function resolveOrderLogJsonbAfterGridEdit(orderCode, newDisplayText, modifiedBy) {
+    const oc = String(orderCode ?? '').trim();
+    if (!oc) throw new Error('Thiếu mã đơn hàng khi lưu Nhật ký.');
+    const newStr = normalizeVanDonLogDisplayText(newDisplayText);
+    const { data: row, error } = await supabase.from('orders').select('log').eq('order_code', oc).maybeSingle();
+    if (error) throw error;
+    const prev = parseOrderLogJsonb(row?.log);
+    const oldFmt = normalizeVanDonLogDisplayText(formatOrderLogJsonbForDisplay(row?.log));
+    if (!newStr.trim()) {
+        return sanitizeLogJsonbForSupabase([]);
+    }
+    const entry = {
+        thoi_gian: new Date().toISOString(),
+        nhan_vien: String(modifiedBy || '').trim() || 'hệ thống',
+        cot: 'Nhật ký',
+        cot_db: 'log',
+        gia_tri_cu: oldFmt || null,
+        gia_tri_moi: newStr,
+    };
+    return sanitizeLogJsonbForSupabase(mergeOrderLogJsonb(prev, [entry]));
+}
+
 export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy) => {
     try {
+        const oid = String(orderId ?? '').trim();
+        if (!oid) throw new Error('Thiếu mã đơn hàng.');
+
         const dbKey = resolveAppKeyToDbKey(columnKey);
         if (!dbKey) throw new Error(`Không tìm thấy cột tương ứng trong DB cho: ${columnKey}`);
 
-        const formattedValue = prepareValueForDB(dbKey, newValue);
-
-        // Update Supabase
-        // Key is order_code (unique) or id?
-        // PRIMARY_KEY_COLUMN is "Mã đơn hàng" -> order_code
-        // Supabase `orders` has `order_code` unique column.
+        let formattedValue;
+        if (dbKey === 'log') {
+            formattedValue = await resolveOrderLogJsonbAfterGridEdit(oid, newValue, modifiedBy);
+        } else {
+            formattedValue = prepareValueForDB(dbKey, newValue);
+        }
 
         const updatePayload = { [dbKey]: formattedValue };
         if (modifiedBy) {
             updatePayload.last_modified_by = modifiedBy;
         }
 
-        const { data, error } = await supabase
-            .from('orders')
-            .update(updatePayload)
-            .eq('order_code', orderId)
-            .select();
+        /** Không dùng `.select()` sau update — nhiều project RLS cho phép UPDATE nhưng trả về 0 dòng khi RETURNING. */
+        const { error } = await supabase.from('orders').update(updatePayload).eq('order_code', oid);
 
         if (error) throw error;
 
-        console.log(`Updated ${orderId}: ${dbKey} = ${newValue}`);
-        return { success: true, daa: data };
+        console.log(`Updated ${oid}: ${dbKey} = ${newValue}`);
+        return { success: true, daa: null };
 
     } catch (error) {
         console.error('updateSingleCell Supabase error:', error);
@@ -531,15 +580,19 @@ export const fetchFFMOrders = async () => {
     }
 };
 
-export const updateBatch = async (rows, modifiedBy) => {
+/**
+ * @param {Array<Record<string, unknown>>} rows — mỗi phần tử có PRIMARY_KEY + các cột app đã đổi
+ * @param {string} [modifiedBy]
+ * @param {Array<{ orderId: string, colKey: string, originalValue?: string, newValue?: string }>} [changeLog] — trang /van-don: mỗi ô sửa → một dòng ghi vào orders.log (jsonb)
+ */
+export const updateBatch = async (rows, modifiedBy, changeLog = null) => {
     try {
         console.log(`Supabase Batch Update: ${rows.length} rows`);
 
-        // rows format: [{ "Mã đơn hàng": "...", "Kết quả Check": "..." }, ...]
+        const useActivityLog = Array.isArray(changeLog) && changeLog.length > 0;
 
-        // Must transform to Supabase format
         const updates = rows.map(row => {
-            const orderCode = row[PRIMARY_KEY_COLUMN];
+            const orderCode = String(row[PRIMARY_KEY_COLUMN] ?? '').trim();
             if (!orderCode) return null;
 
             const updatePayload = {};
@@ -550,7 +603,13 @@ export const updateBatch = async (rows, modifiedBy) => {
             Object.keys(row).forEach((appKey) => {
                 if (appKey === PRIMARY_KEY_COLUMN) return;
                 const dbKey = resolveAppKeyToDbKey(appKey);
-                if (dbKey) {
+                if (!dbKey) return;
+                if (useActivityLog && dbKey === 'log') {
+                    return;
+                }
+                if (dbKey === 'log') {
+                    updatePayload[dbKey] = row[appKey];
+                } else {
                     updatePayload[dbKey] = prepareValueForDB(dbKey, row[appKey]);
                 }
             });
@@ -560,16 +619,71 @@ export const updateBatch = async (rows, modifiedBy) => {
 
         if (updates.length === 0) return { success: true, message: "Nothing to update" };
 
-        /** Chỉ `.update()` theo từng đơn — tránh `upsert` với payload thiếu cột (một số phiên bản/stack dễ gây hiểu nhầm hoặc ghi không đủ trường). */
         let total = 0;
+        let skippedNoPayload = 0;
         for (const u of updates) {
-            const { order_code: oc, ...payload } = u;
-            const keys = Object.keys(payload).filter((k) => k !== 'last_modified_by');
-            if (keys.length === 0) continue;
+            const { order_code: ocRaw, ...payload } = u;
+            const oc = String(ocRaw ?? '').trim();
+            if (!oc) {
+                skippedNoPayload += 1;
+                continue;
+            }
 
-            const { data, error } = await supabase.from('orders').update(payload).eq('order_code', oc).select();
+            if (useActivityLog) {
+                const trail = changeLog.filter((c) => String(c.orderId ?? '').trim() === oc);
+                if (trail.length > 0) {
+                    const { data: logRow, error: logErr } = await supabase
+                        .from('orders')
+                        .select('log')
+                        .eq('order_code', oc)
+                        .maybeSingle();
+                    if (logErr) throw logErr;
+                    const prev = parseOrderLogJsonb(logRow?.log);
+                    const ts = new Date().toISOString();
+                    const nv = String(modifiedBy || '').trim() || 'hệ thống';
+                    const entries = trail
+                        .map((ch) => {
+                            const dbK = resolveAppKeyToDbKey(ch.colKey);
+                            if (!dbK) return null;
+                            const cot = String(ch.colKey || '').trim() || dbK;
+                            const cuRaw = ch.originalValue != null ? String(ch.originalValue) : '';
+                            const moiRaw = ch.newValue != null ? String(ch.newValue) : '';
+                            const cu = normalizeVanDonLogDisplayText(cuRaw);
+                            const moi = normalizeVanDonLogDisplayText(moiRaw);
+                            return {
+                                thoi_gian: ts,
+                                nhan_vien: nv,
+                                cot,
+                                cot_db: dbK,
+                                gia_tri_cu: cu.trim() === '' ? null : cu,
+                                gia_tri_moi: moi.trim() === '' ? null : moi,
+                            };
+                        })
+                        .filter(Boolean);
+                    if (entries.length > 0) {
+                        payload.log = sanitizeLogJsonbForSupabase(mergeOrderLogJsonb(prev, entries));
+                    }
+                }
+            } else if (Object.prototype.hasOwnProperty.call(payload, 'log')) {
+                const rawLog = payload.log;
+                payload.log = await resolveOrderLogJsonbAfterGridEdit(oc, rawLog, modifiedBy);
+            }
+
+            const keys = Object.keys(payload).filter((k) => k !== 'last_modified_by');
+            if (keys.length === 0) {
+                skippedNoPayload += 1;
+                continue;
+            }
+
+            const { error } = await supabase.from('orders').update(payload).eq('order_code', oc);
             if (error) throw error;
-            total += data?.length || 0;
+            total += 1;
+        }
+
+        if (total === 0 && updates.length > 0 && skippedNoPayload === updates.length) {
+            throw new Error(
+                'Không có trường nào được gửi để cập nhật. Kiểm tra tên cột hoặc thử lại sau khi chỉnh ô.'
+            );
         }
 
         return { success: true, count: total };

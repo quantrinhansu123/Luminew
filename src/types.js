@@ -63,7 +63,9 @@ export const EDITABLE_COLS = [
     "Payment Bill", "Payment Image",
     // Cột CSKH
     "Trạng thái cskh",
-    "Cảnh báo trùng"
+    "Cảnh báo trùng",
+    /** JSONB orders.log — hiển thị dạng text trên lưới; lưu qua API merge mảng */
+    "Nhật ký"
 ];
 
 // Columns that expand with Ctrl+Enter

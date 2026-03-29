@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react';
 import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TableVirtuoso } from 'react-virtuoso';
@@ -189,6 +189,7 @@ function VanDon() {
   }, [pendingChanges]);
 
   const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
+  const [shippingReportsPanelOpen, setShippingReportsPanelOpen] = useState(true);
 
   const changeHistoryRef = useRef([]); // Stack for Ctrl-Z
   const historyIndexRef = useRef(-1);
@@ -323,8 +324,9 @@ function VanDon() {
   /** Kéo chọn vùng ô: neo (anchor) + điểm bắt đầu chuột (kể cả khi mousedown trên input/select). */
   const selectionPointerDragRef = useRef(null);
   const tableRef = useRef(null);
+  /** Cột textarea (Nhật ký, …): lưu bản nháp theo phím — Virtuoso gỡ hàng khỏi DOM sẽ không mất nội dung khi Lưu. */
+  const vanDonLongTextDraftRef = useRef(new Map());
   const vanDonHeaderContainerRef = useRef(null);
-  const vanDonScrollContainerRef = useRef(null);
   const splitLeftPaneRef = useRef(null);
   const splitRightPaneRef = useRef(null);
   const horizontalScrollHostRef = useRef(null);
@@ -724,6 +726,35 @@ function VanDon() {
     retry: 1,
     enabled: !permissionsLoading
   });
+
+  const {
+    data: shippingReportRows = [],
+    isLoading: shippingReportsLoading,
+    isError: shippingReportsIsError,
+    error: shippingReportsError,
+    refetch: refetchShippingReports
+  } = useQuery({
+    queryKey: ['shipping_reports', 'van-don'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('shipping_reports')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(150);
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 30 * 1000,
+    retry: false,
+    enabled: !permissionsLoading && canView('ORDERS_LIST'),
+  });
+
+  const shippingReportsTableMissing =
+    shippingReportsIsError &&
+    shippingReportsError &&
+    (String(shippingReportsError.message || '').includes('shipping_reports') ||
+      String(shippingReportsError.message || '').includes('schema cache') ||
+      shippingReportsError.code === 'PGRST205');
 
   const allData = useMemo(() => {
     let rows = queryResult?.data || [];
@@ -1681,7 +1712,7 @@ function VanDon() {
 
     // Specific Width Cases (Approximate to fit text)
     if (cl === "mã đơn hàng") return 150;
-    if (cl === "mã tracking") return 180;
+    if (cl === "mã tracking") return 300;
     if (cl === "lý do") return 150;
     if (cl === "trạng thái thu tiền") return 150;
     if (cl === "ghi chú của vđ" || cl === "ghi chú") return 200;
@@ -2118,28 +2149,18 @@ function VanDon() {
         const currentUsername = localStorage.getItem('username') || 'Unknown';
         let success = false;
 
-        if (rowsToUpdate.length === 1 && Object.keys(rowsToUpdate[0]).length === 2) {
-          const row = rowsToUpdate[0];
-          const col = Object.keys(row).find(k => k !== PRIMARY_KEY_COLUMN);
-          const toastId = addToast('Đang cập nhật...', 'loading', 0);
-          try {
-            await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername);
-            success = true;
-          } catch (e) {
-            addToast(e.message, 'error');
-          } finally {
-            removeToast(toastId);
-          }
-        } else {
-          const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
-          try {
-            const res = await API.updateBatch(rowsToUpdate, currentUsername);
-            if (res.success) success = true;
-          } catch (e) {
-            addToast(e.message, 'error');
-          } finally {
-            removeToast(toastId);
-          }
+        /** Luôn batch + changeLog: mọi ô sửa đều append vào cột orders.log (jsonb). */
+        const toastId =
+          rowsToUpdate.length === 1
+            ? addToast('Đang cập nhật...', 'loading', 0)
+            : addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
+        try {
+          const res = await API.updateBatch(rowsToUpdate, currentUsername, batchToProcess);
+          if (res.success) success = true;
+        } catch (e) {
+          addToast(e.message, 'error');
+        } finally {
+          removeToast(toastId);
         }
 
         if (success) {
@@ -2310,6 +2331,35 @@ function VanDon() {
 
   const handleUpdateAll = async () => {
     setSyncPopoverOpen(false);
+
+    /** Nháp textarea (cả hàng đã cuộn khỏi viewport) + ô DOM còn mount — đẩy vào pending trước khi gửi queue. */
+    if (!isReadonlyEditTab) {
+      const SEP = '\u001e';
+      vanDonLongTextDraftRef.current.forEach((val, dk) => {
+        const i = dk.indexOf(SEP);
+        if (i <= 0) return;
+        const orderId = dk.slice(0, i);
+        const colKey = dk.slice(i + SEP.length);
+        if (orderId && colKey) handleCellChange(orderId, colKey, val);
+      });
+      vanDonLongTextDraftRef.current.clear();
+
+      const root = tableRef.current;
+      if (root) {
+        root.querySelectorAll('[data-van-cell-sync="1"]').forEach((el) => {
+          if (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT') return;
+          const orderId = el.getAttribute('data-van-order');
+          const colKey = el.getAttribute('data-van-col');
+          if (!orderId || !colKey) return;
+          handleCellChange(orderId, colKey, el.value);
+        });
+      }
+      const ae = document.activeElement;
+      if (ae && root && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') && root.contains(ae)) {
+        ae.blur();
+      }
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    }
 
     // --- Cơ chế Tự phục hồi: Đồng bộ lại Queue nếu Ref bị trống nhưng State vẫn còn dữ liệu ---
     if (dbQueueRef.current.length === 0 && pendingChanges.size > 0) {
@@ -3046,21 +3096,30 @@ function VanDon() {
         ) : colInList(col, EDITABLE_COLS) && colInList(col, LONG_TEXT_COLS) ? (
           <textarea
             key={`${orderId}-${col}-${String(displayVal)}`}
+            data-van-cell-sync="1"
+            data-van-order={orderId}
+            data-van-col={key}
             defaultValue={String(displayVal)}
             rows={isLongTextExpanded ? 6 : 2}
+            onChange={(e) => {
+              vanDonLongTextDraftRef.current.set(`${orderId}\u001e${key}`, e.target.value);
+            }}
             onBlur={(e) => {
               const newValue = e.target.value;
+              vanDonLongTextDraftRef.current.delete(`${orderId}\u001e${key}`);
               if (newValue !== String(displayVal)) {
                 handleCellChange(orderId, key, newValue);
               }
             }}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
+                vanDonLongTextDraftRef.current.delete(`${orderId}\u001e${key}`);
                 e.target.value = String(displayVal);
                 e.target.blur();
               } else if (e.key === 'Enter' && e.ctrlKey) {
                 e.preventDefault();
                 const newValue = e.target.value;
+                vanDonLongTextDraftRef.current.delete(`${orderId}\u001e${key}`);
                 if (newValue !== String(displayVal)) {
                   handleCellChange(orderId, key, newValue);
                 }
@@ -3076,6 +3135,9 @@ function VanDon() {
           <input
             key={`${orderId}-${col}-${String(displayVal)}`}
             type="text"
+            data-van-cell-sync="1"
+            data-van-order={orderId}
+            data-van-col={key}
             defaultValue={String(displayVal)}
             onBlur={(e) => {
               const newValue = e.target.value;
@@ -3666,6 +3728,115 @@ function VanDon() {
                       );
                     }}
                   />
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Lịch sử shipping_reports (Supabase) */}
+          <div className="mt-2 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-0 shrink-0">
+            <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-gray-200">
+              <button
+                type="button"
+                onClick={() => setShippingReportsPanelOpen((o) => !o)}
+                className="flex-1 flex items-center gap-2 text-left min-w-0 hover:opacity-80"
+              >
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  Lịch sử báo cáo vận đơn <span className="font-mono text-[10px] text-slate-500 normal-case">(shipping_reports)</span>
+                </span>
+                {shippingReportsPanelOpen ? <ChevronUp className="w-4 h-4 shrink-0 text-slate-500" /> : <ChevronDown className="w-4 h-4 shrink-0 text-slate-500" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => void refetchShippingReports()}
+                className="text-[11px] font-semibold text-[#0052cc] hover:underline px-2 py-1 rounded border border-transparent hover:border-blue-200 shrink-0"
+              >
+                Tải lại
+              </button>
+            </div>
+            {shippingReportsPanelOpen && (
+              <div className="max-h-[220px] overflow-auto">
+                {shippingReportsLoading ? (
+                  <div className="p-4 text-center text-sm text-gray-500">Đang tải lịch sử…</div>
+                ) : shippingReportsTableMissing ? (
+                  <div className="p-4 text-sm text-amber-800 bg-amber-50">
+                    Chưa có bảng <code className="font-mono text-xs">shipping_reports</code> trên Supabase. Chạy migration{' '}
+                    <code className="font-mono text-xs">supabase/migrations/shipping_reports.sql</code> rồi tải lại trang.
+                  </div>
+                ) : shippingReportsIsError ? (
+                  <div className="p-4 text-sm text-red-700">
+                    Không tải được lịch sử: {String(shippingReportsError?.message || 'Lỗi')}
+                  </div>
+                ) : shippingReportRows.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-gray-500">
+                    Chưa có dòng nào. Thêm bản ghi vào bảng <span className="font-mono text-xs">shipping_reports</span> (SQL hoặc app) để hiển thị tại đây.
+                  </div>
+                ) : (
+                  <table className="min-w-full text-xs text-left border-collapse">
+                    <thead className="bg-gray-100 text-gray-600 sticky top-0 z-[1]">
+                      <tr>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Thời điểm</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Mã đơn</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Ngày</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">NV</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">SP</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">TT</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Giao hàng</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Check</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">TT toán</th>
+                        <th className="px-2 py-1.5 font-semibold whitespace-nowrap border-b border-gray-200">Ghi chú</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {shippingReportRows.map((r) => {
+                        const ts = r.created_at ? new Date(r.created_at) : null;
+                        const tsStr =
+                          ts && Number.isFinite(ts.getTime())
+                            ? ts.toLocaleString('vi-VN', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })
+                            : '—';
+                        const ngayStr =
+                          r.ngay != null && r.ngay !== ''
+                            ? String(r.ngay).slice(0, 10)
+                            : '—';
+                        return (
+                          <tr key={r.id} className="hover:bg-gray-50">
+                            <td className="px-2 py-1 whitespace-nowrap text-gray-800">{tsStr}</td>
+                            <td className="px-2 py-1 font-mono text-[11px] max-w-[100px] truncate" title={r.order_code || ''}>
+                              {r.order_code || '—'}
+                            </td>
+                            <td className="px-2 py-1 whitespace-nowrap">{ngayStr}</td>
+                            <td className="px-2 py-1 max-w-[120px] truncate" title={r.nhan_vien || ''}>
+                              {r.nhan_vien || '—'}
+                            </td>
+                            <td className="px-2 py-1 max-w-[100px] truncate" title={r.san_pham || ''}>
+                              {r.san_pham || '—'}
+                            </td>
+                            <td className="px-2 py-1 max-w-[90px] truncate" title={r.thi_truong || ''}>
+                              {r.thi_truong || '—'}
+                            </td>
+                            <td className="px-2 py-1 max-w-[110px] truncate" title={r.trang_thai_giao_hang || ''}>
+                              {r.trang_thai_giao_hang || '—'}
+                            </td>
+                            <td className="px-2 py-1 max-w-[80px] truncate" title={r.ket_qua_check || ''}>
+                              {r.ket_qua_check || '—'}
+                            </td>
+                            <td className="px-2 py-1 max-w-[100px] truncate" title={r.trang_thai_thanh_toan || ''}>
+                              {r.trang_thai_thanh_toan || '—'}
+                            </td>
+                            <td className="px-2 py-1 max-w-[140px] truncate text-gray-600" title={r.ghi_chu || ''}>
+                              {r.ghi_chu || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 )}
               </div>
             )}

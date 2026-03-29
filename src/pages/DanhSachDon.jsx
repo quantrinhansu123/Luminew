@@ -1,4 +1,4 @@
-import { Clock, Eye, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
+import { Clock, History, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -11,6 +11,7 @@ import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '../utils/dateParsing';
+import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
 
 /**
  * PostgREST thường bị giới hạn ~1000 dòng / request.
@@ -121,7 +122,7 @@ function DanhSachDon() {
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyOrderCode, setHistoryOrderCode] = useState(null);
-  const [historyLogs, setHistoryLogs] = useState([]);
+  const [historyTableRows, setHistoryTableRows] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
 
@@ -310,8 +311,10 @@ function DanhSachDon() {
     "Page": item.page_name, // Map Page Name
     "Ca": item.shift, // Map shift to Ca
     "Payment Bill": item.payment_bill, // Trạng thái bill
-    "Payment Image": item.payment_image // Link hình ảnh bill
-    // Note: _id and _source are excluded from mapSupabaseToUI to prevent them from appearing in column settings
+    "Payment Image": item.payment_image, // Link hình ảnh bill
+    _id: item.id,
+    _log: item.log ?? null,
+    // Note: _id and technical keys excluded from column picker via allAvailableColumns filter
   });
 
   // Modified loadData to use date filters on server side
@@ -1292,8 +1295,78 @@ function DanhSachDon() {
     }
   };
 
-  // Handle View History - Show history modal
-  const handleViewHistory = async (orderCode) => {
+  const formatHistoryCell = (v) => {
+    if (v === null || v === undefined || v === '') return '(Trống)';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  };
+
+  const formatHistoryTime = (t) => {
+    if (t == null || t === '') return '—';
+    const d = new Date(t);
+    if (!Number.isFinite(d.getTime())) return String(t);
+    return d.toLocaleString('vi-VN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const buildUnifiedHistoryRows = (orderLogRaw, salesLogs) => {
+    const rows = [];
+    const jsonbEntries = parseOrderLogJsonb(orderLogRaw);
+    jsonbEntries.forEach((e, i) => {
+      const cot = e.cot != null && String(e.cot).trim() !== '' ? String(e.cot) : labelForOrderLogDbKey(e.cot_db);
+      rows.push({
+        id: `jsonb-${i}-${e.thoi_gian || ''}`,
+        thoi_gian: e.thoi_gian || '',
+        nhan_vien: e.nhan_vien != null ? String(e.nhan_vien) : '',
+        cot,
+        gia_tri_cu: formatHistoryCell(e.gia_tri_cu),
+        gia_tri_moi: formatHistoryCell(e.gia_tri_moi),
+      });
+    });
+
+    (salesLogs || []).forEach((log) => {
+      const changes = getHistoryChanges(log.old_data, log.new_data);
+      changes.forEach((ch, idx) => {
+        rows.push({
+          id: `sales-${log.id}-${ch.key}-${idx}`,
+          thoi_gian: log.changed_at || '',
+          nhan_vien: log.changed_by != null ? String(log.changed_by) : '',
+          cot: ch.label,
+          gia_tri_cu: formatHistoryCell(ch.old),
+          gia_tri_moi: formatHistoryCell(ch.new),
+        });
+      });
+    });
+
+    rows.sort((a, b) => {
+      const ta = new Date(a.thoi_gian).getTime();
+      const tb = new Date(b.thoi_gian).getTime();
+      const na = Number.isFinite(ta) ? ta : 0;
+      const nb = Number.isFinite(tb) ? tb : 0;
+      return nb - na;
+    });
+    return rows;
+  };
+
+  /** Bảng sales_order_logs có thể chưa tạo trên một số project — chỉ bỏ qua, vẫn dùng orders.log */
+  const isSalesOrderLogsTableMissing = (err) => {
+    if (!err) return false;
+    const msg = String(err.message || err.details || '');
+    return (
+      msg.includes('sales_order_logs') ||
+      (msg.includes('schema cache') && msg.includes('Could not find')) ||
+      err.code === 'PGRST205'
+    );
+  };
+
+  // Handle View History — chỉ admin thực sự (isAdminOnly); orders.log (JSONB) + sales_order_logs nếu có
+  const handleViewHistory = async (orderCode, preloadedLog) => {
+    if (!isAdminOnly) return;
     if (!orderCode || orderCode.startsWith('UNK-') || orderCode.startsWith('NO_CODE_')) {
       toast.error('Không thể xem lịch sử đơn hàng này vì thiếu mã đơn hàng');
       return;
@@ -1302,21 +1375,43 @@ function DanhSachDon() {
     setHistoryOrderCode(orderCode);
     setShowHistoryModal(true);
     setLoadingHistory(true);
+    setHistoryTableRows([]);
 
     try {
-      const { data, error } = await supabase
-        .from('sales_order_logs')
-        .select('*')
-        .eq('order_code', orderCode)
-        .order('changed_at', { ascending: false });
+      const logPromise =
+        preloadedLog !== undefined && preloadedLog !== null
+          ? Promise.resolve({ data: { log: preloadedLog }, error: null })
+          : supabase.from('orders').select('log').eq('order_code', orderCode).maybeSingle();
 
-      if (error) throw error;
+      const [orderRes, salesRes] = await Promise.all([
+        logPromise,
+        supabase
+          .from('sales_order_logs')
+          .select('*')
+          .eq('order_code', orderCode)
+          .order('changed_at', { ascending: false }),
+      ]);
 
-      setHistoryLogs(data || []);
+      if (orderRes.error) throw orderRes.error;
+
+      let salesLogs = [];
+      if (salesRes.error) {
+        if (isSalesOrderLogsTableMissing(salesRes.error)) {
+          console.warn('[DanhSachDon] Bỏ qua sales_order_logs (bảng chưa có):', salesRes.error.message);
+        } else {
+          throw salesRes.error;
+        }
+      } else {
+        salesLogs = salesRes.data || [];
+      }
+
+      const logRaw = orderRes.data?.log ?? null;
+      const unified = buildUnifiedHistoryRows(logRaw, salesLogs);
+      setHistoryTableRows(unified);
     } catch (error) {
       console.error('Error fetching history:', error);
       toast.error('Lỗi khi tải lịch sử chỉnh sửa: ' + error.message);
-      setHistoryLogs([]);
+      setHistoryTableRows([]);
     } finally {
       setLoadingHistory(false);
     }
@@ -2611,17 +2706,21 @@ function DanhSachDon() {
                       })}
                       {isAdmin && (
                         <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewHistory(row['Mã đơn hàng']);
-                              }}
-                              className="text-green-500 hover:text-green-700 p-1 rounded hover:bg-green-50 transition-colors"
-                              title="Xem lịch sử chỉnh sửa"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
+                          <div className="flex items-center justify-center gap-2 flex-wrap">
+                            {isAdminOnly && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewHistory(row['Mã đơn hàng'], row._log);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors"
+                                title="Xem lịch sử chỉnh sửa (bảng)"
+                              >
+                                <History className="w-3.5 h-3.5 shrink-0" />
+                                Lịch sử
+                              </button>
+                            )}
                             {canEdit(permissionCode) && (
                               <button
                                 onClick={(e) => {
@@ -2728,66 +2827,44 @@ function DanhSachDon() {
                   <div className="animate-spin h-8 w-8 border-2 border-[#F37021] border-t-transparent rounded-full mx-auto mb-2"></div>
                   Đang tải lịch sử...
                 </div>
-              ) : historyLogs.length === 0 ? (
+              ) : historyTableRows.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <p>Chưa có lịch sử chỉnh sửa nào cho đơn hàng này.</p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {historyLogs.map((log, index) => {
-                    const changes = getHistoryChanges(log.old_data, log.new_data);
-                    if (changes.length === 0) return null;
-
-                    const changedAt = new Date(log.changed_at);
-                    const formattedDate = changedAt.toLocaleString('vi-VN', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    });
-
-                    return (
-                      <div key={log.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-300">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
-                              {log.changed_by ? log.changed_by.charAt(0).toUpperCase() : '?'}
-                            </div>
-                            <div>
-                              <p className="font-semibold text-gray-800">{log.changed_by || 'Unknown'}</p>
-                              <p className="text-xs text-gray-500">{formattedDate}</p>
-                            </div>
-                          </div>
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                            {changes.length} thay đổi
-                          </span>
-                        </div>
-
-                        <div className="space-y-2">
-                          {changes.map((change, idx) => (
-                            <div key={idx} className="bg-white rounded p-3 border border-gray-200">
-                              <div className="font-medium text-sm text-gray-700 mb-1">{change.label}</div>
-                              <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div>
-                                  <span className="text-xs text-gray-500">Trước:</span>
-                                  <div className="bg-red-50 text-red-700 px-2 py-1 rounded mt-1">
-                                    {change.old === null || change.old === '' ? '(Trống)' : String(change.old)}
-                                  </div>
-                                </div>
-                                <div>
-                                  <span className="text-xs text-gray-500">Sau:</span>
-                                  <div className="bg-green-50 text-green-700 px-2 py-1 rounded mt-1">
-                                    {change.new === null || change.new === '' ? '(Trống)' : String(change.new)}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="min-w-full text-sm text-left">
+                    <thead className="bg-gray-100 text-gray-700 text-xs uppercase tracking-wide">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Thời gian</th>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Nhân viên</th>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Cột</th>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị cũ</th>
+                        <th className="px-3 py-2 font-semibold whitespace-nowrap">Giá trị mới</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {historyTableRows.map((r) => (
+                        <tr key={r.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-800 whitespace-nowrap align-top">
+                            {formatHistoryTime(r.thoi_gian)}
+                          </td>
+                          <td className="px-3 py-2 text-gray-800 align-top max-w-[140px] break-words">
+                            {r.nhan_vien || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-gray-800 align-top max-w-[160px] break-words">
+                            {r.cot || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-red-800 align-top max-w-[220px] break-words">
+                            {r.gia_tri_cu}
+                          </td>
+                          <td className="px-3 py-2 text-green-800 align-top max-w-[220px] break-words">
+                            {r.gia_tri_moi}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

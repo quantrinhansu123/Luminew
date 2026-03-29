@@ -75,6 +75,24 @@ export function labelForOrderLogDbKey(dbKey) {
     return ORDER_LOG_LABELS[dbKey] || dbKey;
 }
 
+/** Các cột tiền/tổng: null, NaN, rỗng và 0 coi như một khi so sánh nhật ký (tránh spam NaN→0 lặp). */
+const ORDER_LOG_MONEY_EMPTY_EQUIV_KEYS = new Set(["total_amount_vnd"]);
+
+function moneyEmptyEquivalentToken(v) {
+    if (v === undefined || v === null || v === "") return "_empty";
+    if (typeof v === "number" && !Number.isFinite(v)) return "_empty";
+    const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[^\d.-]/g, ""));
+    if (!Number.isFinite(n) || n === 0) return "_empty";
+    return `_${n}`;
+}
+
+function trackedFieldEqualForLog(key, oldV, newV) {
+    if (ORDER_LOG_MONEY_EMPTY_EQUIV_KEYS.has(key)) {
+        return moneyEmptyEquivalentToken(oldV) === moneyEmptyEquivalentToken(newV);
+    }
+    return valuesEqualForOrderLog(oldV, newV);
+}
+
 /** Chỉ các cột đang theo dõi nhật ký từ một hàng orders (DB). */
 export function pickTrackedFieldsFromOrderRow(row) {
     if (!row || typeof row !== "object") return {};
@@ -130,7 +148,10 @@ export function buildTrackedFieldsPayloadForLog({
         sale_price: parseFloat(formData.sale_price) || 0,
         payment_type: formData.paymentType,
         exchange_rate: parseFloat(formData.exchange_rate) || 1,
-        total_amount_vnd: parseFloat(formData["tong-tien"]) || 0,
+        total_amount_vnd: (() => {
+            const n = parseFloat(formData["tong-tien"]);
+            return Number.isFinite(n) ? n : 0;
+        })(),
         payment_method_text: formData["hinh-thuc"],
         shipping_fee: formData.shipping_fee === "" ? null : parseFloat(formData.shipping_fee),
         shipping_cost: parseFloat(formData.shipping_cost) || 0,
@@ -169,7 +190,7 @@ export function buildOrderLogDiffEntries({ baseline, current, actor }) {
     for (const key of ORDER_LOG_TRACKED_DB_KEYS) {
         const oldV = snap[key];
         const newV = Object.prototype.hasOwnProperty.call(cur, key) ? cur[key] : oldV;
-        if (!valuesEqualForOrderLog(oldV, newV)) {
+        if (!trackedFieldEqualForLog(key, oldV, newV)) {
             entries.push({
                 thoi_gian: ts,
                 nhan_vien,
@@ -194,6 +215,7 @@ function isEmptyLogScalar(v) {
 export function formatOrderLogValue(v) {
     if (v === undefined || v === null) return "";
     if (typeof v === "number") {
+        if (!Number.isFinite(v)) return "";
         if (Number.isInteger(v)) return String(v);
         const t = String(v);
         return /e/i.test(t) ? t : String(Number(v.toFixed(6)).replace(/\.?0+$/, ""));
@@ -238,11 +260,25 @@ export function parseOrderLogJsonb(raw) {
 
 /**
  * Ghép log cũ + bản ghi mới (mỗi lần lưu một loạt thay đổi cùng thời điểm).
+ * Bỏ qua dòng mới nếu trùng hệt dòng cuối (cot_db + giá trị) — tránh lặp do race / lưu kép.
  */
 export function mergeOrderLogJsonb(existingRaw, newEntries) {
     const prev = parseOrderLogJsonb(existingRaw);
     const next = Array.isArray(newEntries) ? newEntries.filter((x) => x && typeof x === "object") : [];
-    return [...prev, ...next];
+    const out = [...prev];
+    for (const e of next) {
+        const last = out[out.length - 1];
+        if (
+            last &&
+            last.cot_db === e.cot_db &&
+            last.gia_tri_cu === e.gia_tri_cu &&
+            last.gia_tri_moi === e.gia_tri_moi
+        ) {
+            continue;
+        }
+        out.push(e);
+    }
+    return out;
 }
 
 /**

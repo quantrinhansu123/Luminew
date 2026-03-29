@@ -652,8 +652,7 @@ export const MODULE_PAGES = {
             { code: 'ORDERS_REPORT', name: 'Báo cáo vận đơn', path: '/bao-cao-van-don' },
             { code: 'ORDERS_FFM_MGT', name: 'FFM MGT', path: '/ffm_MGT' },
             { code: 'ORDERS_FFM_TT', name: 'FFM T&T', path: '/ffm_TT' },
-            { code: 'ORDERS_DIEN_BILL', name: 'Điền bill', path: '/dien-bill' },
-            { code: 'ORDERS_HISTORY', name: 'Lịch sử thay đổi', path: '/lich-su-van-don' }
+            { code: 'ORDERS_DIEN_BILL', name: 'Điền bill', path: '/dien-bill' }
         ]
     },
     'MODULE_CSKH': {

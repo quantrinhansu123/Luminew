@@ -268,13 +268,6 @@ function Home() {
           permission: 'ORDERS_REPORT',
         },
         {
-          id: "delivery-history",
-          label: "Lịch sử thay đổi",
-          icon: <ClipboardList className="w-4 h-4" />,
-          path: "/lich-su-van-don",
-          permission: 'ORDERS_HISTORY',
-        },
-        {
           id: "ffm-push-reconcile",
           label: "Bảng đối soát đẩy FFM",
           icon: <Table2 className="w-4 h-4" />,
@@ -809,14 +802,6 @@ function Home() {
           path: "/dien-bill",
           status: "Mở ứng dụng",
           permission: 'ORDERS_DIEN_BILL',
-        },
-        {
-          title: "Lịch sử thay đổi",
-          icon: <ClipboardList className="w-8 h-8" />,
-          color: "bg-gray-500", // Choosing a neutral color or distinct color
-          path: "/lich-su-van-don",
-          status: "Mở ứng dụng",
-          permission: 'ORDERS_HISTORY',
         },
         {
           title: "Bảng đối soát đẩy FFM",

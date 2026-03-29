@@ -1519,7 +1519,10 @@ export default function NhapDonMoi({ isEdit = false }) {
                 sale_price: parseFloat(formData.sale_price) || 0,
                 payment_type: formData.paymentType,
                 exchange_rate: parseFloat(formData.exchange_rate) || 1,
-                total_amount_vnd: parseFloat(formData["tong-tien"]) || 0,
+                total_amount_vnd: (() => {
+                    const n = parseFloat(formData["tong-tien"]);
+                    return Number.isFinite(n) ? n : 0;
+                })(),
                 payment_method_text: formData["hinh-thuc"],
 
                 shipping_fee: formData.shipping_fee === '' ? null : parseFloat(formData.shipping_fee),
@@ -1567,10 +1570,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                 current: pickTrackedFieldsFromPayload(orderPayload),
                 actor,
             });
-            const mergedLog = mergeOrderLogJsonb(
-                isEdit ? existingOrderSnapshot?.log : logDbArrayRef.current,
-                saveLogTail
-            );
+            // Luôn nối từ log trong ref (đã sync với debounce PATCH), không dùng snapshot đầu save — tránh ghi trùng vào JSONB
+            const mergedLog = mergeOrderLogJsonb(logDbArrayRef.current, saveLogTail);
             orderPayload.log = mergedLog;
             orderPayload.canh_bao = canh_bao;
 

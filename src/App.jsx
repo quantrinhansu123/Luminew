@@ -11,7 +11,6 @@ import BaoCaoMarketing from './pages/BaoCaoMarketing';
 import BaoCaoSale from './pages/BaoCaoSale';
 import NhanSuSaleLumiMoiView from './pages/NhanSuSaleLumiMoiView';
 import BaoCaoVanDon from './pages/BaoCaoVanDon';
-import BillOfLadingHistoryPage from './pages/BillOfLadingHistoryPage';
 import ChangeLogViewer from './pages/ChangeLogViewer';
 import CskhCrmHistoryPage from './pages/CskhCrmHistoryPage';
 import DanhSachBaoCaoTayCSKH from './pages/DanhSachBaoCaoTayCSKH';
@@ -174,7 +173,7 @@ function AppShell() {
 
             {/* History Routes */}
             <Route path="/lich-su-thay-doi" element={<ProtectedRoute><ChangeLogViewer /></ProtectedRoute>} />
-            <Route path="/lich-su-van-don" element={<ProtectedRoute><BillOfLadingHistoryPage /></ProtectedRoute>} />
+            <Route path="/lich-su-van-don" element={<Navigate to="/van-don" replace />} />
             <Route path="/lich-su-sale-order" element={<ProtectedRoute><SalesOrderHistoryPage /></ProtectedRoute>} />
             <Route path="/lich-su-cskh" element={<ProtectedRoute><CskhCrmHistoryPage /></ProtectedRoute>} />
 
