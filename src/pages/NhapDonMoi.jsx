@@ -6,8 +6,147 @@ import usePermissions from '../hooks/usePermissions'; // Added missing import
 import { recalcMktSoDonAfterOrderSave } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { recalcSaleOrderCountAfterOrderSave } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
+import {
+    buildOrderLogDiffEntries,
+    buildTrackedFieldsPayloadForLog,
+    mergeOrderLogJsonb,
+    parseOrderLogJsonb,
+    pickTrackedFieldsFromOrderRow,
+    pickTrackedFieldsFromPayload,
+} from '../utils/orderLogJsonb';
 
 const ADMIN_MAIL = import.meta.env.VITE_ADMIN_MAIL || "admin@marketing.com";
+
+/** Chuẩn hóa SĐT để so trùng (chỉ chữ số, 9 số cuối). */
+function normalizePhoneDigits(raw) {
+    const d = String(raw ?? "").replace(/\D/g, "");
+    if (d.length >= 9) return d.slice(-9);
+    return d;
+}
+
+/** Chuẩn hóa tên / địa chỉ: thường, gộp khoảng trắng, bỏ dấu (so trùng mềm). */
+function normalizeCustomerTextForDup(raw) {
+    let s = String(raw ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+    try {
+        s = s.normalize("NFD").replace(/\p{M}/gu, "");
+    } catch {
+        /* ignore */
+    }
+    return s;
+}
+
+/** Điều kiện OR: đủ SĐT HOẶC đủ tên HOẶC đủ địa chỉ thì mới quét trùng theo các nhánh đó. */
+function customerDupCheckContext(phone, name, address) {
+    const normPhone = normalizePhoneDigits(phone);
+    const normName = normalizeCustomerTextForDup(name);
+    const normAddr = normalizeCustomerTextForDup(address);
+    return {
+        normPhone,
+        normName,
+        normAddr,
+        phoneOk: normPhone.length >= 9,
+        nameOk: normName.length >= 2,
+        addrOk: normAddr.length >= 10,
+    };
+}
+
+function rowMatchesCustomerDupOr(ctx, row) {
+    if (ctx.phoneOk && normalizePhoneDigits(row.customer_phone) === ctx.normPhone) return true;
+    if (ctx.nameOk && normalizeCustomerTextForDup(row.customer_name) === ctx.normName) return true;
+    if (ctx.addrOk && normalizeCustomerTextForDup(row.customer_address) === ctx.normAddr) return true;
+    return false;
+}
+
+/** Trùng đơn nếu cùng SĐT HOẶC cùng tên HOẶC cùng địa chỉ (so với đơn khác). */
+async function fetchDuplicateOrderCodesByCustomerOr(supabaseClient, { phone, name, address }, excludeOrderCode) {
+    const ctx = customerDupCheckContext(phone, name, address);
+    if (!(ctx.phoneOk || ctx.nameOk || ctx.addrOk)) return [];
+    const { data, error } = await supabaseClient
+        .from("orders")
+        .select("order_code, customer_phone, customer_name, customer_address")
+        .order("created_at", { ascending: false })
+        .limit(2500);
+    if (error || !data?.length) return [];
+    const ex = String(excludeOrderCode ?? "").trim();
+    const matches = [];
+    const seen = new Set();
+    for (const row of data) {
+        const code = row.order_code;
+        if (!code || code === ex) continue;
+        if (!rowMatchesCustomerDupOr(ctx, row)) continue;
+        if (seen.has(code)) continue;
+        seen.add(code);
+        matches.push(code);
+        if (matches.length >= 20) break;
+    }
+    return matches;
+}
+
+/**
+ * Nội dung cột canh_bao (nhiều dòng, khớp khối cảnh báo trên UI).
+ * Luôn có dòng NV Sale phụ trách khi có cảnh báo trùng hoặc blacklist.
+ */
+function buildCanhBaoFromChecks(dupCodes, blacklistStatus, blacklistReason, saleStaff) {
+    const sale = String(saleStaff ?? "").trim();
+    const saleLine = sale || "— chưa chọn —";
+
+    const detailLines = [];
+    if (dupCodes.length) {
+        detailLines.push(`Trùng SĐT hoặc tên hoặc địa chỉ — mã đơn: ${dupCodes.join(", ")}`);
+    }
+    if (blacklistStatus === "warning" && String(blacklistReason || "").trim()) {
+        detailLines.push(`Danh sách hạn chế: ${String(blacklistReason).trim()}`);
+    }
+
+    if (detailLines.length === 0) return "";
+
+    const footer =
+        "Nội dung này đồng bộ vào cột Cảnh báo trùng trên đơn (khi sửa đơn: cập nhật tự động; khi tạo mới: ghi khi bấm Lưu).";
+
+    return [
+        "Cảnh báo cho Nhân viên Sale",
+        `NV Sale phụ trách đơn: ${saleLine}`,
+        "",
+        ...detailLines,
+        "",
+        footer,
+    ].join("\n");
+}
+
+/** order_date dạng YYYY-MM-DD (khớp handleSave). */
+function computeOrderDateValueForPayload(createdAtField) {
+    if (createdAtField) {
+        const dateTimeStr = createdAtField;
+        if (dateTimeStr.includes("T")) {
+            const [datePart] = dateTimeStr.split("T");
+            if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                return datePart;
+            }
+            const [year, month, day] = datePart.split("-").map(Number);
+            const localDate = new Date(year, month - 1, day);
+            const yearStr = localDate.getFullYear();
+            const monthStr = String(localDate.getMonth() + 1).padStart(2, "0");
+            const dayStr = String(localDate.getDate()).padStart(2, "0");
+            return `${yearStr}-${monthStr}-${dayStr}`;
+        }
+        if (dateTimeStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            return dateTimeStr;
+        }
+        const dateFromForm = new Date(dateTimeStr);
+        const year = dateFromForm.getFullYear();
+        const month = String(dateFromForm.getMonth() + 1).padStart(2, "0");
+        const day = String(dateFromForm.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+    }
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    const d = String(today.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+}
 
 /** Bộ phận MKT trong bảng users (department) — chuẩn hóa để lọc danh sách nhân sự */
 const isUserDepartmentMkt = (department) => {
@@ -207,6 +346,19 @@ export default function NhapDonMoi({ isEdit = false }) {
     const [blacklistInfo, setBlacklistInfo] = useState(null); // { name, phone } to display comparison
     const [blacklistItems, setBlacklistItems] = useState([]); // List of all blacklist items
     const [showBlacklist, setShowBlacklist] = useState(false); // Toggle visibility
+
+    /** Mã đơn trùng (SĐT hoặc tên hoặc địa chỉ — OR) */
+    const [duplicateOrderCodes, setDuplicateOrderCodes] = useState([]);
+
+    const duplicateCheckUsable = useMemo(() => {
+        const c = customerDupCheckContext(formData.phone, formData["ten-kh"], formData["add"]);
+        return c.phoneOk || c.nameOk || c.addrOk;
+    }, [formData.phone, formData["ten-kh"], formData["add"]]);
+
+    /** Nhật ký jsonb: bản đầy đủ hiện tại (đồng bộ DB khi sửa đơn hoặc chỉ bộ nhớ khi tạo mới). */
+    const logDbArrayRef = useRef([]);
+    /** Trạng thái field đã log lần cuối — diff với form để auto-append. */
+    const logBaselineTrackedRef = useRef({});
 
     // -------------------------------------------------------------------------
     // 2. DATA LOADING (Employees & Pages)
@@ -664,6 +816,90 @@ export default function NhapDonMoi({ isEdit = false }) {
         return () => clearTimeout(timeoutId);
     }, [formData.phone, formData["ten-kh"]]);
 
+    // Trùng khách (SĐT HOẶC tên HOẶC địa chỉ) — xem trước (debounce; khi lưu tính lại)
+    useEffect(() => {
+        let cancelled = false;
+        const phone = formData.phone;
+        const name = formData["ten-kh"];
+        const address = formData["add"];
+        const exclude = (formData["ma-don"] || "").trim();
+
+        const run = async () => {
+            const ctx = customerDupCheckContext(phone, name, address);
+            if (!(ctx.phoneOk || ctx.nameOk || ctx.addrOk)) {
+                if (!cancelled) setDuplicateOrderCodes([]);
+                return;
+            }
+            const { data, error } = await supabase
+                .from("orders")
+                .select("order_code, customer_phone, customer_name, customer_address")
+                .order("created_at", { ascending: false })
+                .limit(2500);
+            if (cancelled || error) return;
+            const matches = [];
+            const seen = new Set();
+            for (const row of data || []) {
+                const code = row.order_code;
+                if (!code || code === exclude) continue;
+                if (!rowMatchesCustomerDupOr(ctx, row)) continue;
+                if (seen.has(code)) continue;
+                seen.add(code);
+                matches.push(code);
+                if (matches.length >= 15) break;
+            }
+            if (!cancelled) setDuplicateOrderCodes(matches);
+        };
+
+        const t = setTimeout(run, 450);
+        return () => {
+            cancelled = true;
+            clearTimeout(t);
+        };
+    }, [formData.phone, formData["ten-kh"], formData["add"], formData["ma-don"]]);
+
+    // Sửa đơn: ghi cột canh_bao trên DB ngay khi trùng/blacklist/Sale đổi (debounce; không chạy khi chưa load xong đơn)
+    useEffect(() => {
+        if (!isEdit || !isOrderLoaded) return;
+        const oc = (formData["ma-don"] || "").trim();
+        if (!oc) return;
+
+        let cancelled = false;
+        let testMode = false;
+        try {
+            const settingsJson = localStorage.getItem("system_settings");
+            testMode = JSON.parse(settingsJson || "{}").dataSource === "test";
+        } catch {
+            /* ignore */
+        }
+        if (testMode) return;
+
+        const canh_bao = buildCanhBaoFromChecks(
+            duplicateOrderCodes,
+            blacklistStatus,
+            blacklistReason,
+            selectedSale
+        );
+
+        const t = setTimeout(async () => {
+            if (cancelled) return;
+            const { error } = await supabase.from("orders").update({ canh_bao }).eq("order_code", oc);
+            if (error) console.warn("Đồng bộ cột canh_bao:", error.message);
+        }, 900);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(t);
+        };
+    }, [
+        isEdit,
+        isOrderLoaded,
+        formData["ma-don"],
+        duplicateOrderCodes.join("|"),
+        blacklistStatus,
+        blacklistReason,
+        selectedSale,
+    ]);
+
     const filteredSaleEmployees = useMemo(() => {
         if (!saleSearch) return saleEmployees;
         return saleEmployees.filter(e => (e['Họ_và_tên'] || e['Họ và tên'] || "").toLowerCase().includes(saleSearch.toLowerCase()));
@@ -966,6 +1202,8 @@ export default function NhapDonMoi({ isEdit = false }) {
             if (!data) {
                 alert("Không tìm thấy đơn hàng có mã này!");
                 setIsOrderLoaded(false); // Reset loaded state
+                logDbArrayRef.current = [];
+                logBaselineTrackedRef.current = {};
                 return;
             }
 
@@ -1036,6 +1274,8 @@ export default function NhapDonMoi({ isEdit = false }) {
             setSelectedMkt(data.marketing_staff || "");
             setSelectedSale(data.sale_staff || "");
             setTrangThaiDon(null); // Reset status check
+            logDbArrayRef.current = parseOrderLogJsonb(data.log);
+            logBaselineTrackedRef.current = pickTrackedFieldsFromOrderRow(data);
             setIsOrderLoaded(true);
 
 
@@ -1079,6 +1319,77 @@ export default function NhapDonMoi({ isEdit = false }) {
             return null;
         }
     };
+
+    // Ghi cột log tự động khi field theo dõi đổi (debounce). Sửa đơn: PATCH DB; tạo mới: chỉ bộ nhớ tới lúc Lưu.
+    useEffect(() => {
+        let testMode = false;
+        try {
+            testMode = JSON.parse(localStorage.getItem("system_settings") || "{}").dataSource === "test";
+        } catch {
+            /* ignore */
+        }
+        if (testMode || isSaving) return;
+        if (isEdit && !isOrderLoaded) return;
+
+        let cancelled = false;
+        const t = setTimeout(async () => {
+            if (cancelled || isSaving) return;
+
+            const orderDateValue = computeOrderDateValueForPayload(formData["created_at"]);
+            const orderDateTime = formData["created_at"] || new Date().toISOString();
+            const calculatedShift = calculateShiftFromTime(orderDateTime);
+            const current = buildTrackedFieldsPayloadForLog({
+                formData,
+                selectedPage,
+                selectedMkt,
+                selectedSale,
+                hasRndPermission,
+                foundBranchCache,
+                orderDateValue,
+                calculatedShift,
+                isEdit,
+            });
+            const actor = (userName || userEmail || "hệ thống").toString().trim();
+            const entries = buildOrderLogDiffEntries({
+                baseline: logBaselineTrackedRef.current,
+                current,
+                actor,
+            });
+            if (!entries.length) return;
+
+            const merged = mergeOrderLogJsonb(logDbArrayRef.current, entries);
+            const oc = (formData["ma-don"] || "").trim();
+
+            if (isEdit && oc) {
+                const { error } = await supabase.from("orders").update({ log: merged }).eq("order_code", oc);
+                if (error) {
+                    console.warn("Tự động ghi log:", error.message);
+                    return;
+                }
+            }
+
+            if (cancelled) return;
+            logDbArrayRef.current = parseOrderLogJsonb(merged);
+            logBaselineTrackedRef.current = { ...current };
+        }, 900);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(t);
+        };
+    }, [
+        isSaving,
+        isEdit,
+        isOrderLoaded,
+        formData,
+        selectedPage,
+        selectedMkt,
+        selectedSale,
+        hasRndPermission,
+        foundBranchCache,
+        userName,
+        userEmail,
+    ]);
 
     const handleSave = async () => {
         setSubmitAttempted(true);
@@ -1142,67 +1453,40 @@ export default function NhapDonMoi({ isEdit = false }) {
                 return;
             }
 
-            /** Ngày đơn trước khi update — để tính lại Số đơn TT cả ngày cũ khi đổi ngày/MKT/SP/khu vực */
+            /** Đơn hiện tại (edit): ngày cũ + snapshot MKT + log — kiểm tra tồn tại sớm */
             let previousOrderDate = null;
+            let existingOrderSnapshot = null;
             if (isEdit && orderCode) {
-                const { data: prevSnap, error: prevErr } = await supabase
+                const { data: ex, error: exErr } = await supabase
                     .from('orders')
-                    .select('order_date')
+                    .select('*')
                     .eq('order_code', orderCode)
                     .maybeSingle();
-                if (!prevErr && prevSnap?.order_date != null) {
-                    const od = prevSnap.order_date;
+                if (exErr) {
+                    console.error("❌ Error checking existing order:", exErr);
+                    throw new Error(`Lỗi khi kiểm tra đơn hàng: ${exErr.message}`);
+                }
+                if (!ex) {
+                    throw new Error(`⚠️ Không tìm thấy đơn hàng với mã: ${orderCode}. Đơn hàng có thể đã bị xóa hoặc mã đơn hàng không đúng.`);
+                }
+                existingOrderSnapshot = ex;
+                if (ex.order_date != null) {
+                    const od = ex.order_date;
                     previousOrderDate = typeof od === 'string' ? od.split('T')[0] : od;
                 }
             }
 
-            // Tính ca từ thời gian lên đơn (sử dụng created_at hoặc thời gian hiện tại)
             const orderDateTime = formData["created_at"] || new Date().toISOString();
             const calculatedShift = calculateShiftFromTime(orderDateTime);
+            const orderDateValue = computeOrderDateValueForPayload(formData["created_at"]);
 
-            // Parse order_date từ created_at hoặc sử dụng thời gian hiện tại
-            // QUAN TRỌNG: order_date là kiểu DATE (chỉ có ngày, không có giờ)
-            // Cần gửi format YYYY-MM-DD, không gửi timestamp để tránh timezone issues
-            let orderDateValue;
-            if (formData["created_at"]) {
-                // created_at là datetime-local format (YYYY-MM-DDTHH:mm)
-                const dateTimeStr = formData["created_at"];
-                // Extract chỉ phần date (YYYY-MM-DD)
-                if (dateTimeStr.includes('T')) {
-                    const [datePart] = dateTimeStr.split('T');
-                    // Validate date format
-                    if (datePart.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                        orderDateValue = datePart; // Gửi trực tiếp YYYY-MM-DD
-                    } else {
-                        // Fallback: parse và format lại
-                        const [year, month, day] = datePart.split('-').map(Number);
-                        const localDate = new Date(year, month - 1, day);
-                        const yearStr = localDate.getFullYear();
-                        const monthStr = String(localDate.getMonth() + 1).padStart(2, '0');
-                        const dayStr = String(localDate.getDate()).padStart(2, '0');
-                        orderDateValue = `${yearStr}-${monthStr}-${dayStr}`;
-                    }
-                } else {
-                    // Nếu không có 'T', có thể đã là YYYY-MM-DD
-                    if (dateTimeStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                        orderDateValue = dateTimeStr;
-                    } else {
-                        // Fallback: parse và format
-                        const dateFromForm = new Date(dateTimeStr);
-                        const year = dateFromForm.getFullYear();
-                        const month = String(dateFromForm.getMonth() + 1).padStart(2, '0');
-                        const day = String(dateFromForm.getDate()).padStart(2, '0');
-                        orderDateValue = `${year}-${month}-${day}`;
-                    }
-                }
-            } else {
-                // Default: lấy ngày hiện tại (local)
-                const today = new Date();
-                const year = today.getFullYear();
-                const month = String(today.getMonth() + 1).padStart(2, '0');
-                const day = String(today.getDate()).padStart(2, '0');
-                orderDateValue = `${year}-${month}-${day}`;
-            }
+            const dupCodes = await fetchDuplicateOrderCodesByCustomerOr(
+                supabase,
+                { phone: formData["phone"], name: formData["ten-kh"], address: formData["add"] },
+                orderCode
+            );
+            const canh_bao = buildCanhBaoFromChecks(dupCodes, blacklistStatus, blacklistReason, selectedSale);
+            const actor = (userName || userEmail || "hệ thống").toString().trim();
 
             // Prepare payload
             // LƯU Ý: Khi edit, KHÔNG gửi order_code trong payload vì:
@@ -1278,6 +1562,18 @@ export default function NhapDonMoi({ isEdit = false }) {
                 }
             });
 
+            const saveLogTail = buildOrderLogDiffEntries({
+                baseline: logBaselineTrackedRef.current,
+                current: pickTrackedFieldsFromPayload(orderPayload),
+                actor,
+            });
+            const mergedLog = mergeOrderLogJsonb(
+                isEdit ? existingOrderSnapshot?.log : logDbArrayRef.current,
+                saveLogTail
+            );
+            orderPayload.log = mergedLog;
+            orderPayload.canh_bao = canh_bao;
+
             // Log payload để debug
             console.log("📦 Update payload:", {
                 isEdit,
@@ -1299,32 +1595,14 @@ export default function NhapDonMoi({ isEdit = false }) {
 
             const query = supabase.from('orders');
             let result;
-            let existingOrderSnapshot = null;
 
             if (isEdit) {
-                // Khi edit, sử dụng UPDATE với order_code làm điều kiện
+                // Khi edit, sử dụng UPDATE với order_code làm điều kiện (đã kiểm tra tồn tại ở trên)
                 if (!orderCode) {
                     throw new Error("Không tìm thấy mã đơn hàng để cập nhật!");
                 }
 
-                // QUAN TRỌNG: Kiểm tra đơn hàng có tồn tại không trước khi update
-                const { data: existingOrder, error: checkError } = await supabase
-                    .from('orders')
-                    .select('id, order_code, order_date, marketing_staff, product, country')
-                    .eq('order_code', orderCode)
-                    .maybeSingle();
-
-                if (checkError) {
-                    console.error("❌ Error checking existing order:", checkError);
-                    throw new Error(`Lỗi khi kiểm tra đơn hàng: ${checkError.message}`);
-                }
-
-                if (!existingOrder) {
-                    throw new Error(`⚠️ Không tìm thấy đơn hàng với mã: ${orderCode}. Đơn hàng có thể đã bị xóa hoặc mã đơn hàng không đúng.`);
-                }
-                existingOrderSnapshot = existingOrder;
-
-                console.log(`🔄 Updating order with code: ${orderCode} (ID: ${existingOrder.id})`);
+                console.log(`🔄 Updating order with code: ${orderCode} (ID: ${existingOrderSnapshot.id})`);
                 console.log(`📦 Payload keys:`, Object.keys(orderPayload));
                 console.log(`📦 Payload (first 5 keys):`, Object.fromEntries(Object.entries(orderPayload).slice(0, 5)));
 
@@ -1416,6 +1694,8 @@ export default function NhapDonMoi({ isEdit = false }) {
             }
 
             if (saveOkForMktSync) {
+                logDbArrayRef.current = parseOrderLogJsonb(orderPayload.log);
+                logBaselineTrackedRef.current = pickTrackedFieldsFromPayload(orderPayload);
                 const newMktKey = {
                     date: orderDateValue,
                     name: selectedMkt,
@@ -1523,6 +1803,9 @@ export default function NhapDonMoi({ isEdit = false }) {
         setBlacklistReason("");
         setBlacklistInfo(null);
         setBlacklistItems([]); // Optional: keep items or clear? Better keep to save fetch? Actually keep items is better, but clear status is must
+        setDuplicateOrderCodes([]);
+        logDbArrayRef.current = [];
+        logBaselineTrackedRef.current = {};
     };
 
     if (!hasAccess) {
@@ -1631,7 +1914,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                                         <CardHeader className="pb-3 border-b mb-4">
                                             <CardTitle className="text-lg font-semibold flex items-center gap-2">
                                                 <div className="w-1 h-6 bg-[#2d7c2d] rounded-full" />
-                                                Dữ liệu khách hàng
+                                                Thông tin khách hàng
                                             </CardTitle>
                                         </CardHeader>
                                         <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1938,6 +2221,122 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 <Input id="zipcode" value={formData.zipcode} onChange={handleInputChange} placeholder="Mã bưu điện..." />
                                             </div>
 
+                                            <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                                                <Card className="border-yellow-200 bg-yellow-50/30">
+                                                    <CardHeader className="pb-2">
+                                                        <CardTitle className="text-sm font-bold text-yellow-700 flex items-center gap-2">
+                                                            <AlertCircle className="w-4 h-4" />
+                                                            Kiểm tra hệ thống
+                                                        </CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent className="text-xs space-y-2 text-yellow-800">
+                                                        {(duplicateOrderCodes.length > 0 || blacklistStatus === "warning") && (
+                                                            <div
+                                                                role="alert"
+                                                                className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-3 text-red-900 space-y-3"
+                                                            >
+                                                                <div>
+                                                                    <div className="font-bold text-sm leading-snug">
+                                                                        Cảnh báo cho Nhân viên Sale
+                                                                    </div>
+                                                                    <p className="mt-1.5 text-sm leading-snug">
+                                                                        <span className="text-red-800">NV Sale phụ trách đơn:</span>{" "}
+                                                                        <span className="font-semibold text-red-950">
+                                                                            {selectedSale?.trim() ? selectedSale.trim() : "— chưa chọn —"}
+                                                                        </span>
+                                                                    </p>
+                                                                </div>
+
+                                                                <div className="text-xs leading-relaxed space-y-1.5 border-t border-red-200/80 pt-3">
+                                                                    {duplicateOrderCodes.length > 0 && (
+                                                                        <p>
+                                                                            Trùng SĐT hoặc tên hoặc địa chỉ — mã đơn:{" "}
+                                                                            <span className="font-semibold">{duplicateOrderCodes.join(", ")}</span>
+                                                                        </p>
+                                                                    )}
+                                                                    {blacklistStatus === "warning" && (
+                                                                        <p className="font-semibold">
+                                                                            Danh sách hạn chế: {blacklistReason || "có khớp"}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+
+                                                                <p className="text-[11px] leading-relaxed text-red-700/90 border-t border-red-200/80 pt-3 mb-0">
+                                                                    Nội dung này đồng bộ vào cột <strong>Cảnh báo trùng</strong> trên đơn (khi
+                                                                    sửa đơn: cập nhật tự động; khi tạo mới: ghi khi bấm Lưu).
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                        <div>
+                                                            • Cảnh báo danh sách hạn chế:
+                                                            {blacklistStatus === "warning" ? (
+                                                                <>
+                                                                    <span className="font-bold text-red-600 ml-1">
+                                                                        CẢNH BÁO ({blacklistReason})
+                                                                    </span>
+                                                                    {blacklistInfo && (
+                                                                        <div className="mt-1 pl-4 text-xs text-red-800 bg-red-50 p-1 rounded border border-red-200">
+                                                                            <div><strong>Khách trong sổ đen:</strong></div>
+                                                                            <div>- Tên: {blacklistInfo.name}</div>
+                                                                            <div>- SĐT: {blacklistInfo.phone}</div>
+                                                                        </div>
+                                                                    )}
+                                                                </>
+                                                            ) : blacklistStatus === "clean" ? (
+                                                                <span className="font-semibold text-green-600 ml-1">Sạch</span>
+                                                            ) : (
+                                                                <span className="text-gray-400 ml-1">...</span>
+                                                            )}
+                                                        </div>
+                                                        <p>
+                                                            • Trùng đơn (SĐT <span className="font-medium">hoặc</span> tên{" "}
+                                                            <span className="font-medium">hoặc</span> địa chỉ):{" "}
+                                                            {!duplicateCheckUsable ? (
+                                                                <span className="text-gray-500 font-normal">
+                                                                    Nhập SĐT (≥9 số), hoặc tên (≥2 ký tự), hoặc địa chỉ (≥10 ký tự) để kiểm tra
+                                                                </span>
+                                                            ) : duplicateOrderCodes.length > 0 ? (
+                                                                <span className="font-semibold text-amber-700">
+                                                                    Có đơn trùng — mã: {duplicateOrderCodes.join(", ")}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="font-semibold text-green-600">Không phát hiện</span>
+                                                            )}
+                                                        </p>
+
+                                                        <div className="pt-2 border-t mt-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowBlacklist(!showBlacklist)}
+                                                                className="text-blue-600 hover:underline flex items-center gap-1"
+                                                            >
+                                                                {showBlacklist ? "Thu gọn danh sách hạn chế" : "Xem danh sách hạn chế"}
+                                                                <ChevronDown className={`w-3 h-3 transition-transform ${showBlacklist ? "rotate-180" : ""}`} />
+                                                            </button>
+
+                                                            {showBlacklist && (
+                                                                <div className="mt-2 max-h-40 overflow-y-auto border rounded bg-white p-2">
+                                                                    {blacklistItems.length === 0 ? (
+                                                                        <p className="text-gray-400 italic">Danh sách trống</p>
+                                                                    ) : (
+                                                                        <ul className="space-y-1">
+                                                                            {blacklistItems.map((item) => (
+                                                                                <li key={item.id} className="border-b last:border-0 pb-1">
+                                                                                    <div className="font-medium">
+                                                                                        {item.phone} - {item.name}
+                                                                                    </div>
+                                                                                    <div className="text-[10px] text-gray-500">{item.reason}</div>
+                                                                                </li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            </div>
+
                                             {/* Tracking Code & Date moved/added here for logical flow? Or separate tab? Keeping layout structure. */}
                                             <div className="space-y-2 pt-4 border-t">
                                                 <Label htmlFor="tracking_code">Mã Tracking</Label>
@@ -2154,67 +2553,6 @@ export default function NhapDonMoi({ isEdit = false }) {
                                         </Card>
 
                                         <div className="space-y-6">
-                                            <Card className="border-yellow-200 bg-yellow-50/30">
-                                                <CardHeader className="pb-2">
-                                                    <CardTitle className="text-sm font-bold text-yellow-700 flex items-center gap-2">
-                                                        <AlertCircle className="w-4 h-4" />
-                                                        Kiểm tra hệ thống
-                                                    </CardTitle>
-                                                </CardHeader>
-                                                <CardContent className="text-xs space-y-2 text-yellow-800">
-                                                    <div>
-                                                        • Cảnh báo danh sách hạn chế:
-                                                        {blacklistStatus === 'warning' ? (
-                                                            <>
-                                                                <span className="font-bold text-red-600 ml-1">
-                                                                    CẢNH BÁO ({blacklistReason})
-                                                                </span>
-                                                                {blacklistInfo && (
-                                                                    <div className="mt-1 pl-4 text-xs text-red-800 bg-red-50 p-1 rounded border border-red-200">
-                                                                        <div><strong>Khách trong sổ đen:</strong></div>
-                                                                        <div>- Tên: {blacklistInfo.name}</div>
-                                                                        <div>- SĐT: {blacklistInfo.phone}</div>
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        ) : blacklistStatus === 'clean' ? (
-                                                            <span className="font-semibold text-green-600 ml-1">Sạch</span>
-                                                        ) : (
-                                                            <span className="text-gray-400 ml-1">...</span>
-                                                        )}
-                                                    </div>
-                                                    <p>• Trùng đơn: <span className="font-semibold text-green-600">Không phát hiện</span></p>
-
-                                                    {/* Toggle Blacklist View */}
-                                                    <div className="pt-2 border-t mt-2">
-                                                        <button
-                                                            onClick={() => setShowBlacklist(!showBlacklist)}
-                                                            className="text-blue-600 hover:underline flex items-center gap-1"
-                                                        >
-                                                            {showBlacklist ? "Thu gọn danh sách hạn chế" : "Xem danh sách hạn chế"}
-                                                            <ChevronDown className={`w-3 h-3 transition-transform ${showBlacklist ? 'rotate-180' : ''}`} />
-                                                        </button>
-
-                                                        {showBlacklist && (
-                                                            <div className="mt-2 max-h-40 overflow-y-auto border rounded bg-white p-2">
-                                                                {blacklistItems.length === 0 ? (
-                                                                    <p className="text-gray-400 italic">Danh sách trống</p>
-                                                                ) : (
-                                                                    <ul className="space-y-1">
-                                                                        {blacklistItems.map(item => (
-                                                                            <li key={item.id} className="border-b last:border-0 pb-1">
-                                                                                <div className="font-medium">{item.phone} - {item.name}</div>
-                                                                                <div className="text-[10px] text-gray-500">{item.reason}</div>
-                                                                            </li>
-                                                                        ))}
-                                                                    </ul>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </CardContent>
-                                            </Card>
-
                                             <Card>
                                                 <CardHeader className="pb-2">
                                                     <CardTitle className="text-sm font-bold">Ghi chú & Phản hồi</CardTitle>

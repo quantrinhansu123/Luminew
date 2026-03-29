@@ -26,7 +26,8 @@ export const BILL_LADING_COLUMNS = [
     "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
     "Nhân viên Sale", "Nhân viên MKT", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
-    "Ngày up bill", "Tiền đã thanh toán"
+    "Ngày up bill", "Tiền đã thanh toán",
+    "Nhật ký", "Cảnh báo trùng"
 ];
 
 // --- DEFAULT COLUMNS (Bill of Lading) ---
@@ -61,11 +62,12 @@ export const EDITABLE_COLS = [
     // Cột bill
     "Payment Bill", "Payment Image",
     // Cột CSKH
-    "Trạng thái cskh"
+    "Trạng thái cskh",
+    "Cảnh báo trùng"
 ];
 
 // Columns that expand with Ctrl+Enter
-export const LONG_TEXT_COLS = ["Lý do", "Ghi chú của VĐ", "Ghi chú", "GHI CHÚ"];
+export const LONG_TEXT_COLS = ["Lý do", "Ghi chú của VĐ", "Ghi chú", "GHI CHÚ", "Nhật ký", "Cảnh báo trùng"];
 
 export const COLUMN_MAPPING = {
     "Ghi chú vận đơn": "Ghi chú của VĐ",

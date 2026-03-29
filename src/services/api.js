@@ -1,5 +1,6 @@
-import { PRIMARY_KEY_COLUMN, SETTINGS_KEY } from '../types';
+import { COLUMN_MAPPING, DROPDOWN_OPTIONS, PRIMARY_KEY_COLUMN, SETTINGS_KEY } from '../types';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
+import { formatOrderLogJsonbForDisplay } from '../utils/orderLogJsonb';
 import { supabase } from './supabaseClient';
 
 export const DB_TO_APP_MAPPING = {
@@ -51,7 +52,9 @@ export const DB_TO_APP_MAPPING = {
     "payment_image": "Payment Image",
     "ngayupbill": "Ngày up bill",
     "reconciled_vnd": "Tiền đã thanh toán",
-    "cskh_status": "Trạng thái cskh"
+    "cskh_status": "Trạng thái cskh",
+    "log": "Nhật ký",
+    "canh_bao": "Cảnh báo trùng"
 };
 
 /**
@@ -155,6 +158,11 @@ const mapSupabaseOrderToApp = (sOrder) => {
         const v = appOrder[k];
         if (typeof v === 'string') appOrder[k] = v.trim();
     }
+
+    if (sOrder.log !== undefined && sOrder.log !== null) {
+        appOrder['Nhật ký'] = formatOrderLogJsonbForDisplay(sOrder.log);
+    }
+
     return appOrder;
 };
 
@@ -588,10 +596,73 @@ export const VAN_DON_PAGE_COLUMN_LIST = [
     'check_result', 'vandon_note', 'product_name_1', 'quantity_1', 'product_name_2', 'quantity_2', 'gift', 'gift_item', 'gift_quantity', 'gift_qty',
     'delivery_status_nb', 'payment_currency', 'estimated_delivery_date', 'thoigiangiaohangffm', 'warehouse_fee',
     'note_caps', 'accounting_check_date', 'tracking_check_date', 'reconciled_amount', 'payment_bill', 'payment_image',
-    'ngayupbill', 'reconciled_vnd', 'cskh_status'
+    'ngayupbill', 'reconciled_vnd', 'cskh_status', 'log', 'canh_bao'
 ];
 
 const VAN_DON_SELECT_QUERY = VAN_DON_PAGE_COLUMN_LIST.join(',');
+
+/** Cột ngày lọc theo 1 ngày ở header (khớp logic VanDon.jsx). */
+const VAN_DON_PER_COL_DATE_UI_KEYS = new Set([
+    'Ngày lên đơn',
+    'Ngày đóng hàng',
+    'Ngày đẩy đơn',
+    'Ngày có mã tracking',
+    'Ngày Kế toán đối soát với FFM lần 2',
+]);
+
+/** Nhãn cột UI tính toán → cột DB (không có trong DB_TO_APP_MAPPING). */
+const VAN_DON_UI_COL_DB_OVERRIDE = {
+    'Ngày đẩy đơn': 'accounting_check_date',
+    'Ngày có mã tracking': 'tracking_check_date',
+};
+
+function normalizeVanDonFilterDateToYmd(input) {
+    if (input == null || input === '') return '';
+    const str = String(input).trim();
+    if (!str) return '';
+    if (str.match(/^\d{4}-\d{2}-\d{2}/)) return str.split('T')[0].split(' ')[0];
+    if (str.includes('/')) {
+        const parts = str.split(' ')[0].split('/');
+        if (parts.length === 3) {
+            const [d, m, y] = parts.map(Number);
+            const fullYear = y < 100 ? 2000 + y : y;
+            return `${fullYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+    }
+    return str.split('T')[0].split(' ')[0] || '';
+}
+
+function addOneCalendarDayYmd(ymd) {
+    const d = new Date(`${ymd}T12:00:00.000Z`);
+    if (Number.isNaN(d.getTime())) return ymd;
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+}
+
+function escapeIlikePattern(s) {
+    return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/** @param {string} uiKey — khóa trong filterValues (tiêu đề cột). */
+export function resolveVanDonFilterUiKeyToDb(uiKey) {
+    if (!uiKey || typeof uiKey !== 'string') return null;
+    const resolved = COLUMN_MAPPING[uiKey] || uiKey;
+    const override = VAN_DON_UI_COL_DB_OVERRIDE[resolved] || VAN_DON_UI_COL_DB_OVERRIDE[uiKey];
+    if (override) return override;
+    for (const [dbCol, label] of Object.entries(DB_TO_APP_MAPPING)) {
+        if (label === resolved) return dbCol;
+    }
+    return null;
+}
+
+function isVanDonDropdownColumnFilter(uiKey) {
+    const dataKey = COLUMN_MAPPING[uiKey] || uiKey;
+    return Boolean(
+        DROPDOWN_OPTIONS[dataKey] ||
+            DROPDOWN_OPTIONS[uiKey] ||
+            ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)
+    );
+}
 
 // Fetch Van Don data với pagination và filters từ backend (NOW SUPABASE)
 export const fetchVanDon = async (options = {}) => {
@@ -614,15 +685,18 @@ export const fetchVanDon = async (options = {}) => {
         dateTo,
         allowedStaff, // Array of names allowed to view
         /** Tab Đơn cá nhân /van-don: chỉ đơn có delivery_staff khớp tên (không dùng % — so khớp nguyên chuỗi, không phân biệt hoa thường). */
-        deliveryStaffSelfFilter
+        deliveryStaffSelfFilter,
+        /** Lọc theo ô header cột (toàn bộ CSDL, không chỉ trang hiện tại). */
+        columnFilters = {},
+        /** { status, include, exclude } — khớp bộ lọc Mã Tracking trên lưới. */
+        trackingFilter = null,
     } = options;
 
     const mode = getDataSourceMode();
     if (mode === 'test') {
         console.log('🔶 [TEST MODE] Using Mock Data for fetchVanDon');
         // Return dummy response for Van Don
-        return {
-            data: [
+        const mockRows = [
                 {
                     "Mã đơn hàng": "TEST-VD-01",
                     "Name*": "Test Vận Đơn 1",
@@ -649,8 +723,15 @@ export const fetchVanDon = async (options = {}) => {
                     "Mã Tracking": "TEST-TRACK-456",
                     "Ngày lên đơn": new Date(Date.now() - 172800000).toISOString()
                 }
-            ],
+        ];
+        const mockSum = mockRows.reduce((s, r) => {
+            const n = parseFloat(String(r['Tổng tiền VNĐ'] ?? 0).replace(/[^\d.-]/g, '')) || 0;
+            return s + n;
+        }, 0);
+        return {
+            data: mockRows,
             total: 2,
+            totalAmountVndSum: mockSum,
             page: 1,
             limit: limit,
             totalPages: 1
@@ -667,8 +748,8 @@ export const fetchVanDon = async (options = {}) => {
         const orEncodeInList = (vals) =>
             vals.map((v) => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',');
 
-        const buildFilteredVanDonQuery = (tableName) => {
-            let query = supabase.from(tableName).select(VAN_DON_SELECT_QUERY, { count: 'exact' });
+        const applyVanDonFilters = (initialQuery) => {
+            let query = initialQuery;
 
             if (team && team !== 'all') {
                 query = query.eq('team', team);
@@ -682,7 +763,9 @@ export const fetchVanDon = async (options = {}) => {
                 const hasEmpty = Array.isArray(value) ? value.includes('Trống') || value.includes('__EMPTY__') : value === 'Trống' || value === '__EMPTY__';
                 const inValues = Array.isArray(value)
                     ? value.filter((x) => x && x !== 'Trống' && x !== '__EMPTY__')
-                    : (typeof value === 'string' && value && value !== 'Trống' && value !== '__EMPTY__' ? [value] : []);
+                    : typeof value === 'string' && value && value !== 'Trống' && value !== '__EMPTY__'
+                      ? [value]
+                      : [];
 
                 if (inValues.length > 0 && hasEmpty) {
                     const enc = orEncodeInList(inValues);
@@ -721,7 +804,6 @@ export const fetchVanDon = async (options = {}) => {
 
             if (deliveryStaffSelfFilter !== undefined && deliveryStaffSelfFilter !== null && String(deliveryStaffSelfFilter).trim() !== '') {
                 const raw = String(deliveryStaffSelfFilter).trim();
-                /** Chuỗi con (escape % _) — cột NV vận đơn thường là họ tên đầy đủ hoặc có tiền tố/hậu tố. */
                 const esc = raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
                 query = query.ilike('delivery_staff', `%${esc}%`);
             }
@@ -730,7 +812,7 @@ export const fetchVanDon = async (options = {}) => {
                 'Ngày lên đơn': 'order_date',
                 'Ngày đóng hàng': 'ngaydonghang',
                 'Ngày đẩy đơn': 'accounting_check_date',
-                'Ngày có mã tracking': 'tracking_check_date'
+                'Ngày có mã tracking': 'tracking_check_date',
             };
             const dateColumn = dateColumnMapping[options.dateType] || 'order_date';
 
@@ -757,7 +839,99 @@ export const fetchVanDon = async (options = {}) => {
                 }
             }
 
-            return query.range(pageFrom, pageTo).order('order_date', { ascending: false });
+            const cf = columnFilters && typeof columnFilters === 'object' ? columnFilters : {};
+            for (const [uiKey, val] of Object.entries(cf)) {
+                const dbCol = resolveVanDonFilterUiKeyToDb(uiKey);
+                if (!dbCol || !VAN_DON_PAGE_COLUMN_LIST.includes(dbCol)) continue;
+
+                if (val == null) continue;
+                if (Array.isArray(val)) {
+                    if (val.length === 0 || !isVanDonDropdownColumnFilter(uiKey)) continue;
+                    applyEmptyOrInFilter(dbCol, val);
+                    continue;
+                }
+                if (typeof val === 'string') {
+                    const t = val.trim();
+                    if (!t) continue;
+                    if (VAN_DON_PER_COL_DATE_UI_KEYS.has(uiKey)) {
+                        const day = normalizeVanDonFilterDateToYmd(t);
+                        if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+                        const next = addOneCalendarDayYmd(day);
+                        query = query.gte(dbCol, `${day}T00:00:00`).lt(dbCol, `${next}T00:00:00`);
+                    } else if (isVanDonDropdownColumnFilter(uiKey)) {
+                        query = query.eq(dbCol, t);
+                    } else {
+                        const esc = escapeIlikePattern(t);
+                        query = query.filter(`${dbCol}::text`, 'ilike', `%${esc}%`);
+                    }
+                }
+            }
+
+            const tf = trackingFilter && typeof trackingFilter === 'object' ? trackingFilter : null;
+            if (tf) {
+                const statusTf = String(tf.status || 'Tình trạng mã').trim();
+                const incRaw = String(tf.include || '');
+                const excRaw = String(tf.exclude || '');
+                const inc = incRaw.trim().toLowerCase();
+                const exc = excRaw.trim().toLowerCase();
+
+                if (statusTf === 'Tất cả có mã') {
+                    query = query.not('tracking_code', 'is', null).neq('tracking_code', '');
+                } else if (statusTf === 'Trống') {
+                    query = query.or('tracking_code.is.null,tracking_code.eq.');
+                } else if (statusTf === 'Toàn số') {
+                    query = query
+                        .not('tracking_code', 'is', null)
+                        .neq('tracking_code', '')
+                        .filter('tracking_code', 'match', '^[0-9]+$');
+                }
+
+                if (statusTf === 'Tình trạng mã' || !tf.status) {
+                    if (exc) {
+                        const escExc = escapeIlikePattern(excRaw.trim());
+                        query = query.not('tracking_code', 'ilike', `%${escExc}%`);
+                    }
+                    if (incRaw.trim()) {
+                        const incTrim = incRaw.trim();
+                        if (incTrim.includes('\n')) {
+                            const codes = incTrim
+                                .split('\n')
+                                .map((s) => s.trim())
+                                .filter(Boolean);
+                            if (codes.length > 0) {
+                                query = query.in('tracking_code', codes);
+                            }
+                        } else {
+                            const escInc = escapeIlikePattern(incTrim);
+                            query = query.ilike('tracking_code', `%${escInc}%`);
+                        }
+                    }
+                }
+            }
+
+            return query;
+        };
+
+        const loadVanDonFromTable = async (tableName) => {
+            const baseData = applyVanDonFilters(supabase.from(tableName).select(VAN_DON_SELECT_QUERY, { count: 'exact' }));
+            const baseSum = applyVanDonFilters(supabase.from(tableName).select('total_amount_vnd.sum()'));
+
+            const [listRes, sumRes] = await Promise.all([
+                baseData.range(pageFrom, pageTo).order('order_date', { ascending: false }),
+                baseSum.maybeSingle(),
+            ]);
+
+            const rawSum = sumRes.data?.sum;
+            const totalAmountVndSum =
+                rawSum != null && rawSum !== '' && Number.isFinite(Number(rawSum)) ? Number(rawSum) : 0;
+
+            return {
+                data: listRes.data,
+                error: listRes.error,
+                count: listRes.count,
+                sumError: sumRes.error,
+                totalAmountVndSum,
+            };
         };
 
         const isVanDonPageUnavailableError = (err) => {
@@ -808,11 +982,16 @@ export const fetchVanDon = async (options = {}) => {
             console.warn('⚠️ [API DEBUG] Lỗi trong debug code (không ảnh hưởng query chính):', debugErr);
         }
 
-        let { data, error, count } = await buildFilteredVanDonQuery('van_don_page');
+        let pack = await loadVanDonFromTable('van_don_page');
 
-        if (error && isVanDonPageUnavailableError(error)) {
-            console.warn('[fetchVanDon] van_don_page không dùng được, thử lại với bảng orders:', error.message);
-            ({ data, error, count } = await buildFilteredVanDonQuery('orders'));
+        if (pack.error && isVanDonPageUnavailableError(pack.error)) {
+            console.warn('[fetchVanDon] van_don_page không dùng được, thử lại với bảng orders:', pack.error.message);
+            pack = await loadVanDonFromTable('orders');
+        }
+
+        const { data, error, count, sumError, totalAmountVndSum } = pack;
+        if (sumError) {
+            console.warn('[fetchVanDon] total_amount_vnd.sum:', sumError.message);
         }
 
         if (error) {
@@ -825,6 +1004,7 @@ export const fetchVanDon = async (options = {}) => {
         return {
             data: mappedData,
             total: count || 0,
+            totalAmountVndSum: Number.isFinite(totalAmountVndSum) ? totalAmountVndSum : 0,
             page: page,
             limit: limit,
             totalPages: Math.ceil((count || 0) / limit)
@@ -835,6 +1015,7 @@ export const fetchVanDon = async (options = {}) => {
         return {
             data: [],
             total: 0,
+            totalAmountVndSum: 0,
             page: page,
             limit: limit,
             totalPages: 0,

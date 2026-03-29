@@ -516,6 +516,38 @@ function VanDon() {
     return extra.length ? [...rows, ...extra] : rows;
   };
 
+  /** Lọc ô header cột + tracking — gửi API để lọc toàn CSDL (không chỉ trang hiện tại). */
+  const serverColumnFilters = useMemo(() => {
+    if (!useBackendPagination) return {};
+    const out = {};
+    const DATE_FILTER_KEYS = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'];
+    const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : bolDateType;
+    const toolbarDateOverrideKeys =
+      activeDateType === 'Ngày đẩy đơn'
+        ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
+        : new Set([activeDateType]);
+
+    Object.entries(filterValues).forEach(([key, val]) => {
+      if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
+      if (enableDateFilter && DATE_FILTER_KEYS.includes(key) && toolbarDateOverrideKeys.has(key)) return;
+      if (val == null) return;
+      if (Array.isArray(val) && val.length === 0) return;
+      if (typeof val === 'string' && val.trim() === '') return;
+      out[key] = val;
+    });
+    return out;
+  }, [useBackendPagination, filterValues, enableDateFilter, viewMode, omDateType, bolDateType]);
+
+  const serverTrackingFilter = useMemo(() => {
+    if (!useBackendPagination) return null;
+    if (!filterValues.tracking_status && !filterValues.tracking_include && !filterValues.tracking_exclude) return null;
+    return {
+      status: filterValues.tracking_status || 'Tình trạng mã',
+      include: filterValues.tracking_include || '',
+      exclude: filterValues.tracking_exclude || ''
+    };
+  }, [useBackendPagination, filterValues.tracking_status, filterValues.tracking_include, filterValues.tracking_exclude]);
+
   // --- Data Loading with React Query ---
   const queryClient = useQueryClient();
 
@@ -538,11 +570,13 @@ function VanDon() {
       deliveryStaffSelfFilter: bolActiveTab === 'ca_nhan' ? sessionName : undefined,
       page: currentPage,
       limit: rowsPerPage,
-      useBackend: useBackendPagination
+      useBackend: useBackendPagination,
+      columnFilters: serverColumnFilters,
+      trackingFilter: serverTrackingFilter
     };
     console.log('🔍 [VanDon] Active Filters:', filters);
     return filters;
-  }, [bolActiveTab, omActiveTeam, filterValues, enableDateFilter, dateFrom, dateTo, bolDateType, currentPage, rowsPerPage, useBackendPagination]);
+  }, [bolActiveTab, omActiveTeam, filterValues, enableDateFilter, dateFrom, dateTo, bolDateType, currentPage, rowsPerPage, useBackendPagination, serverColumnFilters, serverTrackingFilter]);
 
   const {
     data: queryResult,
@@ -602,6 +636,7 @@ function VanDon() {
         return {
           data: [],
           total: 0,
+          totalAmountVndSum: 0,
           page: currentPage,
           limit: rowsPerPage,
           totalPages: 0
@@ -620,6 +655,7 @@ function VanDon() {
         return {
           data: [],
           total: 0,
+          totalAmountVndSum: 0,
           page: currentPage,
           limit: rowsPerPage,
           totalPages: 0
@@ -652,7 +688,9 @@ function VanDon() {
         dateTo: activeFilters.dateTo,
         dateType: activeFilters.dateType,
         allowedStaff: allowedStaffForRequest,
-        deliveryStaffSelfFilter: selfDeliveryName || undefined
+        deliveryStaffSelfFilter: selfDeliveryName || undefined,
+        columnFilters: activeFilters.columnFilters || {},
+        trackingFilter: activeFilters.trackingFilter || null
       });
 
       console.log('✅ [VanDon] fetchVanDon Result:', {
@@ -702,6 +740,7 @@ function VanDon() {
   }, [queryResult?.data, bolActiveTab]);
 
   const totalRecords = queryResult?.total || 0;
+  const totalAmountVndSumFromServer = queryResult?.totalAmountVndSum ?? 0;
   // totalPages is calculated below based on pagination mode
 
   const getFilteredData = useMemo(() => {
@@ -998,132 +1037,124 @@ function VanDon() {
         ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
         : new Set([activeDateType]);
 
-    // Column Filters (Text & Dropdown) - Áp dụng cho tất cả users (bao gồm Admin nếu họ muốn filter)
-    Object.entries(filterValues).forEach(([key, val]) => {
-      // Skip các filter đặc biệt đã được xử lý riêng
-      if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
+    // Column Filters (Text & Dropdown) — phân trang backend: đã lọc ở API (toàn CSDL).
+    if (!useBackendPagination) {
+      Object.entries(filterValues).forEach(([key, val]) => {
+        if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
 
-      if (
-        enableDateFilter &&
-        DATE_FILTER_KEYS.includes(key) &&
-        toolbarDateOverrideKeys.has(key)
-      ) {
-        return;
-      }
+        if (
+          enableDateFilter &&
+          DATE_FILTER_KEYS.includes(key) &&
+          toolbarDateOverrideKeys.has(key)
+        ) {
+          return;
+        }
 
-      // Skip nếu giá trị rỗng
-      if (val === null || val === undefined) return;
-      if (Array.isArray(val) && val.length === 0) return;
-      if (typeof val === 'string' && val.trim() === '') return;
+        if (val === null || val === undefined) return;
+        if (Array.isArray(val) && val.length === 0) return;
+        if (typeof val === 'string' && val.trim() === '') return;
 
-      // Tìm data key chính xác cho column này
-      const dataKey = COLUMN_MAPPING[key] || key;
+        const dataKey = COLUMN_MAPPING[key] || key;
 
-      try {
-        data = data.filter(row => {
-          try {
-            const orderId = row[PRIMARY_KEY_COLUMN];
-            // So khớp lọc theo giá trị gốc nếu ô đó đang có nháp chưa lưu (tránh mất hàng khi sửa)
-            let cellValue = '';
-            if (key === 'Mã đơn hàng') {
-              const o = getPendingOriginal(orderId, 'Mã đơn hàng', 'order_code', 'orderCode', PRIMARY_KEY_COLUMN);
-              if (o !== undefined) cellValue = strNorm(o);
-              else cellValue = strNorm(row['Mã đơn hàng'] ?? row['order_code'] ?? row['orderCode'] ?? row[PRIMARY_KEY_COLUMN] ?? '');
-            } else {
-              const o = getPendingOriginal(
-                orderId,
-                key,
-                dataKey,
-                key.replace(/ /g, '_'),
-                String(dataKey || '').replace(/ /g, '_')
-              );
-              if (o !== undefined) cellValue = strNorm(o);
-              else cellValue = strNorm(row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '');
-            }
+        try {
+          data = data.filter(row => {
+            try {
+              const orderId = row[PRIMARY_KEY_COLUMN];
+              let cellValue = '';
+              if (key === 'Mã đơn hàng') {
+                const o = getPendingOriginal(orderId, 'Mã đơn hàng', 'order_code', 'orderCode', PRIMARY_KEY_COLUMN);
+                if (o !== undefined) cellValue = strNorm(o);
+                else cellValue = strNorm(row['Mã đơn hàng'] ?? row['order_code'] ?? row['orderCode'] ?? row[PRIMARY_KEY_COLUMN] ?? '');
+              } else {
+                const o = getPendingOriginal(
+                  orderId,
+                  key,
+                  dataKey,
+                  key.replace(/ /g, '_'),
+                  String(dataKey || '').replace(/ /g, '_')
+                );
+                if (o !== undefined) cellValue = strNorm(o);
+                else cellValue = strNorm(row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '');
+              }
 
-            // Use exact match for dropdown columns in Bill of Lading, or specific cols in Order Mgmt
-            if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(dataKey)) {
-              // Đảm bảo val là array
-              if (!Array.isArray(val)) return true;
-              const selected = val;
-              if (selected.length === 0) return true;
-              if (isVanDonSemanticEmpty(cellValue) && (selected.includes('Trống') || selected.includes('__EMPTY__'))) return true;
-              return selected.includes(cellValue);
-            }
+              if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(dataKey)) {
+                if (!Array.isArray(val)) return true;
+                const selected = val;
+                if (selected.length === 0) return true;
+                if (isVanDonSemanticEmpty(cellValue) && (selected.includes('Trống') || selected.includes('__EMPTY__'))) return true;
+                return selected.includes(cellValue);
+              }
 
-            // Date columns logic - Exact match for per-column filter
-            if (["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(key)) {
-              if (isVanDonSemanticEmpty(cellValue)) return false;
-              if (!cellValue) return false;
+              if (["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(key)) {
+                if (isVanDonSemanticEmpty(cellValue)) return false;
+                if (!cellValue) return false;
+                if (typeof val !== 'string') return true;
+
+                const rowDate = extractDateFromDateTime(cellValue);
+                const filterDate = extractDateFromDateTime(val);
+
+                if (!rowDate || !filterDate) return true;
+                return rowDate === filterDate;
+              }
+
               if (typeof val !== 'string') return true;
-              
-              const rowDate = extractDateFromDateTime(cellValue);
-              const filterDate = extractDateFromDateTime(val);
-              
-              if (!rowDate || !filterDate) return true;
-              return rowDate === filterDate;
+              const searchVal = val.toLowerCase().trim();
+              if (!searchVal) return true;
+              return cellValue.toLowerCase().includes(searchVal);
+            } catch (err) {
+              console.warn(`⚠️ [Filter Error] Lỗi khi filter column "${key}":`, err);
+              return true;
             }
+          });
+        } catch (err) {
+          console.warn(`⚠️ [Filter Error] Lỗi khi xử lý filter cho key "${key}":`, err);
+        }
+      });
+    }
 
-            // Text search - case insensitive, partial match
-            if (typeof val !== 'string') return true; // Skip nếu không phải string
-            const searchVal = val.toLowerCase().trim();
-            if (!searchVal) return true; // Nếu filter rỗng, hiển thị tất cả
-            return cellValue.toLowerCase().includes(searchVal);
-          } catch (err) {
-            console.warn(`⚠️ [Filter Error] Lỗi khi filter column "${key}":`, err);
-            return true; // Nếu có lỗi, giữ lại row
-          }
-        });
-      } catch (err) {
-        console.warn(`⚠️ [Filter Error] Lỗi khi xử lý filter cho key "${key}":`, err);
-        // Nếu có lỗi, không filter gì cả
-      }
-    });
+    if (!useBackendPagination) {
+      try {
+        if (filterValues.tracking_status || filterValues.tracking_include || filterValues.tracking_exclude) {
+          const inc = filterValues.tracking_include ? String(filterValues.tracking_include).toLowerCase() : '';
+          const exc = filterValues.tracking_exclude ? String(filterValues.tracking_exclude).toLowerCase() : '';
+          const status = filterValues.tracking_status || 'Tình trạng mã';
 
-    // Tracking Filters - Áp dụng cho tất cả users
-    try {
-      if (filterValues.tracking_status || filterValues.tracking_include || filterValues.tracking_exclude) {
-        const inc = filterValues.tracking_include ? String(filterValues.tracking_include).toLowerCase() : '';
-        const exc = filterValues.tracking_exclude ? String(filterValues.tracking_exclude).toLowerCase() : '';
-        const status = filterValues.tracking_status || 'Tình trạng mã';
+          data = data.filter(row => {
+            try {
+              const orderId = row[PRIMARY_KEY_COLUMN];
+              const o = getPendingOriginal(orderId, 'Mã Tracking', 'Mã tracking');
+              const code = o !== undefined ? strNorm(o) : strNorm(row['Mã Tracking'] || row['Mã tracking'] || '');
+              const lowerCode = code.toLowerCase();
 
-        data = data.filter(row => {
-          try {
-            const orderId = row[PRIMARY_KEY_COLUMN];
-            const o = getPendingOriginal(orderId, 'Mã Tracking', 'Mã tracking');
-            const code = o !== undefined ? strNorm(o) : strNorm(row['Mã Tracking'] || row['Mã tracking'] || '');
-            const lowerCode = code.toLowerCase();
+              if (status === 'Tất cả có mã' && isVanDonSemanticEmpty(code)) return false;
+              if (status === 'Trống' && !isVanDonSemanticEmpty(code)) return false;
+              if (status === 'Toàn số' && (isVanDonSemanticEmpty(code) || !/^\d+$/.test(code))) return false;
 
-            // Status Filter Logic
-            if (status === 'Tất cả có mã' && isVanDonSemanticEmpty(code)) return false;
-            if (status === 'Trống' && !isVanDonSemanticEmpty(code)) return false;
-            if (status === 'Toàn số' && (isVanDonSemanticEmpty(code) || !/^\d+$/.test(code))) return false;
-
-            // Only apply include/exclude if in 'Tình trạng mã' state
-            if (status === 'Tình trạng mã') {
-              if (exc && exc.trim() && lowerCode.includes(exc)) return false;
-              if (inc && inc.trim()) {
-                if (inc.includes('\n')) {
-                  const codes = new Set(inc.split('\n').map(t => t.trim()).filter(Boolean).map(t => t.toLowerCase()));
-                  if (!codes.has(lowerCode)) return false;
-                } else {
-                  if (!lowerCode.includes(inc)) return false;
+              if (status === 'Tình trạng mã') {
+                if (exc && exc.trim() && lowerCode.includes(exc)) return false;
+                if (inc && inc.trim()) {
+                  if (inc.includes('\n')) {
+                    const codes = new Set(inc.split('\n').map(t => t.trim()).filter(Boolean).map(t => t.toLowerCase()));
+                    if (!codes.has(lowerCode)) return false;
+                  } else {
+                    if (!lowerCode.includes(inc)) return false;
+                  }
                 }
               }
+              return true;
+            } catch (err) {
+              console.warn('⚠️ [Filter Error] Lỗi khi filter tracking:', err);
+              return true;
             }
-            return true;
-          } catch (err) {
-            console.warn('⚠️ [Filter Error] Lỗi khi filter tracking:', err);
-            return true;
-          }
-        });
+          });
+        }
+      } catch (err) {
+        console.warn('⚠️ [Filter Error] Lỗi khi xử lý tracking filter:', err);
       }
-    } catch (err) {
-      console.warn('⚠️ [Filter Error] Lỗi khi xử lý tracking filter:', err);
     }
 
     return data;
-  }, [allData, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, customerQuickSearch, dateFrom, dateTo, enableDateFilter, mgtNoiBoOrder, isAdmin]);
+  }, [allData, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, customerQuickSearch, dateFrom, dateTo, enableDateFilter, mgtNoiBoOrder, isAdmin, useBackendPagination]);
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
@@ -1358,7 +1389,7 @@ function VanDon() {
       refetchVanDonData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, filterValues.shipping_unit, bolDateType, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.slice().sort().join('|'), permissionsLoading]);
+  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, filterValues.shipping_unit, bolDateType, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.slice().sort().join('|'), permissionsLoading, serverColumnFilters, serverTrackingFilter]);
 
 
   // Đóng tab / F5: cảnh báo + ghi nháp localStorage ngay (tránh mất dữ liệu).
@@ -2719,13 +2750,17 @@ function VanDon() {
   }, [selectionBounds, paginatedData, currentColumns]);
 
   const totalMoney = useMemo(() => {
+    if (useBackendPagination) {
+      const n = Number(totalAmountVndSumFromServer);
+      return Number.isFinite(n) ? n : 0;
+    }
     return getFilteredData.reduce((sum, row) => {
       let val = row["Tổng tiền VNĐ"] || row["Tổng_tiền_VNĐ"] || row["Giá bán"] || 0;
       const num = parseFloat(String(val).replace(/[^\d.-]/g, "")) || 0;
       return sum + num;
     }, 0);
-  }, [getFilteredData]);
-  const totalOrdersCount = getFilteredData.length;
+  }, [useBackendPagination, totalAmountVndSumFromServer, getFilteredData]);
+  const totalOrdersCount = useBackendPagination ? totalRecords : getFilteredData.length;
 
   const teams = Array.from(new Set(allData.map(r => r[TEAM_COLUMN_NAME]).filter(Boolean))).sort();
 
