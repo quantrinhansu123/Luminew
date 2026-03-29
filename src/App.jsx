@@ -11,6 +11,7 @@ import BaoCaoMarketing from './pages/BaoCaoMarketing';
 import BaoCaoSale from './pages/BaoCaoSale';
 import NhanSuSaleLumiMoiView from './pages/NhanSuSaleLumiMoiView';
 import BaoCaoVanDon from './pages/BaoCaoVanDon';
+import BaoCaoVanHanhHtml from './pages/BaoCaoVanHanhHtml';
 import ChangeLogViewer from './pages/ChangeLogViewer';
 import CskhCrmHistoryPage from './pages/CskhCrmHistoryPage';
 import DanhSachBaoCaoTayCSKH from './pages/DanhSachBaoCaoTayCSKH';
@@ -113,6 +114,7 @@ function AppShell() {
             <Route path="/van-don" element={<ProtectedRoute><VanDon /></ProtectedRoute>} />
             <Route path="/bang-doi-soat-day-ffm" element={<ProtectedRoute><BangDoiSoatDayFFM /></ProtectedRoute>} />
             <Route path="/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
+            <Route path="/bao-cao-van-hanh" element={<ProtectedRoute><BaoCaoVanHanhHtml /></ProtectedRoute>} />
             <Route path="/embed/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/dashboard-quan-tri" element={<ProtectedRoute><DashboardQuanTri /></ProtectedRoute>} />
             <Route path="/danh-sach-van-don" element={<ProtectedRoute><DanhSachVanDon /></ProtectedRoute>} />

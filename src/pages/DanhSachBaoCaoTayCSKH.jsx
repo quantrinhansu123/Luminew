@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { Calculator, Eye, RefreshCw, X } from 'lucide-react';
+import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
+import {
+    fetchMatchingOrdersForReport,
+    syncReportsFromLumidataApi,
+} from '../utils/lumidataSalesReportSync';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -23,6 +29,32 @@ const filterOptionsBySearch = (list, q) => {
     if (!needle) return list;
     return (list || []).filter((item) => String(item).toLowerCase().includes(needle));
 };
+
+/** Team CSKH Lý trên DB — có thể lưu có/không khoảng sau dấu gạch. */
+const CSKH_FILTER_TEAMS = ['CSKH-Lý', 'CSKH- Lý'];
+const CSKH_TEAM_LABEL = CSKH_FILTER_TEAMS.join(' hoặc ');
+
+/**
+ * Trùng: cùng ngày + người + SP + TT + team — KHÔNG tính cột Ca.
+ * Nút xóa trùng: xóa HẾT bản Ca = Giữa ca; với bản không phải Giữa ca, gộp trùng (giữ mới nhất).
+ */
+function reportBusinessDedupeKey(r) {
+    const d = r.date ? String(r.date).split('T')[0] : '';
+    const name = String(r.name ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+    const product = String(r.product ?? '').trim().toLowerCase();
+    const market = String(r.market ?? '').trim().toLowerCase();
+    const team = String(r.team ?? '').trim();
+    return `${d}|${name}|${product}|${market}|${team}`;
+}
+
+function isGiuaCaShift(shift) {
+    const s = String(shift ?? '').trim().toLowerCase();
+    const sn = s.normalize('NFD').replace(/\p{M}/gu, '');
+    return (s.includes('giữa') && s.includes('ca')) || (sn.includes('giua') && sn.includes('ca'));
+}
 
 /** YYYY-MM-DD theo giờ local — tránh lệch 1 ngày so với `toISOString()` (UTC). */
 const formatLocalDateYMD = (date) => {
@@ -89,8 +121,12 @@ export default function DanhSachBaoCaoTayCSKH() {
     const [loading, setLoading] = useState(true);
     const [manualReports, setManualReports] = useState([]);
     const [allReports, setAllReports] = useState([]); // Store all filtered reports for pagination
-    const [realValuesMap, setRealValuesMap] = useState({}); // Map report ID to real values
-    const [calculatingRealValues, setCalculatingRealValues] = useState(false);
+    const [showViewOrdersModal, setShowViewOrdersModal] = useState(false);
+    const [viewingReport, setViewingReport] = useState(null);
+    const [viewingOrders, setViewingOrders] = useState([]);
+    const [loadingOrders, setLoadingOrders] = useState(false);
+    const [updatingOrders, setUpdatingOrders] = useState(false);
+    const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
     const [userChangedFilter, setUserChangedFilter] = useState(false); // Track if user changed filter
     const [filters, setFilters] = useState({
         startDate: '',
@@ -101,6 +137,10 @@ export default function DanhSachBaoCaoTayCSKH() {
     });
     const [teamSyncing, setTeamSyncing] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
+    /** Admin: chọn nhiều dòng để xóa (theo id bản ghi sales_reports) */
+    const [selectedReportIds, setSelectedReportIds] = useState(() => new Set());
+    const [deletingBulk, setDeletingBulk] = useState(false);
+    const [removingDuplicates, setRemovingDuplicates] = useState(false);
 
     // Available options for filters
     const [availableOptions, setAvailableOptions] = useState({
@@ -239,6 +279,22 @@ export default function DanhSachBaoCaoTayCSKH() {
                 let marketsSet = new Set();
                 let personnelSet = new Set();
 
+                try {
+                    const { data: teamUsers, error: teamUsersErr } = await supabase
+                        .from('users')
+                        .select('name, username')
+                        .in('team', CSKH_FILTER_TEAMS);
+                    if (teamUsersErr) throw teamUsersErr;
+                    (teamUsers || []).forEach((u) => {
+                        const n = String(u.name || '').trim();
+                        const un = String(u.username || '').trim();
+                        if (n) personnelSet.add(n);
+                        else if (un) personnelSet.add(un);
+                    });
+                } catch (err) {
+                    console.error('Error loading CSKH-Lý personnel from users:', err);
+                }
+
                 // Load products from system_settings
                 try {
                     const { data: productsData } = await supabase
@@ -270,7 +326,8 @@ export default function DanhSachBaoCaoTayCSKH() {
 
                         const { data, error } = await supabase
                             .from('sales_reports')
-                            .select('product, market, name')
+                            .select('product, market')
+                            .in('team', CSKH_FILTER_TEAMS)
                             .order('created_at', { ascending: false })
                             .range(from, to);
 
@@ -287,11 +344,9 @@ export default function DanhSachBaoCaoTayCSKH() {
 
                     const productsFromReports = [...new Set(allData.map(r => r.product).filter(Boolean))];
                     const marketsFromReports = [...new Set(allData.map(r => r.market).filter(Boolean))];
-                    const personnelFromReports = [...new Set(allData.map(r => r.name).filter(Boolean))];
 
                     productsFromReports.forEach(p => productsSet.add(p));
                     marketsFromReports.forEach(m => marketsSet.add(m));
-                    personnelFromReports.forEach(p => personnelSet.add(p));
                 } catch (err) {
                     console.error('Error loading from sales_reports:', err);
                 }
@@ -326,6 +381,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                 const { data: marketsData } = await supabase
                     .from('sales_reports')
                     .select('market')
+                    .in('team', CSKH_FILTER_TEAMS)
                     .not('market', 'is', null)
                     .limit(1000);
 
@@ -334,6 +390,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                 const { data: branchesData } = await supabase
                     .from('users')
                     .select('branch')
+                    .in('team', CSKH_FILTER_TEAMS)
                     .not('branch', 'is', null);
 
                 const branches = [...new Set(branchesData?.map(b => b.branch).filter(Boolean))].sort();
@@ -352,131 +409,6 @@ export default function DanhSachBaoCaoTayCSKH() {
         loadEditOptions();
     }, []);
 
-    // Calculate real values from orders table for a single report
-    const calculateRealValues = async (report) => {
-        try {
-            const reportDate = report.date || report['Ngày'];
-            const reportName = report.name || report['Tên'];
-            const reportShift = report.shift || report['ca'];
-            const reportProduct = report.product || report['Sản_phẩm'];
-            const reportMarket = report.market || report['Thị_trường'];
-
-            if (!reportDate || !reportName) {
-                return {
-                    order_count_actual: 0,
-                    revenue_actual: 0
-                };
-            }
-
-            // Build query - chỉ select các cột cần thiết để tăng tốc
-            let query = supabase
-                .from('orders')
-                .select('total_amount_vnd, total_vnd') // Chỉ select cột cần thiết
-                .eq('order_date', reportDate)
-                .ilike('sale_staff', `%${reportName}%`); // CSKH uses sale_staff instead of marketing_staff
-
-            // Filter by shift/ca
-            const shiftValue = String(reportShift || '').trim();
-
-            if (shiftValue === 'Hết ca' || shiftValue.toLowerCase() === 'hết ca') {
-                query = query.ilike('shift', '%Hết ca%');
-            } else if (shiftValue === 'Giữa ca' || shiftValue.toLowerCase() === 'giữa ca') {
-                query = query.or('shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
-            } else if (shiftValue) {
-                query = query.ilike('shift', `%${shiftValue}%`);
-            }
-
-            // Filter by product
-            if (reportProduct) {
-                query = query.eq('product', reportProduct);
-            }
-
-            // Filter by market (country)
-            if (reportMarket) {
-                query = query.ilike('country', `%${reportMarket}%`);
-            }
-
-            const { data: orders, error } = await query;
-
-            if (error) {
-                console.error('Error calculating real values:', error);
-                return {
-                    order_count_actual: 0,
-                    revenue_actual: 0
-                };
-            }
-
-            if (!orders || orders.length === 0) {
-                return {
-                    order_count_actual: 0,
-                    revenue_actual: 0
-                };
-            }
-
-            // Calculate values
-            const totalOrders = orders.length;
-
-            // Doanh số thực tế: tổng total_amount_vnd của tất cả đơn khớp điều kiện
-            const doanhSoThucTe = orders.reduce((sum, o) => {
-                const amount = o.total_amount_vnd || o.total_vnd || 0;
-                return sum + (Number(amount) || 0);
-            }, 0);
-
-            return {
-                order_count_actual: totalOrders,
-                revenue_actual: doanhSoThucTe
-            };
-        } catch (error) {
-            console.error('Error calculating real values:', error);
-            return {
-                order_count_actual: 0,
-                revenue_actual: 0
-            };
-        }
-    };
-
-    // Calculate real values for all reports (PARALLEL - tối ưu tốc độ)
-    const calculateRealValuesForReports = async (reports) => {
-        if (!reports || reports.length === 0) return;
-
-        setCalculatingRealValues(true);
-
-        try {
-            // Chạy song song tất cả queries thay vì tuần tự
-            // Giới hạn batch size để tránh quá tải
-            const BATCH_SIZE = 10; // Chạy 10 queries cùng lúc
-            const valuesMap = {};
-
-            for (let i = 0; i < reports.length; i += BATCH_SIZE) {
-                const batch = reports.slice(i, i + BATCH_SIZE);
-
-                // Chạy song song trong batch này
-                const batchPromises = batch.map(report =>
-                    calculateRealValues(report).then(result => ({
-                        id: report.id,
-                        values: result
-                    }))
-                );
-
-                const batchResults = await Promise.all(batchPromises);
-
-                // Merge kết quả
-                batchResults.forEach(({ id, values }) => {
-                    valuesMap[id] = values;
-                });
-
-                console.log(`⚡ Calculated batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(reports.length / BATCH_SIZE)}: ${batch.length} reports`);
-            }
-
-            setRealValuesMap(valuesMap);
-            console.log(`✅ Calculated real values for ${reports.length} reports (parallel)`);
-        } catch (error) {
-            console.error('Error calculating real values for reports:', error);
-        } finally {
-            setCalculatingRealValues(false);
-        }
-    };
-
     // Fetch Data trực tiếp từ bảng sales_reports
     const fetchData = useCallback(async () => {
         if (!filters.startDate || !filters.endDate) return;
@@ -485,6 +417,7 @@ export default function DanhSachBaoCaoTayCSKH() {
             let query = supabase
                 .from('sales_reports')
                 .select('*')
+                .in('team', CSKH_FILTER_TEAMS)
                 .gte('date', filters.startDate)
                 .lte('date', filters.endDate)
                 .order('created_at', { ascending: false });
@@ -553,7 +486,6 @@ export default function DanhSachBaoCaoTayCSKH() {
 
             setAllReports(enrichedData);
             setCurrentPage(1);
-            await calculateRealValuesForReports(enrichedData);
         } catch (error) {
             console.error('❌ Error fetching CSKH reports:', error);
             alert(`Lỗi khi tải dữ liệu: ${error?.message || String(error)}`);
@@ -653,6 +585,70 @@ export default function DanhSachBaoCaoTayCSKH() {
         }));
     };
 
+    const handleViewOrders = async (report) => {
+        setViewingReport(report);
+        setShowViewOrdersModal(true);
+        setViewingOrders([]);
+        setLoadingOrders(true);
+        try {
+            const { error, orders } = await fetchMatchingOrdersForReport(
+                report,
+                '[DanhSachBaoCaoTayCSKH]'
+            );
+            if (error) {
+                toast.error(error.message || 'Lỗi báo cáo');
+                setLoadingOrders(false);
+                return;
+            }
+            setViewingOrders(orders || []);
+        } catch (err) {
+            console.error('handleViewOrders:', err);
+            toast.error('Lỗi khi lấy danh sách đơn: ' + (err.message || String(err)));
+        } finally {
+            setLoadingOrders(false);
+        }
+    };
+
+    const handleCalculateAndUpdateOrders = async () => {
+        if (!filters.startDate || !filters.endDate) {
+            toast.error('Vui lòng chọn khoảng thời gian trước khi tính toán!');
+            return;
+        }
+        if (!allReports.length) {
+            toast.error('Không có dữ liệu báo cáo để tính toán!');
+            return;
+        }
+        if (
+            !window.confirm(
+                `Bạn có chắc chắn muốn tính và cập nhật số đơn / doanh số cho ${allReports.length} báo cáo (giống trang Sale)?\n\n` +
+                    `Khoảng thời gian: ${filters.startDate} đến ${filters.endDate}`
+            )
+        ) {
+            return;
+        }
+        setUpdatingOrders(true);
+        setUpdateProgress({ current: 0, total: allReports.length });
+        try {
+            const { updatedCount, errorCount } = await syncReportsFromLumidataApi({
+                supabase,
+                reports: allReports,
+                logTag: '[DanhSachBaoCaoTayCSKH]',
+                onProgress: (current, total) => setUpdateProgress({ current, total }),
+            });
+            toast.success(
+                `Đã cập nhật ${updatedCount}/${allReports.length} báo cáo!` +
+                    (errorCount > 0 ? ` (${errorCount} lỗi)` : '')
+            );
+            fetchData();
+        } catch (err) {
+            console.error('handleCalculateAndUpdateOrders:', err);
+            toast.error('Lỗi khi tính toán: ' + (err.message || String(err)));
+        } finally {
+            setUpdatingOrders(false);
+            setUpdateProgress({ current: 0, total: 0 });
+        }
+    };
+
     // Delete single report
     const handleDeleteReport = async (reportId) => {
         if (!window.confirm('Bạn có chắc chắn muốn xóa báo cáo này?')) return;
@@ -666,6 +662,12 @@ export default function DanhSachBaoCaoTayCSKH() {
 
             if (error) throw error;
 
+            setSelectedReportIds((prev) => {
+                if (!prev.has(reportId)) return prev;
+                const next = new Set(prev);
+                next.delete(reportId);
+                return next;
+            });
             alert('Đã xóa báo cáo thành công!');
             fetchData();
         } catch (error) {
@@ -676,27 +678,184 @@ export default function DanhSachBaoCaoTayCSKH() {
         }
     };
 
+    const toggleReportSelected = (reportId) => {
+        if (!reportId) return;
+        setSelectedReportIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(reportId)) next.delete(reportId);
+            else next.add(reportId);
+            return next;
+        });
+    };
+
+    const handleBulkDeleteReports = async () => {
+        const ids = [...selectedReportIds];
+        if (ids.length === 0) return;
+        if (
+            !window.confirm(
+                `Bạn có chắc muốn xóa ${ids.length} báo cáo đã chọn? Hành động này không thể hoàn tác.`
+            )
+        ) {
+            return;
+        }
+        setDeletingBulk(true);
+        try {
+            const { error } = await supabase.from('sales_reports').delete().in('id', ids);
+            if (error) throw error;
+            setSelectedReportIds(new Set());
+            alert(`Đã xóa ${ids.length} báo cáo.`);
+            fetchData();
+        } catch (error) {
+            console.error('Error bulk deleting reports:', error);
+            alert('Lỗi khi xóa hàng loạt: ' + error.message);
+        } finally {
+            setDeletingBulk(false);
+        }
+    };
+
+    /** Xóa hết Ca = Giữa ca; trên bản còn lại, gộp trùng theo khóa (không tính Ca), giữ created_at mới nhất. */
+    const handleRemoveDuplicateReports = async () => {
+        if (!allReports.length) {
+            toast.error('Không có dữ liệu trong danh sách hiện tại.');
+            return;
+        }
+        const toDeleteSet = new Set();
+        for (const r of allReports) {
+            if (!r?.id) continue;
+            if (isGiuaCaShift(r.shift)) toDeleteSet.add(r.id);
+        }
+
+        const nonGiua = allReports.filter((r) => r?.id && !isGiuaCaShift(r.shift));
+        const byKey = new Map();
+        for (const r of nonGiua) {
+            const k = reportBusinessDedupeKey(r);
+            if (!byKey.has(k)) byKey.set(k, []);
+            byKey.get(k).push(r);
+        }
+        for (const [, rows] of byKey) {
+            if (rows.length < 2) continue;
+            const sorted = [...rows].sort((a, b) => {
+                const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+                const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+                if (tb !== ta) return tb - ta;
+                return String(b.id).localeCompare(String(a.id));
+            });
+            sorted.slice(1).forEach((r) => toDeleteSet.add(r.id));
+        }
+
+        const toDelete = [...toDeleteSet];
+        if (toDelete.length === 0) {
+            toast.info(
+                'Không có bản Giữa ca và không có cặp trùng trong các bản còn lại (cùng ngày + người + SP + TT + team).'
+            );
+            return;
+        }
+        if (
+            !window.confirm(
+                `Sẽ xóa ${toDelete.length} bản ghi (trong ${allReports.length} dòng hiện tại).\n\n` +
+                    '• Xóa toàn bộ dòng có Ca = Giữa ca.\n' +
+                    '• Trong phần không phải Giữa ca: gộp trùng (cùng ngày, người, SP, TT, team), giữ bản mới nhất.\n\n' +
+                    'Tiếp tục?'
+            )
+        ) {
+            return;
+        }
+        setRemovingDuplicates(true);
+        try {
+            const BATCH = 500;
+            for (let i = 0; i < toDelete.length; i += BATCH) {
+                const batch = toDelete.slice(i, i + BATCH);
+                const { error } = await supabase.from('sales_reports').delete().in('id', batch);
+                if (error) throw error;
+            }
+            setSelectedReportIds((prev) => {
+                const drop = new Set(toDelete);
+                const next = new Set();
+                prev.forEach((id) => {
+                    if (!drop.has(id)) next.add(id);
+                });
+                return next;
+            });
+            toast.success(`Đã xóa ${toDelete.length} bản ghi (Giữa ca + trùng).`);
+            fetchData();
+        } catch (e) {
+            console.error('handleRemoveDuplicateReports:', e);
+            toast.error('Lỗi khi xóa trùng: ' + (e.message || String(e)));
+        } finally {
+            setRemovingDuplicates(false);
+        }
+    };
+
     // Calculate pagination
     const totalPages = Math.ceil(allReports.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     const paginatedReports = allReports.slice(startIndex, endIndex);
 
+    const pageRowIds = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return allReports.slice(start, start + itemsPerPage).map((r) => r.id).filter(Boolean);
+    }, [allReports, currentPage, itemsPerPage]);
+
+    const allPageRowsSelected =
+        pageRowIds.length > 0 && pageRowIds.every((id) => selectedReportIds.has(id));
+
+    const toggleSelectAllOnPage = () => {
+        setSelectedReportIds((prev) => {
+            const next = new Set(prev);
+            if (allPageRowsSelected) {
+                pageRowIds.forEach((id) => next.delete(id));
+            } else {
+                pageRowIds.forEach((id) => next.add(id));
+            }
+            return next;
+        });
+    };
+
     // Update displayed reports when pagination changes
     useEffect(() => {
         setManualReports(paginatedReports);
     }, [currentPage, itemsPerPage, allReports]);
 
-    /** Tổng các cột số theo toàn bộ danh sách đã lọc (không chỉ trang hiện tại) */
+    // Bỏ khỏi lựa chọn những id không còn trong danh sách đã lọc (đổi filter / xóa)
+    useEffect(() => {
+        const valid = new Set((allReports || []).map((r) => r.id).filter(Boolean));
+        setSelectedReportIds((prev) => {
+            let removed = false;
+            const next = new Set();
+            prev.forEach((id) => {
+                if (valid.has(id)) next.add(id);
+                else removed = true;
+            });
+            if (!removed && next.size === prev.size) return prev;
+            return next;
+        });
+    }, [allReports]);
+
+    /** Tổng các cột — cùng cột / nguồn DB như DanhSachBaoCaoTay (Sale). */
     const reportColumnTotals = useMemo(() => {
         return allReports.reduce(
             (acc, item) => ({
-                mess: acc.mess + (Number(item.mess_count) || 0),
-                response: acc.response + (Number(item.response_count) || 0),
-                orders: acc.orders + (Number(item.order_count) || 0),
-                revenue: acc.revenue + (Number(item.revenue_mess) || 0),
+                mess_count: acc.mess_count + Number(item.mess_count || 0),
+                response_count: acc.response_count + Number(item.response_count || 0),
+                order_count: acc.order_count + Number(item.order_count || 0),
+                order_cancel_count: acc.order_cancel_count + Number(item.order_cancel_count || 0),
+                revenue_actual: acc.revenue_actual + Number(item.revenue_actual || 0),
+                revenue_cancel_actual:
+                    acc.revenue_cancel_actual + Number(item.revenue_cancel_actual || 0),
+                order_go: acc.order_go + Number(item.order_go || 0),
+                revenue_go_actual: acc.revenue_go_actual + Number(item.revenue_go_actual || 0),
             }),
-            { mess: 0, response: 0, orders: 0, revenue: 0 }
+            {
+                mess_count: 0,
+                response_count: 0,
+                order_count: 0,
+                order_cancel_count: 0,
+                revenue_actual: 0,
+                revenue_cancel_actual: 0,
+                order_go: 0,
+                revenue_go_actual: 0,
+            }
         );
     }, [allReports]);
 
@@ -804,7 +963,11 @@ export default function DanhSachBaoCaoTayCSKH() {
             mess_count: report.mess_count,
             response_count: report.response_count,
             order_count: report.order_count,
-            revenue_mess: report.revenue_mess
+            order_cancel_count: report.order_cancel_count || 0,
+            order_go: report.order_go || 0,
+            revenue_actual: report.revenue_actual,
+            revenue_cancel_actual: report.revenue_cancel_actual || 0,
+            revenue_go_actual: report.revenue_go_actual || 0,
         });
     };
 
@@ -833,7 +996,11 @@ export default function DanhSachBaoCaoTayCSKH() {
                     mess_count: Number(editForm.mess_count) || 0,
                     response_count: Number(editForm.response_count) || 0,
                     order_count: Number(editForm.order_count) || 0,
-                    revenue_mess: Number(editForm.revenue_mess) || 0
+                    order_cancel_count: Number(editForm.order_cancel_count) || 0,
+                    order_go: Number(editForm.order_go) || 0,
+                    revenue_actual: Number(editForm.revenue_actual) || 0,
+                    revenue_cancel_actual: Number(editForm.revenue_cancel_actual) || 0,
+                    revenue_go_actual: Number(editForm.revenue_go_actual) || 0,
                 })
                 .eq('id', editingReport.id);
 
@@ -901,6 +1068,9 @@ export default function DanhSachBaoCaoTayCSKH() {
                                 Tất cả
                             </label>
                         </h4>
+                        <p style={{ fontSize: '11px', color: '#666', margin: '0 0 8px 0' }}>
+                            Chỉ hiển thị nhân sự team <strong>{CSKH_TEAM_LABEL}</strong> (bảng users).
+                        </p>
                         <input
                             type="search"
                             placeholder="Tìm nhân sự..."
@@ -990,15 +1160,68 @@ export default function DanhSachBaoCaoTayCSKH() {
                 </div>
 
                 <div className="main-detailed">
-                    <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                        <h2>DANH SÁCH BÁO CÁO TAY CSKH</h2>
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                            {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
+                    <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                            <h2 style={{ marginBottom: '4px' }}>DANH SÁCH BÁO CÁO TAY CSKH</h2>
+                            <p className="text-sm text-gray-600 m-0">
+                                Chỉ dữ liệu <strong>sales_reports.team</strong>: {CSKH_TEAM_LABEL}.
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {isAdminOnly && (
+                                <button
+                                    type="button"
+                                    onClick={handleCalculateAndUpdateOrders}
+                                    disabled={updatingOrders || loading || removingDuplicates || allReports.length === 0}
+                                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    title="Tính và cập nhật từ Lumidata API — giống trang Báo cáo tay Sale"
+                                >
+                                    {updatingOrders ? (
+                                        <>
+                                            <RefreshCw className="w-4 h-4 animate-spin" />
+                                            Đang tính... ({updateProgress.current}/{updateProgress.total})
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Calculator className="w-4 h-4" />
+                                            Tính số đơn (như Sale)
+                                        </>
+                                    )}
+                                </button>
+                            )}
+                            {isAdmin && selectedReportIds.size > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={handleBulkDeleteReports}
+                                    disabled={deletingBulk || loading || updatingOrders || removingDuplicates}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition"
+                                >
+                                    {deletingBulk
+                                        ? 'Đang xóa...'
+                                        : `Xóa đã chọn (${selectedReportIds.size})`}
+                                </button>
+                            )}
+                            {isAdminOnly && (
+                                <button
+                                    type="button"
+                                    onClick={handleRemoveDuplicateReports}
+                                    disabled={
+                                        removingDuplicates ||
+                                        loading ||
+                                        updatingOrders ||
+                                        !allReports.length
+                                    }
+                                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition"
+                                    title="Xóa hết dòng Giữa ca; các dòng còn lại: gộp trùng (không tính Ca), giữ bản mới nhất"
+                                >
+                                    {removingDuplicates ? 'Đang xóa trùng...' : 'Xóa bản ghi trùng'}
+                                </button>
+                            )}
                             {isAdminOnly && (
                                 <button
                                     type="button"
                                     onClick={handleSyncTeamFromUsers}
-                                    disabled={teamSyncing || loading || calculatingRealValues}
+                                    disabled={teamSyncing || loading || updatingOrders || removingDuplicates}
                                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
                                 >
                                     {teamSyncing ? (
@@ -1018,6 +1241,17 @@ export default function DanhSachBaoCaoTayCSKH() {
                         <table>
                             <thead>
                                 <tr>
+                                    {isAdmin && (
+                                        <th className="text-center w-10" title="Chọn dòng trên trang này">
+                                            <input
+                                                type="checkbox"
+                                                checked={allPageRowsSelected}
+                                                disabled={pageRowIds.length === 0 || deletingBulk || removingDuplicates}
+                                                onChange={toggleSelectAllOnPage}
+                                                aria-label="Chọn tất cả trang hiện tại"
+                                            />
+                                        </th>
+                                    )}
                                     <th>STT</th>
                                     <th>Ngày</th>
                                     <th>Ca</th>
@@ -1028,18 +1262,37 @@ export default function DanhSachBaoCaoTayCSKH() {
                                     <th>Số mess</th>
                                     <th>Phản hồi</th>
                                     <th>Số đơn</th>
+                                    <th>Số đơn hủy</th>
                                     <th>Doanh số</th>
+                                    <th>Doanh số hủy</th>
+                                    <th>Số đơn go</th>
+                                    <th>Doanh số go</th>
                                     <th>Thao tác</th>
                                 </tr>
                                 {allReports.length > 0 && (
                                     <tr className="total-row dsbcskh-thead-totals">
-                                        <th colSpan="7" className="total-label">
+                                        <th
+                                            colSpan={isAdmin ? 8 : 7}
+                                            className="total-label"
+                                        >
                                             Tổng cộng ({allReports.length} dòng)
                                         </th>
-                                        <th className="total-value">{formatNumber(reportColumnTotals.mess)}</th>
-                                        <th className="total-value">{formatNumber(reportColumnTotals.response)}</th>
-                                        <th className="total-value">{formatNumber(reportColumnTotals.orders)}</th>
-                                        <th className="total-value">{formatCurrency(reportColumnTotals.revenue)}</th>
+                                        <th className="total-value">{formatNumber(reportColumnTotals.mess_count)}</th>
+                                        <th className="total-value">{formatNumber(reportColumnTotals.response_count)}</th>
+                                        <th className="total-value">{formatNumber(reportColumnTotals.order_count)}</th>
+                                        <th className="total-value">
+                                            {formatNumber(reportColumnTotals.order_cancel_count)}
+                                        </th>
+                                        <th className="total-value">
+                                            {formatCurrency(reportColumnTotals.revenue_actual)}
+                                        </th>
+                                        <th className="total-value">
+                                            {formatCurrency(reportColumnTotals.revenue_cancel_actual)}
+                                        </th>
+                                        <th className="total-value">{formatNumber(reportColumnTotals.order_go)}</th>
+                                        <th className="total-value">
+                                            {formatCurrency(reportColumnTotals.revenue_go_actual)}
+                                        </th>
                                         <th className="total-value" aria-hidden="true">—</th>
                                     </tr>
                                 )}
@@ -1047,17 +1300,28 @@ export default function DanhSachBaoCaoTayCSKH() {
                             <tbody>
                                 {manualReports.length === 0 ? (
                                     <tr>
-                                        <td colSpan="12" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td
+                                            colSpan={isAdmin ? 17 : 16}
+                                            className="text-center"
+                                        >
+                                            {loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}
+                                        </td>
                                     </tr>
                                 ) : (
                                     manualReports.map((item, index) => {
-                                        const realValues = realValuesMap[item.id] || {
-                                            order_count_actual: item.order_count_actual || 0,
-                                            revenue_actual: item.revenue_actual || 0
-                                        };
-
                                         return (
                                             <tr key={item.id || index}>
+                                                {isAdmin && (
+                                                    <td className="text-center align-middle">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedReportIds.has(item.id)}
+                                                            disabled={!item.id || deletingBulk || removingDuplicates}
+                                                            onChange={() => toggleReportSelected(item.id)}
+                                                            aria-label={`Chọn báo cáo ${startIndex + index + 1}`}
+                                                        />
+                                                    </td>
+                                                )}
                                                 <td className="text-center">{startIndex + index + 1}</td>
                                                 <td>{formatDate(item.date)}</td>
                                                 <td>{item.shift}</td>
@@ -1068,9 +1332,21 @@ export default function DanhSachBaoCaoTayCSKH() {
                                                 <td>{formatNumber(item.mess_count)}</td>
                                                 <td>{formatNumber(item.response_count)}</td>
                                                 <td>{formatNumber(item.order_count)}</td>
-                                                <td>{formatCurrency(item.revenue_mess)}</td>
+                                                <td>{formatNumber(item.order_cancel_count || 0)}</td>
+                                                <td>{formatCurrency(item.revenue_actual || 0)}</td>
+                                                <td>{formatCurrency(item.revenue_cancel_actual || 0)}</td>
+                                                <td>{formatNumber(item.order_go || 0)}</td>
+                                                <td>{formatCurrency(item.revenue_go_actual || 0)}</td>
                                                 <td className="text-center">
                                                     <div className="flex gap-2 justify-center">
+                                                        <button
+                                                            className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs transition flex items-center gap-1"
+                                                            onClick={() => handleViewOrders(item)}
+                                                            title="Xem danh sách đơn (Lumidata — như Sale)"
+                                                        >
+                                                            <Eye className="w-3 h-3" />
+                                                            Xem
+                                                        </button>
                                                         <button
                                                             className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition"
                                                             onClick={() => handleEditClick(item)}
@@ -1081,7 +1357,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                                                             <button
                                                                 className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition disabled:bg-gray-400"
                                                                 onClick={() => handleDeleteReport(item.id)}
-                                                                disabled={deletingId === item.id}
+                                                                disabled={deletingId === item.id || deletingBulk || removingDuplicates}
                                                             >
                                                                 {deletingId === item.id ? 'Đang xóa...' : 'Xóa'}
                                                             </button>
@@ -1159,15 +1435,15 @@ export default function DanhSachBaoCaoTayCSKH() {
 
             {/* Edit Modal */}
             {editingReport && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white p-6 rounded-lg w-96 shadow-xl relative">
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white p-6 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl relative">
                         <h3 className="text-lg font-bold mb-4 text-blue-600 border-b pb-2">Sửa Báo Cáo CSKH</h3>
 
                         <div className="mb-4 text-sm text-gray-600">
                             <p><strong>Nhân viên:</strong> {editingReport.name}</p>
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                             <div>
                                 <label className="block text-sm font-medium mb-1">Ngày <span className="text-red-500">*</span>:</label>
                                 <input type="date" name="date" value={editForm.date} onChange={handleInputChange} className="w-full border rounded px-2 py-1" required />
@@ -1193,7 +1469,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                                     {editOptions.markets.map(m => <option key={m} value={m}>{m}</option>)}
                                 </select>
                             </div>
-                            <div>
+                            <div className="sm:col-span-2">
                                 <label className="block text-sm font-medium mb-1">Chi nhánh:</label>
                                 <select name="branch" value={editForm.branch || ''} onChange={handleInputChange} className="w-full border rounded px-2 py-1">
                                     <option value="">Chọn chi nhánh</option>
@@ -1213,14 +1489,149 @@ export default function DanhSachBaoCaoTayCSKH() {
                                 <input type="number" name="order_count" value={editForm.order_count} onChange={handleInputChange} className="w-full border rounded px-2 py-1" />
                             </div>
                             <div>
+                                <label className="block text-sm font-medium mb-1">Số đơn hủy:</label>
+                                <input type="number" name="order_cancel_count" value={editForm.order_cancel_count || 0} onChange={handleInputChange} className="w-full border rounded px-2 py-1" />
+                            </div>
+                            <div>
                                 <label className="block text-sm font-medium mb-1">Doanh số:</label>
-                                <input type="number" name="revenue_mess" value={editForm.revenue_mess} onChange={handleInputChange} className="w-full border rounded px-2 py-1" />
+                                <input type="number" name="revenue_actual" value={editForm.revenue_actual} onChange={handleInputChange} className="w-full border rounded px-2 py-1" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Doanh số hủy:</label>
+                                <input type="number" name="revenue_cancel_actual" value={editForm.revenue_cancel_actual || 0} onChange={handleInputChange} className="w-full border rounded px-2 py-1" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Số đơn go:</label>
+                                <input type="number" name="order_go" value={editForm.order_go || 0} onChange={handleInputChange} className="w-full border rounded px-2 py-1" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Doanh số go:</label>
+                                <input type="number" name="revenue_go_actual" value={editForm.revenue_go_actual || 0} onChange={handleInputChange} className="w-full border rounded px-2 py-1" />
                             </div>
                         </div>
 
                         <div className="mt-6 flex justify-end gap-2">
                             <button onClick={handleCloseModal} disabled={saving} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-sm text-gray-800">Hủy</button>
                             <button onClick={handleSaveEdit} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold" disabled={saving}>{saving ? 'Đang lưu...' : 'Lưu Thay Đổi'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showViewOrdersModal && viewingReport && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-800">Danh sách đơn hàng</h2>
+                                <p className="text-sm text-gray-600 mt-1">
+                                    {viewingReport.name} - {formatDate(viewingReport.date)} - {viewingReport.shift || 'Không có ca'} - {viewingReport.product || 'Tất cả SP'} - {viewingReport.market || 'Tất cả TT'}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowViewOrdersModal(false);
+                                    setViewingReport(null);
+                                    setViewingOrders([]);
+                                }}
+                                className="text-gray-400 hover:text-gray-600 transition-colors"
+                            >
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        <div className="p-6">
+                            {loadingOrders ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
+                                    <span className="ml-2 text-gray-600">Đang tải danh sách đơn...</span>
+                                </div>
+                            ) : viewingOrders.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">
+                                    Không tìm thấy đơn hàng nào thỏa mãn điều kiện.
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                        <p className="text-sm text-gray-600">Tổng số đơn:</p>
+                                        <p className="text-2xl font-bold text-blue-600">{viewingOrders.length} đơn</p>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm border-collapse">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">STT</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Mã đơn</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Tên</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Ngày</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Ca</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Sale</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Sản phẩm</th>
+                                                    <th className="px-4 py-3 text-left border border-gray-200">Thị trường</th>
+                                                    <th className="px-4 py-3 text-right border border-gray-200">Doanh thu (VNĐ)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {viewingOrders.map((order, index) => (
+                                                    <tr key={order.id || index} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-2 border border-gray-200">{index + 1}</td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            <div className="font-mono text-sm font-semibold text-blue-600">
+                                                                {order.order_code || order.id || '-'}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200">{order.customer_name || '-'}</td>
+                                                        <td className="px-4 py-2 border border-gray-200">{formatDate(order.order_date)}</td>
+                                                        <td className="px-4 py-2 border border-gray-200">{order.shift || '-'}</td>
+                                                        <td className="px-4 py-2 border border-gray-200">
+                                                            <div className="font-medium text-gray-900">
+                                                                {order.nhanvien_sale || order.sale_staff || '-'}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-2 border border-gray-200">{order.product || '-'}</td>
+                                                        <td className="px-4 py-2 border border-gray-200">{order.country || '-'}</td>
+                                                        <td className="px-4 py-2 border border-gray-200 text-right">
+                                                            {formatCurrency(order.total_amount_vnd || order.total_vnd || 0)}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot className="bg-gray-50 font-semibold">
+                                                <tr>
+                                                    <td colSpan={8} className="px-4 py-3 text-right border border-gray-200">
+                                                        Tổng doanh thu:
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right border border-gray-200 text-blue-600">
+                                                        {formatCurrency(
+                                                            viewingOrders.reduce(
+                                                                (sum, order) =>
+                                                                    sum + (parseFloat(order.total_amount_vnd || order.total_vnd) || 0),
+                                                                0
+                                                            )
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-end">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowViewOrdersModal(false);
+                                    setViewingReport(null);
+                                    setViewingOrders([]);
+                                }}
+                                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                            >
+                                Đóng
+                            </button>
                         </div>
                     </div>
                 </div>

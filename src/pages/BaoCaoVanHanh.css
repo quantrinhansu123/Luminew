@@ -1,0 +1,136 @@
+/* Báo cáo vận hành — tab BC Vận Hành (mẫu Excel) */
+.bcvh-wrap {
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+.bcvh-title-row th {
+    background: #4472c4;
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 8px 6px;
+    text-align: center;
+    border: 1px solid #000;
+}
+
+.bcvh-h-info {
+    background: #e2b48c;
+    font-weight: 600;
+    font-size: 10px;
+    vertical-align: middle;
+    border: 1px solid #000;
+    padding: 4px 6px;
+}
+
+.bcvh-h-cyan {
+    background: #9fd9e8;
+    font-weight: 600;
+    font-size: 10px;
+    vertical-align: middle;
+    border: 1px solid #000;
+    padding: 4px 4px;
+    line-height: 1.2;
+}
+
+.bcvh-h-yellow {
+    background: #ffeb9c;
+    font-weight: 600;
+    font-size: 10px;
+    vertical-align: middle;
+    border: 1px solid #000;
+    padding: 4px 4px;
+    line-height: 1.15;
+}
+
+.bcvh-h-green {
+    background: #c6e0b4;
+    font-weight: 600;
+    font-size: 10px;
+    vertical-align: middle;
+    border: 1px solid #000;
+    padding: 4px 3px;
+    line-height: 1.15;
+}
+
+.bcvh-h-red {
+    background: #f8cbad;
+    font-weight: 600;
+    font-size: 10px;
+    vertical-align: middle;
+    border: 1px solid #000;
+    padding: 4px 3px;
+    line-height: 1.15;
+}
+
+.bcvh-h-grey {
+    background: #d9d9d9;
+    font-weight: 600;
+    font-size: 10px;
+    vertical-align: middle;
+    border: 1px solid #000;
+    padding: 4px 3px;
+    line-height: 1.1;
+}
+
+.bcvh-cell {
+    border: 1px solid #000;
+    padding: 4px 6px;
+    font-size: 11px;
+    text-align: right;
+    vertical-align: middle;
+}
+
+.bcvh-cell-left {
+    text-align: left;
+}
+
+.bcvh-cell-input {
+    width: 118px;
+    max-width: 100%;
+    font-size: 10px;
+    padding: 2px 4px;
+    border: 1px solid #666;
+    border-radius: 2px;
+}
+
+.bcvh-cell-select {
+    max-width: 160px;
+    font-size: 10px;
+    padding: 2px 4px;
+    border: 1px solid #666;
+    border-radius: 2px;
+    background: #fff;
+}
+
+.bcvh-total-row .bcvh-cell {
+    background: #ffeb9c;
+    font-weight: 700;
+}
+
+.bcvh-pill {
+    display: inline-block;
+    border-radius: 9999px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.bcvh-pill-product {
+    background: #bdd7ee;
+    color: #1a1a1a;
+}
+
+.bcvh-pill-market-us {
+    background: #f8cbad;
+    color: #1a1a1a;
+}
+
+.bcvh-pill-market-ca {
+    background: #e1d5e7;
+    color: #1a1a1a;
+}
+
+.bcvh-pill-market-other {
+    background: #d6dce4;
+    color: #1a1a1a;
+}

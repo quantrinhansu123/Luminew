@@ -206,7 +206,30 @@ const AdminTools = () => {
 
     // Tab Definitions with Keywords
     const TABS = [
-        { id: 'settings', label: 'Cài đặt hệ thống', icon: Settings, keywords: ['cài đặt', 'cấu hình', 'setting', 'sản phẩm', 'product', 'thị trường', 'market', 'ngưỡng', 'threshold', 'chỉ số'] },
+        {
+            id: 'settings',
+            label: 'Cài đặt hệ thống',
+            icon: Settings,
+            keywords: [
+                'cài đặt',
+                'cấu hình',
+                'setting',
+                'sản phẩm',
+                'product',
+                'thị trường',
+                'market',
+                'ngưỡng',
+                'threshold',
+                'chỉ số',
+                'sale',
+                'sales_reports',
+                'báo cáo sale',
+                'vận đơn',
+                'bao_cao_van_don',
+                'đếm trạng thái',
+                'tính lại'
+            ]
+        },
         { id: 'upload_download', label: 'Upload và Tải về', icon: Download, keywords: ['upload', 'download', 'excel', 'tải về', 'nhập', 'xuất'] },
         { id: 'permissions', label: 'Phân quyền (RBAC)', icon: Shield, keywords: ['phân quyền', 'rbac', 'nhân viên', 'user', 'role', 'nhóm quyền', 'matrix'] },
         { id: 'auto_assign', label: 'Chia đơn tự động', icon: Users, keywords: ['chia đơn', 'tự động', 'phân bổ', 'cskh', 'auto assign', 'hạch toán'] },
@@ -1399,7 +1422,7 @@ const AdminTools = () => {
     };
 
     const handleRecalcSaleOrderCount = async () => {
-        if (saleRecalcLoading) return;
+        if (saleRecalcLoading || vanDonBaoCaoLoading) return;
 
         const ok = window.confirm(
             'Tính lại sales_reports: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).\n\n' +
@@ -4620,8 +4643,11 @@ const AdminTools = () => {
                             )}
                         </div>
 
-                        {/* SALES_REPORTS: order_count + revenue + cancel + revenue_cancel_actual */}
-                        <div className="border border-gray-200 rounded-lg p-5 bg-white">
+                        {/* SALES_REPORTS + bao_cao_van_don: hai nút xanh lá / xanh dương */}
+                        <div
+                            id="admin-sale-reports-vandon-sync"
+                            className="border border-gray-200 rounded-lg p-5 bg-white scroll-mt-24"
+                        >
                             <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-2">
                                 <RefreshCw className="w-5 h-5 text-emerald-600" />
                                 Cập nhật Báo cáo Sale (sales_reports)

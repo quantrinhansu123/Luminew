@@ -1,5 +1,5 @@
-// Columns to always hide
-const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
+// Columns to always hide (tab Hoàn/Hủy)
+const HIDDEN_COLUMNS = ['Thuê TK', 'Thời gian cutoff', 'Tiền Hàng'];
 
 import { ArcElement, BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Title, Tooltip } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -7,15 +7,17 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { Bar, Doughnut } from 'react-chartjs-2';
-
-import { Download, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchOrdersFromAPI, convertDateToAPIFormat } from '../services/ordersApiService';
 import MultiSelect from '../components/MultiSelect';
 import * as rbacService from '../services/rbacService';
-
-const ORDERS_API_BASE_URL = 'https://lumidataapi.vercel.app';
 import { supabase } from '../supabase/config';
+import {
+    baoCaoHistogramHasKey,
+    collectBaoCaoHistogramKeys,
+    formatBaoCaoVanDonStatusHistogram,
+    parseBaoCaoVanDonHistogram,
+    sumBaoCaoVanDonHistogramValues
+} from '../utils/baoCaoVanDonFormat';
 import './BaoCaoVanDon.css';
 
 // Register ChartJS
@@ -29,46 +31,6 @@ ChartJS.register(
     ArcElement,
     ChartDataLabels
 );
-
-// Mapping Helper to map API order data to report format
-const mapOrderToReportFormat = (order) => {
-    // Map từ API order format (từ /orders endpoint) sang format mà component đang dùng
-    return {
-        ...order,
-        // Date fields - ưu tiên order_date, sau đó ngaytao
-        "Ngày lên đơn": order["Ngày lên đơn"] || order["Thời gian lên đơn"] || order.order_date || order.ngaytao || order.date || order.created_at,
-        // Money fields - ưu tiên total_amount_vnd, sau đó tongtien
-        "Tổng tiền VNĐ": order["Tổng tiền VNĐ"] || order["Tổng_tiền_VNĐ"] || order.total_amount_vnd || order.tongtien || order.revenue_vnd || order.total_amount || order.amount || 0,
-        // Staff fields - ưu tiên delivery_staff, sau đó nhanvien_sale
-        "NV Vận đơn": order["NV Vận đơn"] || order["NV_Vận_đơn"] || order.delivery_staff || order.nhanvien_sale || order.staff || order.staff_name || order.nhan_vien || '',
-        // Shipping fields - có thể không có trong API này
-        "Đơn vị vận chuyển": order["Đơn vị vận chuyển"] || order["Đơn_vị_vận_chuyển"] || order.shipping_unit || order.carrier || order.don_vi_van_chuyen || '',
-        // Status fields - map trực tiếp từ API
-        "Trạng thái giao hàng NB": order["Trạng thái giao hàng"] || order["Trạng thái giao hàng NB"] || order.delivery_status || order.status || '',
-        "Trạng thái thu tiền": order["Trạng thái thu tiền"] || order.payment_status || '',
-        "Kết quả check": order["Kết quả check"] || order.check_result || '',
-        // Location/Market fields - map từ country
-        "khu vực": order["Khu vực"] || order["khu vực"] || order.country || order.market || order.thi_truong || '',
-        // Product fields - map từ product
-        "Mặt hàng": order["Mặt hàng"] || order.product || order.san_pham || '',
-        // Customer fields - có thể không có trong API này
-        "Name*": order["Name*"] || order.name || order.customer_name || order.ten_khach_hang || '',
-        "Phone*": order["Phone*"] || order.phone || order.phone_number || order.sdt || '',
-        // Order code - map từ id
-        "Mã đơn hàng": order["Mã đơn hàng"] || order.order_code || order.code || order.id || '',
-        // Tracking - map từ tracking_code
-        "Mã Tracking": order["Mã Tracking"] || order.tracking_code || order.tracking || '',
-        // Chi nhánh - map từ team (ưu tiên order.team từ API)
-        "Chi nhánh": order.team || order["Chi nhánh"] || order["Team"] || '',
-        // Shift - map từ shift
-        "Ca": order["Ca"] || order.shift || order.ca || '',
-        // Marketing staff - map từ nhanvien_maketing
-        "NV Marketing": order["NV Marketing"] || order.nhanvien_maketing || order.nhan_vien_marketing || '',
-        // Notes - có thể không có trong API này
-        "Ghi chú": order["Ghi chú"] || order.note || order.notes || '',
-        "Lý do": order["Lý do"] || order.reason || order.ly_do || ''
-    };
-};
 
 // --- UTILS ---
 const formatDateForInput = (date) => {
@@ -120,6 +82,185 @@ const createEmptyStats = () => ({
     "Trống trạng thái": { count: 0 }
 });
 
+const mapBaoCaoRowToVirtual = (row) => {
+    const ngay = row.ngay;
+    let dateStr = '';
+    if (ngay) {
+        dateStr = typeof ngay === 'string' ? String(ngay).slice(0, 10) : formatDateForInput(new Date(ngay));
+    }
+    return {
+        _source: 'bao_cao',
+        id: row.id,
+        _ket_qua_check: row.ket_qua_check,
+        _trang_thai_giao_hang: row.trang_thai_giao_hang,
+        _trang_thai_thanh_toan: row.trang_thai_thanh_toan,
+        'Ngày lên đơn': dateStr,
+        'NV Vận đơn': row.nhan_vien || '',
+        'Mặt hàng': row.san_pham || '',
+        'khu vực': row.thi_truong || '',
+        'Chi nhánh': '',
+        'Đơn vị vận chuyển': '—',
+        'Kết quả check': formatBaoCaoVanDonStatusHistogram(row.ket_qua_check),
+        'Trạng thái giao hàng NB': formatBaoCaoVanDonStatusHistogram(row.trang_thai_giao_hang),
+        'Trạng thái thu tiền': formatBaoCaoVanDonStatusHistogram(row.trang_thai_thanh_toan),
+        'Tổng tiền VNĐ': 0,
+        'Mã đơn hàng': row.id || '',
+        'Mã Tracking': '',
+        'Name*': '',
+        'Phone*': '',
+        'Ghi chú': '',
+        'Lý do': ''
+    };
+};
+
+/** @param {Record<string, { count: number; amount?: number }>} targets */
+const addPaymentHistogramToStats = (payH, targets) => {
+    const o = parseBaoCaoVanDonHistogram(payH);
+    for (const [key, raw] of Object.entries(o)) {
+        const n = Number(raw) || 0;
+        if (n <= 0) continue;
+        const k = String(key);
+        targets.forEach((t) => {
+            if (k.includes('Có bill 1 phần') || (k.includes('1 phần') && k.toLowerCase().includes('bill'))) {
+                t['Bill 1 phần'].count += n;
+            } else if (k.includes('Có bill') || k.toLowerCase().includes('có bill')) {
+                t['Đã Thanh Toán (có bill)'].count += n;
+            }
+        });
+    }
+};
+
+const addEligiblePushFromKetQuaOk = (ketQuaCheck, targets) => {
+    const o = parseBaoCaoVanDonHistogram(ketQuaCheck);
+    for (const [key, raw] of Object.entries(o)) {
+        const n = Number(raw) || 0;
+        if (n <= 0) continue;
+        if (String(key).trim().toLowerCase() === 'ok') {
+            targets.forEach((t) => {
+                t['Tổng đơn đủ đkien đẩy vh'].count += n;
+            });
+        }
+    }
+};
+
+const classifyTrangThaiGiaoHangKey = (key) => {
+    const d = String(key).trim();
+    if (!d) return 'Trống trạng thái';
+    const l = d.toLowerCase();
+    if (
+        l === 'trống' ||
+        l === 'là trống' ||
+        l.includes('là trống') ||
+        l === 'trống trạng thái' ||
+        /^trống\s*trạng\s*thái$/i.test(d)
+    ) {
+        return 'Trống trạng thái';
+    }
+    if (l.includes('giao thành công')) return 'Giao Thành Công';
+    if (l.includes('đang giao')) return 'Đang Giao';
+    if (l.includes('chưa giao')) return 'Chưa Giao';
+    if (l.includes('huỷ') || l.includes('hủy') || l.includes('cancel')) return 'Hủy';
+    if (l.includes('hoàn')) return 'Hoàn';
+    if (l.includes('chờ check')) return 'chờ check';
+    return 'Trống trạng thái';
+};
+
+const normalizeHistogramKeyLabel = (key) =>
+    String(key)
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+
+const isMaTrackingHistogramKey = (key) => normalizeHistogramKeyLabel(key) === 'mã tracking';
+
+const sumMaTrackingInGiaoHistogram = (delH) => {
+    const o = parseBaoCaoVanDonHistogram(delH);
+    let s = 0;
+    for (const [key, raw] of Object.entries(o)) {
+        if (!isMaTrackingHistogramKey(key)) continue;
+        s += Number(raw) || 0;
+    }
+    return s;
+};
+
+const sumTrangThaiGiaoExcludingTracking = (delH) => {
+    const o = parseBaoCaoVanDonHistogram(delH);
+    let s = 0;
+    for (const [key, raw] of Object.entries(o)) {
+        if (isMaTrackingHistogramKey(key)) continue;
+        s += Number(raw) || 0;
+    }
+    return s;
+};
+
+const sumKetQuaOkFromHistogram = (ketQuaCheck) => {
+    const o = parseBaoCaoVanDonHistogram(ketQuaCheck);
+    let s = 0;
+    for (const [key, raw] of Object.entries(o)) {
+        if (String(key).trim().toLowerCase() === 'ok') s += Number(raw) || 0;
+    }
+    return s;
+};
+
+const newCriteriaRowId = () =>
+    typeof crypto !== 'undefined' && crypto.randomUUID
+        ? `cr-${crypto.randomUUID()}`
+        : `cr-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+const deriveFetchParamsFromCriteria = (rows) => {
+    const withDates = rows.filter((r) => r.startDate && r.endDate);
+    if (!withDates.length) return null;
+    const startDate = withDates.reduce((m, r) => (r.startDate < m ? r.startDate : m), withDates[0].startDate);
+    const endDate = withDates.reduce((m, r) => (r.endDate > m ? r.endDate : m), withDates[0].endDate);
+    const anyOpenProduct = rows.some((r) => !r.product);
+    const anyOpenMarket = rows.some((r) => !r.market);
+    const product = anyOpenProduct ? [] : [...new Set(rows.map((r) => r.product).filter(Boolean))];
+    const market = anyOpenMarket ? [] : [...new Set(rows.map((r) => r.market).filter(Boolean))];
+    return { startDate, endDate, product, market };
+};
+
+const addDeliveryHistogramToStats = (delH, targets) => {
+    const o = parseBaoCaoVanDonHistogram(delH);
+    for (const [key, raw] of Object.entries(o)) {
+        const n = Number(raw) || 0;
+        if (n <= 0) continue;
+        if (isMaTrackingHistogramKey(key)) continue;
+        const bucket = classifyTrangThaiGiaoHangKey(key);
+        targets.forEach((t) => {
+            t[bucket].count += n;
+        });
+    }
+};
+
+const addTongDonLenVanHanhFromMaTracking = (delH, targets) => {
+    const n = sumMaTrackingInGiaoHistogram(delH);
+    targets.forEach((t) => {
+        t['Tổng đơn lên vận hành'].count += n;
+    });
+};
+
+const rowHasRefundHistogram = (row) => {
+    const o = parseBaoCaoVanDonHistogram(row._trang_thai_giao_hang);
+    for (const [k, v] of Object.entries(o)) {
+        const n = Number(v) || 0;
+        if (n <= 0) continue;
+        const b = classifyTrangThaiGiaoHangKey(k);
+        if (b === 'Hoàn' || b === 'Hủy') return true;
+    }
+    return false;
+};
+
+const refundSubtotalFromRow = (row) => {
+    const o = parseBaoCaoVanDonHistogram(row._trang_thai_giao_hang);
+    let s = 0;
+    for (const [k, v] of Object.entries(o)) {
+        const n = Number(v) || 0;
+        if (n <= 0) continue;
+        const b = classifyTrangThaiGiaoHangKey(k);
+        if (b === 'Hoàn' || b === 'Hủy') s += n;
+    }
+    return s;
+};
 
 export default function BaoCaoVanDon() {
     console.log("BaoCaoVanDon rendering..."); // Debug log
@@ -139,8 +280,7 @@ export default function BaoCaoVanDon() {
     const [error, setError] = useState(null);
     const [showCharts, setShowCharts] = useState(false); // Mặc định ẩn biểu đồ
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Selected personnel từ tài khoản đăng nhập
-    const [userBranch, setUserBranch] = useState(null); // Branch của user hiện tại từ bảng users
-    
+
     // Kiểm tra xem user có phải Admin không
     const userRole = localStorage.getItem('userRole') || '';
     const isAdmin = userRole.toLowerCase() === 'admin' || 
@@ -175,9 +315,15 @@ export default function BaoCaoVanDon() {
             product: [], // Array of selected products
             market: [], // Array of selected markets
             staff: [], // Array of selected staff names
-            team: [] // Array of selected teams (Chi nhánh)
+            team: []
         };
     });
+
+    const [criteriaRows, setCriteriaRows] = useState(() => {
+        const d = getDefaultDates();
+        return [{ id: newCriteriaRowId(), startDate: d.startDate, endDate: d.endDate, product: '', market: '' }];
+    });
+
     const [showStaffDropdown, setShowStaffDropdown] = useState(false);
     const staffDropdownRef = useRef(null);
     const staffButtonRef = useRef(null);
@@ -217,19 +363,33 @@ export default function BaoCaoVanDon() {
     // Không auto-fetch khi URL có dates - user phải click "Tìm kiếm" để fetch
     // Chỉ cập nhật dates vào state từ URL
     useEffect(() => {
-        if (urlStartDate && urlEndDate) {
-            // Chỉ cập nhật dates vào state nếu chưa có hoặc khác với URL
-            if (reportFilters.startDate !== urlStartDate || reportFilters.endDate !== urlEndDate) {
-                console.log(`🔗 URL has dates, updating state: from_date=${urlStartDate}, to_date=${urlEndDate}`);
-                setReportFilters(prev => ({
-                    ...prev,
-                    startDate: urlStartDate,
-                    endDate: urlEndDate
-                }));
+        if (!urlStartDate || !urlEndDate) return;
+        setCriteriaRows((prev) => {
+            if (!prev.length) {
+                return [{ id: newCriteriaRowId(), startDate: urlStartDate, endDate: urlEndDate, product: '', market: '' }];
             }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+            const next = [...prev];
+            const first = next[0];
+            if (first.startDate === urlStartDate && first.endDate === urlEndDate) return prev;
+            next[0] = { ...first, startDate: urlStartDate, endDate: urlEndDate };
+            return next;
+        });
     }, [urlStartDate, urlEndDate]);
+
+    useEffect(() => {
+        const fp = deriveFetchParamsFromCriteria(criteriaRows);
+        if (!fp) return;
+        setReportFilters((prev) => {
+            const sameProd =
+                JSON.stringify([...prev.product].sort()) === JSON.stringify([...fp.product].sort());
+            const sameMkt =
+                JSON.stringify([...prev.market].sort()) === JSON.stringify([...fp.market].sort());
+            if (prev.startDate === fp.startDate && prev.endDate === fp.endDate && sameProd && sameMkt) {
+                return prev;
+            }
+            return { ...prev, startDate: fp.startDate, endDate: fp.endDate, product: fp.product, market: fp.market };
+        });
+    }, [criteriaRows]);
 
 
     // --- DETAILED FILTERS ---
@@ -245,6 +405,10 @@ export default function BaoCaoVanDon() {
     // Extract unique values từ mapped data (đã được map từ API format)
     const uniqueProducts = useMemo(() => [...new Set(rawData.map(r => r["Mặt hàng"]).filter(Boolean))].sort(), [rawData]);
     const uniqueMarkets = useMemo(() => [...new Set(rawData.map(r => r["khu vực"] || r["Khu vực"]).filter(Boolean))].sort(), [rawData]);
+    const uniqueTeams = useMemo(
+        () => [...new Set(rawData.map((r) => r['Chi nhánh'] || r['Chi_nhánh'] || r['Team']).filter(Boolean))].sort(),
+        [rawData]
+    );
     // uniqueStaff: Chỉ lấy từ selectedPersonnelNames (giới hạn dropdown)
     // Nếu có selectedPersonnelNames, chỉ hiển thị những người trong đó
     // Nếu không có selectedPersonnelNames, lấy từ rawData (fallback)
@@ -256,25 +420,42 @@ export default function BaoCaoVanDon() {
         // Fallback: lấy từ rawData nếu không có selectedPersonnelNames
         return [...new Set(rawData.map(r => r["NV Vận đơn"] || r["NV_Vận_đơn"]).filter(Boolean))].sort();
     }, [rawData, selectedPersonnelNames]);
-    // uniqueTeams: Chỉ lấy từ userBranch (giới hạn dropdown)
-    // Nếu có userBranch, chỉ hiển thị branch đó
-    // Nếu không có userBranch hoặc là admin, lấy từ rawData (fallback)
-    const uniqueTeams = useMemo(() => {
-        if (isAdmin) {
-            // Admin: hiển thị tất cả teams từ rawData
-            return [...new Set(rawData.map(r => r["Chi nhánh"]).filter(Boolean))].sort();
-        }
-        if (userBranch) {
-            // Non-admin: chỉ hiển thị branch của user
-            return [userBranch].filter(Boolean);
-        }
-        // Fallback: lấy từ rawData nếu không có userBranch
-        return [...new Set(rawData.map(r => r["Chi nhánh"]).filter(Boolean))].sort();
-    }, [rawData, userBranch, isAdmin]);
+    const uniqueCheckResults = useMemo(
+        () => collectBaoCaoHistogramKeys(rawData, (r) => r._ket_qua_check),
+        [rawData]
+    );
+    const uniqueDeliveryStatuses = useMemo(
+        () => collectBaoCaoHistogramKeys(rawData, (r) => r._trang_thai_giao_hang),
+        [rawData]
+    );
+    const uniquePaymentStatuses = useMemo(
+        () => collectBaoCaoHistogramKeys(rawData, (r) => r._trang_thai_thanh_toan),
+        [rawData]
+    );
 
-    const uniqueCheckResults = useMemo(() => [...new Set(rawData.map(r => r["Kết quả check"]).filter(Boolean))].sort(), [rawData]);
-    const uniqueDeliveryStatuses = useMemo(() => [...new Set(rawData.map(r => r["Trạng thái giao hàng NB"]).filter(Boolean))].sort(), [rawData]);
-    const uniquePaymentStatuses = useMemo(() => [...new Set(rawData.map(r => r["Trạng thái thu tiền"]).filter(Boolean))].sort(), [rawData]);
+    const criteriaRowMetrics = useMemo(() => {
+        return criteriaRows.map((row) => {
+            const slice = rawData.filter((r) => {
+                const d = r['Ngày lên đơn'] || '';
+                if (row.startDate && d && d < row.startDate) return false;
+                if (row.endDate && d && d > row.endDate) return false;
+                if (row.product && r['Mặt hàng'] !== row.product) return false;
+                if (row.market && r['khu vực'] !== row.market) return false;
+                return true;
+            });
+            let sumGh = 0;
+            let sumOk = 0;
+            let sumTk = 0;
+            for (const r of slice) {
+                sumGh += sumTrangThaiGiaoExcludingTracking(r._trang_thai_giao_hang);
+                sumOk += sumKetQuaOkFromHistogram(r._ket_qua_check);
+                sumTk += sumMaTrackingInGiaoHistogram(r._trang_thai_giao_hang);
+            }
+            return { sumGh, sumOk, sumTk };
+        });
+    }, [criteriaRows, rawData]);
+
+    const fetchParamsOk = Boolean(deriveFetchParamsFromCriteria(criteriaRows));
 
     // --- LOAD SELECTED PERSONNEL ---
     // Load selected_personnel từ tài khoản đăng nhập
@@ -315,589 +496,75 @@ export default function BaoCaoVanDon() {
         loadSelectedPersonnel();
     }, []);
 
-    // --- LOAD USER BRANCH ---
-    // Load branch của user hiện tại từ bảng users
-    useEffect(() => {
-        const loadUserBranch = async () => {
-            try {
-                const userEmail = localStorage.getItem('userEmail');
-                if (!userEmail) {
-                    console.log('⚠️ [BaoCaoVanDon] Không tìm thấy userEmail trong localStorage');
-                    setUserBranch(null);
-                    return;
-                }
-
-                const userEmailLower = userEmail.toLowerCase().trim();
-                console.log('📧 [BaoCaoVanDon] Loading user branch for:', userEmailLower);
-
-                // Get branch từ bảng users
-                const { data, error } = await supabase
-                    .from('users')
-                    .select('branch, team')
-                    .eq('email', userEmailLower)
-                    .single();
-
-                if (error) {
-                    console.error('❌ [BaoCaoVanDon] Error loading user branch:', error);
-                    setUserBranch(null);
-                    return;
-                }
-
-                // Ưu tiên branch, sau đó team
-                const branch = data?.branch || data?.team || null;
-                console.log('✅ [BaoCaoVanDon] Loaded user branch from DB:', {
-                    branch: data?.branch,
-                    team: data?.team,
-                    finalBranch: branch
-                });
-                setUserBranch(branch);
-                
-                // Log để debug nếu không có branch
-                if (!branch) {
-                    console.warn('⚠️ [BaoCaoVanDon] User does not have branch or team in users table');
-                }
-            } catch (error) {
-                console.error('❌ [BaoCaoVanDon] Error loading user branch:', error);
-                setUserBranch(null);
-            }
-        };
-
-        loadUserBranch();
-    }, []);
-
     // --- FETCH DATA ---
     // Tắt auto-fetch - chỉ fetch khi user chọn dates và click button hoặc thay đổi dates
     // useEffect tự động fetch đã bị tắt - chỉ fetch khi user thao tác
 
     const fetchData = async () => {
+        const fp = deriveFetchParamsFromCriteria(criteriaRows);
+        if (!fp) {
+            alert('Vui lòng chọn Ngày đầu và Ngày cuối cho ít nhất một dòng trong bảng tiêu chí.');
+            return;
+        }
         setLoading(true);
         setError(null);
-        setLoadingProgress({ current: 0, total: 0, message: 'Đang bắt đầu tải dữ liệu...' });
+        setLoadingProgress({ current: 0, total: 0, message: 'Đang tải bảng bao_cao_van_don...' });
         try {
-            // Use fetchOrdersFromAPI to get data from orders API
-            console.log(`📡 Fetching report data from Orders API for: ${reportFilters.startDate} to ${reportFilters.endDate}`);
-            console.log(`🔗 Current URL: ${window.location.href}`);
-
-            // Convert dates from YYYY-MM-DD to DD/MM/YYYY format for API
-            const fromDate = reportFilters.startDate ? convertDateToAPIFormat(reportFilters.startDate) : '';
-            const toDate = reportFilters.endDate ? convertDateToAPIFormat(reportFilters.endDate) : '';
-
-            // Build filters for API - dates từ URL đã được gán vào reportFilters
-            // Dates luôn được truyền vào URL API với format DD/MM/YYYY
-            const apiFilters = {
-                from_date: fromDate,
-                to_date: toDate
-                // Không set limit để lấy tất cả data
-            };
-            
-            // Add optional filters if they exist
-            // Map từ filter UI sang API filter names theo tài liệu BE
-            if (reportFilters.product && reportFilters.product.length > 0) {
-                // Product filter: UI dùng "Mặt hàng", API dùng "product"
-                apiFilters.product = Array.isArray(reportFilters.product) 
-                    ? reportFilters.product.join(',') 
-                    : reportFilters.product;
+            console.log(`📡 [BaoCaoVanDon] Supabase bao_cao_van_don ${fp.startDate} → ${fp.endDate}`);
+            const { data, error: qErr } = await supabase
+                .from('bao_cao_van_don')
+                .select(
+                    'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan'
+                )
+                .gte('ngay', fp.startDate)
+                .lte('ngay', fp.endDate)
+                .order('ngay', { ascending: false });
+            if (qErr) throw qErr;
+            let rows = (data || []).map(mapBaoCaoRowToVirtual);
+            if (fp.product?.length > 0) {
+                const ps = new Set(fp.product);
+                rows = rows.filter((r) => ps.has(r['Mặt hàng']));
             }
-            if (reportFilters.market && reportFilters.market.length > 0) {
-                // Market filter: UI dùng "khu vực", API dùng "country"
-                apiFilters.country = Array.isArray(reportFilters.market) 
-                    ? reportFilters.market.join(',') 
-                    : reportFilters.market;
+            if (fp.market?.length > 0) {
+                const ms = new Set(fp.market);
+                rows = rows.filter((r) => ms.has(r['khu vực']));
             }
-            // Staff filter: UI dùng "NV Vận đơn", API dùng "delivery_staff"
-            // Logic: Nếu không phải admin, chỉ dùng selected_personnel (tự động)
-            // Nếu là admin, cho phép chọn thủ công và kết hợp với selected_personnel
-            const staffFilters = [];
-            
-            if (isAdmin) {
-                // Admin: cho phép chọn tất cả staff
-                // Thêm selected_personnel từ tài khoản đăng nhập (nếu có)
-                if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                    staffFilters.push(...selectedPersonnelNames);
-                    console.log(`👥 [BaoCaoVanDon] Admin: Auto-adding selected_personnel to delivery_staff:`, selectedPersonnelNames);
+            const staffAllow = (() => {
+                if (isAdmin) {
+                    const parts = [];
+                    if (selectedPersonnelNames?.length) parts.push(...selectedPersonnelNames);
+                    if (reportFilters.staff?.length) parts.push(...reportFilters.staff);
+                    const u = [...new Set(parts)];
+                    return u.length ? new Set(u) : null;
                 }
-                
-                // Thêm filter thủ công từ UI (nếu có)
-                if (reportFilters.staff && reportFilters.staff.length > 0) {
-                    const manualStaff = Array.isArray(reportFilters.staff) 
-                        ? reportFilters.staff 
-                        : [reportFilters.staff];
-                    staffFilters.push(...manualStaff);
-                    console.log(`👤 [BaoCaoVanDon] Admin: Adding manual staff filter:`, manualStaff);
-                }
-            } else {
-                // Không phải admin: CHỈ dùng selected_personnel (tự động)
-                if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                    staffFilters.push(...selectedPersonnelNames);
-                    console.log(`👥 [BaoCaoVanDon] Non-admin: Only using selected_personnel for delivery_staff:`, selectedPersonnelNames);
-                } else {
-                    console.log(`⚠️ [BaoCaoVanDon] Non-admin: No selected_personnel found. No delivery_staff filter will be applied.`);
-                }
+                if (selectedPersonnelNames?.length) return new Set(selectedPersonnelNames);
+                return null;
+            })();
+            if (staffAllow) {
+                rows = rows.filter((r) => staffAllow.has(r['NV Vận đơn']));
             }
-            
-            // Loại bỏ duplicate và set vào API filter
-            if (staffFilters.length > 0) {
-                const uniqueStaff = [...new Set(staffFilters)];
-                apiFilters.delivery_staff = uniqueStaff.join(',');
-                console.log(`✅ [BaoCaoVanDon] Final delivery_staff filter:`, uniqueStaff);
-            }
-            // Team filter: UI dùng "Chi nhánh", API dùng "team"
-            // Logic: Nếu không phải admin, tự động thêm userBranch vào filter
-            // Nếu là admin, cho phép chọn thủ công
-            if (isAdmin) {
-                // Admin: cho phép chọn thủ công
-                if (reportFilters.team && reportFilters.team.length > 0) {
-                    apiFilters.team = Array.isArray(reportFilters.team) 
-                        ? reportFilters.team.join(',') 
-                        : reportFilters.team;
-                    console.log(`🏢 [BaoCaoVanDon] Admin: Team filter (Chi nhánh):`, reportFilters.team);
-                    console.log(`🏢 [BaoCaoVanDon] Admin: Team filter → API parameter: team=${apiFilters.team}`);
-                } else {
-                    console.log(`🏢 [BaoCaoVanDon] Admin: No team filter selected`);
-                }
-            } else {
-                // Non-admin: tự động thêm userBranch vào filter
-                if (userBranch) {
-                    apiFilters.team = userBranch;
-                    console.log(`🏢 [BaoCaoVanDon] Non-admin: Auto-adding userBranch to team filter:`, userBranch);
-                } else {
-                    console.log(`⚠️ [BaoCaoVanDon] Non-admin: No userBranch found. No team filter will be applied.`);
-                }
-            }
-
-            // Log để verify format và filters
-            console.log(`📋 [BaoCaoVanDon] Input dates (YYYY-MM-DD): from_date=${reportFilters.startDate}, to_date=${reportFilters.endDate}`);
-            console.log(`📋 [BaoCaoVanDon] API dates (DD/MM/YYYY): from_date=${fromDate}, to_date=${toDate}`);
-            console.log(`📋 [BaoCaoVanDon] API Filters:`, JSON.stringify(apiFilters, null, 2));
-            
-            // Build full URL để log
-            const urlParams = new URLSearchParams();
-            Object.keys(apiFilters).forEach(key => {
-                if (apiFilters[key]) {
-                    urlParams.append(key, apiFilters[key]);
-                }
+            setLoadingProgress({
+                current: rows.length,
+                total: rows.length,
+                message: 'Hoàn tất'
             });
-            const fullUrl = `${ORDERS_API_BASE_URL}/orders?${urlParams.toString()}`;
-            console.log(`🔗 Full API URL: ${fullUrl}`);
-            console.log('📡 Fetching all data using cursor pagination...');
-
-            // Strategy: Fetch tất cả data với date range, dùng cursor pagination
-            // Không fetch theo từng ngày để tăng tốc độ
-            let allData = [];
-            let nextAfterId = null;
-            let pageNum = 1;
-            const seenIds = new Set(); // Để tránh duplicate
-            const MAX_PAGES = 100000; // Tăng giới hạn để lấy tất cả data
-            
-            do {
-                const batchFilters = {
-                    ...apiFilters,
-                    next_after_id: nextAfterId,
-                    limit: 10000 // Thêm limit lớn để lấy nhiều records hơn mỗi page
-                };
-                
-                // Chỉ log mỗi 10 pages để giảm overhead
-                if (pageNum === 1 || pageNum % 10 === 0) {
-                    console.log(`📊 Fetching page ${pageNum}${nextAfterId ? ` (after_id: ${nextAfterId.substring(0, 8)}...)` : ' (first page)'}...`);
-                }
-                
-                const response = await fetchOrdersFromAPI(batchFilters);
-                
-                // Log chi tiết response để debug
-                if (pageNum === 1) {
-                    console.log('📡 [BaoCaoVanDon] First page API response:', {
-                        hasData: !!response?.data,
-                        dataLength: response?.data?.length || 0,
-                        hasNextAfterId: !!response?.next_after_id,
-                        nextAfterId: response?.next_after_id,
-                        count: response?.count,
-                        statistics: response?.statistics,
-                        filtersApplied: batchFilters,
-                        sampleData: response?.data?.slice(0, 3) || []
-                    });
-                    
-                    // Kiểm tra teams trong response
-                    if (response?.data && response.data.length > 0) {
-                        const teamsInResponse = [...new Set(response.data.map(o => o.team).filter(Boolean))];
-                        console.log('🏢 [BaoCaoVanDon] Teams in first page response:', teamsInResponse);
-                        if (batchFilters.team) {
-                            console.log('🏢 [BaoCaoVanDon] Team filter was:', batchFilters.team);
-                            console.log('🏢 [BaoCaoVanDon] Teams match filter?', teamsInResponse.includes(batchFilters.team));
-                        }
-                    }
-                }
-                
-                let batchData = [];
-                if (response && response.data && Array.isArray(response.data)) {
-                    batchData = response.data;
-                } else if (Array.isArray(response)) {
-                    batchData = response;
-                }
-                
-                // Nếu có team filter, kiểm tra xem API có filter đúng không
-                // Nếu không, filter client-side
-                if (apiFilters.team && batchData.length > 0) {
-                    const requestedTeams = apiFilters.team.split(',').map(t => t.trim());
-                    const teamsInBatch = [...new Set(batchData.map(o => o.team).filter(Boolean))];
-                    const hasRequestedTeam = teamsInBatch.some(t => requestedTeams.includes(t));
-                    
-                    if (!hasRequestedTeam && pageNum === 1) {
-                        console.warn('⚠️ [BaoCaoVanDon] API may not be filtering by team correctly. Teams in batch:', teamsInBatch);
-                        console.warn('⚠️ [BaoCaoVanDon] Requested teams:', requestedTeams);
-                        console.log('🔧 [BaoCaoVanDon] Applying client-side team filter...');
-                    }
-                    
-                    // Filter client-side nếu API không filter đúng
-                    if (!hasRequestedTeam) {
-                        batchData = batchData.filter(item => {
-                            const itemTeam = item.team || '';
-                            return requestedTeams.some(req => 
-                                itemTeam === req || 
-                                itemTeam.toLowerCase() === req.toLowerCase()
-                            );
-                        });
-                        
-                        if (pageNum === 1 && batchData.length === 0) {
-                            console.warn('⚠️ [BaoCaoVanDon] No data matches team filter after client-side filtering');
-                        }
-                    }
-                }
-                
-                // Filter duplicate
-                const newData = batchData.filter(item => {
-                    const id = item.id || item.order_code || item.order_id;
-                    if (id && seenIds.has(id)) {
-                        return false;
-                    }
-                    if (id) {
-                        seenIds.add(id);
-                    }
-                    return true;
-                });
-                
-                if (newData.length > 0) {
-                    allData.push(...newData);
-                    // Chỉ log mỗi 10 pages
-                    if (pageNum === 1 || pageNum % 10 === 0) {
-                        console.log(`✅ Page ${pageNum}: Added ${newData.length} orders (Total: ${allData.length})`);
-                    }
-                }
-                
-                // Kiểm tra có page tiếp theo không
-                nextAfterId = response?.next_after_id || null;
-                
-                // Kiểm tra nếu API trả về đúng limit records nhưng không có next_after_id
-                // Có thể API có giới hạn cứng, cần fetch theo từng ngày
-                const actualCount = batchData.length;
-                const expectedCount = response?.count || response?.statistics?.total_orders;
-                const limit = batchFilters.limit || 10000;
-                
-                // Log chi tiết nếu có vấn đề
-                if (actualCount === limit && !nextAfterId) {
-                    console.warn(`⚠️ WARNING: API returned exactly ${limit} records but no next_after_id.`, {
-                        actualCount: actualCount,
-                        expectedCount: expectedCount,
-                        limit: limit,
-                        hasNextAfterId: !!response?.next_after_id,
-                        responseKeys: Object.keys(response || {}),
-                        response: response
-                    });
-                    
-                    // Nếu có expectedCount > limit, cảnh báo rõ ràng
-                    if (expectedCount && expectedCount > limit) {
-                        console.error(`❌ CRITICAL: API may have hard limit of ${limit} records. Expected ${expectedCount} but only got ${actualCount}. May need to fetch by date.`);
-                    }
-                    
-                    // Nếu không có next_after_id nhưng có thể còn data, thử fetch theo từng ngày
-                    if (expectedCount && expectedCount > actualCount && fromDate && toDate) {
-                        console.log(`🔄 Attempting to fetch remaining data by date range...`);
-                        // Sẽ fetch theo từng ngày ở bên dưới nếu cần
-                    }
-                }
-                
-                // Update loading progress
-                setLoadingProgress({
-                    current: allData.length,
-                    total: response?.count || response?.statistics?.total_orders || 0,
-                    message: nextAfterId ? `Đang tải trang ${pageNum}...` : 'Hoàn tất'
-                });
-                
-                // Log thông tin về pagination (chỉ log mỗi 10 pages để giảm overhead)
-                if (pageNum % 10 === 0 || !nextAfterId) {
-                    console.log(`📊 Page ${pageNum} info:`, {
-                        fetched: newData.length,
-                        total: allData.length,
-                        hasNextPage: !!nextAfterId,
-                        next_after_id: nextAfterId ? nextAfterId.substring(0, 20) + '...' : null,
-                        responseCount: response?.count,
-                        actualDataCount: batchData.length
-                    });
-                }
-                
-                pageNum++;
-                
-                // Bỏ delay để tăng tốc độ
-                // Chỉ delay nếu có quá nhiều pages (tránh rate limit)
-                if (nextAfterId && pageNum > 50 && pageNum % 10 === 0) {
-                    await new Promise(resolve => setTimeout(resolve, 50));
-                }
-                
-                // Safety limit
-                if (pageNum > MAX_PAGES) {
-                    console.warn(`⚠️ Reached max pages limit (${MAX_PAGES}). Stopping pagination.`);
-                    break;
-                }
-            } while (nextAfterId);
-            
-            // Để đảm bảo lấy hết data, fetch theo từng ngày nếu khoảng thời gian > 1 ngày
-            // Điều này đảm bảo không bỏ sót data do pagination issues
-            if (fromDate && toDate) {
-                // Parse dates để fetch theo từng ngày
-                const parseDate = (dateStr) => {
-                    // Format: DD/MM/YYYY
-                    const [day, month, year] = dateStr.split('/');
-                    return new Date(year, month - 1, day);
-                };
-                
-                const startDate = parseDate(fromDate);
-                const endDate = parseDate(toDate);
-                const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-                
-                // Nếu khoảng thời gian > 1 ngày, fetch theo từng ngày để đảm bảo lấy hết
-                if (daysDiff > 1) {
-                    console.log(`📅 Date range is ${daysDiff} days. Fetching by individual dates to ensure completeness...`);
-                    
-                    const dateBasedData = [];
-                    const dateSeenIds = new Set(seenIds); // Copy existing seenIds
-                    
-                    // Fetch từng ngày
-                    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-                        const dayStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-                        const dayFilters = {
-                            ...apiFilters,
-                            from_date: dayStr,
-                            to_date: dayStr,
-                            limit: 10000
-                        };
-                        
-                        // Remove next_after_id để fetch từ đầu
-                        delete dayFilters.next_after_id;
-                        
-                        try {
-                            let dayNextAfterId = null;
-                            let dayPageNum = 1;
-                            let dayData = [];
-                            
-                            do {
-                                const dayBatchFilters = {
-                                    ...dayFilters,
-                                    next_after_id: dayNextAfterId
-                                };
-                                
-                                const dayResponse = await fetchOrdersFromAPI(dayBatchFilters);
-                                const dayBatchData = dayResponse?.data || [];
-                                
-                                // Filter duplicate
-                                const newDayData = dayBatchData.filter(item => {
-                                    const id = item.id || item.order_code || item.order_id;
-                                    if (id && dateSeenIds.has(id)) {
-                                        return false;
-                                    }
-                                    if (id) {
-                                        dateSeenIds.add(id);
-                                    }
-                                    return true;
-                                });
-                                
-                                if (newDayData.length > 0) {
-                                    dayData.push(...newDayData);
-                                }
-                                
-                                dayNextAfterId = dayResponse?.next_after_id || null;
-                                dayPageNum++;
-                                
-                                if (dayPageNum > 100) break; // Safety limit per day
-                            } while (dayNextAfterId);
-                            
-                            if (dayData.length > 0) {
-                                dateBasedData.push(...dayData);
-                                console.log(`✅ Fetched ${dayData.length} orders for ${dayStr} (Total so far: ${dateBasedData.length})`);
-                            }
-                        } catch (err) {
-                            console.error(`❌ Error fetching data for ${dayStr}:`, err);
-                        }
-                    }
-                    
-                    // Merge date-based data vào allData (tránh duplicate)
-                    const mergedData = [...allData];
-                    dateBasedData.forEach(item => {
-                        const id = item.id || item.order_code || item.order_id;
-                        if (id && !seenIds.has(id)) {
-                            seenIds.add(id);
-                            mergedData.push(item);
-                        }
-                    });
-                    
-                    if (mergedData.length > allData.length) {
-                        console.log(`✅ Added ${mergedData.length - allData.length} additional orders from date-based fetching`);
-                        allData = mergedData;
-                    } else {
-                        console.log(`✅ Date-based fetching confirmed all data (${allData.length} total)`);
-                    }
-                }
-            }
-            
-            const data = allData;
-            const expectedCount = null; // API có thể không trả về total count
-            
-            console.log(`✅ Fetched total ${data.length} orders from API (${pageNum - 1} pages, ${seenIds.size} unique orders)`);
-            
-            // Cảnh báo nếu chỉ có 1000 records - có thể bị giới hạn
-            if (data.length === 1000 && pageNum === 2) {
-                console.warn(`⚠️ WARNING: Only fetched 1000 orders. API may have a hard limit. Consider fetching by date range if more data exists.`);
-            }
-            
-            // Cảnh báo nếu thiếu data
-            if (data.length === 0) {
-                console.error('❌ [BaoCaoVanDon] WARNING: No data fetched!');
-                console.error('❌ [BaoCaoVanDon] API Filters used:', apiFilters);
-                
-                // Nếu có team filter, thử fetch một ít data không filter team để xem có teams nào
-                if (apiFilters.team) {
-                    console.log('🔍 [BaoCaoVanDon] Team filter applied but no data. Checking available teams...');
-                    try {
-                        const sampleFilters = {
-                            from_date: apiFilters.from_date,
-                            to_date: apiFilters.to_date,
-                            limit: 100 // Chỉ lấy 100 records để kiểm tra
-                        };
-                        console.log('🔍 [BaoCaoVanDon] Fetching sample data without team filter:', sampleFilters);
-                        const sampleResponse = await fetchOrdersFromAPI(sampleFilters);
-                        const sampleData = sampleResponse?.data || [];
-                        const availableTeams = [...new Set(sampleData.map(o => o.team).filter(Boolean))].sort();
-                        
-                        console.log('🔍 [BaoCaoVanDon] Sample data count:', sampleData.length);
-                        console.log('🔍 [BaoCaoVanDon] Available teams in date range:', availableTeams);
-                        console.log('🔍 [BaoCaoVanDon] Requested team filter:', apiFilters.team);
-                        
-                        // Kiểm tra xem có data trong date range không
-                        if (sampleData.length === 0) {
-                            console.warn('⚠️ [BaoCaoVanDon] No data found in date range even without team filter!');
-                            const errorMsg = `Không có dữ liệu trong khoảng thời gian từ ${apiFilters.from_date} đến ${apiFilters.to_date}. ` +
-                                `Vui lòng chọn khoảng thời gian khác.`;
-                            setError(errorMsg);
-                            return;
-                        }
-                        
-                        if (availableTeams.length > 0) {
-                            // Normalize team names để so sánh
-                            const normalizeTeam = (team) => {
-                                if (!team) return '';
-                                const lower = team.toLowerCase().trim();
-                                // Map các biến thể về format chuẩn
-                                if (lower === 'hcm' || lower === 'hồ chí minh' || lower === 'ho chi minh' || lower.includes('hcm')) {
-                                    return 'HCM';
-                                }
-                                if (lower === 'hà nội' || lower === 'ha noi' || lower === 'hanoi' || lower.includes('hà nội')) {
-                                    return 'Hà Nội';
-                                }
-                                return team.trim();
-                            };
-                            
-                            const requestedTeams = apiFilters.team.split(',').map(t => normalizeTeam(t.trim()));
-                            const normalizedAvailableTeams = availableTeams.map(t => normalizeTeam(t));
-                            
-                            const matchedTeams = availableTeams.filter((t, idx) => 
-                                requestedTeams.some(req => {
-                                    const normalizedT = normalizedAvailableTeams[idx];
-                                    return normalizedT === req || 
-                                           t.toLowerCase() === req.toLowerCase() || 
-                                           t.toLowerCase().includes(req.toLowerCase()) || 
-                                           req.toLowerCase().includes(t.toLowerCase());
-                                })
-                            );
-                            
-                            if (matchedTeams.length === 0) {
-                                console.warn('⚠️ [BaoCaoVanDon] Team filter value does not match any available teams!');
-                                console.warn('⚠️ [BaoCaoVanDon] Requested (normalized):', requestedTeams);
-                                console.warn('⚠️ [BaoCaoVanDon] Available (raw):', availableTeams);
-                                console.warn('⚠️ [BaoCaoVanDon] Available (normalized):', normalizedAvailableTeams);
-                                
-                                const errorMsg = `Không tìm thấy dữ liệu với bộ lọc "Chi nhánh: ${apiFilters.team}". ` +
-                                    `Các chi nhánh có sẵn trong khoảng thời gian này: ${availableTeams.join(', ') || 'Không có'}. ` +
-                                    `Vui lòng kiểm tra lại bộ lọc.`;
-                                setError(errorMsg);
-                                return; // Dừng lại, không set rawData
-                            } else {
-                                console.log('✅ [BaoCaoVanDon] Found matching teams:', matchedTeams);
-                            }
-                        }
-                    } catch (err) {
-                        console.error('❌ [BaoCaoVanDon] Error checking available teams:', err);
-                    }
-                }
-                
-                console.error('❌ [BaoCaoVanDon] Check if filters are too restrictive or date range has no data.');
-                
-                // Tạo error message chi tiết hơn
+            if (rows.length === 0) {
                 const filterDetails = [];
-                if (apiFilters.team) filterDetails.push(`Chi nhánh: ${apiFilters.team}`);
-                if (apiFilters.delivery_staff) filterDetails.push(`NV Vận đơn: ${apiFilters.delivery_staff}`);
-                if (apiFilters.product) filterDetails.push(`Mặt hàng: ${apiFilters.product}`);
-                if (apiFilters.country) filterDetails.push(`Khu vực: ${apiFilters.country}`);
-                
-                const errorMsg = filterDetails.length > 0
-                    ? `Không tìm thấy dữ liệu với bộ lọc: ${filterDetails.join(', ')}. Vui lòng kiểm tra lại bộ lọc và khoảng thời gian.`
-                    : 'Không lấy được dữ liệu từ API. Vui lòng kiểm tra lại bộ lọc và khoảng thời gian.';
-                
-                setError(errorMsg);
+                if (fp.product?.length) filterDetails.push(`Mặt hàng: ${fp.product.join(', ')}`);
+                if (fp.market?.length) filterDetails.push(`Khu vực: ${fp.market.join(', ')}`);
+                if (staffAllow) filterDetails.push('NV Vận đơn (theo tài khoản / lọc)');
+                setError(
+                    filterDetails.length > 0
+                        ? `Không có dòng tổng hợp phù hợp: ${filterDetails.join('; ')}.`
+                        : 'Không có dữ liệu trong bảng bao_cao_van_don cho khoảng ngày đã chọn.'
+                );
             } else {
-                setError(null); // Clear error nếu OK
+                setError(null);
             }
-            
-            // Debug: Log sample data để kiểm tra structure
-            if (data.length > 0) {
-                console.log('📊 Sample order data (first item):', data[0]);
-                console.log('📊 Sample order keys:', Object.keys(data[0]));
-                console.log('📊 Sample mapped fields:', {
-                    order_date: data[0].order_date,
-                    total_amount_vnd: data[0].total_amount_vnd,
-                    tongtien: data[0].tongtien,
-                    delivery_status: data[0].delivery_status,
-                    payment_status: data[0].payment_status,
-                    delivery_staff: data[0].delivery_staff,
-                    nhanvien_sale: data[0].nhanvien_sale,
-                    country: data[0].country,
-                    product: data[0].product,
-                    team: data[0].team, // ⚠️ Field này sẽ được map thành "Chi nhánh"
-                    tracking_code: data[0].tracking_code,
-                    check_result: data[0].check_result
-                });
-                console.log('🏢 Teams in first 10 orders:', data.slice(0, 10).map(o => o.team).filter(Boolean));
-            }
-
-            // Map data to ensure compatibility with Report logic
-            const mappedData = data.map(mapOrderToReportFormat);
-            
-            // Debug: Log sample mapped data
-            if (mappedData.length > 0) {
-                console.log('📊 Sample mapped data (first item):', mappedData[0]);
-                console.log('📊 Mapped fields check:', {
-                    "Ngày lên đơn": mappedData[0]["Ngày lên đơn"],
-                    "Tổng tiền VNĐ": mappedData[0]["Tổng tiền VNĐ"],
-                    "NV Vận đơn": mappedData[0]["NV Vận đơn"],
-                    "Trạng thái giao hàng NB": mappedData[0]["Trạng thái giao hàng NB"],
-                    "Trạng thái thu tiền": mappedData[0]["Trạng thái thu tiền"],
-                    "khu vực": mappedData[0]["khu vực"],
-                    "Mặt hàng": mappedData[0]["Mặt hàng"],
-                    "Chi nhánh": mappedData[0]["Chi nhánh"]
-                });
-            }
-            
-            setRawData(mappedData);
+            setRawData(rows);
         } catch (err) {
-            console.error("❌ Fetch error:", err);
-            setError(err.message || 'Lỗi khi tải dữ liệu từ API');
+            console.error('❌ [BaoCaoVanDon] Fetch error:', err);
+            setError(err.message || 'Lỗi khi tải bao_cao_van_don');
         } finally {
             setLoading(false);
         }
@@ -958,14 +625,17 @@ export default function BaoCaoVanDon() {
         }
 
         if (start && end) {
-            setReportFilters(prev => {
-                const newStart = formatDateForInput(start);
-                const newEnd = formatDateForInput(end);
-                // Only update if changed to avoid loop
-                if (prev.startDate !== newStart || prev.endDate !== newEnd) {
-                    return { ...prev, startDate: newStart, endDate: newEnd };
+            const newStart = formatDateForInput(start);
+            const newEnd = formatDateForInput(end);
+            setCriteriaRows((prev) => {
+                if (!prev.length) {
+                    return [{ id: newCriteriaRowId(), startDate: newStart, endDate: newEnd, product: '', market: '' }];
                 }
-                return prev;
+                const next = [...prev];
+                const f = next[0];
+                if (f.startDate === newStart && f.endDate === newEnd) return prev;
+                next[0] = { ...f, startDate: newStart, endDate: newEnd };
+                return next;
             });
         }
     }, [reportFilters.dateRange]);
@@ -980,177 +650,134 @@ export default function BaoCaoVanDon() {
         return rawData;
     }, [rawData]);
 
-    // --- STATISTICS CALCULATION ---
+    const mergePaymentHistogramInto = (payH, map) => {
+        const o = parseBaoCaoVanDonHistogram(payH);
+        for (const [key, raw] of Object.entries(o)) {
+            const n = Number(raw) || 0;
+            if (n <= 0) continue;
+            map[key] = (map[key] || 0) + n;
+        }
+    };
+
     const reportStats = useMemo(() => {
         const staffStats = {};
-        const grandTotal = createEmptyStats();
+        const grandTotal = { ...createEmptyStats(), paymentByKey: {} };
 
-        console.log(`📊 Calculating statistics for ${filteredReportData.length} filtered orders`);
+        filteredReportData.forEach((row) => {
+            const staffName = row['NV Vận đơn'] || row['NV_Vận_đơn'] || 'Chưa có NV';
+            const company = row['Đơn vị vận chuyển'] || row['Đơn_vị_vận_chuyển'] || '—';
 
-        filteredReportData.forEach((row, index) => {
-            const staffName = row["NV Vận đơn"] || row["NV_Vận_đơn"] || "Chưa có NV";
-            const company = row["Đơn vị vận chuyển"] || row["Đơn_vị_vận_chuyển"] || "Không xác định";
-
-            if (!staffStats[staffName]) staffStats[staffName] = { _total: createEmptyStats(), byCompany: {} };
-            if (!staffStats[staffName].byCompany[company]) staffStats[staffName].byCompany[company] = createEmptyStats();
+            if (!staffStats[staffName]) {
+                staffStats[staffName] = { _total: createEmptyStats(), byCompany: {}, paymentByKey: {} };
+            }
+            if (!staffStats[staffName].byCompany[company]) {
+                staffStats[staffName].byCompany[company] = createEmptyStats();
+            }
 
             const targets = [staffStats[staffName].byCompany[company], staffStats[staffName]._total, grandTotal];
 
-            // Parse amount - handle both number and string
-            let amount = 0;
-            const amountValue = row["Tổng tiền VNĐ"] || row["Tổng_tiền_VNĐ"] || 0;
-            if (typeof amountValue === 'number') {
-                amount = amountValue;
-            } else if (typeof amountValue === 'string') {
-                amount = parseFloat(amountValue.replace(/[^\d.-]/g, '')) || 0;
-            } else {
-                amount = parseFloat(String(amountValue).replace(/[^\d.-]/g, '')) || 0;
-            }
-
-            const pStatus = String(row["Trạng thái thu tiền"] || "").trim();
-            const dStatus = String(row["Trạng thái giao hàng NB"] || "").trim();
-
-            // Debug first few rows
-            if (index < 3) {
-                console.log(`📊 Row ${index}:`, {
-                    staffName,
-                    company,
-                    amount,
-                    amountValue,
-                    pStatus,
-                    dStatus,
-                    "Tổng tiền VNĐ": row["Tổng tiền VNĐ"],
-                    "Trạng thái thu tiền": row["Trạng thái thu tiền"],
-                    "Trạng thái giao hàng NB": row["Trạng thái giao hàng NB"]
-                });
-            }
-
-            targets.forEach(t => {
-                // Payment status checks
-                if (pStatus.includes("Có bill")) {
-                    t["Đã Thanh Toán (có bill)"].count++;
-                    t["Đã Thanh Toán (có bill)"].amount += amount;
-                } else if (pStatus.includes("Có bill 1 phần")) {
-                    t["Bill 1 phần"].count++;
-                }
-
-                // Delivery status checks
-                if (dStatus.includes("Giao Thành Công")) {
-                    t["Giao Thành Công"].count++;
-                } else if (dStatus.includes("Đang Giao")) {
-                    t["Đang Giao"].count++;
-                } else if (dStatus.includes("Chưa Giao")) {
-                    t["Chưa Giao"].count++;
-                } else if (dStatus.toLowerCase().includes("huỷ") || dStatus.toLowerCase().includes("hủy") || dStatus.toLowerCase().includes("cancel")) {
-                    t["Hủy"].count++;
-                } else if (dStatus.includes("Hoàn")) {
-                    t["Hoàn"].count++;
-                } else if (dStatus.includes("chờ check")) {
-                    t["chờ check"].count++;
-                } else if (!dStatus) {
-                    t["Trống trạng thái"].count++;
-                }
-
-                // Always count total orders
-                t["Tổng đơn lên nội bộ"].count++;
-                
-                // Count orders eligible for shipping
-                if (pStatus.includes("Có bill") || pStatus.includes("Có bill 1 phần")) {
-                    t["Tổng đơn đủ đkien đẩy vh"].count++;
-                }
-                
-                // Count orders sent to operations
-                if (dStatus && 
-                    !dStatus.includes("Chưa Giao") && 
-                    !dStatus.includes("chờ check") && 
-                    !dStatus.toLowerCase().includes("huỷ") && 
-                    !dStatus.toLowerCase().includes("hủy") && 
-                    !dStatus.toLowerCase().includes("cancel")) {
-                    t["Tổng đơn lên vận hành"].count++;
-                }
+            const nInternal = sumBaoCaoVanDonHistogramValues(row._ket_qua_check);
+            targets.forEach((t) => {
+                t['Tổng đơn lên nội bộ'].count += nInternal;
             });
-        });
 
-        // Debug: Log summary
-        console.log('📊 Statistics Summary:', {
-            totalOrders: grandTotal["Tổng đơn lên nội bộ"].count,
-            totalPaid: grandTotal["Đã Thanh Toán (có bill)"].count,
-            totalPaidAmount: grandTotal["Đã Thanh Toán (có bill)"].amount,
-            totalShipped: grandTotal["Tổng đơn lên vận hành"].count,
-            totalSuccess: grandTotal["Giao Thành Công"].count,
-            totalReturned: grandTotal["Hoàn"].count,
-            totalCanceled: grandTotal["Hủy"].count
+            addPaymentHistogramToStats(row._trang_thai_thanh_toan, targets);
+            addEligiblePushFromKetQuaOk(row._ket_qua_check, targets);
+            addDeliveryHistogramToStats(row._trang_thai_giao_hang, targets);
+            addTongDonLenVanHanhFromMaTracking(row._trang_thai_giao_hang, targets);
+
+            mergePaymentHistogramInto(row._trang_thai_thanh_toan, grandTotal.paymentByKey);
+            mergePaymentHistogramInto(row._trang_thai_thanh_toan, staffStats[staffName].paymentByKey);
         });
 
         return { staffStats, grandTotal };
     }, [filteredReportData]);
 
-    // --- CHART DATA PREP ---
     const chartsData = useMemo(() => {
-        // 1. Status Breakdown
-        const statusCounts = { 'Giao Thành Công': 0, 'Hoàn': 0, 'Hủy': 0, 'Đang Giao': 0, 'chờ check': 0, 'Khác': 0 };
-        filteredReportData.forEach(r => {
-            const s = (r["Trạng thái giao hàng NB"] || "").toLowerCase();
-            if (s.includes("giao thành công")) statusCounts['Giao Thành Công']++;
-            else if (s.includes("hoàn")) statusCounts['Hoàn']++;
-            else if (s.includes("huỷ") || s.includes("hủy") || s.includes("cancel")) statusCounts['Hủy']++;
-            else if (s.includes("đang giao")) statusCounts['Đang Giao']++;
-            else if (s.includes("chờ check")) statusCounts['chờ check']++;
-            else if (s) statusCounts['Khác']++;
+        const statusCounts = {
+            'Giao Thành Công': 0,
+            'Đang Giao': 0,
+            'Chưa Giao': 0,
+            Hoàn: 0,
+            Hủy: 0,
+            'chờ check': 0,
+            'Trống trạng thái': 0
+        };
+        filteredReportData.forEach((r) => {
+            const o = parseBaoCaoVanDonHistogram(r._trang_thai_giao_hang);
+            for (const [key, raw] of Object.entries(o)) {
+                const n = Number(raw) || 0;
+                if (n <= 0) continue;
+                if (isMaTrackingHistogramKey(key)) continue;
+                const bucket = classifyTrangThaiGiaoHangKey(key);
+                statusCounts[bucket] += n;
+            }
         });
 
         const statusChart = {
             labels: Object.keys(statusCounts),
-            datasets: [{
-                data: Object.values(statusCounts),
-                backgroundColor: ['#2ecc71', '#e74c3c', '#8e44ad', '#3498db', '#f1c40f', '#95a5a6'],
-            }]
-        };
-
-        // 2. Funnel
-        const funnelStats = reportStats.grandTotal;
-        const funnelChart = {
-            labels: ['Tổng đơn nội bộ', 'Đơn lên vận hành', 'Giao thành công'],
-            datasets: [{
-                label: 'Số đơn',
-                data: [funnelStats["Tổng đơn lên nội bộ"].count, funnelStats["Tổng đơn lên vận hành"].count, funnelStats["Giao Thành Công"].count],
-                backgroundColor: ['#3498db', '#f39c12', '#27ae60']
-            }]
-        };
-
-        // 3. Staff Performance (Top 10 by Vol)
-        const staffPerf = Object.entries(reportStats.staffStats).map(([name, data]) => ({
-            name,
-            success: data._total["Giao Thành Công"].count,
-            returned: data._total["Hoàn"].count,
-            canceled: data._total["Hủy"].count
-        })).sort((a, b) => (b.success + b.returned + b.canceled) - (a.success + a.returned + a.canceled)).slice(0, 10);
-
-        const staffChart = {
-            labels: staffPerf.map(s => s.name),
             datasets: [
-                { label: 'Thành Công', data: staffPerf.map(s => s.success), backgroundColor: '#2ecc71' },
-                { label: 'Hoàn', data: staffPerf.map(s => s.returned), backgroundColor: '#e74c3c' },
-                { label: 'Hủy', data: staffPerf.map(s => s.canceled), backgroundColor: '#8e44ad' }
+                {
+                    data: Object.values(statusCounts),
+                    backgroundColor: ['#2ecc71', '#3498db', '#95a5a6', '#e74c3c', '#8e44ad', '#f1c40f', '#bdc3c7']
+                }
             ]
         };
 
-        // 4. Carrier Performance
-        const carrierStats = {};
-        filteredReportData.forEach(r => {
-            const c = r["Đơn vị vận chuyển"] || "Không xác định";
-            if (!carrierStats[c]) carrierStats[c] = { success: 0, returned: 0, canceled: 0 };
-            const s = (r["Trạng thái giao hàng NB"] || "").toLowerCase();
-            if (s.includes("giao thành công")) carrierStats[c].success++;
-            else if (s.includes("hoàn")) carrierStats[c].returned++;
-            else if (s.includes("huỷ") || s.includes("hủy") || s.includes("cancel")) carrierStats[c].canceled++;
+        const funnelStats = reportStats.grandTotal;
+        const funnelChart = {
+            labels: ['Tổng đơn nội bộ', 'Đơn lên vận hành', 'Giao thành công'],
+            datasets: [
+                {
+                    label: 'Số đơn',
+                    data: [
+                        funnelStats['Tổng đơn lên nội bộ'].count,
+                        funnelStats['Tổng đơn lên vận hành'].count,
+                        funnelStats['Giao Thành Công'].count
+                    ],
+                    backgroundColor: ['#3498db', '#f39c12', '#27ae60']
+                }
+            ]
+        };
+
+        const staffPerf = Object.entries(reportStats.staffStats)
+            .map(([name, data]) => ({
+                name,
+                success: data._total['Giao Thành Công'].count,
+                returned: data._total['Hoàn'].count,
+                canceled: data._total['Hủy'].count
+            }))
+            .sort((a, b) => b.success + b.returned + b.canceled - (a.success + a.returned + a.canceled))
+            .slice(0, 10);
+
+        const staffChart = {
+            labels: staffPerf.map((s) => s.name),
+            datasets: [
+                { label: 'Thành Công', data: staffPerf.map((s) => s.success), backgroundColor: '#2ecc71' },
+                { label: 'Hoàn', data: staffPerf.map((s) => s.returned), backgroundColor: '#e74c3c' },
+                { label: 'Hủy', data: staffPerf.map((s) => s.canceled), backgroundColor: '#8e44ad' }
+            ]
+        };
+
+        const carrierAgg = { success: 0, returned: 0, canceled: 0 };
+        filteredReportData.forEach((r) => {
+            const o = parseBaoCaoVanDonHistogram(r._trang_thai_giao_hang);
+            for (const [key, raw] of Object.entries(o)) {
+                const n = Number(raw) || 0;
+                if (n <= 0) continue;
+                if (isMaTrackingHistogramKey(key)) continue;
+                const bucket = classifyTrangThaiGiaoHangKey(key);
+                if (bucket === 'Giao Thành Công') carrierAgg.success += n;
+                else if (bucket === 'Hoàn') carrierAgg.returned += n;
+                else if (bucket === 'Hủy') carrierAgg.canceled += n;
+            }
         });
         const carrierChart = {
-            labels: Object.keys(carrierStats),
+            labels: ['Tổng hợp (theo dòng báo cáo)'],
             datasets: [
-                { label: 'Thành Công', data: Object.values(carrierStats).map(d => d.success), backgroundColor: '#2ecc71' },
-                { label: 'Hoàn', data: Object.values(carrierStats).map(d => d.returned), backgroundColor: '#e74c3c' },
-                { label: 'Hủy', data: Object.values(carrierStats).map(d => d.canceled), backgroundColor: '#8e44ad' }
+                { label: 'Thành Công', data: [carrierAgg.success], backgroundColor: '#2ecc71' },
+                { label: 'Hoàn', data: [carrierAgg.returned], backgroundColor: '#e74c3c' },
+                { label: 'Hủy', data: [carrierAgg.canceled], backgroundColor: '#8e44ad' }
             ]
         };
 
@@ -1158,15 +785,23 @@ export default function BaoCaoVanDon() {
     }, [filteredReportData, reportStats]);
 
 
-    // --- FILTER LOGIC: DETAIL TAB ---
-    // Filter ở client-side chỉ cho các filter không có trong API (check_result, delivery_status, payment_status, search)
-    // Các filter dates, product, market, staff đã được filter ở API
     const filteredDetailData = useMemo(() => {
-        return rawData.filter(row => {
-            // Các filter này không có trong API nên filter ở client-side
-            if (detailFilters.checkResult && row["Kết quả check"] !== detailFilters.checkResult) return false;
-            if (detailFilters.deliveryStatus && row["Trạng thái giao hàng NB"] !== detailFilters.deliveryStatus) return false;
-            if (detailFilters.paymentStatus && row["Trạng thái thu tiền"] !== detailFilters.paymentStatus) return false;
+        return rawData.filter((row) => {
+            if (detailFilters.checkResult && !baoCaoHistogramHasKey(row._ket_qua_check, detailFilters.checkResult)) {
+                return false;
+            }
+            if (
+                detailFilters.deliveryStatus &&
+                !baoCaoHistogramHasKey(row._trang_thai_giao_hang, detailFilters.deliveryStatus)
+            ) {
+                return false;
+            }
+            if (
+                detailFilters.paymentStatus &&
+                !baoCaoHistogramHasKey(row._trang_thai_thanh_toan, detailFilters.paymentStatus)
+            ) {
+                return false;
+            }
             
             // Staff filter trong detail tab (single select)
             if (detailFilters.staff) {
@@ -1174,13 +809,22 @@ export default function BaoCaoVanDon() {
                 if (rowStaff !== detailFilters.staff) return false;
             }
 
-            // Search filter (client-side only)
             if (detailFilters.search) {
                 const s = detailFilters.search.toLowerCase();
-                const name = (row["Name*"] || "").toLowerCase();
-                const phone = (row["Phone*"] || "").toString().toLowerCase();
-                const code = (row["Mã đơn hàng"] || "").toLowerCase();
-                if (!name.includes(s) && !phone.includes(s) && !code.includes(s)) return false;
+                const hay = [
+                    row.id,
+                    row['Ngày lên đơn'],
+                    row['Mặt hàng'],
+                    row['khu vực'],
+                    row['NV Vận đơn'],
+                    row['Kết quả check'],
+                    row['Trạng thái giao hàng NB'],
+                    row['Trạng thái thu tiền']
+                ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase();
+                if (!hay.includes(s)) return false;
             }
 
             return true;
@@ -1279,10 +923,7 @@ export default function BaoCaoVanDon() {
 
     // --- REFUND LIST LOGIC ---
     const refundData = useMemo(() => {
-        return filteredReportData.filter(r => {
-            const status = (r["Trạng thái giao hàng NB"] || "").toLowerCase();
-            return status.includes("hoàn") || status.includes("huỷ") || status.includes("hủy") || status.includes("cancel");
-        });
+        return filteredReportData.filter((r) => rowHasRefundHistogram(r));
     }, [filteredReportData]);
 
     const detailTotalAmount = useMemo(() => {

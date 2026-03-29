@@ -261,6 +261,13 @@ function Home() {
           permission: 'ORDERS_REPORT',
         },
         {
+          id: "delivery-bc-van-hanh",
+          label: "Báo cáo vận hành",
+          icon: <Activity className="w-4 h-4" />,
+          path: "/bao-cao-van-hanh",
+          permission: 'ORDERS_REPORT',
+        },
+        {
           id: "delivery-daily-report",
           label: "Dữ liệu báo cáo hàng ngày",
           icon: <Database className="w-4 h-4" />,
@@ -760,6 +767,14 @@ function Home() {
           icon: <BarChart3 className="w-8 h-8" />,
           color: "bg-teal-500",
           path: "/bao-cao-van-don",
+          status: "Mở ứng dụng",
+          permission: 'ORDERS_REPORT',
+        },
+        {
+          title: "Báo cáo vận hành",
+          icon: <Activity className="w-8 h-8" />,
+          color: "bg-amber-500",
+          path: "/bao-cao-van-hanh",
           status: "Mở ứng dụng",
           permission: 'ORDERS_REPORT',
         },
