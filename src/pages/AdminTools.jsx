@@ -6,6 +6,7 @@ import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { syncBaoCaoVanDonFromOrders } from '../services/baoCaoVanDonSyncFromOrders';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
 import * as ApiService from '../services/api';
@@ -100,6 +101,8 @@ const AdminTools = () => {
         return `${year}-${month}-${day}`;
     });
     const [saleRecalcResult, setSaleRecalcResult] = useState(null);
+    const [vanDonBaoCaoLoading, setVanDonBaoCaoLoading] = useState(false);
+    const [vanDonBaoCaoResult, setVanDonBaoCaoResult] = useState(null);
 
     // --- SETTINGS STATE ---
     const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -1401,6 +1404,7 @@ const AdminTools = () => {
             'Tính lại sales_reports: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).\n\n' +
             'Key match giữa orders (sale_staff) và sales_reports (name, date, shift, product, market).\n\n' +
             'Không tách theo ca khi cộng số: dòng Hết ca và Giữa ca cùng dùng tổng theo key. Vẫn cập nhật dòng hiện có; khi thiếu key chỉ tự tạo dòng Hết ca.\n\n' +
+            'Báo cáo vận đơn (bao_cao_van_don) có nút riêng bên dưới.\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
         if (!ok) return;
@@ -1420,7 +1424,7 @@ const AdminTools = () => {
         try {
             setSaleRecalcLoading(true);
             setSaleRecalcResult(null);
-            toast.info('Đang tính lại sales_reports (đơn, doanh thu, hủy)...', { autoClose: false });
+            toast.info('Đang tính lại sales_reports...', { autoClose: false });
 
             const result = await recalcSaleOrderCountFromOrders({
                 startDate: normStart,
@@ -1433,9 +1437,7 @@ const AdminTools = () => {
             const n = result.upserted ?? result.upsertCount ?? 0;
             const created = result.createdMissing ?? 0;
             const updated = result.updatedExisting ?? 0;
-            toast.success(
-                `Hoàn tất: ${n} thao tác (cập nhật ${updated} dòng, tạo mới ${created} dòng).`
-            );
+            toast.success(`Hoàn tất: ${n} thao tác (cập nhật ${updated} dòng, tạo mới ${created} dòng).`);
             setSaleRecalcResult(result);
         } catch (error) {
             console.error('Recalc sales_reports error:', error);
@@ -1447,6 +1449,57 @@ const AdminTools = () => {
             toast.error('Lỗi tính lại sales_reports: ' + msg + fetchHint, { autoClose: 12000 });
         } finally {
             setSaleRecalcLoading(false);
+        }
+    };
+
+    const handleSyncBaoCaoVanDonOnly = async () => {
+        if (vanDonBaoCaoLoading || saleRecalcLoading) return;
+
+        const ok = window.confirm(
+            'Đồng bộ bảng bao_cao_van_don từ orders (theo Từ ngày / Đến ngày phía trên).\n\n' +
+            'Key: ngay + nhan_vien + san_pham + thi_truong khớp order_date + delivery_staff + product + country.\n' +
+            'Chưa có dòng thì insert; có rồi thì update. Trạng thái giao / kết quả check / thanh toán: giá trị phổ biến nhất trong nhóm đơn.\n\n' +
+            'Chạy?'
+        );
+        if (!ok) return;
+
+        const normStart = String(saleRecalcStartDate || '').trim();
+        const normEnd = String(saleRecalcEndDate || '').trim();
+        if (!normStart || !normEnd) {
+            alert('Vui lòng nhập đầy đủ TỪ NGÀY và ĐẾN NGÀY.');
+            return;
+        }
+        if (normStart > normEnd) {
+            alert('Từ ngày phải <= đến ngày.');
+            return;
+        }
+
+        try {
+            setVanDonBaoCaoLoading(true);
+            setVanDonBaoCaoResult(null);
+            toast.info('Đang đồng bộ bao_cao_van_don...', { autoClose: false });
+
+            const vd = await syncBaoCaoVanDonFromOrders({
+                startDate: normStart,
+                endDate: normEnd,
+            });
+
+            toast.dismiss();
+            const vdN = vd?.upserted ?? 0;
+            const vdUp = vd?.updatedExisting ?? 0;
+            const vdCr = vd?.createdMissing ?? 0;
+            toast.success(`bao_cao_van_don: ${vdN} thao tác (cập nhật ${vdUp}, tạo mới ${vdCr}).`);
+            setVanDonBaoCaoResult(vd);
+        } catch (error) {
+            console.error('sync bao_cao_van_don error:', error);
+            toast.dismiss();
+            const msg = error?.message || String(error);
+            const fetchHint = /failed to fetch/i.test(msg)
+                ? ' Kiểm tra: mạng/VPN, .env Supabase, bảng bao_cao_van_don đã migration.'
+                : '';
+            toast.error('Lỗi đồng bộ bao_cao_van_don: ' + msg + fetchHint, { autoClose: 12000 });
+        } finally {
+            setVanDonBaoCaoLoading(false);
         }
     };
 
@@ -4574,6 +4627,14 @@ const AdminTools = () => {
                                 Tính lại theo Key: <span className="font-medium">Ngày + Tên (NV Sale) + Sản phẩm + Thị trường</span>, nguồn đơn: <span className="font-medium">orders.sale_staff</span>, <span className="font-medium">country</span>. <span className="font-medium">Không tách theo ca khi cộng số</span>: dòng báo cáo <span className="font-medium">Hết ca</span> và <span className="font-medium">Giữa ca</span> cùng dùng tổng mọi đơn khớp key.
                                 Ghi <span className="font-medium">order_count</span> (mọi đơn khớp key), <span className="font-medium">revenue_actual</span> (tổng VND mọi đơn khớp), <span className="font-medium">order_cancel_count_actual</span> và <span className="font-medium">revenue_cancel_actual</span> (số đơn hủy + tổng VND chỉ các đơn đó; Kết quả Check Hủy/Huỷ theo <span className="font-medium">check_result</span>). Tiền VND: total_amount_vnd → total_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key.
                             </p>
+                            <p className="text-sm text-gray-600 mb-4 flex items-start gap-2">
+                                <Package className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
+                                <span>
+                                    <span className="font-medium text-gray-800">Báo cáo vận đơn (bao_cao_van_don)</span> — nút riêng bên dưới: đồng bộ theo cùng khoảng ngày, key{' '}
+                                    <span className="font-medium">ngay + nhan_vien + san_pham + thi_truong</span> từ{' '}
+                                    <span className="font-medium">order_date + delivery_staff + product + country</span> (insert nếu chưa có, update nếu có; trạng thái lấy mode trong nhóm đơn).
+                                </span>
+                            </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                                 <label className="block">
@@ -4598,7 +4659,7 @@ const AdminTools = () => {
 
                             <button
                                 onClick={handleRecalcSaleOrderCount}
-                                disabled={saleRecalcLoading || loading}
+                                disabled={saleRecalcLoading || vanDonBaoCaoLoading || loading}
                                 className="w-full py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
                             >
                                 {saleRecalcLoading ? (
@@ -4607,7 +4668,24 @@ const AdminTools = () => {
                                     </>
                                 ) : (
                                     <>
-                                        <RefreshCw size={18} /> Tính lại báo cáo Sale
+                                        <RefreshCw size={18} /> Tính lại báo cáo Sale (sales_reports)
+                                    </>
+                                )}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleSyncBaoCaoVanDonOnly}
+                                disabled={vanDonBaoCaoLoading || saleRecalcLoading || loading}
+                                className="w-full mt-3 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
+                            >
+                                {vanDonBaoCaoLoading ? (
+                                    <>
+                                        <span className="animate-spin">⏳</span> Đang đồng bộ vận đơn...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Package size={18} /> Cập nhật báo cáo vận đơn (bao_cao_van_don)
                                     </>
                                 )}
                             </button>
@@ -4619,7 +4697,7 @@ const AdminTools = () => {
                                         <table className="w-full text-sm border border-gray-200 rounded-lg">
                                             <tbody>
                                                 {Object.entries(saleRecalcResult).map(([k, v]) => {
-                                                    if (k === 'previewRows') return null;
+                                                    if (k === 'previewRows' || k === 'vanDonReport') return null;
                                                     return (
                                                         <tr key={k} className="border-t border-gray-200">
                                                             <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{k}</td>
@@ -4665,6 +4743,69 @@ const AdminTools = () => {
                                                             <td className="px-3 py-2 text-gray-900">{Number(r.revenue_actual ?? 0).toLocaleString('vi-VN')}</td>
                                                             <td className="px-3 py-2 text-gray-900">{r.order_cancel_count_actual ?? 0}</td>
                                                             <td className="px-3 py-2 text-gray-900">{Number(r.revenue_cancel_actual ?? 0).toLocaleString('vi-VN')}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {vanDonBaoCaoResult && (
+                                <div className="mt-4 bg-sky-50 border border-sky-200 rounded-lg p-4">
+                                    <div className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                                        <Package className="w-4 h-4 text-sky-600" />
+                                        Kết quả báo cáo vận đơn (bao_cao_van_don)
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm border border-sky-200 rounded-lg bg-white">
+                                            <tbody>
+                                                {Object.entries(vanDonBaoCaoResult).map(([k, v]) => {
+                                                    if (k === 'previewRows') return null;
+                                                    return (
+                                                        <tr key={k} className="border-t border-sky-100">
+                                                            <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{k}</td>
+                                                            <td className="px-3 py-2 text-gray-900">
+                                                                {typeof v === 'number' ? v : (v == null ? '-' : String(v))}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {Array.isArray(vanDonBaoCaoResult.previewRows) && vanDonBaoCaoResult.previewRows.length > 0 && (
+                                        <div className="mt-3 overflow-x-auto">
+                                            <div className="text-sm font-semibold text-gray-800 mb-2">
+                                                Preview bao_cao_van_don (tối đa 50 dòng)
+                                            </div>
+                                            <table className="w-full text-sm border border-sky-200 rounded-lg bg-white">
+                                                <thead className="bg-white">
+                                                    <tr className="border-b border-sky-200">
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">#</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">ngay</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">nhan_vien</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">san_pham</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">thi_truong</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">trang_thai_giao_hang</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">ket_qua_check</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">trang_thai_thanh_toan</th>
+                                                        <th className="px-3 py-2 text-left whitespace-nowrap">action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {vanDonBaoCaoResult.previewRows.map((r, idx) => (
+                                                        <tr key={`vd-${r.action}-${idx}`} className="border-t border-sky-100">
+                                                            <td className="px-3 py-2 text-gray-700">{idx + 1}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.ngay || '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.nhan_vien ?? '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.san_pham ?? '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.thi_truong ?? '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.trang_thai_giao_hang ?? '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.ket_qua_check ?? '-'}</td>
+                                                            <td className="px-3 py-2 text-gray-700">{r.trang_thai_thanh_toan ?? '-'}</td>
                                                             <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
                                                         </tr>
                                                     ))}

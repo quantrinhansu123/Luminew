@@ -103,16 +103,11 @@ function buildCanhBaoFromChecks(dupCodes, blacklistStatus, blacklistReason, sale
 
     if (detailLines.length === 0) return "";
 
-    const footer =
-        "Nội dung này đồng bộ vào cột Cảnh báo trùng trên đơn (khi sửa đơn: cập nhật tự động; khi tạo mới: ghi khi bấm Lưu).";
-
     return [
         "Cảnh báo cho Nhân viên Sale",
         `NV Sale phụ trách đơn: ${saleLine}`,
         "",
         ...detailLines,
-        "",
-        footer,
     ].join("\n");
 }
 
@@ -2261,11 +2256,6 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                         </p>
                                                                     )}
                                                                 </div>
-
-                                                                <p className="text-[11px] leading-relaxed text-red-700/90 border-t border-red-200/80 pt-3 mb-0">
-                                                                    Nội dung này đồng bộ vào cột <strong>Cảnh báo trùng</strong> trên đơn (khi
-                                                                    sửa đơn: cập nhật tự động; khi tạo mới: ghi khi bấm Lưu).
-                                                                </p>
                                                             </div>
                                                         )}
                                                         <div>

@@ -7,7 +7,9 @@ const MultiSelect = ({
     selected,
     onChange,
     placeholder = 'Select...',
-    mainFilter = false
+    mainFilter = false,
+    /** Nút trigger thấp hơn — toolbar / header bảng chật chiều dọc */
+    compact = false,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
@@ -74,10 +76,14 @@ const MultiSelect = ({
                 <button
                     ref={buttonRef}
                     onClick={handleToggle}
-                    className={`w-full text-left px-2 py-1.5 border rounded text-sm bg-white overflow-hidden text-ellipsis whitespace-nowrap shadow-sm ${mainFilter ? 'border-gray-300 min-w-[120px] text-gray-700' : 'border-gray-300 text-gray-500'
+                    className={`w-full text-left border rounded bg-white overflow-hidden text-ellipsis whitespace-nowrap shadow-sm ${compact ? 'px-1.5 py-0.5 text-[11px] leading-tight' : 'px-2 py-1.5 text-sm'} ${mainFilter ? 'border-gray-300 min-w-[120px] text-gray-700' : 'border-gray-300 text-gray-500'
                         }`}
                     title={displayText}
-                    style={{ width: '100%', margin: 0, textAlign: 'left', fontSize: '12px', padding: '6px 8px' }}
+                    style={
+                        compact
+                            ? { width: '100%', margin: 0, textAlign: 'left', fontSize: '11px', padding: '3px 6px', lineHeight: 1.25 }
+                            : { width: '100%', margin: 0, textAlign: 'left', fontSize: '12px', padding: '6px 8px' }
+                    }
                 >
                     {displayText}
                 </button>

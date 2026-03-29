@@ -265,7 +265,9 @@ function VanDon() {
     shipping_unit: [],
     tracking_include: '',
     tracking_exclude: '',
-    tracking_status: 'Tình trạng mã'
+    tracking_status: 'Tình trạng mã',
+    /** '' | 'co_trung' | 'khong_trung' — cột canh_bao / Cảnh báo trùng */
+    canh_bao_filter: '',
   });
 
   /** Tra nhanh theo SĐT / tên / địa chỉ — chỉ lọc client, không đưa vào query API. */
@@ -1039,6 +1041,12 @@ function VanDon() {
       console.warn('⚠️ [Filter Error] Lỗi khi xử lý Market/Product filter:', err);
     }
 
+    if (filterValues.canh_bao_filter === 'co_trung') {
+      data = data.filter((row) => rowHasVanDonCanhBao(row));
+    } else if (filterValues.canh_bao_filter === 'khong_trung') {
+      data = data.filter((row) => !rowHasVanDonCanhBao(row));
+    }
+
     // Date Range (toolbar "Lọc thời gian") — cùng quy tắc chuẩn hóa ngày với lọc cột & API (YYYY-MM-DD)
     if (enableDateFilter) {
       if (dateFrom) {
@@ -1077,7 +1085,21 @@ function VanDon() {
     // Column Filters (Text & Dropdown) — phân trang backend: đã lọc ở API (toàn CSDL).
     if (!useBackendPagination) {
       Object.entries(filterValues).forEach(([key, val]) => {
-        if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
+        if (
+          [
+            'market',
+            'product',
+            'nv_sale',
+            'nv_mkt',
+            'nv_van_don',
+            'shipping_unit',
+            'tracking_include',
+            'tracking_exclude',
+            'tracking_status',
+            'canh_bao_filter',
+          ].includes(key)
+        )
+          return;
 
         if (
           enableDateFilter &&
@@ -1252,7 +1274,8 @@ function VanDon() {
     const defaultFilters = {
       market: [], product: [], nv_sale: [], nv_mkt: [], nv_van_don: [],
       shipping_unit: [], tracking_include: '', tracking_exclude: '',
-      tracking_status: 'Tình trạng mã'
+      tracking_status: 'Tình trạng mã',
+      canh_bao_filter: '',
     };
     setFilterValues(defaultFilters);
     setCustomerQuickSearch('');
@@ -2860,6 +2883,7 @@ function VanDon() {
     const isCityCol = col === 'City';
     const isProductCol = col === 'Mặt hàng';
     const isQtyCol = col === 'Số lượng mặt hàng 1' || col === 'Số lượng mặt hàng 2';
+    const isCanhBaoFilterCol = normalizeColHeader(col) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN);
 
     const widthStyles = getColumnWidthStyles(col);
     /** `overflow: hidden` trên chính phần tử sticky làm hỏng sticky ngang trên nhiều trình duyệt. */
@@ -2883,24 +2907,26 @@ function VanDon() {
           background: '#f8f9fa',
         };
 
+    const filterInputCls = 'w-full text-[11px] px-1.5 py-0.5 border rounded shadow-sm leading-tight';
+
     return (
       <th
         data-col-idx={idx}
         key={`filter-${col}-${idx}`}
-        className={`py-2.5 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : isQtyCol ? '' : 'px-4'}`}
+        className={`py-1 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] ${isQtyCol ? 'whitespace-normal text-[11px] leading-tight px-1' : 'whitespace-nowrap'} ${isCheckCol ? 'pl-2 pr-3' : isQtyCol ? '' : 'px-2'} ${isCanhBaoFilterCol ? 'max-w-[140px]' : ''}`}
         style={headerCellStyle}
       >
         <div
-          className={`font-semibold mb-2 text-gray-700 ${isQtyCol ? 'text-[11px] leading-tight whitespace-normal break-words' : 'text-sm whitespace-nowrap'} ${isCheckCol ? 'text-left' : ''}`}
+          className={`font-semibold mb-0.5 text-gray-700 ${isQtyCol ? 'text-[10px] leading-tight whitespace-normal break-words' : 'text-[11px] whitespace-nowrap'} ${isCheckCol ? 'text-left' : ''}`}
         >
           {col}
         </div>
         {col === 'STT' ? (
-          <div className="text-xs text-gray-400">-</div>
+          <div className="text-[10px] text-gray-400">-</div>
         ) : col === 'Mã Tracking' ? (
-          <div className="flex flex-col gap-1.5 relative" style={{ zIndex: 1002 }}>
+          <div className="flex flex-col gap-0.5 relative" style={{ zIndex: 1002 }}>
             <select
-              className="w-full text-[13px] px-2 py-1.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+              className="w-full text-[11px] px-1.5 py-0.5 border rounded bg-white font-semibold text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer leading-tight"
               value={filterValues.tracking_status || 'Tình trạng mã'}
               onChange={(e) => setFilterValues((p) => ({ ...p, tracking_status: e.target.value }))}
             >
@@ -2910,27 +2936,42 @@ function VanDon() {
               <option value="Toàn số">Toàn số</option>
             </select>
             {(filterValues.tracking_status === 'Tình trạng mã' || !filterValues.tracking_status) && (
-              <>
+              <div className="grid grid-cols-2 gap-0.5">
                 <input
-                  className="w-full text-sm px-2 py-1.5 border rounded"
+                  className={filterInputCls}
                   style={{ zIndex: 1002 }}
-                  placeholder="Bao gồm..."
+                  placeholder="Gồm…"
                   value={filterValues.tracking_include || ''}
                   onChange={(e) => setFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
                 />
                 <input
-                  className="w-full text-sm px-2 py-1.5 border rounded"
+                  className={filterInputCls}
                   style={{ zIndex: 1002 }}
-                  placeholder="Loại trừ..."
+                  placeholder="Trừ…"
                   value={filterValues.tracking_exclude || ''}
                   onChange={(e) => setFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
                 />
-              </>
+              </div>
             )}
           </div>
+        ) : isCanhBaoFilterCol ? (
+          <select
+            className="w-full text-[10px] px-1 py-0.5 border rounded bg-white text-gray-700 shadow-sm focus:ring-1 focus:ring-blue-500 leading-tight"
+            style={{ zIndex: 1002 }}
+            value={filterValues.canh_bao_filter || ''}
+            onChange={(e) => {
+              setFilterValues((p) => ({ ...p, canh_bao_filter: e.target.value }));
+              setCurrentPage(1);
+            }}
+          >
+            <option value="">Tất cả</option>
+            <option value="co_trung">Có trùng</option>
+            <option value="khong_trung">Không trùng</option>
+          </select>
         ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(col) ? (
           <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
             <MultiSelect
+              compact
               label="Lọc..."
               options={getFilterMultiSelectOptions(col)}
               selected={filterValues[filterKey] || []}
@@ -2940,7 +2981,7 @@ function VanDon() {
         ) : ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col) ? (
           <input
             type="date"
-            className="w-full text-sm px-2 py-1.5 border rounded shadow-sm"
+            className={filterInputCls}
             style={{ zIndex: 1002 }}
             value={filterValues[filterKey] || ''}
             onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
@@ -2948,7 +2989,7 @@ function VanDon() {
         ) : (
           <input
             type="text"
-            className="w-full text-sm px-2 py-1.5 border rounded shadow-sm"
+            className={filterInputCls}
             style={{ zIndex: 1002 }}
             placeholder="..."
             value={filterValues[filterKey] || ''}
@@ -3146,105 +3187,77 @@ function VanDon() {
 
   /* End Component Logic */
   return (
-    <div className="bg-gray-50 flex flex-col h-[calc(100vh-64px)] min-h-0 overflow-hidden">
-      {/* Header Bar - Now including Tabs and Main Actions */}
-      <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0">
-        <div className="max-w-full mx-auto px-4 py-1 min-w-0">
-          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between min-w-0">
-            {/* Left: Logo & Title (Smaller) */}
-            <div className="flex items-center gap-3 shrink-0">
-
+    <div className="bg-gray-50 flex flex-col h-[calc(100vh-64px)] min-h-0 w-full max-w-none overflow-hidden">
+      {/* Một dòng: tiêu đề + tab + tìm + lọc (cuộn ngang khi hẹp) */}
+      <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0 w-full">
+        <div className="w-full max-w-none mx-auto px-2 sm:px-3 py-0.5 min-w-0">
+          <div className="flex items-center gap-1.5 min-h-[28px] w-full min-w-0">
+            <div className="flex flex-nowrap items-center gap-1.5 min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
+            <div className="flex items-center gap-1.5 shrink-0">
               <img
                 src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
                 alt="Logo"
-                className="h-8 object-contain"
+                className="h-6 object-contain"
               />
-              <div>
-                <h1 className="text-lg font-bold text-gray-800 leading-tight">QUẢN LÝ VẬN ĐƠN</h1>
-              </div>
+              <h1 className="text-sm font-bold text-gray-800 leading-none whitespace-nowrap">QUẢN LÝ VẬN ĐƠN</h1>
             </div>
-
-            {/* Middle: Tabs — overflow-x-auto để màn hẹp vẫn thấy Đơn Nhật / Hà Nội */}
-            <div className="min-w-0 w-full xl:flex-1 xl:max-w-none flex justify-center xl:px-2">
-              <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200 overflow-x-auto max-w-full [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5">
+            <div className="shrink-0 w-px h-4 bg-gray-200 self-center" aria-hidden />
+            <div className="flex shrink-0 bg-gray-100 p-0.5 rounded-md border border-gray-200">
               {[
                 { id: 'all', label: 'Đơn nhắc hộ', icon: '📋' },
                 { id: 'ca_nhan', label: 'Đơn cá nhân', icon: '👤' },
                 { id: 'readonly_all', label: 'Xem tất cả (khóa sửa)', icon: '👁️' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
                 { id: 'hanoi', label: 'Đẩy đơn Hà Nội', icon: '🏛️' }
-              ].filter(tab => {
-                // Admin luôn thấy tất cả tabs, user thường chỉ thấy tab "Đẩy đơn Hà Nội" nếu có quyền
-                if (tab.id === 'hanoi') {
-                  return isAdmin || canViewHaNoi;
-                }
-                return true;
-              }).map(tab => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`shrink-0 whitespace-nowrap px-2 sm:px-3 md:px-4 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${bolActiveTab === tab.id
-                    ? 'bg-white text-[#F37021] shadow-sm'
-                    : 'text-gray-600 hover:bg-white/50 hover:text-[#F37021]'
-                    }`}
-                  onClick={() => {
-                    setBolActiveTab(tab.id);
-                    setCurrentPage(1);
-                    // Clear selection when switching tabs
-                    if (tab.id !== 'hanoi') {
-                      setSelectedRows(new Set());
-                    }
-                  }}
-                >
-                  <span className="text-sm">{tab.icon}</span>
-                  <span>{tab.label}</span>
-                </button>
-              ))}
-              </div>
+              ]
+                .filter((tab) => {
+                  if (tab.id === 'hanoi') {
+                    return isAdmin || canViewHaNoi;
+                  }
+                  return true;
+                })
+                .map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`shrink-0 whitespace-nowrap px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-[11px] font-semibold rounded transition-all flex items-center gap-0.5 ${bolActiveTab === tab.id
+                      ? 'bg-white text-[#F37021] shadow-sm'
+                      : 'text-gray-600 hover:bg-white/50 hover:text-[#F37021]'
+                      }`}
+                    onClick={() => {
+                      setBolActiveTab(tab.id);
+                      setCurrentPage(1);
+                      if (tab.id !== 'hanoi') {
+                        setSelectedRows(new Set());
+                      }
+                    }}
+                  >
+                    <span className="text-[10px] sm:text-xs leading-none">{tab.icon}</span>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
             </div>
-
-            {/* Right: Status & Actions */}
-            <div className="flex items-center gap-2 shrink-0 justify-end xl:justify-start">
-              <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded-md border border-gray-100">
-                <span className={`h-1.5 w-1.5 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                <span className="text-[10px] uppercase font-bold text-gray-500">
-                  {allData.length > 0 ? `${allData.length} ĐƠN` : 'NO DATA'}
-                </span>
-              </div>
-              <button
-                onClick={() => refetchVanDonData()}
-                disabled={isQueryLoading}
-                className="px-3 py-1.5 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-md text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
-              >
-                {isQueryLoading ? <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></div> : <span>🔄</span>}
-                {isQueryLoading ? '...' : 'TẢI LẠI'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main: không overflow-hidden — để dropdown bộ lọc (MultiSelect) không bị cắt; cuộn chỉ ở vùng bảng bên dưới */}
-      <div className="flex-1 min-h-0 grid grid-rows-[auto,1fr,auto] gap-1 p-1 bg-[#f4f7fa] min-w-0 overflow-hidden">
-
-        {/* Toolbar: hàng 0 = số dòng/trang; hàng 1 = lọc; hàng 2 = thao tác + tổng tiền */}
-        <div className="relative z-[100] bg-white rounded-lg shadow-sm border border-gray-200 px-2 py-1 flex flex-col gap-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-2 w-full border-b border-gray-100 pb-1.5 mb-0.5">
-            <label className="text-xs font-semibold text-gray-700 whitespace-nowrap shrink-0" htmlFor="van-don-customer-quick-search">
-              🔎 Tra SĐT / tên / địa chỉ:
+            <div className="shrink-0 w-px h-4 bg-gray-200 self-center" aria-hidden />
+            <label
+              className="text-[10px] font-semibold text-gray-700 whitespace-nowrap shrink-0"
+              htmlFor="van-don-customer-quick-search"
+              title="Tra SĐT / tên / địa chỉ"
+            >
+              Tìm:
             </label>
             <input
               id="van-don-customer-quick-search"
               type="search"
               enterKeyHint="search"
               autoComplete="off"
-              placeholder="Nhập SĐT, tên khách hoặc địa chỉ…"
+              placeholder="SĐT, tên, địa chỉ…"
+              title="Tra SĐT / tên / địa chỉ"
               value={customerQuickSearch}
               onChange={(e) => {
                 setCustomerQuickSearch(e.target.value);
                 setCurrentPage(1);
               }}
-              className="flex-1 min-w-[200px] max-w-2xl text-xs px-2 py-1 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#F37021] focus:border-[#F37021] bg-white"
+              className="w-[min(128px,22vw)] min-w-[88px] max-w-[160px] shrink-0 text-[10px] px-1 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
             />
             {customerQuickSearch.trim() ? (
               <button
@@ -3253,28 +3266,32 @@ function VanDon() {
                   setCustomerQuickSearch('');
                   setCurrentPage(1);
                 }}
-                className="text-xs text-gray-500 hover:text-gray-800 px-1.5 py-0.5 rounded border border-gray-200 hover:bg-gray-50 shrink-0"
+                className="text-[10px] text-gray-500 hover:text-gray-800 px-1 py-0.5 rounded border border-gray-200 hover:bg-gray-50 shrink-0"
               >
-                Xóa
+                ✕
               </button>
             ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">
-              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📅 Lọc thời gian:</label>
-              <div className="flex items-center gap-2">
+            <div className="shrink-0 w-px h-4 bg-gray-200 self-center" aria-hidden />
+            <div
+              className="flex items-center gap-1 bg-blue-50 px-1.5 py-0.5 rounded-md border border-blue-200 shrink-0"
+              title="Lọc thời gian"
+            >
+              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap" aria-hidden>
+                📅
+              </span>
+              <div className="flex items-center gap-1 flex-nowrap">
                 <select
-                  className="text-xs px-2 py-1 border border-gray-300 rounded bg-white font-bold text-blue-800"
+                  className="text-[10px] sm:text-[11px] px-1 py-0.5 border border-gray-300 rounded bg-white font-bold text-blue-800 leading-tight max-w-[118px]"
                   value={bolDateType}
                   onChange={(e) => {
                     setBolDateType(e.target.value);
                     setCurrentPage(1);
                   }}
                 >
-                  <option value="Ngày lên đơn">📅 Lên đơn</option>
-                  <option value="Ngày đóng hàng">📦 Đóng hàng</option>
-                  <option value="Ngày đẩy đơn">🚀 Đẩy đơn</option>
-                  <option value="Ngày có mã tracking">🎫 Có Tracking</option>
+                  <option value="Ngày lên đơn">Lên đơn</option>
+                  <option value="Ngày đóng hàng">Đóng hàng</option>
+                  <option value="Ngày đẩy đơn">Đẩy đơn</option>
+                  <option value="Ngày có mã tracking">Có Tracking</option>
                 </select>
                 <input
                   type="date"
@@ -3285,10 +3302,9 @@ function VanDon() {
                     setCurrentPage(1);
                     if (v) setEnableDateFilter(true);
                   }}
-                  className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Từ ngày"
+                  className="text-[10px] sm:text-[11px] px-1 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 leading-tight w-[118px] shrink-0"
                 />
-                <span className="text-xs text-gray-500 font-bold">→</span>
+                <span className="text-[10px] text-gray-500 font-bold shrink-0">→</span>
                 <input
                   type="date"
                   value={dateTo || ''}
@@ -3298,10 +3314,9 @@ function VanDon() {
                     setCurrentPage(1);
                     if (v) setEnableDateFilter(true);
                   }}
-                  className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Đến ngày"
+                  className="text-[10px] sm:text-[11px] px-1 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 leading-tight w-[118px] shrink-0"
                 />
-                <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+                <label className="flex items-center gap-0.5 text-[10px] text-gray-700 cursor-pointer whitespace-nowrap shrink-0">
                   <input
                     type="checkbox"
                     checked={enableDateFilter}
@@ -3315,42 +3330,41 @@ function VanDon() {
                 </label>
               </div>
             </div>
-
-            {/* Market & Product Filters */}
-            <div className="flex items-center gap-1 bg-purple-50 px-2 py-1 rounded-lg border border-purple-200">
-              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🌍 Thị trường:</label>
-              <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
+            <div className="flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200 shrink-0" title="Thị trường">
+              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🌍</span>
+              <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
                 <MultiSelect
+                  compact
                   label="Chọn thị trường..."
                   options={getFilterMultiSelectOptions('Khu vực')}
                   selected={filterValues.market || []}
                   onChange={(vals) => {
-                    setFilterValues(prev => ({ ...prev, market: vals }));
+                    setFilterValues((prev) => ({ ...prev, market: vals }));
                     setCurrentPage(1);
                   }}
                 />
               </div>
             </div>
-
-            <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded-lg border border-green-200">
-              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📦 Sản phẩm:</label>
-              <div className="relative" style={{ minWidth: '150px', zIndex: 1002 }}>
+            <div className="flex items-center gap-1 bg-green-50 px-1.5 py-0.5 rounded-md border border-green-200 shrink-0" title="Sản phẩm">
+              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📦</span>
+              <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
                 <MultiSelect
+                  compact
                   label="Chọn sản phẩm..."
                   options={getFilterMultiSelectOptions('Mặt hàng')}
                   selected={filterValues.product || []}
                   onChange={(vals) => {
-                    setFilterValues(prev => ({ ...prev, product: vals }));
+                    setFilterValues((prev) => ({ ...prev, product: vals }));
                     setCurrentPage(1);
                   }}
                 />
               </div>
             </div>
-
-            <div className="flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200">
-              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">👤 NV Sale:</label>
-              <div className="relative" style={{ minWidth: '160px', zIndex: 1001 }}>
+            <div className="flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200 shrink-0" title="NV Sale">
+              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">👤</span>
+              <div className="relative" style={{ minWidth: '118px', zIndex: 1001 }}>
                 <MultiSelect
+                  compact
                   label="Chọn NV Sale..."
                   options={getFilterMultiSelectOptions('Nhân viên Sale')}
                   selected={filterValues.nv_sale || []}
@@ -3361,11 +3375,11 @@ function VanDon() {
                 />
               </div>
             </div>
-
-            <div className="flex items-center gap-1 bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200"> {/* Changed py-1 to py-0.5 */}
-              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">📣 NV MKT:</label>
-              <div className="relative" style={{ minWidth: '160px', zIndex: 1000 }}>
+            <div className="flex items-center gap-1 bg-teal-50 px-1.5 py-0.5 rounded-md border border-teal-200 shrink-0" title="NV MKT">
+              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📣</span>
+              <div className="relative" style={{ minWidth: '118px', zIndex: 1000 }}>
                 <MultiSelect
+                  compact
                   label="Chọn NV MKT..."
                   options={getFilterMultiSelectOptions('Nhân viên MKT')}
                   selected={filterValues.nv_mkt || []}
@@ -3376,11 +3390,11 @@ function VanDon() {
                 />
               </div>
             </div>
-
-            <div className="flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-200">
-              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🚚 NV Vận đơn:</label>
-              <div className="relative" style={{ minWidth: '160px', zIndex: 999 }}>
+            <div className="flex items-center gap-1 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200 shrink-0" title="NV Vận đơn">
+              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚚</span>
+              <div className="relative" style={{ minWidth: '118px', zIndex: 999 }}>
                 <MultiSelect
+                  compact
                   label="Chọn NV Vận đơn..."
                   options={getFilterMultiSelectOptions('NV Vận đơn')}
                   selected={filterValues.nv_van_don || []}
@@ -3391,11 +3405,11 @@ function VanDon() {
                 />
               </div>
             </div>
-
-            <div className="flex items-center gap-1 bg-cyan-50 px-2 py-1 rounded-lg border border-cyan-200">
-              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">🚛 ĐV Vận chuyển:</label>
-              <div className="relative" style={{ minWidth: '170px', zIndex: 998 }}>
+            <div className="flex items-center gap-1 bg-cyan-50 px-1.5 py-0.5 rounded-md border border-cyan-200 shrink-0" title="Đơn vị vận chuyển">
+              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚛</span>
+              <div className="relative" style={{ minWidth: '124px', zIndex: 998 }}>
                 <MultiSelect
+                  compact
                   label="Chọn đơn vị..."
                   options={getFilterMultiSelectOptions('Đơn vị vận chuyển')}
                   selected={filterValues.shipping_unit || []}
@@ -3406,23 +3420,51 @@ function VanDon() {
                 />
               </div>
             </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0 border-l border-gray-200 pl-1.5 ml-0.5 bg-white">
+              <div className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded border border-gray-100">
+                <span className={`h-1.5 w-1.5 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-[9px] uppercase font-bold text-gray-500 whitespace-nowrap">
+                  {allData.length > 0 ? `${allData.length} ĐƠN` : 'NO DATA'}
+                </span>
+              </div>
+              <button
+                onClick={() => refetchVanDonData()}
+                disabled={isQueryLoading}
+                className="px-2 py-0.5 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
+              >
+                {isQueryLoading ? (
+                  <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <span>🔄</span>
+                )}
+                {isQueryLoading ? '...' : 'TẢI LẠI'}
+              </button>
+            </div>
           </div>
+        </div>
+      </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-gray-100 pt-2">
+      {/* Main: flex cột — bảng chiếm hết chiều cao còn lại (full viewport trừ header/toolbar/pagination) */}
+      <div className="flex-1 min-h-0 flex flex-col gap-0.5 p-0.5 bg-[#f4f7fa] w-full min-w-0 overflow-hidden">
+
+        {/* Thanh thao tác (tìm + lọc đã gộp vào header một dòng) */}
+        <div className="relative z-[100] shrink-0 bg-white rounded-md shadow-sm border border-gray-200 px-1.5 py-0.5 min-w-0 w-full">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-0">
             {/* Toolbar Actions Group */}
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 onClick={refreshData}
-                className="p-1 px-2 hover:bg-red-50 text-red-600 rounded text-xs transition-colors flex items-center gap-1 group flex-shrink-0"
+                className="p-0.5 px-1.5 hover:bg-red-50 text-red-600 rounded text-[11px] transition-colors flex items-center gap-0.5 group flex-shrink-0"
                 title="Xóa tất cả bộ lọc"
               >
                 <span className="group-hover:rotate-90 transition-transform text-[10px]">✕</span>
                 <span className="font-bold">XÓA LỌC</span>
               </button>
-              <div className="h-4 w-px bg-gray-300 mx-1"></div>
+              <div className="h-3 w-px bg-gray-300 mx-0.5"></div>
               <button
                 onClick={() => setSyncPopoverOpen(true)}
-                className="p-1 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-bold transition-all flex items-center gap-1.5 relative border border-blue-100"
+                className="p-0.5 px-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-bold transition-all flex items-center gap-1 relative border border-blue-100"
               >
                 🔄 Trạng thái
                 {pendingChanges.size > 0 && (
@@ -3434,18 +3476,18 @@ function VanDon() {
               <button
                 onClick={handleUpdateAll}
                 disabled={isReadonlyEditTab}
-                className="p-1 px-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-0.5 px-1.5 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-[11px] font-bold transition-all flex items-center gap-0.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Ghi các thay đổi đang chờ xuống CSDL'}
               >
                 ✅ Xác nhận lưu
               </button>
 
-              <button onClick={() => setShowColumnSettings(true)} className="p-1 px-2 bg-gray-600 hover:bg-gray-700 text-white rounded text-xs font-bold transition-all flex items-center gap-1">
+              <button onClick={() => setShowColumnSettings(true)} className="p-0.5 px-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded text-[11px] font-bold transition-all flex items-center gap-0.5">
                 ⚙️ Cài đặt cột
               </button>
 
               <div
-                className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100"
+                className="flex items-center gap-0.5 text-[11px] text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100"
                 title="Cố định chỉ ảnh hưởng khi kéo ngang (freeze cột), KHÔNG khóa chỉnh sửa ô. Nhập 0 để không ghim cột dữ liệu (cột checkbox tab Hà Nội vẫn ghim riêng)."
               >
                 Cố định (freeze):
@@ -3482,7 +3524,7 @@ function VanDon() {
                   <button
                     onClick={() => setShowPhanFFMDropdown(!showPhanFFMDropdown)}
                     disabled={selectedRows.size === 0}
-                    className="p-1 px-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded text-xs font-bold transition-all flex items-center gap-1 shadow-sm"
+                    className="p-0.5 px-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded text-[11px] font-bold transition-all flex items-center gap-0.5 shadow-sm"
                   >
                     📦 Phân FFM {selectedRows.size > 0 && `(${selectedRows.size})`}
                   </button>
@@ -3519,22 +3561,24 @@ function VanDon() {
               )}
             </div>
 
-            <div className="flex items-center gap-4 flex-shrink-0 sm:ml-auto">
-              <div className="text-right flex flex-col items-end">
-                <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Số lượng đơn</span>
-                <span className="text-sm font-black text-blue-600 leading-none tabular-nums">{totalOrdersCount.toLocaleString('vi-VN')}</span>
+            <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
+              <div className="text-right flex flex-col items-end leading-tight">
+                <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Số lượng đơn</span>
+                <span className="text-xs font-black text-blue-600 tabular-nums">{totalOrdersCount.toLocaleString('vi-VN')}</span>
               </div>
-              <div className="text-right flex flex-col items-end">
-                <span className="text-[10px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
-                <span className="text-sm font-black text-emerald-600 leading-none">{totalMoney.toLocaleString('vi-VN')} ₫</span>
+              <div className="text-right flex flex-col items-end leading-tight">
+                <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
+                <span className="text-xs font-black text-emerald-600">{totalMoney.toLocaleString('vi-VN')} ₫</span>
               </div>
             </div>
           </div>
+        </div>
 
-
-          <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0 flex-1">
+        {/* Vùng bảng + phân trang: chiếm toàn bộ chiều cao còn lại */}
+        <div className="flex-1 min-h-0 flex flex-col gap-1 min-w-0 w-full overflow-hidden">
+          <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0 flex-1 w-full">
             {isQueryLoading ? (
-              <div className="flex-1 flex flex-col items-center justify-center min-h-[400px] bg-white rounded-lg">
+              <div className="flex-1 flex flex-col items-center justify-center min-h-0 bg-white rounded-lg">
                 <div className="relative w-16 h-16 mb-4">
                   <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
                   <div className="absolute inset-0 border-4 border-[#0052cc] border-t-transparent rounded-full animate-spin"></div>
@@ -3556,7 +3600,7 @@ function VanDon() {
                     <thead className="bg-[#f8f9fa]">
                       <tr className="bg-gray-100 align-top">
                         {bolActiveTab === 'hanoi' && (
-                          <th className="py-2.5 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap px-2 sticky left-0 z-[10100]" style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }}>
+                          <th className="py-1 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap px-2 sticky left-0 z-[10100]" style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }}>
                             <div className="flex items-center justify-center">
                               <input
                                 type="checkbox"
@@ -3619,9 +3663,10 @@ function VanDon() {
                     </table>
                   </div>
                 ) : (
+                  <div className="flex-1 min-h-0 min-w-0 w-full flex flex-col">
                   <TableVirtuoso
                     data={getFilteredData}
-                    style={{ height: '430px', width: '100%' }}
+                    style={{ height: '100%', minHeight: 0, width: '100%', flex: '1 1 auto' }}
                     scrollerRef={(el) => {
                       if (el) {
                         tableRef.current = el;
@@ -3685,13 +3730,14 @@ function VanDon() {
                       );
                     }}
                   />
+                  </div>
                 )}
               </div>
             )}
           </div>
 
           {/* Improved Pagination Footer (FFM Style) */}
-          <div className="bg-white p-3 rounded-lg shadow-sm mt-3 flex justify-center items-center gap-4 border border-gray-200">
+          <div className="shrink-0 bg-white p-3 rounded-lg shadow-sm flex justify-center items-center gap-4 border border-gray-200 w-full">
             <button
               disabled={currentPage <= 1 || isQueryLoading}
               onClick={() => setCurrentPage((p) => p - 1)}

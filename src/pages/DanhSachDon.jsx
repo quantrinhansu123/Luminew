@@ -1,4 +1,4 @@
-import { Calculator, Clock, History, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Calculator, Clock, History, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -14,6 +14,7 @@ import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '.
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { totalAmountVndFromLenDonFormula } from '../utils/totalAmountVndFromLenDon';
 import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
+import { computeCanhBaoUpdatesForDuplicateCustomers } from '../utils/customerDuplicateCanhBao';
 
 /**
  * PostgREST thường bị giới hạn ~1000 dòng / request.
@@ -45,6 +46,100 @@ const HIDDEN_COLUMNS = [
   '_source',
   '_id'
 ];
+
+/**
+ * Cùng phạm vi đơn như loadData: team, nhân sự, khoảng order_date + đơn order_date null (created_at trong khoảng).
+ */
+async function fetchDanhSachDonMergedRawOrders({
+  supabaseClient,
+  startDate,
+  endDate,
+  teamFilter,
+  isAdmin,
+  selectedPersonnelNames,
+  userName,
+  selectColumns = '*',
+}) {
+  const normalizeNameForQuery = (str) => {
+    if (!str) return '';
+    return String(str).trim().replace(/\s+/g, ' ');
+  };
+
+  const applyTeamAndPersonnel = (q) => {
+    let query = q;
+    if (teamFilter === 'RD') {
+      query = query.eq('team', 'RD');
+    } else {
+      query = query.or('team.is.null,team.neq.RD');
+    }
+    if (!isAdmin) {
+      if (selectedPersonnelNames.length > 0) {
+        const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
+        const orConditions = allNames.flatMap((name) => {
+          const normalizedName = normalizeNameForQuery(name);
+          return [
+            `sale_staff.ilike.%${normalizedName}%`,
+            `marketing_staff.ilike.%${normalizedName}%`,
+            `delivery_staff.ilike.%${normalizedName}%`,
+          ];
+        });
+        query = query.or(orConditions.join(','));
+      } else if (userName) {
+        const normalizedUserName = normalizeNameForQuery(userName);
+        query = query.or(
+          `sale_staff.ilike.%${normalizedUserName}%,marketing_staff.ilike.%${normalizedUserName}%,delivery_staff.ilike.%${normalizedUserName}%`
+        );
+      }
+    }
+    return query;
+  };
+
+  const fetchAllPages = async (baseQuery, orderField) => {
+    const all = [];
+    let from = 0;
+    for (let page = 0; page < 500; page++) {
+      const { data, error } = await baseQuery
+        .order(orderField, { ascending: false })
+        .order('order_code', { ascending: false })
+        .range(from, from + ORDERS_PAGE_SIZE - 1);
+      if (error) throw error;
+      const chunk = data || [];
+      all.push(...chunk);
+      if (chunk.length < ORDERS_PAGE_SIZE) break;
+      from += ORDERS_PAGE_SIZE;
+    }
+    return all;
+  };
+
+  let base = applyTeamAndPersonnel(supabaseClient.from('orders').select(selectColumns));
+  if (startDate) base = base.gte('order_date', startDate);
+  if (endDate) base = base.lte('order_date', endDate);
+
+  const supaData = await fetchAllPages(base, 'order_date');
+
+  let mergedRaw = [...(supaData || [])];
+  if (startDate && endDate) {
+    const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+    let qNull = applyTeamAndPersonnel(supabaseClient.from('orders').select(selectColumns));
+    qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
+    try {
+      const extraRows = await fetchAllPages(qNull, 'created_at');
+      if (extraRows?.length) {
+        const seen = new Set(mergedRaw.map((r) => r.order_code));
+        for (const row of extraRows) {
+          if (row.order_code && !seen.has(row.order_code)) {
+            mergedRaw.push(row);
+            seen.add(row.order_code);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ [DanhSachDon] Không gộp được đơn order_date null:', e?.message || String(e));
+    }
+  }
+
+  return mergedRaw;
+}
 
 function DanhSachDon() {
   const location = useLocation();
@@ -121,6 +216,7 @@ function DanhSachDon() {
   const [isFillingPaymentCurrency, setIsFillingPaymentCurrency] = useState(false); // Tự điền Loại tiền theo Khu vực
   const [isClearingShippingInfo, setIsClearingShippingInfo] = useState(false); // Xóa NV vận đơn theo bộ lọc
   const [isRecalculatingZeroTotalVnd, setIsRecalculatingZeroTotalVnd] = useState(false); // Tính lại Tổng tiền VNĐ (chỉ ô = 0)
+  const [isApplyingCanhBaoTrung, setIsApplyingCanhBaoTrung] = useState(false); // Ghi canh_bao theo trùng khách (Ngày lên đơn + created_at)
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -318,6 +414,7 @@ function DanhSachDon() {
     "Ca": item.shift, // Map shift to Ca
     "Payment Bill": item.payment_bill, // Trạng thái bill
     "Payment Image": item.payment_image, // Link hình ảnh bill
+    "Cảnh báo trùng": item.canh_bao || '',
     _id: item.id,
     _log: item.log ?? null,
     // Note: _id and technical keys excluded from column picker via allAvailableColumns filter
@@ -397,89 +494,16 @@ function DanhSachDon() {
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
 
-      const normalizeNameForQuery = (str) => {
-        if (!str) return '';
-        return String(str).trim().replace(/\s+/g, ' ');
-      };
-
-      /** Team + nhân sự — dùng lại cho truy vấn phụ (đơn order_date null) */
-      const applyTeamAndPersonnel = (q) => {
-        let query = q;
-        if (teamFilter === 'RD') {
-          query = query.eq('team', 'RD');
-        } else {
-          // QUAN TRỌNG: .neq('team','RD') trong SQL loại cả dòng team NULL → đơn không chi nhánh không thấy
-          query = query.or('team.is.null,team.neq.RD');
-        }
-        if (!isAdmin) {
-          if (selectedPersonnelNames.length > 0) {
-            const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-            console.log('🔍 Filtering by selected personnel names:', allNames);
-            const orConditions = allNames.flatMap((name) => {
-              const normalizedName = normalizeNameForQuery(name);
-              return [
-                `sale_staff.ilike.%${normalizedName}%`,
-                `marketing_staff.ilike.%${normalizedName}%`,
-                `delivery_staff.ilike.%${normalizedName}%`
-              ];
-            });
-            query = query.or(orConditions.join(','));
-          } else if (userName) {
-            const normalizedUserName = normalizeNameForQuery(userName);
-            query = query.or(
-              `sale_staff.ilike.%${normalizedUserName}%,marketing_staff.ilike.%${normalizedUserName}%,delivery_staff.ilike.%${normalizedUserName}%`
-            );
-          }
-        } else {
-          console.log('✅ Admin: Viewing all orders (no filter applied)');
-        }
-        return query;
-      };
-
-      const fetchAllPages = async (baseQuery, orderField) => {
-        const all = [];
-        let from = 0;
-        for (let page = 0; page < 500; page++) {
-          const { data, error } = await baseQuery
-            .order(orderField, { ascending: false })
-            .order('order_code', { ascending: false })
-            .range(from, from + ORDERS_PAGE_SIZE - 1);
-          if (error) throw error;
-          const chunk = data || [];
-          all.push(...chunk);
-          if (chunk.length < ORDERS_PAGE_SIZE) break;
-          from += ORDERS_PAGE_SIZE;
-        }
-        return all;
-      };
-
-      let base = applyTeamAndPersonnel(supabase.from('orders').select('*'));
-      if (startDate) base = base.gte('order_date', startDate);
-      if (endDate) base = base.lte('order_date', endDate);
-
-      const supaData = await fetchAllPages(base, 'order_date');
-
-      // Gộp thêm đơn có order_date NULL nhưng created_at nằm trong khoảng (tránh thiếu đơn trên UI)
-      let mergedRaw = [...(supaData || [])];
-      if (startDate && endDate) {
-        const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
-        let qNull = applyTeamAndPersonnel(supabase.from('orders').select('*'));
-        qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
-        try {
-          const extraRows = await fetchAllPages(qNull, 'created_at');
-          if (extraRows?.length) {
-            const seen = new Set(mergedRaw.map((r) => r.order_code));
-            for (const row of extraRows) {
-              if (row.order_code && !seen.has(row.order_code)) {
-                mergedRaw.push(row);
-                seen.add(row.order_code);
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('⚠️ [DanhSachDon] Không gộp được đơn order_date null:', e?.message || String(e));
-        }
-      }
+      const mergedRaw = await fetchDanhSachDonMergedRawOrders({
+        supabaseClient: supabase,
+        startDate,
+        endDate,
+        teamFilter,
+        isAdmin,
+        selectedPersonnelNames,
+        userName,
+        selectColumns: '*',
+      });
 
       // 2. Process Supabase Data
       const supaMapped = mergedRaw.map(mapSupabaseToUI);
@@ -675,6 +699,109 @@ function DanhSachDon() {
       toast.error(`Lỗi tính lại Tổng tiền VNĐ: ${err?.message || String(err)}`);
     } finally {
       setIsRecalculatingZeroTotalVnd(false);
+    }
+  };
+
+  /**
+   * Trùng khách: cùng SĐT hoặc tên hoặc địa chỉ (rule NhapDonMoi).
+   * Thứ tự “lần 1 / lần 2”: sắp theo Ngày lên đơn (order_date) tăng dần, tie-break created_at.
+   * Chỉ ghi orders.canh_bao cho đơn từ lần 2 trở đi trong cùng nhóm trùng.
+   */
+  const handleApplyCanhBaoTrungDon = async () => {
+    if (isApplyingCanhBaoTrung) return;
+
+    try {
+      const settings = localStorage.getItem('system_settings');
+      if (settings) {
+        const parsed = JSON.parse(settings);
+        if (parsed.dataSource === 'test') {
+          toast.info('Đang ở chế độ test — không ghi cột canh_bao.', { autoClose: 2500, hideProgressBar: true });
+          return;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const normStart = String(startDate || '').trim();
+    const normEnd = String(endDate || '').trim();
+    if (!normStart || !normEnd) {
+      toast.error('Vui lòng chọn Từ ngày và Đến ngày.', { autoClose: 2500, hideProgressBar: true });
+      return;
+    }
+
+    if (
+      !window.confirm(
+        'Áp dụng cảnh báo trùng vào cột canh_bao (Cảnh báo trùng) trên database?\n\n' +
+          '• Phạm vi: cùng Từ/Đến ngày và cùng bộ lọc team/nhân sự như khi tải danh sách.\n' +
+          '• Rule trùng: cùng SĐT HOẶC cùng tên HOẶC cùng địa chỉ (chuẩn hóa giống trang nhập đơn).\n' +
+          '• Thứ tự: Ngày lên đơn (order_date) sớm hơn = lần 1; cùng ngày thì created_at sớm hơn = lần 1.\n' +
+          '• Chỉ các đơn từ lần 2 trở đi trong nhóm được ghi canh_bao (danh sách mã đơn trước đó trong nội dung).\n' +
+          '• Đơn “lần 1” không bị xóa/ghi đè canh_bao bởi thao tác này.\n\n' +
+          'Tiếp tục?'
+      )
+    ) {
+      return;
+    }
+
+    const userJson = localStorage.getItem('user');
+    const user = userJson ? JSON.parse(userJson) : null;
+    const userName =
+      localStorage.getItem('username') ||
+      user?.['Họ_và_tên'] ||
+      user?.['Họ và tên'] ||
+      user?.['Tên'] ||
+      user?.username ||
+      user?.name ||
+      '';
+
+    setIsApplyingCanhBaoTrung(true);
+    try {
+      const mergedRaw = await fetchDanhSachDonMergedRawOrders({
+        supabaseClient: supabase,
+        startDate: normStart,
+        endDate: normEnd,
+        teamFilter,
+        isAdmin,
+        selectedPersonnelNames,
+        userName,
+        selectColumns:
+          'order_code, order_date, created_at, customer_phone, customer_name, customer_address, sale_staff',
+      });
+
+      const updates = computeCanhBaoUpdatesForDuplicateCustomers(mergedRaw);
+      if (updates.length === 0) {
+        toast.success('Không có nhóm trùng (SĐT/tên/địa chỉ) trong phạm vi đã tải.', {
+          autoClose: 3000,
+          hideProgressBar: true,
+        });
+        return;
+      }
+
+      let success = 0;
+      const chunkSize = 12;
+      for (let i = 0; i < updates.length; i += chunkSize) {
+        const chunk = updates.slice(i, i + chunkSize);
+        const results = await Promise.all(
+          chunk.map((u) =>
+            supabase.from('orders').update({ canh_bao: u.canh_bao }).eq('order_code', u.order_code)
+          )
+        );
+        const err = results.find((r) => r.error)?.error;
+        if (err) throw err;
+        success += chunk.length;
+      }
+
+      toast.success(`Đã cập nhật canh_bao cho ${success} đơn (cảnh báo trùng).`, {
+        autoClose: 3500,
+        hideProgressBar: true,
+      });
+      await loadData();
+    } catch (err) {
+      console.error('Apply canh_bao trùng error:', err);
+      toast.error(`Lỗi ghi cảnh báo trùng: ${err?.message || String(err)}`);
+    } finally {
+      setIsApplyingCanhBaoTrung(false);
     }
   };
 
@@ -2084,7 +2211,8 @@ function DanhSachDon() {
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
-                      isRecalculatingZeroTotalVnd
+                      isRecalculatingZeroTotalVnd ||
+                      isApplyingCanhBaoTrung
                     }
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                     title='Tự điền "Loại tiền thanh toán" theo "Khu vực" (chỉ dòng đang trống)'
@@ -2110,7 +2238,8 @@ function DanhSachDon() {
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
-                      isRecalculatingZeroTotalVnd
+                      isRecalculatingZeroTotalVnd ||
+                      isApplyingCanhBaoTrung
                     }
                     className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                     title="Tính lại Tổng tiền VNĐ = Giá bán × Tỷ giá (như lên đơn). Chỉ các dòng đang = 0 hoặc trống trong bộ lọc hiện tại."
@@ -2127,6 +2256,33 @@ function DanhSachDon() {
                       </>
                     )}
                   </button>
+                  <button
+                    onClick={handleApplyCanhBaoTrungDon}
+                    disabled={
+                      syncing ||
+                      loading ||
+                      deleting ||
+                      isFixingTeams ||
+                      isFixingShift ||
+                      isFillingPaymentCurrency ||
+                      isRecalculatingZeroTotalVnd ||
+                      isApplyingCanhBaoTrung
+                    }
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                    title="Ghi cột canh_bao cho đơn trùng khách (lần 2+), thứ tự theo Ngày lên đơn rồi created_at — cùng phạm vi Từ/Đến ngày và team/nhân sự khi tải danh sách"
+                  >
+                    {isApplyingCanhBaoTrung ? (
+                      <>
+                        <span className="animate-spin">⏳</span>
+                        Đang ghi cảnh báo...
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4" />
+                        Cảnh báo trùng
+                      </>
+                    )}
+                  </button>
                 </>
               )}
               {isAdmin && (
@@ -2140,7 +2296,8 @@ function DanhSachDon() {
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
-                      isRecalculatingZeroTotalVnd
+                      isRecalculatingZeroTotalVnd ||
+                      isApplyingCanhBaoTrung
                     }
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
@@ -2165,7 +2322,8 @@ function DanhSachDon() {
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
-                      isRecalculatingZeroTotalVnd
+                      isRecalculatingZeroTotalVnd ||
+                      isApplyingCanhBaoTrung
                     }
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
@@ -2700,7 +2858,8 @@ function DanhSachDon() {
                   isFixingShift ||
                   isFillingPaymentCurrency ||
                   isRecalculatingZeroTotalVnd ||
-                  isClearingShippingInfo
+                  isClearingShippingInfo ||
+                  isApplyingCanhBaoTrung
                 }
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
                 title='Xóa cột "delivery_staff" cho các đơn trong bộ lọc hiện tại'
