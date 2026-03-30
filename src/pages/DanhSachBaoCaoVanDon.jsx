@@ -2,13 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { Calendar, RefreshCw, Package } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { supabase } from '../supabase/config';
+import MultiSelect from '../components/MultiSelect';
 import {
   SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN,
   syncBaoCaoVanDonFromOrders,
 } from '../services/baoCaoVanDonSyncFromOrders';
 import {
   formatBaoCaoVanDonPaymentStatusWithMoney,
+  parseBaoCaoVanDonHistogram,
   formatBaoCaoVanDonStatusHistogram,
+  sumBaoCaoVanDonHistogramValues,
 } from '../utils/baoCaoVanDonFormat';
 
 const formatDate = (dateValue) => {
@@ -117,13 +120,26 @@ function isVanDonSyncAdmin() {
 
 export default function DanhSachBaoCaoVanDon() {
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState([]);
-  const [filterDate, setFilterDate] = useState(() => {
+  const [baseData, setBaseData] = useState([]);
+
+  const [filterStartDate, setFilterStartDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
-  const [syncStartDate, setSyncStartDate] = useState(() => filterDate);
-  const [syncEndDate, setSyncEndDate] = useState(() => filterDate);
+  const [filterEndDate, setFilterEndDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+
+  const [filterMarkets, setFilterMarkets] = useState([]);
+  const [filterProducts, setFilterProducts] = useState([]);
+  const [filterKetQuaCheck, setFilterKetQuaCheck] = useState([]);
+  const [filterTrangThaiGiaoHangNb, setFilterTrangThaiGiaoHangNb] = useState([]);
+  const [filterTrangThaiThanhToan, setFilterTrangThaiThanhToan] = useState([]);
+  const [filterNhanVienVanDon, setFilterNhanVienVanDon] = useState([]);
+
+  const [syncStartDate, setSyncStartDate] = useState(() => filterStartDate);
+  const [syncEndDate, setSyncEndDate] = useState(() => filterEndDate);
   const [syncLoading, setSyncLoading] = useState(false);
   const [canRunSync, setCanRunSync] = useState(false);
 
@@ -132,11 +148,11 @@ export default function DanhSachBaoCaoVanDon() {
   }, []);
 
   useEffect(() => {
-    setSyncStartDate(filterDate);
-    setSyncEndDate(filterDate);
-  }, [filterDate]);
+    setSyncStartDate(filterStartDate);
+    setSyncEndDate(filterEndDate);
+  }, [filterStartDate, filterEndDate]);
 
-  const loadData = async () => {
+  const loadBaseData = async () => {
     try {
       setLoading(true);
       let query = supabase
@@ -145,9 +161,12 @@ export default function DanhSachBaoCaoVanDon() {
         .order('ngay', { ascending: false })
         .order('updated_at', { ascending: false });
 
-      if (filterDate) {
-        query = query.eq('ngay', filterDate);
-      }
+      if (filterStartDate) query = query.gte('ngay', filterStartDate);
+      if (filterEndDate) query = query.lte('ngay', filterEndDate);
+
+      if (filterMarkets?.length) query = query.in('thi_truong', filterMarkets);
+      if (filterProducts?.length) query = query.in('san_pham', filterProducts);
+      if (filterNhanVienVanDon?.length) query = query.in('nhan_vien', filterNhanVienVanDon);
 
       const { data: result, error } = await query;
 
@@ -157,7 +176,7 @@ export default function DanhSachBaoCaoVanDon() {
         return;
       }
 
-      setData(result || []);
+      setBaseData(result || []);
     } catch (error) {
       console.error('Error:', error);
       toast.error('Lỗi khi tải dữ liệu');
@@ -167,12 +186,94 @@ export default function DanhSachBaoCaoVanDon() {
   };
 
   useEffect(() => {
-    loadData();
-  }, [filterDate]);
+    if (filterStartDate && filterEndDate && filterStartDate > filterEndDate) {
+      toast.warn('Từ ngày phải <= đến ngày.');
+      return;
+    }
+    loadBaseData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStartDate, filterEndDate, filterMarkets, filterProducts, filterNhanVienVanDon]);
 
   const handleRefresh = () => {
-    loadData();
+    loadBaseData();
   };
+
+  const matchesAnyHistogramKey = (hist, selectedKeys) => {
+    if (!selectedKeys?.length) return true;
+    const o = parseBaoCaoVanDonHistogram(hist);
+    for (const k of selectedKeys) {
+      if (Number(o[k]) > 0) return true;
+    }
+    return false;
+  };
+
+  const data = useMemo(() => {
+    return baseData.filter((row) => {
+      if (!matchesAnyHistogramKey(row.ket_qua_check, filterKetQuaCheck)) return false;
+      if (!matchesAnyHistogramKey(row.trang_thai_giao_hang, filterTrangThaiGiaoHangNb)) return false;
+      if (!matchesAnyHistogramKey(row.trang_thai_thanh_toan, filterTrangThaiThanhToan)) return false;
+      return true;
+    });
+  }, [baseData, filterKetQuaCheck, filterTrangThaiGiaoHangNb, filterTrangThaiThanhToan]);
+
+  const counters = useMemo(() => {
+    let totalRows = data.length;
+    let totalDonKetQuaCheck = 0;
+    let totalDonGiaoHangNb = 0;
+    let totalDonThanhToan = 0;
+    let totalTienThanhToan = 0;
+
+    for (const row of data) {
+      totalDonKetQuaCheck += sumBaoCaoVanDonHistogramValues(row.ket_qua_check);
+      totalDonGiaoHangNb += sumBaoCaoVanDonHistogramValues(row.trang_thai_giao_hang);
+      totalDonThanhToan += sumBaoCaoVanDonHistogramValues(row.trang_thai_thanh_toan);
+      totalTienThanhToan += sumBaoCaoVanDonHistogramValues(row.tien_trang_thai_thanh_toan);
+    }
+
+    return {
+      totalRows,
+      totalDonKetQuaCheck,
+      totalDonGiaoHangNb,
+      totalDonThanhToan,
+      totalTienThanhToan,
+    };
+  }, [data]);
+
+  const marketOptions = useMemo(() => {
+    return [...new Set(baseData.map((r) => r?.thi_truong).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [baseData]);
+
+  const productOptions = useMemo(() => {
+    return [...new Set(baseData.map((r) => r?.san_pham).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [baseData]);
+
+  const nhanVienVanDonOptions = useMemo(() => {
+    return [...new Set(baseData.map((r) => r?.nhan_vien).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [baseData]);
+
+  const histogramKeyOptions = (histograms, getHist) => {
+    const set = new Set();
+    for (const row of histograms) {
+      const o = parseBaoCaoVanDonHistogram(getHist(row));
+      for (const [k, raw] of Object.entries(o)) {
+        if (k && Number(raw) > 0) set.add(k);
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'vi'));
+  };
+
+  const ketQuaCheckOptions = useMemo(
+    () => histogramKeyOptions(baseData, (r) => r.ket_qua_check),
+    [baseData]
+  );
+  const trangThaiGiaoHangNbOptions = useMemo(
+    () => histogramKeyOptions(baseData, (r) => r.trang_thai_giao_hang),
+    [baseData]
+  );
+  const trangThaiThanhToanOptions = useMemo(
+    () => histogramKeyOptions(baseData, (r) => r.trang_thai_thanh_toan),
+    [baseData]
+  );
 
   const tableColumns = useTableColumns(data);
 
@@ -220,7 +321,7 @@ export default function DanhSachBaoCaoVanDon() {
           { autoClose: 25000 }
         );
       }
-      await loadData();
+      await loadBaseData();
     } catch (error) {
       console.error('sync bao_cao_van_don error:', error);
       toast.dismiss();
@@ -236,7 +337,7 @@ export default function DanhSachBaoCaoVanDon() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-none w-full mx-auto">
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-4">
             <div>
@@ -260,15 +361,112 @@ export default function DanhSachBaoCaoVanDon() {
             <div className="flex flex-wrap items-center gap-4">
               <label className="flex items-center gap-2 text-gray-700 font-medium">
                 <Calendar className="w-5 h-5" />
-                Lọc theo ngày:
+                Từ ngày:
               </label>
               <input
                 type="date"
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <label className="flex items-center gap-2 text-gray-700 font-medium ml-2">
+                <Calendar className="w-5 h-5" />
+                Đến ngày:
+              </label>
+              <input
+                type="date"
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="min-w-[220px]">
+                <MultiSelect
+                  label="Thị trường"
+                  placeholder="Tất cả"
+                  options={marketOptions}
+                  selected={filterMarkets}
+                  onChange={setFilterMarkets}
+                  mainFilter
+                />
+              </div>
+              <div className="min-w-[220px]">
+                <MultiSelect
+                  label="Sản phẩm"
+                  placeholder="Tất cả"
+                  options={productOptions}
+                  selected={filterProducts}
+                  onChange={setFilterProducts}
+                  mainFilter
+                />
+              </div>
+              <div className="min-w-[220px]">
+                <MultiSelect
+                  label="Kết quả check"
+                  placeholder="Tất cả"
+                  options={ketQuaCheckOptions}
+                  selected={filterKetQuaCheck}
+                  onChange={setFilterKetQuaCheck}
+                  mainFilter
+                />
+              </div>
+              <div className="min-w-[220px]">
+                <MultiSelect
+                  label="Trạng thái giao hàng NB"
+                  placeholder="Tất cả"
+                  options={trangThaiGiaoHangNbOptions}
+                  selected={filterTrangThaiGiaoHangNb}
+                  onChange={setFilterTrangThaiGiaoHangNb}
+                  mainFilter
+                />
+              </div>
+              <div className="min-w-[220px]">
+                <MultiSelect
+                  label="Trạng thái thanh toán"
+                  placeholder="Tất cả"
+                  options={trangThaiThanhToanOptions}
+                  selected={filterTrangThaiThanhToan}
+                  onChange={setFilterTrangThaiThanhToan}
+                  mainFilter
+                />
+              </div>
+              <div className="min-w-[220px]">
+                <MultiSelect
+                  label="Nhân viên vận đơn"
+                  placeholder="Tất cả"
+                  options={nhanVienVanDonOptions}
+                  selected={filterNhanVienVanDon}
+                  onChange={setFilterNhanVienVanDon}
+                  mainFilter
+                />
+              </div>
+            </div>
+
+            {!loading && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="text-sm font-semibold text-gray-800 mb-2">Bộ đếm theo bộ lọc</div>
+                <div className="flex flex-wrap gap-4 text-sm text-gray-700">
+                  <div>
+                    <span className="font-medium">Tổng bản ghi:</span> {counters.totalRows}
+                  </div>
+                  <div>
+                    <span className="font-medium">Tổng đơn (Kết quả check):</span> {counters.totalDonKetQuaCheck}
+                  </div>
+                  <div>
+                    <span className="font-medium">Tổng đơn (Giao hàng NB):</span> {counters.totalDonGiaoHangNb}
+                  </div>
+                  <div>
+                    <span className="font-medium">Tổng đơn (Thanh toán):</span> {counters.totalDonThanhToan}
+                  </div>
+                  <div>
+                    <span className="font-medium">Tổng tiền (từ tien_trang_thai_thanh_toan):</span>{' '}
+                    {Number(counters.totalTienThanhToan || 0).toLocaleString('vi-VN')}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {canRunSync && (
               <div className="rounded-lg border border-sky-100 bg-sky-50/80 p-4 space-y-3">
@@ -330,11 +528,11 @@ export default function DanhSachBaoCaoVanDon() {
             </div>
           ) : data.length === 0 ? (
             <div className="p-8 text-center text-gray-500">
-              <p>Không có dữ liệu cho ngày đã chọn</p>
+              <p>Không có dữ liệu cho bộ lọc đã chọn</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-max w-full divide-y divide-gray-200">
+            <div className="overflow-x-auto overflow-y-auto w-full h-[calc(100vh-320px)]">
+              <table className="min-w-max divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="sticky left-0 z-10 bg-gray-50 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
@@ -393,13 +591,7 @@ export default function DanhSachBaoCaoVanDon() {
             </div>
           )}
 
-          {!loading && data.length > 0 && (
-            <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
-              <p className="text-sm text-gray-600">
-                Tổng số bản ghi: <span className="font-semibold">{data.length}</span>
-              </p>
-            </div>
-          )}
+          {/* bộ đếm đã nằm trong khối filter phía trên */}
         </div>
       </div>
     </div>

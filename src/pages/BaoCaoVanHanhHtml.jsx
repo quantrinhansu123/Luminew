@@ -275,9 +275,18 @@ export default function BaoCaoVanHanhHtml() {
         [rawData]
     );
     const uniqueStaff = useMemo(() => {
+        // Admin cần “tất cả NV” nên danh sách NV cho dropdown lấy từ dữ liệu (rawData),
+        // tránh bị giới hạn bởi selectedPersonnelNames/RBAC.
+        if (isAdmin) {
+            const fromData = [...new Set(rawData.map((r) => r['NV Vận đơn']).filter(Boolean))].sort();
+            if (fromData.length) return fromData;
+            // Trước khi load data mà rawData rỗng: fallback để dropdown không bị rỗng.
+            if (selectedPersonnelNames?.length) return [...new Set(selectedPersonnelNames)].sort();
+            return [];
+        }
         if (selectedPersonnelNames?.length) return [...new Set(selectedPersonnelNames)].sort();
         return [...new Set(rawData.map((r) => r['NV Vận đơn']).filter(Boolean))].sort();
-    }, [rawData, selectedPersonnelNames]);
+    }, [rawData, selectedPersonnelNames, isAdmin]);
 
     const matrix = useMemo(() => buildBaoCaoVanHanhMatrix(rawData), [rawData]);
     const pushMatrix = useMemo(
@@ -290,13 +299,19 @@ export default function BaoCaoVanHanhHtml() {
     );
 
     const { bcvhLines, bcvhTotal } = useMemo(() => {
-        const lines = bcvhCriteriaRows.map((row) => ({
+        // "TỔNG" phải theo đúng các dòng tiêu chí đang hiển thị trong tab 2.
+        // Hiện tại bcvhTotal đang cộng rawData (bỏ qua product/market/start-end của từng dòng),
+        // nên khi user sửa các dòng tiêu chí mà không bấm "Tìm", hàng "TỔNG" sẽ lệch.
+        const slicesByRow = bcvhCriteriaRows.map((row) => filterSliceForCriteriaRow(rawData, row));
+        const lines = bcvhCriteriaRows.map((row, idx) => ({
             ...row,
-            metrics: aggregateOperationalReportSlice(filterSliceForCriteriaRow(rawData, row))
+            metrics: aggregateOperationalReportSlice(slicesByRow[idx])
         }));
         return {
             bcvhLines: lines,
-            bcvhTotal: aggregateOperationalReportSlice(rawData)
+            // Nếu nhiều dòng tiêu chí chồng lấn, phép cộng theo slice sẽ tự double-count,
+            // tương tự cách Excel "tổng các hàng" (mỗi hàng là một breakdown riêng).
+            bcvhTotal: aggregateOperationalReportSlice(slicesByRow.flat())
         };
     }, [rawData, bcvhCriteriaRows]);
 
@@ -387,22 +402,58 @@ export default function BaoCaoVanHanhHtml() {
                 const ms = new Set(reportFilters.market);
                 rows = rows.filter((r) => ms.has(r['khu vực']));
             }
+            const afterProductMarketCount = rows.length;
+            let staffFilterReducedToZero = false;
             const staffAllow = (() => {
+                // Admin: mặc định lấy toàn bộ NV (không lọc theo selectedPersonnelNames/RBAC).
+                // Chỉ lọc khi người dùng chọn cụ thể trong dropdown (reportFilters.staff).
                 if (isAdmin) {
-                    const parts = [];
-                    if (selectedPersonnelNames?.length) parts.push(...selectedPersonnelNames);
-                    if (reportFilters.staff?.length) parts.push(...reportFilters.staff);
-                    const u = [...new Set(parts)];
-                    return u.length ? new Set(u) : null;
+                    return reportFilters.staff?.length ? new Set(reportFilters.staff) : null;
                 }
+                // Non-admin: vẫn giới hạn theo RBAC.
                 if (selectedPersonnelNames?.length) return new Set(selectedPersonnelNames);
                 return null;
             })();
+
+            const normalizeForNameMatch = (s) =>
+                String(s ?? '')
+                    .normalize('NFC')
+                    .trim()
+                    .replace(/\s+/g, ' ')
+                    .toLowerCase()
+                    // Remove accents for better matching (e.g. "Nguyễn" vs "Nguyen")
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '');
+
             if (staffAllow) {
-                rows = rows.filter((r) => staffAllow.has(r['NV Vận đơn']));
+                const allowedNames = Array.from(staffAllow)
+                    .map(normalizeForNameMatch)
+                    .filter(Boolean);
+
+                rows = rows.filter((r) => {
+                    const rowStaff = String(r?.['NV Vận đơn'] ?? '').trim();
+                    // If a row is not assigned any NV Vận đơn, don't hide it for everyone.
+                    if (!rowStaff) return true;
+
+                    const nRow = normalizeForNameMatch(rowStaff);
+                    return allowedNames.some((nAllowed) => {
+                        if (!nAllowed || !nRow) return false;
+                        if (nAllowed === nRow) return true;
+                        // Allow substring match to handle minor formatting differences.
+                        return nAllowed.length >= 4 && nRow.length >= 4 && (nAllowed.includes(nRow) || nRow.includes(nAllowed));
+                    });
+                });
+
+                if (rows.length === 0 && afterProductMarketCount > 0) {
+                    staffFilterReducedToZero = true;
+                }
             }
             if (rows.length === 0) {
-                setError('Không có dòng bao_cao_van_don phù hợp bộ lọc.');
+                setError(
+                    staffFilterReducedToZero
+                        ? 'Không có dòng bao_cao_van_don phù hợp bộ lọc (lọc NV Vận đơn theo quyền không khớp).'
+                        : 'Không có dòng bao_cao_van_don phù hợp bộ lọc.'
+                );
             } else {
                 setError(null);
             }
@@ -475,156 +526,158 @@ export default function BaoCaoVanHanhHtml() {
                 </div>
             )}
 
-            <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
-                <label className="text-xs text-gray-700">
-                    Chọn nhanh
-                    <select
-                        className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs"
-                        value={reportFilters.dateRange}
-                        onChange={(e) => setReportFilters((p) => ({ ...p, dateRange: e.target.value }))}
-                    >
-                        <option value="">— Tùy chọn —</option>
-                        <option value="last10Days">10 ngày gần nhất</option>
-                        <option value="last3Days">3 ngày gần nhất</option>
-                        <option value="thisWeek">Tuần này</option>
-                        <option value="lastWeek">Tuần trước</option>
-                        <option value="thisMonth">Tháng này</option>
-                    </select>
-                </label>
-                <label className="text-xs text-gray-700">
-                    Từ
-                    <input
-                        type="date"
-                        className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs"
-                        value={reportFilters.startDate}
-                        onChange={(e) => setReportFilters((p) => ({ ...p, startDate: e.target.value, dateRange: '' }))}
-                    />
-                </label>
-                <label className="text-xs text-gray-700">
-                    Đến
-                    <input
-                        type="date"
-                        className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs"
-                        value={reportFilters.endDate}
-                        onChange={(e) => setReportFilters((p) => ({ ...p, endDate: e.target.value, dateRange: '' }))}
-                    />
-                </label>
-                {isAdmin && (
-                    <div className="relative">
-                        <button
-                            ref={staffButtonRef}
-                            type="button"
-                            className="rounded border border-gray-400 bg-white px-3 py-1 text-xs hover:bg-gray-50"
-                            onClick={() => setShowStaffDropdown(!showStaffDropdown)}
+            {activeTab !== 'tab2' && (
+                <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
+                    <label className="text-xs text-gray-700">
+                        Chọn nhanh
+                        <select
+                            className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs"
+                            value={reportFilters.dateRange}
+                            onChange={(e) => setReportFilters((p) => ({ ...p, dateRange: e.target.value }))}
                         >
-                            {reportFilters.staff.length > 0 ? `${reportFilters.staff.length} NV` : 'NV Vận đơn'}
-                        </button>
-                        {showStaffDropdown &&
-                            createPortal(
-                                <div
-                                    ref={staffDropdownRef}
-                                    className="fixed z-[10000] max-h-72 min-w-[200px] overflow-y-auto rounded border border-gray-300 bg-white shadow-lg"
-                                    style={{
-                                        top: staffDropdownPosition.top,
-                                        left: staffDropdownPosition.left,
-                                        width: staffDropdownPosition.width
-                                    }}
-                                >
-                                    <button
-                                        type="button"
-                                        className="block w-full border-b px-3 py-2 text-left text-xs hover:bg-gray-50"
-                                        onClick={() => {
-                                            if (reportFilters.staff.length === uniqueStaff.length) {
-                                                setReportFilters((p) => ({ ...p, staff: [] }));
-                                            } else {
-                                                setReportFilters((p) => ({ ...p, staff: [...uniqueStaff] }));
-                                            }
+                            <option value="">— Tùy chọn —</option>
+                            <option value="last10Days">10 ngày gần nhất</option>
+                            <option value="last3Days">3 ngày gần nhất</option>
+                            <option value="thisWeek">Tuần này</option>
+                            <option value="lastWeek">Tuần trước</option>
+                            <option value="thisMonth">Tháng này</option>
+                        </select>
+                    </label>
+                    <label className="text-xs text-gray-700">
+                        Từ
+                        <input
+                            type="date"
+                            className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs"
+                            value={reportFilters.startDate}
+                            onChange={(e) => setReportFilters((p) => ({ ...p, startDate: e.target.value, dateRange: '' }))}
+                        />
+                    </label>
+                    <label className="text-xs text-gray-700">
+                        Đến
+                        <input
+                            type="date"
+                            className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs"
+                            value={reportFilters.endDate}
+                            onChange={(e) => setReportFilters((p) => ({ ...p, endDate: e.target.value, dateRange: '' }))}
+                        />
+                    </label>
+                    {isAdmin && (
+                        <div className="relative">
+                            <button
+                                ref={staffButtonRef}
+                                type="button"
+                                className="rounded border border-gray-400 bg-white px-3 py-1 text-xs hover:bg-gray-50"
+                                onClick={() => setShowStaffDropdown(!showStaffDropdown)}
+                            >
+                                {reportFilters.staff.length > 0 ? `${reportFilters.staff.length} NV` : 'NV Vận đơn'}
+                            </button>
+                            {showStaffDropdown &&
+                                createPortal(
+                                    <div
+                                        ref={staffDropdownRef}
+                                        className="fixed z-[10000] max-h-72 min-w-[200px] overflow-y-auto rounded border border-gray-300 bg-white shadow-lg"
+                                        style={{
+                                            top: staffDropdownPosition.top,
+                                            left: staffDropdownPosition.left,
+                                            width: staffDropdownPosition.width
                                         }}
                                     >
-                                        Chọn tất cả
-                                    </button>
-                                    {uniqueStaff.map((s) => (
-                                        <label
-                                            key={s}
-                                            className="flex cursor-pointer items-center gap-2 border-b px-3 py-2 text-xs hover:bg-gray-50"
+                                        <button
+                                            type="button"
+                                            className="block w-full border-b px-3 py-2 text-left text-xs hover:bg-gray-50"
+                                            onClick={() => {
+                                                if (reportFilters.staff.length === uniqueStaff.length) {
+                                                    setReportFilters((p) => ({ ...p, staff: [] }));
+                                                } else {
+                                                    setReportFilters((p) => ({ ...p, staff: [...uniqueStaff] }));
+                                                }
+                                            }}
                                         >
-                                            <input
-                                                type="checkbox"
-                                                checked={reportFilters.staff.includes(s)}
-                                                onChange={(e) => {
-                                                    const on = e.target.checked;
-                                                    setReportFilters((p) => ({
-                                                        ...p,
-                                                        staff: on ? [...p.staff, s] : p.staff.filter((x) => x !== s)
-                                                    }));
-                                                }}
-                                            />
-                                            {s}
-                                        </label>
-                                    ))}
-                                </div>,
-                                document.body
-                            )}
+                                            Chọn tất cả
+                                        </button>
+                                        {uniqueStaff.map((s) => (
+                                            <label
+                                                key={s}
+                                                className="flex cursor-pointer items-center gap-2 border-b px-3 py-2 text-xs hover:bg-gray-50"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={reportFilters.staff.includes(s)}
+                                                    onChange={(e) => {
+                                                        const on = e.target.checked;
+                                                        setReportFilters((p) => ({
+                                                            ...p,
+                                                            staff: on ? [...p.staff, s] : p.staff.filter((x) => x !== s)
+                                                        }));
+                                                    }}
+                                                />
+                                                {s}
+                                            </label>
+                                        ))}
+                                    </div>,
+                                    document.body
+                                )}
+                        </div>
+                    )}
+                    <div className="min-w-[140px]">
+                        <MultiSelect
+                            label="Mặt hàng"
+                            options={uniqueProducts}
+                            selected={reportFilters.product}
+                            onChange={(sel) => setReportFilters((p) => ({ ...p, product: sel }))}
+                            placeholder="Mặt hàng"
+                            mainFilter
+                        />
                     </div>
-                )}
-                <div className="min-w-[140px]">
-                    <MultiSelect
-                        label="Mặt hàng"
-                        options={uniqueProducts}
-                        selected={reportFilters.product}
-                        onChange={(sel) => setReportFilters((p) => ({ ...p, product: sel }))}
-                        placeholder="Mặt hàng"
-                        mainFilter
-                    />
+                    <div className="min-w-[140px]">
+                        <MultiSelect
+                            label="Khu vực"
+                            options={uniqueMarkets}
+                            selected={reportFilters.market}
+                            onChange={(sel) => setReportFilters((p) => ({ ...p, market: sel }))}
+                            placeholder="Khu vực"
+                            mainFilter
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        disabled={loading}
+                        className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
+                        onClick={async () => {
+                            await fetchData({ expandBcvh: activeTab === 'tab2' });
+                            const p = new URLSearchParams(searchParams);
+                            p.set('from_date', reportFilters.startDate);
+                            p.set('to_date', reportFilters.endDate);
+                            p.set('tab', activeTab);
+                            setSearchParams(p, { replace: true });
+                        }}
+                    >
+                        {loading ? 'Đang tải…' : '🔍 Tìm'}
+                    </button>
+                    <button
+                        type="button"
+                        className="rounded border border-gray-400 px-3 py-1.5 text-xs"
+                        onClick={() => {
+                            setReportFilters({
+                                dateRange: '',
+                                startDate: '',
+                                endDate: '',
+                                product: [],
+                                market: [],
+                                staff: []
+                            });
+                            setRawData([]);
+                            setError(null);
+                            const p = new URLSearchParams(searchParams);
+                            p.delete('from_date');
+                            p.delete('to_date');
+                            setSearchParams(p, { replace: true });
+                        }}
+                    >
+                        Xóa lọc
+                    </button>
                 </div>
-                <div className="min-w-[140px]">
-                    <MultiSelect
-                        label="Khu vực"
-                        options={uniqueMarkets}
-                        selected={reportFilters.market}
-                        onChange={(sel) => setReportFilters((p) => ({ ...p, market: sel }))}
-                        placeholder="Khu vực"
-                        mainFilter
-                    />
-                </div>
-                <button
-                    type="button"
-                    disabled={loading}
-                    className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
-                    onClick={async () => {
-                        await fetchData({ expandBcvh: activeTab === 'tab2' });
-                        const p = new URLSearchParams(searchParams);
-                        p.set('from_date', reportFilters.startDate);
-                        p.set('to_date', reportFilters.endDate);
-                        p.set('tab', activeTab);
-                        setSearchParams(p, { replace: true });
-                    }}
-                >
-                    {loading ? 'Đang tải…' : '🔍 Tìm'}
-                </button>
-                <button
-                    type="button"
-                    className="rounded border border-gray-400 px-3 py-1.5 text-xs"
-                    onClick={() => {
-                        setReportFilters({
-                            dateRange: '',
-                            startDate: '',
-                            endDate: '',
-                            product: [],
-                            market: [],
-                            staff: []
-                        });
-                        setRawData([]);
-                        setError(null);
-                        const p = new URLSearchParams(searchParams);
-                        p.delete('from_date');
-                        p.delete('to_date');
-                        setSearchParams(p, { replace: true });
-                    }}
-                >
-                    Xóa lọc
-                </button>
-            </div>
+            )}
 
             <div className="mb-0 flex w-full flex-wrap gap-0 border-b-2 border-[#FFA500]">
                 {[
@@ -722,27 +775,34 @@ export default function BaoCaoVanHanhHtml() {
 
             {/* Tab 2 — BC Vận Hành (layout mẫu Excel) */}
             {activeTab === 'tab2' && (
-                <div className="bcvh-wrap rounded-b-md rounded-tr-md bg-white p-3 shadow-lg">
+                <div className="bcvh-wrap rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
                     <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                        <p className="max-w-3xl text-xs text-gray-600">
-                            Nguồn <strong>bao_cao_van_don</strong>. Mỗi dòng: chọn <strong>Ngày đầu / Ngày cuối</strong>,{' '}
-                            <strong>Sản phẩm</strong> và <strong>Thị trường</strong> (để trống = tất cả). Bấm{' '}
-                            <strong>Tìm</strong> để tải dữ liệu trùng khoảng ngày của thanh lọc và mọi dòng; ở tab này, nếu{' '}
-                            <strong>Sản phẩm</strong> hoặc <strong>Thị trường</strong> đang trống thì hệ thống tự tách thành
-                            các dòng theo mặt hàng / thị trường có trong khoảng ngày của dòng đó. Cột{' '}
-                            <strong>Thành tiền</strong> (có bill) = tổng VNĐ sau khi <strong>đồng bộ báo cáo vận đơn</strong>.
-                        </p>
+                        <button
+                            type="button"
+                            disabled={loading}
+                            className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
+                            onClick={async () => {
+                                await fetchData({ expandBcvh: true });
+                                const p = new URLSearchParams(searchParams);
+                                p.set('from_date', reportFilters.startDate);
+                                p.set('to_date', reportFilters.endDate);
+                                p.set('tab', activeTab);
+                                setSearchParams(p, { replace: true });
+                            }}
+                        >
+                            {loading ? 'Đang tải…' : '🔍 Tìm'}
+                        </button>
                         <button
                             type="button"
                             onClick={addBcvhRow}
-                            className="shrink-0 rounded border border-gray-400 bg-white px-3 py-1 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                            className="shrink-0 rounded border border-gray-400 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
                             title="Thêm dòng tiêu chí"
                         >
                             + Thêm dòng
                         </button>
                     </div>
                     {rawData.length === 0 && !loading && (
-                        <p className="mb-2 text-xs text-amber-800">
+                        <p className="mb-2 text-sm text-amber-800">
                             Chưa có dữ liệu đã tải — chọn khoảng ngày trên thanh lọc và bấm <strong>Tìm</strong> (hệ
                             thống lấy min–max ngày của thanh lọc và từng dòng bên dưới).
                         </p>
@@ -759,16 +819,28 @@ export default function BaoCaoVanHanhHtml() {
                                     </th>
                                 </tr>
                                 <tr>
-                                    <th rowSpan={2} className="bcvh-h-info whitespace-nowrap">
+                                    <th
+                                        rowSpan={2}
+                                        className="bcvh-h-info whitespace-nowrap bcvh-sticky bcvh-sticky-th bcvh-sticky-col-1 bcvh-col-1"
+                                    >
                                         Ngày đầu
                                     </th>
-                                    <th rowSpan={2} className="bcvh-h-info whitespace-nowrap">
+                                    <th
+                                        rowSpan={2}
+                                        className="bcvh-h-info whitespace-nowrap bcvh-sticky bcvh-sticky-th bcvh-sticky-col-2 bcvh-col-2"
+                                    >
                                         Ngày cuối
                                     </th>
-                                    <th rowSpan={2} className="bcvh-h-info">
+                                    <th
+                                        rowSpan={2}
+                                        className="bcvh-h-info bcvh-sticky bcvh-sticky-th bcvh-sticky-col-3 bcvh-col-3"
+                                    >
                                         Sản phẩm
                                     </th>
-                                    <th rowSpan={2} className="bcvh-h-info">
+                                    <th
+                                        rowSpan={2}
+                                        className="bcvh-h-info bcvh-sticky bcvh-sticky-th bcvh-sticky-col-4 bcvh-col-4"
+                                    >
                                         Thị Trường
                                     </th>
                                     <th colSpan={2} className="bcvh-h-cyan">
@@ -857,7 +929,9 @@ export default function BaoCaoVanHanhHtml() {
                             <tbody>
                                 {bcvhLines.map((line) => (
                                     <tr key={line.id}>
-                                        <td className="bcvh-cell bcvh-cell-left whitespace-nowrap">
+                                        <td
+                                            className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-sticky bcvh-sticky-td bcvh-sticky-col-1 bcvh-col-1"
+                                        >
                                             <input
                                                 type="date"
                                                 className="bcvh-cell-input"
@@ -867,7 +941,9 @@ export default function BaoCaoVanHanhHtml() {
                                                 }
                                             />
                                         </td>
-                                        <td className="bcvh-cell bcvh-cell-left whitespace-nowrap">
+                                        <td
+                                            className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-sticky bcvh-sticky-td bcvh-sticky-col-2 bcvh-col-2"
+                                        >
                                             <input
                                                 type="date"
                                                 className="bcvh-cell-input"
@@ -877,7 +953,9 @@ export default function BaoCaoVanHanhHtml() {
                                                 }
                                             />
                                         </td>
-                                        <td className="bcvh-cell bcvh-cell-left">
+                                        <td
+                                            className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-sticky bcvh-sticky-td bcvh-sticky-col-3 bcvh-col-3"
+                                        >
                                             <select
                                                 className="bcvh-cell-select"
                                                 value={line.product}
@@ -893,7 +971,9 @@ export default function BaoCaoVanHanhHtml() {
                                                 ))}
                                             </select>
                                         </td>
-                                        <td className="bcvh-cell bcvh-cell-left">
+                                        <td
+                                            className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-sticky bcvh-sticky-td bcvh-sticky-col-4 bcvh-col-4"
+                                        >
                                             <div className="flex items-center gap-1">
                                                 <select
                                                     className="bcvh-cell-select min-w-[100px] flex-1"
@@ -928,7 +1008,7 @@ export default function BaoCaoVanHanhHtml() {
                                     <tr className="bcvh-total-row">
                                         <td
                                             colSpan={4}
-                                            className="bcvh-cell bcvh-cell-left font-bold uppercase"
+                                            className="bcvh-cell bcvh-cell-left font-bold uppercase bcvh-sticky bcvh-sticky-th bcvh-sticky-span-4"
                                         >
                                             TỔNG
                                         </td>

@@ -1,81 +1,156 @@
 /* Báo cáo vận hành — tab BC Vận Hành (mẫu Excel) */
 .bcvh-wrap {
     font-family: Arial, Helvetica, sans-serif;
+    font-size: 14px;
+}
+
+/* Sticky columns for tab2 (Excel-like) */
+.bcvh-sticky {
+    position: sticky;
+}
+
+.bcvh-sticky-col-1 {
+    left: 0;
+}
+
+.bcvh-sticky-col-2 {
+    left: var(--bcvh-col-1-width);
+}
+
+.bcvh-sticky-col-3 {
+    left: calc(var(--bcvh-col-1-width) + var(--bcvh-col-2-width));
+}
+
+.bcvh-sticky-col-4 {
+    left: calc(var(--bcvh-col-1-width) + var(--bcvh-col-2-width) + var(--bcvh-col-3-width));
+}
+
+.bcvh-sticky-th {
+    z-index: 6;
+}
+
+.bcvh-sticky-td {
+    z-index: 5;
+    background: #fff; /* avoid showing scrolled columns through */
+}
+
+.bcvh-sticky-span-4 {
+    left: 0;
+    z-index: 6;
+    position: sticky;
+    min-width: calc(
+        var(--bcvh-col-1-width) + var(--bcvh-col-2-width) + var(--bcvh-col-3-width) + var(--bcvh-col-4-width)
+    );
+}
+
+.bcvh-col-1 {
+    width: var(--bcvh-col-1-width);
+    min-width: var(--bcvh-col-1-width);
+}
+
+.bcvh-col-2 {
+    width: var(--bcvh-col-2-width);
+    min-width: var(--bcvh-col-2-width);
+}
+
+.bcvh-col-3 {
+    width: var(--bcvh-col-3-width);
+    min-width: var(--bcvh-col-3-width);
+}
+
+.bcvh-col-4 {
+    width: var(--bcvh-col-4-width);
+    min-width: var(--bcvh-col-4-width);
+}
+
+/* Default sticky widths (can be tuned) */
+.bcvh-wrap {
+    --bcvh-col-1-width: 170px; /* Ngày đầu */
+    --bcvh-col-2-width: 170px; /* Ngày cuối */
+    --bcvh-col-3-width: 220px; /* Sản phẩm */
+    --bcvh-col-4-width: 200px; /* Thị trường */
 }
 
 .bcvh-title-row th {
-    background: #4472c4;
-    color: #fff;
+    background: #ED7D31;
+    color: #000;
     font-weight: 700;
-    font-size: 14px;
-    padding: 8px 6px;
+    font-size: 18px;
+    padding: 10px 8px;
     text-align: center;
     border: 1px solid #000;
 }
 
 .bcvh-h-info {
-    background: #e2b48c;
-    font-weight: 600;
-    font-size: 10px;
+    background: #d18b3f;
+    color: #000;
+    font-weight: 700;
+    font-size: 12px;
     vertical-align: middle;
     border: 1px solid #000;
-    padding: 4px 6px;
+    padding: 6px 8px;
 }
 
 .bcvh-h-cyan {
-    background: #9fd9e8;
-    font-weight: 600;
-    font-size: 10px;
+    background: #4aa3b8;
+    color: #000;
+    font-weight: 700;
+    font-size: 12px;
     vertical-align: middle;
     border: 1px solid #000;
-    padding: 4px 4px;
-    line-height: 1.2;
+    padding: 6px 6px;
+    line-height: 1.25;
 }
 
 .bcvh-h-yellow {
-    background: #ffeb9c;
-    font-weight: 600;
-    font-size: 10px;
+    background: #FFC000;
+    color: #000;
+    font-weight: 700;
+    font-size: 12px;
     vertical-align: middle;
     border: 1px solid #000;
-    padding: 4px 4px;
-    line-height: 1.15;
+    padding: 6px 6px;
+    line-height: 1.2;
 }
 
 .bcvh-h-green {
-    background: #c6e0b4;
-    font-weight: 600;
-    font-size: 10px;
+    background: #93c47d;
+    color: #000;
+    font-weight: 700;
+    font-size: 12px;
     vertical-align: middle;
     border: 1px solid #000;
-    padding: 4px 3px;
-    line-height: 1.15;
+    padding: 6px 6px;
+    line-height: 1.2;
 }
 
 .bcvh-h-red {
-    background: #f8cbad;
-    font-weight: 600;
-    font-size: 10px;
+    background: #E06666;
+    color: #000;
+    font-weight: 700;
+    font-size: 12px;
     vertical-align: middle;
     border: 1px solid #000;
-    padding: 4px 3px;
-    line-height: 1.15;
+    padding: 6px 6px;
+    line-height: 1.2;
 }
 
 .bcvh-h-grey {
-    background: #d9d9d9;
-    font-weight: 600;
-    font-size: 10px;
+    background: #A5A5A5;
+    color: #000;
+    font-weight: 700;
+    font-size: 12px;
     vertical-align: middle;
     border: 1px solid #000;
-    padding: 4px 3px;
-    line-height: 1.1;
+    padding: 6px 6px;
+    line-height: 1.15;
 }
 
 .bcvh-cell {
     border: 1px solid #000;
-    padding: 4px 6px;
-    font-size: 11px;
+    padding: 6px 8px;
+    font-size: 14px;
+    font-weight: 700;
     text-align: right;
     vertical-align: middle;
 }
@@ -85,25 +160,28 @@
 }
 
 .bcvh-cell-input {
-    width: 118px;
+    width: 140px;
     max-width: 100%;
-    font-size: 10px;
-    padding: 2px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 6px;
     border: 1px solid #666;
-    border-radius: 2px;
+    border-radius: 3px;
 }
 
 .bcvh-cell-select {
     max-width: 160px;
-    font-size: 10px;
-    padding: 2px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 6px;
     border: 1px solid #666;
-    border-radius: 2px;
+    border-radius: 3px;
     background: #fff;
 }
 
 .bcvh-total-row .bcvh-cell {
-    background: #ffeb9c;
+    background: #FFC000;
+    color: #1a1a1a;
     font-weight: 700;
 }
 
@@ -116,21 +194,21 @@
 }
 
 .bcvh-pill-product {
-    background: #bdd7ee;
-    color: #1a1a1a;
+    background: #7DA6D6;
+    color: #000;
 }
 
 .bcvh-pill-market-us {
-    background: #f8cbad;
-    color: #1a1a1a;
+    background: #E06666;
+    color: #000;
 }
 
 .bcvh-pill-market-ca {
-    background: #e1d5e7;
-    color: #1a1a1a;
+    background: #B4A7D6;
+    color: #000;
 }
 
 .bcvh-pill-market-other {
-    background: #d6dce4;
-    color: #1a1a1a;
+    background: #9FB3C8;
+    color: #000;
 }

@@ -1049,12 +1049,17 @@ function FFM({ variant = 'MGT' }) {
         : '';
     if (shipFeeSearch) {
       data = data.filter((row) => {
-        const rawVal =
+        const rawNgay = API.normalizeNgayDoiSoatKeToanText(
           row['Ngày đối soát kế toán'] ||
-          row['Phí ship nội địa Mỹ (usd)'] ||
           row.luu_kho_usd ||
+          row.warehouse_fee ||
+          row.shipping_fee
+        );
+        const rawShip =
+          row['Phí ship nội địa Mỹ (usd)'] ||
           row['Phí_ship_nội_địa_Mỹ_(usd)'] ||
           '';
+        const rawVal = rawNgay || rawShip;
         return String(rawVal).trim().toLowerCase().includes(shipFeeSearch);
       });
     }

@@ -44,6 +44,28 @@ function canonicalPersonName(value) {
         .toLowerCase();
 }
 
+/**
+ * Dedupe key: cùng ngày + người + SP + TT + team — KHÔNG tính cột Ca (shift).
+ * Dùng chung với logic nút "Xóa bản ghi trùng" (giống trang CSKH).
+ */
+function reportBusinessDedupeKey(r) {
+    const d = r.date ? String(r.date).split('T')[0] : '';
+    const name = String(r.name ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+    const product = String(r.product ?? '').trim().toLowerCase();
+    const market = String(r.market ?? '').trim().toLowerCase();
+    const team = String(r.team ?? '').trim();
+    return `${d}|${name}|${product}|${market}|${team}`;
+}
+
+function isGiuaCaShift(shift) {
+    const s = String(shift ?? '').trim().toLowerCase();
+    const sn = s.normalize('NFD').replace(/\p{M}/gu, '');
+    return (s.includes('giữa') && s.includes('ca')) || (sn.includes('giua') && sn.includes('ca'));
+}
+
 /** Đổi tên hiển thị cột Người báo cáo (sales_reports.name) — nút tiện ích trên trang báo cáo tay Sale. */
 const RENAME_REPORTER_FROM_EMAIL = 'Congthien436@gmail.com';
 const RENAME_REPORTER_TO_NAME = 'Nguyễn Duy Đức';
@@ -128,6 +150,7 @@ export default function DanhSachBaoCaoTay() {
     const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
     const [teamSyncing, setTeamSyncing] = useState(false);
     const [renamingReporter, setRenamingReporter] = useState(false);
+    const [removingDuplicates, setRemovingDuplicates] = useState(false);
 
     // View Orders Modal
     const [showViewOrdersModal, setShowViewOrdersModal] = useState(false);
@@ -585,6 +608,84 @@ export default function DanhSachBaoCaoTay() {
             alert("Lỗi khi xóa dữ liệu: " + (error.message || String(error)));
         } finally {
             setDeleting(false);
+        }
+    };
+
+    /**
+     * Xóa trùng:
+     * - Xóa hết Ca = Giữa ca
+     * - Với các bản không phải Giữa ca: gộp trùng theo (date + name + product + market + team),
+     *   giữ bản mới nhất (created_at lớn nhất)
+     */
+    const handleRemoveDuplicateReports = async () => {
+        if (!reportsAfterPersonnelFilter.length) {
+            toast.error('Không có dữ liệu trong danh sách hiện tại.');
+            return;
+        }
+
+        const toDeleteSet = new Set();
+
+        // 1) Luôn xóa toàn bộ dòng Giữa ca
+        for (const r of reportsAfterPersonnelFilter) {
+            if (!r?.id) continue;
+            if (isGiuaCaShift(r.shift)) toDeleteSet.add(r.id);
+        }
+
+        // 2) Dedupe phần không phải Giữa ca
+        const nonGiua = reportsAfterPersonnelFilter.filter((r) => r?.id && !isGiuaCaShift(r.shift));
+        const byKey = new Map();
+        for (const r of nonGiua) {
+            const k = reportBusinessDedupeKey(r);
+            if (!byKey.has(k)) byKey.set(k, []);
+            byKey.get(k).push(r);
+        }
+
+        for (const [, rows] of byKey) {
+            if (rows.length < 2) continue;
+            const sorted = [...rows].sort((a, b) => {
+                const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+                const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+                // Sort desc created_at (giữ mới nhất)
+                if (tb !== ta) return tb - ta;
+                return String(b.id).localeCompare(String(a.id));
+            });
+            // Xóa trừ bản đầu tiên (mới nhất)
+            sorted.slice(1).forEach((r) => toDeleteSet.add(r.id));
+        }
+
+        const toDelete = [...toDeleteSet];
+        if (toDelete.length === 0) {
+            toast.info('Không có bản Giữa ca và không có cặp trùng trong các bản còn lại.');
+            return;
+        }
+
+        if (
+            !window.confirm(
+                `Sẽ xóa ${toDelete.length} bản ghi (trong ${reportsAfterPersonnelFilter.length} dòng hiện tại).\n\n` +
+                    '• Xóa toàn bộ dòng có Ca = Giữa ca.\n' +
+                    '• Trong phần không phải Giữa ca: gộp trùng (cùng ngày, người, SP, TT, team), giữ bản mới nhất.\n\n' +
+                    'Tiếp tục?'
+            )
+        ) {
+            return;
+        }
+
+        setRemovingDuplicates(true);
+        try {
+            const BATCH = 500;
+            for (let i = 0; i < toDelete.length; i += BATCH) {
+                const batch = toDelete.slice(i, i + BATCH);
+                const { error } = await supabase.from('sales_reports').delete().in('id', batch);
+                if (error) throw error;
+            }
+
+            toast.success(`Đã xóa ${toDelete.length} bản ghi (Giữa ca + trùng).`);
+            fetchData(); // Refresh after deleting duplicates
+        } catch (e) {
+            console.error('handleRemoveDuplicateReports:', e);
+            toast.error('Lỗi khi xóa trùng: ' + (e.message || String(e)));
+        } finally {
+            setRemovingDuplicates(false);
         }
     };
 
@@ -1766,43 +1867,45 @@ export default function DanhSachBaoCaoTay() {
                                 </>
                             )}
                         </div>
-                        <div style={{ display: 'none', gap: '10px', alignItems: 'center' }}>
-                            <button
-                                onClick={handleCalculateAndUpdateOrders}
-                                disabled={updatingOrders || loading || manualReports.length === 0}
-                                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                title="Tính và cập nhật số đơn cho tất cả báo cáo trong khoảng thời gian đã chọn"
-                            >
-                                {updatingOrders ? (
-                                    <>
-                                        <RefreshCw className="w-4 h-4 animate-spin" />
-                                        Đang tính... ({updateProgress.current}/{updateProgress.total})
-                                    </>
-                                ) : (
-                                    <>
-                                        <Calculator className="w-4 h-4" />
-                                        Tính số đơn
-                                    </>
-                                )}
-                            </button>
-                            {/* Chỉ Admin mới thấy nút xóa (không bao gồm Finance) */}
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                             {isAdminOnly && (
-                                <button
-                                    onClick={handleDeleteAll}
-                                    disabled={deleting || loading}
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                >
-                                    {deleting ? (
-                                        <>
-                                            <span className="animate-spin">⏳</span>
-                                            Đang xóa...
-                                        </>
-                                    ) : (
-                                        <>
-                                            🗑️ Xóa toàn bộ dữ liệu
-                                        </>
-                                    )}
-                                </button>
+                                <>
+                                    <button
+                                        onClick={handleCalculateAndUpdateOrders}
+                                        disabled={updatingOrders || loading || manualReports.length === 0}
+                                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                        title="Tính và cập nhật số đơn cho tất cả báo cáo trong khoảng thời gian đã chọn"
+                                    >
+                                        {updatingOrders ? (
+                                            <>
+                                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                                Đang tính... ({updateProgress.current}/{updateProgress.total})
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Calculator className="w-4 h-4" />
+                                                Tính số đơn (như Sale)
+                                            </>
+                                        )}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleRemoveDuplicateReports}
+                                        disabled={removingDuplicates || loading || updatingOrders || reportsAfterPersonnelFilter.length === 0}
+                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                        title="Xóa hết dòng Giữa ca; với phần còn lại gộp trùng (không tính Ca), giữ bản mới nhất"
+                                    >
+                                        {removingDuplicates ? (
+                                            <>
+                                                <span className="animate-spin">⏳</span>
+                                                Đang xóa trùng...
+                                            </>
+                                        ) : (
+                                            <>Xóa bản ghi trùng</>
+                                        )}
+                                    </button>
+                                </>
                             )}
                         </div>
                     </div>

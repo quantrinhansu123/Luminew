@@ -69,18 +69,16 @@ export const DB_TO_APP_MAPPING = {
  */
 export const normalizeNgayDoiSoatKeToanText = (v) => {
     if (v === undefined || v === null) return '';
-    if (typeof v === 'number') {
-        if (!Number.isFinite(v) || v === 0) return '';
-        return String(v);
-    }
     const s = String(v).trim();
     if (s === '') return '';
     if (s === '0' || s === '0.0' || s === '0,0') return '';
-    const asNum = Number(s.replace(',', '.'));
-    if (Number.isFinite(asNum) && asNum === 0 && /^-?(?:0+(?:[.,]0+)?)(?:[eE][+-]?\d+)?$/.test(s.replace(/\s/g, ''))) {
-        return '';
-    }
-    return s;
+    // Ngày đối soát luôn coi là text dạng date (không coi số tiền là ngày).
+    // - ISO: 2026-03-30...
+    // - VN: 02/04/2026... (có thể có time phía sau)
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(s)) return s;
+    if (/^\d{1,2}-\d{1,2}-\d{2,4}/.test(s)) return s;
+    return '';
 };
 
 const resolveAppKeyToDbKey = (appKey) => {
@@ -179,8 +177,20 @@ const mapSupabaseOrderToApp = (sOrder) => {
         appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
         appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd;
     }
-    const ns = normalizeNgayDoiSoatKeToanText(appOrder['Ngày đối soát kế toán']);
+    // Tạm thời để lại "cột cũ" để lấy dữ liệu:
+    // ưu tiên luu_kho_usd (đúng mapping mới), nhưng nếu trống/không phải dạng ngày
+    // thì fallback sang warehouse_fee (dữ liệu ngày cũ).
+    const nsFromLuu = normalizeNgayDoiSoatKeToanText(sOrder.luu_kho_usd);
+    const nsFromWh = nsFromLuu
+        ? ''
+        : normalizeNgayDoiSoatKeToanText(sOrder.warehouse_fee);
+    const nsFromShip = nsFromLuu || nsFromWh
+        ? ''
+        : normalizeNgayDoiSoatKeToanText(sOrder.shipping_fee);
+    const ns = nsFromLuu || nsFromWh || nsFromShip || normalizeNgayDoiSoatKeToanText(appOrder['Ngày đối soát kế toán']);
+
     appOrder['Ngày đối soát kế toán'] = ns;
+    // Đồng bộ key DB cho ô ngày (để filter/edit dùng luôn luu_kho_usd).
     appOrder.luu_kho_usd = ns;
     for (const k of ['shipping_unit', 'tracking_code', 'Đơn vị vận chuyển', 'Mã Tracking']) {
         const v = appOrder[k];

@@ -81,7 +81,7 @@ export const BC_VH_PAYMENT_COLUMNS = [
             /hoàn\s*hàng/i.test(String(k)) && !/phí\s*hoàn|phi hoan|thanh toán phí hoàn/i.test(String(k))
     },
     { id: 'khongNhan', label: 'Không nhận được hàng', test: (k) => /không nhận được hàng/i.test(String(k)) },
-    { id: 'khongPH', label: 'Không PH dưới AN', test: (k) => /không\s*ph|ph\s*dưới\s*an/i.test(String(k)) },
+    { id: 'khongPH', label: 'Không phản hồi dưới 3N', test: (k) => /không\s*ph|ph\s*dưới\s*an/i.test(String(k)) },
     { id: 'kphNhieuNgay', label: 'KPH nhiều ngày', test: (k) => /kph.*nhiều ngày|nhiều ngày/i.test(String(k)) },
     {
         id: 'phiHoan',
