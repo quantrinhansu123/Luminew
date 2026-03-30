@@ -62,6 +62,26 @@ export const DB_TO_APP_MAPPING = {
  * Khóa cột từ UI (nhãn tiếng Việt HOẶC snake_case từ COLUMN_MAPPING) → tên cột bảng orders.
  * Trước đây chỉ khớp nhãn Việt → các cột dùng colKey kiểu sale_staff bị bỏ qua khi batch save (dữ liệu không ghi / refetch lệch).
  */
+/**
+ * Cột DB `shipping_fee` map sang UI "Ngày đối soát kế toán" (text).
+ * Dữ liệu cũ có thể là numeric 0 → không hiển thị "0" thay cho trống.
+ */
+export const normalizeNgayDoiSoatKeToanText = (v) => {
+    if (v === undefined || v === null) return '';
+    if (typeof v === 'number') {
+        if (!Number.isFinite(v) || v === 0) return '';
+        return String(v);
+    }
+    const s = String(v).trim();
+    if (s === '') return '';
+    if (s === '0' || s === '0.0' || s === '0,0') return '';
+    const asNum = Number(s.replace(',', '.'));
+    if (Number.isFinite(asNum) && asNum === 0 && /^-?(?:0+(?:[.,]0+)?)(?:[eE][+-]?\d+)?$/.test(s.replace(/\s/g, ''))) {
+        return '';
+    }
+    return s;
+};
+
 const resolveAppKeyToDbKey = (appKey) => {
     if (appKey == null || appKey === '') return null;
     const nfc = String(appKey).normalize('NFC');
@@ -158,10 +178,10 @@ const mapSupabaseOrderToApp = (sOrder) => {
         appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
         appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd;
     }
-    // shipping_fee (Ngày đối soát kế toán): luôn chuỗi — khớp cột text trên DB và tránh format số ở grid
-    if (appOrder["Ngày đối soát kế toán"] !== undefined && appOrder["Ngày đối soát kế toán"] !== null) {
-        appOrder["Ngày đối soát kế toán"] = String(appOrder["Ngày đối soát kế toán"]);
-    }
+    // shipping_fee (Ngày đối soát kế toán): text; đồng bộ cả key DB để lọc/ô không còn số 0
+    const ns = normalizeNgayDoiSoatKeToanText(appOrder['Ngày đối soát kế toán']);
+    appOrder['Ngày đối soát kế toán'] = ns;
+    appOrder.shipping_fee = ns;
     for (const k of ['shipping_unit', 'tracking_code', 'Đơn vị vận chuyển', 'Mã Tracking']) {
         const v = appOrder[k];
         if (typeof v === 'string') appOrder[k] = v.trim();
@@ -356,6 +376,11 @@ const prepareValueForDB = (dbKey, value) => {
     // If value is explicitly an empty string, we want to save it as NULL in DB
     // to support clearing numeric/date/text fields correctly in PostgreSQL.
     if (value === '' || value === undefined) return null;
+
+    if (dbKey === 'shipping_fee') {
+        const s = normalizeNgayDoiSoatKeToanText(value);
+        return s === '' ? null : s;
+    }
 
     if (['order_date', 'created_at', 'estimated_delivery_date', 'accounting_check_date', 'ngayupbill', 'ngaydonghang', 'tracking_check_date'].includes(dbKey)) {
         return parseDateForDB(value);

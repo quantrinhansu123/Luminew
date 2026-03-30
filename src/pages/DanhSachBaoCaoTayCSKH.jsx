@@ -222,10 +222,14 @@ export default function DanhSachBaoCaoTayCSKH() {
         loadHrEmails();
     }, []);
 
-    // Load selected personnel names for current user
+    // Load selected personnel names for current user (CSKH nhân viên: giới hạn theo team; admin: xem toàn bộ, không áp scope)
     useEffect(() => {
         const loadSelectedPersonnel = async () => {
             try {
+                if (isAdmin) {
+                    setSelectedPersonnelNames([]);
+                    return;
+                }
                 if (!userEmail) {
                     setSelectedPersonnelNames([]);
                     return;
@@ -249,7 +253,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         };
 
         loadSelectedPersonnel();
-    }, [userEmail]);
+    }, [userEmail, isAdmin]);
 
     // Initialize Dates - Default to last 3 days (only if user hasn't changed filter)
     useEffect(() => {
@@ -279,20 +283,22 @@ export default function DanhSachBaoCaoTayCSKH() {
                 let marketsSet = new Set();
                 let personnelSet = new Set();
 
-                try {
-                    const { data: teamUsers, error: teamUsersErr } = await supabase
-                        .from('users')
-                        .select('name, username')
-                        .in('team', CSKH_FILTER_TEAMS);
-                    if (teamUsersErr) throw teamUsersErr;
-                    (teamUsers || []).forEach((u) => {
-                        const n = String(u.name || '').trim();
-                        const un = String(u.username || '').trim();
-                        if (n) personnelSet.add(n);
-                        else if (un) personnelSet.add(un);
-                    });
-                } catch (err) {
-                    console.error('Error loading CSKH-Lý personnel from users:', err);
+                if (!isAdmin) {
+                    try {
+                        const { data: teamUsers, error: teamUsersErr } = await supabase
+                            .from('users')
+                            .select('name, username')
+                            .in('team', CSKH_FILTER_TEAMS);
+                        if (teamUsersErr) throw teamUsersErr;
+                        (teamUsers || []).forEach((u) => {
+                            const n = String(u.name || '').trim();
+                            const un = String(u.username || '').trim();
+                            if (n) personnelSet.add(n);
+                            else if (un) personnelSet.add(un);
+                        });
+                    } catch (err) {
+                        console.error('Error loading CSKH-Lý personnel from users:', err);
+                    }
                 }
 
                 // Load products from system_settings
@@ -324,12 +330,15 @@ export default function DanhSachBaoCaoTayCSKH() {
                         const from = page * pageSize;
                         const to = Math.min(from + pageSize - 1, maxRecordsToLoad - 1);
 
-                        const { data, error } = await supabase
+                        let reportsQuery = supabase
                             .from('sales_reports')
-                            .select('product, market')
-                            .in('team', CSKH_FILTER_TEAMS)
+                            .select('product, market, name')
                             .order('created_at', { ascending: false })
                             .range(from, to);
+                        if (!isAdmin) {
+                            reportsQuery = reportsQuery.in('team', CSKH_FILTER_TEAMS);
+                        }
+                        const { data, error } = await reportsQuery;
 
                         if (error) throw error;
 
@@ -347,6 +356,12 @@ export default function DanhSachBaoCaoTayCSKH() {
 
                     productsFromReports.forEach(p => productsSet.add(p));
                     marketsFromReports.forEach(m => marketsSet.add(m));
+                    if (isAdmin) {
+                        allData.forEach((r) => {
+                            const nm = String(r.name || '').trim();
+                            if (nm) personnelSet.add(nm);
+                        });
+                    }
                 } catch (err) {
                     console.error('Error loading from sales_reports:', err);
                 }
@@ -364,7 +379,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         if (selectedPersonnelNames !== undefined) {
             loadAvailableOptions();
         }
-    }, [selectedPersonnelNames]);
+    }, [selectedPersonnelNames, isAdmin]);
 
     // Load options for edit form
     useEffect(() => {
@@ -378,20 +393,26 @@ export default function DanhSachBaoCaoTayCSKH() {
 
                 const products = productsData?.map(p => p.name) || [];
 
-                const { data: marketsData } = await supabase
+                let marketsQ = supabase
                     .from('sales_reports')
                     .select('market')
-                    .in('team', CSKH_FILTER_TEAMS)
                     .not('market', 'is', null)
                     .limit(1000);
+                if (!isAdmin) {
+                    marketsQ = marketsQ.in('team', CSKH_FILTER_TEAMS);
+                }
+                const { data: marketsData } = await marketsQ;
 
                 const markets = [...new Set(marketsData?.map(m => m.market).filter(Boolean))].sort();
 
-                const { data: branchesData } = await supabase
+                let branchesQ = supabase
                     .from('users')
                     .select('branch')
-                    .in('team', CSKH_FILTER_TEAMS)
                     .not('branch', 'is', null);
+                if (!isAdmin) {
+                    branchesQ = branchesQ.in('team', CSKH_FILTER_TEAMS);
+                }
+                const { data: branchesData } = await branchesQ;
 
                 const branches = [...new Set(branchesData?.map(b => b.branch).filter(Boolean))].sort();
 
@@ -407,7 +428,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         };
 
         loadEditOptions();
-    }, []);
+    }, [isAdmin]);
 
     // Fetch Data trực tiếp từ bảng sales_reports
     const fetchData = useCallback(async () => {
@@ -417,10 +438,12 @@ export default function DanhSachBaoCaoTayCSKH() {
             let query = supabase
                 .from('sales_reports')
                 .select('*')
-                .in('team', CSKH_FILTER_TEAMS)
                 .gte('date', filters.startDate)
                 .lte('date', filters.endDate)
                 .order('created_at', { ascending: false });
+            if (!isAdmin) {
+                query = query.in('team', CSKH_FILTER_TEAMS);
+            }
 
             // Helper function to normalize name (remove extra spaces)
             const normalizeNameForQuery = (str) => {
@@ -428,8 +451,8 @@ export default function DanhSachBaoCaoTayCSKH() {
                 return String(str).trim().replace(/\s+/g, ' ');
             };
 
-            // Filter theo selected_personnel nếu có
-            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+            // Filter theo selected_personnel (leader CSKH) — admin không bị giới hạn
+            if (!isAdmin && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                 const orConditions = selectedPersonnelNames
                     .filter(name => name && name.trim().length > 0)
                     .map(name => {
@@ -494,7 +517,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         } finally {
             setLoading(false);
         }
-    }, [filters.startDate, filters.endDate, filters.products, filters.markets, filters.personnel, selectedPersonnelNames, hrEmailMap]);
+    }, [filters.startDate, filters.endDate, filters.products, filters.markets, filters.personnel, selectedPersonnelNames, hrEmailMap, isAdmin]);
 
     useEffect(() => {
         if (filters.startDate && filters.endDate) {
@@ -1164,7 +1187,9 @@ export default function DanhSachBaoCaoTayCSKH() {
                         <div>
                             <h2 style={{ marginBottom: '4px' }}>DANH SÁCH BÁO CÁO TAY CSKH</h2>
                             <p className="text-sm text-gray-600 m-0">
-                                Chỉ dữ liệu <strong>sales_reports.team</strong>: {CSKH_TEAM_LABEL}.
+                                {isAdmin
+                                    ? <>Hiển thị toàn bộ <strong>sales_reports</strong> (mọi team) trong khoảng ngày và bộ lọc.</>
+                                    : <>Chỉ dữ liệu <strong>sales_reports.team</strong>: {CSKH_TEAM_LABEL}.</>}
                             </p>
                         </div>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>

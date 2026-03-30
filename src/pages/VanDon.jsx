@@ -1,10 +1,11 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TableVirtuoso } from 'react-virtuoso';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import MultiSelect from '../components/MultiSelect';
+import SyncPopover from '../components/SyncPopover';
 import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
 import * as rbacService from '../services/rbacService';
@@ -27,9 +28,19 @@ import {
 // Columns to always hide (both in table and column settings)
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 
-// Lazy load heavy components
-const SyncPopover = lazy(() => import('../components/SyncPopover'));
-
+/** Cột khách hàng & tiền — chỉ xem trên lưới VanDon, mọi tab (không sửa ô). */
+const VAN_DON_GRID_READ_ONLY_COLS = [
+  'Name*',
+  'Phone*',
+  'City',
+  'Khu vực',
+  'Mặt hàng',
+  'Số lượng mặt hàng 1',
+  'Số lượng mặt hàng 2',
+  'Loại tiền thanh toán',
+  'Tổng tiền VNĐ',
+  'Hình thức thanh toán',
+];
 
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
@@ -56,6 +67,15 @@ function colInList(col, list) {
   for (let i = 0; i < list.length; i++) {
     if (normalizeColHeader(list[i]) === n) return true;
   }
+  return false;
+}
+
+/** Nhãn UI hoặc khóa DB (snake_case) — khớp DB_TO_APP_MAPPING. */
+function isVanDonGridReadOnlyColumnKey(colOrKey) {
+  if (colOrKey == null || colOrKey === '') return false;
+  if (colInList(colOrKey, VAN_DON_GRID_READ_ONLY_COLS)) return true;
+  const appFromDb = API.DB_TO_APP_MAPPING[colOrKey];
+  if (appFromDb && colInList(appFromDb, VAN_DON_GRID_READ_ONLY_COLS)) return true;
   return false;
 }
 
@@ -108,6 +128,7 @@ function normalizeVanDonOrderIdKey(id) {
 
 /** Cột được sửa trực tiếp trên lưới vận đơn (Mã Tracking chỉ đọc; Cảnh báo trùng không nằm trong EDITABLE_COLS — mọi tab). */
 function isVanDonUserEditableColumn(col) {
+  if (isVanDonGridReadOnlyColumnKey(col)) return false;
   if (!colInList(col, EDITABLE_COLS)) return false;
   return normalizeColHeader(col) !== normalizeColHeader('Mã Tracking');
 }
@@ -2323,6 +2344,7 @@ function VanDon() {
     const keyLc = String(colKey || '').trim().toLowerCase();
     if (keyLc === 'tracking_code' || normalizeColHeader(colKey) === normalizeColHeader('Mã Tracking')) return;
     if (keyLc === 'canh_bao' || normalizeColHeader(colKey) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN)) return;
+    if (isVanDonGridReadOnlyColumnKey(colKey)) return;
     // Tab "Đơn nhắc hộ": một số cột chỉ xem
     if (bolActiveTab === 'all') {
       if (keyLc === 'đơn vị vận chuyển' || keyLc === 'shipping_unit') return;
@@ -3930,29 +3952,26 @@ function VanDon() {
           ))}
         </div>
 
-        {/* Sync Popover */}
-        <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>}>
-          <SyncPopover
-            isOpen={syncPopoverOpen}
-            onClose={() => setSyncPopoverOpen(false)}
-            pendingChanges={pendingChanges}
-            legacyChanges={new Map()}
-            onApply={handleUpdateAll}
-            applyButtonLabel="Xác nhận lưu"
-            onDiscard={() => {
-              if (!window.confirm('Hủy bỏ tất cả thay đổi chưa lưu?')) return;
-              dbQueueRef.current = [];
-              changeHistoryRef.current = [];
-              historyIndexRef.current = -1;
-              pendingRowSnapshotsRef.current.clear();
-              setPendingChanges(new Map());
-              localStorage.removeItem('speegoPendingChanges');
-              localStorage.removeItem('speegoPendingRowSnapshots');
-              setSyncPopoverOpen(false);
-              void refreshData({ skipUnsavedCheck: true });
-            }}
-          />
-        </Suspense>
+        <SyncPopover
+          isOpen={syncPopoverOpen}
+          onClose={() => setSyncPopoverOpen(false)}
+          pendingChanges={pendingChanges}
+          legacyChanges={new Map()}
+          onApply={handleUpdateAll}
+          applyButtonLabel="Xác nhận lưu"
+          onDiscard={() => {
+            if (!window.confirm('Hủy bỏ tất cả thay đổi chưa lưu?')) return;
+            dbQueueRef.current = [];
+            changeHistoryRef.current = [];
+            historyIndexRef.current = -1;
+            pendingRowSnapshotsRef.current.clear();
+            setPendingChanges(new Map());
+            localStorage.removeItem('speegoPendingChanges');
+            localStorage.removeItem('speegoPendingRowSnapshots');
+            setSyncPopoverOpen(false);
+            void refreshData({ skipUnsavedCheck: true });
+          }}
+        />
 
         {/* Quick Add Modal */}
 

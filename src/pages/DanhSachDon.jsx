@@ -296,6 +296,8 @@ function DanhSachDon() {
     'Phone*',
     'Khu vực',
     'Mặt hàng',
+    'Số lượng mặt hàng 1',
+    'Số lượng mặt hàng 2',
     'Loại tiền thanh toán',
     'Ca',
     'Mã Tracking',
@@ -470,6 +472,9 @@ function DanhSachDon() {
     "Mặt hàng": item.product,
     "Loại tiền thanh toán": item.payment_currency || item.paymentCurrency || '',
     "Tên mặt hàng 1": item.product_name_1 || item.product,
+    "Số lượng mặt hàng 1": item.quantity_1 ?? item.item_qty_1 ?? '',
+    "Tên mặt hàng 2": item.product_name_2 ?? item.item_name_2 ?? '',
+    "Số lượng mặt hàng 2": item.quantity_2 ?? item.item_qty_2 ?? '',
     "Tổng tiền VNĐ": item.total_amount_vnd,
     /** Dùng nội bộ: công thức lên đơn = sale_price * exchange_rate (không hiện trong picker nếu không thêm vào cột) */
     _sale_price: item.sale_price,

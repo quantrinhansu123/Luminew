@@ -2809,6 +2809,9 @@ function FFM({ variant = 'MGT' }) {
     }
     const pendingInfo = pendingChanges.get(orderId)?.get(key);
     if (pendingInfo) val = pendingInfo.newValue;
+    if (col === 'Ngày đối soát kế toán') {
+      val = API.normalizeNgayDoiSoatKeToanText(val);
+    }
     const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Thời gian giao dự kiến'].includes(col)
       ? formatDate(val)
       : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
