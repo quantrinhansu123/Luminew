@@ -3942,8 +3942,12 @@ const AdminTools = () => {
                 user_id: user.id // Để tương thích với auth_accounts structure
             }));
 
-            setAuthAccounts(accounts);
-            console.log(`✅ Đã tải ${accounts.length} tài khoản từ bảng users`);
+            // Hide system accounts from the user/account list UI
+            const visibleAccounts = accounts.filter((a) => a.role !== 'super_admin');
+            setAuthAccounts(visibleAccounts);
+            console.log(
+                `✅ Đã tải ${visibleAccounts.length} tài khoản (đã ẩn super_admin) từ bảng users`
+            );
         } catch (error) {
             console.error('Error loading users:', error);
             toast.error('Lỗi khi tải danh sách tài khoản: ' + error.message);
@@ -6474,6 +6478,7 @@ const AdminTools = () => {
                                                 <option value="user">User</option>
                                                 <option value="leader">Leader</option>
                                                 <option value="admin">Admin</option>
+                                                <option value="super_admin">Super admin</option>
                                             </select>
                                         </div>
 

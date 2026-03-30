@@ -245,10 +245,13 @@ function DanhSachDon() {
   const [checkResultFilterSearchText, setCheckResultFilterSearchText] = useState('');
   const [filterSaleStaff, setFilterSaleStaff] = useState([]);
   const [showSaleStaffFilter, setShowSaleStaffFilter] = useState(false);
+  const [saleStaffFilterSearchText, setSaleStaffFilterSearchText] = useState('');
   const [filterMktStaff, setFilterMktStaff] = useState([]);
   const [showMktStaffFilter, setShowMktStaffFilter] = useState(false);
+  const [mktStaffFilterSearchText, setMktStaffFilterSearchText] = useState('');
   const [filterDeliveryStaff, setFilterDeliveryStaff] = useState([]);
   const [showDeliveryStaffFilter, setShowDeliveryStaffFilter] = useState(false);
+  const [deliveryStaffFilterSearchText, setDeliveryStaffFilterSearchText] = useState('');
   // Mặc định 30 ngày (trước chỉ 3 ngày — dễ không thấy đơn cũ hơn)
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -272,6 +275,7 @@ function DanhSachDon() {
   const [isClearingShippingInfo, setIsClearingShippingInfo] = useState(false); // Xóa NV vận đơn theo bộ lọc
   const [isRecalculatingZeroTotalVnd, setIsRecalculatingZeroTotalVnd] = useState(false); // Tính lại Tổng tiền VNĐ (chỉ ô = 0)
   const [isApplyingCanhBaoTrung, setIsApplyingCanhBaoTrung] = useState(false); // Ghi canh_bao theo trùng khách (Ngày lên đơn + created_at)
+  const [isRenamingManhCuong, setIsRenamingManhCuong] = useState(false); // Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường"
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -1376,6 +1380,108 @@ function DanhSachDon() {
     }
   };
 
+  /**
+   * Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường" trên database (theo đúng bộ lọc hiện tại).
+   * Áp dụng đồng thời cho 3 cột nhân sự: sale_staff, marketing_staff, delivery_staff.
+   */
+  const handleRenameManhCuong = async () => {
+    if (isRenamingManhCuong) return;
+
+    const OLD_NAME = 'Mạnh Cường';
+    const NEW_NAME = 'Đỗ Mạnh Cường';
+
+    const normalize = (s) =>
+      String(s ?? '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '');
+
+    const oldN = normalize(OLD_NAME);
+    const rows = filteredData || [];
+    const updates = [];
+
+    for (const r of rows) {
+      const id = r?._id;
+      if (!id) continue;
+
+      const patch = {};
+
+      const saleVal = normalize(r?.['Nhân viên Sale']);
+      if (saleVal && saleVal === oldN) patch.sale_staff = NEW_NAME;
+
+      const mktVal = normalize(r?.['Nhân viên Marketing']);
+      if (mktVal && mktVal === oldN) patch.marketing_staff = NEW_NAME;
+
+      const deliveryVal = normalize(r?.['NV Vận đơn']);
+      if (deliveryVal && deliveryVal === oldN) patch.delivery_staff = NEW_NAME;
+
+      if (Object.keys(patch).length > 0) {
+        updates.push({ id, patch });
+      }
+    }
+
+    const uniqueUpdatedIds = [...new Set(updates.map((u) => u.id))];
+    if (uniqueUpdatedIds.length === 0) {
+      toast.info('Không có đơn nào chứa "Mạnh Cường" trong bộ lọc hiện tại.');
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường" cho ${uniqueUpdatedIds.length} đơn trong bộ lọc hiện tại.\n\nÁp dụng cho các cột: Nhân viên Sale, Nhân viên Marketing, NV Vận đơn.\n\nTiếp tục?`
+      )
+    ) {
+      return;
+    }
+
+    setIsRenamingManhCuong(true);
+    try {
+      let success = 0;
+      const chunkSize = 10;
+      for (let i = 0; i < uniqueUpdatedIds.length; i += chunkSize) {
+        const chunkIds = uniqueUpdatedIds.slice(i, i + chunkSize);
+        const patchById = new Map(updates.map((u) => [u.id, u.patch]));
+        await Promise.all(
+          chunkIds.map(async (id) => {
+            const payload = patchById.get(id);
+            if (!payload) return;
+            const { error } = await supabase.from('orders').update(payload).eq('id', id);
+            if (!error) success++;
+          })
+        );
+      }
+
+      // Sync local UI state
+      const patchById = new Map(updates.map((u) => [u.id, u.patch]));
+      setAllData((prev) =>
+        (prev || []).map((r) => {
+          const id = r?._id;
+          const patch = patchById.get(id);
+          if (!patch) return r;
+          return {
+            ...r,
+            ...(patch.sale_staff !== undefined ? { 'Nhân viên Sale': patch.sale_staff } : {}),
+            ...(patch.marketing_staff !== undefined ? { 'Nhân viên Marketing': patch.marketing_staff } : {}),
+            ...(patch.delivery_staff !== undefined ? { 'NV Vận đơn': patch.delivery_staff } : {}),
+          };
+        })
+      );
+
+      toast.success(`Đã đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường" cho ${success}/${uniqueUpdatedIds.length} đơn.`, {
+        autoClose: 2500,
+        hideProgressBar: true,
+      });
+    } catch (err) {
+      console.error('Rename Manh Cuong error:', err);
+      toast.error(`Lỗi đổi tên: ${err?.message || String(err)}`);
+    } finally {
+      setIsRenamingManhCuong(false);
+      loadData();
+    }
+  };
+
   /** Đổi Ca từ "Giữa ca" → "Giữa ca,Hết ca" trong cùng phạm vi team / nhân sự / ngày như Tải lại */
   const handleFixGiuaCaShift = async () => {
     if (
@@ -1944,7 +2050,8 @@ function DanhSachDon() {
 
   const filteredCheckResults = useMemo(() => {
     const kw = String(checkResultFilterSearchText || '').trim().toLowerCase();
-    if (!kw) return uniqueCheckResults;
+    // Chỉ hiển thị gợi ý khi người dùng đã nhập (tránh hiển thị toàn bộ option khi ô trống).
+    if (!kw) return [];
     return uniqueCheckResults.filter((v) => String(v || '').toLowerCase().includes(kw));
   }, [checkResultFilterSearchText, uniqueCheckResults]);
 
@@ -1957,6 +2064,12 @@ function DanhSachDon() {
     return Array.from(vals).sort();
   }, [allData]);
 
+  const filteredSaleStaff = useMemo(() => {
+    const kw = String(saleStaffFilterSearchText || '').trim().toLowerCase();
+    if (!kw) return uniqueSaleStaff;
+    return uniqueSaleStaff.filter((v) => String(v || '').toLowerCase().includes(kw));
+  }, [saleStaffFilterSearchText, uniqueSaleStaff]);
+
   const uniqueMktStaff = useMemo(() => {
     const vals = new Set();
     allData.forEach(row => {
@@ -1966,6 +2079,12 @@ function DanhSachDon() {
     return Array.from(vals).sort();
   }, [allData]);
 
+  const filteredMktStaff = useMemo(() => {
+    const kw = String(mktStaffFilterSearchText || '').trim().toLowerCase();
+    if (!kw) return uniqueMktStaff;
+    return uniqueMktStaff.filter((v) => String(v || '').toLowerCase().includes(kw));
+  }, [mktStaffFilterSearchText, uniqueMktStaff]);
+
   const uniqueDeliveryStaff = useMemo(() => {
     const vals = new Set(vanDonStaffMasterNames || []);
     allData.forEach((row) => {
@@ -1974,6 +2093,12 @@ function DanhSachDon() {
     });
     return Array.from(vals).sort((a, b) => a.localeCompare(b, 'vi'));
   }, [allData, vanDonStaffMasterNames]);
+
+  const filteredDeliveryStaff = useMemo(() => {
+    const kw = String(deliveryStaffFilterSearchText || '').trim().toLowerCase();
+    if (!kw) return uniqueDeliveryStaff;
+    return uniqueDeliveryStaff.filter((v) => String(v || '').toLowerCase().includes(kw));
+  }, [deliveryStaffFilterSearchText, uniqueDeliveryStaff]);
 
   /** Dropdown modal NV vận đơn: danh sách bộ phận Vận đơn + giá trị hiện tại nếu lệch. */
   const nvVanDonSelectOptions = useMemo(() => {
@@ -2476,7 +2601,8 @@ function DanhSachDon() {
                       isFixingShift ||
                       isFillingPaymentCurrency ||
                       isRecalculatingZeroTotalVnd ||
-                      isApplyingCanhBaoTrung
+                      isApplyingCanhBaoTrung ||
+                      isRenamingManhCuong
                     }
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
@@ -2493,6 +2619,34 @@ function DanhSachDon() {
                     )}
                   </button>
                   <button
+                    onClick={handleRenameManhCuong}
+                    disabled={
+                      syncing ||
+                      loading ||
+                      deleting ||
+                      isFixingTeams ||
+                      isFixingShift ||
+                      isFillingPaymentCurrency ||
+                      isRecalculatingZeroTotalVnd ||
+                      isApplyingCanhBaoTrung ||
+                      isRenamingManhCuong
+                    }
+                    className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                    title='Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường" theo bộ lọc hiện tại'
+                  >
+                    {isRenamingManhCuong ? (
+                      <>
+                        <span className="animate-spin">⏳</span>
+                        Đang đổi...
+                      </>
+                    ) : (
+                      <>
+                        <Pencil className="w-4 h-4" />
+                        Đổi Mạnh Cường
+                      </>
+                    )}
+                  </button>
+                  <button
                     onClick={handleFixGiuaCaShift}
                     disabled={
                       syncing ||
@@ -2502,7 +2656,8 @@ function DanhSachDon() {
                       isFixingShift ||
                       isFillingPaymentCurrency ||
                       isRecalculatingZeroTotalVnd ||
-                      isApplyingCanhBaoTrung
+                      isApplyingCanhBaoTrung ||
+                      isRenamingManhCuong
                     }
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
@@ -2898,7 +3053,16 @@ function DanhSachDon() {
                         <span className="text-xs font-semibold text-gray-700">Chọn NV Sale:</span>
                         <button type="button" onClick={() => { setFilterSaleStaff([]); setShowSaleStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
                       </div>
-                      {uniqueSaleStaff.map(name => (
+                      <div className="mb-2">
+                        <input
+                          type="text"
+                          value={saleStaffFilterSearchText}
+                          onChange={(e) => setSaleStaffFilterSearchText(e.target.value)}
+                          placeholder="Gõ để tìm nhanh..."
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                        />
+                      </div>
+                      {filteredSaleStaff.map(name => (
                         <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
                           <input
                             type="checkbox"
@@ -2946,7 +3110,16 @@ function DanhSachDon() {
                         <span className="text-xs font-semibold text-gray-700">Chọn NV MKT:</span>
                         <button type="button" onClick={() => { setFilterMktStaff([]); setShowMktStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
                       </div>
-                      {uniqueMktStaff.map(name => (
+                      <div className="mb-2">
+                        <input
+                          type="text"
+                          value={mktStaffFilterSearchText}
+                          onChange={(e) => setMktStaffFilterSearchText(e.target.value)}
+                          placeholder="Gõ để tìm nhanh..."
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                        />
+                      </div>
+                      {filteredMktStaff.map(name => (
                         <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
                           <input
                             type="checkbox"
@@ -2994,7 +3167,16 @@ function DanhSachDon() {
                         <span className="text-xs font-semibold text-gray-700">Chọn NV vận đơn:</span>
                         <button type="button" onClick={() => { setFilterDeliveryStaff([]); setShowDeliveryStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
                       </div>
-                      {uniqueDeliveryStaff.map(name => (
+                      <div className="mb-2">
+                        <input
+                          type="text"
+                          value={deliveryStaffFilterSearchText}
+                          onChange={(e) => setDeliveryStaffFilterSearchText(e.target.value)}
+                          placeholder="Gõ để tìm nhanh..."
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                        />
+                      </div>
+                      {filteredDeliveryStaff.map(name => (
                         <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
                           <input
                             type="checkbox"

@@ -39,6 +39,7 @@ export default function DanhSachPage() {
         page_link: ''
     });
     const [addingPage, setAddingPage] = useState(false);
+    const [renamingStaff, setRenamingStaff] = useState(false);
 
     // Edit Page Modal
     const [showEditModal, setShowEditModal] = useState(false);
@@ -403,6 +404,45 @@ export default function DanhSachPage() {
         setShowViewModal(true);
     };
 
+    const handleRenameManhCuongToDoManhCuong = async () => {
+        if (renamingStaff) return;
+        const ok = window.confirm(
+            'Đổi toàn bộ "Mạnh Cường" thành "Đỗ Mạnh Cường" trong cột Tên MKT (mkt_staff)?'
+        );
+        if (!ok) return;
+
+        setRenamingStaff(true);
+        try {
+            const candidates = (data || []).filter((row) => {
+                const name = String(row?.mkt_staff || '').trim();
+                return name.includes('Mạnh Cường') && !name.includes('Đỗ Mạnh Cường');
+            });
+
+            if (candidates.length === 0) {
+                toast.info('Không có dòng nào cần đổi tên.');
+                return;
+            }
+
+            for (const row of candidates) {
+                const currentName = String(row?.mkt_staff || '');
+                const nextName = currentName.replaceAll('Mạnh Cường', 'Đỗ Mạnh Cường');
+                const { error } = await supabase
+                    .from('marketing_pages')
+                    .update({ mkt_staff: nextName })
+                    .eq('id', row.id);
+                if (error) throw error;
+            }
+
+            toast.success(`Đã cập nhật ${candidates.length} dòng.`);
+            await loadData();
+        } catch (error) {
+            console.error('Error renaming Mạnh Cường -> Đỗ Mạnh Cường:', error);
+            toast.error('Lỗi khi đổi tên: ' + (error?.message || String(error)));
+        } finally {
+            setRenamingStaff(false);
+        }
+    };
+
     const handleOpenEditModal = (item) => {
         setEditingPage({ ...item });
         setShowEditModal(true);
@@ -500,6 +540,22 @@ export default function DanhSachPage() {
                         >
                             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                             Làm mới
+                        </button>
+
+                        <button
+                            onClick={handleRenameManhCuongToDoManhCuong}
+                            disabled={renamingStaff || loading}
+                            className="px-3 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center gap-2 text-sm font-medium"
+                            title='Đổi "Mạnh Cường" thành "Đỗ Mạnh Cường"'
+                        >
+                            {renamingStaff ? (
+                                <>
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                    Đang đổi tên...
+                                </>
+                            ) : (
+                                <>Đổi Mạnh Cường</>
+                            )}
                         </button>
                     </div>
                 </div>

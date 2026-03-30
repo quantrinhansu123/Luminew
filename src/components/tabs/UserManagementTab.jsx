@@ -49,14 +49,17 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
         if (fetchError) throw fetchError;
 
         if (data) {
-          setUsers(data);
+          // Hide system accounts from the user management list.
+          // Other parts of the app still rely on role = 'super_admin' for permissions.
+          const visibleUsers = (data || []).filter((u) => u.role !== 'super_admin');
+          setUsers(visibleUsers);
 
           // Apply role-based filtering
           if (userRole === 'leader' && userTeam) {
-            const filtered = data.filter(user => user.team === userTeam);
+            const filtered = visibleUsers.filter(user => user.team === userTeam);
             setFilteredUsers(filtered);
           } else {
-            setFilteredUsers(data);
+            setFilteredUsers(visibleUsers);
           }
         } else {
           setUsers([]);
@@ -1029,6 +1032,7 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
                     <option value="user">User</option>
                     <option value="leader">Leader</option>
                     <option value="admin">Admin</option>
+                    <option value="super_admin">Super admin</option>
                   </select>
                 </div>
               </div>

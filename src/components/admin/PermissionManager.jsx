@@ -1078,6 +1078,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
     ])].sort();
 
     const filteredUserRoles = userRoles.filter(ur => {
+        // Hide system accounts from the user assignment UI.
+        if (String(ur.role_code || '').toLowerCase() === 'super_admin') return false;
+
         const q = searchQuery.toLowerCase();
         const nameQ = nameSearchQuery.toLowerCase();
         const emp = employees.find(e => e.email === ur.email);
