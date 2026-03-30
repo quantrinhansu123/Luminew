@@ -59,6 +59,14 @@ function colInList(col, list) {
   return false;
 }
 
+/** Không hiển thị chữ "null" / "undefined" / placeholder rỗng nghĩa — để trống; giữ số & boolean. */
+function coalesceVanDonDisplayValue(v) {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
+  if (typeof v === 'string') return isVanDonSemanticEmpty(v) ? '' : v;
+  return v;
+}
+
 /** Giá trị ô lưới vận đơn: ưu tiên khóa đã map + fallback so khớp NFC mọi key trên row (tránh lệch Unicode / tên cột). */
 function getVanDonGridCellValue(row, colHeader) {
   if (!row) return '';
@@ -69,14 +77,14 @@ function getVanDonGridCellValue(row, colHeader) {
     if (k == null || k === '') continue;
     if (!Object.prototype.hasOwnProperty.call(row, k)) continue;
     const v = row[k];
-    if (v !== undefined && v !== null) return v;
+    if (v !== undefined && v !== null) return coalesceVanDonDisplayValue(v);
   }
   const wantLog = normalizeColHeader(logical);
   const wantHdr = normalizeColHeader(colHeader);
   const keys = Object.keys(row);
   for (let i = 0; i < keys.length; i++) {
     const nk = normalizeColHeader(keys[i]);
-    if (nk === wantLog || nk === wantHdr) return row[keys[i]];
+    if (nk === wantLog || nk === wantHdr) return coalesceVanDonDisplayValue(row[keys[i]]);
   }
   return '';
 }
@@ -539,7 +547,8 @@ function VanDon() {
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return '';
+    if (dateString == null || dateString === '') return '';
+    if (typeof dateString === 'string' && isVanDonSemanticEmpty(dateString)) return '';
     try {
       const str = String(dateString).trim();
       let date;
@@ -3077,6 +3086,7 @@ function VanDon() {
     if (pendingInfo) {
       val = pendingInfo.newValue;
     }
+    val = coalesceVanDonDisplayValue(val);
     const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col)
       ? formatDate(val)
       : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
@@ -3130,7 +3140,7 @@ function VanDon() {
         ) : DROPDOWN_OPTIONS[col] ? (
           <select
             className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
-            value={String(val)}
+            value={val === '' || val == null ? '' : String(val)}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
             {DROPDOWN_OPTIONS[col].map((o) => (
@@ -3143,7 +3153,7 @@ function VanDon() {
           <select
             className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
             style={{ padding: 0, margin: 0, lineHeight: '38px' }}
-            value={String(val)}
+            value={val === '' || val == null ? '' : String(val)}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
             {getCellEditSelectOptions(col)

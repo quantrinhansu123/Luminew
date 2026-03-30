@@ -15,8 +15,10 @@ import {
     baoCaoHistogramHasKey,
     collectBaoCaoHistogramKeys,
     formatBaoCaoVanDonStatusHistogram,
+    isGiaoHangHistogramSyntheticKey,
     parseBaoCaoVanDonHistogram,
-    sumBaoCaoVanDonHistogramValues
+    sumBaoCaoVanDonHistogramValues,
+    sumDonCoBillFullAmount
 } from '../utils/baoCaoVanDonFormat';
 import './BaoCaoVanDon.css';
 
@@ -94,6 +96,7 @@ const mapBaoCaoRowToVirtual = (row) => {
         _ket_qua_check: row.ket_qua_check,
         _trang_thai_giao_hang: row.trang_thai_giao_hang,
         _trang_thai_thanh_toan: row.trang_thai_thanh_toan,
+        _tien_trang_thai_thanh_toan: row.tien_trang_thai_thanh_toan ?? {},
         'Ngày lên đơn': dateStr,
         'NV Vận đơn': row.nhan_vien || '',
         'Mặt hàng': row.san_pham || '',
@@ -128,6 +131,14 @@ const addPaymentHistogramToStats = (payH, targets) => {
             }
         });
     }
+};
+
+const addCoBillAmountFromPaymentMoney = (payMoneyH, targets) => {
+    const add = sumDonCoBillFullAmount(payMoneyH);
+    if (add <= 0) return;
+    targets.forEach((t) => {
+        t['Đã Thanh Toán (có bill)'].amount += add;
+    });
 };
 
 const addEligiblePushFromKetQuaOk = (ketQuaCheck, targets) => {
@@ -187,7 +198,7 @@ const sumTrangThaiGiaoExcludingTracking = (delH) => {
     const o = parseBaoCaoVanDonHistogram(delH);
     let s = 0;
     for (const [key, raw] of Object.entries(o)) {
-        if (isMaTrackingHistogramKey(key)) continue;
+        if (isGiaoHangHistogramSyntheticKey(key)) continue;
         s += Number(raw) || 0;
     }
     return s;
@@ -224,7 +235,7 @@ const addDeliveryHistogramToStats = (delH, targets) => {
     for (const [key, raw] of Object.entries(o)) {
         const n = Number(raw) || 0;
         if (n <= 0) continue;
-        if (isMaTrackingHistogramKey(key)) continue;
+        if (isGiaoHangHistogramSyntheticKey(key)) continue;
         const bucket = classifyTrangThaiGiaoHangKey(key);
         targets.forEach((t) => {
             t[bucket].count += n;
@@ -514,7 +525,7 @@ export default function BaoCaoVanDon() {
             const { data, error: qErr } = await supabase
                 .from('bao_cao_van_don')
                 .select(
-                    'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan'
+                    'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan, tien_trang_thai_thanh_toan'
                 )
                 .gte('ngay', fp.startDate)
                 .lte('ngay', fp.endDate)
@@ -682,6 +693,7 @@ export default function BaoCaoVanDon() {
             });
 
             addPaymentHistogramToStats(row._trang_thai_thanh_toan, targets);
+            addCoBillAmountFromPaymentMoney(row._tien_trang_thai_thanh_toan, targets);
             addEligiblePushFromKetQuaOk(row._ket_qua_check, targets);
             addDeliveryHistogramToStats(row._trang_thai_giao_hang, targets);
             addTongDonLenVanHanhFromMaTracking(row._trang_thai_giao_hang, targets);
@@ -708,7 +720,7 @@ export default function BaoCaoVanDon() {
             for (const [key, raw] of Object.entries(o)) {
                 const n = Number(raw) || 0;
                 if (n <= 0) continue;
-                if (isMaTrackingHistogramKey(key)) continue;
+                if (isGiaoHangHistogramSyntheticKey(key)) continue;
                 const bucket = classifyTrangThaiGiaoHangKey(key);
                 statusCounts[bucket] += n;
             }
@@ -765,7 +777,7 @@ export default function BaoCaoVanDon() {
             for (const [key, raw] of Object.entries(o)) {
                 const n = Number(raw) || 0;
                 if (n <= 0) continue;
-                if (isMaTrackingHistogramKey(key)) continue;
+                if (isGiaoHangHistogramSyntheticKey(key)) continue;
                 const bucket = classifyTrangThaiGiaoHangKey(key);
                 if (bucket === 'Giao Thành Công') carrierAgg.success += n;
                 else if (bucket === 'Hoàn') carrierAgg.returned += n;

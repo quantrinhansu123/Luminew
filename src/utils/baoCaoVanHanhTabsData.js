@@ -1,4 +1,4 @@
-import { parseBaoCaoVanDonHistogram } from './baoCaoVanDonFormat';
+import { isGiaoHangHistogramSyntheticKey, parseBaoCaoVanDonHistogram } from './baoCaoVanDonFormat';
 import { aggregateVanHanhSlice } from './baoCaoVanDonMarketMatrix';
 
 function pad2(n) {
@@ -96,8 +96,8 @@ function sumHuyGiao(slice) {
         for (const [key, raw] of Object.entries(o)) {
             const n = Number(raw) || 0;
             if (n <= 0) continue;
+            if (isGiaoHangHistogramSyntheticKey(key)) continue;
             const nk = String(key).trim().toLowerCase();
-            if (nk.includes('mã tracking')) continue;
             if (nk.includes('huỷ') || nk.includes('hủy') || nk.includes('cancel')) s += n;
         }
     }

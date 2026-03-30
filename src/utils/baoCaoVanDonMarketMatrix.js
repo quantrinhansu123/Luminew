@@ -1,4 +1,10 @@
-import { parseBaoCaoVanDonHistogram, sumBaoCaoVanDonHistogramValues } from './baoCaoVanDonFormat';
+import {
+    isGiaoHangHistogramSyntheticKey,
+    parseBaoCaoVanDonHistogram,
+    sumBaoCaoVanDonHistogramValues,
+    sumDonCoBillFullAmount,
+    sumDonCoBillFullCount
+} from './baoCaoVanDonFormat';
 
 const classifyTrangThaiGiaoHangKey = (key) => {
     const d = String(key).trim();
@@ -47,7 +53,7 @@ function sumDeliveryBucket(delH, bucketName) {
     for (const [key, raw] of Object.entries(o)) {
         const n = Number(raw) || 0;
         if (n <= 0) continue;
-        if (isMaTrackingHistogramKey(key)) continue;
+        if (isGiaoHangHistogramSyntheticKey(key)) continue;
         if (classifyTrangThaiGiaoHangKey(key) === bucketName) s += n;
     }
     return s;
@@ -59,20 +65,6 @@ function sumMaTracking(delH) {
     for (const [key, raw] of Object.entries(o)) {
         if (!isMaTrackingHistogramKey(key)) continue;
         s += Number(raw) || 0;
-    }
-    return s;
-}
-
-/** Đếm đơn có bill đủ (không tính bill 1 phần) — cùng quy tắc BaoCaoVanDon. */
-function sumDonCoBillFull(payH) {
-    const o = parseBaoCaoVanDonHistogram(payH);
-    let s = 0;
-    for (const [key, raw] of Object.entries(o)) {
-        const n = Number(raw) || 0;
-        if (n <= 0) continue;
-        const k = String(key);
-        if (k.includes('Có bill 1 phần') || (k.includes('1 phần') && k.toLowerCase().includes('bill'))) continue;
-        if (k.includes('Có bill') || k.toLowerCase().includes('có bill')) s += n;
     }
     return s;
 }
@@ -95,7 +87,8 @@ function emptyMetrics() {
         coMa: 0,
         mgt: 0,
         dayVH: 0,
-        donCoBill: 0
+        donCoBill: 0,
+        donCoBillAmount: 0
     };
 }
 
@@ -113,7 +106,8 @@ export function aggregateVanHanhSlice(slice) {
         m.huyCheck += sumKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k)));
         m.coMa += sumMaTracking(r._trang_thai_giao_hang);
         m.mgt += sumKeyMatch(r._trang_thai_giao_hang, (k) => /mgt/i.test(String(k)));
-        m.donCoBill += sumDonCoBillFull(r._trang_thai_thanh_toan);
+        m.donCoBill += sumDonCoBillFullCount(r._trang_thai_thanh_toan);
+        m.donCoBillAmount += sumDonCoBillFullAmount(r._tien_trang_thai_thanh_toan);
         m.giaoTC += sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công');
         m.dangGiao += sumDeliveryBucket(r._trang_thai_giao_hang, 'Đang Giao');
     }
@@ -140,7 +134,7 @@ export function formatSlVi(n) {
     return Number(n || 0).toLocaleString('vi-VN');
 }
 
-/** Cột tiền không có trong bao_cao_van_don — hiển thị placeholder. */
+/** Placeholder khi chưa có số tiền (dòng cũ trước khi đồng bộ tien_trang_thai_thanh_toan). */
 export const NO_AMOUNT = '—';
 
 export function formatPct(numerator, denominator) {

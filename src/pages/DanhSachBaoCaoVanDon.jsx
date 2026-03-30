@@ -1,7 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Calendar, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Calendar, RefreshCw, Package } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { supabase } from '../supabase/config';
+import {
+  SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN,
+  syncBaoCaoVanDonFromOrders,
+} from '../services/baoCaoVanDonSyncFromOrders';
+import {
+  formatBaoCaoVanDonPaymentStatusWithMoney,
+  formatBaoCaoVanDonStatusHistogram,
+} from '../utils/baoCaoVanDonFormat';
 
 const formatDate = (dateValue) => {
   if (!dateValue) return '';
@@ -13,6 +21,100 @@ const formatDate = (dateValue) => {
   return `${day}/${month}/${year}`;
 };
 
+const formatDateTime = (dateValue) => {
+  if (!dateValue) return '—';
+  const d = new Date(dateValue);
+  if (isNaN(d.getTime())) return String(dateValue);
+  return d.toLocaleString('vi-VN', { hour12: false });
+};
+
+/** Thứ tự cột chuẩn bảng bao_cao_van_don; cột thêm từ DB được nối sau, sắp alphabet. */
+const BAO_CAO_VAN_DON_COLUMN_ORDER = [
+  'id',
+  'ngay',
+  'nhan_vien',
+  'san_pham',
+  'thi_truong',
+  'ket_qua_check',
+  'trang_thai_giao_hang',
+  'trang_thai_thanh_toan',
+  'created_at',
+  'updated_at',
+];
+
+const COLUMN_LABEL = {
+  id: 'ID',
+  ngay: 'Ngày',
+  nhan_vien: 'Nhân viên',
+  san_pham: 'Sản phẩm',
+  thi_truong: 'Thị trường',
+  ket_qua_check: 'Kết quả check',
+  trang_thai_giao_hang: 'Trạng thái giao hàng',
+  trang_thai_thanh_toan: 'Trạng thái thanh toán',
+  created_at: 'Tạo lúc',
+  updated_at: 'Cập nhật lúc',
+};
+
+const HISTOGRAM_KEYS = new Set(['ket_qua_check', 'trang_thai_giao_hang']);
+
+/** Cột DB vẫn select * nhưng không render cột riêng (đã gộp vào trang_thai_thanh_toan). */
+const TABLE_COLUMNS_EXCLUDE = new Set(['tien_trang_thai_thanh_toan']);
+
+function labelForColumn(key) {
+  return COLUMN_LABEL[key] || key;
+}
+
+function formatCell(columnKey, value) {
+  if (value === null || value === undefined) return '—';
+  if (HISTOGRAM_KEYS.has(columnKey)) {
+    return formatBaoCaoVanDonStatusHistogram(value);
+  }
+  if (columnKey === 'ngay') return formatDate(value);
+  if (columnKey === 'created_at' || columnKey === 'updated_at') {
+    return formatDateTime(value);
+  }
+  if (columnKey === 'id') return String(value);
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function useTableColumns(rows) {
+  return useMemo(() => {
+    const found = new Set();
+    for (const row of rows || []) {
+      if (row && typeof row === 'object') {
+        Object.keys(row).forEach((k) => found.add(k));
+      }
+    }
+    const rest = [...found]
+      .filter((k) => !BAO_CAO_VAN_DON_COLUMN_ORDER.includes(k) && !TABLE_COLUMNS_EXCLUDE.has(k))
+      .sort((a, b) => a.localeCompare(b, 'vi'));
+    return [
+      ...BAO_CAO_VAN_DON_COLUMN_ORDER.filter((k) => found.has(k) && !TABLE_COLUMNS_EXCLUDE.has(k)),
+      ...rest,
+    ];
+  }, [rows]);
+}
+
+function isVanDonSyncAdmin() {
+  const userRole = localStorage.getItem('userRole') || '';
+  const r = userRole.toLowerCase();
+  return (
+    r === 'admin' ||
+    r === 'super_admin' ||
+    r === 'administrator' ||
+    userRole === 'ADMIN' ||
+    userRole === 'SUPER_ADMIN' ||
+    userRole === 'ADMINISTRATOR'
+  );
+}
+
 export default function DanhSachBaoCaoVanDon() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState([]);
@@ -20,25 +122,37 @@ export default function DanhSachBaoCaoVanDon() {
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
+  const [syncStartDate, setSyncStartDate] = useState(() => filterDate);
+  const [syncEndDate, setSyncEndDate] = useState(() => filterDate);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [canRunSync, setCanRunSync] = useState(false);
+
+  useEffect(() => {
+    setCanRunSync(isVanDonSyncAdmin());
+  }, []);
+
+  useEffect(() => {
+    setSyncStartDate(filterDate);
+    setSyncEndDate(filterDate);
+  }, [filterDate]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       let query = supabase
-        .from('shipping_reports')
+        .from('bao_cao_van_don')
         .select('*')
-        .order('date', { ascending: false })
-        .order('created_at', { ascending: false });
+        .order('ngay', { ascending: false })
+        .order('updated_at', { ascending: false });
 
-      // Filter theo ngày nếu có
       if (filterDate) {
-        query = query.eq('date', filterDate);
+        query = query.eq('ngay', filterDate);
       }
 
       const { data: result, error } = await query;
 
       if (error) {
-        console.error('Error loading shipping reports:', error);
+        console.error('Error loading bao_cao_van_don:', error);
         toast.error('Lỗi khi tải dữ liệu: ' + error.message);
         return;
       }
@@ -60,39 +174,154 @@ export default function DanhSachBaoCaoVanDon() {
     loadData();
   };
 
+  const tableColumns = useTableColumns(data);
+
+  const handleSyncBaoCaoVanDon = async () => {
+    if (syncLoading) return;
+
+    const ok = window.confirm(
+      'Đồng bộ bảng bao_cao_van_don từ orders (theo Từ ngày / Đến ngày bên dưới).\n\n' +
+        'Key: ngay + nhan_vien + san_pham + thi_truong khớp order_date + delivery_staff + product + country.\n' +
+        'Chưa có dòng thì insert; có rồi thì update.\n' +
+        'Cột trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan (jsonb): mỗi cột là object { "Giá trị": số đơn } trong nhóm key.\n' +
+        'Nguồn đếm: delivery_status, check_result, payment_status_detail (nếu trống thì payment_status). Gồm cả đơn order_date trống nhưng created_at trong khoảng.\n\n' +
+        'Chạy?'
+    );
+    if (!ok) return;
+
+    const normStart = String(syncStartDate || '').trim();
+    const normEnd = String(syncEndDate || '').trim();
+    if (!normStart || !normEnd) {
+      toast.warn('Vui lòng nhập đầy đủ Từ ngày và Đến ngày.');
+      return;
+    }
+    if (normStart > normEnd) {
+      toast.warn('Từ ngày phải <= đến ngày.');
+      return;
+    }
+
+    try {
+      setSyncLoading(true);
+      toast.info('Đang đồng bộ bao_cao_van_don...', { autoClose: false });
+
+      const vd = await syncBaoCaoVanDonFromOrders({
+        startDate: normStart,
+        endDate: normEnd,
+      });
+
+      toast.dismiss();
+      const vdN = vd?.upserted ?? 0;
+      const vdUp = vd?.updatedExisting ?? 0;
+      const vdCr = vd?.createdMissing ?? 0;
+      toast.success(`bao_cao_van_don: ${vdN} thao tác (cập nhật ${vdUp}, tạo mới ${vdCr}).`);
+      if (vd?.tienColumnSkippedInSync) {
+        toast.warn(
+          `Thiếu cột tien_trang_thai_thanh_toan trên Supabase — cột tiền chưa được lưu. Chạy SQL (SQL Editor): ${SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN}`,
+          { autoClose: 25000 }
+        );
+      }
+      await loadData();
+    } catch (error) {
+      console.error('sync bao_cao_van_don error:', error);
+      toast.dismiss();
+      const msg = error?.message || String(error);
+      const fetchHint = /failed to fetch/i.test(msg)
+        ? ' Kiểm tra: mạng/VPN, .env Supabase, bảng bao_cao_van_don đã migration.'
+        : '';
+      toast.error('Lỗi đồng bộ bao_cao_van_don: ' + msg + fetchHint, { autoClose: 12000 });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-gray-800">Dữ liệu báo cáo vận đơn hàng ngày</h1>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800">Dữ liệu báo cáo vận đơn hàng ngày</h1>
+              <p className="text-sm text-gray-500 mt-1">
+                Bảng <span className="font-mono">bao_cao_van_don</span> — histogram trạng thái theo nhóm ngày / nhân viên / SP / thị trường.
+              </p>
+            </div>
             <button
+              type="button"
               onClick={handleRefresh}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Làm mới
             </button>
           </div>
 
-          {/* Filter */}
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-gray-700 font-medium">
-              <Calendar className="w-5 h-5" />
-              Lọc theo ngày:
-            </label>
-            <input
-              type="date"
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-gray-700 font-medium">
+                <Calendar className="w-5 h-5" />
+                Lọc theo ngày:
+              </label>
+              <input
+                type="date"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {canRunSync && (
+              <div className="rounded-lg border border-sky-100 bg-sky-50/80 p-4 space-y-3">
+                <div className="text-sm font-semibold text-gray-800">Đếm trạng thái &amp; cập nhật báo cáo vận đơn</div>
+                <p className="text-xs text-gray-600">
+                  Gom đơn từ <span className="font-mono">orders</span> theo ngày (hoặc ngày{' '}
+                  <span className="font-mono">created_at</span> nếu thiếu order_date) + NV vận đơn + SP + thị trường; cập nhật các cột{' '}
+                  jsonb trạng thái.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="flex flex-col gap-1 text-xs text-gray-600">
+                    <span className="font-medium text-gray-700">Từ ngày</span>
+                    <input
+                      type="date"
+                      value={syncStartDate}
+                      onChange={(e) => setSyncStartDate(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-gray-600">
+                    <span className="font-medium text-gray-700">Đến ngày</span>
+                    <input
+                      type="date"
+                      value={syncEndDate}
+                      onChange={(e) => setSyncEndDate(e.target.value)}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleSyncBaoCaoVanDon}
+                    disabled={syncLoading || loading}
+                    title="Gom đơn theo khoảng ngày; đếm từng giá trị trạng thái giao / check / thanh toán → jsonb { giá trị: số đơn }"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium text-sm transition shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {syncLoading ? (
+                      <>
+                        <span className="animate-spin">⏳</span>
+                        Đang đếm &amp; đồng bộ...
+                      </>
+                    ) : (
+                      <>
+                        <Package className="w-4 h-4 shrink-0" />
+                        Đếm trạng thái &amp; cập nhật báo cáo vận đơn
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Table */}
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           {loading ? (
             <div className="p-8 text-center">
@@ -105,74 +334,58 @@ export default function DanhSachBaoCaoVanDon() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
+              <table className="min-w-max w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      ID
+                    <th className="sticky left-0 z-10 bg-gray-50 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                      #
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Họ và tên
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Ngày
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Sản phẩm
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Thị trường
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Kết quả check
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Trạng thái
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Trạng thái giao hàng
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Trạng thái bill
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Cập nhật lúc
-                    </th>
+                    {tableColumns.map((col) => (
+                      <th
+                        key={col}
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-600 tracking-wide whitespace-nowrap"
+                        title={col}
+                      >
+                        {labelForColumn(col)}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {data.map((row) => (
-                    <tr key={row.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {row.id?.substring(0, 8)}...
+                  {data.map((row, rowIdx) => (
+                    <tr key={row.id ?? rowIdx} className="group hover:bg-gray-50">
+                      <td className="sticky left-0 z-10 bg-white px-3 py-3 text-sm text-gray-500 border-r border-gray-200 group-hover:bg-gray-50">
+                        {rowIdx + 1}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {row.name || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(row.date)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {row.product || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {row.market || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {row.check_result || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {row.status || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {row.delivery_status || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {row.bill_status || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {row.updated_at ? formatDate(row.updated_at) : '-'}
-                      </td>
+                      {tableColumns.map((col) => {
+                        const isHist =
+                          HISTOGRAM_KEYS.has(col) || col === 'trang_thai_thanh_toan';
+                        const isId = col === 'id';
+                        const isObject =
+                          row[col] !== null &&
+                          typeof row[col] === 'object' &&
+                          !Array.isArray(row[col]) &&
+                          !isHist;
+                        return (
+                          <td
+                            key={col}
+                            className={
+                              isHist || isObject
+                                ? 'px-4 py-3 text-sm text-gray-800 align-top whitespace-pre-line min-w-[14rem] max-w-md'
+                                : isId
+                                  ? 'px-4 py-3 text-xs text-gray-900 font-mono align-top break-all max-w-[20rem]'
+                                  : 'px-4 py-3 text-sm text-gray-700 align-top whitespace-nowrap'
+                            }
+                          >
+                            {col === 'trang_thai_thanh_toan'
+                              ? formatBaoCaoVanDonPaymentStatusWithMoney(
+                                  row.trang_thai_thanh_toan,
+                                  row.tien_trang_thai_thanh_toan
+                                )
+                              : formatCell(col, row[col])}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -180,7 +393,6 @@ export default function DanhSachBaoCaoVanDon() {
             </div>
           )}
 
-          {/* Summary */}
           {!loading && data.length > 0 && (
             <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
               <p className="text-sm text-gray-600">

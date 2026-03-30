@@ -309,33 +309,100 @@ export const updateSelectedPersonnel = async (email, personnelNames) => {
     }
 };
 
-// Get selected personnel for users
+function parseSelectedPersonnelRaw(raw) {
+    if (raw == null) return [];
+    if (Array.isArray(raw)) return raw.map((e) => String(e).trim()).filter(Boolean);
+    if (typeof raw === 'string') {
+        return raw
+            .split(',')
+            .map((e) => e.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+
+function normalizeLeaderTeamsRaw(raw) {
+    if (raw == null) return [];
+    if (Array.isArray(raw)) return raw.map((t) => String(t).trim()).filter(Boolean);
+    if (typeof raw === 'string') {
+        return raw
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+
+/** Khớp PermissionManager: Leader → gộp cả nhân viên team (leader_teams). */
+function isLeaderPositionForPersonnelScope(position) {
+    const p = String(position || '').toLowerCase();
+    if (!p) return false;
+    return (
+        p.includes('leader') ||
+        p.includes('trưởng nhóm') ||
+        p.includes('trưởng team') ||
+        p.includes('team lead')
+    );
+}
+
+/**
+ * Danh sách tên dùng lọc báo cáo / đơn: selected_personnel + tên chính user + (nếu Leader) mọi tên trong team `leader_teams`.
+ * Key map: email chữ thường — khớp caller thường truyền userEmail.toLowerCase().
+ */
 export const getSelectedPersonnel = async (emails) => {
     if (!emails || emails.length === 0) return {};
-    
+
+    const normalizedEmails = emails.map((e) => String(e || '').toLowerCase().trim()).filter(Boolean);
+    if (normalizedEmails.length === 0) return {};
+
     try {
         const { data, error } = await supabase
             .from('users')
-            .select('email, selected_personnel')
-            .in('email', emails);
+            .select('email, selected_personnel, leader_teams, position, name, username')
+            .in('email', normalizedEmails);
 
         if (error) throw error;
         if (!data) return {};
 
         const personnelMap = {};
-        data.forEach(u => {
-            if (u.selected_personnel && Array.isArray(u.selected_personnel)) {
-                personnelMap[u.email] = u.selected_personnel;
-            } else if (u.selected_personnel && typeof u.selected_personnel === 'string') {
-                // Handle comma-separated string
-                personnelMap[u.email] = u.selected_personnel.split(',').map(e => e.trim()).filter(Boolean);
-            } else {
-                personnelMap[u.email] = [];
+
+        for (const u of data) {
+            const emailKey = String(u.email || '').toLowerCase().trim();
+            const names = new Set(parseSelectedPersonnelRaw(u.selected_personnel));
+
+            const selfName = String(u.name || u.username || '').trim();
+            if (selfName && !selfName.includes('@')) {
+                names.add(selfName);
             }
-        });
+
+            if (isLeaderPositionForPersonnelScope(u.position)) {
+                const teams = normalizeLeaderTeamsRaw(u.leader_teams);
+                if (teams.length > 0) {
+                    const emps = await getEmployeesByTeams(teams);
+                    for (const e of emps || []) {
+                        const hn = String(e['Họ Và Tên'] || '').trim();
+                        if (hn) names.add(hn);
+                    }
+                }
+            }
+
+            const list = [...names];
+            personnelMap[emailKey] = list;
+            const rawEmail = String(u.email || '').trim();
+            if (rawEmail) {
+                personnelMap[rawEmail] = list;
+            }
+        }
+
+        for (const req of normalizedEmails) {
+            if (!(req in personnelMap)) {
+                personnelMap[req] = [];
+            }
+        }
+
         return personnelMap;
-  } catch (error) {
-        console.error("Error fetching selected personnel:", error);
+    } catch (error) {
+        console.error('Error fetching selected personnel:', error);
         return {};
     }
 };

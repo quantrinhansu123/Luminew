@@ -480,7 +480,7 @@ export async function recalcMktSoDonThucTeFromOrders({
   startDate,
   endDate,
   dryRun = false,
-  // Bỏ tính năng "thêm dòng mới": chỉ cập nhật các dòng đã có sẵn trong detail_reports.
+  // true: tạo dòng detail_reports cho key (ngày+Tên+SP+TT+ca) có đơn nhưng chưa có dòng; tên ưu tiên theo bản ghi đã có, không thì lấy marketing_staff trên đơn.
   createMissingRows = false,
   // Chỉ tính đúng các key này (không quét key khác trong ngày) khi có truyền vào.
   exactKeys = null,
@@ -590,8 +590,8 @@ export async function recalcMktSoDonThucTeFromOrders({
   const existingByCaKey = new Set();
   const reportRows = (reports || []).filter((r) => reportCaToGroups(r.ca).length > 0);
 
-  // canonicalNameByNormalized: normalizedName -> Tên chuẩn lấy từ detail_reports
-  // Dùng cho việc "chỉ tạo dòng nếu name tồn tại trong detail_reports".
+  // canonicalNameByNormalized: normalizedName -> Tên chuẩn đã có trong detail_reports (nếu có).
+  // Khi tạo dòng mới: ưu tiên tên chuẩn này; nếu chưa có → dùng tên trên đơn (marketing_staff).
   const canonicalNameByNormalized = new Map();
   for (const r of reportRows) {
     const nm = canonicalNameByNormalized.get(normalizeNameForKey(r['Tên']));
@@ -683,11 +683,11 @@ export async function recalcMktSoDonThucTeFromOrders({
         const exists = existingByCaKey.has(`${group}|${key}`);
         if (exists) continue;
 
-        // Chặn "tạo dòng cho tên không tồn tại trong detail_reports":
-        // nếu không tìm được Tên canonical theo normalizedName => skip.
-        const normalizedName = normalizeNameForKey(entry.sample.name);
-        const canonicalName = canonicalNameByNormalized.get(normalizedName);
-        if (!canonicalName) continue;
+        const rawNameFromOrder = String(entry.sample.name || '').trim();
+        if (!rawNameFromOrder) continue;
+        const normalizedName = normalizeNameForKey(rawNameFromOrder);
+        const canonicalName =
+            canonicalNameByNormalized.get(normalizedName) || rawNameFromOrder;
 
         const resolved = resolveUserTeamEmail(canonicalName, '', usersLookup);
         const email = resolved.email || emailFromName(canonicalName, hrEmailLookup) || '';

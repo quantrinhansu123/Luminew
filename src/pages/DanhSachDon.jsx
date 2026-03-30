@@ -1,4 +1,4 @@
-import { AlertTriangle, Calculator, Clock, History, Pencil, RefreshCw, Search, Settings, Trash2, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Calculator, Clock, History, Pencil, RefreshCw, Search, Settings, Trash2, Truck, Wrench, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -32,6 +32,61 @@ function isOnlyGiuaCaShift(shiftVal) {
   if (s.includes(',')) return false;
   const n = s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   return n === 'giua ca';
+}
+
+/** Khớp bộ phận Vận đơn trên users.department hoặc human_resources."Bộ phận". */
+function isBoPhanVanDon(dept) {
+  const raw = (dept ?? '').toString().trim();
+  if (!raw) return false;
+  const compact = raw.toLowerCase().replace(/\s+/g, ' ');
+  if (compact.includes('vận đơn') || compact.includes('van đơn')) return true;
+  const ascii = raw.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ');
+  if (ascii.includes('van don')) return true;
+  if (ascii === 'logistics' || ascii.startsWith('logistics ')) return true;
+  return false;
+}
+
+/**
+ * Danh sách tên NV vận đơn cho bộ lọc / modal (không phụ thuộc đơn đang có delivery_staff).
+ * Nguồn: users (bộ phận), human_resources, danh_sach_van_don.ho_va_ten.
+ */
+async function fetchVanDonStaffNameList(supabaseClient) {
+  const names = new Set();
+  const [usersRes, hrRes, dsvdRes] = await Promise.all([
+    supabaseClient
+      .from('users')
+      .select('name, department')
+      .not('name', 'is', null)
+      .order('name', { ascending: true }),
+    supabaseClient.from('human_resources').select('"Họ Và Tên", "Bộ phận"'),
+    supabaseClient.from('danh_sach_van_don').select('ho_va_ten').not('ho_va_ten', 'is', null),
+  ]);
+  if (usersRes.error) throw usersRes.error;
+  (usersRes.data || []).forEach((u) => {
+    if (isBoPhanVanDon(u.department)) {
+      const n = String(u.name || '').trim();
+      if (n) names.add(n);
+    }
+  });
+  if (hrRes.error) {
+    console.warn('human_resources (bộ phận Vận đơn):', hrRes.error);
+  } else {
+    (hrRes.data || []).forEach((row) => {
+      if (isBoPhanVanDon(row['Bộ phận'])) {
+        const n = String(row['Họ Và Tên'] || '').trim();
+        if (n) names.add(n);
+      }
+    });
+  }
+  if (dsvdRes.error) {
+    console.warn('danh_sach_van_don (ho_va_ten NV vận đơn):', dsvdRes.error);
+  } else {
+    (dsvdRes.data || []).forEach((r) => {
+      const n = String(r.ho_va_ten || '').trim();
+      if (n) names.add(n);
+    });
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, 'vi'));
 }
 
 // Các cột tự động ẩn mặc định trong bảng danh sách đơn hàng
@@ -224,7 +279,15 @@ function DanhSachDon() {
   const [historyTableRows, setHistoryTableRows] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-
+  /** Can thiệp sửa cột NV vận đơn (delivery_staff) từng đơn */
+  const [showEditNvVanDonModal, setShowEditNvVanDonModal] = useState(false);
+  const [editNvVanDonRow, setEditNvVanDonRow] = useState(null);
+  const [editNvVanDonValue, setEditNvVanDonValue] = useState('');
+  const [nvVanDonOptions, setNvVanDonOptions] = useState([]);
+  const [loadingNvVanDonOptions, setLoadingNvVanDonOptions] = useState(false);
+  const [savingNvVanDon, setSavingNvVanDon] = useState(false);
+  /** Tên NV vận đơn chuẩn từ master (users/HR/danh_sach_van_don) — luôn có trong dropdown lọc chia vận đơn */
+  const [vanDonStaffMasterNames, setVanDonStaffMasterNames] = useState([]);
 
   const defaultColumns = [
     'Mã đơn hàng',
@@ -376,6 +439,22 @@ function DanhSachDon() {
       localStorage.setItem('danhSachDon_visibleColumns', JSON.stringify(toSave));
     }
   }, [visibleColumns]);
+
+  // Master NV vận đơn cho dropdown lọc "chia vận đơn" (không phụ thuộc đơn đã gán delivery_staff)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchVanDonStaffNameList(supabase);
+        if (!cancelled) setVanDonStaffMasterNames(list);
+      } catch (e) {
+        console.warn('DanhSachDon: tải master NV vận đơn cho bộ lọc:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Helper: Map Supabase DB row to UI format
   const mapSupabaseToUI = (item) => ({
@@ -1673,6 +1752,99 @@ function DanhSachDon() {
     navigate(`/chinh-sua-don?orderId=${encodeURIComponent(orderCode)}`);
   };
 
+  const openEditNvVanDonModal = async (row) => {
+    const orderCode = row?.['Mã đơn hàng'];
+    const codeStr = orderCode != null ? String(orderCode).trim() : '';
+    if (!codeStr || codeStr.startsWith('UNK-') || codeStr.startsWith('NO_CODE_')) {
+      toast.error('Không thể sửa NV vận đơn: thiếu mã đơn hợp lệ');
+      return;
+    }
+    setEditNvVanDonRow(row);
+    setEditNvVanDonValue(String(row['NV Vận đơn'] ?? row.delivery_staff ?? '').trim());
+    setShowEditNvVanDonModal(true);
+    setLoadingNvVanDonOptions(true);
+    setNvVanDonOptions([]);
+    try {
+      const sorted = await fetchVanDonStaffNameList(supabase);
+      setNvVanDonOptions(sorted);
+      if (sorted.length === 0) {
+        toast.warning(
+          'Chưa có nhân sự bộ phận Vận đơn (kiểm tra users.department / human_resources."Bộ phận").',
+          { autoClose: 5000 }
+        );
+      }
+    } catch (e) {
+      console.error('load nhân sự bộ phận Vận đơn cho modal NV vận đơn:', e);
+      toast.warning('Không tải được danh sách nhân sự — thử lại sau.', { autoClose: 4000 });
+      setNvVanDonOptions([]);
+    } finally {
+      setLoadingNvVanDonOptions(false);
+    }
+  };
+
+  const closeEditNvVanDonModal = () => {
+    setShowEditNvVanDonModal(false);
+    setEditNvVanDonRow(null);
+    setEditNvVanDonValue('');
+    setNvVanDonOptions([]);
+  };
+
+  const saveEditNvVanDon = async () => {
+    if (!editNvVanDonRow) return;
+    const orderCode = String(editNvVanDonRow['Mã đơn hàng'] || '').trim();
+    const rowId = editNvVanDonRow._id;
+    const trimmed = String(editNvVanDonValue || '').trim();
+    const newDb = trimmed || null;
+    const oldStr = String(editNvVanDonRow['NV Vận đơn'] ?? editNvVanDonRow.delivery_staff ?? '').trim();
+    const oldDb = oldStr || null;
+    if (oldDb === newDb) {
+      toast.info('Không có thay đổi.', { autoClose: 1500, hideProgressBar: true });
+      closeEditNvVanDonModal();
+      return;
+    }
+    setSavingNvVanDon(true);
+    try {
+      const payload = { delivery_staff: newDb };
+      let error = null;
+      if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
+        ({ error } = await supabase.from('orders').update(payload).eq('order_code', orderCode));
+      } else if (rowId) {
+        ({ error } = await supabase.from('orders').update(payload).eq('id', rowId));
+      } else {
+        throw new Error('Thiếu order_code hoặc id');
+      }
+      if (error) throw error;
+      await logDataChange({
+        action: 'UPDATE',
+        table_name: 'orders',
+        record_id: orderCode || String(rowId),
+        field: 'delivery_staff',
+        old_value: oldDb ?? '',
+        new_value: newDb ?? '',
+        details: { note: 'Sửa NV vận đơn (Danh sách đơn)', orderCode },
+      });
+      setAllData((prev) =>
+        (prev || []).map((r) => {
+          const c = String(r['Mã đơn hàng'] || '').trim();
+          if (orderCode && c === orderCode) {
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb };
+          }
+          if (rowId && r._id === rowId) {
+            return { ...r, 'NV Vận đơn': trimmed, delivery_staff: newDb };
+          }
+          return r;
+        })
+      );
+      toast.success('Đã cập nhật nhân viên vận đơn.', { autoClose: 2200, hideProgressBar: true });
+      closeEditNvVanDonModal();
+    } catch (err) {
+      console.error('save NV vận đơn:', err);
+      toast.error(err?.message || 'Lỗi khi lưu NV vận đơn');
+    } finally {
+      setSavingNvVanDon(false);
+    }
+  };
+
   // Handle Delete
   const handleDelete = async (orderCode, rowId) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác.")) return;
@@ -1790,15 +1962,21 @@ function DanhSachDon() {
   }, [allData]);
 
   const uniqueDeliveryStaff = useMemo(() => {
-    const vals = new Set();
-    allData.forEach(row => {
-      const v = row["NV Vận đơn"];
+    const vals = new Set(vanDonStaffMasterNames || []);
+    allData.forEach((row) => {
+      const v = row['NV Vận đơn'] ?? row['Nhân viên Vận đơn'] ?? row.delivery_staff;
       if (v && String(v).trim()) vals.add(String(v).trim());
     });
-    return Array.from(vals).sort();
-  }, [allData]);
+    return Array.from(vals).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [allData, vanDonStaffMasterNames]);
 
-
+  /** Dropdown modal NV vận đơn: danh sách bộ phận Vận đơn + giá trị hiện tại nếu lệch. */
+  const nvVanDonSelectOptions = useMemo(() => {
+    const cur = String(editNvVanDonValue || '').trim();
+    const set = new Set((nvVanDonOptions || []).filter(Boolean));
+    if (cur) set.add(cur);
+    return [...set].sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [nvVanDonOptions, editNvVanDonValue]);
 
   // Filter and sort data
   const filteredData = useMemo(() => {
@@ -2200,7 +2378,7 @@ function DanhSachDon() {
                   }, 0).toLocaleString('vi-VN')} ₫
                 </span>
               </div>
-              {canEdit(permissionCode) && (
+              {isAdminOnly && (
                 <>
                   <button
                     onClick={handleAutoFillPaymentCurrencyFromArea}
@@ -2283,10 +2461,6 @@ function DanhSachDon() {
                       </>
                     )}
                   </button>
-                </>
-              )}
-              {isAdmin && (
-                <>
                   <button
                     onClick={handleFixMissingTeams}
                     disabled={
@@ -3033,16 +3207,30 @@ function DanhSachDon() {
                               </button>
                             )}
                             {canEdit(permissionCode) && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEdit(row['Mã đơn hàng']);
-                                }}
-                                className="text-blue-500 hover:text-blue-700 p-1 rounded hover:bg-blue-50 transition-colors"
-                                title="Chỉnh sửa đơn hàng"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEditNvVanDonModal(row);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors"
+                                  title="Sửa vận đơn — can thiệp cột nhân viên vận đơn (delivery_staff)"
+                                >
+                                  <Truck className="w-3.5 h-3.5 shrink-0" />
+                                  Sửa VĐ
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEdit(row['Mã đơn hàng']);
+                                  }}
+                                  className="text-blue-500 hover:text-blue-700 p-1 rounded hover:bg-blue-50 transition-colors"
+                                  title="Chỉnh sửa đơn hàng"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              </>
                             )}
                             {isAdmin && canDelete(permissionCode) && (
                               <button
@@ -3112,6 +3300,100 @@ function DanhSachDon() {
           </div>
         </div>
       </div>
+
+      {/* Sửa NV vận đơn (can thiệp delivery_staff) */}
+      {showEditNvVanDonModal && editNvVanDonRow && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => {
+            if (!savingNvVanDon) closeEditNvVanDonModal();
+          }}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-gray-200">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-amber-600" />
+                  Sửa nhân viên vận đơn
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Mã đơn:{' '}
+                  <span className="font-mono font-semibold text-gray-800">
+                    {editNvVanDonRow['Mã đơn hàng']}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditNvVanDonModal}
+                disabled={savingNvVanDon}
+                className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
+                  NV vận đơn (delivery_staff)
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Danh sách từ: <span className="font-medium">users.department</span>,{' '}
+                  <span className="font-medium">human_resources &quot;Bộ phận&quot;</span>,{' '}
+                  <span className="font-medium">danh_sach_van_don.ho_va_ten</span> (Vận đơn / Logistics).
+                </p>
+                <select
+                  value={editNvVanDonValue}
+                  onChange={(e) => setEditNvVanDonValue(e.target.value)}
+                  disabled={savingNvVanDon || loadingNvVanDonOptions}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] disabled:bg-gray-100 bg-white"
+                >
+                  <option value="">— Để trống (xóa NV vận đơn) —</option>
+                  {nvVanDonSelectOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                {loadingNvVanDonOptions && (
+                  <p className="text-xs text-gray-500 mt-1.5">Đang tải danh sách nhân sự…</p>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">
+                Giá trị đang có trên đơn nhưng không thuộc danh sách bộ phận vẫn hiện trong sổ xuống để giữ đúng dữ liệu cũ.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 p-5 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={closeEditNvVanDonModal}
+                disabled={savingNvVanDon}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={saveEditNvVanDon}
+                disabled={savingNvVanDon}
+                className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg text-sm font-medium transition-colors disabled:bg-gray-400 flex items-center gap-2"
+              >
+                {savingNvVanDon ? (
+                  <>
+                    <span className="inline-block h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Đang lưu…
+                  </>
+                ) : (
+                  'Lưu'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* History Modal */}
       {showHistoryModal && (

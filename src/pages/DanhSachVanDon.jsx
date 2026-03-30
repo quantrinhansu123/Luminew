@@ -3,10 +3,22 @@ const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng", "Ngư�
 import { Calendar, Edit, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
+import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 
+const VAN_DON_LIST_FULL_ACCESS_ROLES = ['admin', 'super_admin', 'director', 'manager', 'administrator'];
+
 export default function DanhSachVanDon() {
+    const { role } = usePermissions();
+    const isAdminVanDonList = useMemo(() => {
+        const stored = (typeof localStorage !== 'undefined' ? localStorage.getItem('userRole') : '') || '';
+        const rl = (role || '').toLowerCase();
+        const sl = stored.toLowerCase();
+        return (
+            VAN_DON_LIST_FULL_ACCESS_ROLES.includes(rl) || VAN_DON_LIST_FULL_ACCESS_ROLES.includes(sl)
+        );
+    }, [role]);
     const [data, setData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -111,10 +123,9 @@ export default function DanhSachVanDon() {
 
             if (error) throw error;
 
-            // Filter by selected_personnel nếu có: chỉ xem records có ho_va_ten khớp với selected_personnel
-            // Nếu không có selected_personnel: xem tất cả
+            // Filter by selected_personnel khi có — admin / director / manager xem toàn bộ (không lọc).
             let filteredRecords = records || [];
-            if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
+            if (!isAdminVanDonList && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                 console.log('🔐 [DanhSachVanDon] Filtering by selected_personnel:', selectedPersonnelNames);
                 filteredRecords = (records || []).filter(record => {
                     const hoVaTen = (record.ho_va_ten || '').toLowerCase().trim();
@@ -124,6 +135,8 @@ export default function DanhSachVanDon() {
                     });
                 });
                 console.log('✅ [DanhSachVanDon] Filtered records:', filteredRecords.length, 'out of', records?.length || 0);
+            } else if (isAdminVanDonList) {
+                console.log('👑 [DanhSachVanDon] Admin — hiển thị đủ danh sách (bỏ lọc selected_personnel)');
             } else {
                 console.log('✅ [DanhSachVanDon] No selected_personnel, showing all records');
             }
@@ -240,7 +253,7 @@ export default function DanhSachVanDon() {
 
     useEffect(() => {
         loadData();
-    }, [startDate, endDate, selectedPersonnelNames]);
+    }, [startDate, endDate, selectedPersonnelNames, isAdminVanDonList]);
 
     // Tính toán danh sách nhân sự có sẵn cho "Họ và tên" (loại trừ những người đã có trong danh sách khi thêm mới)
     const availableHoVaTenOptions = useMemo(() => {

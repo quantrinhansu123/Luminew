@@ -6,7 +6,10 @@ import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
-import { syncBaoCaoVanDonFromOrders } from '../services/baoCaoVanDonSyncFromOrders';
+import {
+    SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN,
+    syncBaoCaoVanDonFromOrders,
+} from '../services/baoCaoVanDonSyncFromOrders';
 import { formatBaoCaoVanDonStatusHistogram } from '../utils/baoCaoVanDonFormat';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
@@ -1378,7 +1381,7 @@ const AdminTools = () => {
             'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
             'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
             'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
-            'Thao tác sẽ cập nhật các dòng hiện có và có thể tạo dòng thiếu, nhưng chỉ khi Tên trong orders khớp với các `Tên` đang có trong detail_reports.\n\n' +
+            'Thao tác sẽ cập nhật các dòng hiện có; nếu thiếu key (ngày + MKT + SP + thị trường + ca) sẽ tạo dòng mới từ dữ liệu đơn.\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
         if (!ok) return;
@@ -1515,6 +1518,12 @@ const AdminTools = () => {
             const vdUp = vd?.updatedExisting ?? 0;
             const vdCr = vd?.createdMissing ?? 0;
             toast.success(`bao_cao_van_don: ${vdN} thao tác (cập nhật ${vdUp}, tạo mới ${vdCr}).`);
+            if (vd?.tienColumnSkippedInSync) {
+                toast.warn(
+                    `Thiếu cột tien_trang_thai_thanh_toan — chạy SQL trong Supabase: ${SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN}`,
+                    { autoClose: 25000 }
+                );
+            }
             setVanDonBaoCaoResult(vd);
         } catch (error) {
             console.error('sync bao_cao_van_don error:', error);
@@ -4537,9 +4546,9 @@ const AdminTools = () => {
                             </h3>
                             <p className="text-sm text-gray-600 mb-4">
                                 Tính lại theo Key: <span className="font-medium">Ngày + Tên (MKT) + Sản phẩm + Thị trường</span> khớp <span className="font-medium">orders</span> (marketing_staff, country), tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
-                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key, <span className="font-medium">đã trừ</span> số đơn và VND có Kết quả Check Hủy (ghi riêng ở <span className="font-medium">Số đơn hoàn hủy thực tế</span> / <span className="font-medium">Doanh số hoàn hủy thực tế</span>). Hủy: theo <span className="font-medium">check_result</span>; VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Không tạo dòng mới trong <span className="font-medium">detail_reports</span>.
+                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key, <span className="font-medium">đã trừ</span> số đơn và VND có Kết quả Check Hủy (ghi riêng ở <span className="font-medium">Số đơn hoàn hủy thực tế</span> / <span className="font-medium">Doanh số hoàn hủy thực tế</span>). Hủy: theo                                 <span className="font-medium">check_result</span>; VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Khi bấm <span className="font-medium">Tính lại</span>: nếu chưa có dòng cho key có đơn thì <span className="font-medium">tạo mới</span> trong <span className="font-medium">detail_reports</span> (tên MKT ưu tiên trùng chính tả với dòng đã có, không thì theo <span className="font-medium">marketing_staff</span> trên đơn).
                                 {' '}
-                                <span className="font-medium text-gray-800">Tự điền khi trống:</span> cột <span className="font-medium">Email</span> và <span className="font-medium">Team</span> trên các dòng hiện có — lấy từ bảng <span className="font-medium">users</span> (khớp tên và email khi có đủ hai), không có thì từ <span className="font-medium">human_resources</span>.
+                                <span className="font-medium text-gray-800">Tự điền khi trống:</span> cột <span className="font-medium">Email</span> và <span className="font-medium">Team</span> — lấy từ bảng <span className="font-medium">users</span> (khớp tên và email khi có đủ hai), không có thì từ <span className="font-medium">human_resources</span>.
                             </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">

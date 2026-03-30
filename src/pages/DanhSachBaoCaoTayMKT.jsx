@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
-import { buildMktDetailReportRowKey } from '../services/mktRecalcSoDonThucTeFromOrders';
+import {
+    buildMktDetailReportRowKey,
+    recalcMktSoDonThucTeFromOrders,
+} from '../services/mktRecalcSoDonThucTeFromOrders';
 import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
 import './BaoCaoSale.css'; // Reusing styles for consistency
@@ -82,12 +86,14 @@ export default function DanhSachBaoCaoTayMKT() {
         endDate: '',
         personnelNames: [],
         shifts: [],
+        teams: [],
         products: [],
         markets: []
     });
     const [personnelSearch, setPersonnelSearch] = useState('');
     const [syncing, setSyncing] = useState(false);
     const [syncingTeamHanoi, setSyncingTeamHanoi] = useState(false);
+    const [mktRecalcLoading, setMktRecalcLoading] = useState(false);
     const [deleting, setDeleting] = useState(false);
     
     // Pagination state
@@ -625,6 +631,12 @@ export default function DanhSachBaoCaoTayMKT() {
         [allReports]
     );
 
+    const availableTeamOptions = useMemo(
+        () => [...new Set((allReports || []).map((item) => String(item?.['Team'] || '').trim()).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
+        [allReports]
+    );
+
     const availableProductOptions = useMemo(
         () => [...new Set((allReports || []).map((item) => String(item?.['Sản_phẩm'] || '').trim()).filter(Boolean))]
             .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
@@ -640,22 +652,25 @@ export default function DanhSachBaoCaoTayMKT() {
     const reportsAfterFilters = useMemo(() => {
         const selectedPersonnel = new Set(filters.personnelNames || []);
         const selectedShifts = new Set(filters.shifts || []);
+        const selectedTeams = new Set(filters.teams || []);
         const selectedProducts = new Set(filters.products || []);
         const selectedMarkets = new Set(filters.markets || []);
 
         return (allReports || []).filter((item) => {
             const name = String(item?.['Tên'] || '').trim();
             const shift = String(item?.['ca'] || '').trim();
+            const team = String(item?.['Team'] || '').trim();
             const product = String(item?.['Sản_phẩm'] || '').trim();
             const market = String(item?.['Thị_trường'] || '').trim();
 
             if (selectedPersonnel.size > 0 && !selectedPersonnel.has(name)) return false;
             if (selectedShifts.size > 0 && !selectedShifts.has(shift)) return false;
+            if (selectedTeams.size > 0 && !selectedTeams.has(team)) return false;
             if (selectedProducts.size > 0 && !selectedProducts.has(product)) return false;
             if (selectedMarkets.size > 0 && !selectedMarkets.has(market)) return false;
             return true;
         });
-    }, [allReports, filters.personnelNames, filters.shifts, filters.products, filters.markets]);
+    }, [allReports, filters.personnelNames, filters.shifts, filters.teams, filters.products, filters.markets]);
 
     // Apply sorting (before pagination)
     const sortedReports = useMemo(() => {
@@ -792,7 +807,7 @@ export default function DanhSachBaoCaoTayMKT() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [filters.personnelNames, filters.shifts, filters.products, filters.markets, sortColumn, sortDirection]);
+    }, [filters.personnelNames, filters.shifts, filters.teams, filters.products, filters.markets, sortColumn, sortDirection]);
 
     // Sync data from Firebase Báo cáo MKT via backend API (bypasses RLS)
     const handleSyncMKT = async () => {
@@ -835,6 +850,59 @@ export default function DanhSachBaoCaoTayMKT() {
             alert("Lỗi khi đồng bộ: " + errorMsg);
         } finally {
             setSyncing(false);
+        }
+    };
+
+    /** Cập nhật Số đơn TT / Doanh số TT trên detail_reports từ orders (cùng logic Admin Tools). */
+    const handleRecalcMktSoDonTT = async () => {
+        if (mktRecalcLoading) return;
+        if (teamFilter === 'RD') return;
+
+        const ok = window.confirm(
+            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
+                'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
+                'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
+                'Thao tác sẽ cập nhật các dòng hiện có; nếu thiếu key (ngày + MKT + SP + thị trường + ca) sẽ tạo dòng mới từ dữ liệu đơn.\n\n' +
+                `Khoảng ngày: ${filters.startDate} → ${filters.endDate} (theo bộ lọc trái).\n\n` +
+                'Bạn có chắc muốn chạy không?'
+        );
+        if (!ok) return;
+
+        const normStart = String(filters.startDate || '').trim();
+        const normEnd = String(filters.endDate || '').trim();
+        if (!normStart || !normEnd) {
+            alert('Vui lòng chọn đầy đủ Từ ngày và Đến ngày trong bộ lọc.');
+            return;
+        }
+        if (normStart > normEnd) {
+            alert('Từ ngày phải ≤ Đến ngày.');
+            return;
+        }
+
+        try {
+            setMktRecalcLoading(true);
+            toast.info('Đang cập nhật Số đơn TT (Báo cáo MKT)...', { autoClose: false });
+
+            const result = await recalcMktSoDonThucTeFromOrders({
+                startDate: normStart,
+                endDate: normEnd,
+                createMissingRows: true,
+            });
+
+            toast.dismiss();
+            toast.success(`Hoàn tất: cập nhật ${result.upserted || 0} dòng.`);
+            setRealValuesMap({});
+            await fetchData();
+        } catch (error) {
+            console.error('Recalc MKT error:', error);
+            toast.dismiss();
+            const msg = error?.message || String(error);
+            const fetchHint = /failed to fetch/i.test(msg)
+                ? ' Kiểm tra mạng, .env Supabase, dự án không pause.'
+                : '';
+            toast.error('Lỗi cập nhật Số đơn TT: ' + msg + fetchHint, { autoClose: 12000 });
+        } finally {
+            setMktRecalcLoading(false);
         }
     };
 
@@ -1218,6 +1286,48 @@ export default function DanhSachBaoCaoTayMKT() {
                     <div style={{ marginTop: '12px' }}>
                         <details>
                             <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                                Team ({(filters.teams || []).length}/{availableTeamOptions.length})
+                            </summary>
+                            <div style={{ marginTop: '8px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px' }}>
+                                    <input
+                                        type="checkbox"
+                                        style={{ marginRight: '6px' }}
+                                        checked={availableTeamOptions.length > 0 && (filters.teams || []).length === availableTeamOptions.length}
+                                        onChange={(e) => setFilters((prev) => ({ ...prev, teams: e.target.checked ? [...availableTeamOptions] : [] }))}
+                                    />
+                                    Tất cả
+                                </label>
+                                <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '6px' }}>
+                                    {availableTeamOptions.length === 0 ? (
+                                        <div style={{ fontSize: '12px', color: '#999' }}>Chưa có giá trị Team trong dữ liệu đã tải</div>
+                                    ) : (
+                                        availableTeamOptions.map((value) => (
+                                            <label key={value} style={{ display: 'block', marginBottom: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    style={{ marginRight: '6px' }}
+                                                    checked={(filters.teams || []).includes(value)}
+                                                    onChange={(e) =>
+                                                        setFilters((prev) => ({
+                                                            ...prev,
+                                                            teams: e.target.checked
+                                                                ? [...(prev.teams || []), value]
+                                                                : (prev.teams || []).filter((x) => x !== value)
+                                                        }))
+                                                    }
+                                                />
+                                                {value}
+                                            </label>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                    <div style={{ marginTop: '12px' }}>
+                        <details>
+                            <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
                                 Sản phẩm ({(filters.products || []).length}/{availableProductOptions.length})
                             </summary>
                             <div style={{ marginTop: '8px' }}>
@@ -1289,11 +1399,37 @@ export default function DanhSachBaoCaoTayMKT() {
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                         <h2>DANH SÁCH BÁO CÁO TAY MARKETING</h2>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {isAdminOnly && teamFilter !== 'RD' && (
+                                <button
+                                    type="button"
+                                    onClick={handleRecalcMktSoDonTT}
+                                    disabled={
+                                        mktRecalcLoading ||
+                                        loading ||
+                                        deleting ||
+                                        syncing ||
+                                        syncingTeamHanoi ||
+                                        !filters.startDate ||
+                                        !filters.endDate
+                                    }
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    title="Tính lại Số đơn thực tế & Doanh số TT từ orders vào detail_reports theo khoảng ngày bộ lọc"
+                                >
+                                    {mktRecalcLoading ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang cập nhật Số đơn TT…
+                                        </>
+                                    ) : (
+                                        <>🔄 Cập nhật Số đơn TT</>
+                                    )}
+                                </button>
+                            )}
                             {isAdminOnly && (
                                 <button
                                     type="button"
                                     onClick={handleSyncTeamHanoiToHnMkt}
-                                    disabled={syncingTeamHanoi || loading || deleting || syncing}
+                                    disabled={syncingTeamHanoi || loading || deleting || syncing || mktRecalcLoading}
                                     className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
                                     title='Chỉ cập nhật các dòng có Team đúng bằng "Hà Nội"'
                                 >

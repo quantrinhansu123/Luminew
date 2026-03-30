@@ -1,4 +1,10 @@
-import { parseBaoCaoVanDonHistogram, sumBaoCaoVanDonHistogramValues } from './baoCaoVanDonFormat';
+import {
+    isGiaoHangHistogramSyntheticKey,
+    parseBaoCaoVanDonHistogram,
+    sumBaoCaoVanDonHistogramValues,
+    sumDonCoBillFullAmount,
+    sumDonCoBillFullCount
+} from './baoCaoVanDonFormat';
 
 const classifyTrangThaiGiaoHangKey = (key) => {
     const d = String(key).trim();
@@ -47,7 +53,7 @@ function sumDeliveryBucket(delH, bucketName) {
     for (const [key, raw] of Object.entries(o)) {
         const n = Number(raw) || 0;
         if (n <= 0) continue;
-        if (isMaTrackingHistogramKey(key)) continue;
+        if (isGiaoHangHistogramSyntheticKey(key)) continue;
         if (classifyTrangThaiGiaoHangKey(key) === bucketName) s += n;
     }
     return s;
@@ -59,19 +65,6 @@ function sumMaTracking(delH) {
     for (const [key, raw] of Object.entries(o)) {
         if (!isMaTrackingHistogramKey(key)) continue;
         s += Number(raw) || 0;
-    }
-    return s;
-}
-
-function sumDonCoBillFull(payH) {
-    const o = parseBaoCaoVanDonHistogram(payH);
-    let s = 0;
-    for (const [key, raw] of Object.entries(o)) {
-        const n = Number(raw) || 0;
-        if (n <= 0) continue;
-        const k = String(key);
-        if (k.includes('Có bill 1 phần') || (k.includes('1 phần') && k.toLowerCase().includes('bill'))) continue;
-        if (k.includes('Có bill') || k.toLowerCase().includes('có bill')) s += n;
     }
     return s;
 }
@@ -134,6 +127,7 @@ export function aggregateOperationalReportSlice(slice) {
     let khachHen = 0;
     let vanDonXL = 0;
     let donCoBill = 0;
+    let donCoBillAmount = 0;
     let coMa = 0;
     let giaoTC = 0;
     let dangGiao = 0;
@@ -141,7 +135,8 @@ export function aggregateOperationalReportSlice(slice) {
     let hoan = 0;
     let huyVH = 0;
     let choCheck = 0;
-    let trongTT = 0;
+    /** Tổng VNĐ theo jsonb tien_trang_thai_thanh_toan (reconciled_vnd theo trạng thái TT) — cột BC VH "Tổng thanh toán giao hàng NB". */
+    let tongThanhToanGiaoHangNb = 0;
 
     for (const r of slice) {
         tongNoiBo += sumBaoCaoVanDonHistogramValues(r._ket_qua_check);
@@ -157,7 +152,8 @@ export function aggregateOperationalReportSlice(slice) {
             r._ket_qua_check,
             (k) => /\bxl\b/i.test(String(k)) || /vận đơn\s*xl/i.test(String(k))
         );
-        donCoBill += sumDonCoBillFull(r._trang_thai_thanh_toan);
+        donCoBill += sumDonCoBillFullCount(r._trang_thai_thanh_toan);
+        donCoBillAmount += sumDonCoBillFullAmount(r._tien_trang_thai_thanh_toan);
         mergePaymentHistogramIntoBuckets(r._trang_thai_thanh_toan, payBuckets);
 
         coMa += sumMaTracking(r._trang_thai_giao_hang);
@@ -167,7 +163,7 @@ export function aggregateOperationalReportSlice(slice) {
         hoan += sumDeliveryBucket(r._trang_thai_giao_hang, 'Hoàn');
         huyVH += sumDeliveryBucket(r._trang_thai_giao_hang, 'Hủy');
         choCheck += sumDeliveryBucket(r._trang_thai_giao_hang, 'chờ check');
-        trongTT += sumDeliveryBucket(r._trang_thai_giao_hang, 'Trống trạng thái');
+        tongThanhToanGiaoHangNb += sumBaoCaoVanDonHistogramValues(r._tien_trang_thai_thanh_toan);
     }
 
     const daCkChuaDay = Math.max(0, ok - coMa);
@@ -180,6 +176,7 @@ export function aggregateOperationalReportSlice(slice) {
     return {
         tongNoiBo,
         donCoBill,
+        donCoBillAmount,
         coMa,
         chuaCoMa,
         tyLeVHNoiBo,
@@ -191,7 +188,7 @@ export function aggregateOperationalReportSlice(slice) {
         hoan,
         huyVH,
         choCheck,
-        trongTT,
+        tongThanhToanGiaoHangNb,
         huyNoiBo,
         doiHang,
         khachHen,
@@ -254,4 +251,116 @@ export function filterSliceForCriteriaRow(rawData, criteria) {
         }
         return true;
     });
+}
+
+/**
+ * Tab BC Vận hành: sau khi tải dữ liệu, nếu dòng để trống Sản phẩm / Thị trường thì tách thành
+ * các dòng theo từng giá trị có trong rawData (theo khoảng ngày của từng dòng).
+ * @param {Array<{ id: string; startDate: string; endDate: string; product: string; market: string }>} prevRows
+ * @param {Array<Record<string, unknown>>} rawRows
+ * @param {() => string} newRowId
+ */
+export function expandBcvhCriteriaRowsFromRawData(prevRows, rawRows, newRowId) {
+    const sliceForCriteria = (criteria) =>
+        rawRows.filter((r) => {
+            const d = (r['Ngày lên đơn'] || '').slice(0, 10);
+            if (criteria.startDate && d && d < criteria.startDate) return false;
+            if (criteria.endDate && d && d > criteria.endDate) return false;
+            return true;
+        });
+
+    let changed = false;
+    const next = [];
+
+    for (const row of prevRows) {
+        const productTrim = String(row.product ?? '').trim();
+        const marketTrim = String(row.market ?? '').trim();
+        const emptyP = !productTrim;
+        const emptyM = !marketTrim;
+        const slice = sliceForCriteria(row);
+
+        if (emptyP && emptyM) {
+            const seen = new Set();
+            const pairs = [];
+            for (const r of slice) {
+                const p = String(r['Mặt hàng'] ?? '').trim();
+                const m = String(r['khu vực'] ?? '').trim();
+                const k = `${p}\u0000${m}`;
+                if (seen.has(k)) continue;
+                seen.add(k);
+                pairs.push({ p, m });
+            }
+            pairs.sort((a, b) => a.p.localeCompare(b.p, 'vi') || a.m.localeCompare(b.m, 'vi'));
+            if (pairs.length === 0) {
+                next.push(row);
+            } else {
+                changed = true;
+                for (const { p, m } of pairs) {
+                    next.push({
+                        id: newRowId(),
+                        startDate: row.startDate,
+                        endDate: row.endDate,
+                        product: p,
+                        market: m
+                    });
+                }
+            }
+        } else if (emptyP && !emptyM) {
+            const seen = new Set();
+            const products = [];
+            for (const r of slice) {
+                const m = String(r['khu vực'] ?? '').trim();
+                if (m !== marketTrim) continue;
+                const p = String(r['Mặt hàng'] ?? '').trim();
+                if (seen.has(p)) continue;
+                seen.add(p);
+                products.push(p);
+            }
+            products.sort((a, b) => a.localeCompare(b, 'vi'));
+            if (products.length === 0) {
+                next.push(row);
+            } else {
+                changed = true;
+                for (const p of products) {
+                    next.push({
+                        id: newRowId(),
+                        startDate: row.startDate,
+                        endDate: row.endDate,
+                        product: p,
+                        market: row.market
+                    });
+                }
+            }
+        } else if (!emptyP && emptyM) {
+            const seen = new Set();
+            const markets = [];
+            for (const r of slice) {
+                const p = String(r['Mặt hàng'] ?? '').trim();
+                if (p !== productTrim) continue;
+                const m = String(r['khu vực'] ?? '').trim();
+                if (seen.has(m)) continue;
+                seen.add(m);
+                markets.push(m);
+            }
+            markets.sort((a, b) => a.localeCompare(b, 'vi'));
+            if (markets.length === 0) {
+                next.push(row);
+            } else {
+                changed = true;
+                for (const m of markets) {
+                    next.push({
+                        id: newRowId(),
+                        startDate: row.startDate,
+                        endDate: row.endDate,
+                        product: row.product,
+                        market: m
+                    });
+                }
+            }
+        } else {
+            next.push(row);
+        }
+    }
+
+    return changed ? next : prevRows;
 }

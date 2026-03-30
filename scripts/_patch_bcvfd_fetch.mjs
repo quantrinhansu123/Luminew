@@ -23,7 +23,7 @@ const newFetch = `    const fetchData = async () => {
             const { data, error: qErr } = await supabase
                 .from('bao_cao_van_don')
                 .select(
-                    'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan'
+                    'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan, tien_trang_thai_thanh_toan'
                 )
                 .gte('ngay', fp.startDate)
                 .lte('ngay', fp.endDate)

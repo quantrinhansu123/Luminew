@@ -21,6 +21,7 @@ import {
 import {
     aggregateOperationalReportSlice,
     BC_VH_PAYMENT_COLUMNS,
+    expandBcvhCriteriaRowsFromRawData,
     filterSliceForCriteriaRow,
     formatNumVi,
     formatPctComma
@@ -56,6 +57,7 @@ const mapBaoCaoRowToVirtual = (row) => {
         _ket_qua_check: row.ket_qua_check,
         _trang_thai_giao_hang: row.trang_thai_giao_hang,
         _trang_thai_thanh_toan: row.trang_thai_thanh_toan,
+        _tien_trang_thai_thanh_toan: row.tien_trang_thai_thanh_toan ?? {},
         'Ngày lên đơn': dateStr,
         'NV Vận đơn': row.nhan_vien || '',
         'Mặt hàng': row.san_pham || '',
@@ -325,7 +327,7 @@ export default function BaoCaoVanHanhHtml() {
     const renderBcvhMetricCells = (m) => (
         <>
             <td className="bcvh-cell">{formatNumVi(m.donCoBill)}</td>
-            <td className="bcvh-cell text-gray-500">{NO_AMOUNT}</td>
+            <td className="bcvh-cell">{formatNumVi(m.donCoBillAmount)}</td>
             <td className="bcvh-cell">{formatNumVi(m.tongNoiBo)}</td>
             <td className="bcvh-cell">{formatNumVi(m.coMa)}</td>
             <td className="bcvh-cell">{formatNumVi(m.chuaCoMa)}</td>
@@ -338,7 +340,7 @@ export default function BaoCaoVanHanhHtml() {
             <td className="bcvh-cell">{formatNumVi(m.hoan)}</td>
             <td className="bcvh-cell">{formatNumVi(m.huyVH)}</td>
             <td className="bcvh-cell">{formatNumVi(m.choCheck)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.trongTT)}</td>
+            <td className="bcvh-cell">{formatNumVi(m.tongThanhToanGiaoHangNb)}</td>
             <td className="bcvh-cell">{formatNumVi(m.huyNoiBo)}</td>
             <td className="bcvh-cell">{formatNumVi(m.doiHang)}</td>
             <td className="bcvh-cell">{formatNumVi(m.khachHen)}</td>
@@ -353,7 +355,7 @@ export default function BaoCaoVanHanhHtml() {
         </>
     );
 
-    const fetchData = async () => {
+    const fetchData = async (options = {}) => {
         if (!reportFilters.startDate || !reportFilters.endDate) {
             alert('Vui lòng chọn khoảng thời gian.');
             return;
@@ -370,7 +372,7 @@ export default function BaoCaoVanHanhHtml() {
             const { data, error: qErr } = await supabase
                 .from('bao_cao_van_don')
                 .select(
-                    'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan'
+                    'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan, tien_trang_thai_thanh_toan'
                 )
                 .gte('ngay', qStart)
                 .lte('ngay', qEnd)
@@ -405,6 +407,11 @@ export default function BaoCaoVanHanhHtml() {
                 setError(null);
             }
             setRawData(rows);
+            if (options.expandBcvh && rows.length > 0) {
+                setBcvhCriteriaRows((prev) =>
+                    expandBcvhCriteriaRowsFromRawData(prev, rows, newBcvhRowId)
+                );
+            }
         } catch (err) {
             console.error(err);
             setError(err.message || 'Lỗi tải bao_cao_van_don');
@@ -418,6 +425,13 @@ export default function BaoCaoVanHanhHtml() {
         <>
             <td className="border border-black px-2 py-1 text-right tabular-nums">{formatSlVi(m)}</td>
             <td className="border border-black px-2 py-1 text-right text-gray-500">{NO_AMOUNT}</td>
+        </>
+    );
+
+    const renderCoBillPair = (count, amountVnd) => (
+        <>
+            <td className="border border-black px-2 py-1 text-right tabular-nums">{formatSlVi(count)}</td>
+            <td className="border border-black px-2 py-1 text-right tabular-nums">{formatNumVi(amountVnd)}</td>
         </>
     );
 
@@ -450,8 +464,9 @@ export default function BaoCaoVanHanhHtml() {
             <h1 className="text-xl font-bold text-gray-800 mb-2">Báo cáo vận hành</h1>
             <p className="text-sm text-gray-600 mb-4 max-w-4xl">
                 Số liệu gom từ bảng <strong>bao_cao_van_don</strong> (histogram kết quả check / giao hàng / thanh toán).
-                Cột <strong>Thành tiền</strong> giữ dạng &quot;—&quot; vì bảng không lưu tiền — chỉ có{' '}
-                <strong>SL đơn</strong>.
+                Cột <strong>Thành tiền</strong> đối với <strong>Đã thanh toán (có bill)</strong> lấy từ{' '}
+                <strong>tien_trang_thai_thanh_toan</strong> (đồng bộ từ <strong>orders.reconciled_vnd</strong>); các
+                block khác vẫn có thể hiển thị &quot;—&quot; khi không có số tiền tương ứng trong tổng hợp.
             </p>
 
             {error && (
@@ -576,8 +591,8 @@ export default function BaoCaoVanHanhHtml() {
                     type="button"
                     disabled={loading}
                     className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
-                    onClick={() => {
-                        fetchData();
+                    onClick={async () => {
+                        await fetchData({ expandBcvh: activeTab === 'tab2' });
                         const p = new URLSearchParams(searchParams);
                         p.set('from_date', reportFilters.startDate);
                         p.set('to_date', reportFilters.endDate);
@@ -688,7 +703,7 @@ export default function BaoCaoVanHanhHtml() {
                                 <td className="px-3 py-2">{isoToViDisplay(reportFilters.startDate)}</td>
                                 <td className="px-3 py-2">{isoToViDisplay(reportFilters.endDate)}</td>
                                 <td className="px-3 py-2">{formatSlVi(total.donCoBill)}</td>
-                                <td className="px-3 py-2 text-gray-500">{NO_AMOUNT}</td>
+                                <td className="px-3 py-2">{formatNumVi(total.donCoBillAmount)}</td>
                                 <td className="px-3 py-2">{formatSlVi(total.giaoTC)}</td>
                                 <td className="px-3 py-2">{formatSlVi(total.coMa)}</td>
                                 <td className="px-3 py-2 text-gray-500">{NO_AMOUNT}</td>
@@ -712,8 +727,10 @@ export default function BaoCaoVanHanhHtml() {
                         <p className="max-w-3xl text-xs text-gray-600">
                             Nguồn <strong>bao_cao_van_don</strong>. Mỗi dòng: chọn <strong>Ngày đầu / Ngày cuối</strong>,{' '}
                             <strong>Sản phẩm</strong> và <strong>Thị trường</strong> (để trống = tất cả). Bấm{' '}
-                            <strong>Tìm</strong> để tải dữ liệu trùng khoảng ngày của thanh lọc và mọi dòng. Cột{' '}
-                            <strong>Thành tiền</strong> = &quot;—&quot;.
+                            <strong>Tìm</strong> để tải dữ liệu trùng khoảng ngày của thanh lọc và mọi dòng; ở tab này, nếu{' '}
+                            <strong>Sản phẩm</strong> hoặc <strong>Thị trường</strong> đang trống thì hệ thống tự tách thành
+                            các dòng theo mặt hàng / thị trường có trong khoảng ngày của dòng đó. Cột{' '}
+                            <strong>Thành tiền</strong> (có bill) = tổng VNĐ sau khi <strong>đồng bộ báo cáo vận đơn</strong>.
                         </p>
                         <button
                             type="button"
@@ -815,16 +832,20 @@ export default function BaoCaoVanHanhHtml() {
                                     <th className="bcvh-h-green">Hoàn</th>
                                     <th className="bcvh-h-green leading-tight">Hủy vận hành</th>
                                     <th className="bcvh-h-green">Chờ check</th>
-                                    <th className="bcvh-h-green leading-tight">Trống tt giao hàng NR</th>
+                                    <th className="bcvh-h-green leading-tight">
+                                        Tổng thanh toán
+                                        <br />
+                                        giao hàng NB
+                                    </th>
                                     <th className="bcvh-h-red">Huỷ nội bộ</th>
                                     <th className="bcvh-h-red">Đợi hàng</th>
                                     <th className="bcvh-h-red">Khách hẹn</th>
                                     <th className="bcvh-h-red">Treo</th>
                                     <th className="bcvh-h-red">Vận đơn XL</th>
                                     <th className="bcvh-h-red leading-tight">
-                                        Đơn đã ck mà
+                                        Đơn Ok nhưng
                                         <br />
-                                        chưa đẩy (ước OK−mã)
+                                        chưa có mã
                                     </th>
                                     {BC_VH_PAYMENT_COLUMNS.map((c) => (
                                         <th key={c.id} className="bcvh-h-grey leading-tight">
@@ -1067,9 +1088,11 @@ export default function BaoCaoVanHanhHtml() {
                         <tr className="bg-cyan-200 font-bold">
                             <td className="border border-black px-2 py-1">Đơn có bill (có bill, trừ 1 phần)</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`bl-${mk}`}>{renderMetricPair(byMarket[mk].donCoBill)}</React.Fragment>
+                                <React.Fragment key={`bl-${mk}`}>
+                                    {renderCoBillPair(byMarket[mk].donCoBill, byMarket[mk].donCoBillAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.donCoBill)}
+                            {renderCoBillPair(total.donCoBill, total.donCoBillAmount)}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
                             <td className="border border-black px-2 py-1">Tỷ lệ thu tiền / đơn TC (%)</td>

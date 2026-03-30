@@ -1,6 +1,7 @@
 import { supabase } from '../supabase/config';
 import { orderRangeToCreatedAtIsoBounds } from '../utils/dateParsing';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
+import { isGiaoHangHistogramSyntheticKey } from '../utils/baoCaoVanDonFormat';
 
 function normalizeStr(str) {
   if (str === null || str === undefined) return '';
@@ -80,6 +81,52 @@ function countHistogram(rawValues) {
   return Object.fromEntries(counts);
 }
 
+/** jsonb cùng key như countHistogram: tổng reconciled_vnd (VNĐ) theo nhãn thanh toán. */
+function sumMoneyHistogramByPaymentLabel(orders) {
+  const sums = new Map();
+  for (const o of orders || []) {
+    const label = paymentLabelForHistogram(o);
+    const key = label == null || String(label).trim() === '' ? '(Trống)' : String(label).trim();
+    const amt = Number(o?.reconciled_vnd) || 0;
+    sums.set(key, (sums.get(key) || 0) + amt);
+  }
+  return Object.fromEntries(sums);
+}
+
+/** Đếm bucket "Mã Tracking" chỉ theo cột orders.tracking_code (sau trim, khác rỗng). */
+function orderHasTrackingCode(o) {
+  const tc = o?.tracking_code;
+  return tc != null && String(tc).trim() !== '';
+}
+
+/** Đã khai báo đơn vị vận chuyển (cột shipping_unit): có tên = đếm 1, trống = 0. */
+function orderHasShippingUnitName(o) {
+  const u = o?.shipping_unit;
+  return u != null && String(u).trim() !== '';
+}
+
+/**
+ * Histogram giao hàng: delivery_status + hai dòng tổng hợp (luôn ghi, đếm từ DB).
+ * — "Mã Tracking": số đơn có tracking_code khác rỗng.
+ * — "Lên vận hành": số đơn có shipping_unit khác rỗng.
+ * Xóa mọi key delivery_status trùng nhãn tổng hợp để tránh trùng với đếm tracking_code.
+ */
+function buildTrangThaiGiaoHangHistogram(list) {
+  const h = countHistogram(list.map((o) => o.delivery_status));
+  for (const k of Object.keys(h)) {
+    if (isGiaoHangHistogramSyntheticKey(k)) delete h[k];
+  }
+  let ma = 0;
+  let lenVh = 0;
+  for (const o of list || []) {
+    if (orderHasTrackingCode(o)) ma += 1;
+    if (orderHasShippingUnitName(o)) lenVh += 1;
+  }
+  h['Mã Tracking'] = ma;
+  h['Lên vận hành'] = lenVh;
+  return h;
+}
+
 /** Ngày lên đơn chuẩn; thiếu order_date thì lấy ngày từ created_at (khớp Danh sách đơn). */
 function effectiveOrderDateYmd(order) {
   const od = normalizeDateStr(order?.order_date);
@@ -114,8 +161,34 @@ function isNetworkError(e) {
   );
 }
 
+/** DB chưa migration cột tiền — bỏ field khỏi payload để đồng bộ còn lại vẫn chạy. */
+function omitTienTrangThaiThanhToan(row) {
+  if (!row || typeof row !== 'object') return row;
+  const { tien_trang_thai_thanh_toan: _drop, ...rest } = row;
+  return rest;
+}
+
+function postgresClientErrorText(err) {
+  return String(err?.message ?? err?.details ?? err?.hint ?? err ?? '');
+}
+
+function isMissingTienColumnError(err) {
+  const msg = postgresClientErrorText(err).toLowerCase();
+  if (!msg.includes('tien_trang_thai_thanh_toan')) return false;
+  return (
+    msg.includes('column') ||
+    msg.includes('schema') ||
+    msg.includes('does not exist') ||
+    msg.includes('could not find')
+  );
+}
+
+/** Chạy trong Supabase SQL Editor nếu báo thiếu cột tien_trang_thai_thanh_toan. */
+export const SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN = `alter table public.bao_cao_van_don
+  add column if not exists tien_trang_thai_thanh_toan jsonb not null default '{}'::jsonb;`;
+
 const VAN_DON_REPORT_ORDER_SELECT =
-  'order_code, order_date, created_at, delivery_staff, product, country, delivery_status, check_result, payment_status, payment_status_detail';
+  'order_code, order_date, created_at, delivery_staff, product, country, delivery_status, check_result, payment_status, payment_status_detail, reconciled_vnd, tracking_code, shipping_unit';
 
 async function fetchAllOrdersForVanDonReport(startDate, endDate) {
   const PAGE_SIZE = 2000;
@@ -202,6 +275,8 @@ async function fetchAllBaoCaoVanDonInRange(startDate, endDate) {
  * Từ `orders` ghi `bao_cao_van_don`: upsert theo key
  * (ngay ← order_date, nhan_vien ← delivery_staff, san_pham ← product, thi_truong ← country).
  * Cột trạng thái: jsonb đếm số đơn theo từng giá trị trong nhóm key.
+ * - trang_thai_thanh_toan: nhãn thanh toán; tien_trang_thai_thanh_toan: tổng reconciled_vnd cùng key.
+ * - trang_thai_giao_hang: delivery_status + "Mã Tracking" (đếm tracking_code) + "Lên vận hành" (shipping_unit).
  */
 export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = false } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
@@ -252,9 +327,10 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
     const san_pham = pickMode(list.map((o) => o.product)) ?? '';
     const thi_truong = pickMode(list.map((o) => o.country)) ?? '';
 
-    const trang_thai_giao_hang = countHistogram(list.map((o) => o.delivery_status));
+    const trang_thai_giao_hang = buildTrangThaiGiaoHangHistogram(list);
     const ket_qua_check = countHistogram(list.map((o) => getCheckResult(o)));
     const trang_thai_thanh_toan = countHistogram(list.map((o) => paymentLabelForHistogram(o)));
+    const tien_trang_thai_thanh_toan = sumMoneyHistogramByPaymentLabel(list);
 
     const patch = {
       ngay,
@@ -264,6 +340,7 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
       trang_thai_giao_hang,
       ket_qua_check,
       trang_thai_thanh_toan,
+      tien_trang_thai_thanh_toan,
     };
 
     const existing = existingByKey.get(key);
@@ -297,47 +374,111 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
       createdMissing: createRows.length,
       upsertCount: updateRows.length + createRows.length,
       previewRows,
+      tienColumnSkippedInSync: false,
     };
   }
 
   const UPDATE_CONCURRENCY = 4;
   let touched = 0;
+  let tienColumnUsable = true;
+  let tienColumnSkippedInSync = false;
+
+  const stripPayloadForUpdate = (rest, stripTien) => {
+    let p = rest;
+    if (stripTien) p = omitTienTrangThaiThanhToan(p);
+    return p;
+  };
 
   for (let i = 0; i < updateRows.length; i += UPDATE_CONCURRENCY) {
     const chunk = updateRows.slice(i, i + UPDATE_CONCURRENCY);
-    try {
-      const results = await Promise.all(
+
+    const runUpdates = (stripTien) =>
+      Promise.all(
         chunk.map((row) => {
           const { id, ...rest } = row;
-          return supabase.from('bao_cao_van_don').update(rest).eq('id', id);
+          const payload = stripPayloadForUpdate(rest, stripTien);
+          return supabase.from('bao_cao_van_don').update(payload).eq('id', id);
         })
       );
-      const firstErr = results.find((r) => r.error)?.error;
-      if (firstErr) throw firstErr;
-    } catch (e) {
-      if (!isNetworkError(e)) throw e;
+
+    let results = await runUpdates(!tienColumnUsable);
+    let firstErr = results.find((r) => r.error)?.error;
+
+    for (let guard = 0; guard < 4 && firstErr; guard++) {
+      if (tienColumnUsable && isMissingTienColumnError(firstErr)) {
+        tienColumnUsable = false;
+        tienColumnSkippedInSync = true;
+        results = await runUpdates(true);
+        firstErr = results.find((r) => r.error)?.error;
+        continue;
+      }
+      break;
+    }
+
+    if (firstErr && isNetworkError(firstErr)) {
       for (const row of chunk) {
         const { id, ...rest } = row;
-        const { error } = await supabase.from('bao_cao_van_don').update(rest).eq('id', id);
+        let { error } = await supabase
+          .from('bao_cao_van_don')
+          .update(stripPayloadForUpdate(rest, !tienColumnUsable))
+          .eq('id', id);
+        for (let g = 0; g < 4 && error; g++) {
+          if (tienColumnUsable && isMissingTienColumnError(error)) {
+            tienColumnUsable = false;
+            tienColumnSkippedInSync = true;
+            ({ error } = await supabase
+              .from('bao_cao_van_don')
+              .update(stripPayloadForUpdate(rest, true))
+              .eq('id', id));
+            continue;
+          }
+          break;
+        }
         if (error) throw error;
       }
+    } else if (firstErr) {
+      throw firstErr;
     }
+
     touched += chunk.length;
   }
+
+  const mapRowForInsert = (r) => stripPayloadForUpdate(r, !tienColumnUsable);
 
   const INSERT_CHUNK = 200;
   for (let i = 0; i < createRows.length; i += INSERT_CHUNK) {
     const chunk = createRows.slice(i, i + INSERT_CHUNK);
-    try {
-      const { error } = await supabase.from('bao_cao_van_don').insert(chunk);
-      if (error) throw error;
-    } catch (e) {
-      if (chunk.length <= 1) throw e;
-      for (const row of chunk) {
-        const { error: e2 } = await supabase.from('bao_cao_van_don').insert([row]);
-        if (e2) throw e2;
+    const rowsForInsert = chunk.map((r) => mapRowForInsert(r));
+
+    let { error: insErr } = await supabase.from('bao_cao_van_don').insert(rowsForInsert);
+    for (let guard = 0; guard < 4 && insErr; guard++) {
+      if (tienColumnUsable && isMissingTienColumnError(insErr)) {
+        tienColumnUsable = false;
+        tienColumnSkippedInSync = true;
+        ({ error: insErr } = await supabase.from('bao_cao_van_don').insert(chunk.map((r) => mapRowForInsert(r))));
+        continue;
       }
+      break;
     }
+
+    if (insErr && chunk.length > 1) {
+      for (const row of chunk) {
+        let { error } = await supabase.from('bao_cao_van_don').insert([mapRowForInsert(row)]);
+        for (let g = 0; g < 4 && error; g++) {
+          if (tienColumnUsable && isMissingTienColumnError(error)) {
+            tienColumnUsable = false;
+            tienColumnSkippedInSync = true;
+            ({ error } = await supabase.from('bao_cao_van_don').insert([mapRowForInsert(row)]));
+            continue;
+          }
+          break;
+        }
+        if (error) throw error;
+      }
+      insErr = null;
+    }
+
+    if (insErr) throw insErr;
     touched += chunk.length;
   }
 
@@ -350,5 +491,6 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
     createdMissing: createRows.length,
     upserted: touched,
     previewRows,
+    tienColumnSkippedInSync,
   };
 }

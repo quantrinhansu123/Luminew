@@ -78,7 +78,7 @@ function getShipping(row) {
 }
 
 function getRevenue(row) {
-  const v = row?.total_amount_vnd ?? row?.["Tổng tiền VNĐ"] ?? row?.tong_tien_vnd ?? row?.total_amount;
+  const v = row?.total_amount_vnd ?? row?.["Tổng tiền VNĐ"] ?? row?.total_amount;
   if (v == null || v === "") return 0;
   const n = Number(String(v).replace(/[^\d.-]/g, "").replace(/^-/, ""));
   return Number.isFinite(n) ? n : 0;
@@ -107,7 +107,6 @@ function formatCell(key, val) {
   if (
     key === "total_amount_vnd" ||
     key === "Tổng tiền VNĐ" ||
-    key === "tong_tien_vnd" ||
     key === "total_amount"
   ) {
     const n = getRevenue({ [key]: val });

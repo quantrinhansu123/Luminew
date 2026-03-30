@@ -44,14 +44,26 @@ function canonicalPersonName(value) {
         .toLowerCase();
 }
 
+/** Đổi tên hiển thị cột Người báo cáo (sales_reports.name) — nút tiện ích trên trang báo cáo tay Sale. */
+const RENAME_REPORTER_FROM_EMAIL = 'Congthien436@gmail.com';
+const RENAME_REPORTER_TO_NAME = 'Nguyễn Duy Đức';
+
 export default function DanhSachBaoCaoTay() {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const teamFilter = searchParams.get('team'); // 'RD' or null
 
     // Permission Logic
-    const { canView, role } = usePermissions();
+    const { canView, role, loading: permissionsLoading } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_MANUAL' : 'SALE_MANUAL';
+
+    /** Hai nút chỉnh team / đổi tên người báo cáo: chỉ role admin thật từ DB (không tin localStorage). */
+    const showBaoCaoTayAdminToolbarButtons = useMemo(() => {
+        if (permissionsLoading) return false;
+        if (role == null || String(role).trim() === '') return false;
+        const l = String(role).trim().toLowerCase();
+        return l === 'admin' || l === 'super_admin' || l === 'administrator';
+    }, [permissionsLoading, role]);
 
     // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút xóa)
     const roleFromHook = (role || '').toUpperCase();
@@ -114,6 +126,8 @@ export default function DanhSachBaoCaoTay() {
     // Calculate Orders Modal
     const [updatingOrders, setUpdatingOrders] = useState(false);
     const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
+    const [teamSyncing, setTeamSyncing] = useState(false);
+    const [renamingReporter, setRenamingReporter] = useState(false);
 
     // View Orders Modal
     const [showViewOrdersModal, setShowViewOrdersModal] = useState(false);
@@ -1271,6 +1285,133 @@ export default function DanhSachBaoCaoTay() {
         return rows;
     }, [manualReports, filters.personnel, staffTableSearch]);
 
+    const normalizeNameForUserTeamLookup = useCallback(
+        (s) =>
+            String(s || '')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase(),
+        []
+    );
+
+    /** Khớp `sales_reports.name` với `users.name` / `username`, ghi `team` & `branch` từ users. */
+    const handleSyncTeamFromUsers = useCallback(async () => {
+        if (
+            !window.confirm(
+                'Đồng bộ cột Team và Chi nhánh (branch) từ bảng users?\n\n' +
+                    'Áp dụng cho các dòng đang hiển thị (theo bộ lọc ngày / sản phẩm / thị trường / nhân sự).\n' +
+                    'Khớp tên (name / username) không phân biệt hoa thường, sau khi chuẩn hóa khoảng trắng.'
+            )
+        ) {
+            return;
+        }
+        const rows = reportsAfterPersonnelFilter;
+        if (!rows.length) {
+            toast.warn('Không có dữ liệu trong khoảng đã lọc.');
+            return;
+        }
+        setTeamSyncing(true);
+        try {
+            const { data: users, error: userErr } = await supabase
+                .from('users')
+                .select('name, username, team, branch');
+            if (userErr) throw userErr;
+
+            const nameToProfile = new Map();
+            (users || []).forEach((u) => {
+                const teamVal = String(u.team ?? '').trim();
+                const branchVal = String(u.branch ?? '').trim();
+                if (!teamVal && !branchVal) return;
+                const n = normalizeNameForUserTeamLookup(u.name);
+                const un = normalizeNameForUserTeamLookup(u.username);
+                const payload = { team: teamVal, branch: branchVal };
+                if (n) nameToProfile.set(n, payload);
+                if (un) nameToProfile.set(un, payload);
+            });
+
+            let updated = 0;
+            let skippedNoMatch = 0;
+            let skippedSame = 0;
+
+            for (const r of rows) {
+                const key = normalizeNameForUserTeamLookup(r.name);
+                const prof = nameToProfile.get(key);
+                if (!prof) {
+                    skippedNoMatch += 1;
+                    continue;
+                }
+                const newTeam = prof.team || '';
+                const newBranch = prof.branch || '';
+                if (!newTeam && !newBranch) {
+                    skippedNoMatch += 1;
+                    continue;
+                }
+                const curTeam = String(r.team ?? '').trim();
+                const curBranch = String(r.branch ?? '').trim();
+                if (curTeam === newTeam && curBranch === newBranch) {
+                    skippedSame += 1;
+                    continue;
+                }
+                const { error: upErr } = await supabase
+                    .from('sales_reports')
+                    .update({
+                        team: newTeam || null,
+                        branch: newBranch || null,
+                    })
+                    .eq('id', r.id);
+                if (upErr) throw upErr;
+                updated += 1;
+            }
+
+            toast.success(
+                `Đã cập nhật team & chi nhánh: ${updated} dòng. ` +
+                    `Không khớp / thiếu team&branch trên user: ${skippedNoMatch}. ` +
+                    `Đã khớp, không đổi: ${skippedSame}.`
+            );
+            fetchData();
+        } catch (error) {
+            console.error('handleSyncTeamFromUsers:', error);
+            toast.error('Lỗi đồng bộ team & chi nhánh: ' + (error.message || String(error)));
+        } finally {
+            setTeamSyncing(false);
+        }
+    }, [reportsAfterPersonnelFilter, fetchData, normalizeNameForUserTeamLookup]);
+
+    /** Đổi toàn bộ sales_reports có name = email (không phân biệt hoa thường) → tên hiển thị. */
+    const handleRenameReporterEmailToName = useCallback(async () => {
+        if (
+            !window.confirm(
+                `Đổi cột Người báo cáo (name) trong bảng sales_reports:\n\n` +
+                    `Từ: ${RENAME_REPORTER_FROM_EMAIL}\n` +
+                    `Thành: ${RENAME_REPORTER_TO_NAME}\n\n` +
+                    `Áp dụng mọi dòng khớp (không phân biệt hoa/thường). Tiếp tục?`
+            )
+        ) {
+            return;
+        }
+        setRenamingReporter(true);
+        try {
+            const { data, error } = await supabase
+                .from('sales_reports')
+                .update({ name: RENAME_REPORTER_TO_NAME })
+                .ilike('name', RENAME_REPORTER_FROM_EMAIL)
+                .select('id');
+            if (error) throw error;
+            const n = Array.isArray(data) ? data.length : 0;
+            toast.success(
+                n > 0
+                    ? `Đã đổi ${n} dòng: "${RENAME_REPORTER_FROM_EMAIL}" → "${RENAME_REPORTER_TO_NAME}".`
+                    : `Không có dòng nào có Người báo cáo khớp "${RENAME_REPORTER_FROM_EMAIL}".`
+            );
+            fetchData();
+        } catch (error) {
+            console.error('handleRenameReporterEmailToName:', error);
+            toast.error('Lỗi đổi tên người báo cáo: ' + (error.message || String(error)));
+        } finally {
+            setRenamingReporter(false);
+        }
+    }, [fetchData]);
+
     // Hiển thị từng dòng báo cáo, không gộp theo ngày + tên (mỗi bản ghi một hàng, đủ thao tác).
     const reportsGroupedByDateAndName = useMemo(() => {
         return (reportsAfterPersonnelFilter || []).map((row) => ({
@@ -1586,7 +1727,45 @@ export default function DanhSachBaoCaoTay() {
 
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                        <h2>DANH SÁCH BÁO CÁO TAY SALE</h2>
+                        <h2 style={{ margin: 0 }}>DANH SÁCH BÁO CÁO TAY SALE</h2>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            {showBaoCaoTayAdminToolbarButtons && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={handleSyncTeamFromUsers}
+                                        disabled={teamSyncing || loading || updatingOrders || reportsAfterPersonnelFilter.length === 0}
+                                        className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md text-sm font-bold transition shadow-sm"
+                                        title="Cập nhật Team & Chi nhánh trên các dòng đang hiển thị theo bảng users (name / username)"
+                                    >
+                                        {teamSyncing ? (
+                                            <>
+                                                <span className="inline-block animate-spin mr-1">⏳</span>
+                                                Đang chỉnh team & chi nhánh…
+                                            </>
+                                        ) : (
+                                            'Chỉnh team & chi nhánh (theo users)'
+                                        )}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleRenameReporterEmailToName}
+                                        disabled={renamingReporter || loading || updatingOrders}
+                                        className="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:bg-gray-400 text-white rounded-md text-sm font-semibold transition shadow-sm"
+                                        title={`Đổi Người báo cáo từ ${RENAME_REPORTER_FROM_EMAIL} sang ${RENAME_REPORTER_TO_NAME} (toàn bộ sales_reports)`}
+                                    >
+                                        {renamingReporter ? (
+                                            <>
+                                                <span className="inline-block animate-spin mr-1">⏳</span>
+                                                Đang đổi tên…
+                                            </>
+                                        ) : (
+                                            `Đổi email → ${RENAME_REPORTER_TO_NAME}`
+                                        )}
+                                    </button>
+                                </>
+                            )}
+                        </div>
                         <div style={{ display: 'none', gap: '10px', alignItems: 'center' }}>
                             <button
                                 onClick={handleCalculateAndUpdateOrders}
