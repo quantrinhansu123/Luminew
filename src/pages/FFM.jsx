@@ -1052,7 +1052,7 @@ function FFM({ variant = 'MGT' }) {
         const rawVal =
           row['Ngày đối soát kế toán'] ||
           row['Phí ship nội địa Mỹ (usd)'] ||
-          row.shipping_fee ||
+          row.luu_kho_usd ||
           row['Phí_ship_nội_địa_Mỹ_(usd)'] ||
           '';
         return String(rawVal).trim().toLowerCase().includes(shipFeeSearch);

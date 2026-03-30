@@ -79,7 +79,8 @@ async function migrate() {
                 total_amount_vnd: cleanNumber(r["Tổng tiền VNĐ"]),
                 payment_method: r["Hình thức thanh toán"],
                 tracking_code: r["Mã Tracking"],
-                shipping_fee: cleanNumber(r["Ngày đối soát kế toán"] ?? r["Phí ship nội địa Mỹ (usd)"]),
+                shipping_fee: cleanNumber(r["Phí ship"]),
+                warehouse_fee: cleanNumber(r["Phí xử lý đơn đóng hàng-Lưu kho(usd)"]),
 
                 // Staff
                 marketing_staff: r["Nhân viên Sale"], // Approx logic
@@ -115,7 +116,12 @@ async function migrate() {
                 delivery_status_nb: r["Trạng thái giao hàng NB"],
                 payment_currency: r["Loại tiền thanh toán"],
                 estimated_delivery_date: parseDate(r["Thời gian giao dự kiến"]),
-                warehouse_fee: cleanNumber(r["Phí xử lý đơn đóng hàng-Lưu kho(usd)"]),
+                luu_kho_usd: (() => {
+                    const v = r["Ngày đối soát kế toán"] ?? r["Phí ship nội địa Mỹ (usd)"];
+                    if (v == null) return null;
+                    const s = String(v).trim();
+                    return s === "" ? null : s;
+                })(),
                 note_caps: r["GHI CHÚ"],
                 accounting_check_date: parseDate(r["Ngày Kế toán đối soát với FFM lần 2"]),
                 reconciled_amount: cleanNumber(r["Số tiền của đơn hàng đã về TK Cty"])

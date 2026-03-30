@@ -17,7 +17,7 @@ export const DB_TO_APP_MAPPING = {
     "total_amount_vnd": "Tổng tiền VNĐ",
     "payment_method": "Hình thức thanh toán",
     "tracking_code": "Mã Tracking",
-    "shipping_fee": "Ngày đối soát kế toán",
+    "shipping_fee": "Phí ship",
     "marketing_staff": "Nhân viên MKT",
     "sale_staff": "Nhân viên Sale",
     "team": "Team",
@@ -45,6 +45,7 @@ export const DB_TO_APP_MAPPING = {
     // Thời gian giao dự kiến: hiển thị gộp với thoigiangiaohangffm (xử lý trong mapSupabaseOrderToApp)
     "estimated_delivery_date": "Thời gian giao dự kiến",
     "warehouse_fee": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
+    "luu_kho_usd": "Ngày đối soát kế toán",
     "note_caps": "GHI CHÚ",
     "accounting_check_date": "Ngày Kế toán đối soát với FFM lần 2",
     "tracking_check_date": "Ngày có mã tracking",
@@ -63,8 +64,8 @@ export const DB_TO_APP_MAPPING = {
  * Trước đây chỉ khớp nhãn Việt → các cột dùng colKey kiểu sale_staff bị bỏ qua khi batch save (dữ liệu không ghi / refetch lệch).
  */
 /**
- * Cột DB `shipping_fee` map sang UI "Ngày đối soát kế toán" (text).
- * Dữ liệu cũ có thể là numeric 0 → không hiển thị "0" thay cho trống.
+ * Cột DB `warehouse_fee` (UI: Ngày đối soát kế toán) — text.
+ * Dữ liệu cũ từ shipping_fee nhầm có thể là số 0 → không hiển thị "0" thay cho trống.
  */
 export const normalizeNgayDoiSoatKeToanText = (v) => {
     if (v === undefined || v === null) return '';
@@ -178,10 +179,9 @@ const mapSupabaseOrderToApp = (sOrder) => {
         appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
         appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd;
     }
-    // shipping_fee (Ngày đối soát kế toán): text; đồng bộ cả key DB để lọc/ô không còn số 0
     const ns = normalizeNgayDoiSoatKeToanText(appOrder['Ngày đối soát kế toán']);
     appOrder['Ngày đối soát kế toán'] = ns;
-    appOrder.shipping_fee = ns;
+    appOrder.luu_kho_usd = ns;
     for (const k of ['shipping_unit', 'tracking_code', 'Đơn vị vận chuyển', 'Mã Tracking']) {
         const v = appOrder[k];
         if (typeof v === 'string') appOrder[k] = v.trim();
@@ -340,6 +340,7 @@ const ORDERS_NUMERIC_DB_KEYS = new Set([
     'total_amount_vnd',
     'sale_price',
     'goods_amount',
+    'shipping_fee',
     'warehouse_fee',
     'reconciled_amount',
     'reconciled_vnd',
@@ -377,7 +378,7 @@ const prepareValueForDB = (dbKey, value) => {
     // to support clearing numeric/date/text fields correctly in PostgreSQL.
     if (value === '' || value === undefined) return null;
 
-    if (dbKey === 'shipping_fee') {
+    if (dbKey === 'luu_kho_usd') {
         const s = normalizeNgayDoiSoatKeToanText(value);
         return s === '' ? null : s;
     }
@@ -751,7 +752,7 @@ export const VAN_DON_PAGE_COLUMN_LIST = [
     'marketing_staff', 'sale_staff', 'team', 'delivery_staff', 'delivery_status', 'payment_status', 'note', 'reason',
     'order_date', 'sale_price', 'goods_amount', 'shipping_unit', 'accountant_confirm', 'created_at', 'ngaydonghang',
     'check_result', 'vandon_note', 'product_name_1', 'quantity_1', 'product_name_2', 'quantity_2', 'gift', 'gift_item', 'gift_quantity', 'gift_qty',
-    'delivery_status_nb', 'payment_currency', 'estimated_delivery_date', 'thoigiangiaohangffm', 'warehouse_fee',
+    'delivery_status_nb', 'payment_currency', 'estimated_delivery_date', 'thoigiangiaohangffm', 'warehouse_fee', 'luu_kho_usd',
     'note_caps', 'accounting_check_date', 'tracking_check_date', 'reconciled_amount', 'payment_bill', 'payment_image',
     'ngayupbill', 'reconciled_vnd', 'cskh_status', 'log', 'canh_bao'
 ];
