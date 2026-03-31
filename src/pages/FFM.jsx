@@ -964,9 +964,8 @@ function FFM({ variant = 'MGT' }) {
     }
     return m;
   }, [ffmEnrichedRowsForRender]);
-  const getFilteredData = useMemo(() => {
-    let data = ffmEnrichedRowsForFilter;
-    const fv = deferredFilterValues;
+  const applyFfmFilters = useCallback((sourceRows, fv) => {
+    let data = sourceRows;
 
     if (variant === 'TT') {
       data = data.filter(isFfmTtCarrierRow);
@@ -1208,7 +1207,11 @@ function FFM({ variant = 'MGT' }) {
 
     // Lọc dựa trên data gốc (không pending), sau đó map sang row có pending để UI thể hiện ngay thay đổi.
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
-  }, [ffmEnrichedRowsForFilter, ffmRenderRowMap, omActiveTeam, omDateType, deferredFilterValues, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant]);
+  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant]);
+
+  const getFilteredData = useMemo(() => {
+    return applyFfmFilters(ffmEnrichedRowsForFilter, deferredFilterValues);
+  }, [applyFfmFilters, ffmEnrichedRowsForFilter, deferredFilterValues]);
 
   /** Xóa mọi lọc hiển thị (ô dưới tiêu đề cột, Từ/Tới ngày, bộ lọc nhanh) — không tải lại DB, không xóa thay đổi chưa lưu. */
   const clearFfmDisplayFilters = useCallback(() => {
@@ -1251,7 +1254,7 @@ function FFM({ variant = 'MGT' }) {
   }, [ffmColumns, addToast]);
 
   const handleExportFilteredExcel = useCallback(() => {
-    const rows = getFilteredData;
+    const rows = applyFfmFilters(ffmEnrichedRowsForFilter, localFilterValues);
     if (!rows.length) {
       addToast('Không có dữ liệu phù hợp bộ lọc để xuất.', 'error');
       return;
@@ -1270,7 +1273,7 @@ function FFM({ variant = 'MGT' }) {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     XLSX.writeFile(wb, `${sheetTag}_loc_${stamp}.xlsx`);
     addToast(`Đã xuất ${rows.length} dòng ra Excel.`, 'success');
-  }, [getFilteredData, getFfmExportCellValue, addToast, variant]);
+  }, [applyFfmFilters, ffmEnrichedRowsForFilter, localFilterValues, getFfmExportCellValue, addToast, variant]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();

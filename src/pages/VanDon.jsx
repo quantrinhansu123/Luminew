@@ -2270,9 +2270,24 @@ function VanDon() {
         else byLower.set(lk, pickBetterCase(byLower.get(lk), s));
       }
 
-      const merged = Array.from(byLower.values()).sort((a, b) =>
+      let merged = Array.from(byLower.values()).sort((a, b) =>
         String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
       );
+
+      // Với các cột có danh sách trạng thái cố định, chỉ hiển thị trong dropdown
+      // các giá trị có trong preset để tránh lộ giá trị rác (ví dụ mã số, text sai).
+      if (preset && preset.length > 0) {
+        const presetLower = new Set(
+          preset
+            .filter((p) => p !== '')
+            .map((p) => String(p).trim().toLowerCase())
+        );
+        merged = merged.filter((v) => {
+          const l = String(v).trim().toLowerCase();
+          if (l === '') return false;
+          return presetLower.has(l);
+        });
+      }
 
       // Một mục "Trống" cho ô trống; không thêm __EMPTY__ (vẫn tương thích khi selected còn __EMPTY__ từ bản cũ)
       return ['Trống', ...merged];
@@ -3216,7 +3231,7 @@ function VanDon() {
             <option value="co_trung">Có trùng</option>
             <option value="khong_trung">Không trùng</option>
           </select>
-        ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(col) ? (
+        ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển'].includes(col) ? (
           <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
             <MultiSelect
               compact
