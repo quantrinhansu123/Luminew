@@ -76,9 +76,63 @@ export const normalizeNgayDoiSoatKeToanText = (v) => {
     // - ISO: 2026-03-30...
     // - VN: 02/04/2026... (có thể có time phía sau)
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+    // If DB đang bị kiểu numeric và đang lưu dạng YYYYMMDD (vd 20260402)
+    if (/^\d{8}$/.test(s)) {
+        const yyyy = s.slice(0, 4);
+        const mm = s.slice(4, 6);
+        const dd = s.slice(6, 8);
+        return `${dd}/${mm}/${yyyy}`;
+    }
     if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(s)) return s;
     if (/^\d{1,2}-\d{1,2}-\d{2,4}/.test(s)) return s;
     return '';
+};
+
+const parseNgayDoiSoatKeToanToYmdNumber = (value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'number') {
+        const s = String(value);
+        // only treat 8-digit as YYYYMMDD
+        if (/^\d{8}$/.test(s)) return value;
+        return null;
+    }
+
+    const raw = String(value).trim();
+    if (raw === '' || raw === '0' || raw === '0.0' || raw === '0,0') return null;
+
+    // YYYYMMDD (numeric fallback)
+    if (/^\d{8}$/.test(raw)) return Number(raw);
+
+    // ISO: YYYY-MM-DD...
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) {
+        const yyyy = iso[1];
+        const mm = iso[2];
+        const dd = iso[3];
+        return Number(`${yyyy}${mm}${dd}`);
+    }
+
+    // VN: dd/mm/yyyy (optionally has time phía sau)
+    const vn = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (vn) {
+        const dd = vn[1].padStart(2, '0');
+        const mm = vn[2].padStart(2, '0');
+        const yyOrYyyy = vn[3];
+        const yyyy = yyOrYyyy.length === 2 ? `20${yyOrYyyy}` : yyOrYyyy;
+        return Number(`${yyyy}${mm}${dd}`);
+    }
+
+    // dd-mm-yyyy also supported
+    const vnDash = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})/);
+    if (vnDash) {
+        const dd = vnDash[1].padStart(2, '0');
+        const mm = vnDash[2].padStart(2, '0');
+        const yyOrYyyy = vnDash[3];
+        const yyyy = yyOrYyyy.length === 2 ? `20${yyOrYyyy}` : yyOrYyyy;
+        return Number(`${yyyy}${mm}${dd}`);
+    }
+
+    return null;
 };
 
 const resolveAppKeyToDbKey = (appKey) => {
@@ -389,8 +443,10 @@ const prepareValueForDB = (dbKey, value) => {
     if (value === '' || value === undefined) return null;
 
     if (dbKey === 'luu_kho_usd') {
-        const s = normalizeNgayDoiSoatKeToanText(value);
-        return s === '' ? null : s;
+        // Defensive: some DBs đang bị kiểu `numeric` dù UI là ngày dd/mm/yyyy.
+        // Convert ngày -> YYYYMMDD number để tránh lỗi "invalid input syntax for type numeric".
+        // Khi DB đúng kiểu text, việc lưu YYYYMMDD cũng không làm crash; UI sẽ hiển thị lại qua normalize().
+        return parseNgayDoiSoatKeToanToYmdNumber(value);
     }
 
     if (['order_date', 'created_at', 'estimated_delivery_date', 'accounting_check_date', 'ngayupbill', 'ngaydonghang', 'tracking_check_date'].includes(dbKey)) {

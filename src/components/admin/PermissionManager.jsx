@@ -260,6 +260,15 @@ const EmployeesList = ({
     const [isEditing, setIsEditing] = useState(false);
     const [selectedEmployees, setSelectedEmployees] = useState([]);
     const [teamEmployees, setTeamEmployees] = useState([]); // Nhân sự được load từ database
+
+    // Danh sách tên nhân sự của team (Leader) lấy từ DB.
+    // Lưu ý: UI/DB đang dùng "tên" cho selected_personnel nên ta normalize về chuỗi tên.
+    const teamEmployeeNames = useMemo(() => {
+        return (teamEmployees || [])
+            .map((e) => e?.['Họ Và Tên'] || e?.name || e?.email || '')
+            .map((s) => String(s).trim())
+            .filter(Boolean);
+    }, [teamEmployees]);
     
     // Xác định position có phải là Nhân viên không
     const isNhanVien = position && position.toLowerCase().includes('nhân viên') && 
@@ -521,6 +530,24 @@ const EmployeesList = ({
         setIsEditing(false);
     };
 
+    // Đồng bộ toàn bộ nhân sự thuộc team hiện chọn vào cột "Nhân sự" (selected_personnel).
+    const handleSyncTeamPersonnel = async () => {
+        if (!isLeader || !teams || teams.length === 0) return;
+        if (!Array.isArray(teamEmployeeNames) || teamEmployeeNames.length === 0) return;
+        if (typeof onUpdateEmployees !== 'function') return;
+
+        const names = Array.from(new Set(teamEmployeeNames));
+        try {
+            await onUpdateEmployees(names);
+            setSelectedEmployees(names);
+            setIsExpanded(true);
+            setIsEditing(false);
+        } catch (error) {
+            console.error('Error syncing team personnel:', error);
+            toast.error('Lỗi đồng bộ nhân sự: ' + (error?.message || 'Unknown error'));
+        }
+    };
+
     if (isEditing) {
         return (
             <div className="space-y-2">
@@ -591,6 +618,16 @@ const EmployeesList = ({
                 >
                     {isExpanded ? 'Ẩn' : `Xem ${filteredEmployees.length} nhân sự`}
                 </button>
+                {isLeader && teams && teams.length > 0 && teamEmployees.length > 0 && (
+                    <button
+                        type="button"
+                        onClick={handleSyncTeamPersonnel}
+                        className="text-xs text-indigo-600 hover:text-indigo-700 underline"
+                        title="Đồng bộ toàn bộ nhân sự thuộc team vào cột Nhân sự"
+                    >
+                        Đồng bộ
+                    </button>
+                )}
                 <button
                     onClick={() => setIsEditing(true)}
                     className="text-xs text-gray-500 hover:text-gray-700"
