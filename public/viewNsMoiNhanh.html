@@ -820,8 +820,12 @@
       return (typeof window !== 'undefined' && window.__SUPABASE_ANON_KEY__) || SUPABASE_ANON_KEY_DEFAULT;
     }
 
-    /** Lọc team HN-MKT trực tiếp trên Supabase (bảng detail_reports). */
-    const MKT_TEAM = 'HN-MKT';
+    /**
+     * Lọc team MKT trực tiếp trên Supabase (bảng detail_reports).
+     * - null: không lọc, lấy tất cả team (để "Team test" cũng hiển thị).
+     * - string: lọc theo đúng team.
+     */
+    const MKT_TEAM = null;
 
     function parseYmdInputForMkt(v) {
       if (!v || typeof v !== 'string') return null;
@@ -866,7 +870,7 @@
     function getMktDetailReportsCacheKey() {
       const { startYmd, endYmd } = getMktDateRangeForQuery();
       // bump version to avoid reusing old cached paging logic
-      return `MKT_SUPABASE:v3:${MKT_TEAM}:${startYmd || ''}:${endYmd || ''}`;
+      return `MKT_SUPABASE:v3:${MKT_TEAM || 'ALL'}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -1131,7 +1135,8 @@
       let lastId = null;
 
       for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
-        let q = supabase.from('detail_reports').select('*').eq('Team', MKT_TEAM);
+        let q = supabase.from('detail_reports').select('*');
+        if (MKT_TEAM) q = q.eq('Team', MKT_TEAM);
         if (startYmd) q = q.gte('Ngày', startYmd);
         if (endYmd) q = q.lte('Ngày', endYmd);
         if (lastId !== null && lastId !== undefined && lastId !== '') q = q.gt('id', lastId);
@@ -1179,7 +1184,8 @@
       let from = 0;
 
       for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
-        let q = supabase.from('detail_reports').select('*').eq('Team', MKT_TEAM);
+        let q = supabase.from('detail_reports').select('*');
+        if (MKT_TEAM) q = q.eq('Team', MKT_TEAM);
         if (startYmd) q = q.gte('Ngày', startYmd);
         if (endYmd) q = q.lte('Ngày', endYmd);
         q = q
@@ -1561,7 +1567,7 @@
       const manualTabBtn = document.getElementById('manual-report-tab-btn');
       const vandonTabBtn = document.getElementById('vandon-report-tab-btn');
       document.getElementById('report-title-tab1').textContent =
-        'DỮ LIỆU CHI PHÍ ADS — team HN-MKT';
+        'DỮ LIỆU CHI PHÍ ADS — tất cả Team MKT';
       baseDataForReport = masterData;
       manualTabBtn.style.display = 'none';
       vandonTabBtn.style.display = 'none';
