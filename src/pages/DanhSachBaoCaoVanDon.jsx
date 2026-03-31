@@ -12,6 +12,7 @@ import {
   parseBaoCaoVanDonHistogram,
   formatBaoCaoVanDonStatusHistogram,
   sumBaoCaoVanDonHistogramValues,
+  sumDonCoBillFullCount,
 } from '../utils/baoCaoVanDonFormat';
 
 const formatDate = (dateValue) => {
@@ -137,6 +138,7 @@ export default function DanhSachBaoCaoVanDon() {
   const [filterTrangThaiGiaoHangNb, setFilterTrangThaiGiaoHangNb] = useState([]);
   const [filterTrangThaiThanhToan, setFilterTrangThaiThanhToan] = useState([]);
   const [filterNhanVienVanDon, setFilterNhanVienVanDon] = useState([]);
+  const [filterCoBillOnly, setFilterCoBillOnly] = useState(false);
 
   const [syncStartDate, setSyncStartDate] = useState(() => filterStartDate);
   const [syncEndDate, setSyncEndDate] = useState(() => filterEndDate);
@@ -209,12 +211,16 @@ export default function DanhSachBaoCaoVanDon() {
 
   const data = useMemo(() => {
     return baseData.filter((row) => {
+      if (filterCoBillOnly) {
+        const coBillCount = sumDonCoBillFullCount(row.trang_thai_thanh_toan);
+        if (!coBillCount || coBillCount <= 0) return false;
+      }
       if (!matchesAnyHistogramKey(row.ket_qua_check, filterKetQuaCheck)) return false;
       if (!matchesAnyHistogramKey(row.trang_thai_giao_hang, filterTrangThaiGiaoHangNb)) return false;
       if (!matchesAnyHistogramKey(row.trang_thai_thanh_toan, filterTrangThaiThanhToan)) return false;
       return true;
     });
-  }, [baseData, filterKetQuaCheck, filterTrangThaiGiaoHangNb, filterTrangThaiThanhToan]);
+  }, [baseData, filterKetQuaCheck, filterTrangThaiGiaoHangNb, filterTrangThaiThanhToan, filterCoBillOnly]);
 
   const counters = useMemo(() => {
     let totalRows = data.length;
@@ -432,6 +438,21 @@ export default function DanhSachBaoCaoVanDon() {
                   onChange={setFilterTrangThaiThanhToan}
                   mainFilter
                 />
+              </div>
+              <div className="flex items-center gap-2 mb-1">
+                <input
+                  id="filter-co-bill-only"
+                  type="checkbox"
+                  checked={filterCoBillOnly}
+                  onChange={(e) => setFilterCoBillOnly(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <label
+                  htmlFor="filter-co-bill-only"
+                  className="text-sm text-gray-700 cursor-pointer select-none"
+                >
+                  Chỉ hiển thị nhóm có bill (theo trạng thái thanh toán)
+                </label>
               </div>
               <div className="min-w-[220px]">
                 <MultiSelect

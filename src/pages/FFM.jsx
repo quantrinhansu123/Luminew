@@ -106,7 +106,6 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Kết quả Check',
   'Kết quả check',
   'Kết quả',
-  'Mã Tracking',
   'Ngày đóng hàng',
   'Trạng thái giao hàng',
   'GHI CHÚ',

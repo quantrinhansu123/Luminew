@@ -28,19 +28,12 @@ import {
 // Columns to always hide (both in table and column settings)
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 
-/** Cột khách hàng & tiền — chỉ xem trên lưới VanDon, mọi tab (không sửa ô). */
-const VAN_DON_GRID_READ_ONLY_COLS = [
-  'Name*',
-  'Phone*',
-  'City',
-  'Khu vực',
-  'Mặt hàng',
-  'Số lượng mặt hàng 1',
-  'Số lượng mặt hàng 2',
-  'Loại tiền thanh toán',
-  'Tổng tiền VNĐ',
-  'Hình thức thanh toán',
-];
+/** 
+ * Cột chỉ đọc trên lưới Vận đơn.
+ * Để cho phép chỉnh sửa trực tiếp các cột như Name*, Mặt hàng, Tổng tiền VNĐ, Hình thức thanh toán,...
+ * chúng ta để danh sách này rỗng (mọi cột còn lại sẽ tuân theo EDITABLE_COLS).
+ */
+const VAN_DON_GRID_READ_ONLY_COLS = [];
 
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
