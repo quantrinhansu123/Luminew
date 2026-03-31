@@ -3140,7 +3140,7 @@ function VanDon() {
 
   const renderVanDonFilterTh = (col, idx, positionStyle, showFreezeShadow, isFixedCol) => {
     const key = COLUMN_MAPPING[col] || col;
-    const filterKey = col;
+    const filterKey = col === 'Đơn vị vận chuyển' ? 'shipping_unit' : col;
     const isCheckCol = col === 'Kết quả Check' || col === 'Kết quả check';
     const isNameCol = col === 'Name*';
     const isAddCol = col === 'Add';
