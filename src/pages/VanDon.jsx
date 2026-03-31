@@ -338,8 +338,25 @@ function VanDon() {
     canh_bao_filter: '',
   });
 
+  // Draft vs Applied:
+  // - filterValues: do người dùng thao tác (gõ/chọn) nhưng CHƯA kích hoạt tìm kiếm.
+  // - appliedFilterValues: dùng để build query/filtration (chỉ cập nhật khi bấm Enter).
+  const [appliedFilterValues, setAppliedFilterValues] = useState({
+    market: [],
+    product: [],
+    nv_sale: [],
+    nv_mkt: [],
+    nv_van_don: [],
+    shipping_unit: [],
+    tracking_include: '',
+    tracking_exclude: '',
+    tracking_status: 'Tình trạng mã',
+    canh_bao_filter: '',
+  });
+
   /** Tra nhanh theo SĐT / tên / địa chỉ — chỉ lọc client, không đưa vào query API. */
   const [customerQuickSearch, setCustomerQuickSearch] = useState('');
+  const [appliedCustomerQuickSearch, setAppliedCustomerQuickSearch] = useState('');
 
   // Calculate 3 days ago (today, yesterday, day before yesterday)
   const getThreeDaysAgo = () => {
@@ -357,6 +374,9 @@ function VanDon() {
   const [dateFrom, setDateFrom] = useState(isAdmin ? '' : getThreeDaysAgo());
   const [dateTo, setDateTo] = useState(isAdmin ? '' : getToday());
   const [enableDateFilter, setEnableDateFilter] = useState(!isAdmin);
+  const [appliedDateFrom, setAppliedDateFrom] = useState(isAdmin ? '' : getThreeDaysAgo());
+  const [appliedDateTo, setAppliedDateTo] = useState(isAdmin ? '' : getToday());
+  const [appliedEnableDateFilter, setAppliedEnableDateFilter] = useState(!isAdmin);
   const [quickFilter, setQuickFilter] = useState('');
   const [fixedColumns, setFixedColumns] = useState(2);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -389,6 +409,7 @@ function VanDon() {
   // --- Bill of Lading Specific State ---
   const [bolActiveTab, setBolActiveTab] = useState('all'); // all, ca_nhan, readonly_all, japan, hanoi
   const [bolDateType, setBolDateType] = useState('Ngày lên đơn');
+  const [appliedBolDateType, setAppliedBolDateType] = useState('Ngày lên đơn');
   const [isLongTextExpanded, setIsLongTextExpanded] = useState(false);
   const [canViewHaNoi, setCanViewHaNoi] = useState(false); // User có quyền xem tab Đẩy đơn Hà Nội không
 
@@ -414,6 +435,75 @@ function VanDon() {
     }
     localStorage.setItem('vanDon_rowsPerPage', String(normalized));
   }, [rowsPerPage, bolActiveTab]);
+
+  const filterToolbarRef = useRef(null);
+
+  // Refs để tránh "stale closure" khi Enter bấm rất nhanh.
+  const filterValuesRef = useRef(filterValues);
+  const customerQuickSearchRef = useRef(customerQuickSearch);
+  const bolDateTypeRef = useRef(bolDateType);
+  const dateFromRef = useRef(dateFrom);
+  const dateToRef = useRef(dateTo);
+  const enableDateFilterRef = useRef(enableDateFilter);
+
+  useEffect(() => {
+    filterValuesRef.current = filterValues;
+  }, [filterValues]);
+  useEffect(() => {
+    customerQuickSearchRef.current = customerQuickSearch;
+  }, [customerQuickSearch]);
+  useEffect(() => {
+    bolDateTypeRef.current = bolDateType;
+  }, [bolDateType]);
+  useEffect(() => {
+    dateFromRef.current = dateFrom;
+  }, [dateFrom]);
+  useEffect(() => {
+    dateToRef.current = dateTo;
+  }, [dateTo]);
+  useEffect(() => {
+    enableDateFilterRef.current = enableDateFilter;
+  }, [enableDateFilter]);
+
+  const applyFiltersAndSearch = useCallback(() => {
+    setAppliedFilterValues(filterValuesRef.current);
+    setAppliedCustomerQuickSearch(customerQuickSearchRef.current);
+    setAppliedBolDateType(bolDateTypeRef.current);
+    setAppliedDateFrom(dateFromRef.current);
+    setAppliedDateTo(dateToRef.current);
+    setAppliedEnableDateFilter(enableDateFilterRef.current);
+    setCurrentPage(1);
+  }, []);
+
+  // Enter để áp dụng tất cả bộ lọc đang ở trạng thái draft.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key !== 'Enter') return;
+      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const active = document.activeElement;
+      if (!active) return;
+      // Tránh trigger khi người dùng đang nhập/sửa một ô trong bảng (input/textarea của grid).
+      if (active.closest?.('[data-van-cell-sync="1"]')) return;
+      if (tableRef.current && tableRef.current.contains(active)) return;
+      const isCheckbox =
+        active.tagName === 'INPUT' &&
+        String(active.type || '').toLowerCase() === 'checkbox';
+
+      // Với checkbox/menu, Enter đôi khi chỉ nhằm thao tác UI chứ không nên chặn hành vi mặc định.
+      // Tuy nhiên ta vẫn cần áp dụng filter sau đó.
+      if (!isCheckbox) {
+        e.preventDefault();
+        e.stopPropagation();
+        applyFiltersAndSearch();
+      } else {
+        setTimeout(() => applyFiltersAndSearch(), 0);
+      }
+    };
+
+    // Capture phase để bắt được Enter dù component con có stopPropagation.
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [applyFiltersAndSearch]);
 
   // --- Selection & Clipboard ---
   const [selection, setSelection] = useState({
@@ -631,32 +721,44 @@ function VanDon() {
     if (!useBackendPagination) return {};
     const out = {};
     const DATE_FILTER_KEYS = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'];
-    const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : bolDateType;
+    const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
     const toolbarDateOverrideKeys =
       activeDateType === 'Ngày đẩy đơn'
         ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
         : new Set([activeDateType]);
 
-    Object.entries(filterValues).forEach(([key, val]) => {
+    Object.entries(appliedFilterValues).forEach(([key, val]) => {
       if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
-      if (enableDateFilter && DATE_FILTER_KEYS.includes(key) && toolbarDateOverrideKeys.has(key)) return;
+      if (appliedEnableDateFilter && DATE_FILTER_KEYS.includes(key) && toolbarDateOverrideKeys.has(key)) return;
       if (val == null) return;
       if (Array.isArray(val) && val.length === 0) return;
       if (typeof val === 'string' && val.trim() === '') return;
       out[key] = val;
     });
     return out;
-  }, [useBackendPagination, filterValues, enableDateFilter, viewMode, omDateType, bolDateType]);
+  }, [
+    useBackendPagination,
+    appliedFilterValues,
+    appliedEnableDateFilter,
+    viewMode,
+    omDateType,
+    appliedBolDateType
+  ]);
 
   const serverTrackingFilter = useMemo(() => {
     if (!useBackendPagination) return null;
-    if (!filterValues.tracking_status && !filterValues.tracking_include && !filterValues.tracking_exclude) return null;
+    if (!appliedFilterValues.tracking_status && !appliedFilterValues.tracking_include && !appliedFilterValues.tracking_exclude) return null;
     return {
-      status: filterValues.tracking_status || 'Tình trạng mã',
-      include: filterValues.tracking_include || '',
-      exclude: filterValues.tracking_exclude || ''
+      status: appliedFilterValues.tracking_status || 'Tình trạng mã',
+      include: appliedFilterValues.tracking_include || '',
+      exclude: appliedFilterValues.tracking_exclude || ''
     };
-  }, [useBackendPagination, filterValues.tracking_status, filterValues.tracking_include, filterValues.tracking_exclude]);
+  }, [
+    useBackendPagination,
+    appliedFilterValues.tracking_status,
+    appliedFilterValues.tracking_include,
+    appliedFilterValues.tracking_exclude
+  ]);
 
   // --- Data Loading with React Query ---
   const queryClient = useQueryClient();
@@ -666,15 +768,15 @@ function VanDon() {
     const sessionName = getVanDonSessionDisplayName().trim();
     const filters = {
       team: bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined),
-      market: bolActiveTab === 'japan' ? ['Nhật Bản', 'CĐ Nhật Bản'] : filterValues.market,
-      product: filterValues.product,
-      nv_sale: filterValues.nv_sale,
-      nv_mkt: filterValues.nv_mkt,
-      nv_van_don: filterValues.nv_van_don,
-      shipping_unit: filterValues.shipping_unit,
-      dateFrom: enableDateFilter ? dateFrom : undefined,
-      dateTo: enableDateFilter ? dateTo : undefined,
-      dateType: bolDateType,
+      market: bolActiveTab === 'japan' ? ['Nhật Bản', 'CĐ Nhật Bản'] : appliedFilterValues.market,
+      product: appliedFilterValues.product,
+      nv_sale: appliedFilterValues.nv_sale,
+      nv_mkt: appliedFilterValues.nv_mkt,
+      nv_van_don: appliedFilterValues.nv_van_don,
+      shipping_unit: appliedFilterValues.shipping_unit,
+      dateFrom: appliedEnableDateFilter ? appliedDateFrom : undefined,
+      dateTo: appliedEnableDateFilter ? appliedDateTo : undefined,
+      dateType: appliedBolDateType,
       tab: bolActiveTab,
       /** Tab Đơn cá nhân: lọc delivery_staff theo tên đăng nhập; admin xem toàn bộ — không gửi filter. */
       deliveryStaffSelfFilter: bolActiveTab === 'ca_nhan' && !isAdmin ? sessionName : undefined,
@@ -686,7 +788,21 @@ function VanDon() {
     };
     console.log('🔍 [VanDon] Active Filters:', filters);
     return filters;
-  }, [bolActiveTab, omActiveTeam, filterValues, enableDateFilter, dateFrom, dateTo, bolDateType, currentPage, rowsPerPage, useBackendPagination, serverColumnFilters, serverTrackingFilter, isAdmin]);
+  }, [
+    bolActiveTab,
+    omActiveTeam,
+    appliedFilterValues,
+    appliedEnableDateFilter,
+    appliedDateFrom,
+    appliedDateTo,
+    appliedBolDateType,
+    currentPage,
+    rowsPerPage,
+    useBackendPagination,
+    serverColumnFilters,
+    serverTrackingFilter,
+    isAdmin
+  ]);
 
   const {
     data: queryResult,
@@ -1003,9 +1119,9 @@ function VanDon() {
     }
 
     // --- COMMON FILTERS ---
-    const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : bolDateType;
+    const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
 
-    const traCuuKhach = strNorm(customerQuickSearch);
+    const traCuuKhach = strNorm(appliedCustomerQuickSearch);
     if (traCuuKhach) {
       const qLower = traCuuKhach.toLowerCase();
       const digitsOnly = (s) => String(s ?? '').replace(/\D/g, '');
@@ -1032,11 +1148,11 @@ function VanDon() {
     try {
       if (
         !queueTabSkipMarketAndNvToolbar &&
-        filterValues.market &&
-        Array.isArray(filterValues.market) &&
-        filterValues.market.length > 0
+        appliedFilterValues.market &&
+        Array.isArray(appliedFilterValues.market) &&
+        appliedFilterValues.market.length > 0
       ) {
-        const set = new Set(filterValues.market);
+        const set = new Set(appliedFilterValues.market);
         data = data.filter(row => {
           const orderId = row[PRIMARY_KEY_COLUMN];
           const o = getPendingOriginal(orderId, 'Khu vực', 'khu vực', 'country');
@@ -1045,8 +1161,8 @@ function VanDon() {
           return !isVanDonSemanticEmpty(market) && set.has(market);
         });
       }
-      if (filterValues.product && Array.isArray(filterValues.product) && filterValues.product.length > 0) {
-        const set = new Set(filterValues.product);
+      if (appliedFilterValues.product && Array.isArray(appliedFilterValues.product) && appliedFilterValues.product.length > 0) {
+        const set = new Set(appliedFilterValues.product);
         data = data.filter(row => {
           const orderId = row[PRIMARY_KEY_COLUMN];
           const o = getPendingOriginal(orderId, 'Mặt hàng');
@@ -1057,11 +1173,11 @@ function VanDon() {
       }
       if (
         !queueTabSkipMarketAndNvToolbar &&
-        filterValues.nv_sale &&
-        Array.isArray(filterValues.nv_sale) &&
-        filterValues.nv_sale.length > 0
+        appliedFilterValues.nv_sale &&
+        Array.isArray(appliedFilterValues.nv_sale) &&
+        appliedFilterValues.nv_sale.length > 0
       ) {
-        const set = new Set(filterValues.nv_sale);
+        const set = new Set(appliedFilterValues.nv_sale);
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
           const o = getPendingOriginal(orderId, 'Nhân viên Sale', 'sale_staff');
@@ -1072,11 +1188,11 @@ function VanDon() {
       }
       if (
         !queueTabSkipMarketAndNvToolbar &&
-        filterValues.nv_mkt &&
-        Array.isArray(filterValues.nv_mkt) &&
-        filterValues.nv_mkt.length > 0
+        appliedFilterValues.nv_mkt &&
+        Array.isArray(appliedFilterValues.nv_mkt) &&
+        appliedFilterValues.nv_mkt.length > 0
       ) {
-        const set = new Set(filterValues.nv_mkt);
+        const set = new Set(appliedFilterValues.nv_mkt);
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
           const o = getPendingOriginal(orderId, 'Nhân viên MKT', 'marketing_staff');
@@ -1087,11 +1203,11 @@ function VanDon() {
       }
       if (
         !queueTabSkipMarketAndNvToolbar &&
-        filterValues.nv_van_don &&
-        Array.isArray(filterValues.nv_van_don) &&
-        filterValues.nv_van_don.length > 0
+        appliedFilterValues.nv_van_don &&
+        Array.isArray(appliedFilterValues.nv_van_don) &&
+        appliedFilterValues.nv_van_don.length > 0
       ) {
-        const set = new Set(filterValues.nv_van_don);
+        const set = new Set(appliedFilterValues.nv_van_don);
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
           const o = getPendingOriginal(orderId, 'NV Vận đơn', 'Nhân viên Vận đơn', 'delivery_staff');
@@ -1100,8 +1216,8 @@ function VanDon() {
           return !isVanDonSemanticEmpty(v) && set.has(v);
         });
       }
-      if (filterValues.shipping_unit && Array.isArray(filterValues.shipping_unit) && filterValues.shipping_unit.length > 0) {
-        const set = new Set(filterValues.shipping_unit);
+      if (appliedFilterValues.shipping_unit && Array.isArray(appliedFilterValues.shipping_unit) && appliedFilterValues.shipping_unit.length > 0) {
+        const set = new Set(appliedFilterValues.shipping_unit);
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
           const o = getPendingOriginal(orderId, 'Đơn vị vận chuyển', 'Đơn vị Vận chuyển', 'Đơn_vị_vận_chuyển');
@@ -1114,16 +1230,16 @@ function VanDon() {
       console.warn('⚠️ [Filter Error] Lỗi khi xử lý Market/Product filter:', err);
     }
 
-    if (filterValues.canh_bao_filter === 'co_trung') {
+    if (appliedFilterValues.canh_bao_filter === 'co_trung') {
       data = data.filter((row) => rowHasVanDonCanhBao(row));
-    } else if (filterValues.canh_bao_filter === 'khong_trung') {
+    } else if (appliedFilterValues.canh_bao_filter === 'khong_trung') {
       data = data.filter((row) => !rowHasVanDonCanhBao(row));
     }
 
     // Date Range (toolbar "Lọc thời gian") — cùng quy tắc chuẩn hóa ngày với lọc cột & API (YYYY-MM-DD)
-    if (enableDateFilter) {
-      if (dateFrom) {
-        const fromNorm = String(dateFrom).split('T')[0];
+    if (appliedEnableDateFilter) {
+      if (appliedDateFrom) {
+        const fromNorm = String(appliedDateFrom).split('T')[0];
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
           const o = getPendingOriginal(orderId, activeDateType, COLUMN_MAPPING[activeDateType]);
@@ -1134,8 +1250,8 @@ function VanDon() {
           return rowDay && rowDay >= fromNorm;
         });
       }
-      if (dateTo) {
-        const toNorm = String(dateTo).split('T')[0];
+      if (appliedDateTo) {
+        const toNorm = String(appliedDateTo).split('T')[0];
         data = data.filter((row) => {
           const orderId = row[PRIMARY_KEY_COLUMN];
           const o = getPendingOriginal(orderId, activeDateType, COLUMN_MAPPING[activeDateType]);
@@ -1157,7 +1273,7 @@ function VanDon() {
 
     // Column Filters (Text & Dropdown) — phân trang backend: đã lọc ở API (toàn CSDL).
     if (!useBackendPagination) {
-      Object.entries(filterValues).forEach(([key, val]) => {
+      Object.entries(appliedFilterValues).forEach(([key, val]) => {
         if (
           [
             'market',
@@ -1175,7 +1291,7 @@ function VanDon() {
           return;
 
         if (
-          enableDateFilter &&
+          appliedEnableDateFilter &&
           DATE_FILTER_KEYS.includes(key) &&
           toolbarDateOverrideKeys.has(key)
         ) {
@@ -1246,10 +1362,10 @@ function VanDon() {
 
     if (!useBackendPagination) {
       try {
-        if (filterValues.tracking_status || filterValues.tracking_include || filterValues.tracking_exclude) {
-          const inc = filterValues.tracking_include ? String(filterValues.tracking_include).toLowerCase() : '';
-          const exc = filterValues.tracking_exclude ? String(filterValues.tracking_exclude).toLowerCase() : '';
-          const status = filterValues.tracking_status || 'Tình trạng mã';
+        if (appliedFilterValues.tracking_status || appliedFilterValues.tracking_include || appliedFilterValues.tracking_exclude) {
+          const inc = appliedFilterValues.tracking_include ? String(appliedFilterValues.tracking_include).toLowerCase() : '';
+          const exc = appliedFilterValues.tracking_exclude ? String(appliedFilterValues.tracking_exclude).toLowerCase() : '';
+          const status = appliedFilterValues.tracking_status || 'Tình trạng mã';
 
           data = data.filter(row => {
             try {
@@ -1286,7 +1402,25 @@ function VanDon() {
     }
 
     return data;
-  }, [allData, pendingChanges, viewMode, omActiveTeam, omDateType, omShowTracking, omShowDuplicateTracking, bolActiveTab, bolDateType, filterValues, customerQuickSearch, dateFrom, dateTo, enableDateFilter, mgtNoiBoOrder, isAdmin, useBackendPagination]);
+  }, [
+    allData,
+    pendingChanges,
+    viewMode,
+    omActiveTeam,
+    omDateType,
+    omShowTracking,
+    omShowDuplicateTracking,
+    bolActiveTab,
+    appliedBolDateType,
+    appliedFilterValues,
+    appliedCustomerQuickSearch,
+    appliedDateFrom,
+    appliedDateTo,
+    appliedEnableDateFilter,
+    mgtNoiBoOrder,
+    isAdmin,
+    useBackendPagination
+  ]);
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
@@ -1352,10 +1486,16 @@ function VanDon() {
       canh_bao_filter: '',
     };
     setFilterValues(defaultFilters);
+    setAppliedFilterValues(defaultFilters);
     setCustomerQuickSearch('');
+    setAppliedCustomerQuickSearch('');
     setDateFrom(isAdmin ? '' : getThreeDaysAgo());
     setDateTo(isAdmin ? '' : getToday());
     setEnableDateFilter(!isAdmin);
+    setAppliedDateFrom(isAdmin ? '' : getThreeDaysAgo());
+    setAppliedDateTo(isAdmin ? '' : getToday());
+    setAppliedEnableDateFilter(!isAdmin);
+    setAppliedBolDateType(bolDateType);
     setCurrentPage(1);
     await queryClient.invalidateQueries(['vanDon']);
     queryClient.invalidateQueries({ queryKey: ['vanDonDistinctFilterOptions'] });
@@ -1509,10 +1649,16 @@ function VanDon() {
       setEnableDateFilter(false);
       setDateFrom('');
       setDateTo('');
+      setAppliedEnableDateFilter(false);
+      setAppliedDateFrom('');
+      setAppliedDateTo('');
     } else {
       setEnableDateFilter(true);
       setDateFrom(getThreeDaysAgo());
       setDateTo(getToday());
+      setAppliedEnableDateFilter(true);
+      setAppliedDateFrom(getThreeDaysAgo());
+      setAppliedDateTo(getToday());
     }
   }, [permissionsLoading, isAdmin]);
 
@@ -1523,7 +1669,27 @@ function VanDon() {
       refetchVanDonData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, rowsPerPage, bolActiveTab, omActiveTeam, filterValues.market, filterValues.product, filterValues.nv_sale, filterValues.nv_mkt, filterValues.nv_van_don, filterValues.shipping_unit, bolDateType, enableDateFilter, dateFrom, dateTo, useBackendPagination, selectedPersonnelNames.slice().sort().join('|'), permissionsLoading, serverColumnFilters, serverTrackingFilter]);
+  }, [
+    currentPage,
+    rowsPerPage,
+    bolActiveTab,
+    omActiveTeam,
+    appliedFilterValues.market,
+    appliedFilterValues.product,
+    appliedFilterValues.nv_sale,
+    appliedFilterValues.nv_mkt,
+    appliedFilterValues.nv_van_don,
+    appliedFilterValues.shipping_unit,
+    appliedBolDateType,
+    appliedEnableDateFilter,
+    appliedDateFrom,
+    appliedDateTo,
+    useBackendPagination,
+    selectedPersonnelNames.slice().sort().join('|'),
+    permissionsLoading,
+    serverColumnFilters,
+    serverTrackingFilter
+  ]);
 
 
   // Đóng tab / F5: cảnh báo + ghi nháp localStorage ngay (tránh mất dữ liệu).
@@ -1725,9 +1891,9 @@ function VanDon() {
       maxCol: Math.max(copiedSelection.startCol, copiedSelection.endCol)
     };
   }, [copiedSelection]);
-  // Tab chỉ xem: khóa sửa hoàn toàn.
-  const isReadonlyAllTab = bolActiveTab === 'readonly_all';
-  const isReadonlyEditTab = bolActiveTab === 'readonly_all';
+  // Cho phép edit ô trên mọi tab (kể cả tab "readonly_all").
+  const isReadonlyAllTab = false;
+  const isReadonlyEditTab = false;
 
   // --- Filtering Logic ---
   // Filter out hidden columns from allColumns
@@ -2345,10 +2511,6 @@ function VanDon() {
     if (keyLc === 'tracking_code' || normalizeColHeader(colKey) === normalizeColHeader('Mã Tracking')) return;
     if (keyLc === 'canh_bao' || normalizeColHeader(colKey) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN)) return;
     if (isVanDonGridReadOnlyColumnKey(colKey)) return;
-    // Tab "Đơn nhắc hộ": một số cột chỉ xem
-    if (bolActiveTab === 'all') {
-      if (keyLc === 'đơn vị vận chuyển' || keyLc === 'shipping_unit') return;
-    }
     const originalRow = allData.find((r) => getVanDonRowOrderId(r) === oid);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
@@ -2361,7 +2523,7 @@ function VanDon() {
     } else if (String(newValue) === String(stepOriginalValue)) return;
 
     pushChange([{ orderId: oid, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
-  }, [allData, pendingChanges, pushChange, isReadonlyEditTab, bolActiveTab]);
+  }, [allData, pendingChanges, pushChange, isReadonlyEditTab]);
 
   const handleUpdateAll = async () => {
     setSyncPopoverOpen(false);
@@ -3055,7 +3217,6 @@ function VanDon() {
             value={filterValues.canh_bao_filter || ''}
             onChange={(e) => {
               setFilterValues((p) => ({ ...p, canh_bao_filter: e.target.value }));
-              setCurrentPage(1);
             }}
           >
             <option value="">Tất cả</option>
@@ -3122,7 +3283,8 @@ function VanDon() {
     const isCarrierCol = colLower === 'đơn vị vận chuyển';
     const isTrackingCol = colLower === 'mã tracking';
     const isCanhBaoCol = normalizeColHeader(col) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN);
-    const isReadonlyOrderDataTab = bolActiveTab === 'all';
+    // Không khóa sửa theo tab "all".
+    const isReadonlyOrderDataTab = false;
 
     const mergedCellStyle = { ...(cellStyle || {}) };
     // Ô văn bản dài: bỏ overflow hidden trên <td> (cột không sticky) — tránh cắt textarea / khó click nhập.
@@ -3298,7 +3460,7 @@ function VanDon() {
     <div className="bg-gray-50 flex flex-col h-[calc(100vh-64px)] min-h-0 w-full max-w-none overflow-hidden">
       {/* Hai hàng: (1) tiêu đề + tab + tìm + ngày — (2) bộ lọc MultiSelect + trạng thái + TẢI LẠI */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-50 flex-shrink-0 w-full">
-        <div className="w-full max-w-none mx-auto px-2 sm:px-3 py-1.5 min-w-0 flex flex-col gap-1.5">
+        <div ref={filterToolbarRef} className="w-full max-w-none mx-auto px-2 sm:px-3 py-1.5 min-w-0 flex flex-col gap-1.5">
           {/* Hàng 1 */}
           <div className="flex flex-wrap items-center gap-1.5 min-w-0 w-full">
             <div className="flex items-center gap-1.5 shrink-0">
@@ -3363,7 +3525,6 @@ function VanDon() {
               value={customerQuickSearch}
               onChange={(e) => {
                 setCustomerQuickSearch(e.target.value);
-                setCurrentPage(1);
               }}
               className="w-[min(128px,22vw)] min-w-[88px] max-w-[160px] shrink-0 text-[10px] px-1 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
             />
@@ -3372,7 +3533,6 @@ function VanDon() {
                 type="button"
                 onClick={() => {
                   setCustomerQuickSearch('');
-                  setCurrentPage(1);
                 }}
                 className="text-[10px] text-gray-500 hover:text-gray-800 px-1 py-0.5 rounded border border-gray-200 hover:bg-gray-50 shrink-0"
               >
@@ -3393,7 +3553,6 @@ function VanDon() {
                   value={bolDateType}
                   onChange={(e) => {
                     setBolDateType(e.target.value);
-                    setCurrentPage(1);
                   }}
                 >
                   <option value="Ngày lên đơn">Lên đơn</option>
@@ -3407,7 +3566,6 @@ function VanDon() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setDateFrom(v);
-                    setCurrentPage(1);
                     if (v) setEnableDateFilter(true);
                   }}
                   className="text-[10px] sm:text-[11px] px-1 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 leading-tight w-[118px] shrink-0"
@@ -3419,7 +3577,6 @@ function VanDon() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setDateTo(v);
-                    setCurrentPage(1);
                     if (v) setEnableDateFilter(true);
                   }}
                   className="text-[10px] sm:text-[11px] px-1 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 leading-tight w-[118px] shrink-0"
@@ -3430,11 +3587,10 @@ function VanDon() {
                     checked={enableDateFilter}
                     onChange={(e) => {
                       setEnableDateFilter(e.target.checked);
-                      setCurrentPage(1);
                     }}
                     className="w-3 h-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
-                  <span>Áp dụng</span>
+                  <span>Áp dụng (Enter)</span>
                 </label>
               </div>
             </div>
@@ -3453,7 +3609,6 @@ function VanDon() {
                   selected={filterValues.market || []}
                   onChange={(vals) => {
                     setFilterValues((prev) => ({ ...prev, market: vals }));
-                    setCurrentPage(1);
                   }}
                 />
               </div>
@@ -3468,7 +3623,6 @@ function VanDon() {
                   selected={filterValues.product || []}
                   onChange={(vals) => {
                     setFilterValues((prev) => ({ ...prev, product: vals }));
-                    setCurrentPage(1);
                   }}
                 />
               </div>
@@ -3483,7 +3637,6 @@ function VanDon() {
                   selected={filterValues.nv_sale || []}
                   onChange={(vals) => {
                     setFilterValues((prev) => ({ ...prev, nv_sale: vals }));
-                    setCurrentPage(1);
                   }}
                 />
               </div>
@@ -3498,7 +3651,6 @@ function VanDon() {
                   selected={filterValues.nv_mkt || []}
                   onChange={(vals) => {
                     setFilterValues((prev) => ({ ...prev, nv_mkt: vals }));
-                    setCurrentPage(1);
                   }}
                 />
               </div>
@@ -3513,7 +3665,6 @@ function VanDon() {
                   selected={filterValues.nv_van_don || []}
                   onChange={(vals) => {
                     setFilterValues((prev) => ({ ...prev, nv_van_don: vals }));
-                    setCurrentPage(1);
                   }}
                 />
               </div>
@@ -3528,7 +3679,6 @@ function VanDon() {
                   selected={filterValues.shipping_unit || []}
                   onChange={(vals) => {
                     setFilterValues((prev) => ({ ...prev, shipping_unit: vals }));
-                    setCurrentPage(1);
                   }}
                 />
               </div>

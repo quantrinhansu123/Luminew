@@ -397,6 +397,9 @@ function FFM({ variant = 'MGT' }) {
   const isProcessingQueue = useRef(false);
   const manualSaveRequestedRef = useRef(false); // Chỉ lưu DB khi user bấm "Xác nhận lưu"
 
+  const ffmRealtimeOrderCodesRef = useRef(new Set()); // Track order_code values pending a fetch
+  const ffmRealtimeFetchTimerRef = useRef(null); // setTimeout handle for batching realtime events
+
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
 
@@ -461,6 +464,78 @@ function FFM({ variant = 'MGT' }) {
       }
     }
   }, []);
+
+  useEffect(() => {
+    // Auto-sync data changes made from "outside" (e.g., another tab/admin) into current grid.
+    // We only patch rows that are already present in `allData` to avoid breaking pagination/sort.
+    let cancelled = false;
+
+    const flushRealtimeUpdates = async () => {
+      if (cancelled) return;
+
+      const orderCodes = Array.from(ffmRealtimeOrderCodesRef.current);
+      ffmRealtimeOrderCodesRef.current.clear();
+      ffmRealtimeFetchTimerRef.current = null;
+
+      if (orderCodes.length === 0) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*')
+          .in('order_code', orderCodes);
+
+        if (error) throw error;
+        const appRows = (data || []).map((r) => API.mapSupabaseOrderToApp(r));
+
+        setAllData((prev) => {
+          const mapById = new Map();
+          for (const r of appRows) {
+            const id = r?.[PRIMARY_KEY_COLUMN];
+            if (id) mapById.set(id, r);
+          }
+          if (mapById.size === 0) return prev;
+
+          const next = prev.map((row) => {
+            const id = row?.[PRIMARY_KEY_COLUMN];
+            if (!id || !mapById.has(id)) return row;
+            return { ...row, ...mapById.get(id) };
+          });
+          return next;
+        });
+      } catch (e) {
+        console.error('[FFM] realtime orders sync failed:', e);
+      }
+    };
+
+    const channel = supabase
+      .channel(`ffm-orders-${variant}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        (payload) => {
+          const orderCode = payload?.new?.order_code;
+          if (!orderCode) return;
+
+          ffmRealtimeOrderCodesRef.current.add(orderCode);
+          if (ffmRealtimeFetchTimerRef.current) return;
+
+          ffmRealtimeFetchTimerRef.current = setTimeout(() => {
+            void flushRealtimeUpdates();
+          }, 250);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      if (ffmRealtimeFetchTimerRef.current) {
+        clearTimeout(ffmRealtimeFetchTimerRef.current);
+        ffmRealtimeFetchTimerRef.current = null;
+      }
+      channel.unsubscribe();
+    };
+  }, [variant]);
 
   // Tự động chuyển về "all" nếu user đang ở tab Hà Nội nhưng không có quyền
   useEffect(() => {
@@ -1889,6 +1964,8 @@ function FFM({ variant = 'MGT' }) {
     (rowIndex, colIndex, e) => {
       if (e.button !== 0) return;
       if (e.target?.closest?.('[data-ffm-fill-handle]')) return;
+      // Let native controls (especially <select>) handle click/open by themselves.
+      if (e.target?.closest?.('select, input, textarea, button, [contenteditable="true"]')) return;
       e.preventDefault();
 
       if (e.shiftKey && selection.startRow !== null) {
@@ -2809,6 +2886,12 @@ function FFM({ variant = 'MGT' }) {
       val = row['Payment Bill'] ?? row.payment_bill ?? row[key] ?? '';
     } else if (col === 'Payment Image') {
       val = row['Payment Image'] ?? row.payment_image ?? row[key] ?? '';
+    } else if (col === 'Trạng thái giao hàng') {
+      val =
+        row['Trạng thái giao hàng'] ??
+        row.delivery_status ??
+        row[key] ??
+        '';
     } else {
       val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
     }

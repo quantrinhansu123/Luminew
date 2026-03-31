@@ -155,7 +155,7 @@ const resolveAppKeyToDbKey = (appKey) => {
     return null;
 };
 
-const mapSupabaseOrderToApp = (sOrder) => {
+export const mapSupabaseOrderToApp = (sOrder) => {
     const appOrder = {};
     Object.keys(sOrder).forEach(k => {
         appOrder[k] = sOrder[k];
@@ -204,7 +204,8 @@ const mapSupabaseOrderToApp = (sOrder) => {
 
     if (!appOrder["Ngày lên đơn"] && sOrder.order_date) appOrder["Ngày lên đơn"] = sOrder.order_date;
     if (!appOrder["Mã đơn hàng"]) appOrder["Mã đơn hàng"] = sOrder.order_code;
-    appOrder["Trạng thái giao hàng NB"] = sOrder.delivery_status_nb || sOrder.delivery_status;
+    // Hai cột tách biệt: delivery_status ↔ Trạng thái giao hàng, delivery_status_nb ↔ Trạng thái giao hàng NB
+    appOrder["Trạng thái giao hàng NB"] = sOrder.delivery_status_nb ?? '';
 
     if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;
     if (sOrder.payment_image) appOrder["Payment Image"] = sOrder.payment_image;
