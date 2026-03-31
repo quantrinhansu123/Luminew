@@ -184,6 +184,8 @@ const AdminTools = () => {
     const [showPasswords, setShowPasswords] = useState({}); // Track which passwords are visible
     const [passwordInputs, setPasswordInputs] = useState({}); // Store password inputs for quick edit
     const [nameSearchQuery, setNameSearchQuery] = useState(''); // Search query for account name
+    const [branchFilter, setBranchFilter] = useState('');
+    const [departmentFilter, setDepartmentFilter] = useState('');
 
     // --- AUTO FILL TEAM STATE ---
     const [isFillingTeam, setIsFillingTeam] = useState(false);
@@ -4314,7 +4316,7 @@ const AdminTools = () => {
     }
 
     return (
-        <div className="w-full max-w-[1400px] mx-auto px-3 md:px-5 lg:px-8 py-4 md:py-6 min-h-screen bg-gray-50">
+        <div className="w-full max-w-none mx-auto px-3 md:px-4 lg:px-5 py-4 md:py-6 min-h-screen bg-gray-50">
             <h1 className="text-3xl font-bold mb-8 text-gray-800 flex items-center gap-3">
                 <Settings className="w-8 h-8 text-gray-600" />
                 Công cụ quản trị & Cấu hình
@@ -6139,9 +6141,9 @@ const AdminTools = () => {
                             </button>
                         </div>
 
-                        {/* Search by Name */}
-                        <div className="mb-4">
-                            <div className="relative max-w-md">
+                        {/* Search + filters */}
+                        <div className="mb-4 flex flex-wrap gap-3 items-end">
+                            <div className="relative max-w-md flex-1 min-w-[260px]">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                                 <input
                                     type="text"
@@ -6151,6 +6153,46 @@ const AdminTools = () => {
                                     className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
+                            <div className="min-w-[180px]">
+                                <label className="block text-xs text-gray-600 mb-1">Chi nhánh</label>
+                                <select
+                                    value={branchFilter}
+                                    onChange={(e) => setBranchFilter(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                                    <option value="">Tất cả chi nhánh</option>
+                                    {Array.from(new Set(authAccounts.map((a) => (a.branch || a.team || '').trim()).filter(Boolean)))
+                                        .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }))
+                                        .map((branch) => (
+                                            <option key={branch} value={branch}>{branch}</option>
+                                        ))}
+                                </select>
+                            </div>
+                            <div className="min-w-[180px]">
+                                <label className="block text-xs text-gray-600 mb-1">Phòng ban</label>
+                                <select
+                                    value={departmentFilter}
+                                    onChange={(e) => setDepartmentFilter(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                                    <option value="">Tất cả phòng ban</option>
+                                    {Array.from(new Set(authAccounts.map((a) => (a.department || '').trim()).filter(Boolean)))
+                                        .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }))
+                                        .map((department) => (
+                                            <option key={department} value={department}>{department}</option>
+                                        ))}
+                                </select>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setNameSearchQuery('');
+                                    setBranchFilter('');
+                                    setDepartmentFilter('');
+                                }}
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                                Xóa lọc
+                            </button>
                         </div>
 
                         {/* Accounts List */}
@@ -6167,6 +6209,12 @@ const AdminTools = () => {
                         ) : (() => {
                             // Filter accounts by name search query
                             const filteredAccounts = authAccounts.filter(account => {
+                                const accountBranch = (account.branch || account.team || '').trim();
+                                const accountDepartment = (account.department || '').trim();
+
+                                if (branchFilter && accountBranch !== branchFilter) return false;
+                                if (departmentFilter && accountDepartment !== departmentFilter) return false;
+
                                 if (!nameSearchQuery.trim()) return true;
                                 const searchLower = nameSearchQuery.toLowerCase();
                                 const name = (account.name || '').toLowerCase();
@@ -6179,7 +6227,7 @@ const AdminTools = () => {
                                 return (
                                     <div className="text-center py-8 text-gray-500">
                                         <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                                        <p>Không tìm thấy tài khoản nào với từ khóa "{nameSearchQuery}"</p>
+                                        <p>Không tìm thấy tài khoản nào khớp bộ lọc hiện tại</p>
                                     </div>
                                 );
                             }

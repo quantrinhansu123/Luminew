@@ -774,6 +774,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
 
     // Filter State
     const [filterDepartment, setFilterDepartment] = useState(''); // Filter by department
+    const [filterBranch, setFilterBranch] = useState(''); // Filter by branch
     const [filterTeam, setFilterTeam] = useState(''); // Filter by team
     const [nameSearchQuery, setNameSearchQuery] = useState(''); // Search by name
 
@@ -1114,6 +1115,15 @@ const PermissionManager = ({ searchQuery = "" }) => {
         ...Object.values(leaderTeamsMap).flat()
     ])].sort();
 
+    const getEmployeeBranch = (emp) => String(emp?.branch || '').trim();
+
+    // Get unique branches strictly from users.branch.
+    const uniqueBranches = [...new Set(
+        employees
+            .map((emp) => getEmployeeBranch(emp))
+            .filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+
     const filteredUserRoles = userRoles.filter(ur => {
         // Hide system accounts from the user assignment UI.
         if (String(ur.role_code || '').toLowerCase() === 'super_admin') return false;
@@ -1135,6 +1145,14 @@ const PermissionManager = ({ searchQuery = "" }) => {
         if (filterDepartment) {
             const departmentFromHR = departmentsMap[ur.email] || emp?.department || '';
             if (departmentFromHR !== filterDepartment) {
+                return false;
+            }
+        }
+
+        // Filter by branch
+        if (filterBranch) {
+            const branchFromEmp = getEmployeeBranch(emp);
+            if (branchFromEmp !== filterBranch) {
                 return false;
             }
         }
@@ -1401,12 +1419,29 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     ))}
                                 </select>
                             </div>
+
+                            <div className="flex items-center gap-2">
+                                <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+                                    Lọc theo Chi nhánh:
+                                </label>
+                                <select
+                                    value={filterBranch}
+                                    onChange={(e) => setFilterBranch(e.target.value)}
+                                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[200px]"
+                                >
+                                    <option value="">-- Tất cả Chi nhánh --</option>
+                                    {uniqueBranches.map(branch => (
+                                        <option key={branch} value={branch}>{branch}</option>
+                                    ))}
+                                </select>
+                            </div>
                             
-                            {(filterDepartment || filterTeam || nameSearchQuery) && (
+                            {(filterDepartment || filterTeam || filterBranch || nameSearchQuery) && (
                                 <button
                                     onClick={() => {
                                         setFilterDepartment('');
                                         setFilterTeam('');
+                                        setFilterBranch('');
                                         setNameSearchQuery('');
                                     }}
                                     className="text-xs text-gray-500 hover:text-gray-700 underline whitespace-nowrap"

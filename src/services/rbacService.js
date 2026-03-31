@@ -218,7 +218,7 @@ export const getEmployeesByTeams = async (teams) => {
         // Chỉ lấy từ bảng users
         const { data: users, error: usersError } = await supabase
             .from('users')
-            .select('email, name, username, position, department, team')
+            .select('email, name, username, position, department, team, branch')
             .in('team', teams)
             .order('name', { ascending: true });
 
@@ -234,7 +234,8 @@ export const getEmployeesByTeams = async (teams) => {
                     'Họ Và Tên': u.name || u.username || u.email,
                     position: u.position || 'Nhân viên',
                     department: u.department || 'Chưa phân loại',
-                    team: u.team || ''
+                    team: u.team || '',
+                    branch: u.branch || ''
                 });
             }
         });
@@ -622,7 +623,7 @@ export const getEmployees = async () => {
     try {
         const { data, error } = await supabase
             .from('users')
-            .select('email, name, username, position, department, team')
+            .select('email, name, username, position, department, team, branch')
             .order('name', { ascending: true });
 
         if (error) throw error;
@@ -633,7 +634,8 @@ export const getEmployees = async () => {
             'Họ Và Tên': u.name || u.username || u.email,
             position: u.position || 'Nhân viên',
             department: u.department || 'Chưa phân loại',
-            team: u.team || ''
+            team: u.team || '',
+            branch: u.branch || ''
         }));
 
         return employees;
