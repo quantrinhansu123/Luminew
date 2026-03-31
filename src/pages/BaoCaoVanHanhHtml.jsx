@@ -380,6 +380,7 @@ export default function BaoCaoVanHanhHtml() {
     );
 
     const fetchData = async (options = {}) => {
+        const PAGE_SIZE = 1000; // phân trang để lấy full dữ liệu theo khoảng ngày
         if (!reportFilters.startDate || !reportFilters.endDate) {
             alert('Vui lòng chọn khoảng thời gian.');
             return;
@@ -393,16 +394,33 @@ export default function BaoCaoVanHanhHtml() {
         setLoading(true);
         setError(null);
         try {
-            const { data, error: qErr } = await supabase
-                .from('bao_cao_van_don')
-                .select(
-                    'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan, tien_trang_thai_thanh_toan'
-                )
-                .gte('ngay', qStart)
-                .lte('ngay', qEnd)
-                .order('ngay', { ascending: false });
-            if (qErr) throw qErr;
-            let rows = (data || []).map(mapBaoCaoRowToVirtual);
+            // Lấy FULL dữ liệu trong khoảng ngày bằng cách phân trang 1000 bản ghi/lần
+            let allBaoCaoRows = [];
+            let page = 0;
+            const MAX_PAGES = 100; // an toàn: tối đa ~100.000 bản ghi
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+                const from = page * PAGE_SIZE;
+                const to = from + PAGE_SIZE - 1;
+                const { data, error: qErr } = await supabase
+                    .from('bao_cao_van_don')
+                    .select(
+                        'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan, tien_trang_thai_thanh_toan'
+                    )
+                    .gte('ngay', qStart)
+                    .lte('ngay', qEnd)
+                    .order('ngay', { ascending: false })
+                    .range(from, to);
+                if (qErr) throw qErr;
+                const batch = data || [];
+                if (batch.length === 0) break;
+                allBaoCaoRows = allBaoCaoRows.concat(batch);
+                if (batch.length < PAGE_SIZE) break;
+                page += 1;
+                if (page >= MAX_PAGES) break;
+            }
+
+            let rows = (allBaoCaoRows || []).map(mapBaoCaoRowToVirtual);
             if (reportFilters.product?.length > 0) {
                 const ps = new Set(reportFilters.product);
                 rows = rows.filter((r) => ps.has(r['Mặt hàng']));
@@ -874,30 +892,66 @@ export default function BaoCaoVanHanhHtml() {
             {/* Tab 2 — BC Vận Hành (layout mẫu Excel) */}
             {activeTab === 'tab2' && (
                 <div className="bcvh-wrap rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
-                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                        <button
-                            type="button"
-                            disabled={loading}
-                            className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
-                            onClick={async () => {
-                                await fetchData({ expandBcvh: true });
-                                const p = new URLSearchParams(searchParams);
-                                p.set('from_date', reportFilters.startDate);
-                                p.set('to_date', reportFilters.endDate);
-                                p.set('tab', activeTab);
-                                setSearchParams(p, { replace: true });
-                            }}
-                        >
-                            {loading ? 'Đang tải…' : '🔍 Tìm'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={addBcvhRow}
-                            className="shrink-0 rounded border border-gray-400 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                            title="Thêm dòng tiêu chí"
-                        >
-                            + Thêm dòng
-                        </button>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                        {/* Bộ lọc khoảng ngày cho link & query */}
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
+                            <label className="flex items-center gap-1">
+                                Từ ngày
+                                <input
+                                    type="date"
+                                    className="rounded border border-gray-300 px-2 py-1 text-xs"
+                                    value={reportFilters.startDate}
+                                    onChange={(e) =>
+                                        setReportFilters((p) => ({
+                                            ...p,
+                                            startDate: e.target.value,
+                                            dateRange: ''
+                                        }))
+                                    }
+                                />
+                            </label>
+                            <label className="flex items-center gap-1">
+                                Đến ngày
+                                <input
+                                    type="date"
+                                    className="rounded border border-gray-300 px-2 py-1 text-xs"
+                                    value={reportFilters.endDate}
+                                    onChange={(e) =>
+                                        setReportFilters((p) => ({
+                                            ...p,
+                                            endDate: e.target.value,
+                                            dateRange: ''
+                                        }))
+                                    }
+                                />
+                            </label>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                disabled={loading}
+                                className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
+                                onClick={async () => {
+                                    await fetchData({ expandBcvh: true });
+                                    const p = new URLSearchParams(searchParams);
+                                    p.set('from_date', reportFilters.startDate);
+                                    p.set('to_date', reportFilters.endDate);
+                                    p.set('tab', activeTab);
+                                    setSearchParams(p, { replace: true });
+                                }}
+                            >
+                                {loading ? 'Đang tải…' : '🔍 Tìm'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={addBcvhRow}
+                                className="shrink-0 rounded border border-gray-400 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                                title="Thêm dòng tiêu chí"
+                            >
+                                + Thêm dòng
+                            </button>
+                        </div>
                     </div>
                     {rawData.length === 0 && !loading && (
                         <p className="mb-2 text-sm text-amber-800">
