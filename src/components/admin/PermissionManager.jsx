@@ -768,6 +768,8 @@ const PermissionManager = ({ searchQuery = "" }) => {
     // Assign User State
     const [assignEmail, setAssignEmail] = useState('');
     const [assignRole, setAssignRole] = useState('');
+    const [bulkAssignRole, setBulkAssignRole] = useState('');
+    const [selectedUserEmails, setSelectedUserEmails] = useState([]);
 
     // Matrix State
     const [selectedRole, setSelectedRole] = useState(null);
@@ -951,6 +953,21 @@ const PermissionManager = ({ searchQuery = "" }) => {
             loadData();
         } catch (error) {
             toast.error("Lỗi: " + error.message);
+        }
+    };
+
+    const handleBulkAssignRole = async () => {
+        if (!bulkAssignRole) return toast.warning("Chọn vai trò để gán hàng loạt");
+        if (!selectedUserEmails.length) return toast.warning("Chọn ít nhất 1 nhân viên");
+        if (!window.confirm(`Gán vai trò "${bulkAssignRole}" cho ${selectedUserEmails.length} nhân viên đã chọn?`)) return;
+        try {
+            await Promise.all(selectedUserEmails.map((email) => rbacService.assignUserRole(email, bulkAssignRole)));
+            toast.success(`Đã gán vai trò cho ${selectedUserEmails.length} nhân viên`);
+            setSelectedUserEmails([]);
+            setBulkAssignRole('');
+            loadData();
+        } catch (error) {
+            toast.error("Lỗi gán quyền hàng loạt: " + error.message);
         }
     };
 
@@ -1191,6 +1208,21 @@ const PermissionManager = ({ searchQuery = "" }) => {
         
         return matchesSearch;
     });
+
+    const allFilteredEmails = filteredUserRoles.map((ur) => ur.email).filter(Boolean);
+    const allVisibleSelected = allFilteredEmails.length > 0 && allFilteredEmails.every((email) => selectedUserEmails.includes(email));
+    const toggleSelectAllVisible = () => {
+        if (allVisibleSelected) {
+            setSelectedUserEmails((prev) => prev.filter((email) => !allFilteredEmails.includes(email)));
+            return;
+        }
+        setSelectedUserEmails((prev) => [...new Set([...prev, ...allFilteredEmails])]);
+    };
+    const toggleSelectUser = (email) => {
+        setSelectedUserEmails((prev) => (
+            prev.includes(email) ? prev.filter((x) => x !== email) : [...prev, email]
+        ));
+    };
 
     return (
         <div className="bg-white rounded-xl shadow-md border border-gray-100 animate-fadeIn overflow-hidden">
@@ -1476,10 +1508,45 @@ const PermissionManager = ({ searchQuery = "" }) => {
                             </div>
                         </div>
 
+                        <div className="flex flex-wrap items-end gap-3 mb-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                            <div className="text-sm text-gray-700">
+                                Đã chọn: <span className="font-semibold">{selectedUserEmails.length}</span> nhân viên
+                            </div>
+                            <div className="w-full md:w-72">
+                                <label className="text-xs font-semibold text-gray-500 mb-1 block">Vai trò gán hàng loạt</label>
+                                <SearchableSelect
+                                    value={bulkAssignRole}
+                                    onChange={setBulkAssignRole}
+                                    options={[
+                                        { value: '', label: '-- Chọn Role --' },
+                                        ...roles.map(r => ({
+                                            value: r.code,
+                                            label: `${r.name} (${r.code})`
+                                        }))
+                                    ]}
+                                    placeholder="-- Chọn Role --"
+                                />
+                            </div>
+                            <button
+                                onClick={handleBulkAssignRole}
+                                className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700 h-10"
+                            >
+                                Gán vai trò hàng loạt
+                            </button>
+                        </div>
+
                         <div className="overflow-x-auto">
                             <table className="w-full text-base text-left border rounded-lg">
                                 <thead className="bg-gray-100 font-semibold text-gray-700">
                                     <tr>
+                                        <th className="px-3 py-4 text-sm text-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={allVisibleSelected}
+                                                onChange={toggleSelectAllVisible}
+                                                title="Chọn tất cả dòng đang hiển thị"
+                                            />
+                                        </th>
                                         <th className="px-5 py-4 text-sm">Email</th>
                                         <th className="px-5 py-4 text-sm">Tên nhân viên</th>
                                         <th className="px-5 py-4 text-sm">Bộ phận</th>
@@ -1508,6 +1575,14 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                         const selectedTeams = leaderTeamsMap[ur.email] || [];
                                         return (
                                             <tr key={ur.email} className="hover:bg-gray-50">
+                                                <td className="px-3 py-4 text-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedUserEmails.includes(ur.email)}
+                                                        onChange={() => toggleSelectUser(ur.email)}
+                                                        title={`Chọn ${ur.email}`}
+                                                    />
+                                                </td>
                                                 <td className="px-5 py-4 font-medium text-sm">{ur.email}</td>
                                                 <td className="px-5 py-4 text-gray-700 text-sm">{emp ? emp['Họ Và Tên'] : '-'}</td>
                                                 <td className="px-5 py-4 text-gray-600 text-sm">{departmentFromHR}</td>
@@ -1637,7 +1712,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     })}
                                     {filteredUserRoles.length === 0 && (
                                         <tr>
-                                            <td colSpan={11} className="px-5 py-6 text-center text-gray-500 text-base">
+                                            <td colSpan={12} className="px-5 py-6 text-center text-gray-500 text-base">
                                                 Không tìm thấy kết quả
                                             </td>
                                         </tr>
