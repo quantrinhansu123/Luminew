@@ -83,6 +83,65 @@ export function buildPushDonByDayMatrix(rows, startIso, endIso) {
     return { dates, rows: list, colTotals, grandTotal: grand };
 }
 
+function ffmLogDayKey(r) {
+    const raw =
+        r?.pushed_at ??
+        r?.created_at ??
+        r?.inserted_at ??
+        r?.updated_at ??
+        r?.push_date;
+    if (raw == null || raw === '') return '';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+}
+
+function ffmLogMarket(r) {
+    return String(r?.country ?? r?.['Khu vực'] ?? r?.market ?? '').trim() || 'Không xác định';
+}
+
+function ffmLogProduct(r) {
+    return String(r?.product ?? r?.['Mặt hàng'] ?? '').trim() || 'Không xác định';
+}
+
+/**
+ * Tab 4 (nguồn ffm_push_logs): đếm số dòng log theo ngày + thị trường + sản phẩm.
+ */
+export function buildPushDonByDayMatrixFromFfmLogs(rows, startIso, endIso) {
+    const dates = enumerateIsoDatesInclusive(startIso, endIso);
+    const dateSet = new Set(dates);
+    /** @type {Map<string, { market: string; product: string; byDate: Record<string, number>; total: number }>} */
+    const map = new Map();
+
+    for (const r of rows || []) {
+        const day = ffmLogDayKey(r);
+        if (!dateSet.has(day)) continue;
+        const key = `${ffmLogMarket(r)}\t${ffmLogProduct(r)}`;
+        if (!map.has(key)) {
+            map.set(key, { market: ffmLogMarket(r), product: ffmLogProduct(r), byDate: {}, total: 0 });
+        }
+        const e = map.get(key);
+        e.byDate[day] = (e.byDate[day] || 0) + 1;
+        e.total += 1;
+    }
+
+    const list = [...map.values()].sort((a, b) => {
+        const c = a.market.localeCompare(b.market, 'vi');
+        return c !== 0 ? c : a.product.localeCompare(b.product, 'vi');
+    });
+
+    const colTotals = {};
+    for (const d of dates) colTotals[d] = 0;
+    let grand = 0;
+    for (const e of list) {
+        grand += e.total;
+        for (const d of dates) {
+            colTotals[d] += e.byDate[d] || 0;
+        }
+    }
+    return { dates, rows: list, colTotals, grandTotal: grand };
+}
+
 function monthStartIso(endIso) {
     const p = endIso.slice(0, 10).split('-');
     if (p.length !== 3) return endIso;

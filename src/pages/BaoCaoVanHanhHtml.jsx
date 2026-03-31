@@ -15,6 +15,7 @@ import {
 } from '../utils/baoCaoVanDonMarketMatrix';
 import {
     buildPushDonByDayMatrix,
+    buildPushDonByDayMatrixFromFfmLogs,
     buildTrangThaiDonByDay,
     isoToViDisplay
 } from '../utils/baoCaoVanHanhTabsData';
@@ -121,6 +122,7 @@ export default function BaoCaoVanHanhHtml() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [rawData, setRawData] = useState([]);
+    const [ffmPushRows, setFfmPushRows] = useState([]);
     const [bcvhCriteriaRows, setBcvhCriteriaRows] = useState(() => {
         if (urlStartDate && urlEndDate) {
             return [
@@ -289,10 +291,17 @@ export default function BaoCaoVanHanhHtml() {
     }, [rawData, selectedPersonnelNames, isAdmin]);
 
     const matrix = useMemo(() => buildBaoCaoVanHanhMatrix(rawData), [rawData]);
-    const pushMatrix = useMemo(
-        () => buildPushDonByDayMatrix(rawData, reportFilters.startDate, reportFilters.endDate),
-        [rawData, reportFilters.startDate, reportFilters.endDate]
-    );
+    const pushMatrix = useMemo(() => {
+        if (activeTab === 'tab4') {
+            // Tab 4 bắt buộc lấy từ ffm_push_logs (kể cả không có dòng -> số = 0).
+            return buildPushDonByDayMatrixFromFfmLogs(
+                ffmPushRows,
+                reportFilters.startDate,
+                reportFilters.endDate
+            );
+        }
+        return buildPushDonByDayMatrix(rawData, reportFilters.startDate, reportFilters.endDate);
+    }, [activeTab, ffmPushRows, rawData, reportFilters.startDate, reportFilters.endDate]);
     const statusByDay = useMemo(
         () => buildTrangThaiDonByDay(rawData, reportFilters.startDate, reportFilters.endDate),
         [rawData, reportFilters.startDate, reportFilters.endDate]
@@ -458,6 +467,95 @@ export default function BaoCaoVanHanhHtml() {
                 setError(null);
             }
             setRawData(rows);
+
+            // Tab 4: nguồn dữ liệu theo yêu cầu lấy từ ffm_push_logs.
+            // Tải theo khoảng ngày đang lọc (ưu tiên pushed_at; fallback theo cột timestamp khác nếu thiếu pushed_at).
+            if (activeTab === 'tab4') {
+                setError(null);
+                const fromIso = `${reportFilters.startDate}T00:00:00`;
+                const toIso = `${reportFilters.endDate}T23:59:59`;
+                const { data: pushedRows, error: pushedErr } = await supabase
+                    .from('ffm_push_logs')
+                    .select('*')
+                    .gte('pushed_at', fromIso)
+                    .lte('pushed_at', toIso)
+                    .order('pushed_at', { ascending: false })
+                    .limit(20000);
+                if (pushedErr) throw pushedErr;
+
+                // Fallback 1: inserted_at
+                let fallbackRows = [];
+                let fallbackErr = null;
+                try {
+                    const r1 = await supabase
+                        .from('ffm_push_logs')
+                        .select('*')
+                        .is('pushed_at', null)
+                        .gte('inserted_at', fromIso)
+                        .lte('inserted_at', toIso)
+                        .order('inserted_at', { ascending: false })
+                        .limit(20000);
+                    fallbackRows = r1.data || [];
+                    fallbackErr = r1.error;
+                } catch (e) {
+                    fallbackErr = e;
+                }
+
+                // Fallback 2: updated_at (nếu inserted_at không có cột)
+                if (fallbackErr) {
+                    const msg = String(fallbackErr?.message || fallbackErr).toLowerCase();
+                    const insertedMissing =
+                        msg.includes('inserted_at') &&
+                        (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache'));
+                    // Nếu inserted_at không tồn tại thì thử updated_at.
+                    if (insertedMissing) {
+                        try {
+                            const r2 = await supabase
+                                .from('ffm_push_logs')
+                                .select('*')
+                                .is('pushed_at', null)
+                                .gte('updated_at', fromIso)
+                                .lte('updated_at', toIso)
+                                .order('updated_at', { ascending: false })
+                                .limit(20000);
+                            fallbackRows = r2.data || [];
+                            if (r2.error) {
+                                const r2Msg = String(r2.error?.message || r2.error).toLowerCase();
+                                const updatedMissing =
+                                    r2Msg.includes('updated_at') && (r2Msg.includes('does not exist') || r2Msg.includes('could not find') || r2Msg.includes('schema cache'));
+                                if (!updatedMissing) throw r2.error;
+                            }
+                        } catch (e2) {
+                            // Nếu vẫn lỗi vì cột không tồn tại thì chỉ bỏ fallback.
+                            const m2 = String(e2?.message || e2).toLowerCase();
+                            const updatedMissing =
+                                m2.includes('updated_at') &&
+                                (m2.includes('does not exist') || m2.includes('could not find') || m2.includes('schema cache'));
+                            fallbackRows = updatedMissing ? [] : fallbackRows;
+                        }
+                    }
+                }
+
+                let merged = [...(pushedRows || []), ...(fallbackRows || [])];
+
+                // Áp dụng filter sản phẩm/khu vực từ UI lên dữ liệu ffm_push_logs
+                if (reportFilters.product?.length) {
+                    const ps = new Set(reportFilters.product);
+                    merged = merged.filter((r) => ps.has(String(r?.product ?? r?.['Mặt hàng'] ?? '').trim()));
+                }
+                if (reportFilters.market?.length) {
+                    const ms = new Set(reportFilters.market);
+                    merged = merged.filter((r) => ms.has(String(r?.country ?? r?.['Khu vực'] ?? r?.khu_vuc ?? '').trim()));
+                }
+
+                setFfmPushRows(merged);
+                if ((merged || []).length === 0) {
+                    setError('Không có dữ liệu ffm_push_logs phù hợp khoảng ngày / bộ lọc.');
+                }
+            } else {
+                setFfmPushRows([]);
+            }
+
             if (options.expandBcvh && rows.length > 0) {
                 setBcvhCriteriaRows((prev) =>
                     expandBcvhCriteriaRowsFromRawData(prev, rows, newBcvhRowId)
@@ -505,7 +603,7 @@ export default function BaoCaoVanHanhHtml() {
     const colSpanMain = 1 + markets.length * 2 + 2;
 
     return (
-        <div className="min-h-[calc(100vh-64px)] bg-gray-100 p-4 md:p-6 overflow-auto">
+        <div className="min-h-[calc(100vh-64px)] bg-gray-100 p-4 md:p-6 overflow-y-auto overflow-x-hidden">
             {loading && (
                 <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/20">
                     <div className="rounded-lg bg-white px-6 py-4 shadow-lg">Đang tải bao_cao_van_don…</div>
@@ -807,8 +905,8 @@ export default function BaoCaoVanHanhHtml() {
                             thống lấy min–max ngày của thanh lọc và từng dòng bên dưới).
                         </p>
                     )}
-                    <div className="max-h-[calc(100vh-220px)] overflow-auto">
-                        <table className="min-w-max border-collapse">
+                    <div className="bcvh-scroll max-h-[calc(100vh-220px)]">
+                        <table className="min-w-max border-separate border-spacing-0">
                             <thead>
                                 <tr>
                                     <th

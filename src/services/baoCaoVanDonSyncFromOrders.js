@@ -51,6 +51,10 @@ function buildVanDonReportKey(dateStr, nhanVien, sanPham, thiTruong) {
   ].join('|');
 }
 
+function hasNonEmptyDeliveryStaff(order) {
+  return normalizeStr(order?.delivery_staff) !== '';
+}
+
 function pickMode(values) {
   const counts = new Map();
   for (const v of values) {
@@ -81,13 +85,27 @@ function countHistogram(rawValues) {
   return Object.fromEntries(counts);
 }
 
-/** jsonb cùng key như countHistogram: tổng reconciled_vnd (VNĐ) theo nhãn thanh toán. */
+function pickOrderTotalAmountVnd(order) {
+  const v = order?.total_amount_vnd;
+  const n = Number(v);
+  if (Number.isFinite(n)) return n;
+  return 0;
+}
+
+function paymentLabelIsCoBillOnly(label) {
+  const s = String(label ?? '').trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes('1 phần') && s.includes('bill')) return false;
+  return s.includes('có bill');
+}
+
+/** jsonb cùng key như countHistogram: tổng total_amount_vnd (VNĐ) theo nhãn thanh toán. */
 function sumMoneyHistogramByPaymentLabel(orders) {
   const sums = new Map();
   for (const o of orders || []) {
     const label = paymentLabelForHistogram(o);
     const key = label == null || String(label).trim() === '' ? '(Trống)' : String(label).trim();
-    const amt = Number(o?.reconciled_vnd) || 0;
+    const amt = paymentLabelIsCoBillOnly(key) ? pickOrderTotalAmountVnd(o) : 0;
     sums.set(key, (sums.get(key) || 0) + amt);
   }
   return Object.fromEntries(sums);
@@ -188,7 +206,7 @@ export const SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN = `alter table public.bao_cao_v
   add column if not exists tien_trang_thai_thanh_toan jsonb not null default '{}'::jsonb;`;
 
 const VAN_DON_REPORT_ORDER_SELECT =
-  'order_code, order_date, created_at, delivery_staff, product, country, delivery_status, check_result, payment_status, payment_status_detail, reconciled_vnd, tracking_code, shipping_unit';
+  'order_code, order_date, created_at, delivery_staff, product, country, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, reconciled_vnd, tracking_code, shipping_unit';
 
 async function fetchAllOrdersForVanDonReport(startDate, endDate) {
   const PAGE_SIZE = 2000;
@@ -275,7 +293,7 @@ async function fetchAllBaoCaoVanDonInRange(startDate, endDate) {
  * Từ `orders` ghi `bao_cao_van_don`: upsert theo key
  * (ngay ← order_date, nhan_vien ← delivery_staff, san_pham ← product, thi_truong ← country).
  * Cột trạng thái: jsonb đếm số đơn theo từng giá trị trong nhóm key.
- * - trang_thai_thanh_toan: nhãn thanh toán; tien_trang_thai_thanh_toan: tổng reconciled_vnd cùng key.
+ * - trang_thai_thanh_toan: nhãn thanh toán; tien_trang_thai_thanh_toan: tổng total_amount_vnd cùng key.
  * - trang_thai_giao_hang: delivery_status + "Mã Tracking" (đếm tracking_code) + "Lên vận hành" (shipping_unit).
  */
 export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = false } = {}) {
@@ -293,6 +311,8 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
 
   const byKey = new Map();
   for (const order of orders || []) {
+    // Chỉ tính các đơn đã có NV vận đơn; khi không còn nhân sự F3 thì báo cáo sẽ về 0.
+    if (!hasNonEmptyDeliveryStaff(order)) continue;
     const ngayEff = effectiveOrderDateYmd(order);
     const k = buildVanDonReportKey(ngayEff, order.delivery_staff, order.product, order.country);
     if (!k || !ngayEff) continue;
@@ -316,8 +336,26 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
 
   const updateRows = [];
   const createRows = [];
+  const deleteRows = [];
   const previewRows = [];
   const PREVIEW_LIMIT = 50;
+
+  for (const r of existingRows || []) {
+    const k = buildVanDonReportKey(r.ngay, r.nhan_vien, r.san_pham, r.thi_truong);
+    if (!k || !r.id) continue;
+    if (!byKey.has(k)) {
+      deleteRows.push(r.id);
+      if (previewRows.length < PREVIEW_LIMIT) {
+        previewRows.push({
+          ngay: r.ngay,
+          nhan_vien: r.nhan_vien || null,
+          san_pham: r.san_pham || null,
+          thi_truong: r.thi_truong || null,
+          action: 'delete',
+        });
+      }
+    }
+  }
 
   for (const [key, { orders: list }] of byKey) {
     if (!list?.length) continue;
@@ -372,6 +410,7 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
       existingFetched: existingRows?.length || 0,
       updatedExisting: updateRows.length,
       createdMissing: createRows.length,
+      deletedObsolete: deleteRows.length,
       upsertCount: updateRows.length + createRows.length,
       previewRows,
       tienColumnSkippedInSync: false,
@@ -482,6 +521,14 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
     touched += chunk.length;
   }
 
+  const DELETE_CHUNK = 500;
+  for (let i = 0; i < deleteRows.length; i += DELETE_CHUNK) {
+    const chunk = deleteRows.slice(i, i + DELETE_CHUNK);
+    let { error: delErr } = await supabase.from('bao_cao_van_don').delete().in('id', chunk);
+    if (delErr) throw delErr;
+    touched += chunk.length;
+  }
+
   return {
     success: true,
     table: 'bao_cao_van_don',
@@ -489,6 +536,7 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
     existingFetched: existingRows?.length || 0,
     updatedExisting: updateRows.length,
     createdMissing: createRows.length,
+    deletedObsolete: deleteRows.length,
     upserted: touched,
     previewRows,
     tienColumnSkippedInSync,

@@ -137,12 +137,12 @@ function AppShell() {
             />
             <Route path="/nhap-bao-cao-cskh" element={<ProtectedRoute><NhapBaoCaoCSKH /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
-            {/* MKT: dùng cùng data pipeline với Báo cáo chi tiết */}
+            {/* MKT: /xem-bao-cao-mkt trỏ thẳng tới HTML legacy (iframe) */}
             <Route
               path="/xem-bao-cao-mkt"
               element={
                 <ProtectedRoute>
-                  <BaoCaoChiTiet />
+                  <XemBaoCaoMKTLegacy />
                 </ProtectedRoute>
               }
             />

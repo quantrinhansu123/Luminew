@@ -2,11 +2,22 @@
 .bcvh-wrap {
     font-family: Arial, Helvetica, sans-serif;
     font-size: 14px;
+    overflow: hidden; /* Không cho thanh kéo ngang chạy ra ngoài khung bảng */
+}
+
+/* Vùng cuộn dành riêng cho tab2 — sticky chỉ hoạt động trong scroll container này. */
+.bcvh-scroll {
+    position: relative;
+    max-width: 100%;
+    overflow-x: auto; /* Thanh kéo ngang chỉ ở vùng bảng bên dưới */
+    overflow-y: auto;
+    isolation: isolate;
 }
 
 /* Sticky columns for tab2 (Excel-like) */
 .bcvh-sticky {
     position: sticky;
+    z-index: 200;
 }
 
 .bcvh-sticky-col-1 {
@@ -14,53 +25,65 @@
 }
 
 .bcvh-sticky-col-2 {
-    left: var(--bcvh-col-1-width);
+    left: calc(var(--bcvh-col-1-width) + 1px);
 }
 
 .bcvh-sticky-col-3 {
-    left: calc(var(--bcvh-col-1-width) + var(--bcvh-col-2-width));
+    left: calc(var(--bcvh-col-1-width) + var(--bcvh-col-2-width) + 2px);
 }
 
 .bcvh-sticky-col-4 {
-    left: calc(var(--bcvh-col-1-width) + var(--bcvh-col-2-width) + var(--bcvh-col-3-width));
+    left: calc(var(--bcvh-col-1-width) + var(--bcvh-col-2-width) + var(--bcvh-col-3-width) + 3px);
 }
 
 .bcvh-sticky-th {
-    z-index: 6;
+    z-index: 320;
+    background-clip: padding-box;
 }
 
 .bcvh-sticky-td {
-    z-index: 5;
+    z-index: 300;
     background: #fff; /* avoid showing scrolled columns through */
+    background-clip: padding-box;
 }
 
 .bcvh-sticky-span-4 {
     left: 0;
-    z-index: 6;
+    z-index: 340;
     position: sticky;
+    background: #FFC000;
     min-width: calc(
         var(--bcvh-col-1-width) + var(--bcvh-col-2-width) + var(--bcvh-col-3-width) + var(--bcvh-col-4-width)
     );
 }
 
+/* Viền/bóng phân tách vùng đóng băng để luôn "đè lên" phần cuộn ngang. */
+.bcvh-sticky-col-4 {
+    box-shadow: 2px 0 0 #000, 6px 0 8px rgba(0, 0, 0, 0.18);
+}
+
 .bcvh-col-1 {
-    width: var(--bcvh-col-1-width);
-    min-width: var(--bcvh-col-1-width);
+    width: var(--bcvh-col-1-width) !important;
+    min-width: var(--bcvh-col-1-width) !important;
+    max-width: var(--bcvh-col-1-width) !important;
 }
 
 .bcvh-col-2 {
-    width: var(--bcvh-col-2-width);
-    min-width: var(--bcvh-col-2-width);
+    width: var(--bcvh-col-2-width) !important;
+    min-width: var(--bcvh-col-2-width) !important;
+    max-width: var(--bcvh-col-2-width) !important;
 }
 
 .bcvh-col-3 {
-    width: var(--bcvh-col-3-width);
-    min-width: var(--bcvh-col-3-width);
+    width: var(--bcvh-col-3-width) !important;
+    min-width: var(--bcvh-col-3-width) !important;
+    max-width: var(--bcvh-col-3-width) !important;
 }
 
 .bcvh-col-4 {
-    width: var(--bcvh-col-4-width);
-    min-width: var(--bcvh-col-4-width);
+    width: var(--bcvh-col-4-width) !important;
+    min-width: var(--bcvh-col-4-width) !important;
+    max-width: var(--bcvh-col-4-width) !important;
 }
 
 /* Default sticky widths (can be tuned) */
@@ -160,7 +183,7 @@
 }
 
 .bcvh-cell-input {
-    width: 140px;
+    width: 100%;
     max-width: 100%;
     font-size: 12px;
     font-weight: 700;
@@ -170,7 +193,8 @@
 }
 
 .bcvh-cell-select {
-    max-width: 160px;
+    width: 100%;
+    max-width: 100%;
     font-size: 12px;
     font-weight: 700;
     padding: 4px 6px;

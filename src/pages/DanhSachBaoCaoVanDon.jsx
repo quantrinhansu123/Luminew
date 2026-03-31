@@ -314,7 +314,8 @@ export default function DanhSachBaoCaoVanDon() {
       const vdN = vd?.upserted ?? 0;
       const vdUp = vd?.updatedExisting ?? 0;
       const vdCr = vd?.createdMissing ?? 0;
-      toast.success(`bao_cao_van_don: ${vdN} thao tác (cập nhật ${vdUp}, tạo mới ${vdCr}).`);
+      const vdDel = vd?.deletedObsolete ?? 0;
+      toast.success(`bao_cao_van_don: ${vdN} thao tác (cập nhật ${vdUp}, tạo mới ${vdCr}, xóa cũ ${vdDel}).`);
       if (vd?.tienColumnSkippedInSync) {
         toast.warn(
           `Thiếu cột tien_trang_thai_thanh_toan trên Supabase — cột tiền chưa được lưu. Chạy SQL (SQL Editor): ${SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN}`,

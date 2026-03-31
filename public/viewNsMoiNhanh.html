@@ -459,7 +459,7 @@
     <button class="tablinks" onclick="openTab(event, 'DetailedReport')" id="defaultOpen">Báo cáo chi tiết</button>
     <button class="tablinks" onclick="openTab(event, 'KpiReport')" style="display: none;">Báo cáo KPI</button>
     <button class="tablinks" onclick="openTab(event, 'HieuSuatKPI')">Hiệu suất KPI</button>
-    <button class="tablinks" onclick="openTab(event, 'MarketReport')">Hiệu quả MKT</button>
+    <button class="tablinks" onclick="openTab(event, 'MarketReport')">Hiệu suất MKT</button>
     <!-- TAB MỚI: Báo cáo thủ công, ẩn mặc định -->
     <button class="tablinks" onclick="openTab(event, 'ManualReport')" id="manual-report-tab-btn"
       style="display: none;">Báo cáo thủ công</button>
@@ -904,7 +904,9 @@
         'Email': item.email || item['Email'] || '',
         'Sản_phẩm': item.san_pham || item['Sản_phẩm'] || '',
         'Thị_trường': item.thi_truong || item['Thị_trường'] || '',
-        'CPQC': parseMoneyNumber(item.cpqc ?? item['CPQC'] ?? 0),
+        // Ưu tiên đúng cột CPQC từ detail_reports (schema hiện tại),
+        // chỉ fallback sang cpqc khi thiếu dữ liệu legacy.
+        'CPQC': parseMoneyNumber(item['CPQC'] ?? item.cpqc ?? 0),
         'Số_Mess_Cmt': parseIntegerVi(item.so_mess_cmt ?? item['Số_Mess_Cmt'] ?? 0),
         'Số đơn': parseIntegerVi(item['Số đơn'] ?? item.so_don ?? 0),
         'Số đơn thực tế': parseIntegerVi(item['Số đơn thực tế'] ?? item.so_don_thuc_te ?? 0),
