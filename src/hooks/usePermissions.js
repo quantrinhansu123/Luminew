@@ -113,27 +113,23 @@ export const usePermissions = () => {
 
     // --- CHECKER FUNCTIONS ---
 
-    const canView = (pageCode) => {
-        // Legacy Admin Bypass - Check both localStorage and role from DB
-        const legacyRole = localStorage.getItem('userRole');
-        const roleLower = (legacyRole || '').toLowerCase();
+    const hasAdminBypass = () => {
+        const legacyRole = (localStorage.getItem('userRole') || '').toLowerCase();
         const roleFromDbLower = (role || '').toLowerCase();
-        
-        // Admin bypass - check multiple variations (including Finance)
-        if (roleLower === 'admin' || 
-            roleFromDbLower === 'admin' || 
+        return (
+            legacyRole === 'admin' ||
+            roleFromDbLower === 'admin' ||
             roleFromDbLower === 'administrator' ||
             roleFromDbLower === 'super_admin' ||
-            roleFromDbLower === 'director' ||
-            roleFromDbLower === 'manager' ||
-            roleFromDbLower === 'finance') {
-            return true;
-        }
+            role === 'ADMIN' ||
+            role === 'ADMINISTRATOR' ||
+            role === 'SUPER_ADMIN'
+        );
+    };
 
-        // Also check uppercase version
-        if (role === 'ADMIN' || role === 'ADMINISTRATOR' || role === 'SUPER_ADMIN' || role === 'DIRECTOR' || role === 'MANAGER' || role === 'FINANCE') {
-            return true;
-        }
+    const canView = (pageCode) => {
+        // Strict RBAC: chỉ admin/super_admin bypass, còn lại bám app_page_permissions
+        if (hasAdminBypass()) return true;
 
         // If the pageCode is actually a module code (e.g., checking if module is visible)
         // We might want to return true if ANY page in the module is visible, or check specifically.
@@ -148,78 +144,21 @@ export const usePermissions = () => {
     };
 
     const canEdit = (pageCode) => {
-        // Admin bypass - check multiple variations (including Finance)
-        const legacyRole = localStorage.getItem('userRole');
-        const roleLower = (legacyRole || '').toLowerCase();
-        const roleFromDbLower = (role || '').toLowerCase();
-        
-        if (roleLower === 'admin' || 
-            roleFromDbLower === 'admin' || 
-            roleFromDbLower === 'administrator' ||
-            roleFromDbLower === 'super_admin' ||
-            roleFromDbLower === 'director' ||
-            roleFromDbLower === 'manager' ||
-            roleFromDbLower === 'finance' ||
-            role === 'ADMIN' || 
-            role === 'ADMINISTRATOR' || 
-            role === 'SUPER_ADMIN' || 
-            role === 'DIRECTOR' || 
-            role === 'MANAGER' ||
-            role === 'FINANCE') {
-            return true;
-        }
+        if (hasAdminBypass()) return true;
         
         const p = permissions.find(x => x.page_code === pageCode);
         return !!p?.can_edit;
     };
 
     const canDelete = (pageCode) => {
-        // Admin bypass - check multiple variations (including Finance)
-        const legacyRole = localStorage.getItem('userRole');
-        const roleLower = (legacyRole || '').toLowerCase();
-        const roleFromDbLower = (role || '').toLowerCase();
-        
-        if (roleLower === 'admin' || 
-            roleFromDbLower === 'admin' || 
-            roleFromDbLower === 'administrator' ||
-            roleFromDbLower === 'super_admin' ||
-            roleFromDbLower === 'director' ||
-            roleFromDbLower === 'manager' ||
-            roleFromDbLower === 'finance' ||
-            role === 'ADMIN' || 
-            role === 'ADMINISTRATOR' || 
-            role === 'SUPER_ADMIN' || 
-            role === 'DIRECTOR' || 
-            role === 'MANAGER' ||
-            role === 'FINANCE') {
-            return true;
-        }
+        if (hasAdminBypass()) return true;
         
         const p = permissions.find(x => x.page_code === pageCode);
         return !!p?.can_delete;
     };
 
     const getAllowedColumns = (pageCode) => {
-        // Admin bypass - check multiple variations (including Finance)
-        const legacyRole = localStorage.getItem('userRole');
-        const roleLower = (legacyRole || '').toLowerCase();
-        const roleFromDbLower = (role || '').toLowerCase();
-        
-        if (roleLower === 'admin' || 
-            roleFromDbLower === 'admin' || 
-            roleFromDbLower === 'administrator' ||
-            roleFromDbLower === 'super_admin' ||
-            roleFromDbLower === 'director' ||
-            roleFromDbLower === 'manager' ||
-            roleFromDbLower === 'finance' ||
-            role === 'ADMIN' || 
-            role === 'ADMINISTRATOR' || 
-            role === 'SUPER_ADMIN' || 
-            role === 'DIRECTOR' || 
-            role === 'MANAGER' ||
-            role === 'FINANCE') {
-            return ['*'];
-        }
+        if (hasAdminBypass()) return ['*'];
         
         const p = permissions.find(x => x.page_code === pageCode);
         if (!p) return []; // No permission entry means access denied generally
@@ -227,26 +166,7 @@ export const usePermissions = () => {
     };
 
     const isColumnAllowed = (pageCode, columnName) => {
-        // Admin bypass - check multiple variations (including Finance)
-        const legacyRole = localStorage.getItem('userRole');
-        const roleLower = (legacyRole || '').toLowerCase();
-        const roleFromDbLower = (role || '').toLowerCase();
-        
-        if (roleLower === 'admin' || 
-            roleFromDbLower === 'admin' || 
-            roleFromDbLower === 'administrator' ||
-            roleFromDbLower === 'super_admin' ||
-            roleFromDbLower === 'director' ||
-            roleFromDbLower === 'manager' ||
-            roleFromDbLower === 'finance' ||
-            role === 'ADMIN' || 
-            role === 'ADMINISTRATOR' || 
-            role === 'SUPER_ADMIN' || 
-            role === 'DIRECTOR' || 
-            role === 'MANAGER' ||
-            role === 'FINANCE') {
-            return true;
-        }
+        if (hasAdminBypass()) return true;
         
         const cols = getAllowedColumns(pageCode);
         if (cols.includes('*')) return true;

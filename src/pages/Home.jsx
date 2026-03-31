@@ -164,7 +164,7 @@ function Home() {
           label: "Nhập đơn HCM",
           icon: <PlusCircle className="w-4 h-4" />,
           path: "/nhap-don?view=hcm",
-          permission: 'CSKH_NEW_ORDER',
+          permission: 'CSKH_NEW_ORDER_HCM',
         },
         {
           id: "crm-input-report",
@@ -207,7 +207,7 @@ function Home() {
           label: "Danh sách đơn HCM",
           icon: <ClipboardList className="w-4 h-4" />,
           path: "/danh-sach-don-hcm",
-          permission: 'SALE_ORDERS',
+          permission: 'SALE_ORDERS_HCM',
         },
         {
           id: "new-order",
@@ -221,7 +221,7 @@ function Home() {
           label: "Nhập đơn HCM",
           icon: <PlusCircle className="w-4 h-4" />,
           path: "/nhap-don?view=hcm",
-          permission: 'SALE_NEW_ORDER',
+          permission: 'SALE_NEW_ORDER_HCM',
         },
         {
           id: "sale-report",
@@ -427,7 +427,7 @@ function Home() {
           label: "Nhập đơn HCM",
           icon: <TrendingUp className="w-4 h-4" />,
           path: "/nhap-don?view=hcm",
-          permission: 'RND_NEW_ORDER',
+          permission: 'RND_NEW_ORDER_HCM',
         },
         {
           id: "rnd-history",
@@ -696,7 +696,7 @@ function Home() {
           color: "bg-green-600",
           path: "/nhap-don?view=hcm",
           status: "Mở ứng dụng",
-          permission: 'CSKH_NEW_ORDER',
+          permission: 'CSKH_NEW_ORDER_HCM',
         },
         {
           title: "Nhập báo cáo",
@@ -749,7 +749,7 @@ function Home() {
           color: "bg-purple-600",
           path: "/danh-sach-don-hcm",
           status: "Mở ứng dụng",
-          permission: 'SALE_ORDERS',
+          permission: 'SALE_ORDERS_HCM',
         },
         {
           title: "Nhập đơn mới",
@@ -765,7 +765,7 @@ function Home() {
           color: "bg-purple-600",
           path: "/nhap-don?view=hcm",
           status: "Mở ứng dụng",
-          permission: 'SALE_NEW_ORDER',
+          permission: 'SALE_NEW_ORDER_HCM',
         },
         {
           title: "Sale nhập báo cáo",
@@ -989,7 +989,7 @@ function Home() {
           color: "bg-gradient-to-br from-green-600 to-emerald-700",
           path: "/nhap-don?view=hcm",
           status: "Mở ứng dụng",
-          permission: 'RND_NEW_ORDER',
+          permission: 'RND_NEW_ORDER_HCM',
         },
         {
           title: "Lịch sử thay đổi",
@@ -1270,8 +1270,8 @@ function Home() {
 
   // --- RECURSIVE PERMISSION FILTERING ---
 
-  // Leadership roles (ban lãnh đạo) that can view adminOnly items like Dashboard điều hành
-  const isAdminOrLeadership = ['admin', 'leader', 'director', 'boss', 'manager'].includes((userRole || '').toLowerCase());
+  // Strict RBAC: chỉ admin mới bypass hiển thị menu/adminOnly
+  const isAdminOrLeadership = ['admin', 'administrator', 'super_admin'].includes((userRole || '').toLowerCase());
 
   // Helper to check if an item (or any of its children) is visible
   const isItemVisible = (item) => {

@@ -700,6 +700,7 @@ export const MODULE_PAGES = {
             { code: 'RND_PAGES', name: 'Danh sách Page', path: '/danh-sach-page-rd' },
             { code: 'RND_MANUAL', name: 'Ds báo cáo tay', path: '/danh-sach-bao-cao-tay-rd' },
             { code: 'RND_NEW_ORDER', name: 'Nhập đơn mới', path: '/nhap-don' },
+            { code: 'RND_NEW_ORDER_HCM', name: 'Nhập đơn HCM', path: '/nhap-don?view=hcm' },
             { code: 'RND_HISTORY', name: 'Lịch sử thay đổi', path: '/lich-su-sale-order' }
         ]
     },
@@ -707,7 +708,9 @@ export const MODULE_PAGES = {
         name: 'QUẢN LÝ SALE & ORDER',
         pages: [
             { code: 'SALE_ORDERS', name: 'Danh sách đơn', path: '/danh-sach-don' },
+            { code: 'SALE_ORDERS_HCM', name: 'Danh sách đơn HCM', path: '/danh-sach-don-hcm' },
             { code: 'SALE_NEW_ORDER', name: 'Nhập đơn mới', path: '/nhap-don' },
+            { code: 'SALE_NEW_ORDER_HCM', name: 'Nhập đơn HCM', path: '/nhap-don?view=hcm' },
             { code: 'SALE_INPUT', name: 'Sale nhập báo cáo', path: '/sale-nhap-bao-cao' },
             { code: 'SALE_VIEW', name: 'Xem báo cáo Sale', path: '/bao-cao-sale' },
             { code: 'SALE_MANUAL', name: 'Danh sách báo cáo tay', path: '/danh-sach-bao-cao-tay' },
@@ -735,6 +738,7 @@ export const MODULE_PAGES = {
             { code: 'CSKH_LIST', name: 'Danh sách đơn', path: '/quan-ly-cskh' },
             { code: 'CSKH_PAID', name: 'Đơn đã thu tiền/cần CS', path: '/don-chia-cskh' },
             { code: 'CSKH_NEW_ORDER', name: 'Nhập đơn mới', path: '/nhap-don' },
+            { code: 'CSKH_NEW_ORDER_HCM', name: 'Nhập đơn HCM', path: '/nhap-don?view=hcm' },
             { code: 'CSKH_INPUT', name: 'Nhập báo cáo', path: '/nhap-bao-cao-cskh' },
             { code: 'CSKH_VIEW', name: 'Xem báo cáo CSKH', path: '/xem-bao-cao-cskh' },
             { code: 'CSKH_HISTORY', name: 'Lịch sử thay đổi', path: '/lich-su-cskh' }
