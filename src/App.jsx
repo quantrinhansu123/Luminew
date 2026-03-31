@@ -112,6 +112,7 @@ function AppShell() {
 
             <Route path="/ho-so" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="/van-don" element={<ProtectedRoute><VanDon /></ProtectedRoute>} />
+            <Route path="/van-don-hcm" element={<ProtectedRoute><VanDon dataSource="hcm" /></ProtectedRoute>} />
             <Route path="/bang-doi-soat-day-ffm" element={<ProtectedRoute><BangDoiSoatDayFFM /></ProtectedRoute>} />
             <Route path="/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/bao-cao-van-hanh" element={<ProtectedRoute><BaoCaoVanHanhHtml /></ProtectedRoute>} />
@@ -120,6 +121,7 @@ function AppShell() {
             <Route path="/danh-sach-van-don" element={<ProtectedRoute><DanhSachVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-van-don" element={<ProtectedRoute><DanhSachBaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-don" element={<ProtectedRoute><DanhSachDon /></ProtectedRoute>} />
+            <Route path="/danh-sach-don-hcm" element={<ProtectedRoute><DanhSachDon dataSource="hcm" /></ProtectedRoute>} />
             <Route path="/danh-sach-page" element={<ProtectedRoute><DanhSachPage /></ProtectedRoute>} />
             <Route path="/nhap-don" element={<ProtectedRoute><NhapDonMoi /></ProtectedRoute>} />
             <Route path="/nhap-don-moi" element={<ProtectedRoute><NhapDonMoi /></ProtectedRoute>} />

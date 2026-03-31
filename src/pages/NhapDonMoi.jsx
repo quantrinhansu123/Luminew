@@ -1,7 +1,7 @@
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { AlertCircle, Check, ChevronDown, RefreshCcw, Save, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions'; // Added missing import
 import { recalcMktSoDonAfterOrderSave } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { recalcSaleOrderCountAfterOrderSave } from '../services/saleRecalcOrderCountFromOrders';
@@ -61,11 +61,11 @@ function rowMatchesCustomerDupOr(ctx, row) {
 }
 
 /** Trùng đơn nếu cùng SĐT HOẶC cùng tên HOẶC cùng địa chỉ (so với đơn khác). */
-async function fetchDuplicateOrderCodesByCustomerOr(supabaseClient, { phone, name, address }, excludeOrderCode) {
+async function fetchDuplicateOrderCodesByCustomerOr(supabaseClient, { phone, name, address }, excludeOrderCode, tableName = "orders") {
     const ctx = customerDupCheckContext(phone, name, address);
     if (!(ctx.phoneOk || ctx.nameOk || ctx.addrOk)) return [];
     const { data, error } = await supabaseClient
-        .from("orders")
+        .from(tableName)
         .select("order_code, customer_phone, customer_name, customer_address")
         .order("created_at", { ascending: false })
         .limit(2500);
@@ -249,8 +249,20 @@ const DatePicker = ({ value, onChange, className = "" }) => {
 const cn = (...classes) => classes.filter(Boolean).join(' ');
 
 export default function NhapDonMoi({ isEdit = false }) {
+    const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const teamFilter = searchParams.get('team'); // 'RD' or null
+    const dataView = String(searchParams.get('view') || '').toLowerCase();
+    const isHcmView = dataView === 'hcm';
+    const ordersTableName = isHcmView ? 'order_code_hcm' : 'orders';
+    const buildNhapDonPath = (nextIsHcm) => {
+        const params = new URLSearchParams(searchParams);
+        if (nextIsHcm) params.set('view', 'hcm');
+        else params.delete('view');
+        const basePath = isEdit ? '/chinh-sua-don' : '/nhap-don';
+        const query = params.toString();
+        return query ? `${basePath}?${query}` : basePath;
+    };
 
     // Permission Logic
     const { canView } = usePermissions();
@@ -513,7 +525,7 @@ export default function NhapDonMoi({ isEdit = false }) {
         try {
             // 1. Nhân viên sale: distinct sale_staff từ orders, team (chi nhánh) từ orders
             const { data: ordersData, error: ordersError } = await supabase
-                .from('orders')
+                .from(ordersTableName)
                 .select('sale_staff, team')
                 .not('sale_staff', 'is', null)
                 .order('created_at', { ascending: false })
@@ -632,7 +644,7 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     useEffect(() => {
         loadPageData();
-    }, []);
+    }, [ordersTableName]);
 
     const [dbRates, setDbRates] = useState({});
 
@@ -826,7 +838,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 return;
             }
             const { data, error } = await supabase
-                .from("orders")
+                .from(ordersTableName)
                 .select("order_code, customer_phone, customer_name, customer_address")
                 .order("created_at", { ascending: false })
                 .limit(2500);
@@ -877,7 +889,7 @@ export default function NhapDonMoi({ isEdit = false }) {
 
         const t = setTimeout(async () => {
             if (cancelled) return;
-            const { error } = await supabase.from("orders").update({ canh_bao }).eq("order_code", oc);
+            const { error } = await supabase.from(ordersTableName).update({ canh_bao }).eq("order_code", oc);
             if (error) console.warn("Đồng bộ cột canh_bao:", error.message);
         }, 900);
 
@@ -987,7 +999,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // BƯỚC 5: Fallback - Nếu không tìm thấy trong users, thử lấy từ orders (đơn hàng gần nhất)
                 if (!foundBranch) {
                     const { data: orderData, error: orderError } = await supabase
-                        .from('orders')
+                        .from(ordersTableName)
                         .select('team, sale_staff')
                         .eq('sale_staff', saleName)
                         .not('team', 'is', null)
@@ -1009,7 +1021,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // BƯỚC 6: Fallback - Thử ilike trong orders
                 if (!foundBranch) {
                     const { data: orderDataLike, error: orderErrorLike } = await supabase
-                        .from('orders')
+                        .from(ordersTableName)
                         .select('team, sale_staff')
                         .ilike('sale_staff', `%${saleName}%`)
                         .not('team', 'is', null)
@@ -1031,7 +1043,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // BƯỚC 7: Fallback cuối cùng - Fetch nhiều orders và so sánh normalized
                 if (!foundBranch) {
                     const { data: recentOrders, error: recentOrdersError } = await supabase
-                        .from('orders')
+                        .from(ordersTableName)
                         .select('team, sale_staff')
                         .not('team', 'is', null)
                         .neq('team', '')
@@ -1144,7 +1156,7 @@ export default function NhapDonMoi({ isEdit = false }) {
 
             try {
                 let queryBuilder = supabase
-                    .from('orders')
+                    .from(ordersTableName)
                     .select('order_code, customer_name');
 
                 if (!searchQuery || searchQuery.trim() === '') {
@@ -1187,7 +1199,7 @@ export default function NhapDonMoi({ isEdit = false }) {
         try {
             // Search primarily by order_code. ID search removed to prevent UUID casting errors.
             const { data, error } = await supabase
-                .from('orders')
+                .from(ordersTableName)
                 .select('*')
                 .eq('order_code', query.trim())
                 .maybeSingle(); // Use maybeSingle to return null instead of throwing error if not found
@@ -1356,7 +1368,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             const oc = (formData["ma-don"] || "").trim();
 
             if (isEdit && oc) {
-                const { error } = await supabase.from("orders").update({ log: merged }).eq("order_code", oc);
+                const { error } = await supabase.from(ordersTableName).update({ log: merged }).eq("order_code", oc);
                 if (error) {
                     console.warn("Tự động ghi log:", error.message);
                     return;
@@ -1453,7 +1465,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             let existingOrderSnapshot = null;
             if (isEdit && orderCode) {
                 const { data: ex, error: exErr } = await supabase
-                    .from('orders')
+                    .from(ordersTableName)
                     .select('*')
                     .eq('order_code', orderCode)
                     .maybeSingle();
@@ -1478,7 +1490,8 @@ export default function NhapDonMoi({ isEdit = false }) {
             const dupCodes = await fetchDuplicateOrderCodesByCustomerOr(
                 supabase,
                 { phone: formData["phone"], name: formData["ten-kh"], address: formData["add"] },
-                orderCode
+                orderCode,
+                ordersTableName
             );
             const canh_bao = buildCanhBaoFromChecks(dupCodes, blacklistStatus, blacklistReason, selectedSale);
             const actor = (userName || userEmail || "hệ thống").toString().trim();
@@ -1589,7 +1602,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 return;
             }
 
-            const query = supabase.from('orders');
+            const query = supabase.from(ordersTableName);
             let result;
 
             if (isEdit) {
@@ -1663,7 +1676,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 // Kiểm tra lại xem order có tồn tại không
                 if (isEdit) {
                     const { data: checkData, error: checkError } = await supabase
-                        .from('orders')
+                        .from(ordersTableName)
                         .select('order_code, order_date')
                         .eq('order_code', orderCode)
                         .maybeSingle();
@@ -1819,8 +1832,27 @@ export default function NhapDonMoi({ isEdit = false }) {
                         <div>
                             <h1 className="text-2xl font-bold text-[#2d7c2d]">{isEdit ? "Chỉnh Sửa Đơn Hàng" : "Nhập đơn hàng mới"}</h1>
                             <p className="text-gray-500 italic text-sm">Vui lòng điền đầy đủ các thông tin bắt buộc (*)</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                                View dữ liệu: <span className="font-semibold">{isHcmView ? 'HCM (order_code_hcm)' : 'Mặc định (orders)'}</span>
+                            </p>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center">
+                            <div className="flex bg-white border border-gray-300 rounded-md overflow-hidden">
+                                <button
+                                    type="button"
+                                    onClick={() => navigate(buildNhapDonPath(false))}
+                                    className={`px-3 py-1.5 text-xs font-medium ${!isHcmView ? 'bg-[#2d7c2d] text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+                                >
+                                    View mặc định
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate(buildNhapDonPath(true))}
+                                    className={`px-3 py-1.5 text-xs font-medium border-l border-gray-300 ${isHcmView ? 'bg-[#2d7c2d] text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+                                >
+                                    View HCM
+                                </button>
+                            </div>
                             <Button variant="outline" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={handleReset}>
                                 <XCircle className="w-4 h-4 mr-2" />
                                 Hủy bỏ

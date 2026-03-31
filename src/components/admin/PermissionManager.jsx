@@ -763,7 +763,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
     const [loading, setLoading] = useState(false);
 
     // Create Role State
-    const [newRole, setNewRole] = useState({ code: '', name: '', department: '' });
+    const [newRole, setNewRole] = useState({ code: '', name: '', department: '', position: '', branch: '' });
 
     // Assign User State
     const [assignEmail, setAssignEmail] = useState('');
@@ -784,6 +784,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
         name: '',
         department: '',
         position: '',
+        branch: '',
         team: '', // Team cơ bản (single)
         teams: [], // Danh sách teams (multi-select cho Vị trí Team)
         role_code: '',
@@ -807,6 +808,24 @@ const PermissionManager = ({ searchQuery = "" }) => {
     const [allTeams, setAllTeams] = useState([]);
     const [departmentsMap, setDepartmentsMap] = useState({}); // { email: department }
     const [selectedPersonnelMap, setSelectedPersonnelMap] = useState({}); // { email: [personnel_emails] }
+
+    const uniqueBranchValues = useMemo(() => {
+        return [...new Set(
+            employees
+                .map((e) => String(e.branch || '').trim())
+                .filter(Boolean)
+        )].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+    }, [employees]);
+
+    const buildRoleCodeAndName = useMemo(() => (dept, pos, branch) => {
+        const deptCode = getStandardizedCode(dept || '');
+        const posCode = getStandardizedCode(pos || '');
+        const branchCode = getStandardizedCode(branch || '');
+        const codeParts = [deptCode, posCode, branchCode].filter(Boolean);
+        const code = codeParts.join('_');
+        const name = [pos, dept, branch].filter(Boolean).join(' - ');
+        return { code, name };
+    }, []);
 
     useEffect(() => {
         loadData();
@@ -879,7 +898,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             };
             await rbacService.createRole(payload);
             toast.success("Đã tạo nhóm quyền mới");
-            setNewRole({ code: '', name: '', department: '' });
+            setNewRole({ code: '', name: '', department: '', position: '', branch: '' });
             loadData();
         } catch (error) {
             if (error.message?.includes('duplicate key') || error.code === '23505') {
@@ -947,6 +966,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                 name: editFormData.name,
                 department: editFormData.department,
                 position: editFormData.position,
+                branch: editFormData.branch,
                 team: primaryTeam,
                 role: editFormData.role_code
             });
@@ -964,7 +984,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             toast.success(`Đã cập nhật thông tin cho ${editingUser.email}`);
             setEditingUser(null);
             setEditPersonnelSearch('');
-            setEditFormData({ name: '', department: '', position: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
+            setEditFormData({ name: '', department: '', position: '', branch: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
             loadData();
         } catch (error) {
             toast.error("Lỗi cập nhật: " + error.message);
@@ -1204,16 +1224,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
                             <SearchableSelect
                                 value={newRole.department || ""}
                                 onChange={(dept) => {
-                                    const pos = newRole.position || "";
-
-                                    const posCode = getStandardizedCode(pos);
-                                    const deptCode = getStandardizedCode(dept);
-
-                                    // Auto-gen Code: DEPT_POS
-                                    const code = (deptCode && posCode) ? `${deptCode}_${posCode}` : (deptCode ? deptCode + "_" : "");
-                                    // Auto-gen Name: Position Label + Dept
-                                    const name = (dept && pos) ? `${pos} ${dept}` : "";
-
+                                    const pos = newRole.position || '';
+                                    const branch = newRole.branch || '';
+                                    const { code, name } = buildRoleCodeAndName(dept, pos, branch);
                                     setNewRole(prev => ({ ...prev, department: dept, code, name }));
                                 }}
                                 options={[
@@ -1230,16 +1243,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                 <SearchableSelect
                                     value={newRole.position || ""}
                                     onChange={(pos) => {
-                                        const dept = newRole.department || "";
-
-                                        const posCode = getStandardizedCode(pos);
-                                        const deptCode = getStandardizedCode(dept);
-
-                                        // Auto-gen Code: DEPT_POS
-                                        const code = (deptCode && posCode) ? `${deptCode}_${posCode}` : (deptCode ? deptCode + "_" : "");
-                                        // Auto-gen Name: Position Label + Dept
-                                        const name = (dept && pos) ? `${pos} ${dept}` : "";
-
+                                        const dept = newRole.department || '';
+                                        const branch = newRole.branch || '';
+                                        const { code, name } = buildRoleCodeAndName(dept, pos, branch);
                                         setNewRole(prev => ({ ...prev, position: pos, code, name }));
                                     }}
                                     options={[
@@ -1252,6 +1258,21 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     placeholder="-- Chọn Vị Trí --"
                                 />
                             </div>
+
+                            <SearchableSelect
+                                value={newRole.branch || ""}
+                                onChange={(branch) => {
+                                    const dept = newRole.department || '';
+                                    const pos = newRole.position || '';
+                                    const { code, name } = buildRoleCodeAndName(dept, pos, branch);
+                                    setNewRole((prev) => ({ ...prev, branch, code, name }));
+                                }}
+                                options={[
+                                    { value: '', label: '-- Chọn Chi nhánh --' },
+                                    ...uniqueBranchValues.map((b) => ({ value: b, label: b }))
+                                ]}
+                                placeholder="-- Chọn Chi nhánh --"
+                            />
 
                             <button onClick={handleCreateRole} className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700 flex items-center justify-center gap-2">
                                 <Plus size={16} /> Thêm Mới
@@ -1462,6 +1483,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                         <th className="px-5 py-4 text-sm">Email</th>
                                         <th className="px-5 py-4 text-sm">Tên nhân viên</th>
                                         <th className="px-5 py-4 text-sm">Bộ phận</th>
+                                        <th className="px-5 py-4 text-sm">Chi nhánh</th>
                                         <th className="px-5 py-4 text-sm">Vị trí</th>
                                         <th className="px-5 py-4 text-sm">Team</th>
                                         <th className="px-5 py-4 text-sm">Vị trí Team</th>
@@ -1489,6 +1511,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                 <td className="px-5 py-4 font-medium text-sm">{ur.email}</td>
                                                 <td className="px-5 py-4 text-gray-700 text-sm">{emp ? emp['Họ Và Tên'] : '-'}</td>
                                                 <td className="px-5 py-4 text-gray-600 text-sm">{departmentFromHR}</td>
+                                                <td className="px-5 py-4 text-gray-600 text-sm">{emp?.branch || '-'}</td>
                                                 <td className="px-5 py-4 text-gray-600 text-sm">{emp ? emp.position : '-'}</td>
                                                 <td className="px-5 py-4">
                                                     <TeamEditor
@@ -1557,6 +1580,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                     role_code: ur.role_code,
                                                                     name: emp ? emp['Họ Và Tên'] : '',
                                                                     department: departmentsMap[ur.email] || emp?.department || '',
+                                                                    branch: emp?.branch || '',
                                                                     position: emp?.position || '',
                                                                     team: emp?.team || ''
                                                                 });
@@ -1564,6 +1588,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                 setEditFormData({
                                                                     name: emp ? emp['Họ Và Tên'] : '',
                                                                     department: departmentsMap[ur.email] || emp?.department || '',
+                                                                    branch: emp?.branch || '',
                                                                     position: emp?.position || '',
                                                                     team: emp?.team || '',
                                                                     teams: (leaderTeamsMap[ur.email] && leaderTeamsMap[ur.email].length > 0)
@@ -1612,7 +1637,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     })}
                                     {filteredUserRoles.length === 0 && (
                                         <tr>
-                                            <td colSpan={10} className="px-5 py-6 text-center text-gray-500 text-base">
+                                            <td colSpan={11} className="px-5 py-6 text-center text-gray-500 text-base">
                                                 Không tìm thấy kết quả
                                             </td>
                                         </tr>
@@ -1628,7 +1653,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                 onClick={() => {
                                     setEditingUser(null);
                                     setEditPersonnelSearch('');
-                                    setEditFormData({ name: '', department: '', position: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
+                                    setEditFormData({ name: '', department: '', position: '', branch: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
                                 }}
                             >
                                 <div 
@@ -1678,6 +1703,25 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                     placeholder="-- Chọn Bộ phận --"
                                                 />
                                             </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Chi nhánh:
+                                                </label>
+                                                <SearchableSelect
+                                                    value={editFormData.branch}
+                                                    onChange={(value) => setEditFormData({ ...editFormData, branch: value })}
+                                                    options={[
+                                                        { value: '', label: '-- Chọn Chi nhánh --' },
+                                                        ...uniqueBranchValues.map((b) => ({
+                                                            value: b,
+                                                            label: b
+                                                        }))
+                                                    ]}
+                                                    placeholder="-- Chọn Chi nhánh --"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                                     Vị trí:
@@ -1813,7 +1857,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                             onClick={() => {
                                                 setEditingUser(null);
                                                 setEditPersonnelSearch('');
-                                                setEditFormData({ name: '', department: '', position: '', team: '', role_code: '', selectedPersonnel: [] });
+                                                setEditFormData({ name: '', department: '', position: '', branch: '', team: '', role_code: '', selectedPersonnel: [] });
                                             }}
                                             className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300 text-sm"
                                         >

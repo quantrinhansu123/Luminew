@@ -894,6 +894,8 @@ export const fetchVanDon = async (options = {}) => {
     const {
         page = 1,
         limit = 50,
+        sourceView = 'van_don_page',
+        sourceTable = 'orders',
         team,
         status,
         market = [],
@@ -1174,7 +1176,7 @@ export const fetchVanDon = async (options = {}) => {
         try {
             const debugOrderCode = 'Kemb5a90cf6';
             const { data: debugCheck, error: debugError } = await supabase
-                .from('orders')
+                .from(sourceTable)
                 .select('order_code, order_date, team, country, sale_staff, marketing_staff, delivery_staff')
                 .eq('order_code', debugOrderCode)
                 .maybeSingle();
@@ -1207,11 +1209,13 @@ export const fetchVanDon = async (options = {}) => {
             console.warn('⚠️ [API DEBUG] Lỗi trong debug code (không ảnh hưởng query chính):', debugErr);
         }
 
-        let pack = await loadVanDonFromTable('van_don_page');
+        let pack = sourceView
+            ? await loadVanDonFromTable(sourceView)
+            : await loadVanDonFromTable(sourceTable);
 
-        if (pack.error && isVanDonPageUnavailableError(pack.error)) {
-            console.warn('[fetchVanDon] van_don_page không dùng được, thử lại với bảng orders:', pack.error.message);
-            pack = await loadVanDonFromTable('orders');
+        if (sourceView && pack.error && isVanDonPageUnavailableError(pack.error)) {
+            console.warn(`[fetchVanDon] ${sourceView} không dùng được, thử lại với bảng ${sourceTable}:`, pack.error.message);
+            pack = await loadVanDonFromTable(sourceTable);
         }
 
         const { data, error, count, sumError, totalAmountVndSum } = pack;
@@ -1271,7 +1275,7 @@ const VAN_DON_DISTINCT_DB_TO_UI_KEYS = {
  * Giá trị distinct trên view `van_don_page` (RPC `get_orders_distinct_values`) — cùng tập cột trang /van-don.
  * Chưa chạy migration SQL → RPC lỗi → trả {} (VanDon fallback unique trên trang hiện tại).
  */
-export const fetchVanDonDistinctFilterOptions = async () => {
+export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' } = {}) => {
     if (getDataSourceMode() === 'test') {
         return {};
     }
@@ -1280,15 +1284,33 @@ export const fetchVanDonDistinctFilterOptions = async () => {
     await Promise.all(
         dbCols.map(async (dbCol) => {
             try {
-                const { data, error } = await supabase.rpc('get_orders_distinct_values', { p_column: dbCol });
-                if (error) {
-                    console.warn('[fetchVanDonDistinctFilterOptions] RPC', dbCol, error.message);
-                    return;
+                let vals = [];
+                if (sourceTable === 'orders') {
+                    const { data, error } = await supabase.rpc('get_orders_distinct_values', { p_column: dbCol });
+                    if (error) {
+                        console.warn('[fetchVanDonDistinctFilterOptions] RPC', dbCol, error.message);
+                        return;
+                    }
+                    vals = (data || [])
+                        .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
+                        .filter(Boolean)
+                        .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
+                } else {
+                    const { data, error } = await supabase
+                        .from(sourceTable)
+                        .select(dbCol)
+                        .not(dbCol, 'is', null)
+                        .neq(dbCol, '')
+                        .limit(10000);
+                    if (error) {
+                        console.warn('[fetchVanDonDistinctFilterOptions] table', sourceTable, dbCol, error.message);
+                        return;
+                    }
+                    vals = [...new Set((data || [])
+                        .map((row) => (row && row[dbCol] != null ? String(row[dbCol]).trim() : ''))
+                        .filter(Boolean)
+                        .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v)))];
                 }
-                const vals = (data || [])
-                    .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
-                    .filter(Boolean)
-                    .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
                 const uiKeys = VAN_DON_DISTINCT_DB_TO_UI_KEYS[dbCol] || [];
                 for (const k of uiKeys) {
                     out[k] = vals;

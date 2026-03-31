@@ -260,7 +260,7 @@ function rowMatchesBolTabForInject(row, tab, isAdminVanDonTab = false) {
   return true;
 }
 
-function VanDon() {
+function VanDon({ dataSource = 'default' }) {
   const { canView, role, loading: permissionsLoading } = usePermissions();
   const roleLower = (role || '').toLowerCase();
   const isAdmin = ['admin', 'super_admin', 'director', 'manager'].includes(roleLower);
@@ -896,6 +896,8 @@ function VanDon() {
             : undefined;
 
       const result = await API.fetchVanDon({
+        sourceView: dataSource === 'hcm' ? null : 'van_don_page',
+        sourceTable: dataSource === 'hcm' ? 'order_code_hcm' : 'orders',
         page: currentPage,
         limit: rowsPerPage,
         team: activeFilters.team,
@@ -938,8 +940,11 @@ function VanDon() {
   });
 
   const { data: vanDonDistinctFilterOptions = {} } = useQuery({
-    queryKey: ['vanDonDistinctFilterOptions'],
-    queryFn: () => API.fetchVanDonDistinctFilterOptions(),
+    queryKey: ['vanDonDistinctFilterOptions', dataSource],
+    queryFn: () =>
+      API.fetchVanDonDistinctFilterOptions({
+        sourceTable: dataSource === 'hcm' ? 'order_code_hcm' : 'orders'
+      }),
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,

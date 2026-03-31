@@ -137,7 +137,7 @@ export const updateUserTeam = async (email, team) => {
     return data[0];
 };
 
-// Update user information (name, department, position, team, role)
+// Update user information (name, department, branch, position, team, role)
 export const updateUserInfo = async (email, userInfo) => {
     const { data: beforeUser } = await supabase
         .from('users')
@@ -149,6 +149,7 @@ export const updateUserInfo = async (email, userInfo) => {
     
     if (userInfo.name !== undefined) updateData.name = userInfo.name;
     if (userInfo.department !== undefined) updateData.department = userInfo.department;
+    if (userInfo.branch !== undefined) updateData.branch = userInfo.branch;
     if (userInfo.position !== undefined) updateData.position = userInfo.position;
     if (userInfo.team !== undefined) updateData.team = userInfo.team;
     if (userInfo.role !== undefined) updateData.role = userInfo.role;
@@ -164,6 +165,7 @@ export const updateUserInfo = async (email, userInfo) => {
     // Also update human_resources if department or name changed
     const hrUpdates = {};
     if (userInfo.department !== undefined) hrUpdates['Bộ phận'] = userInfo.department;
+    if (userInfo.branch !== undefined) hrUpdates['chi nhánh'] = userInfo.branch;
     if (userInfo.name !== undefined) hrUpdates['Họ Và Tên'] = userInfo.name;
     if (userInfo.position !== undefined) hrUpdates['Vị trí'] = userInfo.position;
     if (userInfo.team !== undefined) hrUpdates['Team'] = userInfo.team;
@@ -715,10 +717,13 @@ export const MODULE_PAGES = {
     'MODULE_ORDERS': {
         name: 'QUẢN LÝ VẬN ĐƠN & KHO',
         pages: [
-            { code: 'ORDERS_LIST', name: 'Danh sách đơn', path: '/quan-ly-van-don' },
-            { code: 'ORDERS_NEW', name: 'Nhập đơn mới', path: '/nhap-don' },
-            { code: 'ORDERS_UPDATE', name: 'Chỉnh sửa đơn', path: '/chinh-sua-don' },
+            { code: 'ORDERS_LIST', name: 'Quản lý vận đơn', path: '/van-don' },
+            { code: 'ORDERS_LIST_HCM', name: 'Vận đơn HCM', path: '/van-don-hcm' },
+            { code: 'ORDERS_DANH_SACH_VAN_DON', name: 'Danh sách vận đơn', path: '/danh-sach-van-don' },
             { code: 'ORDERS_REPORT', name: 'Báo cáo vận đơn', path: '/bao-cao-van-don' },
+            { code: 'ORDERS_REPORT_OPERATION', name: 'Báo cáo vận hành', path: '/bao-cao-van-hanh' },
+            { code: 'ORDERS_REPORT_DAILY_DATA', name: 'Dữ liệu báo cáo hàng ngày', path: '/danh-sach-bao-cao-van-don' },
+            { code: 'ORDERS_FFM_RECONCILE', name: 'Bảng đối soát đẩy FFM', path: '/bang-doi-soat-day-ffm' },
             { code: 'ORDERS_FFM_MGT', name: 'FFM MGT', path: '/ffm_MGT' },
             { code: 'ORDERS_FFM_TT', name: 'FFM T&T', path: '/ffm_TT' },
             { code: 'ORDERS_DIEN_BILL', name: 'Điền bill', path: '/dien-bill' }

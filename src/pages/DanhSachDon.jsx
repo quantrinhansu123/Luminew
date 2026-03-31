@@ -107,6 +107,7 @@ const HIDDEN_COLUMNS = [
  */
 async function fetchDanhSachDonMergedRawOrders({
   supabaseClient,
+  ordersTableName = 'orders',
   startDate,
   endDate,
   teamFilter,
@@ -166,7 +167,7 @@ async function fetchDanhSachDonMergedRawOrders({
     return all;
   };
 
-  let base = applyTeamAndPersonnel(supabaseClient.from('orders').select(selectColumns));
+  let base = applyTeamAndPersonnel(supabaseClient.from(ordersTableName).select(selectColumns));
   if (startDate) base = base.gte('order_date', startDate);
   if (endDate) base = base.lte('order_date', endDate);
 
@@ -175,7 +176,7 @@ async function fetchDanhSachDonMergedRawOrders({
   let mergedRaw = [...(supaData || [])];
   if (startDate && endDate) {
     const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
-    let qNull = applyTeamAndPersonnel(supabaseClient.from('orders').select(selectColumns));
+    let qNull = applyTeamAndPersonnel(supabaseClient.from(ordersTableName).select(selectColumns));
     qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
     try {
       const extraRows = await fetchAllPages(qNull, 'created_at');
@@ -196,11 +197,12 @@ async function fetchDanhSachDonMergedRawOrders({
   return mergedRaw;
 }
 
-function DanhSachDon() {
+function DanhSachDon({ dataSource = 'default' }) {
   const location = useLocation();
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const teamFilter = searchParams.get('team'); // e.g. 'RD'
+  const ordersTableName = dataSource === 'hcm' ? 'order_code_hcm' : 'orders';
 
   // Permission Logic
   const { canView, canEdit, canDelete, role } = usePermissions();
@@ -584,6 +586,7 @@ function DanhSachDon() {
 
       const mergedRaw = await fetchDanhSachDonMergedRawOrders({
         supabaseClient: supabase,
+        ordersTableName,
         startDate,
         endDate,
         teamFilter,
@@ -674,7 +677,7 @@ function DanhSachDon() {
         await Promise.all(
           chunk.map(async (u) => {
             const { error } = await supabase
-              .from('orders')
+              .from(ordersTableName)
               .update({ payment_currency: u.currency })
               .eq('order_code', u.orderCode);
             if (!error) success++;
@@ -760,7 +763,7 @@ function DanhSachDon() {
         await Promise.all(
           chunk.map(async (u) => {
             const { error } = await supabase
-              .from('orders')
+              .from(ordersTableName)
               .update({ total_amount_vnd: u.newTotal })
               .eq('order_code', u.orderCode);
             if (!error) success++;
@@ -847,6 +850,7 @@ function DanhSachDon() {
     try {
       const mergedRaw = await fetchDanhSachDonMergedRawOrders({
         supabaseClient: supabase,
+        ordersTableName,
         startDate: normStart,
         endDate: normEnd,
         teamFilter,
@@ -872,7 +876,7 @@ function DanhSachDon() {
         const chunk = updates.slice(i, i + chunkSize);
         const results = await Promise.all(
           chunk.map((u) =>
-            supabase.from('orders').update({ canh_bao: u.canh_bao }).eq('order_code', u.order_code)
+            supabase.from(ordersTableName).update({ canh_bao: u.canh_bao }).eq('order_code', u.order_code)
           )
         );
         const err = results.find((r) => r.error)?.error;
@@ -939,9 +943,9 @@ function DanhSachDon() {
             };
             let error = null;
             if (u.orderCode) {
-              ({ error } = await supabase.from('orders').update(payload).eq('order_code', u.orderCode));
+              ({ error } = await supabase.from(ordersTableName).update(payload).eq('order_code', u.orderCode));
             } else if (u.rowId) {
-              ({ error } = await supabase.from('orders').update(payload).eq('id', u.rowId));
+              ({ error } = await supabase.from(ordersTableName).update(payload).eq('id', u.rowId));
             } else {
               error = new Error('Thiếu order_code/id');
             }
@@ -1282,7 +1286,7 @@ function DanhSachDon() {
       // 1. Fetch orders with missing team
       // team is null OR team is empty string OR team is '-'
       const { data: ordersMissing, error: fetchError } = await supabase
-        .from('orders')
+        .from(ordersTableName)
         .select('id, sale_staff')
         .or('team.is.null,team.eq.,team.eq.-,team.eq.""');
 
@@ -1364,7 +1368,7 @@ function DanhSachDon() {
       for (let i = 0; i < updates.length; i += chunkSize) {
         const chunk = updates.slice(i, i + chunkSize);
         await Promise.all(chunk.map(async (u) => {
-          const { error } = await supabase.from('orders').update({ team: u.team }).eq('id', u.id);
+          const { error } = await supabase.from(ordersTableName).update({ team: u.team }).eq('id', u.id);
           if (!error) success++;
         }));
       }
@@ -1447,7 +1451,7 @@ function DanhSachDon() {
           chunkIds.map(async (id) => {
             const payload = patchById.get(id);
             if (!payload) return;
-            const { error } = await supabase.from('orders').update(payload).eq('id', id);
+            const { error } = await supabase.from(ordersTableName).update(payload).eq('id', id);
             if (!error) success++;
           })
         );
@@ -1549,7 +1553,7 @@ function DanhSachDon() {
 
       let from = 0;
       while (true) {
-        let q = applyTeamAndPersonnel(supabase.from('orders').select('id, shift'));
+        let q = applyTeamAndPersonnel(supabase.from(ordersTableName).select('id, shift'));
         if (startDate) q = q.gte('order_date', startDate);
         if (endDate) q = q.lte('order_date', endDate);
         const { data, error } = await q.order('order_date', { ascending: false }).range(from, from + PAGE - 1);
@@ -1562,7 +1566,7 @@ function DanhSachDon() {
 
       if (startDate && endDate) {
         const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
-        let qNull = applyTeamAndPersonnel(supabase.from('orders').select('id, shift'));
+        let qNull = applyTeamAndPersonnel(supabase.from(ordersTableName).select('id, shift'));
         qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
         from = 0;
         while (true) {
@@ -1592,7 +1596,7 @@ function DanhSachDon() {
         const chunk = ids.slice(i, i + chunkSize);
         await Promise.all(
           chunk.map(async (id) => {
-            const { error } = await supabase.from('orders').update({ shift: SHIFT_GIUA_CA_HET_CA }).eq('id', id);
+            const { error } = await supabase.from(ordersTableName).update({ shift: SHIFT_GIUA_CA_HET_CA }).eq('id', id);
             if (!error) success++;
           })
         );
@@ -1643,7 +1647,7 @@ function DanhSachDon() {
 
       // Try delete all first
       const { error } = await supabase
-        .from('orders')
+        .from(ordersTableName)
         .delete()
         .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all (hack for delete all)
 
@@ -1652,7 +1656,7 @@ function DanhSachDon() {
 
         // If the above doesn't work, try deleting by selecting all IDs first
         const { data: allRecords, error: fetchError } = await supabase
-          .from('orders')
+          .from(ordersTableName)
           .select('id')
           .limit(100000); // Increase limit for orders table
 
@@ -1672,7 +1676,7 @@ function DanhSachDon() {
           for (let i = 0; i < ids.length; i += batchSize) {
             const batch = ids.slice(i, i + batchSize);
             const { error: batchError } = await supabase
-              .from('orders')
+              .from(ordersTableName)
               .delete()
               .in('id', batch);
 
@@ -1789,7 +1793,7 @@ function DanhSachDon() {
       const logPromise =
         preloadedLog !== undefined && preloadedLog !== null
           ? Promise.resolve({ data: { log: preloadedLog }, error: null })
-          : supabase.from('orders').select('log').eq('order_code', orderCode).maybeSingle();
+          : supabase.from(ordersTableName).select('log').eq('order_code', orderCode).maybeSingle();
 
       const [orderRes, salesRes] = await Promise.all([
         logPromise,
@@ -1918,9 +1922,9 @@ function DanhSachDon() {
       const payload = { delivery_staff: newDb };
       let error = null;
       if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
-        ({ error } = await supabase.from('orders').update(payload).eq('order_code', orderCode));
+        ({ error } = await supabase.from(ordersTableName).update(payload).eq('order_code', orderCode));
       } else if (rowId) {
-        ({ error } = await supabase.from('orders').update(payload).eq('id', rowId));
+        ({ error } = await supabase.from(ordersTableName).update(payload).eq('id', rowId));
       } else {
         throw new Error('Thiếu order_code hoặc id');
       }
@@ -1966,11 +1970,11 @@ function DanhSachDon() {
 
       if (orderCode && !orderCode.startsWith('UNK-') && !orderCode.startsWith('NO_CODE_')) {
         // Delete by order_code
-        const res = await supabase.from('orders').delete().eq('order_code', orderCode);
+        const res = await supabase.from(ordersTableName).delete().eq('order_code', orderCode);
         error = res.error;
       } else if (rowId) {
         // Delete by ID (fallback for orders without code)
-        const res = await supabase.from('orders').delete().eq('id', rowId);
+        const res = await supabase.from(ordersTableName).delete().eq('id', rowId);
         error = res.error;
       } else {
         throw new Error("Không tìm thấy thông tin định danh để xóa (Mã đơn hoặc ID).");
