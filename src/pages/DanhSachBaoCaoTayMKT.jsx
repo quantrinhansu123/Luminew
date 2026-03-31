@@ -23,6 +23,10 @@ const formatDate = (dateValue) => {
     return `${day}/${month}/${year}`;
 };
 
+/** Phạm vi detail_reports cho trang MKT: MKT/null/non-RD + team Test (thường department=RD nên trước đây bị loại). */
+const MKT_DETAIL_REPORTS_SCOPE_OR =
+    'department.is.null,department.eq.MKT,department.neq.RD,Team.ilike.test';
+
 export default function DanhSachBaoCaoTayMKT() {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
@@ -354,8 +358,7 @@ export default function DanhSachBaoCaoTayMKT() {
             if (teamFilter === 'RD') {
                 query = query.eq('department', 'RD');
             } else {
-                // MKT: department IS NULL OR MKT OR != RD
-                query = query.or('department.is.null,department.eq.MKT,department.neq.RD');
+                query = query.or(MKT_DETAIL_REPORTS_SCOPE_OR);
             }
 
             // Personnel filter (non-admin chỉ xem theo selected_personnel)
@@ -421,9 +424,8 @@ export default function DanhSachBaoCaoTayMKT() {
                 query = query.eq('department', 'RD');
                 console.log('📋 Filter: department = RD');
             } else {
-                // MKT: lấy tất cả các bản ghi có department = 'MKT' hoặc NULL hoặc không có cột department
-                query = query.or('department.is.null,department.eq.MKT,department.neq.RD');
-                console.log('📋 Filter: department IS NULL OR department = MKT OR department != RD');
+                query = query.or(MKT_DETAIL_REPORTS_SCOPE_OR);
+                console.log('📋 Filter: MKT scope (incl. Team=test)');
             }
 
             // Admin: xem tất cả data, không filter theo selected_personnel

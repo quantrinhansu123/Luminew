@@ -3,15 +3,168 @@
     font-family: Arial, Helvetica, sans-serif;
     font-size: 14px;
     overflow: hidden; /* Không cho thanh kéo ngang chạy ra ngoài khung bảng */
+    --bcvh-head-row-1-height: 43px;
+}
+
+/* Tách 4 cột cố định (trái) | vùng cuộn ngang (phải chỉ chứa số liệu) */
+.bcvh-split {
+    width: 100%;
+    align-items: stretch; /* cùng chiều cao: vùng bảng + thanh dọc phụ */
+    gap: 8px;
+}
+
+.bcvh-split-title {
+    width: 100%;
+}
+
+.bcvh-fixed-pane {
+    background: #fff;
+    position: relative;
+    z-index: 2; /* Góc 4 cột + header luôn “đè” phần số liệu khi gặp nhau */
+    border-right: 1px solid #000;
+}
+
+.bcvh-fixed-pane-scroll {
+    /* overflow:hidden làm sticky thead trái không ổn định — dùng auto + ẩn scrollbar */
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.bcvh-fixed-pane-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.bcvh-scroll-metric {
+    overflow-x: auto;
+    overflow-y: scroll; /* luôn hiện thanh dọc ở pane phải */
+    scrollbar-gutter: stable both-edges; /* giữ chỗ thanh dọc, tránh bị "mất" */
+    scrollbar-width: auto;
+}
+
+.bcvh-scroll-metric::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.bcvh-scroll-metric::-webkit-scrollbar-track {
+    background: #e5e7eb;
+}
+
+.bcvh-scroll-metric::-webkit-scrollbar-thumb {
+    background: #9ca3af;
+    border-radius: 8px;
+    border: 2px solid #e5e7eb;
+}
+
+/* Vạch kép dọc ngăn vùng 4 cột cố định và vùng số liệu cuộn */
+.bcvh-scroll-main {
+    border-left: 3px double #000;
+    margin-left: 0; /* tách độc lập khỏi bảng cố định */
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1px #cbd5e1;
+}
+
+/* Bọc bảng số liệu + thanh dọc phụ: cùng chiều cao viewport (flex), không để cột thanh giãn theo nội dung */
+.bcvh-metric-scroll-wrap {
+    min-height: 0;
+}
+
+.bcvh-right-scrollbar {
+    width: 14px;
+    min-width: 14px;
+    min-height: 0;
+    align-self: stretch;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    border-left: 1px solid #94a3b8;
+    background: #e5e7eb;
+    scrollbar-width: auto;
+    scrollbar-color: #6b7280 #e5e7eb;
+}
+
+.bcvh-right-scrollbar::-webkit-scrollbar {
+    width: 12px;
+}
+
+.bcvh-right-scrollbar::-webkit-scrollbar-track {
+    background: #e5e7eb;
+}
+
+.bcvh-right-scrollbar::-webkit-scrollbar-thumb {
+    background: #6b7280;
+    border-radius: 8px;
+    border: 2px solid #e5e7eb;
+}
+
+.bcvh-right-scrollbar-inner {
+    width: 1px;
+    min-height: 1px;
+}
+
+/* Giữ 2 dòng header đầu tiên theo đúng vùng cuộn bcvh-scroll — gắn khớp với 4 cột trái */
+.bcvh-scroll .bcvh-metric-table thead tr:nth-child(1) th {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    background-clip: padding-box;
+    box-shadow: 0 1px 0 #000;
+}
+
+.bcvh-scroll .bcvh-metric-table thead tr:nth-child(2) th {
+    position: sticky;
+    top: var(--bcvh-head-row-1-height);
+    z-index: 59;
+    background-clip: padding-box;
+    box-shadow: 0 1px 0 #000;
+}
+
+/* Bảng cố định bên trái: 1 hàng thead (rowspan 2) — sticky trong cùng trục cuộn dọc với pane phải */
+.bcvh-fixed-header-sticky thead th {
+    position: sticky;
+    top: 0;
+    z-index: 70;
+    background-color: #d18b3f;
+    background-clip: padding-box;
+    box-shadow: 2px 0 0 #000, 0 1px 0 #000;
 }
 
 /* Vùng cuộn dành riêng cho tab2 — sticky chỉ hoạt động trong scroll container này. */
 .bcvh-scroll {
     position: relative;
     max-width: 100%;
-    overflow-x: auto; /* Thanh kéo ngang chỉ ở vùng bảng bên dưới */
+    overflow-x: auto; /* Giữ logic cuộn ngang chuẩn cho bảng */
     overflow-y: auto;
     isolation: isolate;
+}
+
+/* Lớp dùng chung cho cả th và td cần cố định */
+.fixed-column {
+    position: sticky;
+    z-index: 5;
+}
+
+/* Riêng cho tiêu đề bảng (th) để nằm trên cùng và trên các ô dữ liệu */
+th.fixed-column {
+    z-index: 30;
+    background-color: #f1f3f5;
+    background-clip: padding-box;
+}
+
+/* Riêng cho ô dữ liệu (td) */
+td.fixed-column {
+    z-index: 20;
+    background-color: #f8f9fa;
+    background-clip: padding-box;
+}
+
+.bcvh-total-row td.fixed-column {
+    background: #FFC000;
+}
+
+/* Kẻ tách vùng cột cố định khỏi phần cuộn ngang */
+.fixed-column-divider {
+    box-shadow: 2px 0 0 #000, 6px 0 8px rgba(0, 0, 0, 0.18);
 }
 
 /* Sticky columns for tab2 (Excel-like) */
@@ -92,6 +245,11 @@
     --bcvh-col-2-width: 170px; /* Ngày cuối */
     --bcvh-col-3-width: 220px; /* Sản phẩm */
     --bcvh-col-4-width: 200px; /* Thị trường */
+    --bcvh-fixed-width: calc(
+        var(--bcvh-col-1-width) + var(--bcvh-col-2-width) + var(--bcvh-col-3-width) + var(--bcvh-col-4-width)
+    );
+    /* Gán sau khi đo từ DOM (applyFixedColumns) → khớp vùng spacer với 4 cột cố định */
+    --bcvh-fixed-measured-width: var(--bcvh-fixed-width);
 }
 
 .bcvh-title-row th {

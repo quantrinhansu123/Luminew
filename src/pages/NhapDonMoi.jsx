@@ -266,10 +266,26 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     // Permission Logic
     const { canView } = usePermissions();
+    // Ưu tiên cùng mã với DanhSachDon (SALE_ORDERS / RND_ORDERS); vẫn cho phép mã nhập đơn cũ nếu role
+    // chưa có dòng SALE_ORDERS / RND_ORDERS trong app_page_permissions.
     const hasAccess = useMemo(() => {
-        if (teamFilter === 'RD') return canView('RND_NEW_ORDER');
-        // Any valid "New Order" permission
-        return canView('SALE_NEW_ORDER') || canView('CSKH_NEW_ORDER') || canView('ORDERS_NEW') || canView('RND_NEW_ORDER');
+        if (teamFilter === 'RD') {
+            return (
+                canView('RND_ORDERS') ||
+                canView('RND_NEW_ORDER') ||
+                canView('RND_NEW_ORDER_HCM')
+            );
+        }
+        return (
+            canView('SALE_ORDERS') ||
+            canView('SALE_ORDERS_HCM') ||
+            canView('SALE_NEW_ORDER') ||
+            canView('SALE_NEW_ORDER_HCM') ||
+            canView('CSKH_NEW_ORDER') ||
+            canView('CSKH_NEW_ORDER_HCM') ||
+            canView('ORDERS_NEW') ||
+            canView('RND_NEW_ORDER')
+        );
     }, [canView, teamFilter]);
 
 

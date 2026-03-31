@@ -221,10 +221,38 @@ function DanhSachDon({ dataSource = 'default' }) {
   const isAdminOnly = ['admin', 'super_admin', 'ADMIN', 'SUPER_ADMIN'].includes(roleLower) ||
     userEmail === ADMIN_MAIL ||
     (user?.Bộ_phận || user?.['Bộ phận'] || "").toString().trim().toLowerCase() === 'admin';
-  // Determine relevant page code based on team switch
-  // If team=RD, we are in R&D context -> RND_ORDERS
-  // Else (default), we are in Sale context -> SALE_ORDERS
-  const permissionCode = teamFilter === 'RD' ? 'RND_ORDERS' : 'SALE_ORDERS';
+  // Quyền xem/sửa: ưu tiên mã HCM khi vào /danh-sach-don-hcm; dự phòng *_NEW_ORDER nếu DB chưa có dòng SALE_ORDERS.
+  const ORDER_LIST_ACCESS_RD = ['RND_ORDERS', 'RND_NEW_ORDER', 'RND_NEW_ORDER_HCM'];
+  const ORDER_LIST_ACCESS_SALE_HCM = [
+    'SALE_ORDERS_HCM',
+    'SALE_ORDERS',
+    'SALE_NEW_ORDER_HCM',
+    'SALE_NEW_ORDER',
+    'CSKH_NEW_ORDER_HCM',
+    'CSKH_NEW_ORDER',
+    'ORDERS_NEW',
+    'RND_NEW_ORDER',
+  ];
+  const ORDER_LIST_ACCESS_SALE_DEFAULT = [
+    'SALE_ORDERS',
+    'SALE_ORDERS_HCM',
+    'SALE_NEW_ORDER',
+    'SALE_NEW_ORDER_HCM',
+    'CSKH_NEW_ORDER',
+    'CSKH_NEW_ORDER_HCM',
+    'ORDERS_NEW',
+    'RND_NEW_ORDER',
+  ];
+  const orderListAccessCodes =
+    teamFilter === 'RD'
+      ? ORDER_LIST_ACCESS_RD
+      : dataSource === 'hcm'
+        ? ORDER_LIST_ACCESS_SALE_HCM
+        : ORDER_LIST_ACCESS_SALE_DEFAULT;
+
+  const hasOrderListAccess = orderListAccessCodes.some((code) => canView(code));
+  const effectivePermissionCode =
+    orderListAccessCodes.find((code) => canView(code)) || orderListAccessCodes[0];
 
 
   const [allData, setAllData] = useState([]);
@@ -2474,8 +2502,13 @@ function DanhSachDon({ dataSource = 'default' }) {
     setVisibleColumns(defaultCols);
   };
 
-  if (!canView(permissionCode)) {
-    return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
+  if (!hasOrderListAccess) {
+    return (
+      <div className="p-8 text-center text-red-600 font-bold">
+        Bạn không có quyền truy cập trang này. Cần quyền xem ít nhất một mã:{' '}
+        {orderListAccessCodes.join(', ')}.
+      </div>
+    );
   }
 
   return (
@@ -3212,7 +3245,7 @@ function DanhSachDon({ dataSource = 'default' }) {
               Cài đặt cột
             </button>
 
-            {canEdit(permissionCode) && (
+            {canEdit(effectivePermissionCode) && (
               <button
                 onClick={handleClearShippingInfoByFilters}
                 disabled={
@@ -3397,7 +3430,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                                 Lịch sử
                               </button>
                             )}
-                            {canEdit(permissionCode) && (
+                            {canEdit(effectivePermissionCode) && (
                               <>
                                 <button
                                   type="button"
@@ -3423,7 +3456,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                                 </button>
                               </>
                             )}
-                            {isAdmin && canDelete(permissionCode) && (
+                            {isAdmin && canDelete(effectivePermissionCode) && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();

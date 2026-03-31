@@ -22,7 +22,6 @@ import {
 import {
     aggregateOperationalReportSlice,
     BC_VH_PAYMENT_COLUMNS,
-    expandBcvhCriteriaRowsFromRawData,
     filterSliceForCriteriaRow,
     formatNumVi,
     formatPctComma
@@ -45,7 +44,7 @@ const newBcvhRowId = () =>
     }`;
 
 const TABS = ['tab1', 'tab2', 'tab3', 'tab4', 'tab5'];
-
+const BCVH_CRITERIA_STORAGE_KEY = 'bao_cao_van_hanh_tab2_criteria_v1';
 const mapBaoCaoRowToVirtual = (row) => {
     const ngay = row.ngay;
     let dateStr = '';
@@ -74,6 +73,52 @@ export default function BaoCaoVanHanhHtml() {
     const [searchParams, setSearchParams] = useSearchParams();
     const urlStartDate = searchParams.get('from_date');
     const urlEndDate = searchParams.get('to_date');
+    const buildDefaultBcvhRows = useCallback(() => {
+        if (urlStartDate && urlEndDate) {
+            return [
+                {
+                    id: newBcvhRowId(),
+                    startDate: urlStartDate,
+                    endDate: urlEndDate,
+                    product: '',
+                    market: ''
+                }
+            ];
+        }
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 9);
+        return [
+            {
+                id: newBcvhRowId(),
+                startDate: formatDateForInput(start),
+                endDate: formatDateForInput(end),
+                product: '',
+                market: ''
+            }
+        ];
+    }, [urlEndDate, urlStartDate]);
+
+    const readStoredBcvhRows = useCallback(() => {
+        try {
+            const raw = localStorage.getItem(BCVH_CRITERIA_STORAGE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed) || parsed.length === 0) return null;
+            const sanitized = parsed
+                .map((row) => ({
+                    id: newBcvhRowId(),
+                    startDate: String(row?.startDate || ''),
+                    endDate: String(row?.endDate || ''),
+                    product: String(row?.product || ''),
+                    market: String(row?.market || '')
+                }))
+                .filter((row) => row.startDate || row.endDate || row.product || row.market);
+            return sanitized.length > 0 ? sanitized : null;
+        } catch {
+            return null;
+        }
+    }, []);
 
     const userRole = localStorage.getItem('userRole') || '';
     const isAdmin =
@@ -124,29 +169,8 @@ export default function BaoCaoVanHanhHtml() {
     const [rawData, setRawData] = useState([]);
     const [ffmPushRows, setFfmPushRows] = useState([]);
     const [bcvhCriteriaRows, setBcvhCriteriaRows] = useState(() => {
-        if (urlStartDate && urlEndDate) {
-            return [
-                {
-                    id: newBcvhRowId(),
-                    startDate: urlStartDate,
-                    endDate: urlEndDate,
-                    product: '',
-                    market: ''
-                }
-            ];
-        }
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - 9);
-        return [
-            {
-                id: newBcvhRowId(),
-                startDate: formatDateForInput(start),
-                endDate: formatDateForInput(end),
-                product: '',
-                market: ''
-            }
-        ];
+        const stored = readStoredBcvhRows();
+        return stored || buildDefaultBcvhRows();
     });
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
 
@@ -154,6 +178,13 @@ export default function BaoCaoVanHanhHtml() {
     const staffDropdownRef = useRef(null);
     const staffButtonRef = useRef(null);
     const [staffDropdownPosition, setStaffDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+    const bcvhWrapRef = useRef(null);
+    const bcvhFixedPaneRef = useRef(null);
+    const bcvhFixedTableRef = useRef(null);
+    const bcvhScrollTableRef = useRef(null);
+    const bcvhScrollRef = useRef(null);
+    const bcvhRightScrollbarRef = useRef(null);
+    const bcvhRightScrollbarInnerRef = useRef(null);
 
     useEffect(() => {
         if (showStaffDropdown && staffButtonRef.current) {
@@ -190,6 +221,20 @@ export default function BaoCaoVanHanhHtml() {
             dateRange: ''
         }));
     }, [urlStartDate, urlEndDate]);
+
+    useEffect(() => {
+        try {
+            const payload = bcvhCriteriaRows.map((row) => ({
+                startDate: row.startDate || '',
+                endDate: row.endDate || '',
+                product: row.product || '',
+                market: row.market || ''
+            }));
+            localStorage.setItem(BCVH_CRITERIA_STORAGE_KEY, JSON.stringify(payload));
+        } catch {
+            // Ignore localStorage write errors (private mode/quota).
+        }
+    }, [bcvhCriteriaRows]);
 
     useEffect(() => {
         const load = async () => {
@@ -379,7 +424,7 @@ export default function BaoCaoVanHanhHtml() {
         </>
     );
 
-    const fetchData = async (options = {}) => {
+    const fetchData = async () => {
         const PAGE_SIZE = 1000; // phân trang để lấy full dữ liệu theo khoảng ngày
         if (!reportFilters.startDate || !reportFilters.endDate) {
             alert('Vui lòng chọn khoảng thời gian.');
@@ -574,11 +619,6 @@ export default function BaoCaoVanHanhHtml() {
                 setFfmPushRows([]);
             }
 
-            if (options.expandBcvh && rows.length > 0) {
-                setBcvhCriteriaRows((prev) =>
-                    expandBcvhCriteriaRowsFromRawData(prev, rows, newBcvhRowId)
-                );
-            }
         } catch (err) {
             console.error(err);
             setError(err.message || 'Lỗi tải bao_cao_van_don');
@@ -608,6 +648,160 @@ export default function BaoCaoVanHanhHtml() {
             <td className="border border-black px-2 py-1 text-right text-gray-500">{pctStr}</td>
         </>
     );
+
+    /** 4 cột đầu nằm ngoài bcvh-scroll — đo bề ngang pane trái cho spacer thanh kéo */
+    const syncBcvhFixedPaneWidth = useCallback(() => {
+        const pane = bcvhFixedPaneRef.current;
+        const wrap = bcvhWrapRef.current;
+        if (pane && wrap) {
+            wrap.style.setProperty('--bcvh-fixed-measured-width', `${pane.offsetWidth}px`);
+        }
+    }, []);
+
+    /** Hai bảng tách — đồng bộ chiều cao từng dòng tbody + header */
+    const syncBcvhSplitTableHeights = useCallback(() => {
+        if (activeTab !== 'tab2') return;
+        const leftHead = bcvhFixedTableRef.current?.querySelector('thead');
+        const rightHead = bcvhScrollTableRef.current?.querySelector('thead');
+        const leftBody = bcvhFixedTableRef.current?.querySelector('tbody');
+        const rightBody = bcvhScrollTableRef.current?.querySelector('tbody');
+        if (!leftHead || !rightHead || !leftBody || !rightBody) return;
+
+        const ltr = leftHead.querySelectorAll('tr');
+        const rtr = rightHead.querySelectorAll('tr');
+        /* Trái: 1 hàng thead (4 ô rowspan 2); phải: 2 hàng thead số liệu */
+        if (ltr[0] && rtr[0] && rtr[1]) {
+            const hRow1 = rtr[0].offsetHeight;
+            const hBlock = hRow1 + rtr[1].offsetHeight;
+            ltr[0].style.height = `${hBlock}px`;
+            const wrap = bcvhWrapRef.current;
+            if (wrap) {
+                wrap.style.setProperty('--bcvh-head-row-1-height', `${hRow1}px`);
+            }
+        }
+
+        const leftRows = leftBody.querySelectorAll('tr');
+        const rightRows = rightBody.querySelectorAll('tr');
+        const n = Math.min(leftRows.length, rightRows.length);
+        for (let i = 0; i < n; i += 1) {
+            const lr = leftRows[i];
+            const rr = rightRows[i];
+            lr.style.height = '';
+            rr.style.height = '';
+            const h = Math.max(lr.getBoundingClientRect().height, rr.getBoundingClientRect().height);
+            lr.style.height = `${h}px`;
+            rr.style.height = `${h}px`;
+        }
+    }, [activeTab]);
+
+    useEffect(() => {
+        syncBcvhFixedPaneWidth();
+        requestAnimationFrame(() => {
+            syncBcvhFixedPaneWidth();
+            syncBcvhSplitTableHeights();
+        });
+    }, [syncBcvhFixedPaneWidth, syncBcvhSplitTableHeights, bcvhLines.length, rawData.length]);
+
+    useEffect(() => {
+        const onResize = () => {
+            syncBcvhFixedPaneWidth();
+            requestAnimationFrame(() => syncBcvhSplitTableHeights());
+        };
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, [syncBcvhFixedPaneWidth, syncBcvhSplitTableHeights]);
+
+    useEffect(() => {
+        if (activeTab !== 'tab2') return;
+        const main = bcvhScrollRef.current;
+        if (!main) return;
+        const scheduleSync = () => {
+            syncBcvhFixedPaneWidth();
+            requestAnimationFrame(() => {
+                syncBcvhFixedPaneWidth();
+                syncBcvhSplitTableHeights();
+            });
+        };
+        scheduleSync();
+        let ro;
+        if (typeof ResizeObserver !== 'undefined') {
+            ro = new ResizeObserver(() => scheduleSync());
+            ro.observe(main);
+        }
+        window.addEventListener('resize', scheduleSync);
+        return () => {
+            if (ro) ro.disconnect();
+            window.removeEventListener('resize', scheduleSync);
+        };
+    }, [activeTab, syncBcvhFixedPaneWidth, syncBcvhSplitTableHeights, bcvhLines.length, rawData.length]);
+
+    useEffect(() => {
+        if (activeTab !== 'tab2') return;
+        const rightPane = bcvhScrollRef.current;
+        const leftPane = bcvhFixedPaneRef.current;
+        if (!rightPane || !leftPane) return;
+
+        const syncFromRight = () => {
+            leftPane.scrollTop = rightPane.scrollTop;
+        };
+
+        rightPane.addEventListener('scroll', syncFromRight);
+        syncFromRight();
+        return () => {
+            rightPane.removeEventListener('scroll', syncFromRight);
+        };
+    }, [activeTab, bcvhLines.length]);
+
+    useEffect(() => {
+        if (activeTab !== 'tab2') return;
+        const main = bcvhScrollRef.current;
+        const rightBar = bcvhRightScrollbarRef.current;
+        const rightInner = bcvhRightScrollbarInnerRef.current;
+        if (!main || !rightBar || !rightInner) return;
+
+        let syncing = false;
+        const syncHeight = () => {
+            /* Inner phải cao = scrollHeight của bảng để thanh dọc có phạm vi kéo; viewport là chính cột (flex, height cố định). */
+            rightInner.style.height = `${main.scrollHeight}px`;
+        };
+        const onMainScroll = () => {
+            if (syncing) return;
+            syncing = true;
+            rightBar.scrollTop = main.scrollTop;
+            syncing = false;
+        };
+        const onBarScroll = () => {
+            if (syncing) return;
+            syncing = true;
+            main.scrollTop = rightBar.scrollTop;
+            syncing = false;
+        };
+
+        const schedule = () => {
+            syncHeight();
+            requestAnimationFrame(() => {
+                syncHeight();
+                rightBar.scrollTop = main.scrollTop;
+            });
+        };
+
+        schedule();
+        let ro;
+        if (typeof ResizeObserver !== 'undefined') {
+            ro = new ResizeObserver(schedule);
+            ro.observe(main);
+        }
+        window.addEventListener('resize', schedule);
+        main.addEventListener('scroll', onMainScroll);
+        rightBar.addEventListener('scroll', onBarScroll);
+
+        return () => {
+            if (ro) ro.disconnect();
+            window.removeEventListener('resize', schedule);
+            main.removeEventListener('scroll', onMainScroll);
+            rightBar.removeEventListener('scroll', onBarScroll);
+        };
+    }, [activeTab, bcvhLines.length, rawData.length]);
 
     if (!canView('ORDERS_REPORT')) {
         return (
@@ -760,7 +954,7 @@ export default function BaoCaoVanHanhHtml() {
                         disabled={loading}
                         className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
                         onClick={async () => {
-                            await fetchData({ expandBcvh: activeTab === 'tab2' });
+                            await fetchData();
                             const p = new URLSearchParams(searchParams);
                             p.set('from_date', reportFilters.startDate);
                             p.set('to_date', reportFilters.endDate);
@@ -891,7 +1085,7 @@ export default function BaoCaoVanHanhHtml() {
 
             {/* Tab 2 — BC Vận Hành (layout mẫu Excel) */}
             {activeTab === 'tab2' && (
-                <div className="bcvh-wrap rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
+                <div ref={bcvhWrapRef} className="bcvh-wrap rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                         {/* Bộ lọc khoảng ngày cho link & query */}
                         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
@@ -928,12 +1122,15 @@ export default function BaoCaoVanHanhHtml() {
                         </div>
 
                         <div className="flex items-center gap-2">
+                            <div className="fixed-col-control rounded border border-gray-300 bg-gray-50 px-2 py-1 text-xs">
+                                Cố định 4 cột đầu
+                            </div>
                             <button
                                 type="button"
                                 disabled={loading}
                                 className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
                                 onClick={async () => {
-                                    await fetchData({ expandBcvh: true });
+                                    await fetchData();
                                     const p = new URLSearchParams(searchParams);
                                     p.set('from_date', reportFilters.startDate);
                                     p.set('to_date', reportFilters.endDate);
@@ -959,42 +1156,141 @@ export default function BaoCaoVanHanhHtml() {
                             thống lấy min–max ngày của thanh lọc và từng dòng bên dưới).
                         </p>
                     )}
-                    <div className="bcvh-scroll max-h-[calc(100vh-220px)]">
-                        <table className="min-w-max border-separate border-spacing-0">
-                            <thead>
-                                <tr>
-                                    <th
-                                        colSpan={33}
-                                        className="bcvh-title-row text-center uppercase tracking-wide"
-                                    >
-                                        BÁO CÁO VẬN HÀNH
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <th
-                                        rowSpan={2}
-                                        className="bcvh-h-info whitespace-nowrap bcvh-sticky bcvh-sticky-th bcvh-sticky-col-1 bcvh-col-1"
-                                    >
-                                        Ngày đầu
-                                    </th>
-                                    <th
-                                        rowSpan={2}
-                                        className="bcvh-h-info whitespace-nowrap bcvh-sticky bcvh-sticky-th bcvh-sticky-col-2 bcvh-col-2"
-                                    >
-                                        Ngày cuối
-                                    </th>
-                                    <th
-                                        rowSpan={2}
-                                        className="bcvh-h-info bcvh-sticky bcvh-sticky-th bcvh-sticky-col-3 bcvh-col-3"
-                                    >
-                                        Sản phẩm
-                                    </th>
-                                    <th
-                                        rowSpan={2}
-                                        className="bcvh-h-info bcvh-sticky bcvh-sticky-th bcvh-sticky-col-4 bcvh-col-4"
-                                    >
-                                        Thị Trường
-                                    </th>
+                    <div className="bcvh-split-title">
+                        <div className="bcvh-title-row text-center uppercase tracking-wide">BÁO CÁO VẬN HÀNH</div>
+                    </div>
+                    <div className="bcvh-split flex items-stretch">
+                        <div
+                            ref={bcvhFixedPaneRef}
+                            className="bcvh-fixed-pane bcvh-fixed-pane-scroll max-h-[calc(100vh-160px)] shrink-0 self-start"
+                        >
+                            <table
+                                ref={bcvhFixedTableRef}
+                                className="bcvh-fixed-table bcvh-fixed-header-sticky min-w-max border-separate border-spacing-0"
+                            >
+                                <thead>
+                                    <tr>
+                                        <th
+                                            rowSpan={2}
+                                            className="bcvh-h-info whitespace-nowrap bcvh-col-1"
+                                        >
+                                            Ngày đầu
+                                        </th>
+                                        <th
+                                            rowSpan={2}
+                                            className="bcvh-h-info whitespace-nowrap bcvh-col-2"
+                                        >
+                                            Ngày cuối
+                                        </th>
+                                        <th rowSpan={2} className="bcvh-h-info bcvh-col-3">
+                                            Sản phẩm
+                                        </th>
+                                        <th rowSpan={2} className="bcvh-h-info bcvh-col-4">
+                                            Thị Trường
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {bcvhLines.map((line) => (
+                                        <tr key={line.id}>
+                                            <td
+                                                className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-1"
+                                            >
+                                                <input
+                                                    type="date"
+                                                    className="bcvh-cell-input"
+                                                    value={line.startDate || ''}
+                                                    onChange={(e) =>
+                                                        patchBcvhRow(line.id, { startDate: e.target.value })
+                                                    }
+                                                />
+                                            </td>
+                                            <td
+                                                className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-2"
+                                            >
+                                                <input
+                                                    type="date"
+                                                    className="bcvh-cell-input"
+                                                    value={line.endDate || ''}
+                                                    onChange={(e) =>
+                                                        patchBcvhRow(line.id, { endDate: e.target.value })
+                                                    }
+                                                />
+                                            </td>
+                                            <td
+                                                className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-3"
+                                            >
+                                                <select
+                                                    className="bcvh-cell-select"
+                                                    value={line.product}
+                                                    onChange={(e) =>
+                                                        patchBcvhRow(line.id, { product: e.target.value })
+                                                    }
+                                                >
+                                                    <option value="">Tất cả</option>
+                                                    {uniqueProducts.map((p) => (
+                                                        <option key={p} value={p}>
+                                                            {p}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </td>
+                                            <td
+                                                className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-4"
+                                            >
+                                                <div className="flex items-center gap-1">
+                                                    <select
+                                                        className="bcvh-cell-select min-w-[100px] flex-1"
+                                                        value={line.market}
+                                                        onChange={(e) =>
+                                                            patchBcvhRow(line.id, { market: e.target.value })
+                                                        }
+                                                    >
+                                                        <option value="">Tất cả</option>
+                                                        {uniqueMarkets.map((m) => (
+                                                            <option key={m} value={m}>
+                                                                {m}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    {bcvhCriteriaRows.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            className="shrink-0 rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50"
+                                                            title="Xóa dòng"
+                                                            onClick={() => removeBcvhRow(line.id)}
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {rawData.length > 0 && (
+                                        <tr className="bcvh-total-row">
+                                            <td
+                                                colSpan={4}
+                                                className="bcvh-cell bcvh-cell-left font-bold uppercase"
+                                            >
+                                                TỔNG
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="bcvh-metric-scroll-wrap flex min-h-0 flex-1 min-w-0 max-h-[calc(100vh-160px)] items-stretch">
+                        <div
+                            ref={bcvhScrollRef}
+                            className="bcvh-scroll bcvh-scroll-metric bcvh-scroll-main min-h-0 flex-1 overflow-auto"
+                        >
+                            <table
+                                ref={bcvhScrollTableRef}
+                                className="bcvh-metric-table min-w-max border-separate border-spacing-0"
+                            >
+                                <thead>
+                                    <tr>
                                     <th colSpan={2} className="bcvh-h-cyan">
                                         Đã Thanh Toán
                                         <br />
@@ -1080,95 +1376,22 @@ export default function BaoCaoVanHanhHtml() {
                             </thead>
                             <tbody>
                                 {bcvhLines.map((line) => (
-                                    <tr key={line.id}>
-                                        <td
-                                            className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-sticky bcvh-sticky-td bcvh-sticky-col-1 bcvh-col-1"
-                                        >
-                                            <input
-                                                type="date"
-                                                className="bcvh-cell-input"
-                                                value={line.startDate || ''}
-                                                onChange={(e) =>
-                                                    patchBcvhRow(line.id, { startDate: e.target.value })
-                                                }
-                                            />
-                                        </td>
-                                        <td
-                                            className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-sticky bcvh-sticky-td bcvh-sticky-col-2 bcvh-col-2"
-                                        >
-                                            <input
-                                                type="date"
-                                                className="bcvh-cell-input"
-                                                value={line.endDate || ''}
-                                                onChange={(e) =>
-                                                    patchBcvhRow(line.id, { endDate: e.target.value })
-                                                }
-                                            />
-                                        </td>
-                                        <td
-                                            className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-sticky bcvh-sticky-td bcvh-sticky-col-3 bcvh-col-3"
-                                        >
-                                            <select
-                                                className="bcvh-cell-select"
-                                                value={line.product}
-                                                onChange={(e) =>
-                                                    patchBcvhRow(line.id, { product: e.target.value })
-                                                }
-                                            >
-                                                <option value="">Tất cả</option>
-                                                {uniqueProducts.map((p) => (
-                                                    <option key={p} value={p}>
-                                                        {p}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </td>
-                                        <td
-                                            className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-sticky bcvh-sticky-td bcvh-sticky-col-4 bcvh-col-4"
-                                        >
-                                            <div className="flex items-center gap-1">
-                                                <select
-                                                    className="bcvh-cell-select min-w-[100px] flex-1"
-                                                    value={line.market}
-                                                    onChange={(e) =>
-                                                        patchBcvhRow(line.id, { market: e.target.value })
-                                                    }
-                                                >
-                                                    <option value="">Tất cả</option>
-                                                    {uniqueMarkets.map((m) => (
-                                                        <option key={m} value={m}>
-                                                            {m}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                {bcvhCriteriaRows.length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        className="shrink-0 rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50"
-                                                        title="Xóa dòng"
-                                                        onClick={() => removeBcvhRow(line.id)}
-                                                    >
-                                                        ×
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                        {renderBcvhMetricCells(line.metrics)}
-                                    </tr>
+                                    <tr key={line.id}>{renderBcvhMetricCells(line.metrics)}</tr>
                                 ))}
                                 {rawData.length > 0 && (
-                                    <tr className="bcvh-total-row">
-                                        <td
-                                            colSpan={4}
-                                            className="bcvh-cell bcvh-cell-left font-bold uppercase bcvh-sticky bcvh-sticky-th bcvh-sticky-span-4"
-                                        >
-                                            TỔNG
-                                        </td>
-                                        {renderBcvhMetricCells(bcvhTotal)}
-                                    </tr>
+                                    <tr className="bcvh-total-row">{renderBcvhMetricCells(bcvhTotal)}</tr>
                                 )}
                             </tbody>
                         </table>
+                    </div>
+                        <div
+                            ref={bcvhRightScrollbarRef}
+                            className="bcvh-right-scrollbar min-h-0 w-[14px] shrink-0 self-stretch"
+                            aria-label="Thanh kéo dọc bảng"
+                        >
+                            <div ref={bcvhRightScrollbarInnerRef} className="bcvh-right-scrollbar-inner" />
+                        </div>
+                        </div>
                     </div>
                 </div>
             )}
