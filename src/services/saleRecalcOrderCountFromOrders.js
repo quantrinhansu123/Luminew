@@ -77,14 +77,14 @@ function makeId() {
   return `sale_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-async function fetchAllSalesReportsInRange(startDate, endDate) {
+async function fetchAllSalesReportsInRange(startDate, endDate, reportsTable = 'sales_reports') {
   const PAGE_SIZE = 1000;
   const rows = [];
   let from = 0;
 
   while (true) {
     const { data, error } = await supabase
-      .from('sales_reports')
+      .from(reportsTable)
       .select('*')
       .gte('date', startDate)
       .lte('date', endDate)
@@ -102,14 +102,14 @@ async function fetchAllSalesReportsInRange(startDate, endDate) {
   return rows;
 }
 
-async function fetchAllOrdersInRangeForSale(startDate, endDate) {
+async function fetchAllOrdersInRangeForSale(startDate, endDate, ordersTable = 'orders') {
   const PAGE_SIZE = 2000;
   const orders = [];
   let from = 0;
 
   while (true) {
     const { data, error } = await supabase
-      .from('orders')
+      .from(ordersTable)
       .select(
         'order_code, order_date, sale_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
@@ -129,12 +129,12 @@ async function fetchAllOrdersInRangeForSale(startDate, endDate) {
   return orders;
 }
 
-async function fetchSalesReportsForExactKeys(exactKeys) {
+async function fetchSalesReportsForExactKeys(exactKeys, reportsTable = 'sales_reports') {
   const rows = [];
   const seen = new Set();
   for (const k of exactKeys) {
     const { data, error } = await supabase
-      .from('sales_reports')
+      .from(reportsTable)
       .select('*')
       .eq('date', k.date)
       .eq('name', k.name)
@@ -151,13 +151,13 @@ async function fetchSalesReportsForExactKeys(exactKeys) {
   return rows;
 }
 
-async function fetchOrdersForExactKeysForSale(exactKeys) {
+async function fetchOrdersForExactKeysForSale(exactKeys, ordersTable = 'orders') {
   const rows = [];
   const seen = new Set();
   for (const k of exactKeys) {
     const next = nextDateStr(k.date);
     const { data, error } = await supabase
-      .from('orders')
+      .from(ordersTable)
       .select(
         'order_code, order_date, sale_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
@@ -214,6 +214,8 @@ export async function recalcSaleOrderCountFromOrders({
   createMissingForHetCa = SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
   // Chỉ tính đúng các key này (không quét key khác trong ngày) khi có truyền vào.
   exactKeys = null,
+  reportsTable = 'sales_reports',
+  ordersTable = 'orders',
 } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
@@ -235,11 +237,11 @@ export async function recalcSaleOrderCountFromOrders({
 
   // Tuần tự — tránh mở quá nhiều kết nối cùng lúc (dễ Failed to fetch trên mạng yếu / giới hạn trình duyệt).
   const reports = normalizedExactKeys.length > 0
-    ? await fetchSalesReportsForExactKeys(normalizedExactKeys)
-    : await fetchAllSalesReportsInRange(normalizedStart, normalizedEnd);
+    ? await fetchSalesReportsForExactKeys(normalizedExactKeys, reportsTable)
+    : await fetchAllSalesReportsInRange(normalizedStart, normalizedEnd, reportsTable);
   const orders = normalizedExactKeys.length > 0
-    ? await fetchOrdersForExactKeysForSale(normalizedExactKeys)
-    : await fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd);
+    ? await fetchOrdersForExactKeysForSale(normalizedExactKeys, ordersTable)
+    : await fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd, ordersTable);
   const hrEmailLookup = await fetchHumanResourceEmailLookup();
 
   // Bỏ điều kiện ca: cùng một key thì Hết ca/Giữa ca dùng cùng tổng.
@@ -389,7 +391,7 @@ export async function recalcSaleOrderCountFromOrders({
   if (dryRun) {
     return {
       success: true,
-      table: 'sales_reports',
+      table: reportsTable,
       field: 'order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual',
       reportsFetched: reportRows.length,
       ordersFetched: orders?.length || 0,
@@ -410,7 +412,7 @@ export async function recalcSaleOrderCountFromOrders({
       const results = await Promise.all(
         chunk.map((row) => {
           const { id, ...rest } = row;
-          return supabase.from('sales_reports').update(rest).eq('id', id);
+          return supabase.from(reportsTable).update(rest).eq('id', id);
         })
       );
       const firstErr = results.find((r) => r.error)?.error;
@@ -419,7 +421,7 @@ export async function recalcSaleOrderCountFromOrders({
       if (!isNetworkError(e)) throw e;
       for (const row of chunk) {
         const { id, ...rest } = row;
-        const { error } = await supabase.from('sales_reports').update(rest).eq('id', id);
+        const { error } = await supabase.from(reportsTable).update(rest).eq('id', id);
         if (error) throw error;
       }
     }
@@ -430,12 +432,12 @@ export async function recalcSaleOrderCountFromOrders({
   for (let i = 0; i < createRows.length; i += INSERT_CHUNK) {
     const chunk = createRows.slice(i, i + INSERT_CHUNK);
     try {
-      const { error } = await supabase.from('sales_reports').insert(chunk);
+      const { error } = await supabase.from(reportsTable).insert(chunk);
       if (error) throw error;
     } catch (e) {
       if (chunk.length <= 1) throw e;
       for (const row of chunk) {
-        const { error: e2 } = await supabase.from('sales_reports').insert([row]);
+        const { error: e2 } = await supabase.from(reportsTable).insert([row]);
         if (e2) throw e2;
       }
     }
@@ -444,7 +446,7 @@ export async function recalcSaleOrderCountFromOrders({
 
   return {
     success: true,
-    table: 'sales_reports',
+    table: reportsTable,
     field: 'order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual',
     reportsFetched: reportRows.length,
     ordersFetched: orders?.length || 0,

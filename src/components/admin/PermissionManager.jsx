@@ -819,6 +819,26 @@ const PermissionManager = ({ searchQuery = "" }) => {
         )].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
     }, [employees]);
 
+    /** Team chính ↔ cột `users.team` — danh sách từ mọi giá trị đang có trong DB. */
+    const uniquePrimaryTeamValues = useMemo(() => {
+        return [...new Set(
+            employees
+                .map((e) => String(e.team || '').trim())
+                .filter(Boolean)
+        )].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+    }, [employees]);
+
+    const editPrimaryTeamSelectOptions = useMemo(() => {
+        const fromDb = new Set(uniquePrimaryTeamValues);
+        const current = String(editFormData.team || '').trim();
+        if (current) fromDb.add(current);
+        const sorted = [...fromDb].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+        return [
+            { value: '', label: '-- Chọn Team chính --' },
+            ...sorted.map((t) => ({ value: t, label: t })),
+        ];
+    }, [uniquePrimaryTeamValues, editFormData.team]);
+
     const buildRoleCodeAndName = useMemo(() => (dept, pos, branch) => {
         const deptCode = getStandardizedCode(dept || '');
         const posCode = getStandardizedCode(pos || '');
@@ -1820,12 +1840,14 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                                     Team chính:
                                                 </label>
-                                                <input
-                                                    type="text"
+                                                <SearchableSelect
+                                                    className="mb-2"
                                                     value={editFormData.team}
-                                                    onChange={(e) => setEditFormData({ ...editFormData, team: e.target.value })}
-                                                    className="border p-2 rounded text-sm w-full mb-2"
-                                                    placeholder="Ví dụ: HCM, Hà Nội..."
+                                                    onChange={(value) =>
+                                                        setEditFormData({ ...editFormData, team: value })
+                                                    }
+                                                    options={editPrimaryTeamSelectOptions}
+                                                    placeholder="-- Chọn Team chính --"
                                                 />
                                                 <label className="block text-xs font-medium text-gray-500 mb-1">
                                                     Vị trí Team (multi):

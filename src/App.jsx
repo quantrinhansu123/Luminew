@@ -106,6 +106,14 @@ function AppShell() {
             <Route path="/bao-cao-sale" element={<ProtectedRoute><BaoCaoSale /></ProtectedRoute>} />
             <Route path="/sale-nhap-bao-cao" element={<ProtectedRoute><NhapBaoCaoSale /></ProtectedRoute>} />
             <Route
+              path="/sale-nhap-bao-cao-hcm"
+              element={
+                <ProtectedRoute>
+                  <NhapBaoCaoSale dataSource="hcm" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/xem-bao-cao-sale"
               element={
                 <ProtectedRoute>

@@ -17,7 +17,11 @@ function isUserDepartmentSale(department) {
   return false;
 }
 
-function ReportForm() {
+function ReportForm({
+  reportTable = 'sales_reports',
+  ordersTable = 'orders',
+  pageTitle = 'Báo Cáo Sale',
+}) {
   // Initial defaults for new rows
   const [defaultInfo, setDefaultInfo] = useState({
     name: '',
@@ -169,17 +173,8 @@ function ReportForm() {
           console.log('⚠️ Error fetching products from system_settings:', supabaseError);
         }
 
-        // Bước 2: Load thị trường từ sales_reports (Lấy danh sách DISTINCT thị trường)
+        // Bước 2: Load thị trường từ bảng báo cáo (DISTINCT market)
         try {
-          // Fetch all unique markets using a dedicated function or by fetching distinct column
-          // Supabase JS doesn't have a simple .distinct() on select easily without RPC or specific setup
-          // So we fetch larger range or use the same pagination logic as BaoCaoSale if needed.
-          // For efficiency, let's fetch 'market' column only, ordered by market
-          // Limitation: Supabase max rows per request is usually 1000.
-
-          // Solution: Fetch distinct markets via RPC if available, OR fetch distinct column via magic CSV trick or just fetch recently used ones but with larger limit?
-          // "BaoCaoSale" fetches *everything* with pagination. We can do the same here to be 100% consistent.
-
           let allMarkets = new Set();
           let page = 0;
           const pageSize = 1000;
@@ -187,7 +182,7 @@ function ReportForm() {
 
           while (hasMore) {
             const { data, error } = await supabase
-              .from('sales_reports')
+              .from(reportTable)
               .select('market')
               .range(page * pageSize, (page + 1) * pageSize - 1);
 
@@ -200,17 +195,14 @@ function ReportForm() {
               if (data.length < pageSize) hasMore = false;
               page++;
             }
-            // Safety break to avoid infinite loops if DB is huge (e.g. max 5 pages = 5000 records check)
-            // Assuming market list doesn't change THAT fast, checking last 5000 records is likely enough.
             if (page > 10) hasMore = false;
           }
 
-          // Assign to marketsSet
           allMarkets.forEach(m => marketsSet.add(m));
-          console.log(`✅ Loaded ${allMarkets.size} unique markets from history`);
+          console.log(`✅ Loaded ${allMarkets.size} unique markets from ${reportTable}`);
 
         } catch (dbError) {
-          console.error('Error fetching markets from sales_reports:', dbError);
+          console.error(`Error fetching markets from ${reportTable}:`, dbError);
         }
 
         // Bước 3: Fallback cuối cùng - giá trị mặc định
@@ -265,7 +257,7 @@ function ReportForm() {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('settingsUpdated', handleStorageChange);
     };
-  }, []);
+  }, [reportTable]);
 
   // Load current user info and branch
   useEffect(() => {
@@ -466,7 +458,7 @@ function ReportForm() {
       const payloadToInsert = payload.map(({ _originalIndex, ...rest }) => rest);
 
       const { data: insertedData, error } = await supabase
-        .from('sales_reports')
+        .from(reportTable)
         .insert(payloadToInsert)
         .select('id');
 
@@ -474,7 +466,6 @@ function ReportForm() {
 
       toast.success(`Đã lưu thành công ${reports.length} báo cáo!`, { position: 'top-right', autoClose: 3000 });
 
-      // Tự động tính Số đơn TT + Doanh số TT cho sales_reports (tạo dòng thiếu: theo saleRecalcOrderCountFromOrders)
       if (insertedData && insertedData.length > 0) {
         try {
           const normalizeDate = (dateStr) => {
@@ -491,13 +482,13 @@ function ReportForm() {
               startDate,
               endDate,
               createMissingForHetCa: true,
-              
+              reportsTable,
+              ordersTable,
             });
-            console.log(`✅ Đã tự động cập nhật sales_reports TT:`, result);
+            console.log(`✅ Đã tự động cập nhật ${reportTable} (TT):`, result);
           }
         } catch (apiError) {
           console.error('❌ Error in calculation process:', apiError);
-          // Không hiển thị lỗi cho user vì đây là background task
         }
       }
 
@@ -534,7 +525,7 @@ function ReportForm() {
               className="h-10 w-10 rounded-full shadow shrink-0"
             />
             <h1 className="text-lg font-bold text-green-600 whitespace-nowrap shrink-0">
-              Báo Cáo Sale
+              {pageTitle}
             </h1>
             <span className="text-xs text-gray-400 whitespace-nowrap hidden sm:inline">LumiGlobal Report</span>
           </div>

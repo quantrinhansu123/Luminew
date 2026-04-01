@@ -252,6 +252,13 @@ function Home() {
           permission: 'SALE_INPUT',
         },
         {
+          id: "sale-report-hcm",
+          label: "Sale nhập báo cáo HCM",
+          icon: <TrendingUp className="w-4 h-4" />,
+          path: "/sale-nhap-bao-cao-hcm",
+          permission: 'SALE_INPUT_HCM',
+        },
+        {
           id: "view-sale-report",
           label: "Xem báo cáo Sale",
           icon: <BarChart3 className="w-4 h-4" />,
@@ -825,6 +832,14 @@ function Home() {
           path: "/sale-nhap-bao-cao",
           status: "Mở ứng dụng",
           permission: 'SALE_INPUT',
+        },
+        {
+          title: "Sale nhập báo cáo HCM",
+          icon: <TrendingUp className="w-8 h-8" />,
+          color: "bg-teal-600",
+          path: "/sale-nhap-bao-cao-hcm",
+          status: "Mở ứng dụng",
+          permission: 'SALE_INPUT_HCM',
         },
         {
           title: "Xem báo cáo Sale",

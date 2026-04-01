@@ -1,31 +1,32 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
-import ReportForm from './ReportForm'; // Import the form component
+import ReportForm from './ReportForm';
 
-export default function NhapBaoCaoSale() {
+function NhapBaoCaoSale({ dataSource = 'default' }) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const teamFilter = searchParams.get('team'); // 'RD' or null
+    const isHcm = dataSource === 'hcm';
 
-    // Permission Logic
     const { canView } = usePermissions();
-    const permissionCode = teamFilter === 'RD' ? 'RND_INPUT' : 'SALE_INPUT';
-
-
+    const permissionCode =
+        teamFilter === 'RD' ? 'RND_INPUT' : isHcm ? 'SALE_INPUT_HCM' : 'SALE_INPUT';
 
     const [currentUserInfo, setCurrentUserInfo] = useState({ ten: '', email: '' });
 
     useEffect(() => {
-        // Get user info from localStorage
         const ten = localStorage.getItem('username') || '';
         const email = localStorage.getItem('userEmail') || '';
         setCurrentUserInfo({ ten, email });
     }, []);
 
-
     if (!canView(permissionCode)) {
-        return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
+        return (
+            <div className="p-8 text-center text-red-600 font-bold">
+                Bạn không có quyền truy cập trang này ({permissionCode}).
+            </div>
+        );
     }
 
     if (!currentUserInfo.ten || !currentUserInfo.email) {
@@ -36,8 +37,13 @@ export default function NhapBaoCaoSale() {
         );
     }
 
-    // Use the ReportForm which now writes to Supabase
     return (
-        <ReportForm />
+        <ReportForm
+            reportTable={isHcm ? 'sale_report_hcm' : 'sales_reports'}
+            ordersTable={isHcm ? 'order_code_hcm' : 'orders'}
+            pageTitle={isHcm ? 'Báo Cáo Sale (HCM)' : 'Báo Cáo Sale'}
+        />
     );
 }
+
+export default NhapBaoCaoSale;

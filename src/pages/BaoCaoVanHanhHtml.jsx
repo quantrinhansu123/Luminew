@@ -369,6 +369,21 @@ export default function BaoCaoVanHanhHtml() {
         };
     }, [rawData, bcvhCriteriaRows]);
 
+    /** Tab1 cùng metric với hàng TỔNG Tab2 (slice theo từng dòng tiêu chí). */
+    const tab1SummaryDates = useMemo(() => {
+        const starts = bcvhCriteriaRows.map((r) => r.startDate).filter(Boolean);
+        const ends = bcvhCriteriaRows.map((r) => r.endDate).filter(Boolean);
+        if (starts.length && ends.length) {
+            return {
+                startDate: starts.reduce((a, b) => (a < b ? a : b)),
+                endDate: ends.reduce((a, b) => (a > b ? a : b))
+            };
+        }
+        return { startDate: reportFilters.startDate, endDate: reportFilters.endDate };
+    }, [bcvhCriteriaRows, reportFilters.startDate, reportFilters.endDate]);
+
+    const tab1SauHuy = bcvhTotal.tongNoiBo - bcvhTotal.huyNoiBo;
+
     const addBcvhRow = () => {
         setBcvhCriteriaRows((prev) => {
             const last = prev[prev.length - 1];
@@ -1063,17 +1078,17 @@ export default function BaoCaoVanHanhHtml() {
                         </thead>
                         <tbody>
                             <tr>
-                                <td className="px-3 py-2">{isoToViDisplay(reportFilters.startDate)}</td>
-                                <td className="px-3 py-2">{isoToViDisplay(reportFilters.endDate)}</td>
-                                <td className="px-3 py-2">{formatSlVi(total.donCoBill)}</td>
-                                <td className="px-3 py-2">{formatNumVi(total.donCoBillAmount)}</td>
-                                <td className="px-3 py-2">{formatSlVi(total.giaoTC)}</td>
-                                <td className="px-3 py-2">{formatSlVi(total.coMa)}</td>
+                                <td className="px-3 py-2">{isoToViDisplay(tab1SummaryDates.startDate)}</td>
+                                <td className="px-3 py-2">{isoToViDisplay(tab1SummaryDates.endDate)}</td>
+                                <td className="px-3 py-2">{formatSlVi(bcvhTotal.donCoBill)}</td>
+                                <td className="px-3 py-2">{formatNumVi(bcvhTotal.donCoBillAmount)}</td>
+                                <td className="px-3 py-2">{formatSlVi(bcvhTotal.giaoTC)}</td>
+                                <td className="px-3 py-2">{formatSlVi(bcvhTotal.coMa)}</td>
                                 <td className="px-3 py-2 text-gray-500">{NO_AMOUNT}</td>
-                                <td className="bg-[#F4B084] px-3 py-2">{formatSlVi(total.dangGiao)}</td>
+                                <td className="bg-[#F4B084] px-3 py-2">{formatSlVi(bcvhTotal.dangGiao)}</td>
                                 <td className="bg-[#F4B084] px-3 py-2 text-gray-500">{NO_AMOUNT}</td>
-                                <td className="px-3 py-2">{formatPct(total.giaoTC, total.tongLenDon)}</td>
-                                <td className="px-3 py-2">{formatPct(total.coMa, total.sauHuy)}</td>
+                                <td className="px-3 py-2">{formatPct(bcvhTotal.giaoTC, bcvhTotal.tongNoiBo)}</td>
+                                <td className="px-3 py-2">{formatPct(bcvhTotal.coMa, tab1SauHuy)}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1150,12 +1165,6 @@ export default function BaoCaoVanHanhHtml() {
                             </button>
                         </div>
                     </div>
-                    {rawData.length === 0 && !loading && (
-                        <p className="mb-2 text-sm text-amber-800">
-                            Chưa có dữ liệu đã tải — chọn khoảng ngày trên thanh lọc và bấm <strong>Tìm</strong> (hệ
-                            thống lấy min–max ngày của thanh lọc và từng dòng bên dưới).
-                        </p>
-                    )}
                     <div className="bcvh-split-title">
                         <div className="bcvh-title-row text-center uppercase tracking-wide">BÁO CÁO VẬN HÀNH</div>
                     </div>
