@@ -3,6 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as rbacService from '../../services/rbacService';
 
+const REQUIRED_PAGE_OVERRIDES = {
+    MODULE_SALE: [
+        { code: 'SALE_VIEW_HCM', name: 'Xem báo cáo Sale HCM', path: '/xem-bao-cao-sale-hcm' }
+    ]
+};
+
 const PermissionTree = ({ roleCode, onPermissionChange }) => {
     const [permissions, setPermissions] = useState([]);
     const [expandedModules, setExpandedModules] = useState({});
@@ -43,8 +49,24 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
 
     const dynamicModulePages = useMemo(() => {
         const staticModules = rbacService.MODULE_PAGES || {};
+        const modulesWithRequired = Object.entries(staticModules).reduce((acc, [moduleCode, module]) => {
+            const basePages = Array.isArray(module?.pages) ? module.pages : [];
+            const requiredPages = REQUIRED_PAGE_OVERRIDES[moduleCode] || [];
+            const mergedPages = [...basePages];
+            requiredPages.forEach((requiredPage) => {
+                if (!mergedPages.some((p) => p.code === requiredPage.code)) {
+                    mergedPages.push(requiredPage);
+                }
+            });
+            acc[moduleCode] = {
+                ...module,
+                pages: mergedPages
+            };
+            return acc;
+        }, {});
+
         const knownCodes = new Set(
-            Object.values(staticModules)
+            Object.values(modulesWithRequired)
                 .flatMap((m) => (m?.pages || []).map((p) => p.code))
                 .filter(Boolean)
         );
@@ -67,10 +89,10 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
                 return acc;
             }, []);
 
-        if (mergedCustomPages.length === 0) return staticModules;
+        if (mergedCustomPages.length === 0) return modulesWithRequired;
 
         return {
-            ...staticModules,
+            ...modulesWithRequired,
             MODULE_CUSTOM: {
                 name: 'QUYỀN TÙY CHỈNH / VIEW MỚI',
                 pages: mergedCustomPages

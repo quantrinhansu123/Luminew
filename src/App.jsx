@@ -123,6 +123,19 @@ function AppShell() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/xem-bao-cao-sale-hcm"
+              element={
+                <ProtectedRoute>
+                  <NhanSuSaleLumiMoiView
+                    reportTableName="sale_report_hcm"
+                    teamKeyword="sale"
+                    showPersonnelNameFilter
+                    pageAccessCodes={['SALE_VIEW_HCM', 'SALE_VIEW']}
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/xem-bao-cao-Sale" element={<Navigate to="/xem-bao-cao-sale" replace />} />
             <Route path="/danh-sach-bao-cao-tay" element={<ProtectedRoute><DanhSachBaoCaoTay /></ProtectedRoute>} />
             <Route

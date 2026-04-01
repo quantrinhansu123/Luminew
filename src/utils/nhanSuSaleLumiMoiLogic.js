@@ -108,10 +108,14 @@ export function getLastNDaysRangeLocal(nDays = DEFAULT_FILTER_DAYS) {
  * Mặc định bộ lọc: `n` ngày kết thúc tại ngày báo cáo mới nhất trong `sales_reports` (Supabase).
  * Trả về null nếu bảng trống hoặc không parse được ngày.
  */
-export async function fetchLatestSalesReportNDayRange(signal, nDays = DEFAULT_FILTER_DAYS) {
+export async function fetchLatestSalesReportNDayRange(
+  signal,
+  nDays = DEFAULT_FILTER_DAYS,
+  tableName = 'sales_reports'
+) {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   const { data, error } = await supabase
-    .from('sales_reports')
+    .from(tableName)
     .select('date')
     .order('date', { ascending: false })
     .limit(1);
@@ -246,6 +250,38 @@ export function rowCanonicalBranchKey(r) {
   const fromChi = canonicalBranchKey(r.chiNhanh);
   if (fromChi) return fromChi;
   return canonicalBranchKey(r.team);
+}
+
+/**
+ * So khớp team khi phân quyền Leader (users.Team vs cột team/branch báo cáo).
+ * Tránh mất dòng khi lệch «HCM-Sale Ngày» vs «HCM - Sale ngày» hoặc báo cáo chỉ có branch «HCM».
+ */
+export function recordTeamMatchesAllowedTeam(recordTeam, allowedTeam) {
+  const r0 = String(recordTeam || '').trim();
+  const a0 = String(allowedTeam || '').trim();
+  if (!a0) return true;
+  if (!r0) return false;
+  const norm = (s) =>
+    normalizeViAscii(s).replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim();
+  const r = norm(r0);
+  const a = norm(a0);
+  if (r === a) return true;
+  const shorter = r.length <= a.length ? r : a;
+  const longer = r.length <= a.length ? a : r;
+  if (shorter.length >= 8 && longer.includes(shorter)) return true;
+  if (
+    shorter.length >= 6 &&
+    longer.includes(shorter) &&
+    !/cskh/.test(longer) &&
+    !/cskh/.test(shorter)
+  ) {
+    return true;
+  }
+  if (r === 'hcm') {
+    if (/cskh/.test(a)) return false;
+    if (/sale|dem|ngay/.test(a)) return true;
+  }
+  return false;
 }
 
 /** Sale Leader: dòng có cùng “chi nhánh logic” với user */
@@ -390,7 +426,12 @@ export function mapLumidataSalesReportRow(item) {
  * Phân trang Supabase (nhanh hơn nhiều so với N lần gọi lumidataapi).
  * Không lọc team ở đây — lọc `sale`/`cskh` ở client (team HCM thường không chứa chữ "sale").
  */
-export async function fetchSalesReportsFromSupabase(startDateStr, endDateStr, signal) {
+export async function fetchSalesReportsFromSupabase(
+  startDateStr,
+  endDateStr,
+  signal,
+  tableName = 'sales_reports'
+) {
   if (!startDateStr || !endDateStr) return [];
 
   const PAGE = 1000;
@@ -403,7 +444,7 @@ export async function fetchSalesReportsFromSupabase(startDateStr, endDateStr, si
     }
 
     const q = supabase
-      .from('sales_reports')
+      .from(tableName)
       .select(SALES_REPORTS_SELECT)
       .gte('date', startDateStr)
       .lte('date', endDateStr)
@@ -475,9 +516,14 @@ export async function fetchSalesReportsFromLumidataApi(startDateStr, endDateStr,
  * Tải sales_reports: ưu tiên Supabase, lỗi/RLS thì fallback lumidataapi.
  * Lọc sale/cskh theo team — thực hiện ở component sau khi map (tránh loại nhầm chi nhánh HCM).
  */
-export async function fetchSalesReportsMapped(startDateStr, endDateStr, signal) {
+export async function fetchSalesReportsMapped(
+  startDateStr,
+  endDateStr,
+  signal,
+  tableName = 'sales_reports'
+) {
   try {
-    return await fetchSalesReportsFromSupabase(startDateStr, endDateStr, signal);
+    return await fetchSalesReportsFromSupabase(startDateStr, endDateStr, signal, tableName);
   } catch (e) {
     if (e?.name === 'AbortError') throw e;
     console.warn('[fetchSalesReportsMapped] Supabase không dùng được, dùng lumidataapi:', e?.message || e);
@@ -686,7 +732,7 @@ export function filterRawData({
         if (allowedBranch && !recordMatchesAllowedBranch(allowedBranch, r)) return false;
         if (allowedTeam) {
           const recordTeam = (r.team || '').trim();
-          if (recordTeam !== allowedTeam) return false;
+          if (!recordTeamMatchesAllowedTeam(recordTeam, allowedTeam)) return false;
         }
       }
       if (
@@ -755,7 +801,7 @@ export function filterRawForRestrictedPopulate(
     }
     if (allowedTeam) {
       const recordTeam = (r.team || '').trim();
-      return recordTeam === allowedTeam;
+      return recordTeamMatchesAllowedTeam(recordTeam, allowedTeam);
     }
     if (allowedNames.length > 0) return rowMatchesAllowedSaleName(r, allowedNames, allowedUserEmail);
     return false;

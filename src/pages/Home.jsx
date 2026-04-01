@@ -281,6 +281,13 @@ function Home() {
           permission: 'SALE_VIEW',
         },
         {
+          id: "view-sale-report-hcm",
+          label: "Xem báo cáo Sale HCM",
+          icon: <BarChart3 className="w-4 h-4" />,
+          path: "/xem-bao-cao-sale-hcm",
+          permissionAny: ['SALE_VIEW_HCM', 'SALE_VIEW'],
+        },
+        {
           id: "sale-manual-report",
           label: "Danh sách báo cáo tay",
           icon: <Database className="w-4 h-4" />,
@@ -899,6 +906,14 @@ function Home() {
           path: "/xem-bao-cao-sale",
           status: "Mở ứng dụng",
           permission: 'SALE_VIEW',
+        },
+        {
+          title: "Xem báo cáo Sale HCM",
+          icon: <BarChart3 className="w-8 h-8" />,
+          color: "bg-amber-700",
+          path: "/xem-bao-cao-sale-hcm",
+          status: "sale_report_hcm",
+          permissionAny: ['SALE_VIEW_HCM', 'SALE_VIEW'],
         },
         {
           title: "Ds báo cáo tay",

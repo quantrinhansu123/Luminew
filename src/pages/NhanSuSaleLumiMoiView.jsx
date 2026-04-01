@@ -129,7 +129,7 @@ function normalizeTeamLabel(s) {
 }
 
 export default function NhanSuSaleLumiMoiView({
-  reportTableName = 'Báo cáo sale',
+  reportTableName = 'sales_reports',
   thuCongTableName = 'Báo cáo sale',
   /** Lọc team chứa chuỗi (giống BaoCaoSale: sale | cskh). Bỏ qua khi có `teamExactFilter`. */
   teamKeyword = 'sale',
@@ -294,7 +294,7 @@ export default function NhanSuSaleLumiMoiView({
     const ac = new AbortController();
     (async () => {
       try {
-        const range = await fetchLatestSalesReportNDayRange(ac.signal, 3);
+        const range = await fetchLatestSalesReportNDayRange(ac.signal, 3, reportTableName);
         if (cancelled) return;
         if (range?.startDateStr && range?.endDateStr) {
           setStartDate(range.startDateStr);
@@ -333,7 +333,7 @@ export default function NhanSuSaleLumiMoiView({
       setLoading(true);
       try {
         const [mappedRaw, emp, emailNameRows] = await Promise.all([
-          fetchSalesReportsMapped(startDate, endDate, ac.signal),
+          fetchSalesReportsMapped(startDate, endDate, ac.signal, reportTableName),
           fetchEmployeeDataForRestrict(),
           fetchUsersEmailNameForDisplayMap(),
         ]);
@@ -373,7 +373,7 @@ export default function NhanSuSaleLumiMoiView({
       cancelled = true;
       ac.abort();
     };
-  }, [startDate, endDate, teamKeyword, teamExactFilter, teamInFilter, loadRequestId]);
+  }, [startDate, endDate, teamKeyword, teamExactFilter, teamInFilter, loadRequestId, reportTableName]);
 
   /** Phân quyền + bộ lọc + iframe — chạy khi có dữ liệu hoặc đổi id (không gọi lại API). */
   useEffect(() => {
@@ -1337,7 +1337,7 @@ restrictedForPopulate,
                           className="text-left"
                           title={formatSaleDisplayName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
                         >
-                          {formatSaleDisplayName(item.name)}
+                          {formatSaleDisplayName(item.name) || item.name || '—'}
                         </td>
                         <td>{formatNumber(soDonHuy)}</td>
                         <td>{formatNumber(soDonTT)}</td>
@@ -1404,7 +1404,7 @@ restrictedForPopulate,
                           className="text-left"
                           title={formatSaleDisplayName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
                         >
-                          {formatSaleDisplayName(item.name)}
+                          {formatSaleDisplayName(item.name) || item.name || '—'}
                         </td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
@@ -1519,7 +1519,7 @@ function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t }) {
                           className="text-left"
                           title={formatSaleName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
                         >
-                          {formatSaleName(item.name)}
+                          {formatSaleName(item.name) || item.name || '—'}
                         </td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>
@@ -1611,7 +1611,7 @@ function DailyBreakdownChot({ filteredData, formatSaleName = (t) => t }) {
                           className="text-left"
                           title={formatSaleName(item.name) !== item.name ? `DB: ${item.name}` : undefined}
                         >
-                          {formatSaleName(item.name)}
+                          {formatSaleName(item.name) || item.name || '—'}
                         </td>
                         <td>{formatNumber(item.mess)}</td>
                         <td>{formatNumber(item.phanHoi)}</td>

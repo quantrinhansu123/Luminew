@@ -718,6 +718,7 @@ export const MODULE_PAGES = {
             { code: 'SALE_INPUT', name: 'Sale nhập báo cáo', path: '/sale-nhap-bao-cao' },
             { code: 'SALE_INPUT_HCM', name: 'Sale nhập báo cáo HCM', path: '/sale-nhap-bao-cao-hcm' },
             { code: 'SALE_VIEW', name: 'Xem báo cáo Sale', path: '/bao-cao-sale' },
+            { code: 'SALE_VIEW_HCM', name: 'Xem báo cáo Sale HCM', path: '/xem-bao-cao-sale-hcm' },
             { code: 'SALE_MANUAL', name: 'Danh sách báo cáo tay', path: '/danh-sach-bao-cao-tay' },
             { code: 'SALE_MANUAL_HCM', name: 'Danh sách báo cáo tay HCM', path: '/danh-sach-bao-cao-tay-hcm' },
             { code: 'SALE_HISTORY', name: 'Lịch sử thay đổi', path: '/lich-su-sale-order' }

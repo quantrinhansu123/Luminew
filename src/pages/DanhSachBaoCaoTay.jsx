@@ -44,6 +44,39 @@ function canonicalPersonName(value) {
         .toLowerCase();
 }
 
+function addDaysYmd(dateYmd, days = 1) {
+    if (!dateYmd) return '';
+    const date = new Date(`${dateYmd}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return '';
+    date.setDate(date.getDate() + days);
+    return formatDateYmdLocal(date);
+}
+
+function normalizeOrderForCalc(order, index = 0) {
+    const normalized = {
+        ...order,
+        order_date: order?.order_date || order?.ngaydonghang || order?.date || '',
+        sale_staff: order?.sale_staff || order?.nhanvien_sale || '',
+        nhanvien_sale: order?.nhanvien_sale || order?.sale_staff || '',
+        product: order?.product || order?.san_pham || '',
+        country: order?.country || order?.market || order?.thi_truong || '',
+        check_result: order?.check_result || order?.delivery_status_nb || '',
+        tracking_code:
+            order?.tracking_code || order?.trackingCode || order?.tracking || order?.ma_tracking || order?.maTracking || '',
+        total_amount_vnd: order?.total_amount_vnd || order?.total_vnd || order?.tongtien || order?.revenue_vnd || order?.total_amount || order?.amount || 0,
+    };
+    normalized.__rowKey = normalized.id || normalized.order_code || `row_${index}`;
+    return normalized;
+}
+
+function buildReportKey({ date, name, product, market }) {
+    const d = String(date || '').split('T')[0];
+    const n = canonicalPersonName(name || '');
+    const p = String(product || '').trim().toLowerCase();
+    const m = String(market || '').trim().toLowerCase();
+    return `${d}|${n}|${p}|${m}`;
+}
+
 /**
  * Dedupe key: cùng ngày + người + SP + TT + team — KHÔNG tính cột Ca (shift).
  * Dùng chung với logic nút "Xóa bản ghi trùng" (giống trang CSKH).
@@ -76,6 +109,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const teamFilter = searchParams.get('team'); // 'RD' or null
     const isHcm = dataSource === 'hcm';
     const reportTable = isHcm ? 'sale_report_hcm' : 'sales_reports';
+    const ordersApiEndpoint = isHcm ? '/order_hcm' : '/orders';
     /** Mã RBAC chính của route (HCM vẫn có thể vào bằng SALE_MANUAL — xem hasManualListAccess). */
     const permissionCode = isHcm ? 'SALE_MANUAL_HCM' : teamFilter === 'RD' ? 'RND_MANUAL' : 'SALE_MANUAL';
 
@@ -869,6 +903,20 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         return n1 === n2 || n1.includes(n2) || n2.includes(n1);
     };
 
+    const fetchOrdersByReportDate = useCallback(async (reportDate) => {
+        const apiDate = convertDateToAPIFormat(reportDate);
+        const params = new URLSearchParams();
+        params.append('from_date', apiDate);
+        params.append('to_date', apiDate);
+        const url = `https://lumidataapi.vercel.app${ordersApiEndpoint}?${params.toString()}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const result = await response.json();
+        return (result.data || []).map((row, idx) => normalizeOrderForCalc(row, idx));
+    }, [ordersApiEndpoint]);
+
     // View orders for a specific report
     const handleViewOrders = async (report) => {
         setViewingReport(report);
@@ -885,9 +933,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                 return;
             }
 
-            // Convert date to API format
-            const apiDate = convertDateToAPIFormat(reportDate);
-
             console.log('🔍 [DanhSachBaoCaoTay] Viewing orders for report:', {
                 id: report.id,
                 date: reportDate,
@@ -897,25 +942,10 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                 market: report.market
             });
 
-            // Fetch orders from API - CHỈ filter theo ngày, các filter khác sẽ làm ở client-side
-            // Lý do: API filter có thể quá chặt, dẫn đến không trả về dữ liệu
-            const params = new URLSearchParams();
-            params.append('from_date', apiDate);
-            params.append('to_date', apiDate);
-            // KHÔNG thêm filter nhanvien_sale, product, country ở API level
-            // Sẽ filter ở client-side để đảm bảo có dữ liệu để xử lý
-
-            const url = `https://lumidataapi.vercel.app/orders?${params.toString()}`;
-            console.log('📡 [DanhSachBaoCaoTay] Fetching orders from (date only):', url);
-
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-            let matchingOrders = result.data || [];
-            console.log(`✅ [DanhSachBaoCaoTay] Fetched ${matchingOrders.length} orders from API`);
+            let matchingOrders = await fetchOrdersByReportDate(reportDate);
+            console.log(
+                `✅ [DanhSachBaoCaoTay] Fetched ${matchingOrders.length} orders from API ${ordersApiEndpoint}`
+            );
             console.log(`📅 [DanhSachBaoCaoTay] Report date (normalized): ${reportDate}`);
 
             // Filter by order_date (must match report date)
@@ -1043,13 +1073,92 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         setUpdateProgress({ current: 0, total: manualReports.length });
 
         try {
+            let reportsToProcess = [...manualReports];
+
+            // Tự thêm dòng báo cáo nếu thiếu key gộp: ngày + sale_staff + sản phẩm + thị trường.
+            // Chỉ áp dụng cho HCM theo yêu cầu.
+            if (isHcm) {
+                const dateSet = [...new Set(reportsToProcess.map((r) => normalizeDate(r?.date)).filter(Boolean))];
+                const existingKeySet = new Set(
+                    reportsToProcess.map((r) =>
+                        buildReportKey({
+                            date: normalizeDate(r?.date),
+                            name: r?.name,
+                            product: r?.product,
+                            market: r?.market,
+                        })
+                    )
+                );
+
+                const missingRows = [];
+                for (const dateYmd of dateSet) {
+                    const ordersOnDate = await fetchOrdersByReportDate(dateYmd);
+                    const grouped = new Map();
+
+                    for (const order of ordersOnDate) {
+                        const orderDate = normalizeDate(order?.order_date);
+                        if (!orderDate) continue;
+                        const saleName = cleanPersonName(order?.sale_staff || order?.nhanvien_sale || '');
+                        const product = String(order?.product || '').trim();
+                        const market = String(order?.country || '').trim();
+                        if (!saleName || !product || !market) continue;
+
+                        const key = buildReportKey({
+                            date: orderDate,
+                            name: saleName,
+                            product,
+                            market,
+                        });
+                        if (!grouped.has(key)) {
+                            grouped.set(key, {
+                                date: orderDate,
+                                name: saleName,
+                                product,
+                                market,
+                            });
+                        }
+                    }
+
+                    for (const [key, row] of grouped.entries()) {
+                        if (existingKeySet.has(key)) continue;
+                        existingKeySet.add(key);
+                        missingRows.push({
+                            ...row,
+                            shift: 'Hết ca',
+                            team: '',
+                            branch: '',
+                            mess_count: 0,
+                            response_count: 0,
+                            order_count: 0,
+                            order_cancel_count: 0,
+                            order_go: 0,
+                            revenue_actual: 0,
+                            revenue_cancel_actual: 0,
+                            revenue_go_actual: 0,
+                        });
+                    }
+                }
+
+                if (missingRows.length > 0) {
+                    const { data: insertedRows, error: insertError } = await supabase
+                        .from(reportTable)
+                        .insert(missingRows)
+                        .select('*');
+                    if (insertError) throw insertError;
+                    reportsToProcess = reportsToProcess.concat(insertedRows || []);
+                    setManualReports(reportsToProcess);
+                    toast.info(`Đã tự thêm ${missingRows.length} dòng thiếu key vào ${reportTable}.`);
+                }
+            }
+
             // Process each report
             let updatedCount = 0;
             let errorCount = 0;
+            setUpdateProgress({ current: 0, total: reportsToProcess.length });
 
-            for (let i = 0; i < manualReports.length; i++) {
-                const report = manualReports[i];
-                setUpdateProgress({ current: i + 1, total: manualReports.length });
+            for (let i = 0; i < reportsToProcess.length; i++) {
+                const report = reportsToProcess[i];
+                setUpdateProgress({ current: i + 1, total: reportsToProcess.length });
 
                 try {
                     // Get report date normalized
@@ -1059,29 +1168,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                         continue;
                     }
 
-                    // Convert date to API format
-                    const apiDate = convertDateToAPIFormat(reportDate);
+                    let matchingOrders = await fetchOrdersByReportDate(reportDate);
 
-                    // Fetch orders from API - CHỈ filter theo ngày, các filter khác sẽ làm ở client-side
-                    // Lý do: API filter có thể quá chặt, dẫn đến không trả về dữ liệu
-                    const params = new URLSearchParams();
-                    params.append('from_date', apiDate);
-                    params.append('to_date', apiDate);
-                    // KHÔNG thêm filter nhanvien_sale, product, country ở API level
-                    // Sẽ filter ở client-side để đảm bảo có dữ liệu để xử lý
-
-                    const url = `https://lumidataapi.vercel.app/orders?${params.toString()}`;
-                    console.log(`📡 [DanhSachBaoCaoTay] Fetching orders for report ${report.id} (date only):`, url);
-
-                    const response = await fetch(url);
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
-                    const result = await response.json();
-                    let matchingOrders = result.data || [];
-
-                    console.log(`📊 [DanhSachBaoCaoTay] Report ${report.id}: Fetched ${matchingOrders.length} orders from API`);
+                    console.log(
+                        `📊 [DanhSachBaoCaoTay] Report ${report.id}: Fetched ${matchingOrders.length} orders from API ${ordersApiEndpoint}`
+                    );
                     console.log(`📅 [DanhSachBaoCaoTay] Report date (normalized): ${reportDate}`);
 
                     // Filter by order_date (must match report date)
@@ -1340,7 +1431,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             }
 
             toast.success(
-                `Đã cập nhật thành công ${updatedCount}/${manualReports.length} báo cáo!` +
+                `Đã cập nhật thành công ${updatedCount}/${reportsToProcess.length} báo cáo!` +
                 (errorCount > 0 ? ` (${errorCount} lỗi)` : '')
             );
 
@@ -2459,7 +2550,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             </thead>
                                             <tbody>
                                                 {viewingOrders.map((order, index) => (
-                                                    <tr key={order.id || index} className="hover:bg-gray-50">
+                                                    <tr key={order.__rowKey || order.id || index} className="hover:bg-gray-50">
                                                         <td className="px-4 py-2 border border-gray-200">{index + 1}</td>
                                                         <td className="px-4 py-2 border border-gray-200">
                                                             <div className="font-mono text-sm font-semibold text-blue-600">
