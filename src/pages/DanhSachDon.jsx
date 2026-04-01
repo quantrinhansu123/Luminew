@@ -120,6 +120,7 @@ async function fetchDanhSachDonMergedRawOrders({
   selectedPersonnelNames,
   userName,
   selectColumns = '*',
+  skipImplicitFilters = false,
 }) {
   const normalizeNameForQuery = (str) => {
     if (!str) return '';
@@ -128,10 +129,9 @@ async function fetchDanhSachDonMergedRawOrders({
 
   const applyTeamAndPersonnel = (q) => {
     let query = q;
-    if (teamFilter === 'RD') {
-      query = query.eq('team', 'RD');
-    } else {
-      query = query.or('team.is.null,team.neq.RD');
+    if (!skipImplicitFilters && ordersTableName === 'orders') {
+      // View mặc định /danh-sach-don: không hiển thị Team=HCM
+      query = query.or('team.is.null,team.neq.HCM');
     }
     if (!isAdmin) {
       if (selectedPersonnelNames.length > 0) {
@@ -173,13 +173,15 @@ async function fetchDanhSachDonMergedRawOrders({
   };
 
   let base = applyTeamAndPersonnel(supabaseClient.from(ordersTableName).select(selectColumns));
-  if (startDate) base = base.gte('order_date', startDate);
-  if (endDate) base = base.lte('order_date', endDate);
+  if (!skipImplicitFilters) {
+    if (startDate) base = base.gte('order_date', startDate);
+    if (endDate) base = base.lte('order_date', endDate);
+  }
 
   const supaData = await fetchAllPages(base, 'order_date');
 
   let mergedRaw = [...(supaData || [])];
-  if (startDate && endDate) {
+  if (!skipImplicitFilters && startDate && endDate) {
     const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
     let qNull = applyTeamAndPersonnel(supabaseClient.from(ordersTableName).select(selectColumns));
     qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
@@ -219,6 +221,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const teamFilter = searchParams.get('team'); // e.g. 'RD'
+  const isHcmView = dataSource === 'hcm';
   const ordersTableName = dataSource === 'hcm' ? 'order_code_hcm' : 'orders';
 
   // Permission Logic
@@ -625,8 +628,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       // --------------------------
 
       // 1. Fetch Supabase Data with Date Filter
-      // Exclude R&D orders (Isolation Rule: Data only appears in RD module)
-      // UPDATED: Logic to support R&D context
+      // Load all teams on this page (including RD)
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = localStorage.getItem("username") || user?.['Họ_và_tên'] || user?.['Họ và tên'] || user?.['Tên'] || user?.username || user?.name || "";
@@ -641,6 +643,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         selectedPersonnelNames,
         userName,
         selectColumns: '*',
+        skipImplicitFilters: isHcmView,
       });
 
       // 2. Process Supabase Data
@@ -906,6 +909,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         userName,
         selectColumns:
           'order_code, order_date, created_at, customer_phone, customer_name, customer_address, sale_staff',
+        skipImplicitFilters: isHcmView,
       });
 
       const updates = computeCanhBaoUpdatesForDuplicateCustomers(mergedRaw);
@@ -1562,10 +1566,9 @@ function DanhSachDon({ dataSource = 'default' }) {
 
       const applyTeamAndPersonnel = (q) => {
         let query = q;
-        if (teamFilter === 'RD') {
-          query = query.eq('team', 'RD');
-        } else {
-          query = query.or('team.is.null,team.neq.RD');
+        if (ordersTableName === 'orders') {
+          // View mặc định /danh-sach-don: không hiển thị Team=HCM
+          query = query.or('team.is.null,team.neq.HCM');
         }
         if (!isAdmin) {
           if (selectedPersonnelNames.length > 0) {
@@ -2101,8 +2104,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   const filteredCheckResults = useMemo(() => {
     const kw = String(checkResultFilterSearchText || '').trim().toLowerCase();
-    // Chỉ hiển thị gợi ý khi người dùng đã nhập (tránh hiển thị toàn bộ option khi ô trống).
-    if (!kw) return [];
+    if (!kw) return uniqueCheckResults;
     return uniqueCheckResults.filter((v) => String(v || '').toLowerCase().includes(kw));
   }, [checkResultFilterSearchText, uniqueCheckResults]);
 
@@ -2163,11 +2165,13 @@ function DanhSachDon({ dataSource = 'default' }) {
   const filteredData = useMemo(() => {
     let data = [...allData];
 
-    // View này chỉ hiển thị dữ liệu chi nhánh Hà Nội.
-    data = data.filter((row) => {
-      const raw = String(row["Team"] ?? row["Chi nhánh"] ?? '').trim().toLowerCase();
-      return raw === 'hà nội' || raw === 'ha noi' || raw === 'hanoi';
-    });
+    if (!isHcmView) {
+      // View mặc định chỉ hiển thị dữ liệu chi nhánh Hà Nội.
+      data = data.filter((row) => {
+        const raw = String(row["Team"] ?? row["Chi nhánh"] ?? '').trim().toLowerCase();
+        return raw === 'hà nội' || raw === 'ha noi' || raw === 'hanoi';
+      });
+    }
 
     // Filter by selected personnel (nếu có)
     // Admin KHÔNG bị filter, luôn xem tất cả đơn
@@ -2247,7 +2251,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
 
     // Date Range Filter
-    if (startDate || endDate) {
+    if (!isHcmView && (startDate || endDate)) {
       data = data.filter(row => isDateInRange(row["Ngày lên đơn"], startDate, endDate));
     }
 
@@ -2358,7 +2362,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
 
     return data;
-  }, [allData, debouncedSearchText, startDate, endDate, isAdmin, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSaleStaff, filterMktStaff, filterDeliveryStaff, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
+  }, [allData, debouncedSearchText, startDate, endDate, isAdmin, isHcmView, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSaleStaff, filterMktStaff, filterDeliveryStaff, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
 
   const duplicateTripleKeysInFilter = useMemo(() => {
     const counts = new Map();
@@ -3115,16 +3119,28 @@ function DanhSachDon({ dataSource = 'default' }) {
                     <div className="p-2">
                       <div className="flex items-center justify-between mb-2 pb-2 border-b">
                         <span className="text-xs font-semibold text-gray-700">Chọn kết quả check:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFilterCheckResult([]);
-                            setShowCheckResultFilter(false);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Bỏ chọn tất cả
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Array.from(new Set([...(filterCheckResult || []), ...filteredCheckResults]));
+                              setFilterCheckResult(next);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterCheckResult([]);
+                              setShowCheckResultFilter(false);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
                       </div>
                       <div className="mb-2">
                         <input
@@ -3194,7 +3210,25 @@ function DanhSachDon({ dataSource = 'default' }) {
                     <div className="p-2">
                       <div className="flex items-center justify-between mb-2 pb-2 border-b">
                         <span className="text-xs font-semibold text-gray-700">Chọn NV Sale:</span>
-                        <button type="button" onClick={() => { setFilterSaleStaff([]); setShowSaleStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Array.from(new Set([...(filterSaleStaff || []), ...filteredSaleStaff]));
+                              setFilterSaleStaff(next);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setFilterSaleStaff([]); setShowSaleStaffFilter(false); }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
                       </div>
                       <div className="mb-2">
                         <input
@@ -3251,7 +3285,25 @@ function DanhSachDon({ dataSource = 'default' }) {
                     <div className="p-2">
                       <div className="flex items-center justify-between mb-2 pb-2 border-b">
                         <span className="text-xs font-semibold text-gray-700">Chọn NV MKT:</span>
-                        <button type="button" onClick={() => { setFilterMktStaff([]); setShowMktStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Array.from(new Set([...(filterMktStaff || []), ...filteredMktStaff]));
+                              setFilterMktStaff(next);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setFilterMktStaff([]); setShowMktStaffFilter(false); }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
                       </div>
                       <div className="mb-2">
                         <input
@@ -3308,7 +3360,25 @@ function DanhSachDon({ dataSource = 'default' }) {
                     <div className="p-2">
                       <div className="flex items-center justify-between mb-2 pb-2 border-b">
                         <span className="text-xs font-semibold text-gray-700">Chọn NV vận đơn:</span>
-                        <button type="button" onClick={() => { setFilterDeliveryStaff([]); setShowDeliveryStaffFilter(false); }} className="text-xs text-blue-600 hover:text-blue-800">Bỏ chọn tất cả</button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Array.from(new Set([...(filterDeliveryStaff || []), ...filteredDeliveryStaff]));
+                              setFilterDeliveryStaff(next);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setFilterDeliveryStaff([]); setShowDeliveryStaffFilter(false); }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
                       </div>
                       <div className="mb-2">
                         <input
@@ -3350,38 +3420,6 @@ function DanhSachDon({ dataSource = 'default' }) {
               <Settings className="w-4 h-4" />
               Cài đặt cột
             </button>
-
-            {canEdit(effectivePermissionCode) && (
-              <button
-                onClick={handleClearShippingInfoByFilters}
-                disabled={
-                  syncing ||
-                  loading ||
-                  deleting ||
-                  isFixingTeams ||
-                  isFixingShift ||
-                  isFillingPaymentCurrency ||
-                  isRecalculatingZeroTotalVnd ||
-                  isClearingShippingInfo ||
-                  isApplyingCanhBaoTrung
-                }
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
-                title='Xóa cột "delivery_staff" cho các đơn trong bộ lọc hiện tại'
-              >
-                {isClearingShippingInfo ? (
-                  <>
-                    <span className="animate-spin">⏳</span>
-                    Đang xóa delivery_staff...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-4 h-4" />
-                    Xóa delivery_staff
-                  </>
-                )}
-              </button>
-            )}
-
 
           </div>
         </div>

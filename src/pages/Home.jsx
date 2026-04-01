@@ -323,6 +323,13 @@ function Home() {
           permission: 'ORDERS_DANH_SACH_VAN_DON',
         },
         {
+          id: "delivery-danh-sach-hcm",
+          label: "Danh sách vận đơn HCM",
+          icon: <ListTodo className="w-4 h-4" />,
+          path: "/danh-sach-van-don-hcm",
+          permission: 'ORDERS_DANH_SACH_VAN_DON',
+        },
+        {
           id: "delivery-report",
           label: "Báo cáo vận đơn",
           icon: <BarChart3 className="w-4 h-4" />,
@@ -929,6 +936,14 @@ function Home() {
           color: "bg-blue-500",
           path: "/danh-sach-van-don",
           status: "Mở ứng dụng",
+          permission: 'ORDERS_DANH_SACH_VAN_DON',
+        },
+        {
+          title: "Danh sách vận đơn HCM",
+          icon: <ListTodo className="w-8 h-8" />,
+          color: "bg-cyan-600",
+          path: "/danh-sach-van-don-hcm",
+          status: "Chi nhánh HCM",
           permission: 'ORDERS_DANH_SACH_VAN_DON',
         },
         {

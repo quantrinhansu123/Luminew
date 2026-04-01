@@ -149,6 +149,7 @@ function AppShell() {
             <Route path="/embed/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/dashboard-quan-tri" element={<ProtectedRoute><DashboardQuanTri /></ProtectedRoute>} />
             <Route path="/danh-sach-van-don" element={<ProtectedRoute><DanhSachVanDon /></ProtectedRoute>} />
+            <Route path="/danh-sach-van-don-hcm" element={<ProtectedRoute><DanhSachVanDon dataSource="hcm" /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-van-don" element={<ProtectedRoute><DanhSachBaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/danh-sach-don" element={<ProtectedRoute><DanhSachDon /></ProtectedRoute>} />
             <Route path="/danh-sach-don-hcm" element={<ProtectedRoute><DanhSachDon dataSource="hcm" /></ProtectedRoute>} />

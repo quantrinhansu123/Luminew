@@ -8,8 +8,11 @@ import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 
 const VAN_DON_LIST_FULL_ACCESS_ROLES = ['admin', 'super_admin', 'director', 'manager', 'administrator'];
+const isHcmBranch = (value) => String(value ?? '').trim().toLowerCase() === 'hcm';
 
-export default function DanhSachVanDon() {
+export default function DanhSachVanDon({ dataSource = 'default' }) {
+    const isHcmView = dataSource === 'hcm';
+    const ordersTableName = isHcmView ? 'order_code_hcm' : 'orders';
     const { role } = usePermissions();
     const isAdminVanDonList = useMemo(() => {
         const stored = (typeof localStorage !== 'undefined' ? localStorage.getItem('userRole') : '') || '';
@@ -99,7 +102,7 @@ export default function DanhSachVanDon() {
 
         try {
             const { count, error } = await supabase
-                .from('orders')
+                .from(ordersTableName)
                 .select('*', { count: 'exact', head: true })
                 .eq('delivery_staff', staffName)
                 .gte('order_date', startDate)
@@ -139,6 +142,11 @@ export default function DanhSachVanDon() {
                 console.log('👑 [DanhSachVanDon] Admin — hiển thị đủ danh sách (bỏ lọc selected_personnel)');
             } else {
                 console.log('✅ [DanhSachVanDon] No selected_personnel, showing all records');
+            }
+
+            // View HCM: chỉ hiển thị chi nhánh HCM.
+            if (isHcmView) {
+                filteredRecords = filteredRecords.filter((record) => isHcmBranch(record?.chi_nhanh));
             }
 
             // Auto-count orders for each staff member and parse nguoi_sua_ho, nguoi_day_ffm
@@ -306,7 +314,7 @@ export default function DanhSachVanDon() {
         setEditForm({
             ho_va_ten: '',
             trang_thai_chia: '',
-            chi_nhanh: '',
+            chi_nhanh: isHcmView ? 'HCM' : '',
             nguoi_sua_ho: [],
             nguoi_day_ffm: [],
             so_don: 0
@@ -351,7 +359,7 @@ export default function DanhSachVanDon() {
         setEditForm({
             ho_va_ten: item.ho_va_ten || '',
             trang_thai_chia: item.trang_thai_chia || '',
-            chi_nhanh: item.chi_nhanh || '',
+            chi_nhanh: isHcmView ? 'HCM' : item.chi_nhanh || '',
             nguoi_sua_ho: nguoiSuaHo,
             nguoi_day_ffm: nguoiDayFFM,
             so_don: item.so_don || 0
@@ -391,7 +399,7 @@ export default function DanhSachVanDon() {
             const formData = {
                 ho_va_ten: editForm.ho_va_ten.trim(),
                 trang_thai_chia: editForm.trang_thai_chia || null,
-                chi_nhanh: editForm.chi_nhanh || null,
+                chi_nhanh: isHcmView ? 'HCM' : editForm.chi_nhanh || null,
                 so_don: orderCount,
                 nguoi_sua_ho: JSON.stringify(editForm.nguoi_sua_ho || []),
                 nguoi_day_ffm: JSON.stringify(editForm.nguoi_day_ffm || [])
@@ -794,6 +802,7 @@ export default function DanhSachVanDon() {
                                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         value={editForm.chi_nhanh}
                                         onChange={(e) => setEditForm({ ...editForm, chi_nhanh: e.target.value })}
+                                        disabled={isHcmView}
                                     >
                                         <option value="">-- Chọn chi nhánh --</option>
                                         <option value="Hà Nội">Hà Nội</option>
