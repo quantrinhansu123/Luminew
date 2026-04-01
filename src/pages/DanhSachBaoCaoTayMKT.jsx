@@ -27,7 +27,10 @@ const formatDate = (dateValue) => {
 const MKT_DETAIL_REPORTS_SCOPE_OR =
     'department.is.null,department.eq.MKT,department.neq.RD,Team.ilike.test';
 
-export default function DanhSachBaoCaoTayMKT() {
+export default function DanhSachBaoCaoTayMKT({
+    reportTableName = 'detail_reports',
+    pageTitleSuffix = '',
+} = {}) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const teamFilter = searchParams.get('team'); // 'RD' or null
@@ -344,7 +347,7 @@ export default function DanhSachBaoCaoTayMKT() {
 
         while (true) {
             let query = supabase
-                .from('detail_reports')
+                .from(reportTableName)
                 .select('*');
 
             // Date filter (nếu có)
@@ -415,7 +418,7 @@ export default function DanhSachBaoCaoTayMKT() {
 
             // Lấy trực tiếp từ bảng detail_reports (giới hạn 50 records)
             let query = supabase
-                .from('detail_reports')
+                .from(reportTableName)
                 .select('*')
                 .limit(50);
 
@@ -532,7 +535,7 @@ export default function DanhSachBaoCaoTayMKT() {
                 
                 // Try to fetch without filters to see if data exists
                 const { data: allData, error: allError } = await supabase
-                    .from('detail_reports')
+                    .from(reportTableName)
                     .select('id, "Ngày", "Tên", department, "Team"')
                     .limit(5);
                 
@@ -594,7 +597,7 @@ export default function DanhSachBaoCaoTayMKT() {
             try {
                 // Try to get count without filters
                 const { count, error } = await supabase
-                    .from('detail_reports')
+                    .from(reportTableName)
                     .select('*', { count: 'exact', head: true });
                 
                 console.log('🔍 Table access test:', { count, error: error?.message });
@@ -921,14 +924,14 @@ export default function DanhSachBaoCaoTayMKT() {
         try {
             setSyncingTeamHanoi(true);
             const { count: nBefore, error: countErr } = await supabase
-                .from('detail_reports')
+                .from(reportTableName)
                 .select('*', { count: 'exact', head: true })
                 .eq('Team', 'Hà Nội');
 
             if (countErr) throw countErr;
 
             const { error } = await supabase
-                .from('detail_reports')
+                .from(reportTableName)
                 .update({ Team: 'HN-MKT' })
                 .eq('Team', 'Hà Nội');
 
@@ -977,14 +980,14 @@ export default function DanhSachBaoCaoTayMKT() {
             
             // Delete all records from detail_reports
             const { error } = await supabase
-                .from('detail_reports')
+                .from(reportTableName)
                 .delete()
                 .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all (hack for delete all)
 
             if (error) {
                 // If the above doesn't work, try deleting by selecting all IDs first
                 const { data: allRecords, error: fetchError } = await supabase
-                    .from('detail_reports')
+                    .from(reportTableName)
                     .select('id')
                     .limit(10000);
 
@@ -997,7 +1000,7 @@ export default function DanhSachBaoCaoTayMKT() {
                     for (let i = 0; i < ids.length; i += batchSize) {
                         const batch = ids.slice(i, i + batchSize);
                         const { error: batchError } = await supabase
-                            .from('detail_reports')
+                            .from(reportTableName)
                             .delete()
                             .in('id', batch);
                         
@@ -1086,7 +1089,7 @@ export default function DanhSachBaoCaoTayMKT() {
             
             // First, try to get the report to check permissions
             const { data: reportData, error: fetchError } = await supabase
-                .from('detail_reports')
+                .from(reportTableName)
                 .select('id, "Tên", "Email", "Team", department')
                 .eq('id', reportId)
                 .single();
@@ -1100,7 +1103,7 @@ export default function DanhSachBaoCaoTayMKT() {
             
             // Now try to delete
             const { data, error } = await supabase
-                .from('detail_reports')
+                .from(reportTableName)
                 .delete()
                 .eq('id', reportId)
                 .select();
@@ -1164,7 +1167,7 @@ export default function DanhSachBaoCaoTayMKT() {
             };
 
             const { error } = await supabase
-                .from('detail_reports')
+                .from(reportTableName)
                 .update(updateData)
                 .eq('id', editingReport.id);
 
@@ -1399,7 +1402,7 @@ export default function DanhSachBaoCaoTayMKT() {
 
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                        <h2>DANH SÁCH BÁO CÁO TAY MARKETING</h2>
+                        <h2>DANH SÁCH BÁO CÁO TAY MARKETING{pageTitleSuffix}</h2>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                             {isAdminOnly && teamFilter !== 'RD' && (
                                 <button

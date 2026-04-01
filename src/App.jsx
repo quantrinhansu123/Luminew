@@ -231,6 +231,17 @@ function AppShell() {
               }
             />
             <Route path="/danh-sach-bao-cao-tay-mkt" element={<ProtectedRoute><DanhSachBaoCaoTayMKT /></ProtectedRoute>} />
+            <Route
+              path="/danh-sach-bao-cao-tay-mkt-hcm"
+              element={
+                <ProtectedRoute>
+                  <DanhSachBaoCaoTayMKT
+                    reportTableName="marketing_report_hcm"
+                    pageTitleSuffix=" (HCM)"
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/test-mkt" element={<ProtectedRoute><TestMKT /></ProtectedRoute>} />
             <Route path="/test-bao-cao-orders" element={<ProtectedRoute><TestBaoCaoOrders /></ProtectedRoute>} />
             <Route path="/ffm_MGT" element={<ProtectedRoute><FFM variant="MGT" /></ProtectedRoute>} />

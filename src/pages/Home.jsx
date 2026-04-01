@@ -450,6 +450,13 @@ function Home() {
           path: "/danh-sach-bao-cao-tay-mkt",
           permission: 'MKT_MANUAL',
         },
+        {
+          id: "mkt-manual-hcm",
+          label: "Ds báo cáo tay HCM",
+          icon: <Database className="w-4 h-4" />,
+          path: "/danh-sach-bao-cao-tay-mkt-hcm",
+          permissionAny: ['MKT_MANUAL_HCM', 'MKT_MANUAL'],
+        },
       ],
     },
     {
@@ -1078,6 +1085,14 @@ function Home() {
           path: "/danh-sach-bao-cao-tay-mkt",
           status: "Mở ứng dụng",
           permission: 'MKT_MANUAL',
+        },
+        {
+          title: "Ds báo cáo tay HCM",
+          icon: <Database className="w-8 h-8" />,
+          color: "bg-cyan-700",
+          path: "/danh-sach-bao-cao-tay-mkt-hcm",
+          status: "marketing_report_hcm",
+          permissionAny: ['MKT_MANUAL_HCM', 'MKT_MANUAL'],
         },
       ],
     },

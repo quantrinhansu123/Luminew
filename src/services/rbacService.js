@@ -691,7 +691,8 @@ export const MODULE_PAGES = {
             { code: 'MKT_ORDERS', name: 'Danh sách đơn', path: '/bao-cao-chi-tiet' },
             { code: 'MKT_ORDERS_HCM', name: 'Danh sách đơn chi tiết HCM', path: '/bao-cao-chi-tiet-hcm' },
             { code: 'MKT_PAGES', name: 'Danh sách Page', path: '/danh-sach-page' },
-            { code: 'MKT_MANUAL', name: 'Ds báo cáo tay', path: '/danh-sach-bao-cao-tay-mkt' }
+            { code: 'MKT_MANUAL', name: 'Ds báo cáo tay', path: '/danh-sach-bao-cao-tay-mkt' },
+            { code: 'MKT_MANUAL_HCM', name: 'Ds báo cáo tay HCM', path: '/danh-sach-bao-cao-tay-mkt-hcm' }
         ]
     },
     'MODULE_RND': {
