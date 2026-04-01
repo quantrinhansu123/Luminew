@@ -129,7 +129,7 @@ function AppShell() {
                 <ProtectedRoute>
                   <NhanSuSaleLumiMoiView
                     reportTableName="sale_report_hcm"
-                    teamKeyword="sale"
+                    hcmXemBaoCaoSaleTeamFilter
                     showPersonnelNameFilter
                     pageAccessCodes={['SALE_VIEW_HCM', 'SALE_VIEW']}
                   />

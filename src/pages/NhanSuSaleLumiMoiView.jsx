@@ -29,6 +29,7 @@ import {
   displayNameForSaleReportKey,
   reportRowMatchesPersonnelOption,
   enrichSalesReportRowsWithBoPhan,
+  matchesHcmXemBaoCaoSaleTeam,
 } from '../utils/nhanSuSaleLumiMoiLogic';
 
 const LOGO_URL =
@@ -137,6 +138,11 @@ export default function NhanSuSaleLumiMoiView({
   teamExactFilter = null,
   /** Chỉ giữ dòng có Team thuộc danh sách (khớp sau normalize). Ưu tiên hơn `teamExactFilter` / `teamKeyword`. */
   teamInFilter = null,
+  /**
+   * true: chỉ giữ dòng có Team chứa «HCM» (trang xem báo cáo Sale HCM).
+   * Ưu tiên cao nhất — bỏ qua `teamInFilter` / `teamKeyword` khi bật.
+   */
+  hcmXemBaoCaoSaleTeamFilter = false,
   /** Nếu có: cần can_view ít nhất một mã (ví dụ trang xem CSKH HCM). */
   pageAccessCodes = null,
   /**
@@ -214,7 +220,6 @@ export default function NhanSuSaleLumiMoiView({
   const [marketSel, setMarketSel] = useState([]);
   /** Sổ xuống: một giá trị hoặc '' = tất cả (theo dữ liệu cột tương ứng đã tải). */
   const [boPhanPick, setBoPhanPick] = useState('');
-  const [viTriPick, setViTriPick] = useState('');
   const [nameAll, setNameAll] = useState(true);
   const [nameSel, setNameSel] = useState([]);
   // Trạng thái đã áp dụng thực tế vào dữ liệu (chỉ cập nhật khi bấm "Tìm")
@@ -339,6 +344,9 @@ export default function NhanSuSaleLumiMoiView({
         ]);
         if (cancelled) return;
         let mapped = mappedRaw;
+        if (hcmXemBaoCaoSaleTeamFilter) {
+          mapped = mappedRaw.filter((r) => matchesHcmXemBaoCaoSaleTeam(r.team));
+        } else {
         const inSet =
           Array.isArray(teamInFilter) && teamInFilter.length > 0
             ? new Set(teamInFilter.map((t) => normalizeTeamLabel(t)))
@@ -358,6 +366,7 @@ export default function NhanSuSaleLumiMoiView({
             }
           }
         }
+        }
         setEmployeeData(emp);
         setUserEmailNameRows(emailNameRows);
         setRawData(enrichSalesReportRowsWithBoPhan(mapped, emp));
@@ -373,7 +382,16 @@ export default function NhanSuSaleLumiMoiView({
       cancelled = true;
       ac.abort();
     };
-  }, [startDate, endDate, teamKeyword, teamExactFilter, teamInFilter, loadRequestId, reportTableName]);
+  }, [
+    startDate,
+    endDate,
+    teamKeyword,
+    teamExactFilter,
+    teamInFilter,
+    hcmXemBaoCaoSaleTeamFilter,
+    loadRequestId,
+    reportTableName,
+  ]);
 
   /** Phân quyền + bộ lọc + iframe — chạy khi có dữ liệu hoặc đổi id (không gọi lại API). */
   useEffect(() => {
@@ -404,7 +422,6 @@ export default function NhanSuSaleLumiMoiView({
       setTeamSel(uniqueSorted(dataForFilters, 'team').map(String));
       setMarketSel(uniqueSorted(dataForFilters, 'thiTruong'));
       setBoPhanPick('');
-      setViTriPick('');
     };
 
     const syncFilterSelectionsToNewData = (restricted, branch, team, names, emailForRow) => {
@@ -426,9 +443,7 @@ export default function NhanSuSaleLumiMoiView({
       setTeamSel((prev) => prev.filter((t) => teams.includes(t)));
       setMarketSel((prev) => prev.filter((m) => markets.includes(m)));
       const boPhans = uniqueSorted(dataForFilters, 'boPhan');
-      const chucs = uniqueSorted(dataForFilters, 'chucVu');
       setBoPhanPick((p) => (p && !boPhans.includes(p) ? '' : p));
-      setViTriPick((p) => (p && !chucs.includes(p) ? '' : p));
     };
 
     const AGGREGATE_FILTER_CTX = '__aggregate__';
@@ -582,7 +597,6 @@ export default function NhanSuSaleLumiMoiView({
       selectedNames:
         showPersonnelNameFilter && !nameAllApplied ? nameSelApplied : null,
       boPhanPick,
-      chucVuPick: viTriPick,
     });
   }, [
     rawData,
@@ -606,7 +620,6 @@ export default function NhanSuSaleLumiMoiView({
     nameAllApplied,
     nameSelApplied,
     boPhanPick,
-    viTriPick,
   ]);
 
   /** Dùng chung cho sidebar — tránh gọi filterRawForRestrictedPopulate hàng chục lần mỗi render */
@@ -626,10 +639,6 @@ export default function NhanSuSaleLumiMoiView({
 
   const boPhanOptions = useMemo(
     () => uniqueSorted(restrictedForPopulate, 'boPhan'),
-    [restrictedForPopulate]
-  );
-  const viTriOptions = useMemo(
-    () => uniqueSorted(restrictedForPopulate, 'chucVu'),
     [restrictedForPopulate]
   );
 
@@ -1017,21 +1026,6 @@ export default function NhanSuSaleLumiMoiView({
           >
             <option value="">— Tất cả —</option>
             {boPhanOptions.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-
-          <h3>Vị trí</h3>
-          <select
-            className="nssl-filter-select"
-            value={viTriPick}
-            onChange={(e) => setViTriPick(e.target.value)}
-            aria-label="Lọc Vị trí"
-          >
-            <option value="">— Tất cả —</option>
-            {viTriOptions.map((v) => (
               <option key={v} value={v}>
                 {v}
               </option>

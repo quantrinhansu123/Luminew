@@ -148,6 +148,18 @@ function normalizeViAscii(s) {
     .trim();
 }
 
+/**
+ * Trang /xem-bao-cao-sale-hcm: chỉ giữ dòng có Team (đã map từ team/branch) chứa «HCM».
+ * Ví dụ: HCM-Sale Ngày, HCM - Sale ngày, HCM-CSKH, CSKH-HCM, hoặc chỉ «HCM».
+ */
+export function matchesHcmXemBaoCaoSaleTeam(teamLabel) {
+  const raw = String(teamLabel || '').trim();
+  if (!raw) return false;
+  const t = normalizeViAscii(raw);
+  if (/^khong xac dinh$/.test(t) || t.includes('khong xac dinh')) return false;
+  return t.includes('hcm');
+}
+
 /** Chuỗi có dạng email (dùng để biết `sales_reports.name` nhập nhầm email). */
 export function looksLikeEmail(s) {
   const t = String(s || '').trim();
