@@ -30,14 +30,25 @@ function getDisplayNameFromStoredUser() {
   return String(localStorage.getItem('username') || '').trim();
 }
 
-export default function BaoCaoMarketing() {
+export default function BaoCaoMarketing({
+  reportTableName = 'detail_reports',
+  ordersTableName = 'orders',
+  pageTitle = 'Báo Cáo MKT',
+} = {}) {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const teamFilter = searchParams.get('team'); // 'RD' or null
 
   // Permission Logic
   const { canView, role } = usePermissions();
-  const permissionCode = teamFilter === 'RD' ? 'RND_INPUT' : 'MKT_INPUT';
+  const isHcmReport = reportTableName === 'marketing_report_hcm';
+  const pageAccessCodes =
+    teamFilter === 'RD'
+      ? ['RND_INPUT']
+      : isHcmReport
+        ? ['MKT_INPUT_HCM', 'MKT_INPUT']
+        : ['MKT_INPUT'];
+  const hasPageAccess = pageAccessCodes.some((code) => canView(code));
 
 
 
@@ -100,7 +111,7 @@ export default function BaoCaoMarketing() {
   const [tableHeaders, setTableHeaders] = useState([]);
   const [tableRows, setTableRows] = useState([]);
   const [userEmail, setUserEmail] = useState('');
-  const [currentTableName, setCurrentTableName] = useState('Báo cáo MKT');
+  const [currentTableName, setCurrentTableName] = useState(pageTitle);
   const [employeeNameFromUrl, setEmployeeNameFromUrl] = useState('');
   const [status, setStatus] = useState('Đang khởi tạo ứng dụng...');
   const [responseMsg, setResponseMsg] = useState({ text: '', isSuccess: true, visible: false });
@@ -509,7 +520,7 @@ export default function BaoCaoMarketing() {
 
       // Build query
       let query = supabase
-        .from('orders')
+        .from(ordersTableName)
         .select('*')
         .eq('order_date', reportDate);
 
@@ -554,7 +565,7 @@ export default function BaoCaoMarketing() {
 
       // First, let's check if there are any orders on this date at all
       const { data: ordersByDate, error: dateError } = await supabase
-        .from('orders')
+        .from(ordersTableName)
         .select('id, order_date, marketing_staff, product, country, shift')
         .eq('order_date', reportDate)
         .limit(10);
@@ -611,7 +622,7 @@ export default function BaoCaoMarketing() {
 
         // Check orders by date only
         const { data: ordersDateOnly } = await supabase
-          .from('orders')
+          .from(ordersTableName)
           .select('id, marketing_staff, product, country, shift')
           .eq('order_date', reportDate)
           .limit(5);
@@ -620,7 +631,7 @@ export default function BaoCaoMarketing() {
         // Check orders by date + name
         if (reportName) {
           const { data: ordersDateName } = await supabase
-            .from('orders')
+            .from(ordersTableName)
             .select('id, marketing_staff, product, country, shift')
             .eq('order_date', reportDate)
             .ilike('marketing_staff', `%${reportName.trim()}%`)
@@ -631,7 +642,7 @@ export default function BaoCaoMarketing() {
         // Check orders by date + name + product
         if (reportName && reportProduct) {
           const { data: ordersDateNameProduct } = await supabase
-            .from('orders')
+            .from(ordersTableName)
             .select('id, marketing_staff, product, country, shift')
             .eq('order_date', reportDate)
             .ilike('marketing_staff', `%${reportName.trim()}%`)
@@ -756,11 +767,10 @@ export default function BaoCaoMarketing() {
     }
   };
 
-  // Delete all data from detail_reports
   const handleDeleteAll = async () => {
     const confirm1 = window.confirm(
       "⚠️ CẢNH BÁO NGHIÊM TRỌNG!\n\n" +
-      "Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu trong bảng detail_reports?\n\n" +
+      `Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu trong bảng ${reportTableName}?\n\n` +
       "Hành động này KHÔNG THỂ HOÀN TÁC!\n\n" +
       "Nhấn OK để tiếp tục, hoặc Cancel để hủy."
     );
@@ -789,16 +799,14 @@ export default function BaoCaoMarketing() {
       setDeleting(true);
       updateStatus('Đang xóa dữ liệu...');
 
-      // Delete all records from detail_reports
       const { error } = await supabase
-        .from('detail_reports')
+        .from(reportTableName)
         .delete()
         .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all (hack for delete all)
 
       if (error) {
-        // If the above doesn't work, try deleting by selecting all IDs first
         const { data: allRecords, error: fetchError } = await supabase
-          .from('detail_reports')
+          .from(reportTableName)
           .select('id')
           .limit(10000);
 
@@ -806,12 +814,11 @@ export default function BaoCaoMarketing() {
 
         if (allRecords && allRecords.length > 0) {
           const ids = allRecords.map(r => r.id);
-          // Delete in batches
           const batchSize = 1000;
           for (let i = 0; i < ids.length; i += batchSize) {
             const batch = ids.slice(i, i + batchSize);
             const { error: batchError } = await supabase
-              .from('detail_reports')
+              .from(reportTableName)
               .delete()
               .in('id', batch);
 
@@ -848,6 +855,10 @@ export default function BaoCaoMarketing() {
 
   // Sync data from Firebase Báo cáo MKT via backend API (bypasses RLS)
   const handleSyncMKT = async () => {
+    if (reportTableName !== 'detail_reports') {
+      alert('Đồng bộ Firebase hiện chỉ hỗ trợ bảng detail_reports. Trang HCM ghi trực tiếp lên marketing_report_hcm.');
+      return;
+    }
     if (!window.confirm("Bạn có chắc chắn muốn đồng bộ dữ liệu từ Firebase Báo cáo MKT về Supabase?\n\nLưu ý: Chỉ thêm dữ liệu MỚI (chưa có), KHÔNG ghi đè dữ liệu đã tồn tại.")) return;
 
     try {
@@ -920,12 +931,12 @@ export default function BaoCaoMarketing() {
         };
 
         // Map fields
-        // Must match Supabase detail_reports columns exactly
-        // List of columns that DO NOT exist in detail_reports and should be excluded
+        // Must match Supabase target table columns exactly
+        // List of columns that DO NOT exist in schema and should be excluded
         const excludedColumns = ['Chi nhánh', 'chi nhánh', 'Chi_nhánh', 'chi_nhánh', 'branch'];
 
         Object.keys(row.data).forEach((key) => {
-          // Skip excluded columns that don't exist in detail_reports schema
+          // Skip excluded columns that don't exist in target table schema
           if (excludedColumns.includes(key)) {
             return;
           }
@@ -1019,7 +1030,7 @@ export default function BaoCaoMarketing() {
 
       // Không gộp / không update khi trùng key: báo cáo dòng nào thì ghi đúng dòng đó.
       const toInsert = rowsData;
-      const { error: insErr } = await supabase.from('detail_reports').insert(toInsert).select();
+      const { error: insErr } = await supabase.from(reportTableName).insert(toInsert).select();
       if (insErr) throw insErr;
 
       const insN = toInsert.length;
@@ -1075,8 +1086,12 @@ export default function BaoCaoMarketing() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
   }, [appData.sheetLookupEmployees, hrAllDisplayNames, tableRows]);
 
-  if (!canView(permissionCode)) {
-    return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
+  if (!hasPageAccess) {
+    return (
+      <div className="p-8 text-center text-red-600 font-bold">
+        Bạn không có quyền truy cập trang này. Cần một trong: {pageAccessCodes.join(', ')}.
+      </div>
+    );
   }
 
   return (
@@ -1084,7 +1099,15 @@ export default function BaoCaoMarketing() {
       <div className="bg-white rounded-lg shadow-lg p-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-4 pb-3 border-b-2 border-blue-600">
-          <h1 className="text-2xl font-bold text-blue-600">Báo Cáo MKT</h1>
+          <div>
+            <h1 className="text-2xl font-bold text-blue-600">{pageTitle}</h1>
+            {isHcmReport && (
+              <p className="text-xs text-gray-500 mt-1">
+                Bảng báo cáo: <span className="font-mono">{reportTableName}</span> · Đối chiếu đơn:{' '}
+                <span className="font-mono">{ordersTableName}</span>
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Status */}

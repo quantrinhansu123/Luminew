@@ -91,6 +91,18 @@ function AppShell() {
             <Route path="/bao-cao-kpi" element={<ProtectedRoute><KPIReport /></ProtectedRoute>} />
             <Route path="/hieu-qua-mkt" element={<ProtectedRoute><HieuQuaMarketing /></ProtectedRoute>} />
             <Route path="/bao-cao-marketing" element={<ProtectedRoute><BaoCaoMarketing /></ProtectedRoute>} />
+            <Route
+              path="/bao-cao-marketing-hcm"
+              element={
+                <ProtectedRoute>
+                  <BaoCaoMarketing
+                    reportTableName="marketing_report_hcm"
+                    ordersTableName="order_code_hcm"
+                    pageTitle="Báo cáo MKT (HCM)"
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/bao-cao-sale" element={<ProtectedRoute><BaoCaoSale /></ProtectedRoute>} />
             <Route path="/sale-nhap-bao-cao" element={<ProtectedRoute><NhapBaoCaoSale /></ProtectedRoute>} />
             <Route

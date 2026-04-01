@@ -345,6 +345,13 @@ function Home() {
           permission: 'MKT_INPUT',
         },
         {
+          id: "mkt-input-hcm",
+          label: "Nhập báo cáo HCM",
+          icon: <TrendingUp className="w-4 h-4" />,
+          path: "/bao-cao-marketing-hcm",
+          permissionAny: ['MKT_INPUT_HCM', 'MKT_INPUT'],
+        },
+        {
           id: "mkt-view",
           label: "Xem báo cáo MKT",
           icon: <BarChart3 className="w-4 h-4" />,
@@ -896,6 +903,14 @@ function Home() {
           path: "/bao-cao-marketing",
           status: "Mở ứng dụng",
           permission: 'MKT_INPUT',
+        },
+        {
+          title: "Nhập báo cáo HCM",
+          icon: <TrendingUp className="w-8 h-8" />,
+          color: "bg-emerald-600",
+          path: "/bao-cao-marketing-hcm",
+          status: "Mở ứng dụng",
+          permissionAny: ['MKT_INPUT_HCM', 'MKT_INPUT'],
         },
         {
           title: "Xem báo cáo MKT",

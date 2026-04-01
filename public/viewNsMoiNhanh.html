@@ -821,11 +821,15 @@
     }
 
     /**
-     * Lọc team MKT trực tiếp trên Supabase (bảng detail_reports).
-     * - null: không lọc, lấy tất cả team (để "Team test" cũng hiển thị).
-     * - string: lọc theo đúng team.
+     * Chỉ hiển thị các team này (xem báo cáo MKT).
+     * Để trống mảng [] hoặc null để lấy mọi team (legacy).
      */
-    const MKT_TEAM = null;
+    const MKT_ALLOWED_TEAMS = ['HN-MKT', 'Team Test'];
+
+    function applyMktTeamFilterToQuery(q) {
+      if (!MKT_ALLOWED_TEAMS || MKT_ALLOWED_TEAMS.length === 0) return q;
+      return q.in('Team', MKT_ALLOWED_TEAMS);
+    }
 
     function parseYmdInputForMkt(v) {
       if (!v || typeof v !== 'string') return null;
@@ -870,7 +874,11 @@
     function getMktDetailReportsCacheKey() {
       const { startYmd, endYmd } = getMktDateRangeForQuery();
       // bump version to avoid reusing old cached paging logic
-      return `MKT_SUPABASE:v3:${MKT_TEAM || 'ALL'}:${startYmd || ''}:${endYmd || ''}`;
+      const teamKey =
+        MKT_ALLOWED_TEAMS && MKT_ALLOWED_TEAMS.length
+          ? MKT_ALLOWED_TEAMS.join('|')
+          : 'ALL';
+      return `MKT_SUPABASE:v4:${teamKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -1136,7 +1144,7 @@
 
       for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
         let q = supabase.from('detail_reports').select('*');
-        if (MKT_TEAM) q = q.eq('Team', MKT_TEAM);
+        q = applyMktTeamFilterToQuery(q);
         if (startYmd) q = q.gte('Ngày', startYmd);
         if (endYmd) q = q.lte('Ngày', endYmd);
         if (lastId !== null && lastId !== undefined && lastId !== '') q = q.gt('id', lastId);
@@ -1185,7 +1193,7 @@
 
       for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
         let q = supabase.from('detail_reports').select('*');
-        if (MKT_TEAM) q = q.eq('Team', MKT_TEAM);
+        q = applyMktTeamFilterToQuery(q);
         if (startYmd) q = q.gte('Ngày', startYmd);
         if (endYmd) q = q.lte('Ngày', endYmd);
         q = q
@@ -1502,8 +1510,17 @@
 
         employeeData = employeeDataMKT;
 
+        const allowedSet =
+          MKT_ALLOWED_TEAMS && MKT_ALLOWED_TEAMS.length
+            ? new Set(MKT_ALLOWED_TEAMS.map((t) => String(t).trim()))
+            : null;
         const masterDataMKT = rowsDeduped
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
+          .filter((r) => {
+            if (!allowedSet) return true;
+            const t = String(r['Team'] || '').trim();
+            return allowedSet.has(t);
+          })
           .map(r => {
             const dsChotTT = Number(r["Doanh số TT"] ?? r.doanh_so_tt) || 0;
             const dsChotThucTeVal = dsChotTT || Number(r["Doanh thu chốt thực tế"]) || 0;
@@ -1544,7 +1561,6 @@
             };
           });
 
-        // Dữ liệu từ Supabase (detail_reports): Team = HN-MKT + khoảng Ngày
         masterData = masterDataMKT;
 
         console.log(`✅ Đã tải dữ liệu từ Supabase (detail_reports):`);
@@ -1567,7 +1583,9 @@
       const manualTabBtn = document.getElementById('manual-report-tab-btn');
       const vandonTabBtn = document.getElementById('vandon-report-tab-btn');
       document.getElementById('report-title-tab1').textContent =
-        'DỮ LIỆU CHI PHÍ ADS — tất cả Team MKT';
+        MKT_ALLOWED_TEAMS && MKT_ALLOWED_TEAMS.length
+          ? `DỮ LIỆU CHI PHÍ ADS — Team: ${MKT_ALLOWED_TEAMS.join(', ')}`
+          : 'DỮ LIỆU CHI PHÍ ADS — tất cả Team MKT';
       baseDataForReport = masterData;
       manualTabBtn.style.display = 'none';
       vandonTabBtn.style.display = 'none';
