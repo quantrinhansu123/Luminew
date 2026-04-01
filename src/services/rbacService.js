@@ -728,6 +728,7 @@ export const MODULE_PAGES = {
             { code: 'ORDERS_LIST', name: 'Quản lý vận đơn', path: '/van-don' },
             { code: 'ORDERS_LIST_HCM', name: 'Vận đơn HCM', path: '/van-don-hcm' },
             { code: 'ORDERS_DANH_SACH_VAN_DON', name: 'Danh sách vận đơn', path: '/danh-sach-van-don' },
+            { code: 'ORDERS_DANH_SACH_VAN_DON_HCM', name: 'Danh sách vận đơn HCM', path: '/danh-sach-van-don-hcm' },
             { code: 'ORDERS_REPORT', name: 'Báo cáo vận đơn', path: '/bao-cao-van-don' },
             { code: 'ORDERS_REPORT_OPERATION', name: 'Báo cáo vận hành', path: '/bao-cao-van-hanh' },
             { code: 'ORDERS_REPORT_DAILY_DATA', name: 'Dữ liệu báo cáo hàng ngày', path: '/danh-sach-bao-cao-van-don' },

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Eye } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as rbacService from '../../services/rbacService';
 
@@ -7,6 +7,76 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
     const [permissions, setPermissions] = useState([]);
     const [expandedModules, setExpandedModules] = useState({});
     const [loading, setLoading] = useState(false);
+    const [customPages, setCustomPages] = useState([]);
+    const [newPageCode, setNewPageCode] = useState('');
+    const [newPageName, setNewPageName] = useState('');
+    const [newPagePath, setNewPagePath] = useState('');
+
+    const CUSTOM_PAGES_STORAGE_KEY = 'rbac_custom_page_codes';
+
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem(CUSTOM_PAGES_STORAGE_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return;
+            const sanitized = parsed
+                .map((p) => ({
+                    code: String(p?.code || '').trim(),
+                    name: String(p?.name || '').trim(),
+                    path: String(p?.path || '').trim()
+                }))
+                .filter((p) => p.code);
+            setCustomPages(sanitized);
+        } catch (e) {
+            console.warn('Không đọc được custom page codes:', e);
+        }
+    }, []);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(CUSTOM_PAGES_STORAGE_KEY, JSON.stringify(customPages));
+        } catch (e) {
+            console.warn('Không lưu được custom page codes:', e);
+        }
+    }, [customPages]);
+
+    const dynamicModulePages = useMemo(() => {
+        const staticModules = rbacService.MODULE_PAGES || {};
+        const knownCodes = new Set(
+            Object.values(staticModules)
+                .flatMap((m) => (m?.pages || []).map((p) => p.code))
+                .filter(Boolean)
+        );
+
+        const orphanFromDb = (permissions || [])
+            .map((p) => String(p?.page_code || '').trim())
+            .filter((code) => code && !knownCodes.has(code))
+            .map((code) => ({ code, name: code, path: '(tự phát hiện từ DB)' }));
+
+        const customEntries = (customPages || []).map((p) => ({
+            code: p.code,
+            name: p.name || p.code,
+            path: p.path || '(tùy chỉnh)'
+        }));
+
+        const mergedCustomPages = [...orphanFromDb, ...customEntries]
+            .filter((p) => p.code)
+            .reduce((acc, cur) => {
+                if (!acc.some((x) => x.code === cur.code)) acc.push(cur);
+                return acc;
+            }, []);
+
+        if (mergedCustomPages.length === 0) return staticModules;
+
+        return {
+            ...staticModules,
+            MODULE_CUSTOM: {
+                name: 'QUYỀN TÙY CHỈNH / VIEW MỚI',
+                pages: mergedCustomPages
+            }
+        };
+    }, [permissions, customPages]);
 
     useEffect(() => {
         if (roleCode) {
@@ -22,7 +92,7 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
 
             // Auto-expand all modules on load
             const expanded = {};
-            Object.keys(rbacService.MODULE_PAGES).forEach(moduleCode => {
+            Object.keys(dynamicModulePages).forEach(moduleCode => {
                 expanded[moduleCode] = true;
             });
             setExpandedModules(expanded);
@@ -32,6 +102,32 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleAddCustomPage = () => {
+        const code = String(newPageCode || '').trim().toUpperCase();
+        if (!code) {
+            toast.warn('Vui lòng nhập page_code');
+            return;
+        }
+        const name = String(newPageName || '').trim();
+        const path = String(newPagePath || '').trim();
+
+        setCustomPages((prev) => {
+            const next = [...prev];
+            const idx = next.findIndex((p) => p.code === code);
+            if (idx >= 0) {
+                next[idx] = { ...next[idx], name: name || next[idx].name, path: path || next[idx].path };
+            } else {
+                next.push({ code, name, path });
+            }
+            return next;
+        });
+
+        setNewPageCode('');
+        setNewPageName('');
+        setNewPagePath('');
+        toast.success(`Đã thêm page_code: ${code}`);
     };
 
     const toggleModule = (moduleCode) => {
@@ -142,7 +238,45 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
 
     return (
         <div className="space-y-2">
-            {Object.entries(rbacService.MODULE_PAGES).map(([moduleCode, module]) => {
+            <div className="border rounded-lg p-3 bg-amber-50 border-amber-200">
+                <div className="text-sm font-semibold text-amber-900 mb-2">
+                    Thêm quyền cho view mới (không cần sửa code)
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                    <input
+                        type="text"
+                        value={newPageCode}
+                        onChange={(e) => setNewPageCode(e.target.value)}
+                        placeholder="page_code (vd: ORDERS_DANH_SACH_VAN_DON_HCM)"
+                        className="px-3 py-2 border rounded text-sm md:col-span-2"
+                    />
+                    <input
+                        type="text"
+                        value={newPageName}
+                        onChange={(e) => setNewPageName(e.target.value)}
+                        placeholder="Tên hiển thị (tùy chọn)"
+                        className="px-3 py-2 border rounded text-sm"
+                    />
+                    <input
+                        type="text"
+                        value={newPagePath}
+                        onChange={(e) => setNewPagePath(e.target.value)}
+                        placeholder="Path (tùy chọn, vd: /danh-sach-van-don-hcm)"
+                        className="px-3 py-2 border rounded text-sm"
+                    />
+                </div>
+                <div className="mt-2">
+                    <button
+                        type="button"
+                        onClick={handleAddCustomPage}
+                        className="px-3 py-1.5 rounded bg-amber-600 text-white text-sm hover:bg-amber-700"
+                    >
+                        Thêm vào Matrix
+                    </button>
+                </div>
+            </div>
+
+            {Object.entries(dynamicModulePages).map(([moduleCode, module]) => {
                 const isExpanded = expandedModules[moduleCode];
 
                 return (

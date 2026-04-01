@@ -8,7 +8,36 @@ import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 
 const VAN_DON_LIST_FULL_ACCESS_ROLES = ['admin', 'super_admin', 'director', 'manager', 'administrator'];
-const isHcmBranch = (value) => String(value ?? '').trim().toLowerCase() === 'hcm';
+const normalizeBranch = (value) =>
+    String(value ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[.\-_/]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+const isHcmBranch = (value) => {
+    const branch = normalizeBranch(value);
+    return (
+        branch === 'hcm' ||
+        branch === 'tp hcm' ||
+        branch === 'tphcm' ||
+        branch === 'ho chi minh' ||
+        branch.includes('hcm') ||
+        branch.includes('ho chi minh')
+    );
+};
+const isHanoiBranch = (value) => {
+    const branch = normalizeBranch(value);
+    return branch === 'ha noi' || branch === 'hanoi' || branch === 'hn' || branch.includes('ha noi') || branch.includes('hanoi');
+};
+const isBranchMatched = (staffBranch, selectedBranch) => {
+    if (!selectedBranch) return true;
+    if (isHcmBranch(selectedBranch)) return isHcmBranch(staffBranch);
+    if (isHanoiBranch(selectedBranch)) return isHanoiBranch(staffBranch);
+    return normalizeBranch(staffBranch) === normalizeBranch(selectedBranch);
+};
 
 export default function DanhSachVanDon({ dataSource = 'default' }) {
     const isHcmView = dataSource === 'hcm';
@@ -37,6 +66,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
     // Staff lists for dropdowns
     const [vanDonStaff, setVanDonStaff] = useState([]);
+    const [vanDonStaffBranchMap, setVanDonStaffBranchMap] = useState({});
 
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
@@ -57,25 +87,72 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
     // Search state for dropdowns
     const [hoVaTenSearch, setHoVaTenSearch] = useState('');
     const [nguoiSuaHoSearch, setNguoiSuaHoSearch] = useState('');
-    const [nguoiDayFFMSearch, setNguoiDayFFMSearch] = useState('');
     const [showHoVaTenDropdown, setShowHoVaTenDropdown] = useState(false);
     const [showNguoiSuaHoDropdown, setShowNguoiSuaHoDropdown] = useState(false);
-    const [showNguoiDayFFMDropdown, setShowNguoiDayFFMDropdown] = useState(false);
 
     // Load staff from users with department = "Vận Đơn"
     const loadVanDonStaff = async () => {
         try {
             console.log('Loading van don staff from users table...');
-            // Lấy nhân sự có department = "Vận Đơn" (chữ Đ viết hoa)
-            const { data: staff, error } = await supabase
+            let staff = [];
+            let staffBranchMap = {};
+
+            // Ưu tiên lấy branch từ users; một số DB cũ có thể dùng chi_nhanh.
+            const { data: staffWithBranch, error: staffWithBranchError } = await supabase
                 .from('users')
-                .select('name, department')
+                .select('name, department, branch')
                 .eq('department', 'Vận Đơn')
                 .order('name', { ascending: true });
 
-            if (error) {
-                console.error('Supabase error:', error);
-                throw error;
+            if (staffWithBranchError) {
+                const message = String(staffWithBranchError.message || '').toLowerCase();
+                const missingBranchColumn = message.includes('branch') && message.includes('does not exist');
+                if (!missingBranchColumn) {
+                    console.error('Supabase error:', staffWithBranchError);
+                    throw staffWithBranchError;
+                }
+
+                console.warn('users.branch chưa tồn tại, thử users.chi_nhanh');
+                const { data: staffWithChiNhanh, error: staffWithChiNhanhError } = await supabase
+                    .from('users')
+                    .select('name, department, chi_nhanh')
+                    .eq('department', 'Vận Đơn')
+                    .order('name', { ascending: true });
+
+                if (staffWithChiNhanhError) {
+                    const fallbackMessage = String(staffWithChiNhanhError.message || '').toLowerCase();
+                    const missingChiNhanhColumn = fallbackMessage.includes('chi_nhanh') && fallbackMessage.includes('does not exist');
+                    if (!missingChiNhanhColumn) {
+                        console.error('Supabase error:', staffWithChiNhanhError);
+                        throw staffWithChiNhanhError;
+                    }
+
+                    // Fallback cuối cùng để không chặn thao tác thêm/sửa.
+                    const { data: staffBasic, error: staffBasicError } = await supabase
+                        .from('users')
+                        .select('name, department')
+                        .eq('department', 'Vận Đơn')
+                        .order('name', { ascending: true });
+                    if (staffBasicError) {
+                        console.error('Supabase error:', staffBasicError);
+                        throw staffBasicError;
+                    }
+                    staff = staffBasic || [];
+                } else {
+                    staff = staffWithChiNhanh || [];
+                    (staff || []).forEach((member) => {
+                        if (member?.name) {
+                            staffBranchMap[member.name] = member?.chi_nhanh || '';
+                        }
+                    });
+                }
+            } else {
+                staff = staffWithBranch || [];
+                (staff || []).forEach((member) => {
+                    if (member?.name) {
+                        staffBranchMap[member.name] = member?.branch || '';
+                    }
+                });
             }
 
             console.log('Raw staff data:', staff);
@@ -88,6 +165,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             }
 
             setVanDonStaff(staffNames);
+            setVanDonStaffBranchMap(staffBranchMap);
             return staffNames;
         } catch (error) {
             console.error('Error loading van don staff:', error);
@@ -265,12 +343,21 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
     // Tính toán danh sách nhân sự có sẵn cho "Họ và tên" (loại trừ những người đã có trong danh sách khi thêm mới)
     const availableHoVaTenOptions = useMemo(() => {
-        if (!isAdding) return vanDonStaff;
+        let options = vanDonStaff;
+
+        // Thêm mới: lọc theo chi nhánh đã chọn
+        if (isAdding && editForm.chi_nhanh) {
+            options = options.filter((name) =>
+                isBranchMatched(vanDonStaffBranchMap[name], editForm.chi_nhanh)
+            );
+        }
+
+        if (!isAdding) return options;
         // Lấy danh sách ho_va_ten đã có trong data
         const existingNames = new Set(data.map(item => item.ho_va_ten).filter(Boolean));
         // Loại trừ những người đã có
-        return vanDonStaff.filter(name => !existingNames.has(name));
-    }, [vanDonStaff, data, isAdding]);
+        return options.filter(name => !existingNames.has(name));
+    }, [vanDonStaff, vanDonStaffBranchMap, data, isAdding, editForm.chi_nhanh]);
 
     // Tính toán danh sách nhân sự cho "Người sửa hộ" (loại trừ người đang được chọn trong ho_va_ten)
     const availableNguoiSuaHoOptions = useMemo(() => {
@@ -307,10 +394,8 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
         setEditingId(null);
         setHoVaTenSearch('');
         setNguoiSuaHoSearch('');
-        setNguoiDayFFMSearch('');
         setShowHoVaTenDropdown(false);
         setShowNguoiSuaHoDropdown(false);
-        setShowNguoiDayFFMDropdown(false);
         setEditForm({
             ho_va_ten: '',
             trang_thai_chia: '',
@@ -801,7 +886,21 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                     <select
                                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         value={editForm.chi_nhanh}
-                                        onChange={(e) => setEditForm({ ...editForm, chi_nhanh: e.target.value })}
+                                        onChange={(e) => {
+                                            const nextBranch = e.target.value;
+                                            setEditForm((prev) => {
+                                                const nextForm = { ...prev, chi_nhanh: nextBranch };
+                                                if (
+                                                    isAdding &&
+                                                    prev.ho_va_ten &&
+                                                    !isBranchMatched(vanDonStaffBranchMap[prev.ho_va_ten], nextBranch)
+                                                ) {
+                                                    nextForm.ho_va_ten = '';
+                                                    setHoVaTenSearch('');
+                                                }
+                                                return nextForm;
+                                            });
+                                        }}
                                         disabled={isHcmView}
                                     >
                                         <option value="">-- Chọn chi nhánh --</option>
@@ -865,65 +964,6 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                     {editForm.nguoi_sua_ho && editForm.nguoi_sua_ho.length > 0 && (
                                         <p className="text-xs text-gray-500 mt-1">
                                             Đã chọn: {editForm.nguoi_sua_ho.join(', ')}
-                                        </p>
-                                    )}
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Người đẩy FFM (có thể chọn nhiều)
-                                    </label>
-                                    <div className="mb-2">
-                                        <input
-                                            type="text"
-                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Gõ tên để tìm kiếm..."
-                                            value={nguoiDayFFMSearch}
-                                            onChange={(e) => setNguoiDayFFMSearch(e.target.value)}
-                                            onFocus={() => setShowNguoiDayFFMDropdown(true)}
-                                        />
-                                    </div>
-                                    <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-white">
-                                        {vanDonStaff.length === 0 ? (
-                                            <p className="text-sm text-gray-500">Đang tải danh sách...</p>
-                                        ) : (
-                                            <div className="space-y-2">
-                                                {vanDonStaff
-                                                    .filter(name =>
-                                                        !nguoiDayFFMSearch || name.toLowerCase().includes(nguoiDayFFMSearch.toLowerCase())
-                                                    )
-                                                    .map((name) => (
-                                                        <label
-                                                            key={name}
-                                                            className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
-                                                        >
-                                                            <input
-                                                                type="checkbox"
-                                                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                                                checked={editForm.nguoi_day_ffm?.includes(name) || false}
-                                                                onChange={(e) => {
-                                                                    const current = editForm.nguoi_day_ffm || [];
-                                                                    if (e.target.checked) {
-                                                                        setEditForm({ ...editForm, nguoi_day_ffm: [...current, name] });
-                                                                    } else {
-                                                                        setEditForm({ ...editForm, nguoi_day_ffm: current.filter(n => n !== name) });
-                                                                    }
-                                                                }}
-                                                            />
-                                                            <span className="ml-2 text-sm text-gray-700">{name}</span>
-                                                        </label>
-                                                    ))}
-                                                {vanDonStaff.filter(name =>
-                                                    !nguoiDayFFMSearch || name.toLowerCase().includes(nguoiDayFFMSearch.toLowerCase())
-                                                ).length === 0 && (
-                                                        <p className="text-sm text-gray-500 text-center py-2">Không tìm thấy kết quả</p>
-                                                    )}
-                                            </div>
-                                        )}
-                                    </div>
-                                    {editForm.nguoi_day_ffm && editForm.nguoi_day_ffm.length > 0 && (
-                                        <p className="text-xs text-gray-500 mt-1">
-                                            Đã chọn: {editForm.nguoi_day_ffm.join(', ')}
                                         </p>
                                     )}
                                 </div>

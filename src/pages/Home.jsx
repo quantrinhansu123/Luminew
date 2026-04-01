@@ -81,6 +81,14 @@ function Home() {
       active: location.pathname === "/" || location.pathname === "/trang-chu",
     },
     {
+      id: "delivery-danh-sach-hcm-quick",
+      label: "DS vận đơn HCM",
+      icon: <ListTodo className="w-5 h-5" />,
+      path: "/danh-sach-van-don-hcm",
+      permission: "ORDERS_DANH_SACH_VAN_DON",
+      active: location.pathname === "/danh-sach-van-don-hcm",
+    },
+    {
       id: "dashboard",
       label: "Dashboard điều hành",
       icon: <BarChart3 className="w-5 h-5" />,
