@@ -85,7 +85,7 @@ function Home() {
       label: "DS vận đơn HCM",
       icon: <ListTodo className="w-5 h-5" />,
       path: "/danh-sach-van-don-hcm",
-      permission: "ORDERS_DANH_SACH_VAN_DON",
+      permissionAny: ["ORDERS_DANH_SACH_VAN_DON_HCM", "ORDERS_DANH_SACH_VAN_DON"],
       active: location.pathname === "/danh-sach-van-don-hcm",
     },
     {
@@ -335,7 +335,7 @@ function Home() {
           label: "Danh sách vận đơn HCM",
           icon: <ListTodo className="w-4 h-4" />,
           path: "/danh-sach-van-don-hcm",
-          permission: 'ORDERS_DANH_SACH_VAN_DON',
+          permissionAny: ['ORDERS_DANH_SACH_VAN_DON_HCM', 'ORDERS_DANH_SACH_VAN_DON'],
         },
         {
           id: "delivery-report",
@@ -952,7 +952,7 @@ function Home() {
           color: "bg-cyan-600",
           path: "/danh-sach-van-don-hcm",
           status: "Chi nhánh HCM",
-          permission: 'ORDERS_DANH_SACH_VAN_DON',
+          permissionAny: ['ORDERS_DANH_SACH_VAN_DON_HCM', 'ORDERS_DANH_SACH_VAN_DON'],
         },
         {
           title: "Báo cáo vận đơn",

@@ -8,7 +8,7 @@ let cachedTeam = null; // Add team to cache
 let cachedEmail = null; // Add email to cache key
 let permissionPromise = null;
 
-const CACHE_DURATION = 1 * 60 * 1000; // Reduce to 1 minute
+const CACHE_DURATION = 5 * 1000; // Keep cache very short so new grants appear quickly
 let lastFetchTime = 0;
 
 export const usePermissions = () => {
@@ -109,6 +109,25 @@ export const usePermissions = () => {
         };
 
         fetchPermissions();
+
+        // Force refresh permissions when user returns to app/tab.
+        const handleWindowFocus = () => {
+            lastFetchTime = 0;
+            fetchPermissions();
+        };
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                lastFetchTime = 0;
+                fetchPermissions();
+            }
+        };
+        window.addEventListener('focus', handleWindowFocus);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener('focus', handleWindowFocus);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, [userEmail]);
 
     // --- CHECKER FUNCTIONS ---
