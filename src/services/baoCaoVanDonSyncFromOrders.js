@@ -51,10 +51,6 @@ function buildVanDonReportKey(dateStr, nhanVien, sanPham, thiTruong) {
   ].join('|');
 }
 
-function hasNonEmptyDeliveryStaff(order) {
-  return normalizeStr(order?.delivery_staff) !== '';
-}
-
 function pickMode(values) {
   const counts = new Map();
   for (const v of values) {
@@ -291,7 +287,7 @@ async function fetchAllBaoCaoVanDonInRange(startDate, endDate) {
 
 /**
  * Từ `orders` ghi `bao_cao_van_don`: upsert theo key
- * (ngay ← order_date, nhan_vien ← delivery_staff, san_pham ← product, thi_truong ← country).
+ * (ngay ← order_date, nhan_vien ← delivery_staff [rỗng = chưa gán NV], san_pham ← product, thi_truong ← country).
  * Cột trạng thái: jsonb đếm số đơn theo từng giá trị trong nhóm key.
  * - trang_thai_thanh_toan: nhãn thanh toán; tien_trang_thai_thanh_toan: tổng total_amount_vnd cùng key.
  * - trang_thai_giao_hang: delivery_status + "Mã Tracking" (đếm tracking_code) + "Lên vận hành" (shipping_unit).
@@ -311,11 +307,13 @@ export async function syncBaoCaoVanDonFromOrders({ startDate, endDate, dryRun = 
 
   const byKey = new Map();
   for (const order of orders || []) {
-    // Chỉ tính các đơn đã có NV vận đơn; khi không còn nhân sự F3 thì báo cáo sẽ về 0.
-    if (!hasNonEmptyDeliveryStaff(order)) continue;
     const ngayEff = effectiveOrderDateYmd(order);
-    const k = buildVanDonReportKey(ngayEff, order.delivery_staff, order.product, order.country);
-    if (!k || !ngayEff) continue;
+    if (!ngayEff) continue;
+    const staffRaw = order?.delivery_staff;
+    const staffKey =
+      staffRaw == null || String(staffRaw).trim() === '' ? '' : String(staffRaw).trim();
+    const k = buildVanDonReportKey(ngayEff, staffKey, order.product, order.country);
+    if (!k) continue;
 
     let bucket = byKey.get(k);
     if (!bucket) {

@@ -34,6 +34,7 @@ const normalizeHistogramKeyLabel = (key) =>
         .toLowerCase()
         .replace(/\s+/g, ' ');
 
+const isLenVanHanhHistogramKey = (key) => normalizeHistogramKeyLabel(key) === 'lên vận hành';
 const isMaTrackingHistogramKey = (key) => normalizeHistogramKeyLabel(key) === 'mã tracking';
 
 function sumKeyMatch(histogram, pred) {
@@ -47,6 +48,14 @@ function sumKeyMatch(histogram, pred) {
     return s;
 }
 
+const normalizeCheckLabel = (value) =>
+    String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, ' ');
+
 function sumDeliveryBucket(delH, bucketName) {
     const o = parseBaoCaoVanDonHistogram(delH);
     let s = 0;
@@ -55,6 +64,17 @@ function sumDeliveryBucket(delH, bucketName) {
         if (n <= 0) continue;
         if (isGiaoHangHistogramSyntheticKey(key)) continue;
         if (classifyTrangThaiGiaoHangKey(key) === bucketName) s += n;
+    }
+    return s;
+}
+
+/** Tổng số đơn ghi trong bucket «Lên vận hành» (shipping_unit khác rỗng). */
+function sumLenVanHanh(delH) {
+    const o = parseBaoCaoVanDonHistogram(delH);
+    let s = 0;
+    for (const [key, raw] of Object.entries(o)) {
+        if (!isLenVanHanhHistogramKey(key)) continue;
+        s += Number(raw) || 0;
     }
     return s;
 }
@@ -135,28 +155,35 @@ export function aggregateOperationalReportSlice(slice) {
     let hoan = 0;
     let huyVH = 0;
     let choCheck = 0;
+    let chuaCoMa = 0;
+    let daCkChuaDay = 0;
     /** Tổng VNĐ theo jsonb tien_trang_thai_thanh_toan (reconciled_vnd theo trạng thái TT) — cột BC VH "Tổng thanh toán giao hàng NB". */
     let tongThanhToanGiaoHangNb = 0;
 
     for (const r of slice) {
-        tongNoiBo += sumBaoCaoVanDonHistogramValues(r._ket_qua_check);
-        ok += sumKeyMatch(r._ket_qua_check, (k) => String(k).trim().toLowerCase() === 'ok');
-        treo += sumKeyMatch(r._ket_qua_check, (k) => /treo/i.test(String(k)));
+        // Tổng đơn nội bộ mới: đếm trực tiếp số đơn theo bộ lọc (mỗi row = 1 đơn).
+        tongNoiBo += 1;
+        ok += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok');
+        treo += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('treo'));
         doiHang += sumKeyMatch(
             r._ket_qua_check,
-            (k) => /đợi|doi/i.test(String(k)) && /hàng|hang/i.test(String(k))
+            (k) => normalizeCheckLabel(k).includes('doi hang')
         );
-        huyNoiBo += sumKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k)));
-        khachHen += sumKeyMatch(r._ket_qua_check, (k) => /hẹn|hen/i.test(String(k)));
-        vanDonXL += sumKeyMatch(
-            r._ket_qua_check,
-            (k) => /\bxl\b/i.test(String(k)) || /vận đơn\s*xl/i.test(String(k))
-        );
+        huyNoiBo += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy'));
+        khachHen += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen'));
+        vanDonXL += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('van don xl'));
         donCoBill += sumDonCoBillFullCount(r._trang_thai_thanh_toan);
         donCoBillAmount += sumDonCoBillFullAmount(r._tien_trang_thai_thanh_toan);
         mergePaymentHistogramIntoBuckets(r._trang_thai_thanh_toan, payBuckets);
 
-        coMa += sumMaTracking(r._trang_thai_giao_hang);
+        // Cột «Tổng đơn lên VH»: đơn thỏa bộ lọc và có "Đơn vị vận chuyển" (shipping_unit) => bucket "Lên vận hành".
+        coMa += sumLenVanHanh(r._trang_thai_giao_hang);
+        // Cột «Tổng đơn chưa có mã»: đếm đơn có "Mã Tracking" = 0 (trống).
+        const maTrackingCount = sumMaTracking(r._trang_thai_giao_hang);
+        if (maTrackingCount <= 0) chuaCoMa += 1;
+        if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0 && maTrackingCount <= 0) {
+            daCkChuaDay += 1;
+        }
         giaoTC += sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công');
         dangGiao += sumDeliveryBucket(r._trang_thai_giao_hang, 'Đang Giao');
         chuaGiao += sumDeliveryBucket(r._trang_thai_giao_hang, 'Chưa Giao');
@@ -165,9 +192,6 @@ export function aggregateOperationalReportSlice(slice) {
         choCheck += sumDeliveryBucket(r._trang_thai_giao_hang, 'chờ check');
         tongThanhToanGiaoHangNb += sumBaoCaoVanDonHistogramValues(r._tien_trang_thai_thanh_toan);
     }
-
-    const daCkChuaDay = Math.max(0, ok - coMa);
-    const chuaCoMa = Math.max(0, dangGiao + chuaGiao);
 
     const tyLeVHNoiBo = tongNoiBo > 0 ? (100 * coMa) / tongNoiBo : null;
     const tyLeTTTrenPhi = coMa > 0 ? (100 * donCoBill) / coMa : null;

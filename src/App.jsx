@@ -6,6 +6,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import ScrollToTop from './components/ScrollToTop';
 import AdminTools from './pages/AdminTools';
 import BaoCaoChiTiet from './pages/BaoCaoChiTiet';
+import BaoCaoChiTietHcm from './pages/BaoCaoChiTietHcm';
 import BaoCaoHieuSuatKPI from './pages/BaoCaoHieuSuatKPI';
 import BaoCaoMarketing from './pages/BaoCaoMarketing';
 import BaoCaoSale from './pages/BaoCaoSale';
@@ -87,6 +88,7 @@ function AppShell() {
             <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
             <Route path="/trang-chu" element={<ProtectedRoute><Home /></ProtectedRoute>} />
             <Route path="/bao-cao-chi-tiet" element={<ProtectedRoute><BaoCaoChiTiet /></ProtectedRoute>} />
+            <Route path="/bao-cao-chi-tiet-hcm" element={<ProtectedRoute><BaoCaoChiTietHcm /></ProtectedRoute>} />
             <Route path="/bang-bao-cao" element={<ProtectedRoute><ReportDashboard /></ProtectedRoute>} />
             <Route path="/bao-cao-kpi" element={<ProtectedRoute><KPIReport /></ProtectedRoute>} />
             <Route path="/hieu-qua-mkt" element={<ProtectedRoute><HieuQuaMarketing /></ProtectedRoute>} />
@@ -123,6 +125,14 @@ function AppShell() {
             />
             <Route path="/xem-bao-cao-Sale" element={<Navigate to="/xem-bao-cao-sale" replace />} />
             <Route path="/danh-sach-bao-cao-tay" element={<ProtectedRoute><DanhSachBaoCaoTay /></ProtectedRoute>} />
+            <Route
+              path="/danh-sach-bao-cao-tay-hcm"
+              element={
+                <ProtectedRoute>
+                  <DanhSachBaoCaoTay dataSource="hcm" />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/bao-cao-f3" element={<ProtectedRoute><F3Report /></ProtectedRoute>} />
             <Route path="/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
             <Route path="/embed/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
@@ -169,6 +179,14 @@ function AppShell() {
               }
             />
             <Route path="/nhap-bao-cao-cskh" element={<ProtectedRoute><NhapBaoCaoCSKH /></ProtectedRoute>} />
+            <Route
+              path="/nhap-bao-cao-cskh-hcm"
+              element={
+                <ProtectedRoute>
+                  <NhapBaoCaoCSKH dataSource="hcm" />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
             <Route
               path="/danh-sach-bao-cao-tay-cskh-hcm"

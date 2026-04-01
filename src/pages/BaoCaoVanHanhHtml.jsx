@@ -6,7 +6,7 @@ import MultiSelect from '../components/MultiSelect';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import usePermissions from '../hooks/usePermissions';
-import { formatBaoCaoVanDonStatusHistogram } from '../utils/baoCaoVanDonFormat';
+import { formatBaoCaoVanDonStatusHistogram, isGiaoHangHistogramSyntheticKey } from '../utils/baoCaoVanDonFormat';
 import {
     buildBaoCaoVanHanhMatrix,
     formatPct,
@@ -45,6 +45,63 @@ const newBcvhRowId = () =>
 
 const TABS = ['tab1', 'tab2', 'tab3', 'tab4', 'tab5'];
 const BCVH_CRITERIA_STORAGE_KEY = 'bao_cao_van_hanh_tab2_criteria_v1';
+const normalizeYmd = (value) => {
+    if (!value) return '';
+    const s = String(value).trim();
+    if (!s) return '';
+    if (s.includes('T')) return s.slice(0, 10);
+    return s.slice(0, 10);
+};
+
+const paymentLabelForOrder = (order) => {
+    const d = String(order?.payment_status_detail ?? '').trim();
+    if (d) return d;
+    return String(order?.payment_status ?? '').trim();
+};
+
+const paymentLabelIsCoBillOnly = (label) => {
+    const s = String(label ?? '').trim().toLowerCase();
+    if (!s) return false;
+    if (s.includes('1 phần') && s.includes('bill')) return false;
+    return s.includes('có bill');
+};
+
+const mapOrderRowToVirtual = (row) => {
+    const deliveryLabelRaw = String(row?.delivery_status_nb ?? row?.delivery_status ?? '').trim();
+    const deliveryLabel = deliveryLabelRaw || '(Trống)';
+    const safeDeliveryLabel = isGiaoHangHistogramSyntheticKey(deliveryLabel) ? '(Trống)' : deliveryLabel;
+    const paymentLabelRaw = paymentLabelForOrder(row);
+    const paymentLabel = paymentLabelRaw || '(Trống)';
+    const tongTienVnd = Number(row?.total_amount_vnd) || 0;
+    const trackingCount = row?.tracking_code != null && String(row.tracking_code).trim() !== '' ? 1 : 0;
+    const lenVhCount = row?.shipping_unit != null && String(row.shipping_unit).trim() !== '' ? 1 : 0;
+    const ngay = normalizeYmd(row?.order_date) || normalizeYmd(row?.created_at);
+    const checkResult = String(row?.check_result ?? '').trim() || '(Trống)';
+    return {
+        _source: 'orders',
+        id: row?.id || row?.order_code || `${ngay}-${Math.random().toString(36).slice(2, 8)}`,
+        _ket_qua_check: { [checkResult]: 1 },
+        _trang_thai_giao_hang: {
+            [safeDeliveryLabel]: 1,
+            'Mã Tracking': trackingCount,
+            'Lên vận hành': lenVhCount
+        },
+        _trang_thai_thanh_toan: { [paymentLabel]: 1 },
+        _tien_trang_thai_thanh_toan: { [paymentLabel]: paymentLabelIsCoBillOnly(paymentLabel) ? tongTienVnd : 0 },
+        'Ngày lên đơn': ngay,
+        'NV Vận đơn': String(row?.delivery_staff ?? '').trim(),
+        'Mặt hàng': String(row?.product ?? '').trim(),
+        'khu vực': String(row?.country ?? '').trim(),
+        'Kết quả check': formatBaoCaoVanDonStatusHistogram({ [checkResult]: 1 }),
+        'Trạng thái giao hàng NB': formatBaoCaoVanDonStatusHistogram({
+            [safeDeliveryLabel]: 1,
+            'Mã Tracking': trackingCount,
+            'Lên vận hành': lenVhCount
+        }),
+        'Trạng thái thu tiền': formatBaoCaoVanDonStatusHistogram({ [paymentLabel]: 1 })
+    };
+};
+
 const mapBaoCaoRowToVirtual = (row) => {
     const ngay = row.ngay;
     let dateStr = '';
@@ -455,7 +512,7 @@ export default function BaoCaoVanHanhHtml() {
         setError(null);
         try {
             // Lấy FULL dữ liệu trong khoảng ngày bằng cách phân trang 1000 bản ghi/lần
-            let allBaoCaoRows = [];
+            let allOrderRows = [];
             let page = 0;
             const MAX_PAGES = 100; // an toàn: tối đa ~100.000 bản ghi
             // eslint-disable-next-line no-constant-condition
@@ -463,24 +520,24 @@ export default function BaoCaoVanHanhHtml() {
                 const from = page * PAGE_SIZE;
                 const to = from + PAGE_SIZE - 1;
                 const { data, error: qErr } = await supabase
-                    .from('bao_cao_van_don')
+                    .from('orders')
                     .select(
-                        'id, ngay, nhan_vien, san_pham, thi_truong, trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan, tien_trang_thai_thanh_toan'
+                        'id, order_code, order_date, created_at, delivery_staff, product, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tracking_code, shipping_unit'
                     )
-                    .gte('ngay', qStart)
-                    .lte('ngay', qEnd)
-                    .order('ngay', { ascending: false })
+                    .gte('order_date', qStart)
+                    .lte('order_date', qEnd)
+                    .order('order_date', { ascending: false })
                     .range(from, to);
                 if (qErr) throw qErr;
                 const batch = data || [];
                 if (batch.length === 0) break;
-                allBaoCaoRows = allBaoCaoRows.concat(batch);
+                allOrderRows = allOrderRows.concat(batch);
                 if (batch.length < PAGE_SIZE) break;
                 page += 1;
                 if (page >= MAX_PAGES) break;
             }
 
-            let rows = (allBaoCaoRows || []).map(mapBaoCaoRowToVirtual);
+            let rows = (allOrderRows || []).map(mapOrderRowToVirtual);
             if (reportFilters.product?.length > 0) {
                 const ps = new Set(reportFilters.product);
                 rows = rows.filter((r) => ps.has(r['Mặt hàng']));
@@ -538,8 +595,8 @@ export default function BaoCaoVanHanhHtml() {
             if (rows.length === 0) {
                 setError(
                     staffFilterReducedToZero
-                        ? 'Không có dòng bao_cao_van_don phù hợp bộ lọc (lọc NV Vận đơn theo quyền không khớp).'
-                        : 'Không có dòng bao_cao_van_don phù hợp bộ lọc.'
+                        ? 'Không có đơn orders phù hợp bộ lọc (lọc NV Vận đơn theo quyền không khớp).'
+                        : 'Không có đơn orders phù hợp bộ lọc.'
                 );
             } else {
                 setError(null);

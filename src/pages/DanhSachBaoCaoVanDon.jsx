@@ -12,6 +12,7 @@ import {
   parseBaoCaoVanDonHistogram,
   formatBaoCaoVanDonStatusHistogram,
   sumBaoCaoVanDonHistogramValues,
+  sumBaoCaoVanDonGiaoHangOrderCount,
   sumDonCoBillFullCount,
 } from '../utils/baoCaoVanDonFormat';
 
@@ -231,7 +232,7 @@ export default function DanhSachBaoCaoVanDon() {
 
     for (const row of data) {
       totalDonKetQuaCheck += sumBaoCaoVanDonHistogramValues(row.ket_qua_check);
-      totalDonGiaoHangNb += sumBaoCaoVanDonHistogramValues(row.trang_thai_giao_hang);
+      totalDonGiaoHangNb += sumBaoCaoVanDonGiaoHangOrderCount(row.trang_thai_giao_hang);
       totalDonThanhToan += sumBaoCaoVanDonHistogramValues(row.trang_thai_thanh_toan);
       totalTienThanhToan += sumBaoCaoVanDonHistogramValues(row.tien_trang_thai_thanh_toan);
     }
@@ -495,8 +496,8 @@ export default function DanhSachBaoCaoVanDon() {
                 <div className="text-sm font-semibold text-gray-800">Đếm trạng thái &amp; cập nhật báo cáo vận đơn</div>
                 <p className="text-xs text-gray-600">
                   Gom đơn từ <span className="font-mono">orders</span> theo ngày (hoặc ngày{' '}
-                  <span className="font-mono">created_at</span> nếu thiếu order_date) + NV vận đơn + SP + thị trường; cập nhật các cột{' '}
-                  jsonb trạng thái.
+                  <span className="font-mono">created_at</span> nếu thiếu order_date) + NV vận đơn (gồm đơn chưa gán NV){' '}
+                  + SP + thị trường; cập nhật các cột jsonb trạng thái.
                 </p>
                 <div className="flex flex-wrap items-end gap-3">
                   <label className="flex flex-col gap-1 text-xs text-gray-600">

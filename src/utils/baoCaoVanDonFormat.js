@@ -115,6 +115,20 @@ export function sumBaoCaoVanDonHistogramValues(value) {
 }
 
 /**
+ * Tổng đơn theo `trang_thai_giao_hang` — bỏ các key tổng hợp (Mã Tracking, Lên vận hành)
+ * vì chúng trùng logic với đơn đã nằm trong bucket delivery_status; cộng đủ mọi key sẽ đếm thừa.
+ */
+export function sumBaoCaoVanDonGiaoHangOrderCount(value) {
+  const o = parseBaoCaoVanDonHistogram(value);
+  let s = 0;
+  for (const [key, raw] of Object.entries(o)) {
+    if (isGiaoHangHistogramSyntheticKey(key)) continue;
+    s += Number(raw) || 0;
+  }
+  return s;
+}
+
+/**
  * @param {unknown[]} rows
  * @param {(row: unknown) => unknown} getHistogram
  */

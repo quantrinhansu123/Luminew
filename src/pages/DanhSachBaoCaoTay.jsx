@@ -70,14 +70,20 @@ function isGiuaCaShift(shift) {
 const RENAME_REPORTER_FROM_EMAIL = 'Congthien436@gmail.com';
 const RENAME_REPORTER_TO_NAME = 'Nguyễn Duy Đức';
 
-export default function DanhSachBaoCaoTay() {
+export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const teamFilter = searchParams.get('team'); // 'RD' or null
+    const isHcm = dataSource === 'hcm';
+    const reportTable = isHcm ? 'sale_report_hcm' : 'sales_reports';
+    /** Mã RBAC chính của route (HCM vẫn có thể vào bằng SALE_MANUAL — xem hasManualListAccess). */
+    const permissionCode = isHcm ? 'SALE_MANUAL_HCM' : teamFilter === 'RD' ? 'RND_MANUAL' : 'SALE_MANUAL';
 
-    // Permission Logic
     const { canView, role, loading: permissionsLoading } = usePermissions();
-    const permissionCode = teamFilter === 'RD' ? 'RND_MANUAL' : 'SALE_MANUAL';
+    const hasManualListAccess = isHcm
+        ? canView('SALE_MANUAL_HCM') || canView('SALE_MANUAL')
+        : canView(permissionCode);
+    const deniedPermissionLabel = isHcm ? 'SALE_MANUAL_HCM hoặc SALE_MANUAL' : permissionCode;
 
     /** Hai nút chỉnh team / đổi tên người báo cáo: chỉ role admin thật từ DB (không tin localStorage). */
     const showBaoCaoTayAdminToolbarButtons = useMemo(() => {
@@ -312,7 +318,7 @@ export default function DanhSachBaoCaoTay() {
                         const to = Math.min(from + pageSize - 1, maxRecordsToLoad - 1);
 
                         const { data, error } = await supabase
-                            .from('sales_reports')
+                            .from(reportTable)
                             .select('product, market')
                             .order('created_at', { ascending: false }) // Load từ mới nhất
                             .range(from, to);
@@ -378,7 +384,7 @@ export default function DanhSachBaoCaoTay() {
         if (selectedPersonnelNames !== undefined) {
             loadAvailableOptions();
         }
-    }, [selectedPersonnelNames]); // Reload khi selectedPersonnelNames thay đổi
+    }, [selectedPersonnelNames, reportTable]); // Reload khi selectedPersonnelNames / bảng báo cáo thay đổi
 
     // Fetch Data
     const fetchData = useCallback(async () => {
@@ -397,7 +403,7 @@ export default function DanhSachBaoCaoTay() {
                 const to = from + PAGE_SIZE - 1;
 
                 let query = supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .select('*')
                     .gte('date', filters.startDate)
                     .lte('date', filters.endDate)
@@ -445,6 +451,7 @@ export default function DanhSachBaoCaoTay() {
         filters.markets,
         selectedPersonnelNames,
         isAdmin,
+        reportTable,
     ]);
 
     useEffect(() => {
@@ -538,7 +545,7 @@ export default function DanhSachBaoCaoTay() {
     const handleDeleteAll = async () => {
         const confirm1 = window.confirm(
             "⚠️ CẢNH BÁO NGHIÊM TRỌNG!\n\n" +
-            "Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu trong bảng sales_reports?\n\n" +
+            `Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu trong bảng ${reportTable}?\n\n` +
             "Hành động này KHÔNG THỂ HOÀN TÁC!\n\n" +
             "Nhấn OK để tiếp tục, hoặc Cancel để hủy."
         );
@@ -566,16 +573,16 @@ export default function DanhSachBaoCaoTay() {
         try {
             setDeleting(true);
 
-            // Delete all records from sales_reports
+            // Delete all records from reportTable
             const { error } = await supabase
-                .from('sales_reports')
+                .from(reportTable)
                 .delete()
                 .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all (hack for delete all)
 
             if (error) {
                 // If the above doesn't work, try deleting by selecting all IDs first
                 const { data: allRecords, error: fetchError } = await supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .select('id')
                     .limit(10000);
 
@@ -588,7 +595,7 @@ export default function DanhSachBaoCaoTay() {
                     for (let i = 0; i < ids.length; i += batchSize) {
                         const batch = ids.slice(i, i + batchSize);
                         const { error: batchError } = await supabase
-                            .from('sales_reports')
+                            .from(reportTable)
                             .delete()
                             .in('id', batch);
 
@@ -675,7 +682,7 @@ export default function DanhSachBaoCaoTay() {
             const BATCH = 500;
             for (let i = 0; i < toDelete.length; i += BATCH) {
                 const batch = toDelete.slice(i, i + BATCH);
-                const { error } = await supabase.from('sales_reports').delete().in('id', batch);
+                const { error } = await supabase.from(reportTable).delete().in('id', batch);
                 if (error) throw error;
             }
 
@@ -704,7 +711,7 @@ export default function DanhSachBaoCaoTay() {
 
                 // Load markets from sales_reports
                 const { data: marketsData } = await supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .select('market')
                     .not('market', 'is', null)
                     .limit(1000);
@@ -731,7 +738,7 @@ export default function DanhSachBaoCaoTay() {
         };
 
         loadEditOptions();
-    }, []);
+    }, [reportTable]);
 
     // Delete single report
     const handleDeleteReport = async (reportId) => {
@@ -740,7 +747,7 @@ export default function DanhSachBaoCaoTay() {
         setDeletingId(reportId);
         try {
             const { error } = await supabase
-                .from('sales_reports')
+                .from(reportTable)
                 .delete()
                 .eq('id', reportId);
 
@@ -791,7 +798,7 @@ export default function DanhSachBaoCaoTay() {
         setSaving(true);
         try {
             const { error } = await supabase
-                .from('sales_reports')
+                .from(reportTable)
                 .update({
                     date: editForm.date,
                     shift: editForm.shift,
@@ -1250,7 +1257,7 @@ export default function DanhSachBaoCaoTay() {
                     
                     // Try to update all fields, handle missing columns gracefully
                     let { error } = await supabase
-                        .from('sales_reports')
+                        .from(reportTable)
                         .update(updateData)
                         .eq('id', report.id);
 
@@ -1261,7 +1268,7 @@ export default function DanhSachBaoCaoTay() {
                         
                         // Try with only order_count and order_cancel_count
                         const { error: retryError } = await supabase
-                            .from('sales_reports')
+                            .from(reportTable)
                             .update({ 
                                 order_count: validOrderCount,
                                 order_cancel_count: validOrderCancelCount
@@ -1271,7 +1278,7 @@ export default function DanhSachBaoCaoTay() {
                         if (retryError) {
                             // Last resort: only order_count
                             const { error: finalError } = await supabase
-                                .from('sales_reports')
+                                .from(reportTable)
                                 .update({ order_count: validOrderCount })
                                 .eq('id', report.id);
                             
@@ -1285,7 +1292,7 @@ export default function DanhSachBaoCaoTay() {
                         } else {
                             // Try to update revenue_actual and revenue_cancel_actual separately if columns exist
                             const { error: revenueError } = await supabase
-                                .from('sales_reports')
+                                .from(reportTable)
                                 .update({ revenue_actual: validRevenue })
                                 .eq('id', report.id);
                             
@@ -1294,7 +1301,7 @@ export default function DanhSachBaoCaoTay() {
                             }
                             
                             const { error: revenueCancelError } = await supabase
-                                .from('sales_reports')
+                                .from(reportTable)
                                 .update({ revenue_cancel_actual: validRevenueCancel })
                                 .eq('id', report.id);
                             
@@ -1303,7 +1310,7 @@ export default function DanhSachBaoCaoTay() {
                             }
                             
                             const { error: revenueGoError } = await supabase
-                                .from('sales_reports')
+                                .from(reportTable)
                                 .update({ revenue_go_actual: validRevenueGo })
                                 .eq('id', report.id);
                             
@@ -1454,7 +1461,7 @@ export default function DanhSachBaoCaoTay() {
                     continue;
                 }
                 const { error: upErr } = await supabase
-                    .from('sales_reports')
+                    .from(reportTable)
                     .update({
                         team: newTeam || null,
                         branch: newBranch || null,
@@ -1476,15 +1483,16 @@ export default function DanhSachBaoCaoTay() {
         } finally {
             setTeamSyncing(false);
         }
-    }, [reportsAfterPersonnelFilter, fetchData, normalizeNameForUserTeamLookup]);
+    }, [reportsAfterPersonnelFilter, fetchData, normalizeNameForUserTeamLookup, reportTable]);
 
-    /** Đổi toàn bộ sales_reports có name = email (không phân biệt hoa thường) → tên hiển thị. */
+    /** Đổi toàn bộ báo cáo tay + orders có tên/email cũ -> tên hiển thị mới. */
     const handleRenameReporterEmailToName = useCallback(async () => {
         if (
             !window.confirm(
-                `Đổi cột Người báo cáo (name) trong bảng sales_reports:\n\n` +
+                `Đổi cột Người báo cáo (name) trong bảng ${reportTable}:\n\n` +
                     `Từ: ${RENAME_REPORTER_FROM_EMAIL}\n` +
                     `Thành: ${RENAME_REPORTER_TO_NAME}\n\n` +
+                    `Đồng thời cập nhật cả bảng orders (cột sale_staff).\n` +
                     `Áp dụng mọi dòng khớp (không phân biệt hoa/thường). Tiếp tục?`
             )
         ) {
@@ -1492,17 +1500,26 @@ export default function DanhSachBaoCaoTay() {
         }
         setRenamingReporter(true);
         try {
-            const { data, error } = await supabase
-                .from('sales_reports')
+            const { data: reportRows, error: reportErr } = await supabase
+                .from(reportTable)
                 .update({ name: RENAME_REPORTER_TO_NAME })
                 .ilike('name', RENAME_REPORTER_FROM_EMAIL)
                 .select('id');
-            if (error) throw error;
-            const n = Array.isArray(data) ? data.length : 0;
+            if (reportErr) throw reportErr;
+
+            const { data: orderRows, error: orderErr } = await supabase
+                .from('orders')
+                .update({ sale_staff: RENAME_REPORTER_TO_NAME })
+                .ilike('sale_staff', RENAME_REPORTER_FROM_EMAIL)
+                .select('id');
+            if (orderErr) throw orderErr;
+
+            const reportChanged = Array.isArray(reportRows) ? reportRows.length : 0;
+            const ordersChanged = Array.isArray(orderRows) ? orderRows.length : 0;
+
             toast.success(
-                n > 0
-                    ? `Đã đổi ${n} dòng: "${RENAME_REPORTER_FROM_EMAIL}" → "${RENAME_REPORTER_TO_NAME}".`
-                    : `Không có dòng nào có Người báo cáo khớp "${RENAME_REPORTER_FROM_EMAIL}".`
+                `Đã đổi tên "${RENAME_REPORTER_FROM_EMAIL}" → "${RENAME_REPORTER_TO_NAME}". ` +
+                    `Báo cáo tay: ${reportChanged} dòng, Orders: ${ordersChanged} dòng.`
             );
             fetchData();
         } catch (error) {
@@ -1511,7 +1528,7 @@ export default function DanhSachBaoCaoTay() {
         } finally {
             setRenamingReporter(false);
         }
-    }, [fetchData]);
+    }, [fetchData, reportTable]);
 
     // Hiển thị từng dòng báo cáo, không gộp theo ngày + tên (mỗi bản ghi một hàng, đủ thao tác).
     const reportsGroupedByDateAndName = useMemo(() => {
@@ -1598,8 +1615,12 @@ export default function DanhSachBaoCaoTay() {
         return sortDirection === 'asc' ? comparison : -comparison;
     });
 
-    if (!canView(permissionCode)) {
-        return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
+    if (!hasManualListAccess) {
+        return (
+            <div className="p-8 text-center text-red-600 font-bold">
+                Bạn không có quyền truy cập trang này ({deniedPermissionLabel}).
+            </div>
+        );
     }
 
     return (
@@ -1828,7 +1849,9 @@ export default function DanhSachBaoCaoTay() {
 
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                        <h2 style={{ margin: 0 }}>DANH SÁCH BÁO CÁO TAY SALE</h2>
+                        <h2 style={{ margin: 0 }}>
+                            {isHcm ? 'DANH SÁCH BÁO CÁO TAY SALE (HCM)' : 'DANH SÁCH BÁO CÁO TAY SALE'}
+                        </h2>
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                             {showBaoCaoTayAdminToolbarButtons && (
                                 <>
@@ -1853,7 +1876,7 @@ export default function DanhSachBaoCaoTay() {
                                         onClick={handleRenameReporterEmailToName}
                                         disabled={renamingReporter || loading || updatingOrders}
                                         className="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:bg-gray-400 text-white rounded-md text-sm font-semibold transition shadow-sm"
-                                        title={`Đổi Người báo cáo từ ${RENAME_REPORTER_FROM_EMAIL} sang ${RENAME_REPORTER_TO_NAME} (toàn bộ sales_reports)`}
+                                        title={`Đổi Người báo cáo từ ${RENAME_REPORTER_FROM_EMAIL} sang ${RENAME_REPORTER_TO_NAME} (toàn bộ ${reportTable})`}
                                     >
                                         {renamingReporter ? (
                                             <>

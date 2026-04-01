@@ -1,7 +1,8 @@
-import { AlertTriangle, Calculator, Clock, History, Pencil, RefreshCw, Search, Settings, Trash2, Truck, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Calculator, Clock, Download, History, Layers, Pencil, RefreshCw, Search, Settings, Trash2, Truck, Wrench, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import * as XLSX from 'xlsx';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
@@ -14,7 +15,11 @@ import { isDateInRange, orderRangeToCreatedAtIsoBounds, parseSmartDate } from '.
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { totalAmountVndFromLenDonFormula } from '../utils/totalAmountVndFromLenDon';
 import { labelForOrderLogDbKey, parseOrderLogJsonb } from '../utils/orderLogJsonb';
-import { computeCanhBaoUpdatesForDuplicateCustomers } from '../utils/customerDuplicateCanhBao';
+import {
+  computeCanhBaoUpdatesForDuplicateCustomers,
+  normalizeCustomerTextForDup,
+  normalizePhoneDigits,
+} from '../utils/customerDuplicateCanhBao';
 
 /**
  * PostgREST thường bị giới hạn ~1000 dòng / request.
@@ -197,6 +202,18 @@ async function fetchDanhSachDonMergedRawOrders({
   return mergedRaw;
 }
 
+/** Khóa trùng Name* + Phone* + Add trong danh sách (chuẩn hóa giống cảnh báo trùng khách). */
+function tripleNamePhoneAddKey(row) {
+  const name = row['Name*'] ?? row['Name'] ?? '';
+  const phone = row['Phone*'] ?? row['Phone'] ?? '';
+  const add = row['Add'] ?? '';
+  const np = normalizePhoneDigits(phone);
+  const nn = normalizeCustomerTextForDup(name);
+  const na = normalizeCustomerTextForDup(add);
+  if (!np && !nn && !na) return null;
+  return `${np}\u001f${nn}\u001f${na}`;
+}
+
 function DanhSachDon({ dataSource = 'default' }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -307,6 +324,8 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [isApplyingCanhBaoTrung, setIsApplyingCanhBaoTrung] = useState(false); // Ghi canh_bao theo trùng khách (Ngày lên đơn + created_at)
   const [isRenamingManhCuong, setIsRenamingManhCuong] = useState(false); // Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường"
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
+  /** Bôi đỏ dòng trùng bộ ba Name* / Phone* / Add trong phạm vi filteredData */
+  const [highlightDupNamePhoneAdd, setHighlightDupNamePhoneAdd] = useState(false);
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyOrderCode, setHistoryOrderCode] = useState(null);
@@ -2341,6 +2360,20 @@ function DanhSachDon({ dataSource = 'default' }) {
     return data;
   }, [allData, debouncedSearchText, startDate, endDate, isAdmin, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSaleStaff, filterMktStaff, filterDeliveryStaff, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
 
+  const duplicateTripleKeysInFilter = useMemo(() => {
+    const counts = new Map();
+    for (const row of filteredData) {
+      const k = tripleNamePhoneAddKey(row);
+      if (!k) continue;
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    const dup = new Set();
+    for (const [k, n] of counts) {
+      if (n >= 2) dup.add(k);
+    }
+    return dup;
+  }, [filteredData]);
+
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
     const handleKeyDown = async (e) => {
@@ -2422,7 +2455,49 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
   };
 
-
+  const handleExportExcelMaDonNamePhoneAdd = () => {
+    const rows = filteredData || [];
+    if (rows.length === 0) {
+      toast.info('Không có đơn nào trong bộ lọc hiện tại để xuất.', {
+        autoClose: 2000,
+        hideProgressBar: true,
+      });
+      return;
+    }
+    const exportRows = rows.map((row) => {
+      const maKey = COLUMN_MAPPING[PRIMARY_KEY_COLUMN] || PRIMARY_KEY_COLUMN;
+      const orderCode = row[maKey] ?? row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? '';
+      const nameCol = 'Name*';
+      const phoneCol = 'Phone*';
+      const addCol = 'Add';
+      const nameKey = COLUMN_MAPPING[nameCol] || nameCol;
+      const phoneKey = COLUMN_MAPPING[phoneCol] || phoneCol;
+      const addKey = COLUMN_MAPPING[addCol] || addCol;
+      const mktHeader = 'Nhân viên MKT';
+      const saleHeader = 'Nhân viên Sale';
+      const mktKey = COLUMN_MAPPING[mktHeader] || mktHeader;
+      const saleKey = COLUMN_MAPPING[saleHeader] || saleHeader;
+      return {
+        [PRIMARY_KEY_COLUMN]: orderCode,
+        [nameCol]: row[nameKey] ?? row[nameCol] ?? row['Name'] ?? '',
+        [phoneCol]: row[phoneKey] ?? row[phoneCol] ?? row['Phone'] ?? '',
+        [addCol]: row[addKey] ?? row[addCol] ?? '',
+        [mktHeader]:
+          row[mktKey] ?? row[mktHeader] ?? row['Nhân viên Marketing'] ?? '',
+        [saleHeader]: row[saleKey] ?? row[saleHeader] ?? '',
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'TheoBoLoc');
+    const stamp = new Date().toISOString().slice(0, 10);
+    const suffix = dataSource === 'hcm' ? '_HCM' : '';
+    XLSX.writeFile(wb, `DanhSachDon_ma_name_phone_add${suffix}_${stamp}.xlsx`);
+    toast.success(`Đã tải Excel: ${exportRows.length} dòng (theo bộ lọc).`, {
+      autoClose: 2200,
+      hideProgressBar: true,
+    });
+  };
 
   // Copy single cell content (click)
   const handleCellClick = async (e, value) => {
@@ -2747,6 +2822,37 @@ function DanhSachDon({ dataSource = 'default' }) {
                   onChange={(e) => setSearchText(e.target.value)}
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trùng Name / Phone / Add</label>
+              <button
+                type="button"
+                onClick={() => setHighlightDupNamePhoneAdd((v) => !v)}
+                className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors flex items-center gap-2 whitespace-nowrap ${
+                  highlightDupNamePhoneAdd
+                    ? 'bg-red-100 border-red-400 text-red-800'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+                title="Bật: tô đỏ cả dòng khi có ít nhất 2 đơn trong bộ lọc hiện tại trùng Name*, Phone* và Add (đã chuẩn hóa)"
+              >
+                <Layers className="w-4 h-4 shrink-0" />
+                {highlightDupNamePhoneAdd ? 'Đang bật lọc trùng' : 'Lọc trùng'}
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Xuất file</label>
+              <button
+                type="button"
+                onClick={handleExportExcelMaDonNamePhoneAdd}
+                disabled={loading || (filteredData || []).length === 0}
+                className="px-3 py-2 rounded-lg text-sm font-semibold border border-[#F37021] text-[#F37021] bg-white hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 whitespace-nowrap"
+                title="Tải Excel: Mã đơn hàng, Name*, Phone*, Add, Nhân viên MKT, Nhân viên Sale — theo bộ lọc"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                Tải Excel (mã + KH)
+              </button>
             </div>
 
             {/* Date Range Filter */}
@@ -3329,11 +3435,27 @@ function DanhSachDon({ dataSource = 'default' }) {
                     </td>
                   </tr>
                 ) : (
-                  paginatedData.map((row, index) => (
+                  paginatedData.map((row, index) => {
+                    const rowIndexFiltered = (currentPage - 1) * rowsPerPage + index;
+                    const tKey = tripleNamePhoneAddKey(row);
+                    const isDupRow =
+                      highlightDupNamePhoneAdd && tKey && duplicateTripleKeysInFilter.has(tKey);
+                    const isSelected = selectedRowId === rowIndexFiltered;
+                    let trClass = 'cursor-pointer transition-colors ';
+                    if (isDupRow && isSelected) {
+                      trClass += 'bg-red-200 ring-2 ring-inset ring-blue-500 hover:bg-red-200';
+                    } else if (isDupRow) {
+                      trClass += 'bg-red-100 hover:bg-red-50';
+                    } else if (isSelected) {
+                      trClass += 'bg-blue-100 hover:bg-blue-200';
+                    } else {
+                      trClass += 'hover:bg-gray-50';
+                    }
+                    return (
                     <tr
                       key={row[PRIMARY_KEY_COLUMN] || index}
-                      onClick={() => setSelectedRowId((currentPage - 1) * rowsPerPage + index)}
-                      className={`cursor-pointer transition-colors ${selectedRowId === (currentPage - 1) * rowsPerPage + index ? 'bg-blue-100 hover:bg-blue-200' : 'hover:bg-gray-50'}`}
+                      onClick={() => setSelectedRowId(rowIndexFiltered)}
+                      className={trClass}
                     >
                       {displayColumns.map((col) => {
                         const key = COLUMN_MAPPING[col] || col;
@@ -3473,7 +3595,8 @@ function DanhSachDon({ dataSource = 'default' }) {
                       )}
 
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

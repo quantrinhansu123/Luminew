@@ -15,14 +15,23 @@ function isManagerRole(roleStr, legacyStr) {
     return mgr.includes(r) || mgr.includes(l);
 }
 
-function BaoCaoChiTiet() {
+function BaoCaoChiTiet({ dataSource = 'default' }) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const teamFilter = searchParams.get('team'); // 'RD' or null
+    const isHcm = dataSource === 'hcm';
+    const ordersTableName = isHcm ? 'order_code_hcm' : 'orders';
+    const visibleColumnsStorageKey = isHcm
+        ? 'baoCaoChiTiet_visibleColumns_hcm'
+        : 'baoCaoChiTiet_visibleColumns';
 
     // Permission Logic
     const { canView, role, loading: permissionsLoading } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_ORDERS' : 'MKT_ORDERS';
+    const hasChiTietAccess = isHcm
+        ? canView('MKT_ORDERS_HCM') || canView('MKT_ORDERS')
+        : canView(permissionCode);
+    const deniedPermissionLabel = isHcm ? 'MKT_ORDERS_HCM hoặc MKT_ORDERS' : permissionCode;
 
     // Get User Name for filtering
     const userJson = localStorage.getItem("user");
@@ -133,7 +142,7 @@ function BaoCaoChiTiet() {
 
     // Load column visibility from localStorage or use defaults
     const [visibleColumns, setVisibleColumns] = useState(() => {
-        const saved = localStorage.getItem('baoCaoChiTiet_visibleColumns');
+        const saved = localStorage.getItem(visibleColumnsStorageKey);
         let initial = {};
 
         if (saved) {
@@ -209,9 +218,9 @@ function BaoCaoChiTiet() {
                     cleaned[col] = visibleColumns[col];
                 }
             });
-            localStorage.setItem('baoCaoChiTiet_visibleColumns', JSON.stringify(cleaned));
+            localStorage.setItem(visibleColumnsStorageKey, JSON.stringify(cleaned));
         }
-    }, [visibleColumns]);
+    }, [visibleColumns, visibleColumnsStorageKey]);
 
     // Helper: Map Supabase DB row to UI format
     const mapSupabaseToUI = (item) => ({
@@ -250,10 +259,10 @@ function BaoCaoChiTiet() {
     const loadData = async () => {
         setLoading(true);
         try {
-            console.log('Loading MKT Detail data from Supabase...');
+            console.log(`Loading MKT Detail data from Supabase (${ordersTableName})...`);
 
             // 1. Fetch Supabase Data
-            let query = supabase.from('orders').select('*');
+            let query = supabase.from(ordersTableName).select('*');
 
             // --- USER FILTER (Re-applied) ---
             // Admin/Director/Manager/Finance: không lọc NV (xem full). Staff: chỉ đơn MKT của mình.
@@ -291,7 +300,7 @@ function BaoCaoChiTiet() {
             // 2. Process Supabase Data
             const supaMapped = (supaData || []).map(mapSupabaseToUI);
 
-            console.log(`Loaded: ${supaMapped.length} orders.`);
+            console.log(`Loaded: ${supaMapped.length} rows from ${ordersTableName}.`);
             setAllData(supaMapped);
 
         } catch (error) {
@@ -306,7 +315,7 @@ function BaoCaoChiTiet() {
         if (permissionsLoading) return;
         loadData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startDate, endDate, role, userName, permissionsLoading]);
+    }, [startDate, endDate, role, userName, permissionsLoading, ordersTableName]);
 
     // Fetch user branch mapping
     useEffect(() => {
@@ -514,7 +523,7 @@ function BaoCaoChiTiet() {
             }
 
             const { error } = await supabase
-                .from('orders')
+                .from(ordersTableName)
                 .upsert(validItems, { onConflict: 'order_code' });
 
             if (error) throw error;
@@ -712,8 +721,12 @@ function BaoCaoChiTiet() {
         setVisibleColumns(defaultCols);
     };
 
-    if (!canView(permissionCode)) {
-        return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
+    if (!hasChiTietAccess) {
+        return (
+            <div className="p-8 text-center text-red-600 font-bold">
+                Bạn không có quyền truy cập trang này ({deniedPermissionLabel}).
+            </div>
+        );
     }
 
     return (
@@ -727,8 +740,14 @@ function BaoCaoChiTiet() {
                                 <ChevronLeft className="w-5 h-5" />
                             </Link>
                             <div>
-                                <h1 className="text-xl font-bold text-gray-800">DANH SÁCH ĐƠN (MARKETING)</h1>
-                                <p className="text-xs text-gray-500">Xem chi tiết đơn hàng cho Marketing</p>
+                                <h1 className="text-xl font-bold text-gray-800">
+                                    {isHcm ? 'DANH SÁCH ĐƠN HCM (MARKETING)' : 'DANH SÁCH ĐƠN (MARKETING)'}
+                                </h1>
+                                <p className="text-xs text-gray-500">
+                                    {isHcm
+                                        ? 'Dữ liệu từ bảng order_code_hcm'
+                                        : 'Xem chi tiết đơn hàng cho Marketing'}
+                                </p>
                             </div>
                         </div>
 

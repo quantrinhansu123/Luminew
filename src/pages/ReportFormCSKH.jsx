@@ -4,7 +4,10 @@ import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { supabase } from '../services/supabaseClient';
 
-function ReportFormCSKH() {
+function ReportFormCSKH({
+  reportTable = 'sales_reports',
+  pageTitle = 'Báo Cáo CSKH',
+}) {
   const navigate = useNavigate();
 
   // Initial defaults for new rows
@@ -56,10 +59,10 @@ function ReportFormCSKH() {
           console.log('⚠️ Error fetching products from system_settings:', supabaseError);
         }
 
-        // Bước 2: Load thị trường từ sales_reports (hoặc orders)
+        // Bước 2: Load thị trường từ bảng báo cáo (cùng nguồn với nơi ghi dữ liệu)
         try {
           const { data, error } = await supabase
-            .from('sales_reports')
+            .from(reportTable)
             .select('market')
             .limit(1000)
             .order('created_at', { ascending: false });
@@ -70,7 +73,7 @@ function ReportFormCSKH() {
             });
           }
         } catch (dbError) {
-          console.error('Error fetching markets from sales_reports:', dbError);
+          console.error(`Error fetching markets from ${reportTable}:`, dbError);
         }
 
         // Bước 3: Fallback cuối cùng - giá trị mặc định
@@ -125,7 +128,7 @@ function ReportFormCSKH() {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('settingsUpdated', handleStorageChange);
     };
-  }, []);
+  }, [reportTable]);
 
   // Load current user info and branch
   useEffect(() => {
@@ -316,7 +319,7 @@ function ReportFormCSKH() {
       });
 
       const { error } = await supabase
-        .from('sales_reports')
+        .from(reportTable)
         .insert(payload);
 
       if (error) throw error;
@@ -360,7 +363,7 @@ function ReportFormCSKH() {
               />
               <div>
                 <h1 className="text-3xl font-bold bg-green-500 bg-clip-text text-transparent">
-                  Báo Cáo CSKH
+                  {pageTitle}
                 </h1>
                 <p className="text-gray-500 mt-1">LumiGlobal Report System</p>
               </div>

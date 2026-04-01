@@ -174,6 +174,13 @@ function Home() {
           permission: 'CSKH_INPUT',
         },
         {
+          id: "crm-input-report-hcm",
+          label: "Nhập báo cáo CSKH HCM",
+          icon: <Edit3 className="w-4 h-4" />,
+          path: "/nhap-bao-cao-cskh-hcm",
+          permissionAny: ['CSKH_INPUT_HCM', 'CSKH_INPUT'],
+        },
+        {
           id: "crm-view-report",
           label: "Xem báo cáo Sale",
           icon: <BarChart3 className="w-4 h-4" />,
@@ -271,6 +278,13 @@ function Home() {
           icon: <Database className="w-4 h-4" />,
           path: "/danh-sach-bao-cao-tay",
           permission: 'SALE_MANUAL',
+        },
+        {
+          id: "sale-manual-report-hcm",
+          label: "Danh sách báo cáo tay HCM",
+          icon: <Database className="w-4 h-4" />,
+          path: "/danh-sach-bao-cao-tay-hcm",
+          permissionAny: ['SALE_MANUAL_HCM', 'SALE_MANUAL'],
         },
         {
           id: "sale-history",
@@ -399,6 +413,13 @@ function Home() {
           icon: <ClipboardList className="w-4 h-4" />,
           path: "/bao-cao-chi-tiet",
           permission: 'MKT_ORDERS',
+        },
+        {
+          id: "mkt-detail-hcm",
+          label: "Danh sách đơn HCM",
+          icon: <ClipboardList className="w-4 h-4" />,
+          path: "/bao-cao-chi-tiet-hcm",
+          permissionAny: ['MKT_ORDERS_HCM', 'MKT_ORDERS'],
         },
         {
           id: "mkt-pages",
@@ -749,6 +770,14 @@ function Home() {
           permission: 'CSKH_INPUT',
         },
         {
+          title: "Nhập báo cáo CSKH HCM",
+          icon: <Edit3 className="w-8 h-8" />,
+          color: "bg-teal-600",
+          path: "/nhap-bao-cao-cskh-hcm",
+          status: "Ghi sale_report_hcm",
+          permissionAny: ['CSKH_INPUT_HCM', 'CSKH_INPUT'],
+        },
+        {
           title: "Ds báo cáo tay",
           icon: <Database className="w-8 h-8" />,
           color: "bg-cyan-600",
@@ -856,6 +885,14 @@ function Home() {
           path: "/danh-sach-bao-cao-tay",
           status: "Mở ứng dụng",
           permission: 'SALE_MANUAL',
+        },
+        {
+          title: "Ds báo cáo tay HCM",
+          icon: <Database className="w-8 h-8" />,
+          color: "bg-teal-700",
+          path: "/danh-sach-bao-cao-tay-hcm",
+          status: "sale_report_hcm",
+          permissionAny: ['SALE_MANUAL_HCM', 'SALE_MANUAL'],
         },
         {
           title: "Lịch sử thay đổi",
@@ -994,6 +1031,14 @@ function Home() {
           path: "/bao-cao-chi-tiet",
           status: "Mở ứng dụng",
           permission: 'MKT_ORDERS',
+        },
+        {
+          title: "Danh sách đơn HCM",
+          icon: <ClipboardList className="w-8 h-8" />,
+          color: "bg-sky-600",
+          path: "/bao-cao-chi-tiet-hcm",
+          status: "order_code_hcm",
+          permissionAny: ['MKT_ORDERS_HCM', 'MKT_ORDERS'],
         },
         {
           title: "Danh sách Page",
