@@ -3464,8 +3464,18 @@ function VanDon({ dataSource = 'default' }) {
     e.stopPropagation();
   };
 
-  if (!canView('ORDERS_LIST')) {
-    return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (ORDERS_LIST).</div>;
+  const hasVanDonListAccess =
+    dataSource === 'hcm'
+      ? canView('ORDERS_LIST_HCM') || canView('ORDERS_LIST')
+      : canView('ORDERS_LIST');
+  if (!hasVanDonListAccess) {
+    const permHint =
+      dataSource === 'hcm' ? 'ORDERS_LIST_HCM hoặc ORDERS_LIST' : 'ORDERS_LIST';
+    return (
+      <div className="p-8 text-center text-red-600 font-bold">
+        Bạn không có quyền truy cập trang này ({permHint}).
+      </div>
+    );
   }
 
   /* End Component Logic */
