@@ -323,7 +323,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                             let value = flatPastedData[dataIndex] || '';
                             
                             // Xử lý format date cho các cột ngày
-                            if (colName === 'Ngày đóng hàng' || colName === 'Thời gian giao dự kiến') {
+                            if (colName === 'Ngày đóng hàng') {
                                 value = parseDateValue(value);
                             }
                             
@@ -366,7 +366,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                         let value = pastedRows[i][j] || '';
                         
                         // Xử lý format date cho các cột ngày
-                        if (colName === 'Ngày đóng hàng' || colName === 'Thời gian giao dự kiến') {
+                        if (colName === 'Ngày đóng hàng') {
                             value = parseDateValue(value);
                         }
                         
@@ -572,25 +572,20 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
 
     // Render cell content - giống bảng chính (dropdown/input trực tiếp)
     const renderCell = (col, rowIdx, colIdx, value) => {
-        // Date columns - hiển thị và nhập dạng dd/mm/yyyy
-        if (col === 'Ngày đóng hàng' || col === 'Thời gian giao dự kiến') {
-            // Lưu giá trị thô để cho phép nhập tự do
+        // Cột ngày đóng hàng — format dd/mm/yyyy khi dán / blur
+        if (col === 'Ngày đóng hàng') {
             const rawValue = value || '';
             return (
                     <input
                         type="text"
                         value={rawValue}
                         onChange={(e) => {
-                            const inputValue = e.target.value;
-                            // Cho phép nhập tự do
-                            handleCellChange(rowIdx, colIdx, inputValue);
+                            handleCellChange(rowIdx, colIdx, e.target.value);
                         }}
                         onPaste={(e) => {
-                            // Cho phép paste nhiều giá trị từ input
                             handlePaste(e, rowIdx, colIdx);
                         }}
                         onBlur={(e) => {
-                            // Format lại khi blur nếu có giá trị
                             if (e.target.value.trim()) {
                                 const formatted = parseDateValue(e.target.value);
                                 if (formatted !== e.target.value) {
@@ -599,11 +594,9 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                             }
                         }}
                         onClick={(e) => {
-                            // Ngăn event bubble để không trigger selection
                             e.stopPropagation();
                         }}
                         onMouseDown={(e) => {
-                            // Ngăn event bubble để không trigger selection khi click vào input
                             e.stopPropagation();
                         }}
                         onFocus={(e) => {

@@ -133,8 +133,12 @@ export default function NhanSuSaleLumiMoiView({
   thuCongTableName = 'Báo cáo sale',
   /** Lọc team chứa chuỗi (giống BaoCaoSale: sale | cskh). Bỏ qua khi có `teamExactFilter`. */
   teamKeyword = 'sale',
-  /** Chỉ giữ dòng có Team khớp đúng (sau trim/gom khoảng trắng), ví dụ CSKH- Lý. */
+  /** Chỉ giữ dòng có Team khớp đúng (sau trim/gom khoảng trắng), ví dụ CSKH- Lý. Bỏ qua nếu có `teamInFilter`. */
   teamExactFilter = null,
+  /** Chỉ giữ dòng có Team thuộc danh sách (khớp sau normalize). Ưu tiên hơn `teamExactFilter` / `teamKeyword`. */
+  teamInFilter = null,
+  /** Nếu có: cần can_view ít nhất một mã (ví dụ trang xem CSKH HCM). */
+  pageAccessCodes = null,
   /**
    * Hiện lọc theo tên Sale: danh sách checkbox = `users.selected_personnel` (đã resolve tên);
    * admin / không có selected_personnel → liệt kê theo tên có trong dữ liệu đã lọc.
@@ -142,7 +146,12 @@ export default function NhanSuSaleLumiMoiView({
   showPersonnelNameFilter = false,
 }) {
   const idSheet = useResolvedIdsheet();
-  const { role } = usePermissions();
+  const { role, canView } = usePermissions();
+
+  const hasPageAccess =
+    !pageAccessCodes || !Array.isArray(pageAccessCodes) || pageAccessCodes.length === 0
+      ? true
+      : pageAccessCodes.some((c) => canView(c));
 
   /** Admin / Finance: không lọc theo selected_personnel */
   const isAdmin = useMemo(() => {
@@ -329,16 +338,24 @@ export default function NhanSuSaleLumiMoiView({
           fetchUsersEmailNameForDisplayMap(),
         ]);
         if (cancelled) return;
-        const exactWant = normalizeTeamLabel(teamExactFilter);
         let mapped = mappedRaw;
-        if (exactWant) {
-          mapped = mappedRaw.filter((r) => normalizeTeamLabel(r.team) === exactWant);
+        const inSet =
+          Array.isArray(teamInFilter) && teamInFilter.length > 0
+            ? new Set(teamInFilter.map((t) => normalizeTeamLabel(t)))
+            : null;
+        if (inSet) {
+          mapped = mappedRaw.filter((r) => inSet.has(normalizeTeamLabel(r.team)));
         } else {
-          const kw = String(teamKeyword || '').toLowerCase();
-          if (kw === 'cskh') {
-            mapped = mappedRaw.filter((r) => String(r.team || '').toLowerCase().includes('cskh'));
-          } else if (kw) {
-            mapped = mappedRaw.filter((r) => !String(r.team || '').toLowerCase().includes('cskh'));
+          const exactWant = normalizeTeamLabel(teamExactFilter);
+          if (exactWant) {
+            mapped = mappedRaw.filter((r) => normalizeTeamLabel(r.team) === exactWant);
+          } else {
+            const kw = String(teamKeyword || '').toLowerCase();
+            if (kw === 'cskh') {
+              mapped = mappedRaw.filter((r) => String(r.team || '').toLowerCase().includes('cskh'));
+            } else if (kw) {
+              mapped = mappedRaw.filter((r) => !String(r.team || '').toLowerCase().includes('cskh'));
+            }
           }
         }
         setEmployeeData(emp);
@@ -356,7 +373,7 @@ export default function NhanSuSaleLumiMoiView({
       cancelled = true;
       ac.abort();
     };
-  }, [startDate, endDate, teamKeyword, teamExactFilter, loadRequestId]);
+  }, [startDate, endDate, teamKeyword, teamExactFilter, teamInFilter, loadRequestId]);
 
   /** Phân quyền + bộ lọc + iframe — chạy khi có dữ liệu hoặc đổi id (không gọi lại API). */
   useEffect(() => {
@@ -830,6 +847,16 @@ export default function NhanSuSaleLumiMoiView({
     summaryMain;
 
   const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
+
+  if (!hasPageAccess) {
+    return (
+      <div className="nssl-root">
+        <div className="p-8 text-center text-red-600 font-bold">
+          Bạn không có quyền truy cập trang này. Cần một trong: {(pageAccessCodes || []).join(', ')}.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="nssl-root" data-report-table={reportTableName}>

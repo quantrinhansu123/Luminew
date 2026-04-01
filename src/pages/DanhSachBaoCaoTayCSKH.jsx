@@ -30,9 +30,11 @@ const filterOptionsBySearch = (list, q) => {
     return (list || []).filter((item) => String(item).toLowerCase().includes(needle));
 };
 
-/** Team CSKH Lý trên DB — có thể lưu có/không khoảng sau dấu gạch. */
-const CSKH_FILTER_TEAMS = ['CSKH-Lý', 'CSKH- Lý'];
-const CSKH_TEAM_LABEL = CSKH_FILTER_TEAMS.join(' hoặc ');
+/** Team CSKH Lý (mặc định) — có thể lưu có/không khoảng sau dấu gạch. */
+const DEFAULT_CSKH_MANUAL_TEAMS = ['CSKH-Lý', 'CSKH- Lý'];
+
+/** HCM: chỉ các team này trong sales_reports (khớp cột `team`). */
+export const CSKH_MANUAL_REPORT_HCM_TEAMS = ['HCM-Sale Đêm', 'CSKH-HCM', 'HCM'];
 
 /**
  * Trùng: cùng ngày + người + SP + TT + team — KHÔNG tính cột Ca.
@@ -66,14 +68,35 @@ const formatLocalDateYMD = (date) => {
     return `${y}-${m}-${day}`;
 };
 
-export default function DanhSachBaoCaoTayCSKH() {
+/**
+ * @param {object} [props]
+ * @param {string[] | null} [props.salesReportTeamIn] — nếu có: lọc sales_reports theo các team này (kể cả admin).
+ * @param {string[] | null} [props.pageAccessCodes] — can_view một trong các mã; mặc định ['CSKH_VIEW'].
+ * @param {string} [props.pageTitleSuffix] — ví dụ " (HCM)" cho tiêu đề trang.
+ */
+export default function DanhSachBaoCaoTayCSKH({
+    salesReportTeamIn = null,
+    pageAccessCodes = null,
+    pageTitleSuffix = '',
+} = {}) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const teamFilter = searchParams.get('team'); // 'RD' or null
 
     // Permission Logic
     const { canView, role, team: userTeam, permissions } = usePermissions();
-    const permissionCode = 'CSKH_VIEW'; // CSKH uses CSKH_VIEW permission (same as XemBaoCaoCSKH)
+    const accessCodes = pageAccessCodes ?? ['CSKH_VIEW'];
+    const hasPageAccess = accessCodes.some((c) => canView(c));
+
+    const effectiveTeamFilter = useMemo(
+        () =>
+            Array.isArray(salesReportTeamIn) && salesReportTeamIn.length > 0
+                ? salesReportTeamIn.map((t) => String(t).trim()).filter(Boolean)
+                : DEFAULT_CSKH_MANUAL_TEAMS,
+        [salesReportTeamIn]
+    );
+    const isCustomTeamScope = Array.isArray(salesReportTeamIn) && salesReportTeamIn.length > 0;
+    const teamFilterLabel = useMemo(() => effectiveTeamFilter.join(', '), [effectiveTeamFilter]);
 
     // Get user email and name for filtering
     const userEmail = localStorage.getItem('userEmail') || '';
@@ -83,14 +106,14 @@ export default function DanhSachBaoCaoTayCSKH() {
     useEffect(() => {
         console.log('🔐 User Permissions:', {
             role,
-            permissionCode,
-            hasPermission: canView(permissionCode),
+            accessCodes,
+            hasPermission: hasPageAccess,
             allPermissions: permissions,
             userEmail,
             userName,
             userTeam
         });
-    }, [role, permissionCode, permissions, userEmail, userName, userTeam]);
+    }, [role, accessCodes, hasPageAccess, permissions, userEmail, userName, userTeam]);
 
     // Kiểm tra xem user có phải Admin không (logic giống DanhSachDon.jsx)
     const roleFromHook = (role || '').toUpperCase();
@@ -117,6 +140,12 @@ export default function DanhSachBaoCaoTayCSKH() {
         roleFromStorage === 'super_admin' ||
         roleFromUserObj === 'admin' ||
         roleFromUserObj === 'super_admin';
+
+    /** Admin mặc định xem mọi team; trang HCM (salesReportTeamIn) luôn giới hạn theo effectiveTeamFilter. */
+    const useTeamInQuery = useMemo(
+        () => !isAdmin || isCustomTeamScope,
+        [isAdmin, isCustomTeamScope]
+    );
 
     const [loading, setLoading] = useState(true);
     const [manualReports, setManualReports] = useState([]);
@@ -288,7 +317,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                         const { data: teamUsers, error: teamUsersErr } = await supabase
                             .from('users')
                             .select('name, username')
-                            .in('team', CSKH_FILTER_TEAMS);
+                            .in('team', effectiveTeamFilter);
                         if (teamUsersErr) throw teamUsersErr;
                         (teamUsers || []).forEach((u) => {
                             const n = String(u.name || '').trim();
@@ -335,8 +364,8 @@ export default function DanhSachBaoCaoTayCSKH() {
                             .select('product, market, name')
                             .order('created_at', { ascending: false })
                             .range(from, to);
-                        if (!isAdmin) {
-                            reportsQuery = reportsQuery.in('team', CSKH_FILTER_TEAMS);
+                        if (useTeamInQuery) {
+                            reportsQuery = reportsQuery.in('team', effectiveTeamFilter);
                         }
                         const { data, error } = await reportsQuery;
 
@@ -379,7 +408,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         if (selectedPersonnelNames !== undefined) {
             loadAvailableOptions();
         }
-    }, [selectedPersonnelNames, isAdmin]);
+    }, [selectedPersonnelNames, isAdmin, effectiveTeamFilter, useTeamInQuery]);
 
     // Load options for edit form
     useEffect(() => {
@@ -398,8 +427,8 @@ export default function DanhSachBaoCaoTayCSKH() {
                     .select('market')
                     .not('market', 'is', null)
                     .limit(1000);
-                if (!isAdmin) {
-                    marketsQ = marketsQ.in('team', CSKH_FILTER_TEAMS);
+                if (useTeamInQuery) {
+                    marketsQ = marketsQ.in('team', effectiveTeamFilter);
                 }
                 const { data: marketsData } = await marketsQ;
 
@@ -409,8 +438,8 @@ export default function DanhSachBaoCaoTayCSKH() {
                     .from('users')
                     .select('branch')
                     .not('branch', 'is', null);
-                if (!isAdmin) {
-                    branchesQ = branchesQ.in('team', CSKH_FILTER_TEAMS);
+                if (useTeamInQuery) {
+                    branchesQ = branchesQ.in('team', effectiveTeamFilter);
                 }
                 const { data: branchesData } = await branchesQ;
 
@@ -428,7 +457,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         };
 
         loadEditOptions();
-    }, [isAdmin]);
+    }, [isAdmin, effectiveTeamFilter, useTeamInQuery]);
 
     // Fetch Data trực tiếp từ bảng sales_reports
     const fetchData = useCallback(async () => {
@@ -441,8 +470,8 @@ export default function DanhSachBaoCaoTayCSKH() {
                 .gte('date', filters.startDate)
                 .lte('date', filters.endDate)
                 .order('created_at', { ascending: false });
-            if (!isAdmin) {
-                query = query.in('team', CSKH_FILTER_TEAMS);
+            if (useTeamInQuery) {
+                query = query.in('team', effectiveTeamFilter);
             }
 
             // Helper function to normalize name (remove extra spaces)
@@ -517,7 +546,7 @@ export default function DanhSachBaoCaoTayCSKH() {
         } finally {
             setLoading(false);
         }
-    }, [filters.startDate, filters.endDate, filters.products, filters.markets, filters.personnel, selectedPersonnelNames, hrEmailMap, isAdmin]);
+    }, [filters.startDate, filters.endDate, filters.products, filters.markets, filters.personnel, selectedPersonnelNames, hrEmailMap, useTeamInQuery, effectiveTeamFilter]);
 
     useEffect(() => {
         if (filters.startDate && filters.endDate) {
@@ -968,8 +997,12 @@ export default function DanhSachBaoCaoTayCSKH() {
         }
     };
 
-    if (!canView(permissionCode)) {
-        return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
+    if (!hasPageAccess) {
+        return (
+            <div className="p-8 text-center text-red-600 font-bold">
+                Bạn không có quyền truy cập trang này. Cần một trong: {accessCodes.join(', ')}.
+            </div>
+        );
     }
 
 
@@ -1092,7 +1125,7 @@ export default function DanhSachBaoCaoTayCSKH() {
                             </label>
                         </h4>
                         <p style={{ fontSize: '11px', color: '#666', margin: '0 0 8px 0' }}>
-                            Chỉ hiển thị nhân sự team <strong>{CSKH_TEAM_LABEL}</strong> (bảng users).
+                            Chỉ hiển thị nhân sự team <strong>{teamFilterLabel}</strong> (bảng users).
                         </p>
                         <input
                             type="search"
@@ -1185,11 +1218,11 @@ export default function DanhSachBaoCaoTayCSKH() {
                 <div className="main-detailed">
                     <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
                         <div>
-                            <h2 style={{ marginBottom: '4px' }}>DANH SÁCH BÁO CÁO TAY CSKH</h2>
+                            <h2 style={{ marginBottom: '4px' }}>DANH SÁCH BÁO CÁO TAY CSKH{pageTitleSuffix}</h2>
                             <p className="text-sm text-gray-600 m-0">
-                                {isAdmin
+                                {isAdmin && !isCustomTeamScope
                                     ? <>Hiển thị toàn bộ <strong>sales_reports</strong> (mọi team) trong khoảng ngày và bộ lọc.</>
-                                    : <>Chỉ dữ liệu <strong>sales_reports.team</strong>: {CSKH_TEAM_LABEL}.</>}
+                                    : <>Chỉ dữ liệu <strong>sales_reports.team</strong> ∈ {teamFilterLabel}.</>}
                             </p>
                         </div>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>

@@ -821,10 +821,23 @@
     }
 
     /**
-     * Chỉ hiển thị các team này (xem báo cáo MKT).
-     * Để trống mảng [] hoặc null để lấy mọi team (legacy).
+     * Team hiển thị: mặc định HN-MKT + Team Test.
+     * Ghi đè bằng query `?allowedTeams=...&allowedTeams=...` (lặp key, hỗ trợ tên có dấu / dấu phẩy).
      */
-    const MKT_ALLOWED_TEAMS = ['HN-MKT', 'Team Test'];
+    function getMktAllowedTeamsFromPage() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const fromQuery = params
+          .getAll('allowedTeams')
+          .map((s) => String(s).trim())
+          .filter(Boolean);
+        if (fromQuery.length > 0) return fromQuery;
+      } catch (e) {
+        console.warn('allowedTeams query:', e);
+      }
+      return ['HN-MKT', 'Team Test'];
+    }
+    const MKT_ALLOWED_TEAMS = getMktAllowedTeamsFromPage();
 
     function applyMktTeamFilterToQuery(q) {
       if (!MKT_ALLOWED_TEAMS || MKT_ALLOWED_TEAMS.length === 0) return q;

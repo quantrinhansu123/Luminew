@@ -820,7 +820,20 @@
       return (typeof window !== 'undefined' && window.__SUPABASE_ANON_KEY__) || SUPABASE_ANON_KEY_DEFAULT;
     }
 
-    const MKT_ALLOWED_TEAMS = ['HN-MKT', 'Team Test'];
+    function getMktAllowedTeamsFromPage() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const fromQuery = params
+          .getAll('allowedTeams')
+          .map((s) => String(s).trim())
+          .filter(Boolean);
+        if (fromQuery.length > 0) return fromQuery;
+      } catch (e) {
+        console.warn('allowedTeams query:', e);
+      }
+      return ['HN-MKT', 'Team Test'];
+    }
+    const MKT_ALLOWED_TEAMS = getMktAllowedTeamsFromPage();
 
     function applyMktTeamFilterToQuery(q) {
       if (!MKT_ALLOWED_TEAMS || MKT_ALLOWED_TEAMS.length === 0) return q;

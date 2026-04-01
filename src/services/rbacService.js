@@ -687,6 +687,7 @@ export const MODULE_PAGES = {
             { code: 'MKT_INPUT', name: 'Nhập báo cáo', path: '/bao-cao-marketing' },
             { code: 'MKT_INPUT_HCM', name: 'Nhập báo cáo HCM', path: '/bao-cao-marketing-hcm' },
             { code: 'MKT_VIEW', name: 'Xem báo cáo MKT', path: '/xem-bao-cao-mkt' },
+            { code: 'MKT_VIEW_HCM', name: 'Xem báo cáo MKT HCM (Đức Anh)', path: '/xem-bao-cao-mkt-hcm' },
             { code: 'MKT_ORDERS', name: 'Danh sách đơn', path: '/bao-cao-chi-tiet' },
             { code: 'MKT_PAGES', name: 'Danh sách Page', path: '/danh-sach-page' },
             { code: 'MKT_MANUAL', name: 'Ds báo cáo tay', path: '/danh-sach-bao-cao-tay-mkt' }
@@ -742,6 +743,8 @@ export const MODULE_PAGES = {
             { code: 'CSKH_NEW_ORDER_HCM', name: 'Nhập đơn HCM', path: '/nhap-don?view=hcm' },
             { code: 'CSKH_INPUT', name: 'Nhập báo cáo', path: '/nhap-bao-cao-cskh' },
             { code: 'CSKH_VIEW', name: 'Xem báo cáo CSKH', path: '/xem-bao-cao-cskh' },
+            { code: 'CSKH_VIEW_HCM', name: 'Xem báo cáo CSKH HCM', path: '/xem-bao-cao-cskh-hcm' },
+            { code: 'CSKH_MANUAL_HCM', name: 'Ds báo cáo tay CSKH HCM', path: '/danh-sach-bao-cao-tay-cskh-hcm' },
             { code: 'CSKH_HISTORY', name: 'Lịch sử thay đổi', path: '/lich-su-cskh' }
         ]
     },

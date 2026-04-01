@@ -14,7 +14,7 @@ import BaoCaoVanDon from './pages/BaoCaoVanDon';
 import BaoCaoVanHanhHtml from './pages/BaoCaoVanHanhHtml';
 import ChangeLogViewer from './pages/ChangeLogViewer';
 import CskhCrmHistoryPage from './pages/CskhCrmHistoryPage';
-import DanhSachBaoCaoTayCSKH from './pages/DanhSachBaoCaoTayCSKH';
+import DanhSachBaoCaoTayCSKH, { CSKH_MANUAL_REPORT_HCM_TEAMS } from './pages/DanhSachBaoCaoTayCSKH';
 import NhapBaoCaoCSKH from './pages/NhapBaoCaoCSKH';
 import SalesOrderHistoryPage from './pages/SalesOrderHistoryPage';
 // ... (existing imports)
@@ -54,7 +54,7 @@ import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
 import DashboardQuanTri from './pages/DashboardQuanTri';
-import XemBaoCaoMKTLegacy from './pages/XemBaoCaoMKTLegacy';
+import XemBaoCaoMKTLegacy, { XEM_BAO_CAO_MKT_HCM_TEAM } from './pages/XemBaoCaoMKTLegacy';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import TestMKT from './pages/TestMKT.jsx';
 import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
@@ -149,14 +149,48 @@ function AppShell() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/xem-bao-cao-cskh-hcm"
+              element={
+                <ProtectedRoute>
+                  <NhanSuSaleLumiMoiView
+                    teamInFilter={CSKH_MANUAL_REPORT_HCM_TEAMS}
+                    pageAccessCodes={['CSKH_VIEW_HCM', 'CSKH_VIEW']}
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/nhap-bao-cao-cskh" element={<ProtectedRoute><NhapBaoCaoCSKH /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
+            <Route
+              path="/danh-sach-bao-cao-tay-cskh-hcm"
+              element={
+                <ProtectedRoute>
+                  <DanhSachBaoCaoTayCSKH
+                    salesReportTeamIn={CSKH_MANUAL_REPORT_HCM_TEAMS}
+                    pageAccessCodes={['CSKH_MANUAL_HCM', 'CSKH_VIEW']}
+                    pageTitleSuffix=" (HCM)"
+                  />
+                </ProtectedRoute>
+              }
+            />
             {/* MKT: /xem-bao-cao-mkt trỏ thẳng tới HTML legacy (iframe) */}
             <Route
               path="/xem-bao-cao-mkt"
               element={
                 <ProtectedRoute>
                   <XemBaoCaoMKTLegacy />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/xem-bao-cao-mkt-hcm"
+              element={
+                <ProtectedRoute>
+                  <XemBaoCaoMKTLegacy
+                    iframeAllowedTeams={[XEM_BAO_CAO_MKT_HCM_TEAM]}
+                    iframeTitle="Xem báo cáo MKT HCM (MKT - Đức Anh)"
+                  />
                 </ProtectedRoute>
               }
             />
