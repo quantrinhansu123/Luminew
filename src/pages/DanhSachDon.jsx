@@ -2250,8 +2250,8 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
     }
 
-    // Date Range Filter
-    if (!isHcmView && (startDate || endDate)) {
+    // Date Range Filter (áp dụng cho cả view thường và HCM)
+    if (startDate || endDate) {
       data = data.filter(row => isDateInRange(row["Ngày lên đơn"], startDate, endDate));
     }
 
