@@ -1900,7 +1900,9 @@
       rows.forEach((row, i) => {
         const idRaw = row.id != null && row.id !== '' ? String(row.id).trim() : '';
         const dk = String(row.detailRowKey || '').trim();
-        const key = idRaw || dk || `__idx_${i}`;
+        // Ưu tiên detailRowKey (logic key ngày+Tên+SP+TT+ca). Nếu id khác nhau nhưng cùng key
+        // thì vẫn phải coi là 1 bản ghi để tránh cộng sai (đặc biệt "TỔNG CỘNG").
+        const key = dk || idRaw || `__idx_${i}`;
         if (!byKey.has(key)) byKey.set(key, row);
       });
       return Array.from(byKey.values());
