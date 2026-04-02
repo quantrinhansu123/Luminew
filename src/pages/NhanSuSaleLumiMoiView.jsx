@@ -27,9 +27,11 @@ import {
   uniqueSorted,
   buildEmployeeEmailToNameMap,
   displayNameForSaleReportKey,
-  reportRowMatchesPersonnelOption,
   enrichSalesReportRowsWithBoPhan,
   matchesHcmXemBaoCaoSaleTeam,
+  canonicalTeamKeyForFilter,
+  uniqueTeamLabelsForFilter,
+  employeeRowInSalesReportScope,
 } from '../utils/nhanSuSaleLumiMoiLogic';
 
 const LOGO_URL =
@@ -123,10 +125,18 @@ async function fetchUsersEmailNameForDisplayMap() {
   }
 }
 
-function normalizeTeamLabel(s) {
-  return String(s || '')
-    .trim()
-    .replace(/\s+/g, ' ');
+function teamRowMatchesSelection(selectedList, teamVal) {
+  const k = canonicalTeamKeyForFilter(teamVal);
+  return (selectedList || []).some((s) => canonicalTeamKeyForFilter(s) === k);
+}
+
+function teamToggleSelection(selectedList, val) {
+  const k = canonicalTeamKeyForFilter(val);
+  const had = (selectedList || []).some((s) => canonicalTeamKeyForFilter(s) === k);
+  if (had) {
+    return (selectedList || []).filter((s) => canonicalTeamKeyForFilter(s) !== k);
+  }
+  return [...(selectedList || []).filter((s) => canonicalTeamKeyForFilter(s) !== k), val];
 }
 
 export default function NhanSuSaleLumiMoiView({
@@ -150,6 +160,8 @@ export default function NhanSuSaleLumiMoiView({
    * admin / không có selected_personnel → liệt kê theo tên có trong dữ liệu đã lọc.
    */
   showPersonnelNameFilter = false,
+  /** true: không hiện sổ «Bộ phận» và không lọc theo bộ phận (trang xem báo cáo Sale HCM). */
+  hideBoPhanFilter = false,
 }) {
   const idSheet = useResolvedIdsheet();
   const { role, canView } = usePermissions();
@@ -220,6 +232,9 @@ export default function NhanSuSaleLumiMoiView({
   const [marketSel, setMarketSel] = useState([]);
   /** Sổ xuống: một giá trị hoặc '' = tất cả (theo dữ liệu cột tương ứng đã tải). */
   const [boPhanPick, setBoPhanPick] = useState('');
+  useEffect(() => {
+    if (hideBoPhanFilter) setBoPhanPick('');
+  }, [hideBoPhanFilter]);
   const [nameAll, setNameAll] = useState(true);
   const [nameSel, setNameSel] = useState([]);
   // Trạng thái đã áp dụng thực tế vào dữ liệu (chỉ cập nhật khi bấm "Tìm")
@@ -293,7 +308,7 @@ export default function NhanSuSaleLumiMoiView({
     setEndDate(endDateStr);
   }, []);
 
-  /** Mặc định Từ/Đến ngày: 3 ngày kết thúc tại ngày mới nhất trong `sales_reports` (Supabase); không có thì 3 ngày gần nhất (máy). */
+  /** Mặc định Từ/Đến ngày: 3 ngày kết thúc tại ngày mới nhất trong bảng báo cáo (theo `reportTableName`); không có thì 3 ngày gần nhất (máy). */
   useEffect(() => {
     let cancelled = false;
     const ac = new AbortController();
@@ -306,17 +321,34 @@ export default function NhanSuSaleLumiMoiView({
           setEndDate(range.endDateStr);
           return;
         }
+        /* sale_report_hcm: không có dòng / không đọc max(date) — cửa sổ 3 ngày gần nhất thường trống; mở ~120 ngày. */
+        if (reportTableName === 'sale_report_hcm') {
+          const wide = getLastNDaysRangeLocal(120);
+          if (!cancelled) {
+            setStartDate(wide.startDateStr);
+            setEndDate(wide.endDateStr);
+          }
+          return;
+        }
       } catch (e) {
         if (e?.name === 'AbortError') return;
         console.warn('[NhanSuSaleLumiMoi] default 3 days from Supabase:', e);
       }
-      if (!cancelled) setDefaultDates();
+      if (!cancelled) {
+        if (reportTableName === 'sale_report_hcm') {
+          const wide = getLastNDaysRangeLocal(120);
+          setStartDate(wide.startDateStr);
+          setEndDate(wide.endDateStr);
+        } else {
+          setDefaultDates();
+        }
+      }
     })();
     return () => {
       cancelled = true;
       ac.abort();
     };
-  }, [setDefaultDates]);
+  }, [setDefaultDates, reportTableName]);
 
   const applyNameFiltersFromSidebar = useCallback(() => {
     if (!showPersonnelNameFilter) return;
@@ -329,7 +361,7 @@ export default function NhanSuSaleLumiMoiView({
     setLoadRequestId((n) => n + 1);
   }, [applyNameFiltersFromSidebar]);
 
-  /** Dữ liệu `sales_reports` (Supabase / fallback API) theo bộ lọc ngày. Phân quyền `?id=`: users Supabase. */
+  /** Dữ liệu báo cáo: Supabase `reportTableName` (fallback lumidata chỉ khi bảng là `sales_reports`). Phân quyền `?id=`: users. */
   useEffect(() => {
     if (!startDate || !endDate) return;
     const ac = new AbortController();
@@ -344,19 +376,22 @@ export default function NhanSuSaleLumiMoiView({
         ]);
         if (cancelled) return;
         let mapped = mappedRaw;
-        if (hcmXemBaoCaoSaleTeamFilter) {
+        if (
+          hcmXemBaoCaoSaleTeamFilter &&
+          reportTableName !== 'sale_report_hcm'
+        ) {
           mapped = mappedRaw.filter((r) => matchesHcmXemBaoCaoSaleTeam(r.team));
-        } else {
+        } else if (!hcmXemBaoCaoSaleTeamFilter) {
         const inSet =
           Array.isArray(teamInFilter) && teamInFilter.length > 0
-            ? new Set(teamInFilter.map((t) => normalizeTeamLabel(t)))
+            ? new Set(teamInFilter.map((t) => canonicalTeamKeyForFilter(t)))
             : null;
         if (inSet) {
-          mapped = mappedRaw.filter((r) => inSet.has(normalizeTeamLabel(r.team)));
+          mapped = mappedRaw.filter((r) => inSet.has(canonicalTeamKeyForFilter(r.team)));
         } else {
-          const exactWant = normalizeTeamLabel(teamExactFilter);
+          const exactWant = teamExactFilter ? canonicalTeamKeyForFilter(teamExactFilter) : '';
           if (exactWant) {
-            mapped = mappedRaw.filter((r) => normalizeTeamLabel(r.team) === exactWant);
+            mapped = mappedRaw.filter((r) => canonicalTeamKeyForFilter(r.team) === exactWant);
           } else {
             const kw = String(teamKeyword || '').toLowerCase();
             if (kw === 'cskh') {
@@ -373,7 +408,12 @@ export default function NhanSuSaleLumiMoiView({
       } catch (e) {
         if (e?.name === 'AbortError') return;
         console.error(e);
-        alert('Không thể tải dữ liệu. Vui lòng kiểm tra lại đường link hoặc kết nối mạng.');
+        const detail = e?.message || e?.error_description || (typeof e === 'string' ? e : '');
+        alert(
+          detail
+            ? `Không thể tải dữ liệu (${reportTableName}): ${detail}`
+            : 'Không thể tải dữ liệu. Vui lòng kiểm tra lại đường link hoặc kết nối mạng.'
+        );
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -419,7 +459,7 @@ export default function NhanSuSaleLumiMoiView({
       setNameSelApplied([]);
       setProductSel(uniqueSorted(dataForFilters, 'sanPham'));
       setCaSel(uniqueSorted(dataForFilters, 'ca').map(String));
-      setTeamSel(uniqueSorted(dataForFilters, 'team').map(String));
+      setTeamSel(uniqueTeamLabelsForFilter(dataForFilters).map(String));
       setMarketSel(uniqueSorted(dataForFilters, 'thiTruong'));
       setBoPhanPick('');
     };
@@ -436,14 +476,18 @@ export default function NhanSuSaleLumiMoiView({
       );
       const products = uniqueSorted(dataForFilters, 'sanPham');
       const cas = uniqueSorted(dataForFilters, 'ca').map(String);
-      const teams = uniqueSorted(dataForFilters, 'team');
+      const teams = uniqueTeamLabelsForFilter(dataForFilters);
       const markets = uniqueSorted(dataForFilters, 'thiTruong');
       setProductSel((prev) => prev.filter((p) => products.includes(p)));
       setCaSel((prev) => prev.filter((c) => cas.includes(String(c))));
-      setTeamSel((prev) => prev.filter((t) => teams.includes(t)));
+      setTeamSel((prev) =>
+        prev.filter((t) => teams.some((opt) => canonicalTeamKeyForFilter(t) === canonicalTeamKeyForFilter(opt)))
+      );
       setMarketSel((prev) => prev.filter((m) => markets.includes(m)));
-      const boPhans = uniqueSorted(dataForFilters, 'boPhan');
-      setBoPhanPick((p) => (p && !boPhans.includes(p) ? '' : p));
+      if (!hideBoPhanFilter) {
+        const boPhans = uniqueSorted(dataForFilters, 'boPhan');
+        setBoPhanPick((p) => (p && !boPhans.includes(p) ? '' : p));
+      }
     };
 
     const AGGREGATE_FILTER_CTX = '__aggregate__';
@@ -572,9 +616,13 @@ export default function NhanSuSaleLumiMoiView({
     } else {
       syncFilterSelectionsToNewData(restricted, branch, team, names, userEmailForRowMatch);
     }
-  }, [idSheet, employeeData, rawData]);
+  }, [idSheet, employeeData, rawData, hideBoPhanFilter]);
+
+  /** `sale_report_hcm`: toàn bộ dòng theo ngày từ Supabase, không lọc team/sidebar (vẫn tôn trọng phân quyền). */
+  const saleReportHcmFullData = reportTableName === 'sale_report_hcm';
 
   const filteredData = useMemo(() => {
+    const bypass = saleReportHcmFullData;
     return filterRawData({
       rawData,
       isRestrictedView,
@@ -585,18 +633,18 @@ export default function NhanSuSaleLumiMoiView({
       allowedPersonnelNames,
       startDateStr: startDate,
       endDateStr: endDate,
-      productAll,
-      selectedProducts: productAll ? null : productSel,
-      caAll,
-      selectedShifts: caAll ? null : caSel,
-      teamAll,
-      selectedTeams: teamAll ? null : teamSel,
-      marketAll,
-      selectedMarkets: marketAll ? null : marketSel,
-      nameAll: showPersonnelNameFilter ? nameAllApplied : true,
+      productAll: bypass ? true : productAll,
+      selectedProducts: bypass || productAll ? null : productSel,
+      caAll: bypass ? true : caAll,
+      selectedShifts: bypass || caAll ? null : caSel,
+      teamAll: bypass ? true : teamAll,
+      selectedTeams: bypass || teamAll ? null : teamSel,
+      marketAll: bypass ? true : marketAll,
+      selectedMarkets: bypass || marketAll ? null : marketSel,
+      nameAll: bypass ? true : showPersonnelNameFilter ? nameAllApplied : true,
       selectedNames:
-        showPersonnelNameFilter && !nameAllApplied ? nameSelApplied : null,
-      boPhanPick,
+        bypass || !showPersonnelNameFilter || nameAllApplied ? null : nameSelApplied,
+      boPhanPick: bypass || hideBoPhanFilter ? '' : boPhanPick,
     });
   }, [
     rawData,
@@ -620,6 +668,8 @@ export default function NhanSuSaleLumiMoiView({
     nameAllApplied,
     nameSelApplied,
     boPhanPick,
+    hideBoPhanFilter,
+    saleReportHcmFullData,
   ]);
 
   /** Dùng chung cho sidebar — tránh gọi filterRawForRestrictedPopulate hàng chục lần mỗi render */
@@ -638,27 +688,59 @@ export default function NhanSuSaleLumiMoiView({
   );
 
   const boPhanOptions = useMemo(
-    () => uniqueSorted(restrictedForPopulate, 'boPhan'),
+    () => (hideBoPhanFilter ? [] : uniqueSorted(restrictedForPopulate, 'boPhan')),
+    [hideBoPhanFilter, restrictedForPopulate]
+  );
+
+  const teamFilterOptions = useMemo(
+    () => uniqueTeamLabelsForFilter(restrictedForPopulate),
     [restrictedForPopulate]
   );
 
   /**
-   * Checkbox Tên Sale: nếu có selected_personnel — chỉ hiện mục có ít nhất một dòng báo cáo
-   * trong khoảng ngày đã tải (tránh hiện email/tên cấu hình nhưng không có record sales_reports).
-   * Không có selected_personnel (admin): danh sách theo `ten` trên dữ liệu đã tải.
+   * Checkbox Tên Sale:
+   * - selected_personnel: đủ danh sách đã cấu hình (không ẩn người chưa có dòng trong khoảng ngày).
+   * - Không có selected_personnel: tên từ báo cáo đã tải ∪ nhân sự users cùng phạm vi team/chi nhánh.
    */
   const personnelNameFilterOptions = useMemo(() => {
     if (!showPersonnelNameFilter) return [];
-    const fromReport = uniqueSorted(restrictedForPopulate, 'ten');
     if (allowedPersonnelNames && allowedPersonnelNames.length > 0) {
-      const hasRow = (opt) =>
-        restrictedForPopulate.some((r) => reportRowMatchesPersonnelOption(r, opt));
-      return [...allowedPersonnelNames].filter(hasRow).sort((a, b) =>
-        String(a).localeCompare(String(b), 'vi')
+      return [...new Set(allowedPersonnelNames.map((x) => String(x ?? '').trim()).filter(Boolean))].sort(
+        (a, b) => String(a).localeCompare(String(b), 'vi')
       );
     }
-    return fromReport;
-  }, [showPersonnelNameFilter, allowedPersonnelNames, restrictedForPopulate]);
+    const fromReport = uniqueSorted(restrictedForPopulate, 'ten');
+    const scopeCtx = {
+      hcmXemBaoCaoSaleTeamFilter,
+      adminHcmLooseTeamMatch: isAdmin && hcmXemBaoCaoSaleTeamFilter,
+      teamInFilter,
+      teamExactFilter,
+      teamKeyword,
+      isRestrictedView,
+      allowedBranch,
+      allowedTeam,
+    };
+    const fromEmployees = (employeeData || [])
+      .filter((emp) => employeeRowInSalesReportScope(emp, scopeCtx))
+      .map((e) => String(e['Họ Và Tên'] || '').trim())
+      .filter(Boolean);
+    return [...new Set([...fromReport, ...fromEmployees])].sort((a, b) =>
+      String(a).localeCompare(String(b), 'vi')
+    );
+  }, [
+    showPersonnelNameFilter,
+    allowedPersonnelNames,
+    restrictedForPopulate,
+    employeeData,
+    hcmXemBaoCaoSaleTeamFilter,
+    teamInFilter,
+    teamExactFilter,
+    teamKeyword,
+    isRestrictedView,
+    allowedBranch,
+    allowedTeam,
+    isAdmin,
+  ]);
 
   useEffect(() => {
     if (!showPersonnelNameFilter) return;
@@ -805,7 +887,7 @@ export default function NhanSuSaleLumiMoiView({
     }
 
     const { flatList } = summarizeAndSortSalesData(deferredFilteredDeduped);
-    const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
+    const flatListFiltered = saleReportHcmFullData ? flatList : flatListFilteredNoTeamNghi(flatList);
     const total = aggregateTotalFromFlatList(flatListFiltered);
     const doanhSoMap = {};
     flatListFiltered.forEach((item) => {
@@ -828,7 +910,7 @@ export default function NhanSuSaleLumiMoiView({
       soDonHuyTotal,
       tiLeHuyTotal,
     };
-  }, [deferredFilteredDeduped, shouldComputeMainFormulas]);
+  }, [deferredFilteredDeduped, shouldComputeMainFormulas, saleReportHcmFullData]);
 
   const onTabClick = (tab) => {
     setActiveTab(tab);
@@ -891,19 +973,28 @@ export default function NhanSuSaleLumiMoiView({
             title={
               !startDate || !endDate
                 ? 'Chọn đủ Từ ngày và Đến ngày'
-                : 'Tải lại từ máy chủ theo khoảng ngày và áp dụng lọc Tên Sale (nếu có)'
+                : saleReportHcmFullData
+                  ? 'Tải lại toàn bộ sale_report_hcm theo khoảng ngày'
+                  : 'Tải lại từ máy chủ theo khoảng ngày và áp dụng lọc Tên Sale (nếu có)'
             }
           >
             {loading ? 'Đang tải…' : 'Tải dữ liệu'}
           </button>
 
-          {showPersonnelNameFilter && (
+          {saleReportHcmFullData && (
+            <p className="nssl-filter-hint" style={{ marginTop: 8 }}>
+              Báo cáo HCM: hiển thị toàn bộ dữ liệu bảng sale_report_hcm trong khoảng ngày (không lọc SP / ca / team / thị
+              trường / tên). Phân quyền xem (nếu có) vẫn áp dụng.
+            </p>
+          )}
+
+          {showPersonnelNameFilter && !saleReportHcmFullData && (
             <>
               <h3>Tên Sale</h3>
               <p className="nssl-filter-hint">
                 {allowedPersonnelNames?.length
-                  ? 'Theo selected_personnel — chỉ hiện người có dòng báo cáo trong khoảng ngày đã tải (tránh mục “ảo” không có trong sales_reports).'
-                  : 'Danh sách theo tên có trong báo cáo (quyền xem tất cả).'}
+                  ? 'Theo selected_personnel — có thể chọn cả người chưa có dòng báo cáo trong khoảng ngày đã tải.'
+                  : 'Gồm nhân sự users (team/chi nhánh trùng phạm vi trang) và tên có trong báo cáo đã tải.'}
               </p>
               {personnelNameFilterOptions.length === 0 ? (
                 <p className="nssl-filter-hint" style={{ marginTop: 0 }}>
@@ -1017,21 +1108,27 @@ export default function NhanSuSaleLumiMoiView({
             </>
           )}
 
-          <h3>Bộ phận</h3>
-          <select
-            className="nssl-filter-select"
-            value={boPhanPick}
-            onChange={(e) => setBoPhanPick(e.target.value)}
-            aria-label="Lọc Bộ phận"
-          >
-            <option value="">— Tất cả —</option>
-            {boPhanOptions.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
+          {!hideBoPhanFilter && (
+            <>
+              <h3>Bộ phận</h3>
+              <select
+                className="nssl-filter-select"
+                value={boPhanPick}
+                onChange={(e) => setBoPhanPick(e.target.value)}
+                aria-label="Lọc Bộ phận"
+              >
+                <option value="">— Tất cả —</option>
+                {boPhanOptions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
 
+          {!saleReportHcmFullData && (
+            <>
           <h3>Sản phẩm</h3>
           <label>
             <input
@@ -1150,27 +1247,20 @@ restrictedForPopulate,
             Tất cả
           </label>
           <div className="indent">
-            {uniqueSorted(
-              restrictedForPopulate,
-              'team'
-            ).map((val) => (
-              <label key={val}>
+            {teamFilterOptions.map((val) => (
+              <label key={canonicalTeamKeyForFilter(val)}>
                 <input
                   type="checkbox"
-                  checked={teamAll || teamSel.includes(val)}
+                  checked={teamAll || teamRowMatchesSelection(teamSel, val)}
                   onChange={() => {
                     if (teamAll) {
                       setTeamAll(false);
                       setTeamSel([val]);
                       return;
                     }
-                    const next = teamSel.includes(val) ? teamSel.filter((x) => x !== val) : [...teamSel, val];
+                    const next = teamToggleSelection(teamSel, val);
                     setTeamSel(next);
-                    const allKeys = uniqueSorted(
-restrictedForPopulate,
-                      'team'
-                    );
-                    if (next.length === allKeys.length) {
+                    if (next.length === teamFilterOptions.length) {
                       setTeamAll(true);
                       setTeamSel([]);
                     }
@@ -1231,6 +1321,8 @@ restrictedForPopulate,
               </label>
             ))}
           </div>
+            </>
+          )}
         </div>
 
         <div className="main-detailed">
@@ -1347,7 +1439,11 @@ restrictedForPopulate,
               </table>
             </div>
             {activeTab === 'sau-huy' && (
-              <DailyBreakdownSauHuy filteredData={deferredFilteredDeduped} formatSaleName={formatSaleDisplayName} />
+              <DailyBreakdownSauHuy
+                filteredData={deferredFilteredDeduped}
+                formatSaleName={formatSaleDisplayName}
+                keepTeamNghiRows={saleReportHcmFullData}
+              />
             )}
           </div>
 
@@ -1414,7 +1510,11 @@ restrictedForPopulate,
               </table>
             </div>
             {activeTab === 'chot' && (
-              <DailyBreakdownChot filteredData={deferredFilteredDeduped} formatSaleName={formatSaleDisplayName} />
+              <DailyBreakdownChot
+                filteredData={deferredFilteredDeduped}
+                formatSaleName={formatSaleDisplayName}
+                keepTeamNghiRows={saleReportHcmFullData}
+              />
             )}
           </div>
 
@@ -1439,7 +1539,7 @@ restrictedForPopulate,
   );
 }
 
-function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t }) {
+function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t, keepTeamNghiRows = false }) {
   if (!filteredData.length) {
     return (
       <div className="daily-breakdown">
@@ -1463,7 +1563,7 @@ function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t }) {
       {sortedDates.map((date) => {
         const dailyData = groupedByDate[date];
         const { flatList } = summarizeAndSortSalesData(dailyData);
-        const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
+        const flatListFiltered = keepTeamNghiRows ? flatList : flatListFilteredNoTeamNghi(flatList);
         const total = aggregateTotalFromFlatList(flatListFiltered);
         const soDonSauHuyTotal = total.soDonThucTe - total.soDonHoanHuyThucTe;
         const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
@@ -1535,7 +1635,7 @@ function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t }) {
   );
 }
 
-function DailyBreakdownChot({ filteredData, formatSaleName = (t) => t }) {
+function DailyBreakdownChot({ filteredData, formatSaleName = (t) => t, keepTeamNghiRows = false }) {
   if (!filteredData.length) {
     return (
       <div className="daily-breakdown">
@@ -1559,7 +1659,7 @@ function DailyBreakdownChot({ filteredData, formatSaleName = (t) => t }) {
       {sortedDates.map((date) => {
         const dailyData = groupedByDate[date];
         const { flatList } = summarizeAndSortSalesData(dailyData);
-        const flatListFiltered = flatListFilteredNoTeamNghi(flatList);
+        const flatListFiltered = keepTeamNghiRows ? flatList : flatListFilteredNoTeamNghi(flatList);
         const total = aggregateTotalFromFlatList(flatListFiltered);
         const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
         return (

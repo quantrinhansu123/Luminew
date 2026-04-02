@@ -273,6 +273,10 @@ function DanhSachDon({ dataSource = 'default' }) {
   const hasOrderListAccess = orderListAccessCodes.some((code) => canView(code));
   const effectivePermissionCode =
     orderListAccessCodes.find((code) => canView(code)) || orderListAccessCodes[0];
+  /** Xóa đơn: một số bản ghi RBAC (vd. SALE_ORDERS_HCM) chưa bật can_delete; vẫn cho xóa nếu user có can_delete ở mã khác trong cùng nhóm quyền danh sách đơn. */
+  const canDeleteOnThisOrderList = orderListAccessCodes.some((code) => canDelete(code));
+  /** Sửa / xóa vận đơn hàng loạt: cùng logic với nút Sửa VĐ từng dòng. */
+  const canEditOnThisOrderList = orderListAccessCodes.some((code) => canEdit(code));
 
 
   const [allData, setAllData] = useState([]);
@@ -975,7 +979,8 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     if (
       !window.confirm(
-        `Xóa cột "delivery_staff" cho ${rowsToUpdate.length} đơn đang nằm trong bộ lọc hiện tại?`
+        `Xóa NV vận đơn (delivery_staff) cho ${rowsToUpdate.length} đơn đang nằm trong bộ lọc hiện tại?\n\n` +
+          `Đồng thời xóa ngày/thứ tự chia vận đơn (nếu có).`
       )
     ) {
       return;
@@ -991,6 +996,8 @@ function DanhSachDon({ dataSource = 'default' }) {
           chunk.map(async (u) => {
             const payload = {
               delivery_staff: null,
+              ngay_chia_van_don: null,
+              thu_tu_chia: null,
             };
             let error = null;
             if (u.orderCode) {
@@ -1020,10 +1027,11 @@ function DanhSachDon({ dataSource = 'default' }) {
         })
       );
 
-      toast.success(`✅ Đã xóa delivery_staff: ${success}/${rowsToUpdate.length} đơn`, {
+      toast.success(`✅ Đã xóa vận đơn: ${success}/${rowsToUpdate.length} đơn`, {
         autoClose: 2500,
         hideProgressBar: true,
       });
+      await loadData();
     } catch (err) {
       console.error('Clear delivery staff error:', err);
       toast.error(`❌ Lỗi xóa delivery_staff: ${err?.message || String(err)}`);
@@ -2624,6 +2632,38 @@ function DanhSachDon({ dataSource = 'default' }) {
                   }, 0).toLocaleString('vi-VN')} ₫
                 </span>
               </div>
+              {isAdmin && canEditOnThisOrderList && (
+                <button
+                  type="button"
+                  onClick={handleClearShippingInfoByFilters}
+                  disabled={
+                    loading ||
+                    syncing ||
+                    deleting ||
+                    isClearingShippingInfo ||
+                    isFixingTeams ||
+                    isFixingShift ||
+                    isFillingPaymentCurrency ||
+                    isRecalculatingZeroTotalVnd ||
+                    isApplyingCanhBaoTrung ||
+                    isRenamingManhCuong
+                  }
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                  title="Xóa NV vận đơn (delivery_staff) và ngày/thứ tự chia VĐ cho các đơn đang hiển thị theo bộ lọc"
+                >
+                  {isClearingShippingInfo ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      Đang xóa...
+                    </>
+                  ) : (
+                    <>
+                      <Truck className="w-4 h-4" />
+                      Xóa vận đơn (bộ lọc)
+                    </>
+                  )}
+                </button>
+              )}
               {isAdminOnly && (
                 <>
                   <button
@@ -2632,6 +2672,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
+                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -2659,6 +2700,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
+                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -2686,6 +2728,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
+                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -2713,6 +2756,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
+                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -2740,6 +2784,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
+                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -2768,6 +2813,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
+                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -2793,7 +2839,7 @@ function DanhSachDon({ dataSource = 'default' }) {
               )}
               <button
                 onClick={loadData}
-                disabled={loading}
+                disabled={loading || isClearingShippingInfo}
                 className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
               >
                 {loading ? (
@@ -3616,7 +3662,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                                 </button>
                               </>
                             )}
-                            {isAdmin && canDelete(effectivePermissionCode) && (
+                            {isAdmin && canDeleteOnThisOrderList && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();

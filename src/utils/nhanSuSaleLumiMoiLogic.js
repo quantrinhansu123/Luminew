@@ -149,15 +149,151 @@ function normalizeViAscii(s) {
 }
 
 /**
- * Trang /xem-bao-cao-sale-hcm: chỉ giữ dòng có Team (đã map từ team/branch) chứa «HCM».
- * Ví dụ: HCM-Sale Ngày, HCM - Sale ngày, HCM-CSKH, CSKH-HCM, hoặc chỉ «HCM».
+ * Chuẩn hóa khoảng trắng trên nhãn Team (không đổi dấu gạch ngang ↔ khoảng trắng).
+ * NBSP / khoảng Unicode / zero-width → space ASCII; gom space/tab/xuống dòng thừa.
+ */
+export function normalizeReportTeamSpaces(s) {
+  return String(s ?? '')
+    .normalize('NFC')
+    .replace(/\uFEFF/g, '')
+    .replace(/[\u200B-\u200D\u2060]/g, '')
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Khóa ổn định để lọc / gộp checkbox Team:
+ * - Gom khoảng trắng quanh dấu `-` (HCM - Sale ≈ HCM-Sale).
+ * - HCM-CSKH ≈ CSKH-HCM.
+ * - Không gộp team thiếu gạch (HCM Sale) với HCM-Sale.
+ */
+export function canonicalTeamKeyForFilter(s) {
+  let t = normalizeReportTeamSpaces(s);
+  t = normalizeViAscii(t);
+  t = t.replace(/\s*-\s*/g, '-');
+  t = t.replace(/\s+/g, ' ').trim();
+  const parts = t.split('-').map((p) => p.trim()).filter(Boolean);
+  const pset = new Set(parts);
+  if (pset.size === 2 && pset.has('cskh') && pset.has('hcm')) {
+    return 'cskh-hcm';
+  }
+  return t;
+}
+
+/** Một nhãn hiển thị cho mỗi khóa team (ưu tiên bản không có space quanh `-`, ngắn hơn). */
+export function uniqueTeamLabelsForFilter(rows) {
+  const byKey = new Map();
+  const prefer = (cur, cand) => {
+    if (!cur) return cand;
+    const score = (x) => (/\s-\s/.test(x) ? 1 : 0);
+    if (score(cand) !== score(cur)) return score(cand) < score(cur) ? cand : cur;
+    return String(cand).length < String(cur).length ? cand : cur;
+  };
+  for (const r of rows || []) {
+    const raw = String(r?.team ?? '').trim();
+    if (!raw) continue;
+    const k = canonicalTeamKeyForFilter(raw);
+    byKey.set(k, prefer(byKey.get(k), raw));
+  }
+  return [...byKey.values()].sort((a, b) =>
+    String(a).localeCompare(String(b), 'vi', { sensitivity: 'base' })
+  );
+}
+
+/**
+ * Trang /xem-bao-cao-sale-hcm: chỉ team thuộc các nhóm
+ * HCM–Sale ngày, HCM-Sale đêm, HCM-CSKH (và mọi biến thể viết / thứ tự từ, sau chuẩn hóa).
+ * Loại team HCM khác (vd. MKT, chỉ «HCM» không sale/cskh).
  */
 export function matchesHcmXemBaoCaoSaleTeam(teamLabel) {
-  const raw = String(teamLabel || '').trim();
+  const raw = normalizeReportTeamSpaces(teamLabel);
+  if (!raw) return false;
+  const t = normalizeViAscii(raw);
+  if (/^khong xac dinh$/.test(t) || t.includes('khong xac dinh')) return false;
+  if (!t.includes('hcm')) return false;
+
+  if (t.includes('cskh')) return true;
+
+  if (!t.includes('sale')) return false;
+
+  const isDem = t.includes('dem');
+  const isNgay = t.includes('ngay');
+  if (isDem) return true;
+  if (isNgay) return true;
+  /* «HCM-Sale» / «HCM - Sale» không ghi ngày/đêm — gộp với kênh Sale ngày */
+  return true;
+}
+
+/**
+ * Admin trang HCM: danh sách nhân sự (users) gồm mọi team có «HCM» — rộng hơn `matchesHcmXemBaoCaoSaleTeam`
+ * (vẫn bỏ «Không xác định»; «Đã nghỉ» lọc ở `employeeTeamMatchesReportFetchFilter`).
+ */
+export function matchesHcmAdminPersonnelTeam(teamLabel) {
+  const raw = normalizeReportTeamSpaces(teamLabel);
   if (!raw) return false;
   const t = normalizeViAscii(raw);
   if (/^khong xac dinh$/.test(t) || t.includes('khong xac dinh')) return false;
   return t.includes('hcm');
+}
+
+/**
+ * Team trên users khớp bộ lọc team khi tải báo cáo (HCM / teamIn / exact / keyword sale|cskh).
+ * `adminHcmLooseTeamMatch`: trang HCM + admin → roster nhân sự theo mọi team HCM (không siết Sale/CSKH).
+ */
+export function employeeTeamMatchesReportFetchFilter(teamLabel, ctx = {}) {
+  const team = String(teamLabel || '').trim();
+  if (!team) return false;
+  const tNorm = normalizeViAscii(team);
+  if (tNorm === normalizeViAscii('Đã nghỉ')) return false;
+  if (ctx.hcmXemBaoCaoSaleTeamFilter) {
+    if (ctx.adminHcmLooseTeamMatch) {
+      return matchesHcmAdminPersonnelTeam(team);
+    }
+    return matchesHcmXemBaoCaoSaleTeam(team);
+  }
+  const inSet =
+    Array.isArray(ctx.teamInFilter) && ctx.teamInFilter.length > 0
+      ? new Set(ctx.teamInFilter.map((x) => canonicalTeamKeyForFilter(x)))
+      : null;
+  if (inSet) {
+    return inSet.has(canonicalTeamKeyForFilter(team));
+  }
+  const exactWant = ctx.teamExactFilter ? canonicalTeamKeyForFilter(ctx.teamExactFilter) : '';
+  if (exactWant) {
+    return canonicalTeamKeyForFilter(team) === exactWant;
+  }
+  const kw = String(ctx.teamKeyword ?? 'sale').toLowerCase();
+  if (kw === 'cskh') {
+    return String(team).toLowerCase().includes('cskh');
+  }
+  if (kw) {
+    return !String(team).toLowerCase().includes('cskh');
+  }
+  return true;
+}
+
+/**
+ * Dòng users (shape fetchEmployeeDataForRestrict) thuộc phạm vi báo cáo:
+ * cùng rule tải team + (nếu restricted) chi nhánh / team Leader.
+ * Dùng bổ sung mục «Tên Sale» khi NV chưa có dòng sales_reports trong khoảng ngày.
+ */
+export function employeeRowInSalesReportScope(emp, ctx = {}) {
+  const ten = String(emp?.['Họ Và Tên'] ?? '').trim();
+  if (!ten) return false;
+  const team = String(emp?.Team ?? '').trim();
+  if (!employeeTeamMatchesReportFetchFilter(team, ctx)) return false;
+  if (!ctx.isRestrictedView) return true;
+  const { allowedBranch, allowedTeam } = ctx;
+  if (allowedBranch) {
+    const r = { chiNhanh: String(emp['Chi nhánh'] ?? '').trim(), team };
+    if (!recordMatchesAllowedBranch(allowedBranch, r)) return false;
+  }
+  if (allowedTeam) {
+    if (!recordTeamMatchesAllowedTeam(team, allowedTeam)) return false;
+  }
+  if (!allowedBranch && !allowedTeam) return false;
+  return true;
 }
 
 /** Chuỗi có dạng email (dùng để biết `sales_reports.name` nhập nhầm email). */
@@ -269,10 +405,11 @@ export function rowCanonicalBranchKey(r) {
  * Tránh mất dòng khi lệch «HCM-Sale Ngày» vs «HCM - Sale ngày» hoặc báo cáo chỉ có branch «HCM».
  */
 export function recordTeamMatchesAllowedTeam(recordTeam, allowedTeam) {
-  const r0 = String(recordTeam || '').trim();
-  const a0 = String(allowedTeam || '').trim();
+  const r0 = normalizeReportTeamSpaces(recordTeam);
+  const a0 = normalizeReportTeamSpaces(allowedTeam);
   if (!a0) return true;
   if (!r0) return false;
+  if (canonicalTeamKeyForFilter(r0) === canonicalTeamKeyForFilter(a0)) return true;
   const norm = (s) =>
     normalizeViAscii(s).replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim();
   const r = norm(r0);
@@ -447,34 +584,53 @@ export async function fetchSalesReportsFromSupabase(
   if (!startDateStr || !endDateStr) return [];
 
   const PAGE = 1000;
-  const rows = [];
-  let from = 0;
 
-  while (true) {
-    if (signal?.aborted) {
-      throw new DOMException('Aborted', 'AbortError');
+  async function paginate(buildChunk) {
+    const acc = [];
+    let from = 0;
+    while (true) {
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      const { data, error } = await buildChunk(from);
+      if (error) throw error;
+      const chunk = data || [];
+      acc.push(...chunk);
+      if (chunk.length < PAGE) break;
+      from += PAGE;
     }
+    return acc;
+  }
 
-    const q = supabase
+  const buildStrict = (from) =>
+    supabase
       .from(tableName)
       .select(SALES_REPORTS_SELECT)
       .gte('date', startDateStr)
       .lte('date', endDateStr)
-      // Thứ tự cố định (date + id) — tránh trùng/sót khi phân trang nhiều trang 1000 dòng.
       .order('date', { ascending: false })
       .order('id', { ascending: true })
       .range(from, from + PAGE - 1);
 
-    const { data, error } = await q;
-
-    if (error) {
-      throw error;
-    }
-
-    const chunk = data || [];
-    rows.push(...chunk);
-    if (chunk.length < PAGE) break;
-    from += PAGE;
+  let rows;
+  try {
+    rows = await paginate(buildStrict);
+  } catch (e) {
+    if (e?.name === 'AbortError') throw e;
+    console.warn(
+      '[fetchSalesReportsFromSupabase] Lỗi truy vấn chuẩn — thử select * + order date:',
+      tableName,
+      e?.message || e
+    );
+    const buildLoose = (from) =>
+      supabase
+        .from(tableName)
+        .select('*')
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
+        .order('date', { ascending: false })
+        .range(from, from + PAGE - 1);
+    rows = await paginate(buildLoose);
   }
 
   return rows.map(mapSupabaseSalesReportRow).filter(Boolean);
@@ -525,8 +681,9 @@ export async function fetchSalesReportsFromLumidataApi(startDateStr, endDateStr,
 }
 
 /**
- * Tải sales_reports: ưu tiên Supabase, lỗi/RLS thì fallback lumidataapi.
- * Lọc sale/cskh theo team — thực hiện ở component sau khi map (tránh loại nhầm chi nhánh HCM).
+ * Tải báo cáo sale (Supabase): ưu tiên bảng `tableName`.
+ * Chỉ khi `tableName === 'sales_reports'` mới fallback sang lumidataapi `/sales_reports`.
+ * Các bảng khác (vd. `sale_report_hcm` cho /xem-bao-cao-sale-hcm) không có API tương ứng — không được lẫn nguồn.
  */
 export async function fetchSalesReportsMapped(
   startDateStr,
@@ -538,6 +695,14 @@ export async function fetchSalesReportsMapped(
     return await fetchSalesReportsFromSupabase(startDateStr, endDateStr, signal, tableName);
   } catch (e) {
     if (e?.name === 'AbortError') throw e;
+    if (String(tableName || '').trim() !== 'sales_reports') {
+      console.error(
+        '[fetchSalesReportsMapped] Supabase lỗi — không fallback lumidata (chỉ có /sales_reports). Bảng:',
+        tableName,
+        e?.message || e
+      );
+      throw e;
+    }
     console.warn('[fetchSalesReportsMapped] Supabase không dùng được, dùng lumidataapi:', e?.message || e);
     return fetchSalesReportsFromLumidataApi(startDateStr, endDateStr, signal);
   }
@@ -743,7 +908,7 @@ export function filterRawData({
       if (!hasPersonnelScope) {
         if (allowedBranch && !recordMatchesAllowedBranch(allowedBranch, r)) return false;
         if (allowedTeam) {
-          const recordTeam = (r.team || '').trim();
+          const recordTeam = normalizeReportTeamSpaces(r.team);
           if (!recordTeamMatchesAllowedTeam(recordTeam, allowedTeam)) return false;
         }
       }
@@ -765,8 +930,11 @@ export function filterRawData({
       marketAll || (selectedMarkets && selectedMarkets.includes(r.thiTruong));
     const isShiftOk =
       caAll || (selectedShifts && selectedShifts.includes(String(r.ca)));
+    const rowTeamKey = canonicalTeamKeyForFilter(String(r.team ?? ''));
     const isTeamOk =
-      teamAll || (selectedTeams && selectedTeams.includes(String(r.team)));
+      teamAll ||
+      (selectedTeams &&
+        selectedTeams.some((sel) => canonicalTeamKeyForFilter(String(sel)) === rowTeamKey));
     /** Bỏ "Tất cả": chỉ hiện dòng khớp tên đã chọn; không chọn ai thì không còn dòng (tắt hết). */
     let isNameOk = true;
     if (nameAll === false) {
@@ -812,7 +980,7 @@ export function filterRawForRestrictedPopulate(
       return recordMatchesAllowedBranch(allowedBranch, r);
     }
     if (allowedTeam) {
-      const recordTeam = (r.team || '').trim();
+      const recordTeam = normalizeReportTeamSpaces(r.team);
       return recordTeamMatchesAllowedTeam(recordTeam, allowedTeam);
     }
     if (allowedNames.length > 0) return rowMatchesAllowedSaleName(r, allowedNames, allowedUserEmail);

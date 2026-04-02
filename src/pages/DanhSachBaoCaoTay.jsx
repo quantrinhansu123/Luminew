@@ -99,6 +99,18 @@ function isGiuaCaShift(shift) {
     return (s.includes('giữa') && s.includes('ca')) || (sn.includes('giua') && sn.includes('ca'));
 }
 
+/** Trang báo cáo tay HCM: hiển thị team + chi nhánh khi có dữ liệu. */
+function formatHcmReportTeamCell(row) {
+    const team = String(row?.team ?? '').trim();
+    const branch = String(row?.branch ?? '').trim();
+    if (team && branch && team !== branch) {
+        return `${team} / ${branch}`;
+    }
+    if (team) return team;
+    if (branch) return branch;
+    return '';
+}
+
 /** Đổi tên hiển thị cột Người báo cáo (sales_reports.name) — nút tiện ích trên trang báo cáo tay Sale. */
 const RENAME_REPORTER_FROM_EMAIL = 'Congthien436@gmail.com';
 const RENAME_REPORTER_TO_NAME = 'Nguyễn Duy Đức';
@@ -2256,7 +2268,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             <td>{formatDate(item.date)}</td>
                                             <td>{item.shift}</td>
                                             <td>{item.name}</td>
-                                            <td>{item.team}</td>
+                                            <td>{isHcm ? formatHcmReportTeamCell(item) || '—' : item.team}</td>
                                             <td>{item.product}</td>
                                             <td>{item.market}</td>
                                             <td>{formatNumber(item.mess_count)}</td>
@@ -2499,7 +2511,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                             <div>
                                 <h2 className="text-xl font-bold text-gray-800">Danh sách đơn hàng</h2>
                                 <p className="text-sm text-gray-600 mt-1">
-                                    {viewingReport.name} - {formatDate(viewingReport.date)} - {viewingReport.shift || 'Không có ca'} - {viewingReport.product || 'Tất cả SP'} - {viewingReport.market || 'Tất cả TT'}
+                                    {viewingReport.name} - {formatDate(viewingReport.date)} - {viewingReport.shift || 'Không có ca'} -{' '}
+                                    {isHcm && formatHcmReportTeamCell(viewingReport)
+                                        ? `${formatHcmReportTeamCell(viewingReport)} · `
+                                        : ''}
+                                    {viewingReport.product || 'Tất cả SP'} - {viewingReport.market || 'Tất cả TT'}
                                 </p>
                             </div>
                             <button
@@ -2545,6 +2561,9 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                                     <th className="px-4 py-3 text-left border border-gray-200">Sale</th>
                                                     <th className="px-4 py-3 text-left border border-gray-200">Sản phẩm</th>
                                                     <th className="px-4 py-3 text-left border border-gray-200">Thị trường</th>
+                                                    {isHcm && (
+                                                        <th className="px-4 py-3 text-left border border-gray-200">Team</th>
+                                                    )}
                                                     <th className="px-4 py-3 text-right border border-gray-200">Doanh thu (VNĐ)</th>
                                                 </tr>
                                             </thead>
@@ -2577,6 +2596,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                                         <td className="px-4 py-2 border border-gray-200">
                                                             {order.country || '-'}
                                                         </td>
+                                                        {isHcm && (
+                                                            <td className="px-4 py-2 border border-gray-200">
+                                                                {String(order.team ?? '').trim() || '—'}
+                                                            </td>
+                                                        )}
                                                         <td className="px-4 py-2 border border-gray-200 text-right">
                                                             {formatCurrency(order.total_amount_vnd || order.total_vnd || 0)}
                                                         </td>
@@ -2585,7 +2609,10 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             </tbody>
                                             <tfoot className="bg-gray-50 font-semibold">
                                                 <tr>
-                                                    <td colSpan="8" className="px-4 py-3 text-right border border-gray-200">
+                                                    <td
+                                                        colSpan={isHcm ? 9 : 8}
+                                                        className="px-4 py-3 text-right border border-gray-200"
+                                                    >
                                                         Tổng doanh thu:
                                                     </td>
                                                     <td className="px-4 py-3 text-right border border-gray-200 text-blue-600">

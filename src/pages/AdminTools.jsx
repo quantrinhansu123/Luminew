@@ -2248,6 +2248,8 @@ const AdminTools = () => {
 
         // Đơn cần kiểm tra đặc biệt
         const TARGET_ORDER_CODE = 'Kemce7fc5bf'; // Đơn cần kiểm tra
+        // Chia đơn HCM đọc/ghi bảng order_code_hcm; Hà Nội dùng orders
+        const ordersTable = branchFilter === 'HCM' ? 'order_code_hcm' : 'orders';
 
         try {
             addLog(`🚀 Bắt đầu quá trình chia đơn vận đơn${branchFilter ? ' cho ' + branchFilter : ''}...`, 'info');
@@ -2335,18 +2337,18 @@ const AdminTools = () => {
 
             // Bước 3: Lấy TẤT CẢ đơn hàng từ DB (cần dùng cho cả lọc đơn mới và đếm đơn hiện tại)
             addLog('📋 Bước 3: Query đơn hàng từ database', 'info');
-            addLog('🔍 Đang query từ Supabase: bảng orders...', 'info');
-            console.log(`🔍 [Chia đơn vận đơn] Đang query từ Supabase: bảng orders...`);
-            console.log(`📡 [Chia đơn vận đơn] Query: SELECT * FROM orders`);
+            addLog(`🔍 Đang query từ Supabase: bảng ${ordersTable}...`, 'info');
+            console.log(`🔍 [Chia đơn vận đơn] Đang query từ Supabase: bảng ${ordersTable}...`);
+            console.log(`📡 [Chia đơn vận đơn] Query: SELECT * FROM ${ordersTable}`);
             
             // Query trực tiếp đơn cần kiểm tra trước
             console.log(`\n${'='.repeat(60)}`);
             console.log(`🔍 [KIỂM TRA CHI TIẾT ĐƠN ${TARGET_ORDER_CODE}]`);
             console.log(`${'='.repeat(60)}`);
-            console.log(`Đang query trực tiếp từ bảng orders...`);
+            console.log(`Đang query trực tiếp từ bảng ${ordersTable}...`);
             
             const { data: targetOrderData, error: targetOrderError } = await supabase
-                .from('orders')
+                .from(ordersTable)
                 .select('*')
                 .eq('order_code', TARGET_ORDER_CODE)
                 .maybeSingle();
@@ -2355,7 +2357,7 @@ const AdminTools = () => {
                 console.error(`❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Lỗi query:`, targetOrderError);
                 console.error(`❌ Chi tiết lỗi:`, JSON.stringify(targetOrderError, null, 2));
             } else if (targetOrderData) {
-                console.log(`✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn TỒN TẠI trong bảng orders`);
+                console.log(`✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn TỒN TẠI trong bảng ${ordersTable}`);
                 console.log(`\n📋 Thông tin đơn hàng:`);
                 console.log(`  - order_code: "${targetOrderData.order_code}"`);
                 console.log(`  - id: ${targetOrderData.id || '(null)'}`);
@@ -2423,7 +2425,7 @@ const AdminTools = () => {
                 console.log(`  - Lý do: ${reason}`);
                 console.log(`${'='.repeat(60)}\n`);
             } else {
-                console.log(`❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn KHÔNG TỒN TẠI trong bảng orders!`);
+                console.log(`❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn KHÔNG TỒN TẠI trong bảng ${ordersTable}!`);
                 console.log(`  - Query trả về null/undefined - đơn không có trong database`);
                 console.log(`  - Vui lòng kiểm tra lại mã đơn hàng hoặc import đơn vào database`);
                 console.log(`${'='.repeat(60)}\n`);
@@ -2462,10 +2464,10 @@ const AdminTools = () => {
             
             let allOrdersArray = [];
             try {
-                const allOrdersQuery = supabase.from('orders').select('*');
+                const allOrdersQuery = supabase.from(ordersTable).select('*');
                 allOrdersArray = await queryAllOrders(allOrdersQuery);
                 addLog(`✅ Đã lấy ${allOrdersArray.length} đơn từ database (tất cả)`, 'success');
-                console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (bảng orders)`);
+                console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (bảng ${ordersTable})`);
             } catch (allOrdersError) {
                 addLog(`❌ Lỗi query tất cả đơn: ${allOrdersError.message}`, 'error');
                 console.error('❌ [Chia đơn vận đơn] Lỗi query tất cả đơn:', allOrdersError);
@@ -2565,20 +2567,20 @@ const AdminTools = () => {
             console.log(`  - Tổng đơn có delivery_staff trống/null/empty: ${ordersArray.length}`);
             console.log(`  - Đơn bị loại trừ (Nhật Bản): ${ordersExcludedJapan.length}`);
             console.log(`  - Tổng tất cả đơn: ${allOrdersArray.length}`);
-            console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (bảng orders)`);
+            console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (bảng ${ordersTable})`);
             
             // Kiểm tra đơn đặc biệt trong dữ liệu lấy về
             const targetInAllOrders = allOrdersArray.find(o => o.order_code === TARGET_ORDER_CODE);
             if (targetInAllOrders) {
-                console.log(`\n✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn có trong dữ liệu từ bảng orders`);
+                console.log(`\n✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn có trong dữ liệu từ bảng ${ordersTable}`);
                 console.log(`  - delivery_staff: "${targetInAllOrders.delivery_staff || '(null)'}"`);
                 console.log(`  - team: "${targetInAllOrders.team || '(null)'}"`);
                 console.log(`  - country: "${targetInAllOrders.country || '(null)'}"`);
                 console.log(`  - sale_staff: "${targetInAllOrders.sale_staff || '(null)'}"`);
             } else {
-                console.log(`\n❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn KHÔNG có trong dữ liệu từ bảng orders!`);
+                console.log(`\n❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn KHÔNG có trong dữ liệu từ bảng ${ordersTable}!`);
                 console.log(`  - Đơn không tồn tại trong database hoặc có lỗi khi query`);
-                console.log(`  - Vui lòng kiểm tra xem đơn có tồn tại trong bảng orders không`);
+                console.log(`  - Vui lòng kiểm tra xem đơn có tồn tại trong bảng ${ordersTable} không`);
             }
 
             // Thống kê delivery_staff để debug (tất cả đơn)
@@ -2829,7 +2831,7 @@ const AdminTools = () => {
                             const chunk = teamUpdates.slice(i, i + CHUNK_SIZE);
                             const updatePromises = chunk.map(u =>
                                 supabase
-                                    .from('orders')
+                                    .from(ordersTable)
                                     .update({ team: u.team })
                                     .eq('order_code', u.order_code)
                             );
@@ -2842,7 +2844,7 @@ const AdminTools = () => {
                         // Sau khi điền team, reload lại ordersArray từ database để có dữ liệu mới nhất
                         console.log(`🔄 [Chia đơn vận đơn] Reload lại đơn hàng sau khi điền team...`);
                         const { data: reloadedOrders, error: reloadError } = await supabase
-                            .from('orders')
+                            .from(ordersTable)
                             .select('*')
                             .in('order_code', teamUpdates.map(u => u.order_code));
                         
@@ -3706,7 +3708,7 @@ const AdminTools = () => {
                 try {
                     // Lấy các đơn đã được chia trong ngày hôm nay để biết thu_tu_chia hiện tại
                     const { data: todayAssignedOrders, error: todayAssignedError } = await supabase
-                        .from('orders')
+                        .from(ordersTable)
                         .select('delivery_staff, thu_tu_chia, ngay_chia_van_don')
                         .eq('ngay_chia_van_don', todayStr)
                         .not('delivery_staff', 'is', null);
@@ -3746,7 +3748,7 @@ const AdminTools = () => {
                             const nextOrderIndex = globalOrderIndex;
 
                             const { data, error } = await supabase
-                                .from('orders')
+                                .from(ordersTable)
                                 .update({
                                     delivery_staff: update.delivery_staff,
                                     // Ghi lại ngày chia vận đơn là ngày hiện tại
@@ -3841,7 +3843,7 @@ const AdminTools = () => {
                     targetOrderInfo = `\n\n${'='.repeat(60)}\n` +
                         `❌ LỖI: ĐƠN ${TARGET_ORDER_CODE} KHÔNG TỒN TẠI\n` +
                         `${'='.repeat(60)}\n` +
-                        `Đơn ${TARGET_ORDER_CODE} không tìm thấy trong bảng orders!\n` +
+                        `Đơn ${TARGET_ORDER_CODE} không tìm thấy trong bảng ${ordersTable}!\n` +
                         `Vui lòng kiểm tra lại mã đơn hàng hoặc import đơn vào database.\n` +
                         `${'='.repeat(60)}\n`;
                 } else if (targetOrderData) {

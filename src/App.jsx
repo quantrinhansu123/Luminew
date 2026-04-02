@@ -131,6 +131,7 @@ function AppShell() {
                     reportTableName="sale_report_hcm"
                     hcmXemBaoCaoSaleTeamFilter
                     showPersonnelNameFilter
+                    hideBoPhanFilter
                     pageAccessCodes={['SALE_VIEW_HCM', 'SALE_VIEW']}
                   />
                 </ProtectedRoute>

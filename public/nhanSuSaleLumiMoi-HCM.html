@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Báo cáo tổng hợp chi tiết</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* --- BASE STYLES --- */
+        :root {
+            --primary-color: #4A6E23;
+            --primary-light: #8BC34A;
+            --primary-dark: #2E4617;
+            --secondary-color: #FFC107;
+            --accent-color: #2196F3;
+            --text-dark: #333;
+            --text-medium: #555;
+            --text-light: #777;
+            --bg-light: #f8f9fa;
+            --border-color: #e0e0e0;
+            --success-color: #4CAF50;
+            --warning-color: #FF9800;
+            --danger-color: #F44336;
+            --font-main: 'Roboto', Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-main);
+            padding: 20px;
+            background-color: var(--bg-light);
+            font-weight: 500;
+            color: var(--text-dark);
+            line-height: 1.6;
+        }
+
+        /* --- STYLES CHO TABS --- */
+        .tabs-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .tab-button {
+            padding: 12px 20px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            background-color: transparent;
+            color: var(--text-medium);
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s ease;
+            position: relative;
+            top: 2px;
+        }
+
+        .tab-button:hover {
+            background-color: rgba(0, 0, 0, 0.03);
+            color: var(--text-dark);
+        }
+
+        .tab-button.active {
+            color: var(--primary-color);
+            border-bottom: 3px solid var(--primary-color);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* CẬP NHẬT CSS: Thêm ID iframe-kpi-sale vào danh sách style */
+        #iframe-thu-cong,
+        #iframe-van-don-sale,
+        #iframe-kpi-sale {
+            width: 100%;
+            height: 80vh;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+
+        /* --- RESPONSIVE CONTAINERS --- */
+        .report-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: flex-start;
+            max-width: 2400px;
+            margin: 0 auto;
+        }
+
+        /* --- TABLE STYLES --- */
+        .table-responsive-container {
+            overflow-x: auto;
+            margin-bottom: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            table-layout: auto;
+            margin-top: 20px;
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            font-size: 0.95em;
+        }
+
+        th,
+        td {
+            border: 1px solid var(--border-color);
+            padding: 12px 15px;
+            white-space: nowrap;
+            vertical-align: middle;
+            transition: all 0.2s ease;
+        }
+
+        th {
+            text-align: center !important;
+            background: var(--primary-light);
+            color: white;
+            font-weight: 700;
+            font-size: 1.05em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        td {
+            text-align: right !important;
+            font-weight: 500;
+        }
+
+        .text-left {
+            text-align: left !important;
+        }
+
+        .text-center {
+            text-align: center !important;
+        }
+
+        /* --- TABLE INTERACTION --- */
+        tbody tr {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        tbody tr:not(.row-selected):not(.total-row):hover {
+            background-color: rgba(139, 195, 74, 0.08);
+        }
+
+        tbody tr.row-selected,
+        tbody tr.row-selected:hover {
+            background-color: #FFF59D !important;
+            color: var(--text-dark) !important;
+            font-weight: 600;
+        }
+
+        /* --- SUMMARY ROW STYLES --- */
+        tr.total-row,
+        tr.total-row:hover {
+            background: var(--primary-dark);
+            color: white;
+            font-size: 1.1em;
+            font-weight: 700;
+            border-bottom: 3px solid var(--primary-light);
+            cursor: default;
+        }
+
+        .total-label {
+            text-align: left !important;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .total-value {
+            text-align: right !important;
+            font-weight: 700;
+        }
+
+        /* --- CONDITIONAL FORMATTING --- */
+        .bg-green {
+            background-color: var(--primary-light) !important;
+            color: white;
+            font-weight: 600;
+        }
+
+        .bg-yellow {
+            background-color: var(--secondary-color) !important;
+            color: var(--text-dark);
+            font-weight: 600;
+        }
+
+        /* --- STYLE CHO TOP 3 --- */
+        .top-1,
+        .top-2,
+        .top-3 {
+            border-left: 5px solid;
+            font-weight: 700 !important;
+        }
+
+        .top-1 {
+            background-color: #fffbeb;
+            border-color: #FFD700;
+            /* Gold */
+        }
+
+        .top-2 {
+            background-color: #f5f7fa;
+            border-color: #C0C0C0;
+            /* Silver */
+        }
+
+        .top-3 {
+            background-color: #fff5eb;
+            border-color: #CD7F32;
+            /* Bronze */
+        }
+
+        .top-1:hover,
+        .top-2:hover,
+        .top-3:hover {
+            filter: brightness(0.98);
+        }
+
+        /* --- SIDEBAR STYLES --- */
+        .sidebar {
+            width: 280px;
+            flex-shrink: 0;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.05);
+            position: sticky;
+            top: 20px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+
+        .main-detailed {
+            flex-grow: 1;
+            min-width: 0;
+            width: calc(100% - 300px);
+        }
+
+        /* --- SIDEBAR COMPONENTS --- */
+        .sidebar h3 {
+            background: var(--primary-color);
+            color: #fff;
+            padding: 12px 15px;
+            margin: 20px 0 10px;
+            border-radius: 6px;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+
+        .sidebar label {
+            display: block;
+            margin: 12px 0;
+            font-size: 0.95em;
+            color: var(--text-medium);
+            font-weight: 500;
+        }
+
+        .sidebar .indent {
+            margin-left: 20px;
+        }
+
+        .sidebar input[type="date"] {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            margin: 6px 0 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.95em;
+            transition: border 0.2s ease;
+        }
+
+        .sidebar input[type="date"]:focus {
+            outline: none;
+            border-color: var(--primary-light);
+            box-shadow: 0 0 0 2px rgba(139, 195, 74, 0.2);
+        }
+
+        .sidebar input[type="checkbox"] {
+            margin-right: 8px;
+            transform: scale(1.1);
+            vertical-align: middle;
+        }
+
+        /* --- HEADER STYLES --- */
+        .header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header img {
+            height: 70px;
+            width: 70px;
+            margin-right: 20px;
+            border-radius: 8px;
+            object-fit: cover;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h2 {
+            margin: 0;
+            color: var(--primary-color);
+            font-size: 1.8em;
+            font-weight: 700;
+        }
+
+        /* --- DAILY BREAKDOWN --- */
+        .daily-breakdown h3 {
+            margin: 30px 0 15px;
+            background: #f8f9fa;
+            padding: 12px 15px;
+            border-left: 4px solid var(--primary-color);
+            border-radius: 0 6px 6px 0;
+            font-size: 1.2em;
+            color: var(--primary-dark);
+        }
+
+        /* --- LOADING OVERLAY --- */
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            font-size: 1.2em;
+            color: var(--primary-color);
+            transition: all 0.3s ease;
+            visibility: hidden;
+            opacity: 0;
+            backdrop-filter: blur(3px);
+        }
+
+        #loading-overlay.visible {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* --- RESPONSIVE ADJUSTMENTS --- */
+        @media (max-width: 1200px) {
+            .report-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                position: static;
+                max-height: none;
+            }
+
+            .main-detailed {
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+
+            th,
+            td {
+                padding: 10px 12px;
+                font-size: 0.9em;
+            }
+
+            .header img {
+                height: 60px;
+                width: 60px;
+            }
+
+            .header h2 {
+                font-size: 1.5em;
+            }
+        }
+
+        /* --- ANIMATIONS --- */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        table tbody tr {
+            animation: fadeIn 0.4s ease-out forwards;
+            animation-delay: calc(var(--row-index, 0) * 0.03s);
+            opacity: 0;
+        }
+
+        table tbody tr:nth-child(odd):not(.top-1):not(.top-2):not(.top-3):not(.total-row) {
+            background-color: rgba(0, 0, 0, 0.015);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading-overlay">Đang tải dữ liệu...</div>
+
+    <div class="report-container">
+        <div class="sidebar">
+            <h3>Bộ lọc</h3>
+            <label>Từ ngày:<input type="date" id="start-date"></label>
+            <label>Đến ngày:<input type="date" id="end-date"></label>
+            <h3>Sản phẩm</h3>
+            <label><input type="checkbox" id="product-all" checked> Tất cả</label>
+            <div id="product-options" class="indent"></div>
+            <h3>Ca</h3>
+            <label><input type="checkbox" id="ca-all" checked> Tất cả</label>
+            <div id="ca-options" class="indent"></div>
+            <h3>Team</h3>
+            <label><input type="checkbox" id="team-all" checked> Tất cả</label>
+            <div id="team-options" class="indent"></div>
+            <h3>Thị trường</h3>
+            <label><input type="checkbox" id="market-all" checked> Tất cả</label>
+            <div id="market-options" class="indent"></div>
+        </div>
+
+        <div class="main-detailed">
+            <div class="header">
+                <img src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
+                    alt="Logo">
+                <h2 id="report-title">DỮ LIỆU TỔNG HỢP</h2>
+            </div>
+
+            <div class="tabs-container">
+                <button class="tab-button active" data-tab="sau-huy">Sale đã trừ hủy</button>
+                <button class="tab-button" data-tab="chot">Dữ liệu báo cáo tay</button>
+                <!-- Thêm Button KPIs Sale -->
+                <button class="tab-button" data-tab="kpi-sale">KPIs Sale</button>
+                <button class="tab-button" data-tab="van-don-sale">Vận đơn Sale</button>
+                <button class="tab-button" data-tab="thu-cong" id="tab-btn-thu-cong" style="display: none;">Báo cáo thủ
+                    công</button>
+            </div>
+
+            <!-- Tab 1: Sale đã trừ hủy -->
+            <div id="tab-sau-huy" class="tab-content active">
+                <div class="table-responsive-container">
+                    <table id="summary-table-sau-huy">
+                        <thead>
+                            <tr>
+                                <th>STT</th>
+                                <th>Chi nhánh</th>
+                                <th>Team</th>
+                                <th>Sale</th>
+                                <th>Số đơn hủy</th>
+                                <th>Số đơn TT</th>
+                                <th>Số đơn sau huỷ</th>
+                                <th>Doanh số</th>
+                                <th>DS Sau Hủy TT</th>
+                                <th>Tỉ lệ chốt</th>
+                                <th>Tỉ lệ hủy</th>
+                            </tr>
+                        </thead>
+                        <tbody id="summary-body-sau-huy"></tbody>
+                    </table>
+                </div>
+                <div id="daily-breakdown-sau-huy"></div>
+            </div>
+
+            <!-- Tab 2: Dữ liệu báo cáo tay -->
+            <div id="tab-chot" class="tab-content">
+                <div class="table-responsive-container">
+                    <table id="summary-table-chot">
+                        <thead>
+                            <tr>
+                                <th>STT</th>
+                                <th>Chi nhánh</th>
+                                <th>Team</th>
+                                <th>Sale</th>
+                                <th>Số Mess</th>
+                                <th>Phản hồi</th>
+                                <th>Số Đơn</th>
+                                <th>Số Đơn TT</th>
+                                <th>DS Chốt</th>
+                                <th>DS Chốt TT</th>
+                                <th>Tỉ lệ chốt</th>
+                            </tr>
+                        </thead>
+                        <tbody id="summary-body-chot"></tbody>
+                    </table>
+                </div>
+                <div id="daily-breakdown-chot"></div>
+            </div>
+
+            <!-- Tab 3 (Mới): KPIs Sale — src gán bằng JS: cùng origin app → /embed/ (tránh CORS github.io → n-api-rouge) -->
+            <div id="tab-kpi-sale" class="tab-content">
+                <iframe id="iframe-kpi-sale" src="about:blank" title="KPIs Sale" frameborder="0"></iframe>
+            </div>
+
+            <!-- Tab 4: Vận đơn Sale -->
+            <div id="tab-van-don-sale" class="tab-content">
+                <iframe id="iframe-van-don-sale" src="about:blank" title="Vận đơn Sale" frameborder="0"></iframe>
+            </div>
+
+            <!-- Tab 5: Báo cáo thủ công -->
+            <div id="tab-thu-cong" class="tab-content">
+                <iframe id="iframe-thu-cong" src="about:blank" frameborder="0"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let rawData = [];
+        let isRestrictedView = false;
+        let allowedNames = [];
+        let allowedTeam = null;
+        let allowedBranch = null;
+        let currentUserInfo = null;
+        const loader = document.getElementById('loading-overlay');
+        const showLoader = () => loader.classList.add('visible');
+        const hideLoader = () => loader.classList.remove('visible');
+
+        /** Đồng bộ `src/supabase/config.js` — override: `window.__SUPABASE_HCM_URL__` / `window.__SUPABASE_HCM_KEY__` trước khi tải. */
+        const SUPABASE_URL = window.__SUPABASE_HCM_URL__ || 'https://gsjhsmxyxjyiqovauyrp.supabase.co';
+        const SUPABASE_ANON_KEY = window.__SUPABASE_HCM_KEY__ || 'sb_publishable_vXBSa3eP8cvjIK2qLWI6Ug_FoYm4CNy';
+        const HCM_REPORT_TABLE = 'sale_report_hcm';
+        const SALES_HCM_SELECT =
+            'name,email,team,branch,position,date,shift,product,market,mess_count,response_count,order_count,revenue_mess,revenue_actual,revenue_go_actual,order_cancel_count,revenue_cancel,order_success_count,revenue_success,order_cancel_count_actual,revenue_cancel_actual,id';
+
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+        function formatCurrency(value) {
+            return Number(value || 0).toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
+        }
+        function formatNumber(value) {
+            return Number(value || 0).toLocaleString('vi-VN');
+        }
+        function formatPercent(value) {
+            if (value === null || value === undefined || !isFinite(value)) return '0.00%';
+            return `${(Number(value || 0) * 100).toFixed(2)}%`;
+        }
+        function formatDate(dateValue) {
+            const d = new Date(dateValue);
+            if (isNaN(d.getTime())) return dateValue;
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+
+        /** Cùng origin với Luminew → iframe nội bộ (cookie đăng nhập + không CORS). Trên github.io vẫn dùng URL cũ (có thể lỗi). */
+        function isAppSameOriginEmbeds() {
+            const h = (window.location.hostname || '').toLowerCase();
+            return h !== 'nguyenbatyads37.github.io' && !h.endsWith('.github.io');
+        }
+        function embedKpiUrl(idParam) {
+            if (!isAppSameOriginEmbeds()) {
+                return idParam
+                    ? `https://nguyenbatyads37.github.io/static-html-show-data/KPisale.html?id=${encodeURIComponent(idParam)}`
+                    : 'https://nguyenbatyads37.github.io/static-html-show-data/KPisale.html';
+            }
+            const q = idParam ? `?id=${encodeURIComponent(idParam)}` : '';
+            return `${window.location.origin}/embed/bao-cao-hieu-suat-kpi${q}`;
+        }
+        function embedVanDonUrl(idParam) {
+            if (!isAppSameOriginEmbeds()) {
+                return idParam
+                    ? `https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html?id=${encodeURIComponent(idParam)}`
+                    : 'https://nguyenbatyads37.github.io/static-html-show-data/Vandonsale.html';
+            }
+            const q = idParam ? `?id=${encodeURIComponent(idParam)}` : '';
+            return `${window.location.origin}/embed/bao-cao-van-don${q}`;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const idInit = getUrlParameter('id');
+            document.getElementById('iframe-kpi-sale').src = embedKpiUrl(idInit || '');
+            document.getElementById('iframe-van-don-sale').src = embedVanDonUrl(idInit || '');
+            addEventListeners();
+            setDefaultDates();
+            fetchAndProcessData();
+        });
+
+        function addEventListeners() {
+            document.body.addEventListener('change', (e) => {
+                if (e.target.matches('input[type="checkbox"], input[type="date"]')) {
+                    handleFilterChange(e.target);
+                }
+            });
+
+            document.body.addEventListener('click', function (e) {
+                const row = e.target.closest('tbody tr');
+                if (!row || row.classList.contains('total-row')) return;
+
+                const isAlreadySelected = row.classList.contains('row-selected');
+                document.querySelectorAll('tbody tr.row-selected').forEach(selectedRow => {
+                    selectedRow.classList.remove('row-selected');
+                });
+                if (!isAlreadySelected) {
+                    row.classList.add('row-selected');
+                }
+            });
+
+            document.querySelector('.tabs-container').addEventListener('click', function (e) {
+                if (!e.target.classList.contains('tab-button')) return;
+
+                const targetTabId = e.target.dataset.tab;
+
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+                e.target.classList.add('active');
+                document.getElementById(`tab-${targetTabId}`).classList.add('active');
+
+                if (targetTabId === 'thu-cong' && currentUserInfo) {
+                    const iframe = document.getElementById('iframe-thu-cong');
+                    const baseUrl = 'https://nguyenbatyads37.github.io/static-html-show-data/baoCaoThuCong.html';
+                    const params = new URLSearchParams({
+                        hoten: currentUserInfo.ten,
+                        email: currentUserInfo.email,
+                        tableName: 'Báo cáo sale'
+                    });
+                    const newSrc = `${baseUrl}?${params.toString()}`;
+                    if (iframe.src !== newSrc) {
+                        iframe.src = newSrc;
+                    }
+                }
+            });
+        }
+
+        function setDefaultDates() {
+            const today = new Date();
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            const formatDateForInput = (date) => date.toISOString().split('T')[0];
+            document.getElementById('start-date').value = formatDateForInput(firstDay);
+            document.getElementById('end-date').value = formatDateForInput(lastDay);
+        }
+
+        function normalizeViAscii(s) {
+            return String(s || '')
+                .normalize('NFD')
+                .replace(/\p{M}/gu, '')
+                .toLowerCase()
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+        function displayChiNhanhFromBranchAndTeam(branchStr, teamStr) {
+            const b = String(branchStr || '').trim();
+            if (b && !/^không xác định$/i.test(b)) return b;
+            const t = normalizeViAscii(teamStr);
+            if (/hcm|tp\.?\s*hcm|ho\s*chi\s*minh|sai\s*gon/.test(t)) return 'HCM';
+            if (/(^|\s)hn(\s|$)|ha\s*noi/.test(t)) return 'Hà Nội';
+            if (/da\s*nang/.test(t)) return 'Đà Nẵng';
+            if (/can\s*tho/.test(t)) return 'Cần Thơ';
+            return b || 'Không xác định';
+        }
+        function mapSupabaseRowToRaw(row) {
+            if (!row || typeof row !== 'object') return null;
+            const ten = String(row.name ?? '').trim();
+            const teamRaw = String(row.team ?? '').trim();
+            const branchRaw = String(row.branch ?? '').trim();
+            const team = teamRaw || branchRaw || 'Không xác định';
+            if (!ten) return null;
+            const oc = Number(row.order_count) || 0;
+            const rm = Number(row.revenue_mess) || 0;
+            const ra = Number(row.revenue_actual) || 0;
+            const rca = Number(row.revenue_cancel_actual) || 0;
+            return {
+                chucVu: String(row.position ?? '').trim(),
+                ten,
+                email: String(row.email ?? '').trim(),
+                team,
+                chiNhanh: displayChiNhanhFromBranchAndTeam(row.branch, row.team),
+                ngay: row.date ?? '',
+                ca: row.shift || 'Hết ca',
+                sanPham: row.product || '',
+                thiTruong: row.market || '',
+                soMessCmt: Number(row.mess_count) || 0,
+                soDon: oc,
+                dsChot: rm,
+                phanHoi: Number(row.response_count) || 0,
+                doanhSoDi: Number(row.revenue_go_actual) || 0,
+                soDonHuy: Number(row.order_cancel_count) || 0,
+                doanhSoHuy: Number(row.revenue_cancel) || 0,
+                soDonThanhCong: Number(row.order_success_count) || 0,
+                doanhSoThanhCong: Number(row.revenue_success) || 0,
+                soDonThucTe: oc,
+                doanhThuChotThucTe: ra,
+                doanhSoDiThucTe: Number(row.revenue_go_actual) || 0,
+                soDonHoanHuyThucTe: Number(row.order_cancel_count_actual) || 0,
+                doanhSoHoanHuyThucTe: rca,
+                doanhSoSauHoanHuyThucTe: ra - rca,
+            };
+        }
+        async function fetchSaleReportHcmFromSupabase(supabase, startDateStr, endDateStr) {
+            const PAGE = 1000;
+            const rows = [];
+            let from = 0;
+            while (true) {
+                const { data, error } = await supabase
+                    .from(HCM_REPORT_TABLE)
+                    .select(SALES_HCM_SELECT)
+                    .gte('date', startDateStr)
+                    .lte('date', endDateStr)
+                    .order('date', { ascending: false })
+                    .order('id', { ascending: true })
+                    .range(from, from + PAGE - 1);
+                if (error) throw error;
+                const chunk = data || [];
+                rows.push(...chunk);
+                if (chunk.length < PAGE) break;
+                from += PAGE;
+            }
+            return rows.map(mapSupabaseRowToRaw).filter(Boolean);
+        }
+        async function fetchUsersForEmployeeData(supabase) {
+            const { data, error } = await supabase
+                .from('users')
+                .select('id_appsheet, email, name, username, position, team, branch')
+                .not('id_appsheet', 'is', null);
+            if (error) {
+                console.warn('[HCM HTML] users:', error);
+                return [];
+            }
+            return (data || [])
+                .filter((u) => String(u.id_appsheet || '').trim() !== '')
+                .map((u) => ({
+                    id: String(u.id_appsheet).trim(),
+                    Email: (u.email || '').trim(),
+                    'Họ Và Tên': (u.name || u.username || '').trim(),
+                    'Chức vụ': (u.position || '').trim(),
+                    'Vị trí': (u.position || '').trim(),
+                    Team: (u.team || '').trim(),
+                    'Chi nhánh': (u.branch || '').trim(),
+                    'chi nhánh': (u.branch || '').trim(),
+                }));
+        }
+
+        async function fetchAndProcessData() {
+            showLoader();
+            const startDateStr = document.getElementById('start-date').value;
+            const endDateStr = document.getElementById('end-date').value;
+            if (!startDateStr || !endDateStr) {
+                hideLoader();
+                alert('Chọn đủ Từ ngày và Đến ngày.');
+                return;
+            }
+            try {
+                const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+                const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                const [internalRows, employeeData] = await Promise.all([
+                    fetchSaleReportHcmFromSupabase(supabase, startDateStr, endDateStr),
+                    fetchUsersForEmployeeData(supabase),
+                ]);
+
+                const idFromUrl = getUrlParameter('id');
+                const hcmFullData = getUrlParameter('hcmFullData') === '1' || getUrlParameter('hcmFullData') === 'true';
+
+                if (idFromUrl) {
+                    const vanDonIframe = document.getElementById('iframe-van-don-sale');
+                    const kpiIframe = document.getElementById('iframe-kpi-sale');
+                    vanDonIframe.src = embedVanDonUrl(idFromUrl);
+                    kpiIframe.src = embedKpiUrl(idFromUrl);
+                    console.log('Set iframes URLs with ID:', idFromUrl);
+                }
+
+                if (idFromUrl && !hcmFullData) {
+                    const currentUserRecord = employeeData.find(
+                        (record) => record['id'] === idFromUrl && record['Email'] != ''
+                    );
+                    isRestrictedView = true;
+                    if (currentUserRecord) {
+                        const cleanName = (currentUserRecord['Họ Và Tên'] || '').trim();
+                        const userRole = (currentUserRecord['Chức vụ'] || currentUserRecord['Vị trí'] || '').trim();
+                        const userBranch =
+                            (currentUserRecord['chi nhánh'] || currentUserRecord['Chi nhánh'] || '').trim() ||
+                            'Không xác định';
+                        const userTeam = (currentUserRecord['Team'] || '').trim();
+
+                        console.log('Current user:', cleanName, '- Role:', userRole, '- Branch:', userBranch, '- Team:', userTeam);
+
+                        currentUserInfo = {
+                            ten: cleanName,
+                            email: (currentUserRecord['Email'] || '').trim(),
+                        };
+                        document.getElementById('tab-btn-thu-cong').style.display = 'inline-block';
+
+                        if (userRole === 'Sale Leader') {
+                            allowedBranch = userBranch;
+                            allowedTeam = null;
+                            allowedNames = [];
+                            document.getElementById('report-title').textContent = `DỮ LIỆU CHI NHÁNH - ${userBranch}`;
+                            console.log('Sale Leader mode: showing branch', allowedBranch);
+                        } else if (userRole === 'Leader') {
+                            allowedTeam = userTeam ? userTeam.trim() : null;
+                            allowedBranch = null;
+                            allowedNames = [];
+                            document.getElementById('report-title').textContent = `DỮ LIỆU TEAM - ${userTeam}`;
+                            console.log('Leader mode: showing team', allowedTeam);
+                        } else if (userRole === 'NV') {
+                            document.getElementById('report-title').textContent = `DỮ LIỆU CÁ NHÂN - ${cleanName}`;
+                            allowedNames = [cleanName];
+                            allowedTeam = null;
+                            console.log('NV mode: showing personal data for', cleanName);
+                        } else {
+                            document.getElementById('report-title').textContent = `DỮ LIỆU CÁ NHÂN - ${cleanName}`;
+                            allowedNames = [cleanName];
+                            allowedTeam = null;
+                            allowedBranch = null;
+                            console.log('Default mode: showing personal data for', cleanName);
+                        }
+                    } else {
+                        document.getElementById('report-title').textContent = 'KHÔNG TÌM THẤY DỮ LIỆU';
+                        allowedNames = [];
+                        allowedTeam = null;
+                        allowedBranch = null;
+                    }
+                } else {
+                    isRestrictedView = false;
+                    allowedNames = [];
+                    allowedTeam = null;
+                    allowedBranch = null;
+                    currentUserInfo = null;
+                    document.getElementById('report-title').textContent = 'DỮ LIỆU TỔNG HỢP';
+                    if (hcmFullData && idFromUrl) {
+                        document.getElementById('tab-btn-thu-cong').style.display = 'none';
+                    }
+                }
+
+                rawData = internalRows.filter(
+                    (r) => r.ten && String(r.ten).trim() !== '' && r.team && String(r.team).trim() !== ''
+                );
+
+                const dataForFilters = isRestrictedView
+                    ? rawData.filter((r) => {
+                          if (allowedBranch) {
+                              const recordBranch = (r.chiNhanh || '').trim();
+                              return recordBranch.toLowerCase() === allowedBranch.toLowerCase();
+                          }
+                          if (allowedTeam) {
+                              const recordTeam = (r.team || '').trim();
+                              return recordTeam === allowedTeam;
+                          }
+                          if (allowedNames.length > 0) return allowedNames.includes(r.ten);
+                          return false;
+                      })
+                    : rawData;
+
+                populateAllFilters(dataForFilters);
+                applyFilters();
+            } catch (err) {
+                console.error('Lỗi khi tải dữ liệu (Supabase sale_report_hcm):', err);
+                alert(
+                    'Không thể tải dữ liệu từ Supabase (bảng sale_report_hcm). Kiểm tra mạng, RLS hoặc khóa anon.'
+                );
+            } finally {
+                hideLoader();
+            }
+        }
+
+        function summarizeAndSortSalesData(data) {
+            const summaryData = {};
+            const initialSummary = {
+                mess: 0, don: 0, chot: 0, phanHoi: 0,
+                doanhSoDi: 0, soDonHuy: 0, doanhSoHuy: 0,
+                soDonThanhCong: 0, doanhSoThanhCong: 0,
+                soDonThucTe: 0, doanhThuChotThucTe: 0, doanhSoDiThucTe: 0,
+                soDonHoanHuyThucTe: 0, doanhSoHoanHuyThucTe: 0, doanhSoSauHoanHuyThucTe: 0
+            };
+
+            data.forEach(r => {
+                const name = r.ten;
+                if (!summaryData[name]) {
+                    summaryData[name] = {
+                        chiNhanh: r.chiNhanh, team: r.team,
+                        ...JSON.parse(JSON.stringify(initialSummary))
+                    };
+                }
+                summaryData[name].mess += r.soMessCmt;
+                summaryData[name].don += r.soDon;
+                summaryData[name].chot += r.dsChot;
+                summaryData[name].phanHoi += r.phanHoi;
+                summaryData[name].soDonThucTe += r.soDonThucTe;
+                summaryData[name].doanhThuChotThucTe += r.doanhThuChotThucTe;
+                summaryData[name].soDonHoanHuyThucTe += r.soDonHoanHuyThucTe;
+                summaryData[name].doanhSoHoanHuyThucTe += r.doanhSoHoanHuyThucTe;
+                summaryData[name].doanhSoDi += r.doanhSoDi;
+                summaryData[name].soDonHuy += r.soDonHuy;
+                summaryData[name].doanhSoHuy += r.doanhSoHuy;
+                summaryData[name].soDonThanhCong += r.soDonThanhCong;
+                summaryData[name].doanhSoThanhCong += r.doanhSoThanhCong;
+            });
+
+            const flatList = Object.keys(summaryData).map(name => ({ name, ...summaryData[name] }))
+                .sort((a, b) => a.team.localeCompare(b.team) || b.chot - a.chot || a.name.localeCompare(b.name));
+
+            const total = flatList.reduce((acc, item) => {
+                Object.keys(initialSummary).forEach(key => { acc[key] += item[key]; });
+                return acc;
+            }, JSON.parse(JSON.stringify(initialSummary)));
+
+            return { flatList, total };
+        }
+
+        function populateAllFilters(data) {
+            const populate = (key, containerId, className) => {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+                const uniqueValues = [...new Set(data.map(r => r[key]).filter(Boolean))].sort();
+                container.innerHTML = uniqueValues.map(val =>
+                    `<label><input type='checkbox' class='${className}' value='${val}' checked> ${val}</label>`
+                ).join('');
+            };
+            populate('sanPham', 'product-options', 'filter-product');
+            populate('thiTruong', 'market-options', 'filter-market');
+            populate('ca', 'ca-options', 'filter-ca');
+            populate('team', 'team-options', 'filter-team');
+        }
+
+        function handleCheckboxLogic(masterId, childClass, target) {
+            if (target.id === masterId) {
+                document.querySelectorAll(`.${childClass}`).forEach(cb => cb.checked = target.checked);
+            } else if (target.classList.contains(childClass)) {
+                const allChecked = [...document.querySelectorAll(`.${childClass}`)].every(cb => cb.checked);
+                document.getElementById(masterId).checked = allChecked;
+            }
+        }
+
+        function handleFilterChange(target) {
+            showLoader();
+            setTimeout(() => {
+                handleCheckboxLogic('product-all', 'filter-product', target);
+                handleCheckboxLogic('ca-all', 'filter-ca', target);
+                handleCheckboxLogic('team-all', 'filter-team', target);
+                handleCheckboxLogic('market-all', 'filter-market', target);
+                applyFilters();
+                hideLoader();
+            }, 10);
+        }
+
+        function applyFilters() {
+            const sdVal = document.getElementById('start-date').value;
+            const edVal = document.getElementById('end-date').value;
+            const startDate = sdVal ? new Date(sdVal) : null;
+            startDate && startDate.setHours(0, 0, 0, 0);
+            const endDate = edVal ? new Date(edVal) : null;
+            endDate && endDate.setHours(23, 59, 59, 999);
+
+            const getSelectedOptions = (masterId, childClass) => {
+                if (document.getElementById(masterId).checked) return null;
+                return [...document.querySelectorAll(`.${childClass}:checked`)].map(cb => cb.value);
+            };
+
+            const selectedProducts = getSelectedOptions('product-all', 'filter-product');
+            const selectedMarkets = getSelectedOptions('market-all', 'filter-market');
+            const selectedShifts = getSelectedOptions('ca-all', 'filter-ca');
+            const selectedTeams = getSelectedOptions('team-all', 'filter-team');
+
+            const filtered = rawData.filter(r => {
+                if (isRestrictedView) {
+                    // Lọc theo branch cho Sale Leader
+                    if (allowedBranch) {
+                        const recordBranch = (r.chiNhanh || '').trim();
+                        if (recordBranch.toLowerCase() !== allowedBranch.toLowerCase()) return false;
+                    }
+                    // Lọc theo team cho Leader
+                    if (allowedTeam) {
+                        const recordTeam = (r.team || '').trim();
+                        if (recordTeam !== allowedTeam) return false;
+                    }
+                    // Lọc theo tên cho NV và các role khác
+                    if (allowedNames.length > 0 && !allowedNames.includes(r.ten)) return false;
+                }
+                const recordDate = new Date(r.ngay);
+                recordDate.setHours(12, 0, 0, 0);
+                const isDateOk = (!startDate || recordDate >= startDate) && (!endDate || recordDate <= endDate);
+                const isProductOk = !selectedProducts || selectedProducts.includes(r.sanPham);
+                const isMarketOk = !selectedMarkets || selectedMarkets.includes(r.thiTruong);
+                const isShiftOk = !selectedShifts || selectedShifts.includes(String(r.ca));
+                const isTeamOk = !selectedTeams || selectedTeams.includes(String(r.team));
+                return isDateOk && isProductOk && isMarketOk && isShiftOk && isTeamOk;
+            });
+
+            renderSummary(filtered);
+            renderDailyBreakdown(filtered);
+        }
+
+        function renderSummary(data) {
+            const { flatList, total } = summarizeAndSortSalesData(data);
+
+            // Lọc bỏ team "Đã nghỉ"
+            const flatListFiltered = flatList.filter(item => {
+                const teamName = (item.team || '').trim();
+                return teamName !== 'Đã nghỉ';
+            });
+
+            // --- Tab 1: Sale đã trừ hủy ---
+            const soDonSauHuyTotal = total.soDonThucTe - total.soDonHoanHuyThucTe;
+            const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
+            const totalRateSauHuy = total.mess ? soDonSauHuyTotal / total.mess : 0;
+            // Lấy flatList báo cáo tay để đồng bộ số đơn và doanh số
+            const { flatList: flatListChot } = summarizeAndSortSalesData(data);
+            const soDonMap = {};
+            const doanhSoMap = {};
+            const soDonTTMap = {};
+            flatListChot.forEach(item => {
+                soDonMap[item.name] = item.don;
+                doanhSoMap[item.name] = item.chot;
+                soDonTTMap[item.name] = item.soDonThucTe;
+            });
+            // Tính tổng số đơn hủy và tỉ lệ hủy
+            const soDonHuyTotal = total.soDonThucTe - soDonSauHuyTotal;
+            const tiLeHuyTotal = total.soDonThucTe > 0 ? (soDonHuyTotal / total.soDonThucTe) : 0;
+            const totalRowHtmlSauHuy = `<tr class="total-row"><td class="total-label" colspan="4">TỔNG CỘNG</td><td class="total-value">${formatNumber(soDonHuyTotal)}</td><td class="total-value">${formatNumber(total.soDonThucTe)}</td><td class="total-value">${formatNumber(soDonSauHuyTotal)}</td><td class="total-value"></td><td class="total-value">${formatCurrency(dsSauHuyTTTotal)}</td><td class="total-value">${formatPercent(totalRateSauHuy)}</td><td class="total-value">${formatPercent(tiLeHuyTotal)}</td></tr>`;
+            const bodyRowsHtmlSauHuy = flatListFiltered.map((item, index) => {
+                const soDonSauHuy = item.soDonThucTe - item.soDonHoanHuyThucTe;
+                const dsSauHuyTT = item.doanhThuChotThucTe - item.doanhSoHoanHuyThucTe;
+                const rate = item.mess ? soDonSauHuy / item.mess : 0;
+                const rateClass = rate >= 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : '');
+                // Số đơn TT lấy từ tab đầu tiên (item.soDonThucTe)
+                const soDonTT = item.soDonThucTe;
+                // Số đơn hủy = Số đơn TT - Số đơn Sau Hủy (từ tab đầu tiên)
+                const soDonHuy = soDonTT - soDonSauHuy;
+                const tiLeHuy = soDonTT > 0 ? (soDonHuy / soDonTT) : 0;
+                return `<tr style="--row-index: ${index}"><td class="text-center">${index + 1}</td><td class="text-left">${item.chiNhanh}</td><td class="text-left">${item.team}</td><td class="text-left">${item.name}</td><td>${formatNumber(soDonHuy)}</td><td>${formatNumber(soDonTT)}</td><td>${formatNumber(soDonSauHuy)}</td><td>${formatCurrency(doanhSoMap[item.name] || 0)}</td><td>${formatCurrency(dsSauHuyTT)}</td><td class="${rateClass}">${formatPercent(rate)}</td><td>${formatPercent(tiLeHuy)}</td></tr>`;
+            }).join('');
+            document.getElementById('summary-body-sau-huy').innerHTML = totalRowHtmlSauHuy + bodyRowsHtmlSauHuy;
+
+            // --- Tab 2:Sale báo cáo tay ---
+            const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
+            const totalRowHtmlChot = `<tr class="total-row"><td class="total-label" colspan="4">TỔNG CỘNG</td><td class="total-value">${formatNumber(total.mess)}</td><td class="total-value">${formatNumber(total.phanHoi)}</td><td class="total-value">${formatNumber(total.don)}</td><td class="total-value">${formatNumber(total.soDonThucTe)}</td><td class="total-value">${formatCurrency(total.chot)}</td><td class="total-value">${formatCurrency(total.doanhThuChotThucTe)}</td><td class="total-value">${formatPercent(totalRateChot)}</td></tr>`;
+
+            const bodyRowsHtmlChot = flatListFiltered.map((item, index) => {
+                const rate = item.mess ? item.soDonThucTe / item.mess : 0;
+                const rateClass = rate >= 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : '');
+                return `<tr style="--row-index: ${index}"><td class="text-center">${index + 1}</td><td class="text-left">${item.chiNhanh}</td><td class="text-left">${item.team}</td><td class="text-left">${item.name}</td><td>${formatNumber(item.mess)}</td><td>${formatNumber(item.phanHoi)}</td><td>${formatNumber(item.don)}</td><td>${formatNumber(item.soDonThucTe)}</td><td>${formatCurrency(item.chot)}</td><td>${formatCurrency(item.doanhThuChotThucTe)}</td><td class="${rateClass}">${formatPercent(rate)}</td></tr>`;
+            }).join('');
+            document.getElementById('summary-body-chot').innerHTML = totalRowHtmlChot + bodyRowsHtmlChot;
+        }
+
+        function renderDailyBreakdown(data) {
+            const containerSauHuy = document.getElementById('daily-breakdown-sau-huy');
+            const containerChot = document.getElementById('daily-breakdown-chot');
+
+            if (!data.length) {
+                const noDataHtml = '<h3>Không có dữ liệu chi tiết để hiển thị.</h3>';
+                containerSauHuy.innerHTML = noDataHtml;
+                containerChot.innerHTML = noDataHtml;
+                return;
+            }
+
+            const groupedByDate = data.reduce((acc, r) => {
+                const dateKey = formatDate(r.ngay);
+                if (!acc[dateKey]) acc[dateKey] = [];
+                acc[dateKey].push(r);
+                return acc;
+            }, {});
+
+            const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(b.split('/').reverse().join('-')) - new Date(a.split('/').reverse().join('-')));
+
+            let finalHtmlSauHuy = '';
+            let finalHtmlChot = '';
+
+            sortedDates.forEach(date => {
+                const dailyData = groupedByDate[date];
+                const { flatList, total } = summarizeAndSortSalesData(dailyData);
+
+                // Lọc bỏ team "Đã nghỉ"
+                const flatListFiltered = flatList.filter(item => {
+                    const teamName = (item.team || '').trim();
+                    return teamName !== 'Đã nghỉ';
+                });
+
+                // --- Bảng cho Tab 1: Sale đã trừ hủy ---
+                const soDonSauHuyTotal = total.soDonThucTe - total.soDonHoanHuyThucTe;
+                const dsSauHuyTTTotal = total.doanhThuChotThucTe - total.doanhSoHoanHuyThucTe;
+                const totalRateSauHuy = total.mess ? soDonSauHuyTotal / total.mess : 0;
+                const totalRowHtmlSauHuy = `<tr class='total-row'><td colspan='4' class='total-label'>TỔNG NGÀY ${date}</td><td class='total-value'>${formatNumber(total.mess)}</td><td class='total-value'>${formatNumber(total.phanHoi)}</td><td class="total-value">${formatNumber(soDonSauHuyTotal)}</td><td class="total-value">${formatCurrency(dsSauHuyTTTotal)}</td><td class='total-value'>${formatPercent(totalRateSauHuy)}</td></tr>`;
+
+                const rowsHtmlSauHuy = flatListFiltered.map((item, index) => {
+                    const soDonSauHuy = item.soDonThucTe - item.soDonHoanHuyThucTe;
+                    const dsSauHuyTT = item.doanhThuChotThucTe - item.doanhSoHoanHuyThucTe;
+                    const rate = item.mess ? soDonSauHuy / item.mess : 0;
+                    const rateClass = rate >= 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : '');
+                    return `<tr style="--row-index: ${index}"><td class="text-center">${index + 1}</td><td class="text-left">${item.chiNhanh}</td><td class="text-left">${item.team}</td><td class="text-left">${item.name}</td><td>${formatNumber(item.mess)}</td><td>${formatNumber(item.phanHoi)}</td><td>${formatNumber(soDonSauHuy)}</td><td>${formatCurrency(dsSauHuyTT)}</td><td class="${rateClass}">${formatPercent(rate)}</td></tr>`;
+                }).join('');
+
+                const tableHtmlSauHuy = `<h3>Chi tiết ngày: ${date}</h3><div class="table-responsive-container"><table><thead><tr><th>STT</th><th>Chi nhánh</th><th>Team</th><th>Sale</th><th>Số Mess</th><th>Phản hồi</th><th>Số đơn sau huỷ</th><th>DS Sau Hủy TT</th><th>Tỉ lệ chốt</th></tr></thead><tbody>${totalRowHtmlSauHuy + rowsHtmlSauHuy}</tbody></table></div>`;
+                finalHtmlSauHuy += tableHtmlSauHuy;
+
+                // --- Bảng cho Tab 2: Sale báo cáo tay ---
+                const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
+                const totalRowHtmlChot = `<tr class='total-row'><td colspan='4' class='total-label'>TỔNG NGÀY ${date}</td><td class='total-value'>${formatNumber(total.mess)}</td><td class='total-value'>${formatNumber(total.phanHoi)}</td><td class='total-value'>${formatNumber(total.don)}</td><td class="total-value">${formatNumber(total.soDonThucTe)}</td><td class='total-value'>${formatCurrency(total.chot)}</td><td class="total-value">${formatCurrency(total.doanhThuChotThucTe)}</td><td class='total-value'>${formatPercent(totalRateChot)}</td></tr>`;
+
+                const rowsHtmlChot = flatListFiltered.map((item, index) => {
+                    const rate = item.mess ? item.soDonThucTe / item.mess : 0;
+                    const rateClass = rate >= 0.1 ? 'bg-green' : (rate > 0.05 ? 'bg-yellow' : '');
+                    return `<tr style="--row-index: ${index}"><td class="text-center">${index + 1}</td><td class="text-left">${item.chiNhanh}</td><td class="text-left">${item.team}</td><td class="text-left">${item.name}</td><td>${formatNumber(item.mess)}</td><td>${formatNumber(item.phanHoi)}</td><td>${formatNumber(item.don)}</td><td>${formatNumber(item.soDonThucTe)}</td><td>${formatCurrency(item.chot)}</td><td>${formatCurrency(item.doanhThuChotThucTe)}</td><td class="${rateClass}">${formatPercent(rate)}</td></tr>`;
+                }).join('');
+
+                const tableHtmlChot = `<h3>Chi tiết ngày: ${date}</h3><div class="table-responsive-container"><table><thead><tr><th>STT</th><th>Chi nhánh</th><th>Team</th><th>Sale</th><th>Số Mess</th><th>Phản hồi</th><th>Số Đơn</th><th>Số Đơn TT</th><th>DS Chốt</th><th>DS Chốt TT</th><th>Tỉ lệ chốt</th></tr></thead><tbody>${totalRowHtmlChot + rowsHtmlChot}</tbody></table></div>`;
+                finalHtmlChot += tableHtmlChot;
+            });
+
+            containerSauHuy.innerHTML = finalHtmlSauHuy;
+            containerChot.innerHTML = finalHtmlChot;
+        }
+    </script>
+</body>
+
+</html>
+
+
+
+
+
