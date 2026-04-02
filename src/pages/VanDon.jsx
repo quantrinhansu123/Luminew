@@ -1330,7 +1330,13 @@ function VanDon({ dataSource = 'default' }) {
                 const selected = val;
                 if (selected.length === 0) return true;
                 if (isVanDonSemanticEmpty(cellValue) && (selected.includes('Trống') || selected.includes('__EMPTY__'))) return true;
-                return selected.includes(cellValue);
+                const normalizedCell = String(cellValue).trim().toLowerCase();
+                const normalizedSelected = new Set(
+                  selected
+                    .map((v) => String(v).trim().toLowerCase())
+                    .filter(Boolean)
+                );
+                return normalizedSelected.has(normalizedCell);
               }
 
               if (["Ngày lên đơn", "Ngày đóng hàng", "Ngày đẩy đơn", "Ngày có mã tracking", "Ngày Kế toán đối soát với FFM lần 2"].includes(key)) {
@@ -2294,6 +2300,19 @@ function VanDon({ dataSource = 'default' }) {
           if (l === '') return false;
           return presetLower.has(l);
         });
+        // Luôn hiển thị đủ các mục trong preset (vd. "Đang Giao") dù chưa có dòng nào trong dữ liệu hiện tại.
+        const mergedLower = new Set(merged.map((v) => String(v).trim().toLowerCase()));
+        for (const p of preset) {
+          if (p === '') continue;
+          const pl = String(p).trim().toLowerCase();
+          if (!mergedLower.has(pl)) {
+            merged.push(String(p).trim());
+            mergedLower.add(pl);
+          }
+        }
+        merged.sort((a, b) =>
+          String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
+        );
       }
 
       // Một mục "Trống" cho ô trống; không thêm __EMPTY__ (vẫn tương thích khi selected còn __EMPTY__ từ bản cũ)
@@ -2355,7 +2374,9 @@ function VanDon({ dataSource = 'default' }) {
             ? addToast('Đang cập nhật...', 'loading', 0)
             : addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
         try {
-          const res = await API.updateBatch(rowsToUpdate, currentUsername, batchToProcess);
+          const res = await API.updateBatch(rowsToUpdate, currentUsername, batchToProcess, {
+            sourceTable: dataSource === 'hcm' ? 'order_code_hcm' : 'orders',
+          });
           if (res.success) success = true;
         } catch (e) {
           addToast(e.message, 'error');
@@ -2398,7 +2419,7 @@ function VanDon({ dataSource = 'default' }) {
     } finally {
       isProcessingQueue.current = false;
     }
-  }, [addToast, removeToast, deepCloneMapOfMaps, upsertPendingRowSnapshot, allData, queryClient, savePendingToLocalStorage]);
+  }, [addToast, removeToast, deepCloneMapOfMaps, upsertPendingRowSnapshot, allData, queryClient, savePendingToLocalStorage, dataSource]);
 
   // --- New Stack-Based History ---
   const pushChange = useCallback((changesArray) => {
@@ -3710,12 +3731,14 @@ function VanDon({ dataSource = 'default' }) {
             </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0 border-t border-gray-200 pt-1.5 mt-0.5 sm:border-t-0 sm:pt-0 sm:mt-0 sm:border-l sm:border-gray-200 sm:pl-1.5 sm:ml-0.5 bg-white w-full sm:w-auto justify-end sm:justify-start">
+              {dataSource !== 'hcm' && (
               <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded border border-gray-100">
                 <span className={`h-1.5 w-1.5 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`} />
                 <span className="text-[9px] uppercase font-bold text-gray-500 whitespace-nowrap">
                   {allData.length > 0 ? `${allData.length} ĐƠN` : 'NO DATA'}
                 </span>
               </div>
+              )}
               <button
                 onClick={() => refetchVanDonData()}
                 disabled={isQueryLoading}

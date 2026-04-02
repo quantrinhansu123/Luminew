@@ -36,11 +36,21 @@ const CURRENCY_OPTIONS = ['AUD', 'CAD', 'USD', 'YEN'];
 function sheetToJsonCuocImport(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   if (!rows.length) return [];
+
+  const normalizeLabel = (s) =>
+    String(s ?? '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''); // bỏ dấu tiếng Việt
+
   let headerIdx = -1;
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const r = rows[i];
     if (!Array.isArray(r)) continue;
-    const hasMaDon = r.some((c) => String(c).trim().toLowerCase() === 'mã đơn hàng');
+    const hasMaDon = r.some(
+      (c) => normalizeLabel(c) === normalizeLabel('Mã đơn hàng')
+    );
     if (hasMaDon) {
       headerIdx = i;
       break;
@@ -887,10 +897,19 @@ function DoiSoatBillCuoc() {
       const shippingCostMap = new Map();
       if (cuocData) {
         cuocData.forEach((row) => {
-          if (row.ma_don_hang && row.tien_ship_vnd) {
+          if (
+            row.ma_don_hang &&
+            row.tien_ship_vnd !== null &&
+            row.tien_ship_vnd !== undefined &&
+            row.tien_ship_vnd !== ''
+          ) {
             const orderCode = row.ma_don_hang;
             const currentTotal = shippingCostMap.get(orderCode) || 0;
-            shippingCostMap.set(orderCode, currentTotal + (parseFloat(row.tien_ship_vnd) || 0));
+            const raw = String(row.tien_ship_vnd).replace(/,/g, '');
+            const num = parseFloat(raw);
+            if (!isNaN(num)) {
+              shippingCostMap.set(orderCode, currentTotal + num);
+            }
           }
         });
       }
@@ -900,9 +919,18 @@ function DoiSoatBillCuoc() {
       if (billData) {
         billData.forEach((row) => {
           const orderCode = resolveBillOrderCode(row);
-          if (orderCode && row.tien_viet) {
+          if (
+            orderCode &&
+            row.tien_viet !== null &&
+            row.tien_viet !== undefined &&
+            row.tien_viet !== ''
+          ) {
             const currentTotal = totalVndMap.get(orderCode) || 0;
-            totalVndMap.set(orderCode, currentTotal + (parseFloat(row.tien_viet) || 0));
+            const raw = String(row.tien_viet).replace(/,/g, '');
+            const num = parseFloat(raw);
+            if (!isNaN(num)) {
+              totalVndMap.set(orderCode, currentTotal + num);
+            }
           }
         });
       }
@@ -930,6 +958,16 @@ function DoiSoatBillCuoc() {
 
       // 8. Update orders table
       let updateCount = 0;
+      const syncBatchId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+              const r = (Math.random() * 16) | 0;
+              const v = c === 'x' ? r : (r & 0x3) | 0x8;
+              return v.toString(16);
+            });
+      const syncTime = new Date().toISOString();
+      const syncRows = [];
       for (const orderCode of allOrderCodes) {
         const updateData = {};
         
@@ -963,13 +1001,38 @@ function DoiSoatBillCuoc() {
             console.error(`Error updating order ${orderCode}:`, updateError);
           } else {
             updateCount++;
+            // Lưu snapshot giá trị tổng hợp khi đồng bộ (để đối chiếu sau này)
+            syncRows.push({
+              sync_batch_id: syncBatchId,
+              synced_at: syncTime,
+              order_code: orderCode,
+              shipping_cost: updateData.shipping_cost ?? null,
+              total_vnd: updateData.total_vnd ?? null,
+              revenue_actual: updateData.revenue_actual ?? null,
+              order_count_actual: updateData.order_count_actual ?? null,
+            });
           }
         }
       }
 
-      alert(`Đã đồng bộ thành công ${updateCount} đơn hàng!`);
+      if (syncRows.length > 0) {
+        const { error: syncLogError } = await supabase.from('bill_sync_results').insert(syncRows);
+        if (syncLogError) {
+          // Không chặn sync nếu chỉ log thất bại
+          console.error('Error inserting bill_sync_results:', syncLogError);
+        }
+      }
+
+      const cuocRowCount = cuocData?.length ?? 0;
+      const billRowCount = billData?.length ?? 0;
+      if (updateCount === 0) {
+        alert(
+          `Không cập nhật được đơn nào. (chitiet_cuoc: ${cuocRowCount} dòng, chi_tiet_bill_tien: ${billRowCount} dòng, order codes cần update: ${allOrderCodes.size})`
+        );
+      } else {
+        alert(`Đã đồng bộ thành công ${updateCount} đơn hàng!`);
+      }
       // Ghi nhận thời điểm sync để ẩn các bản ghi đã sync khỏi view (data DB vẫn giữ nguyên)
-      const syncTime = new Date().toISOString();
       setLastSyncTime(syncTime);
       // Sau khi đồng bộ: ẩn tab nhập, chuyển sang tab xem dữ liệu bill
       setHasSynced(true);
@@ -1294,6 +1357,7 @@ function DoiSoatBillCuoc() {
 
     setUploading(true);
     try {
+      const today = new Date().toISOString().split('T')[0];
       const arrayBuffer = await file.arrayBuffer();
       const wb = XLSX.read(arrayBuffer);
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -1311,9 +1375,15 @@ function DoiSoatBillCuoc() {
       const tableName = (activeTab === 'bill' || activeTab === 'bill_view') ? 'chi_tiet_bill_tien' : 'chitiet_cuoc';
       
       const getColumnKey = (excelLabel) => {
-        const col = columns.find(
-          (c) => c.label === excelLabel || c.label.toLowerCase() === String(excelLabel).toLowerCase()
-        );
+        const normalizeLabel = (s) =>
+          String(s ?? '')
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, ''); // bỏ dấu tiếng Việt
+
+        const exNorm = normalizeLabel(excelLabel);
+        const col = columns.find((c) => normalizeLabel(c.label) === exNorm);
         if (!col || col.computed) return null;
         return col.key;
       };
@@ -1336,6 +1406,13 @@ function DoiSoatBillCuoc() {
             }
 
             // Xử lý giá trị theo loại cột
+            // Với tab Cước: đôi khi Excel trả về kiểu date không parse được.
+            // Bạn muốn luôn set `Ngày đối soát cước` = today khi import.
+            if (tableName === 'chitiet_cuoc' && dbKey === 'ngay_doi_soat_cuoc') {
+              record[dbKey] = today;
+              hasData = true;
+              return;
+            }
             if (dbKey.includes('ngay') || dbKey.includes('date')) {
               // Date field - chuyển đổi format
               if (value) {

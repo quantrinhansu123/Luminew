@@ -702,12 +702,15 @@ export const fetchFFMOrders = async () => {
  * @param {Array<Record<string, unknown>>} rows — mỗi phần tử có PRIMARY_KEY + các cột app đã đổi
  * @param {string} [modifiedBy]
  * @param {Array<{ orderId: string, colKey: string, originalValue?: string, newValue?: string }>} [changeLog] — trang /van-don: mỗi ô sửa → một dòng ghi vào orders.log (jsonb)
+ * @param {{ sourceTable?: string }} [options]
  */
-export const updateBatch = async (rows, modifiedBy, changeLog = null) => {
+export const updateBatch = async (rows, modifiedBy, changeLog = null, options = {}) => {
     try {
         console.log(`Supabase Batch Update: ${rows.length} rows`);
 
-        const useActivityLog = Array.isArray(changeLog) && changeLog.length > 0;
+        const sourceTable = String(options?.sourceTable || 'orders').trim() || 'orders';
+        const supportsActivityLog = sourceTable === 'orders';
+        const useActivityLog = supportsActivityLog && Array.isArray(changeLog) && changeLog.length > 0;
 
         const updates = rows.map(row => {
             const orderCode = String(row[PRIMARY_KEY_COLUMN] ?? '').trim();
@@ -723,6 +726,9 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null) => {
                 const dbKey = resolveAppKeyToDbKey(appKey);
                 if (!dbKey) return;
                 if (useActivityLog && dbKey === 'log') {
+                    return;
+                }
+                if (!supportsActivityLog && dbKey === 'log') {
                     return;
                 }
                 if (dbKey === 'log') {
@@ -751,7 +757,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null) => {
                 const trail = changeLog.filter((c) => String(c.orderId ?? '').trim() === oc);
                 if (trail.length > 0) {
                     const { data: logRow, error: logErr } = await supabase
-                        .from('orders')
+                        .from(sourceTable)
                         .select('log')
                         .eq('order_code', oc)
                         .maybeSingle();
@@ -793,7 +799,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null) => {
                 continue;
             }
 
-            const { error } = await supabase.from('orders').update(payload).eq('order_code', oc);
+            const { error } = await supabase.from(sourceTable).update(payload).eq('order_code', oc);
             if (error) throw error;
             total += 1;
         }

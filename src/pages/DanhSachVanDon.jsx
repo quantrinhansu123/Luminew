@@ -39,6 +39,18 @@ const isBranchMatched = (staffBranch, selectedBranch) => {
     return normalizeBranch(staffBranch) === normalizeBranch(selectedBranch);
 };
 
+// Khớp bộ phận Vận đơn trên `users.department` hoặc `human_resources."Bộ phận"`.
+const isBoPhanVanDon = (dept) => {
+    const raw = (dept ?? '').toString().trim();
+    if (!raw) return false;
+    const compact = raw.toLowerCase().replace(/\s+/g, ' ');
+    if (compact.includes('vận đơn') || compact.includes('van đơn')) return true;
+    const ascii = raw.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ');
+    if (ascii.includes('van don')) return true;
+    if (ascii === 'logistics' || ascii.startsWith('logistics ')) return true;
+    return false;
+};
+
 export default function DanhSachVanDon({ dataSource = 'default' }) {
     const isHcmView = dataSource === 'hcm';
     const ordersTableName = isHcmView ? 'order_code_hcm' : 'orders';
@@ -90,78 +102,99 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
     const [showHoVaTenDropdown, setShowHoVaTenDropdown] = useState(false);
     const [showNguoiSuaHoDropdown, setShowNguoiSuaHoDropdown] = useState(false);
 
-    // Load staff from users with department = "Vận Đơn"
+    // Load "Nhân sự vận đơn" (human_resources + users) để phục vụ dropdown "Họ và tên *".
     const loadVanDonStaff = async () => {
         try {
-            console.log('Loading van don staff from users table...');
-            let staff = [];
-            let staffBranchMap = {};
+            console.log('Loading van don staff from human_resources/users...');
 
-            // Ưu tiên lấy branch từ users; một số DB cũ có thể dùng chi_nhanh.
-            const { data: staffWithBranch, error: staffWithBranchError } = await supabase
-                .from('users')
-                .select('name, department, branch')
-                .eq('department', 'Vận Đơn')
-                .order('name', { ascending: true });
+            const staffNamesSet = new Set();
+            const staffBranchMap = {};
 
-            if (staffWithBranchError) {
-                const message = String(staffWithBranchError.message || '').toLowerCase();
-                const missingBranchColumn = message.includes('branch') && message.includes('does not exist');
-                if (!missingBranchColumn) {
-                    console.error('Supabase error:', staffWithBranchError);
-                    throw staffWithBranchError;
-                }
+            // 1) Nguồn chính: human_resources
+            const { data: hrRows, error: hrError } = await supabase
+                .from('human_resources')
+                .select('"Họ Và Tên", "Bộ phận", "chi nhánh"');
 
-                console.warn('users.branch chưa tồn tại, thử users.chi_nhanh');
-                const { data: staffWithChiNhanh, error: staffWithChiNhanhError } = await supabase
-                    .from('users')
-                    .select('name, department, chi_nhanh')
-                    .eq('department', 'Vận Đơn')
-                    .order('name', { ascending: true });
-
-                if (staffWithChiNhanhError) {
-                    const fallbackMessage = String(staffWithChiNhanhError.message || '').toLowerCase();
-                    const missingChiNhanhColumn = fallbackMessage.includes('chi_nhanh') && fallbackMessage.includes('does not exist');
-                    if (!missingChiNhanhColumn) {
-                        console.error('Supabase error:', staffWithChiNhanhError);
-                        throw staffWithChiNhanhError;
-                    }
-
-                    // Fallback cuối cùng để không chặn thao tác thêm/sửa.
-                    const { data: staffBasic, error: staffBasicError } = await supabase
-                        .from('users')
-                        .select('name, department')
-                        .eq('department', 'Vận Đơn')
-                        .order('name', { ascending: true });
-                    if (staffBasicError) {
-                        console.error('Supabase error:', staffBasicError);
-                        throw staffBasicError;
-                    }
-                    staff = staffBasic || [];
-                } else {
-                    staff = staffWithChiNhanh || [];
-                    (staff || []).forEach((member) => {
-                        if (member?.name) {
-                            staffBranchMap[member.name] = member?.chi_nhanh || '';
-                        }
-                    });
-                }
+            if (hrError) {
+                console.warn('human_resources fetch error:', hrError);
             } else {
-                staff = staffWithBranch || [];
-                (staff || []).forEach((member) => {
-                    if (member?.name) {
-                        staffBranchMap[member.name] = member?.branch || '';
-                    }
+                (hrRows || []).forEach((row) => {
+                    if (!isBoPhanVanDon(row?.['Bộ phận'])) return;
+                    const name = String(row?.['Họ Và Tên'] || '').trim();
+                    if (!name) return;
+                    staffNamesSet.add(name);
+
+                    const chiNhanh = String(row?.['chi nhánh'] || '').trim();
+                    if (chiNhanh) staffBranchMap[name] = chiNhanh;
                 });
             }
 
-            console.log('Raw staff data:', staff);
-            const staffNames = staff?.map(s => s.name).filter(Boolean) || [];
-            console.log('Filtered staff names:', staffNames);
+            // 2) Bổ sung/fallback: users (department)
+            let usersRows = [];
+            try {
+                const { data: uData, error: uError } = await supabase
+                    .from('users')
+                    .select('name, department, branch, chi_nhanh')
+                    .not('name', 'is', null)
+                    .order('name', { ascending: true });
+
+                if (uError) throw uError;
+                usersRows = uData || [];
+            } catch (e) {
+                // Một số DB cũ có thể không có branch/chi_nhanh.
+                const message = String(e?.message || '').toLowerCase();
+                const missingChiNhanhColumn = message.includes('chi_nhanh') && message.includes('does not exist');
+                const missingBranchColumn = message.includes('branch') && message.includes('does not exist');
+
+                try {
+                    if (!missingBranchColumn) {
+                        const { data: uData, error: uError } = await supabase
+                            .from('users')
+                            .select('name, department, branch')
+                            .not('name', 'is', null)
+                            .order('name', { ascending: true });
+                        if (uError) throw uError;
+                        usersRows = uData || [];
+                    } else if (!missingChiNhanhColumn) {
+                        const { data: uData, error: uError } = await supabase
+                            .from('users')
+                            .select('name, department, chi_nhanh')
+                            .not('name', 'is', null)
+                            .order('name', { ascending: true });
+                        if (uError) throw uError;
+                        usersRows = uData || [];
+                    } else {
+                        const { data: uData, error: uError } = await supabase
+                            .from('users')
+                            .select('name, department')
+                            .not('name', 'is', null)
+                            .order('name', { ascending: true });
+                        if (uError) throw uError;
+                        usersRows = uData || [];
+                    }
+                } catch (e2) {
+                    console.warn('users fallback fetch error:', e2);
+                    usersRows = [];
+                }
+            }
+
+            (usersRows || []).forEach((member) => {
+                if (!isBoPhanVanDon(member?.department)) return;
+
+                const name = String(member?.name || '').trim();
+                if (!name) return;
+
+                staffNamesSet.add(name);
+
+                const branch = String(member?.branch || member?.chi_nhanh || '').trim();
+                if (branch && !staffBranchMap[name]) staffBranchMap[name] = branch;
+            });
+
+            const staffNames = [...staffNamesSet].filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
 
             if (staffNames.length === 0) {
-                console.warn('No staff found with department = "Vận Đơn"');
-                toast.warning('Không tìm thấy nhân sự nào có department = "Vận Đơn"');
+                console.warn('No van don staff found from human_resources/users.');
+                toast.warning('Không tìm thấy Nhân sự vận đơn để điền “Họ và tên”. Vui lòng kiểm tra dữ liệu `human_resources`/`users`.');
             }
 
             setVanDonStaff(staffNames);
@@ -347,9 +380,12 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
         // Thêm mới: lọc theo chi nhánh đã chọn
         if (isAdding && editForm.chi_nhanh) {
-            options = options.filter((name) =>
-                isBranchMatched(vanDonStaffBranchMap[name], editForm.chi_nhanh)
-            );
+            options = options.filter((name) => {
+                const staffBranch = vanDonStaffBranchMap[name];
+                // Nếu không biết chi nhánh thì vẫn cho hiển thị (tránh case list bị rỗng do thiếu dữ liệu branch/chi_nhanh).
+                if (!staffBranch) return true;
+                return isBranchMatched(staffBranch, editForm.chi_nhanh);
+            });
         }
 
         if (!isAdding) return options;
@@ -475,6 +511,16 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
         if (!editForm.ho_va_ten?.trim()) {
             toast.error('Vui lòng chọn Họ và tên');
             return;
+        }
+
+        // Mode "Thêm mới": bắt buộc chọn đúng từ danh sách Nhân sự vận đơn.
+        if (isAdding) {
+            const chosen = editForm.ho_va_ten.trim();
+            const ok = vanDonStaff.some((name) => String(name).trim().toLowerCase() === chosen.toLowerCase());
+            if (!ok) {
+                toast.error('Vui lòng chọn Họ và tên từ danh sách Nhân sự vận đơn');
+                return;
+            }
         }
 
         try {
@@ -811,7 +857,8 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                                         setHoVaTenSearch(exactMatch);
                                                         setShowHoVaTenDropdown(false);
                                                     } else {
-                                                        setEditForm({ ...editForm, ho_va_ten: searchValue });
+                                                        // Mode "Thêm mới": không cho lưu tên tự do.
+                                                        setEditForm({ ...editForm, ho_va_ten: '' });
                                                     }
                                                 } else {
                                                     setEditForm({ ...editForm, ho_va_ten: searchValue });
@@ -859,7 +906,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                     )}
                                     {vanDonStaff.length === 0 && (
                                         <p className="text-xs text-gray-500 mt-1">
-                                            Không có nhân sự nào có department = "Vận đơn". Vui lòng kiểm tra lại.
+                                            Không tìm thấy Nhân sự vận đơn để điền “Họ và tên”. Vui lòng kiểm tra dữ liệu `human_resources`/`users`.
                                         </p>
                                     )}
                                 </div>
@@ -890,10 +937,12 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                             const nextBranch = e.target.value;
                                             setEditForm((prev) => {
                                                 const nextForm = { ...prev, chi_nhanh: nextBranch };
+                                                const staffBranch = nextForm.ho_va_ten ? vanDonStaffBranchMap[nextForm.ho_va_ten] : undefined;
                                                 if (
                                                     isAdding &&
                                                     prev.ho_va_ten &&
-                                                    !isBranchMatched(vanDonStaffBranchMap[prev.ho_va_ten], nextBranch)
+                                                    staffBranch &&
+                                                    !isBranchMatched(staffBranch, nextBranch)
                                                 ) {
                                                     nextForm.ho_va_ten = '';
                                                     setHoVaTenSearch('');
