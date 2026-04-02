@@ -624,7 +624,6 @@ function FFM({ variant = 'MGT' }) {
         'Ngày đẩy đơn',
         'Ngày có mã tracking',
         'Ngày Kế toán đối soát với FFM lần 2',
-        'Thời gian giao dự kiến',
       ];
       if (dateCols.includes(col)) {
         return formatDate(val);
@@ -1494,9 +1493,24 @@ function FFM({ variant = 'MGT' }) {
     const pendingVal = pendingChanges.get(orderId)?.get(colKey);
     const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
+    const isThoiGianGiaoDuKien =
+      colKey === 'Thời gian giao dự kiến' ||
+      colKey === 'thoigiangiaohangffm' ||
+      colKey === 'estimated_delivery_date';
+
+    if (isThoiGianGiaoDuKien) {
+      const nextValue = newValue == null ? '' : String(newValue);
+      if (nextValue === String(stepOriginalValue ?? '')) return;
+      const changes = [
+        { orderId, colKey, originalValue: String(stepOriginalValue ?? ''), newValue: nextValue },
+      ];
+      pushChange(changes, { deferDbSave: true });
+      return;
+    }
+
     if (String(newValue) === String(stepOriginalValue)) return;
 
-    const nextValue = String(newValue || '').trim();
+    const nextValue = String(newValue ?? '').trim();
     if (String(nextValue) === String(stepOriginalValue)) return;
 
     const changes = [{ orderId, colKey, originalValue: String(stepOriginalValue), newValue: nextValue }];
@@ -2902,7 +2916,7 @@ function FFM({ variant = 'MGT' }) {
     if (col === 'Ngày đối soát kế toán') {
       val = API.normalizeNgayDoiSoatKeToanText(val);
     }
-    const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Thời gian giao dự kiến'].includes(col)
+    const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)
       ? formatDate(val)
       : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
         ? val !== '' && val !== null

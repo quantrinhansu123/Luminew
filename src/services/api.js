@@ -42,8 +42,8 @@ export const DB_TO_APP_MAPPING = {
     "gift_quantity": "Số lượng quà kèm",
     "delivery_status_nb": "Trạng thái giao hàng NB",
     "payment_currency": "Loại tiền thanh toán",
-    // Thời gian giao dự kiến: hiển thị gộp với thoigiangiaohangffm (xử lý trong mapSupabaseOrderToApp)
-    "estimated_delivery_date": "Thời gian giao dự kiến",
+    // Thời gian giao dự kiến → cột FFM (estimated_delivery_date chỉ fallback đọc dữ liệu cũ trong mapSupabaseOrderToApp)
+    "thoigiangiaohangffm": "Thời gian giao dự kiến",
     "warehouse_fee": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
     "luu_kho_usd": "Ngày đối soát kế toán",
     "note_caps": "GHI CHÚ",
@@ -152,6 +152,8 @@ const resolveAppKeyToDbKey = (appKey) => {
     /** Cột Nhật ký: fallback nếu nhãn lệch Unicode / mapping */
     if (nfc === 'Nhật ký'.normalize('NFC') || nfc === 'log' || appKey === 'log') return 'log';
     if (nfc === 'Cảnh báo trùng'.normalize('NFC') || appKey === 'canh_bao') return 'canh_bao';
+    /** Dữ liệu cũ / pending lưu tay vẫn có thể dùng khóa cột cũ */
+    if (appKey === 'estimated_delivery_date' || nfc === 'estimated_delivery_date') return 'thoigiangiaohangffm';
     return null;
 };
 
@@ -167,21 +169,19 @@ export const mapSupabaseOrderToApp = (sOrder) => {
         }
     });
 
-    // Thời gian giao dự kiến: một trong hai trống thì lấy bên còn lại; cả hai đều có thì lấy estimated_delivery_date
+    // Thời gian giao dự kiến: ưu tiên thoigiangiaohangffm; estimated_delivery_date chỉ fallback (dữ liệu cũ)
     const estEd = sOrder.estimated_delivery_date;
     const ffmEd = sOrder.thoigiangiaohangffm;
     const isEmptyMergedDate = (v) =>
         v === undefined ||
         v === null ||
         (typeof v === 'string' && v.trim() === '');
-    const hasEst = !isEmptyMergedDate(estEd);
     const hasFfm = !isEmptyMergedDate(ffmEd);
-    if (hasEst && hasFfm) {
-        appOrder['Thời gian giao dự kiến'] = estEd;
+    const hasEst = !isEmptyMergedDate(estEd);
+    if (hasFfm) {
+        appOrder['Thời gian giao dự kiến'] = ffmEd;
     } else if (hasEst) {
         appOrder['Thời gian giao dự kiến'] = estEd;
-    } else if (hasFfm) {
-        appOrder['Thời gian giao dự kiến'] = ffmEd;
     } else {
         appOrder['Thời gian giao dự kiến'] = null;
     }
@@ -436,7 +436,7 @@ const parseDateForDB = (val) => {
 /**
  * Prepares a value for database storage.
  * - Converts empty strings to null (to allow clearing numeric/date fields).
- * - Formats date fields using parseDateForDB.
+ * - Formats date fields using parseDateForDB (trừ thoigiangiaohangffm: giữ nguyên text như người dùng nhập).
  */
 const prepareValueForDB = (dbKey, value) => {
     // If value is explicitly an empty string, we want to save it as NULL in DB
@@ -450,7 +450,14 @@ const prepareValueForDB = (dbKey, value) => {
         return parseNgayDoiSoatKeToanToYmdNumber(value);
     }
 
-    if (['order_date', 'created_at', 'estimated_delivery_date', 'accounting_check_date', 'ngayupbill', 'ngaydonghang', 'tracking_check_date'].includes(dbKey)) {
+    // Thời gian giao dự kiến (cột FFM): giữ nguyên chuỗi; chỉ null nếu rỗng hoàn toàn.
+    if (dbKey === 'thoigiangiaohangffm') {
+        if (value === undefined || value === null) return null;
+        const s = typeof value === 'string' ? value : String(value);
+        return s.trim() === '' ? null : s;
+    }
+
+    if (['order_date', 'created_at', 'accounting_check_date', 'ngayupbill', 'ngaydonghang', 'tracking_check_date'].includes(dbKey)) {
         return parseDateForDB(value);
     }
     if (ORDERS_NUMERIC_DB_KEYS.has(dbKey)) {

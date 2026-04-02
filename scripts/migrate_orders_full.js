@@ -115,7 +115,7 @@ async function migrate() {
                 // Round 2 Columns
                 delivery_status_nb: r["Trạng thái giao hàng NB"],
                 payment_currency: r["Loại tiền thanh toán"],
-                estimated_delivery_date: parseDate(r["Thời gian giao dự kiến"]),
+                thoigiangiaohangffm: parseDate(r["Thời gian giao dự kiến"]),
                 luu_kho_usd: (() => {
                     const v = r["Ngày đối soát kế toán"] ?? r["Phí ship nội địa Mỹ (usd)"];
                     if (v == null) return null;

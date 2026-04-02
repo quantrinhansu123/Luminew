@@ -311,7 +311,7 @@ function DonChiaCSKH() {
     'flight_fee': 'Phí bay',
     'account_rental_fee': 'Thuê TK',
     'luu_kho_usd': 'Ngày đối soát kế toán',
-    'estimated_delivery_date': 'Thời gian giao dự kiến',
+    'thoigiangiaohangffm': 'Thời gian giao dự kiến',
     'cutoff_time': 'Thời gian cutoff',
     'reconciled_vnd': 'Tiền Việt đã đối soát',
     'reconciled_amount': 'Tiền Việt đã đối soát',
