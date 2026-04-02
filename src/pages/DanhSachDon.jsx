@@ -1351,13 +1351,28 @@ function DanhSachDon({ dataSource = 'default' }) {
   };
 
   // --- FEATURE: FIX MISSING TEAMS ---
+  /** Khóa khớp tên NV Sale ↔ users.name (bỏ dấu, gộp khoảng trắng). */
+  const normalizeStaffNameKey = (s) =>
+    String(s ?? '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '');
+
   const handleFixMissingTeams = async () => {
-    if (!window.confirm("Bạn có muốn tự động điền 'Chi nhánh' (Team) cho các đơn hàng bị thiếu không?\n\nHệ thống sẽ dựa vào tên 'Nhân viên Sale' để tra cứu chi nhánh.")) return;
+    if (
+      !window.confirm(
+        "Bạn có muốn tự động sửa Team và Nhân viên Sale cho các đơn đang thiếu Team không?\n\n" +
+          "• Team: khớp tên sale trên đơn với users.name → ghi users.team; nếu trống thì users.branch (không dùng team cũ trên đơn).\n" +
+          "• Nhân viên Sale: ghi đúng users.name (chuẩn master), không giữ biến thể tên từ đơn."
+      )
+    )
+      return;
 
     setIsFixingTeams(true);
     try {
       // 1. Fetch orders with missing team
-      // team is null OR team is empty string OR team is '-'
       const { data: ordersMissing, error: fetchError } = await supabase
         .from(ordersTableName)
         .select('id, sale_staff')
@@ -1372,7 +1387,6 @@ function DanhSachDon({ dataSource = 'default' }) {
 
       console.log(`Found ${ordersMissing.length} orders detecting missing team.`);
 
-      // 2. Get unique sale staff names
       const staffNames = [...new Set(ordersMissing.map(o => o.sale_staff).filter(Boolean).map(s => s.trim()))];
 
       if (staffNames.length === 0) {
@@ -1380,74 +1394,71 @@ function DanhSachDon({ dataSource = 'default' }) {
         return;
       }
 
-      // 3. Fetch users map (name -> branch)
-      // We need to fetch ALL users matching these names.
-      // Since 'ilike' with array is tricky, let's fetch matching users loosely
-      // or just fetch all sales? No, too many.
-      // Let's iterate in chunks or just fetch all valid users if database isn't huge.
-      // Better: Fetch all users who have a branch.
       const { data: users, error: userError } = await supabase
         .from('users')
-        .select('name, branch')
-        .not('branch', 'is', null)
-        .neq('branch', '');
+        .select('name, team, branch')
+        .not('name', 'is', null);
 
       if (userError) throw userError;
 
-      // Create a map: clean_name -> branch
-      // Normalization: trim, lowercase? Let's try exact match first then loose.
       const userMap = {};
-      users.forEach(u => {
-        if (u.name) userMap[u.name.trim().toLowerCase()] = u.branch;
+      (users || []).forEach((u) => {
+        const rawName = String(u.name || '').trim();
+        if (!rawName) return;
+        const teamVal = String(u.team ?? '').trim();
+        const branchVal = String(u.branch ?? '').trim();
+        const resolvedTeam = teamVal || branchVal;
+        if (!resolvedTeam) return;
+        const key = normalizeStaffNameKey(rawName);
+        if (key) userMap[key] = { resolvedTeam, canonicalName: rawName };
       });
 
-      // 4. Prepare updates
-      let updateCount = 0;
       const updates = [];
 
       for (const order of ordersMissing) {
         const saleName = order.sale_staff ? order.sale_staff.trim() : "";
         if (!saleName) continue;
 
-        const branch = userMap[saleName.toLowerCase()];
-        if (branch) {
+        const match = userMap[normalizeStaffNameKey(saleName)];
+        if (match) {
           updates.push({
             id: order.id,
-            team: branch
+            team: match.resolvedTeam,
+            sale_staff: match.canonicalName,
           });
         }
       }
 
       if (updates.length === 0) {
-        alert("⚠️ Không tìm thấy thông tin Chi nhánh của các nhân viên Sale tương ứng trong bảng Users.");
+        alert(
+          "⚠️ Không gán được Team/Sale: kiểm tra users — khớp tên với «Nhân viên Sale» và user phải có ít nhất team hoặc branch."
+        );
         return;
       }
-
-      // 5. Execute updates
-      // Supabase upsert requires unique key, but we are updating by ID.
-      // Bulk update is tricky in Supabase without proper RPC or Upsert.
-      // Upsert works if we provide all required fields, but we only want to patch 'team'.
-      // So safest way is individual updates or loops.
-      // For performance, do simple loop for now (assuming not thousands).
-
-      // Optimization: Group by branch to reduce calls?
-      // No, ID is unique.
 
       console.log(`Updating ${updates.length} orders...`);
 
       let success = 0;
-      // Process in chunks of 10 parallel requests
       const chunkSize = 10;
       for (let i = 0; i < updates.length; i += chunkSize) {
         const chunk = updates.slice(i, i + chunkSize);
-        await Promise.all(chunk.map(async (u) => {
-          const { error } = await supabase.from(ordersTableName).update({ team: u.team }).eq('id', u.id);
-          if (!error) success++;
-        }));
+        await Promise.all(
+          chunk.map(async (row) => {
+            const { error } = await supabase
+              .from(ordersTableName)
+              .update({ team: row.team, sale_staff: row.sale_staff })
+              .eq('id', row.id);
+            if (!error) success++;
+          })
+        );
       }
 
-      alert(`✅ Đã cập nhật xong!\n- Tìm thấy: ${ordersMissing.length} đơn thiếu.\n- Sửa thành công: ${success} đơn.\n- Không tìm thấy thông tin sale: ${ordersMissing.length - success} đơn.`);
-
+      alert(
+        `✅ Đã cập nhật xong!\n` +
+          `- Tìm thấy: ${ordersMissing.length} đơn thiếu Team.\n` +
+          `- Cập nhật Team + Nhân viên Sale (theo users): ${success} đơn.\n` +
+          `- Không khớp user / thiếu team+branch trên user: ${ordersMissing.length - success} đơn.`
+      );
     } catch (err) {
       console.error('Error fixing teams:', err);
       alert(`❌ Lỗi: ${err.message}`);
@@ -2761,7 +2772,9 @@ function DanhSachDon({ dataSource = 'default' }) {
                     )}
                   </button>
                   <button
+                    type="button"
                     onClick={handleFixMissingTeams}
+                    title="Điền Team từ users.team/branch và chuẩn hóa Nhân viên Sale = users.name"
                     disabled={
                       syncing ||
                       loading ||
@@ -2784,7 +2797,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                     ) : (
                       <>
                         <Wrench className="w-4 h-4" />
-                        Sửa lỗi Team
+                        Sửa Team & Sale
                       </>
                     )}
                   </button>

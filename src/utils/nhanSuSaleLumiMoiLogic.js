@@ -226,6 +226,16 @@ export function matchesHcmXemBaoCaoSaleTeam(teamLabel) {
 }
 
 /**
+ * Team có chứa «HCM» (không phân biệt hoa thường, bỏ dấu) — dùng lọc trang /xem-bao-cao-sale.
+ */
+export function teamLabelContainsHcm(teamLabel) {
+  const raw = normalizeReportTeamSpaces(teamLabel);
+  if (!raw) return false;
+  const t = normalizeViAscii(raw);
+  return t.includes('hcm');
+}
+
+/**
  * Admin trang HCM: danh sách nhân sự (users) gồm mọi team có «HCM» — rộng hơn `matchesHcmXemBaoCaoSaleTeam`
  * (vẫn bỏ «Không xác định»; «Đã nghỉ» lọc ở `employeeTeamMatchesReportFetchFilter`).
  */
@@ -251,6 +261,9 @@ export function employeeTeamMatchesReportFetchFilter(teamLabel, ctx = {}) {
       return matchesHcmAdminPersonnelTeam(team);
     }
     return matchesHcmXemBaoCaoSaleTeam(team);
+  }
+  if (ctx.excludeReportTeamsContainingHcm && teamLabelContainsHcm(team)) {
+    return false;
   }
   const inSet =
     Array.isArray(ctx.teamInFilter) && ctx.teamInFilter.length > 0

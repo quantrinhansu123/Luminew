@@ -29,6 +29,7 @@ import {
   displayNameForSaleReportKey,
   enrichSalesReportRowsWithBoPhan,
   matchesHcmXemBaoCaoSaleTeam,
+  teamLabelContainsHcm,
   canonicalTeamKeyForFilter,
   uniqueTeamLabelsForFilter,
   employeeRowInSalesReportScope,
@@ -153,6 +154,11 @@ export default function NhanSuSaleLumiMoiView({
    * Ưu tiên cao nhất — bỏ qua `teamInFilter` / `teamKeyword` khi bật.
    */
   hcmXemBaoCaoSaleTeamFilter = false,
+  /**
+   * true: ẩn mọi dòng có Team chứa «HCM» (vd. HCM-Sale đêm) — chỉ dùng cho /xem-bao-cao-sale;
+   * không bật trên /xem-bao-cao-cskh-hcm (teamInFilter có team HCM).
+   */
+  excludeReportTeamsContainingHcm = false,
   /** Nếu có: cần can_view ít nhất một mã (ví dụ trang xem CSKH HCM). */
   pageAccessCodes = null,
   /**
@@ -402,6 +408,9 @@ export default function NhanSuSaleLumiMoiView({
           }
         }
         }
+        if (excludeReportTeamsContainingHcm) {
+          mapped = mapped.filter((r) => !teamLabelContainsHcm(r.team));
+        }
         setEmployeeData(emp);
         setUserEmailNameRows(emailNameRows);
         setRawData(enrichSalesReportRowsWithBoPhan(mapped, emp));
@@ -429,6 +438,7 @@ export default function NhanSuSaleLumiMoiView({
     teamExactFilter,
     teamInFilter,
     hcmXemBaoCaoSaleTeamFilter,
+    excludeReportTeamsContainingHcm,
     loadRequestId,
     reportTableName,
   ]);
@@ -715,6 +725,7 @@ export default function NhanSuSaleLumiMoiView({
     const scopeCtx = {
       hcmXemBaoCaoSaleTeamFilter,
       adminHcmLooseTeamMatch: isAdmin && hcmXemBaoCaoSaleTeamFilter,
+      excludeReportTeamsContainingHcm,
       teamInFilter,
       teamExactFilter,
       teamKeyword,
@@ -735,6 +746,7 @@ export default function NhanSuSaleLumiMoiView({
     restrictedForPopulate,
     employeeData,
     hcmXemBaoCaoSaleTeamFilter,
+    excludeReportTeamsContainingHcm,
     teamInFilter,
     teamExactFilter,
     teamKeyword,

@@ -119,7 +119,11 @@ function AppShell() {
               path="/xem-bao-cao-sale"
               element={
                 <ProtectedRoute>
-                  <NhanSuSaleLumiMoiView teamKeyword="sale" showPersonnelNameFilter />
+                  <NhanSuSaleLumiMoiView
+                    teamKeyword="sale"
+                    showPersonnelNameFilter
+                    excludeReportTeamsContainingHcm
+                  />
                 </ProtectedRoute>
               }
             />

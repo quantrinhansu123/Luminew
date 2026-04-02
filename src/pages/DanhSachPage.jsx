@@ -196,14 +196,16 @@ export default function DanhSachPage() {
         }
         */
 
-        // Search
+        // Search (gồm Tên MKT / mkt_staff)
         if (searchText) {
             const lower = searchText.toLowerCase();
             const beforeFilter = result.length;
-            result = result.filter(item =>
-                (item.page_name || '').toLowerCase().includes(lower) ||
-                (item.id || '').toLowerCase().includes(lower) ||
-                (item.pancake_id || '').includes(lower)
+            result = result.filter(
+                (item) =>
+                    (item.page_name || '').toLowerCase().includes(lower) ||
+                    (item.id || '').toLowerCase().includes(lower) ||
+                    String(item.pancake_id || '').toLowerCase().includes(lower) ||
+                    (item.mkt_staff || '').toLowerCase().includes(lower)
             );
             console.log(`🔍 [DanhSachPage] After search filter: ${beforeFilter} -> ${result.length}`);
         }
@@ -561,44 +563,74 @@ export default function DanhSachPage() {
                 </div>
 
                 {/* Filters */}
-                <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 space-y-4 md:space-y-0 md:flex md:items-center md:gap-4 flex-wrap">
+                <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 space-y-4 md:space-y-0 md:flex md:items-end md:gap-4 flex-wrap">
                     <div className="flex-1 relative min-w-[300px]">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <input
                             type="text"
-                            placeholder="Tìm kiếm theo Tên Page, ID, Pancake ID..."
+                            placeholder="Tìm kiếm theo Tên Page, Tên MKT, ID, Pancake ID..."
                             value={searchText}
                             onChange={(e) => setSearchText(e.target.value)}
                             className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                     </div>
 
-                    <select
-                        value={filterStaff}
-                        onChange={(e) => setFilterStaff(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm min-w-[150px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                        <option value="">Tất cả Nhân sự</option>
-                        {staffOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                    <div className="flex flex-col gap-1 min-w-[180px]">
+                        <label htmlFor="filter-mkt-staff" className="text-xs font-medium text-gray-600">
+                            Tên MKT
+                        </label>
+                        <select
+                            id="filter-mkt-staff"
+                            value={filterStaff}
+                            onChange={(e) => setFilterStaff(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                            <option value="">Tất cả</option>
+                            {staffOptions.map((opt) => (
+                                <option key={opt} value={opt}>
+                                    {opt}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
 
-                    <select
-                        value={filterMarket}
-                        onChange={(e) => setFilterMarket(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm min-w-[150px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                        <option value="">Tất cả Thị trường</option>
-                        {marketOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                    <div className="flex flex-col gap-1 min-w-[150px]">
+                        <label htmlFor="filter-market" className="text-xs font-medium text-gray-600">
+                            Thị trường
+                        </label>
+                        <select
+                            id="filter-market"
+                            value={filterMarket}
+                            onChange={(e) => setFilterMarket(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                            <option value="">Tất cả</option>
+                            {marketOptions.map((opt) => (
+                                <option key={opt} value={opt}>
+                                    {opt}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
 
-                    <select
-                        value={filterProduct}
-                        onChange={(e) => setFilterProduct(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm min-w-[150px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                        <option value="">Tất cả Sản phẩm</option>
-                        {productOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                    <div className="flex flex-col gap-1 min-w-[150px]">
+                        <label htmlFor="filter-product" className="text-xs font-medium text-gray-600">
+                            Sản phẩm
+                        </label>
+                        <select
+                            id="filter-product"
+                            value={filterProduct}
+                            onChange={(e) => setFilterProduct(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                            <option value="">Tất cả</option>
+                            {productOptions.map((opt) => (
+                                <option key={opt} value={opt}>
+                                    {opt}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
 
                 {/* Table */}

@@ -28,7 +28,7 @@ const filterOptionsBySearch = (list, q) => {
     return (list || []).filter((item) => String(item).toLowerCase().includes(needle));
 };
 
-/** Team CSKH Lý (mặc định) — có thể lưu có/không khoảng sau dấu gạch. */
+/** Trang /danh-sach-bao-cao-tay-cskh: chỉ CSKH Lý (hai cách ghi team trong DB). */
 const DEFAULT_CSKH_MANUAL_TEAMS = ['CSKH-Lý', 'CSKH- Lý'];
 
 /** HCM: chỉ các team này trong sales_reports (khớp cột `team`). */
@@ -93,7 +93,6 @@ export default function DanhSachBaoCaoTayCSKH({
                 : DEFAULT_CSKH_MANUAL_TEAMS,
         [salesReportTeamIn]
     );
-    const isCustomTeamScope = Array.isArray(salesReportTeamIn) && salesReportTeamIn.length > 0;
     const teamFilterLabel = useMemo(() => effectiveTeamFilter.join(', '), [effectiveTeamFilter]);
 
     // Get user email and name for filtering
@@ -139,11 +138,8 @@ export default function DanhSachBaoCaoTayCSKH({
         roleFromUserObj === 'admin' ||
         roleFromUserObj === 'super_admin';
 
-    /** Admin mặc định xem mọi team; trang HCM (salesReportTeamIn) luôn giới hạn theo effectiveTeamFilter. */
-    const useTeamInQuery = useMemo(
-        () => !isAdmin || isCustomTeamScope,
-        [isAdmin, isCustomTeamScope]
-    );
+    /** Luôn giới hạn theo effectiveTeamFilter (CSKH-Lý hoặc danh sách HCM từ props). */
+    const useTeamInQuery = true;
 
     const [loading, setLoading] = useState(true);
     const [manualReports, setManualReports] = useState([]);
@@ -664,7 +660,7 @@ export default function DanhSachBaoCaoTayCSKH({
             toast.error('Vui lòng chọn khoảng thời gian trước khi tính toán!');
             return;
         }
-        const scopeLabel = useTeamInQuery ? `Team ∈ { ${teamFilterLabel} }` : 'mọi team (admin xem full)';
+        const scopeLabel = `Team ∈ { ${teamFilterLabel} }`;
         if (
             !window.confirm(
                 `Tính lại sales_reports (${scopeLabel}) từ bảng đơn Supabase — cùng luồng Admin Tools / cài đặt:\n\n` +
@@ -682,8 +678,8 @@ export default function DanhSachBaoCaoTayCSKH({
                 startDate: filters.startDate,
                 endDate: filters.endDate,
                 createMissingForHetCa: true,
-                reportsTeamIn: useTeamInQuery ? effectiveTeamFilter : null,
-                defaultTeamForNewRows: useTeamInQuery ? effectiveTeamFilter[0] : null,
+                reportsTeamIn: effectiveTeamFilter,
+                defaultTeamForNewRows: effectiveTeamFilter[0] ?? null,
             });
             const n = result.upserted ?? 0;
             const created = result.createdMissing ?? 0;
@@ -1220,9 +1216,9 @@ export default function DanhSachBaoCaoTayCSKH({
                         <div>
                             <h2 style={{ marginBottom: '4px' }}>DANH SÁCH BÁO CÁO TAY CSKH{pageTitleSuffix}</h2>
                             <p className="text-sm text-gray-600 m-0">
-                                {isAdmin && !isCustomTeamScope
-                                    ? <>Hiển thị toàn bộ <strong>sales_reports</strong> (mọi team) trong khoảng ngày và bộ lọc.</>
-                                    : <>Chỉ dữ liệu <strong>sales_reports.team</strong> ∈ {teamFilterLabel}.</>}
+                                <>
+                                    Chỉ dữ liệu <strong>sales_reports.team</strong> ∈ {teamFilterLabel}.
+                                </>
                             </p>
                         </div>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
