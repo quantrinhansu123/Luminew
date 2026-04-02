@@ -901,6 +901,8 @@ function VanDon({ dataSource = 'default' }) {
         page: currentPage,
         limit: rowsPerPage,
         team: activeFilters.team,
+        // /van-don should not load rows where team="HCM" (route /van-don-hcm keeps them)
+        excludeHcmTeam: dataSource !== 'hcm',
         market: activeFilters.market,
         product: activeFilters.product,
         nv_sale: activeFilters.nv_sale,

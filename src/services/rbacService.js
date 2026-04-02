@@ -688,8 +688,8 @@ export const MODULE_PAGES = {
             { code: 'MKT_INPUT_HCM', name: 'Nhập báo cáo HCM', path: '/bao-cao-marketing-hcm' },
             { code: 'MKT_VIEW', name: 'Xem báo cáo MKT', path: '/xem-bao-cao-mkt' },
             { code: 'MKT_VIEW_HCM', name: 'Xem báo cáo MKT HCM (Đức Anh)', path: '/xem-bao-cao-mkt-hcm' },
-            { code: 'MKT_ORDERS', name: 'Danh sách đơn', path: '/bao-cao-chi-tiet' },
-            { code: 'MKT_ORDERS_HCM', name: 'Danh sách đơn chi tiết HCM', path: '/bao-cao-chi-tiet-hcm' },
+            { code: 'MKT_ORDERS', name: 'Báo cáo chi tiết đơn (HN)', path: '/bao-cao-chi-tiet' },
+            { code: 'MKT_ORDERS_HCM', name: 'Báo cáo chi tiết đơn HCM', path: '/bao-cao-chi-tiet-hcm' },
             { code: 'MKT_PAGES', name: 'Danh sách Page', path: '/danh-sach-page' },
             { code: 'MKT_MANUAL', name: 'Ds báo cáo tay', path: '/danh-sach-bao-cao-tay-mkt' },
             { code: 'MKT_MANUAL_HCM', name: 'Ds báo cáo tay HCM', path: '/danh-sach-bao-cao-tay-mkt-hcm' }

@@ -904,6 +904,8 @@ export const fetchVanDon = async (options = {}) => {
         sourceView = 'van_don_page',
         sourceTable = 'orders',
         team,
+        /** When true, always exclude records where team = 'HCM' (but keep NULL/empty team). */
+        excludeHcmTeam = false,
         status,
         market = [],
         product = [],
@@ -987,6 +989,11 @@ export const fetchVanDon = async (options = {}) => {
 
             if (team && team !== 'all') {
                 query = query.eq('team', team);
+            }
+
+            if (excludeHcmTeam) {
+                // Keep NULL team, only exclude exact 'HCM'
+                query = query.or('team.is.null,team.neq.HCM');
             }
 
             if (status) {

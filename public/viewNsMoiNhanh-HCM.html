@@ -937,7 +937,7 @@
         MKT_ALLOWED_TEAMS && MKT_ALLOWED_TEAMS.length
           ? MKT_ALLOWED_TEAMS.join('|')
           : 'ALL';
-      return `MKT_SUPABASE:v8:hcm:${teamKey}:${startYmd || ''}:${endYmd || ''}`;
+      return `MKT_SUPABASE:v9:hcm:${teamKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -1030,7 +1030,8 @@
         const dt = new Date(y, mo, d);
         return isNaN(dt.getTime()) ? null : dt;
       }
-      const ymd = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      // Cho phép cả format `YYYY-MM-DD` và `YYYY-M-D` (marketing_report_hcm đôi khi không có số 0 đầu).
+      const ymd = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
       if (ymd) {
         const dt = new Date(parseInt(ymd[1], 10), parseInt(ymd[2], 10) - 1, parseInt(ymd[3], 10));
         return isNaN(dt.getTime()) ? null : dt;
@@ -1048,9 +1049,12 @@
       return [];
     }
 
-    /** PostgREST thường giới hạn ≤1000 dòng/request — dùng 999 để tránh lỗi biên. */
-    const MKT_SUPABASE_PAGE_SIZE = 999;
-    const MKT_SUPABASE_MAX_PAGES = 500;
+    /**
+     * Mỗi request PostgREST/Supabase thường tối đa ~1000 dòng — lặp range() cho đến hết.
+     * Chỉ dùng range + order Ngày, id (ổn định với id số hoặc UUID; tránh keyset gt(id) thiếu dòng).
+     */
+    const MKT_SUPABASE_PAGE_SIZE = 1000;
+    const MKT_SUPABASE_MAX_PAGES = 20000;
 
     let _supabaseClient = null;
     async function getSupabaseClient() {
@@ -1060,61 +1064,7 @@
       return _supabaseClient;
     }
 
-    function isProbablyNumericId(v) {
-      if (v === null || v === undefined) return false;
-      const s = String(v).trim();
-      return /^[0-9]+$/.test(s);
-    }
-
-    async function fetchAllMktDetailReportRowsByIdKeyset(dateRange) {
-      const supabase = await getSupabaseClient();
-      const allRows = [];
-      const { startYmd, endYmd } = dateRange;
-      let lastId = null;
-
-      for (let page = 0; page < MKT_SUPABASE_MAX_PAGES; page++) {
-        let q = supabase.from(MKT_REPORTS_TABLE).select('*');
-        q = applyMktTeamFilterToQuery(q);
-        if (startYmd) q = q.gte('Ngày', startYmd);
-        if (endYmd) q = q.lte('Ngày', endYmd);
-        if (lastId !== null && lastId !== undefined && lastId !== '') q = q.gt('id', lastId);
-        q = q.order('id', { ascending: true }).limit(MKT_SUPABASE_PAGE_SIZE);
-
-        const { data, error } = await q;
-        if (error) {
-          console.error('Supabase ' + MKT_REPORTS_TABLE + ':', error);
-          throw error;
-        }
-        const chunk = data || [];
-        if (chunk.length === 0) break;
-
-        if (!isProbablyNumericId(chunk[0]?.id)) {
-          console.warn('⚠️ id không phải số → không dùng keyset theo id. Sẽ fallback sang range().');
-          return { ok: false, rows: allRows };
-        }
-
-        allRows.push(...chunk);
-
-        const lo = document.getElementById('loading-overlay');
-        if (lo) {
-          lo.textContent = `Đang tải dữ liệu… (ID keyset, trang ${page + 1}, ${allRows.length} dòng)`;
-        }
-
-        if (chunk.length < MKT_SUPABASE_PAGE_SIZE) break;
-        lastId = chunk[chunk.length - 1]?.id;
-        if (!isProbablyNumericId(lastId)) break;
-      }
-
-      if (allRows.length >= MKT_SUPABASE_PAGE_SIZE * MKT_SUPABASE_MAX_PAGES) {
-        console.warn(
-          `⚠️ ${MKT_REPORTS_TABLE} có thể chưa tải hết: đã chạm giới hạn ${MKT_SUPABASE_MAX_PAGES} trang (page_size=${MKT_SUPABASE_PAGE_SIZE}).`
-        );
-      }
-      console.log(`📄 ${MKT_REPORTS_TABLE} (Supabase, id keyset): ${allRows.length} dòng.`);
-      return { ok: true, rows: allRows };
-    }
-
-    async function fetchAllMktDetailReportRowsByRange(dateRange) {
+    async function fetchAllMktDetailReportRowsFromSupabase(dateRange) {
       const supabase = await getSupabaseClient();
       const allRows = [];
       const { startYmd, endYmd } = dateRange;
@@ -1136,34 +1086,29 @@
           throw error;
         }
         const chunk = data || [];
+        if (chunk.length === 0) break;
+
         allRows.push(...chunk);
 
         const lo = document.getElementById('loading-overlay');
         if (lo) {
           lo.textContent =
             chunk.length >= MKT_SUPABASE_PAGE_SIZE || page > 0
-              ? `Đang tải dữ liệu… (range, trang ${page + 1}, ${allRows.length} dòng)`
+              ? `Đang tải dữ liệu… (${allRows.length} dòng, trang ${page + 1})`
               : 'Đang tải dữ liệu…';
         }
 
         if (chunk.length < MKT_SUPABASE_PAGE_SIZE) break;
-        from += MKT_SUPABASE_PAGE_SIZE;
+        from += chunk.length;
       }
 
       if (allRows.length >= MKT_SUPABASE_PAGE_SIZE * MKT_SUPABASE_MAX_PAGES) {
         console.warn(
-          `⚠️ ${MKT_REPORTS_TABLE} có thể chưa tải hết: đã chạm giới hạn ${MKT_SUPABASE_MAX_PAGES} trang (page_size=${MKT_SUPABASE_PAGE_SIZE}).`
+          `⚠️ ${MKT_REPORTS_TABLE} có thể chưa tải hết: đã chạm giới hạn ${MKT_SUPABASE_MAX_PAGES} trang × ${MKT_SUPABASE_PAGE_SIZE} dòng. Tăng MKT_SUPABASE_MAX_PAGES hoặc thu hẹp bộ lọc ngày.`
         );
       }
-      console.log(`📄 ${MKT_REPORTS_TABLE} (Supabase, range): ${allRows.length} dòng.`);
+      console.log(`📄 ${MKT_REPORTS_TABLE} (Supabase, range đầy đủ): ${allRows.length} dòng.`);
       return allRows;
-    }
-
-    /** Keyset nếu id số; UUID → range() với order Ngày + id (ổn định, tránh lỗi/trùng khi > ~1000 dòng). */
-    async function fetchAllMktDetailReportRowsFromSupabase(dateRange) {
-      const keyset = await fetchAllMktDetailReportRowsByIdKeyset(dateRange);
-      if (keyset?.ok) return keyset.rows;
-      return await fetchAllMktDetailReportRowsByRange(dateRange);
     }
 
     /** Bảng báo cáo không có employeeData — suy ra từ các dòng báo cáo */
@@ -1210,7 +1155,8 @@
     let employeeData = [];
     let baseDataForReport = [];
     const API_CACHE_TTL_MS = 120000;
-    const MAX_DAILY_BREAKDOWN_ROWS = 1500;
+    /** Giới hạn render bảng “theo ngày” (tránh treo trình duyệt); dữ liệu gốc vẫn tải đủ. */
+    const MAX_DAILY_BREAKDOWN_ROWS = 50000;
     const mktApiCache = new Map();
     const charts = {};
     let dailyRenderJobId = 0;
@@ -1434,13 +1380,17 @@
           rowTeamMatchesAllowed(r['Team'] || r.team, MKT_ALLOWED_TEAMS)
         );
 
+        // Với marketing_report_hcm, dữ liệu thường đã ở mức tổng hợp.
+        // Chỉ cần dedupe "giữ 1 dòng" khi có trùng id/detailRowKey (không cộng dồn mess).
+        const rowsDeduped = rowsTeamFiltered;
+
         const employeeDataMKT = Array.isArray(resultMKT.employeeData) && resultMKT.employeeData.length
           ? await fetchEmployeeData(resultMKT.employeeData)
-          : buildEmployeesFromDetailRows(rowsTeamFiltered);
+          : buildEmployeesFromDetailRows(rowsDeduped);
 
         employeeData = employeeDataMKT;
 
-        const masterDataMKT = rowsTeamFiltered
+        const masterDataMKT = rowsDeduped
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
           .map(r => {
             const dsChotTT = Number(r["Doanh số TT"] ?? r.doanh_so_tt) || 0;
@@ -1449,17 +1399,14 @@
             const donTT = parseIntegerVi(r["Số đơn thực tế"]);
             const dsSauHoanHuy = Number(r["DS sau hoàn hủy"]) || 0;
             const ngayParsed = parseNgayToDate(r["Ngày"]);
-            const idKey = r.id != null ? String(r.id) : '';
-            const detailRowKey =
-              idKey ||
-              `${r['Ngày']}|${r['Sản_phẩm']}|${r['Thị_trường']}|${r['ca']}|${r['Tên']}`;
+            const detailRowKey = buildMktDetailReportRowKey(r);
             return {
               id: r.id != null ? r.id : null,
               idnv: (r["id_NS"] || '').trim(),
               ten: (r["Tên"] || 'N/A').trim(),
               email: (r["Email"] || '').trim(),
               ngay: ngayParsed,
-              ca: String(r["ca"] || 'N/A').trim(),
+              ca: String(r["ca"] || '').trim(),
               sanPham: (r["Sản_phẩm"] || 'N/A').trim(),
               thiTruong: (r["Thị_trường"] || 'N/A').trim(),
               team: (r["Team"] || 'Khác').trim(),
@@ -1484,6 +1431,7 @@
             };
           });
 
+        // Dedupe giữ 1 dòng khi trùng (id hoặc detailRowKey) để tránh cộng dồn trùng.
         masterData = dedupeMktDetailRowsForAggregation(masterDataMKT);
 
         const dupRemoved = masterDataMKT.length - masterData.length;
@@ -1814,6 +1762,137 @@
     // --- VI. CÁC HÀM TÍNH TOÁN VÀ TỔNG HỢP DỮ LIỆU ---
     // =================================================================================
 
+    // --- Rule giống view MKT chung (dedupe/merge theo key ngày+Tên+SP+Thị_trường+ca) ---
+    function normalizeStrForKey(v) {
+      if (v == null) return '';
+      return String(v)
+        .replace(/\u00A0/g, ' ')
+        .replace(/\p{Cf}+/gu, '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+    }
+
+    function normalizeNameForKey(v) {
+      const s = normalizeStrForKey(v)
+        .replace(/[đĐ]/g, 'd')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      return s.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function normalizeFieldForKey(v) {
+      let s = normalizeStrForKey(v).normalize('NFC');
+      // "20 x" / "20  x" → "20x"
+      s = s.replace(/(\d)\s+([a-z])/gi, '$1$2').replace(/([a-z])\s+(\d)/gi, '$1$2');
+      return s.replace(/\s+/g, ' ').trim();
+    }
+
+    function normalizeNgayForKey(dateVal) {
+      const d = parseNgayToDate(dateVal);
+      if (d && !isNaN(d.getTime())) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+      const s = String(dateVal ?? '').trim();
+      if (s.includes('T')) return s.split('T')[0];
+      return s;
+    }
+
+    function normalizeCaForRowKey(caVal) {
+      const s = normalizeFieldForKey(caVal);
+      // Ca trống: không map sang "Hết ca" để tránh trộn dữ liệu giữa 2 ca.
+      if (!s) return '';
+      const hasHet = s.includes('hết ca') || s.includes('het ca');
+      const hasGua = s.includes('giữa ca') || s.includes('giua ca');
+      if (hasHet && hasGua) return 'het+gua';
+      if (hasHet) return 'het';
+      if (hasGua) return 'gua';
+      return s;
+    }
+
+    function buildMktDetailReportRowKey(row) {
+      const r = row || {};
+      const ngay = r['Ngày'] ?? r.ngay ?? r.date;
+      const ten = r['Tên'] ?? r.ten ?? r.name;
+      const sp = r['Sản_phẩm'] ?? r['Sản phẩm'] ?? r.san_pham ?? r.product;
+      const tt = r['Thị_trường'] ?? r['Thị trường'] ?? r.thi_truong ?? r.market;
+      const caRaw = r.ca ?? r['Ca'] ?? r.shift;
+      const base = [
+        normalizeNgayForKey(ngay),
+        normalizeNameForKey(ten),
+        normalizeFieldForKey(sp),
+        normalizeFieldForKey(tt),
+      ].join('|');
+      return `${base}|${normalizeCaForRowKey(caRaw)}`;
+    }
+
+    function parseSoDonThucTeFromRow(row) {
+      if (!row) return 0;
+      return parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
+    }
+
+    function parseDoanhSoChotTTFromRow(row) {
+      if (!row) return 0;
+      return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
+    }
+
+    function parseSoMessCmtFromRow(row) {
+      if (!row) return 0;
+      return parseIntegerVi(row['Số_Mess_Cmt'] ?? row.so_mess_cmt ?? 0);
+    }
+
+    function mergeUniqueRowsByIdKeepNoId(rows) {
+      const map = new Map();
+      const noId = [];
+      for (const row of rows || []) {
+        if (!row) continue;
+        const id = row.id;
+        if (id != null) map.set(id, row);
+        else noId.push(row);
+      }
+      return [...map.values(), ...noId];
+    }
+
+    function dedupeMktDetailReportRows(rows) {
+      const merged = mergeUniqueRowsByIdKeepNoId(rows || []);
+      const byKey = new Map();
+      for (const row of merged) {
+        const k = buildMktDetailReportRowKey(row);
+        const sd = parseSoDonThucTeFromRow(row);
+        const ds = parseDoanhSoChotTTFromRow(row);
+        const cpqc = parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0);
+        const mess = parseSoMessCmtFromRow(row);
+
+        const prev = byKey.get(k);
+        if (!prev) {
+          byKey.set(k, { row, sd, ds, cpqc, mess });
+          continue;
+        }
+
+        const mergedSd = Math.max(prev.sd, sd);
+        const mergedDs = Math.max(prev.ds, ds);
+        const mergedCpqc = prev.cpqc + cpqc;
+        const mergedMess = prev.mess + mess;
+
+        prev.sd = mergedSd;
+        prev.ds = mergedDs;
+        prev.cpqc = mergedCpqc;
+        prev.mess = mergedMess;
+
+        prev.row['Số đơn thực tế'] = mergedSd;
+        prev.row['Doanh số TT'] = mergedDs;
+        prev.row['CPQC'] = mergedCpqc;
+        prev.row['Số_Mess_Cmt'] = mergedMess;
+        if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
+        if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
+        if (prev.row.cpqc != null) prev.row.cpqc = mergedCpqc;
+        if (prev.row.so_mess_cmt != null) prev.row.so_mess_cmt = mergedMess;
+      }
+
+      return [...byKey.values()].map((m) => m.row);
+    }
+
     /** Một bản ghi DB có thể lọt vào mảng nhiều lần (cache/pagination) — chỉ cộng một lần khi tổng hợp. */
     function dedupeMktDetailRowsForAggregation(rows) {
       if (!Array.isArray(rows) || rows.length === 0) return rows || [];
@@ -1844,13 +1923,16 @@
     function generateSummaryTableData(data) {
       const summary = {};
       data.forEach((r) => {
-        const idPart = String(r.idnv || '').trim();
-        const namePart = String(r.ten || '').trim();
-        const key = idPart ? `${idPart}__${namePart}` : (namePart || 'N/A');
+        // Gom theo tên (đã normalize) để tránh bị tách do lệch dấu/khoảng trắng nhỏ.
+        const teamDisp = String(r.team || '').trim() || 'Khác';
+        const nameDisp = String(r.ten || '').trim() || 'N/A';
+        const key = `${normalizeNameForKey(nameDisp)}`;
+
         if (!summary[key]) {
           summary[key] = {
-            team: r.team,
-            name: namePart || 'N/A',
+            team: teamDisp,
+            name: nameDisp,
+            seenDetailKeysSoDonTT: new Set(),
             mess: 0,
             don: 0,
             chot: 0,
@@ -1859,35 +1941,62 @@
             chotThucTe: 0,
           };
         }
+
         const S = summary[key];
         S.mess += Number(r.soMessCmt) || 0;
         S.cpqc += Number(r.cpqc) || 0;
         S.don += Number(r.soDon) || 0;
         S.chot += Number(r.dsChot) || 0;
-        S.donThucTe += Number(r.soDonThucTe) || 0;
-        S.chotThucTe += Number(r.dsChotThucTe) || 0;
+
+        // TT: tránh cộng trùng nếu dữ liệu có thể xuất hiện lặp theo key detail.
+        const detailKey = String(r?.detailRowKey || '');
+        if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
+          S.seenDetailKeysSoDonTT.add(detailKey);
+          S.donThucTe += Number(r.soDonThucTe) || 0;
+          S.chotThucTe += Number(r.dsChotThucTe) || 0;
+        }
       });
-      return Object.values(summary);
+
+      return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
     }
 
     function generateKpiTableData(data) {
       const summary = {};
-      data.forEach(r => {
-        const key = r.ten || 'N/A';
+      data.forEach((r) => {
+        const teamDisp = String(r.team || '').trim() || 'Khác';
+        const nameDisp = String(r.ten || '').trim() || 'N/A';
+        const key = `${normalizeNameForKey(teamDisp)}||${normalizeNameForKey(nameDisp)}`;
+
         if (!summary[key]) {
           summary[key] = {
-            name: r.ten, team: r.team, cpqc: 0, dsChot: 0,
-            soDonHuy: 0, doanhSoHuy: 0, dsSauShip: 0, dsThanhCong: 0, kpiValue: 0,
-            dsChotThucTe: 0, soDonHuyThucTe: 0, dsHoanHuyThucTe: 0, dsSauHoanHuyThucTe: 0,
-            dsThanhCongThucTe: 0
+            name: nameDisp,
+            team: teamDisp,
+            cpqc: 0,
+            dsChot: 0,
+            soDonHuy: 0,
+            doanhSoHuy: 0,
+            dsSauShip: 0,
+            dsThanhCong: 0,
+            kpiValue: 0,
+            dsChotThucTe: 0,
+            soDonHuyThucTe: 0,
+            dsHoanHuyThucTe: 0,
+            dsSauHoanHuyThucTe: 0,
+            dsThanhCongThucTe: 0,
           };
         }
+
         const S = summary[key];
-        S.cpqc += r.cpqc; S.dsChot += r.dsChot;
-        S.dsSauShip += r.dsSauShip; S.dsThanhCong += r.dsThanhCong;
-        S.kpiValue += r.kpiValue; S.soDonHuy += r.soDonHuy; S.doanhSoHuy += r.doanhSoHuy;
+        S.cpqc += r.cpqc;
+        S.dsChot += r.dsChot;
+        S.dsSauShip += r.dsSauShip;
+        S.dsThanhCong += r.dsThanhCong;
+        S.kpiValue += r.kpiValue;
+        S.soDonHuy += r.soDonHuy;
+        S.doanhSoHuy += r.doanhSoHuy;
         S.dsChotThucTe += r.dsChotThucTe;
-        S.soDonHuyThucTe += r.soDonHuyThucTe; S.dsHoanHuyThucTe += r.dsHoanHuyThucTe;
+        S.soDonHuyThucTe += r.soDonHuyThucTe;
+        S.dsHoanHuyThucTe += r.dsHoanHuyThucTe;
         S.dsSauHoanHuyThucTe += r.dsSauHoanHuyThucTe;
         S.dsThanhCongThucTe += r.dsThanhCongThucTe;
       });
@@ -1902,8 +2011,10 @@
       const selM = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
       const detailTotals = rawFilteredRows ? sumDetailTotalsFromRows(rawFilteredRows) : null;
       const { bodyHtml, footHtml } = generateSummaryTableHTML(dataList, selM, detailTotals);
-      document.getElementById('summary-body').innerHTML = bodyHtml;
-      document.getElementById('summary-foot').innerHTML = footHtml || '';
+      // Đưa hàng tổng (footHtml) lên dưới dòng tiêu đề => chèn vào tbody ngay đầu.
+      document.getElementById('summary-body').innerHTML = (footHtml || '') + bodyHtml;
+      // Giữ tfoot để không làm hỏng layout, nhưng để trống.
+      document.getElementById('summary-foot').innerHTML = '';
     }
 
     function renderKpiSummary(dataList) {
@@ -2066,7 +2177,7 @@
         <th class="yellow-header">CPS<span class="sort-icon"></span></th>
         <th class="yellow-header">%CP/DS<span class="sort-icon"></span></th>
         <th class="yellow-header">Giá TB Đơn<span class="sort-icon"></span></th>
-        </tr></thead><tbody>${bodyHtml}</tbody><tfoot>${footHtml || ''}</tfoot></table></div>`;
+        </tr></thead><tbody>${footHtml || ''}${bodyHtml}</tbody><tfoot></tfoot></table></div>`;
       };
 
       let idx = 0;
@@ -2215,13 +2326,13 @@
       const selectedMarkets = [...document.querySelectorAll('.filter-market-tab1:checked')].map(cb => cb.value);
       const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals);
       const tb = table.querySelector('tbody');
-      if (tb) tb.innerHTML = bodyHtml;
+      if (tb) tb.innerHTML = (footHtml || '') + bodyHtml;
       let tf = table.querySelector('tfoot');
       if (!tf) {
         table.insertAdjacentHTML('beforeend', '<tfoot></tfoot>');
         tf = table.querySelector('tfoot');
       }
-      if (tf) tf.innerHTML = footHtml || '';
+      if (tf) tf.innerHTML = '';
       updateSortIcons(table, sortState);
     }
 

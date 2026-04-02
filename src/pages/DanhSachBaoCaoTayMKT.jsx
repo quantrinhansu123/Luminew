@@ -109,6 +109,7 @@ export default function DanhSachBaoCaoTayMKT({
     const [syncingTeamFromUsers, setSyncingTeamFromUsers] = useState(false);
     const [fixingUsThiTruong, setFixingUsThiTruong] = useState(false);
     const [mktRecalcLoading, setMktRecalcLoading] = useState(false);
+    const [deletingDupKeys, setDeletingDupKeys] = useState(false);
     const [deleting, setDeleting] = useState(false);
     
     // Pagination state
@@ -787,6 +788,109 @@ export default function DanhSachBaoCaoTayMKT({
             toast.error('Lỗi đổi Us → US: ' + (error.message || String(error)));
         } finally {
             setFixingUsThiTruong(false);
+        }
+    };
+
+    /**
+     * Xóa bản ghi trùng cùng key logic MKT (Ngày + Tên + Sản phẩm + Thị trường + ca — khớp buildMktDetailReportRowKey).
+     * Giữ một dòng (id nhỏ nhất), gộp CPQC & Số_Mess_Cmt (cộng), Số đơn & Doanh số (max), rồi xóa các id còn lại.
+     * Chỉ xử lý dữ liệu đang hiển thị sau bộ lọc danh sách.
+     */
+    const handleDeleteDuplicateMktKeys = async () => {
+        if (!isAdminOnly || teamFilter === 'RD') return;
+        if (deletingDupKeys) return;
+
+        const rows = reportsAfterFilters || [];
+        if (!rows.length) {
+            alert('Không có dữ liệu trong khoảng đã lọc.');
+            return;
+        }
+
+        const byKey = new Map();
+        for (const r of rows) {
+            const k = buildMktDetailReportRowKey(r);
+            if (!byKey.has(k)) byKey.set(k, []);
+            byKey.get(k).push(r);
+        }
+
+        const dupGroups = [...byKey.entries()].filter(([, list]) => list.length > 1);
+        if (dupGroups.length === 0) {
+            toast.info('Không có dòng trùng key trong danh sách đã lọc.');
+            return;
+        }
+
+        let totalRemove = 0;
+        for (const [, list] of dupGroups) {
+            totalRemove += list.length - 1;
+        }
+
+        const ok = window.confirm(
+            `Tìm thấy ${dupGroups.length} nhóm trùng key (${totalRemove} dòng sẽ xóa).\n\n` +
+                'Key = Ngày + Tên + Sản phẩm + Thị trường + ca (chuẩn hóa giống tính Số đơn TT).\n' +
+                'Giữ 1 dòng / nhóm (id nhỏ nhất), gộp CPQC & Số mess (cộng dồn), Số đơn & Doanh số (lấy max).\n\n' +
+                'Chỉ áp dụng cho dữ liệu đang lọc trên màn hình. Tiếp tục?'
+        );
+        if (!ok) return;
+
+        setDeletingDupKeys(true);
+        try {
+            let updatedRows = 0;
+            let deletedRows = 0;
+
+            const chunk = (arr, size) => {
+                const out = [];
+                for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+                return out;
+            };
+
+            for (const [, list] of dupGroups) {
+                const withId = list.filter((r) => r && r.id);
+                if (withId.length < 2) continue;
+
+                withId.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+                const keeper = withId[0];
+                const rest = withId.slice(1);
+
+                let cpqc = 0;
+                let mess = 0;
+                let soDon = 0;
+                let doanhSo = 0;
+                for (const r of withId) {
+                    cpqc += Number(r['CPQC'] || 0);
+                    mess += Number(r['Số_Mess_Cmt'] || 0);
+                    soDon = Math.max(soDon, Number(r['Số đơn'] || 0));
+                    doanhSo = Math.max(doanhSo, Number(r['Doanh số'] || 0));
+                }
+
+                const { error: upErr } = await supabase
+                    .from(reportTableName)
+                    .update({
+                        CPQC: cpqc,
+                        Số_Mess_Cmt: mess,
+                        'Số đơn': soDon,
+                        'Doanh số': doanhSo,
+                    })
+                    .eq('id', keeper.id);
+
+                if (upErr) throw upErr;
+                updatedRows += 1;
+
+                const idsToDelete = rest.map((r) => r.id);
+                for (const part of chunk(idsToDelete, 80)) {
+                    const { error: delErr } = await supabase.from(reportTableName).delete().in('id', part);
+                    if (delErr) throw delErr;
+                    deletedRows += part.length;
+                }
+            }
+
+            toast.success(`Đã gộp & xóa trùng key: ${updatedRows} dòng giữ lại (đã cập nhật số liệu), ${deletedRows} dòng đã xóa.`);
+            setRealValuesMap({});
+            fetchData();
+        } catch (error) {
+            console.error('handleDeleteDuplicateMktKeys:', error);
+            toast.error('Lỗi xóa trùng key: ' + (error.message || String(error)));
+        } finally {
+            setDeletingDupKeys(false);
         }
     };
 
@@ -1534,6 +1638,7 @@ export default function DanhSachBaoCaoTayMKT({
                                     onClick={handleRecalcMktSoDonTT}
                                     disabled={
                                         mktRecalcLoading ||
+                                        deletingDupKeys ||
                                         loading ||
                                         deleting ||
                                         syncing ||
@@ -1556,11 +1661,38 @@ export default function DanhSachBaoCaoTayMKT({
                                     )}
                                 </button>
                             )}
+                            {isAdminOnly && teamFilter !== 'RD' && (
+                                <button
+                                    type="button"
+                                    onClick={handleDeleteDuplicateMktKeys}
+                                    disabled={
+                                        deletingDupKeys ||
+                                        loading ||
+                                        deleting ||
+                                        syncing ||
+                                        syncingTeamHanoi ||
+                                        syncingTeamFromUsers ||
+                                        fixingUsThiTruong ||
+                                        mktRecalcLoading
+                                    }
+                                    className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    title="Xóa dòng trùng cùng key (Ngày+Tên+SP+TT+ca) trong phạm vi danh sách đã lọc; gộp CPQC/mess vào dòng giữ lại"
+                                >
+                                    {deletingDupKeys ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang xóa trùng…
+                                        </>
+                                    ) : (
+                                        <>🧹 Xóa trùng key</>
+                                    )}
+                                </button>
+                            )}
                             {isAdminOnly && !isHcmMarketingReport && (
                                 <button
                                     type="button"
                                     onClick={handleSyncTeamHanoiToHnMkt}
-                                    disabled={syncingTeamHanoi || loading || deleting || syncing || mktRecalcLoading}
+                                    disabled={syncingTeamHanoi || loading || deleting || deletingDupKeys || syncing || mktRecalcLoading}
                                     className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
                                     title='Chỉ cập nhật các dòng có Team đúng bằng "Hà Nội"'
                                 >
@@ -1583,6 +1715,7 @@ export default function DanhSachBaoCaoTayMKT({
                                             syncingTeamFromUsers ||
                                             loading ||
                                             deleting ||
+                                            deletingDupKeys ||
                                             syncing ||
                                             mktRecalcLoading ||
                                             fixingUsThiTruong
@@ -1606,6 +1739,7 @@ export default function DanhSachBaoCaoTayMKT({
                                             fixingUsThiTruong ||
                                             loading ||
                                             deleting ||
+                                            deletingDupKeys ||
                                             syncing ||
                                             syncingTeamFromUsers ||
                                             mktRecalcLoading
