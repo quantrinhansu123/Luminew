@@ -95,6 +95,58 @@ function isBillTrackingDropoffPlaceholder(maTracking) {
   return n === 'dropoff' || n.startsWith('dropoff');
 }
 
+/** Mã đơn có thật trong bảng orders (batch), tránh đếm sai khi UPDATE không trả dòng do RLS. */
+async function fetchExistingOrderCodesSet(supabaseClient, orderCodes) {
+  const set = new Set();
+  const list = [...orderCodes]
+    .map((c) => (c == null ? '' : String(c).trim()))
+    .filter(Boolean);
+  if (list.length === 0) return set;
+  const BATCH = 500;
+  for (let i = 0; i < list.length; i += BATCH) {
+    const batch = list.slice(i, i + BATCH);
+    const { data, error } = await supabaseClient.from('orders').select('order_code').in('order_code', batch);
+    if (error) throw error;
+    for (const r of data || []) {
+      if (r?.order_code != null) set.add(String(r.order_code).trim());
+    }
+  }
+  return set;
+}
+
+/** Mã tracking (trim) → các order_code có đúng tracking_code đó (đồng bộ hết, kể cả nhiều đơn trùng tracking). */
+async function fetchOrderCodesByTrackingMap(supabaseClient, trackingKeys) {
+  const map = new Map();
+  const unique = [
+    ...new Set([...trackingKeys].map((t) => (t == null ? '' : String(t).trim())).filter(Boolean)),
+  ];
+  if (unique.length === 0) return map;
+  const BATCH = 1000;
+  for (let i = 0; i < unique.length; i += BATCH) {
+    const batch = unique.slice(i, i + BATCH);
+    const { data, error } = await supabaseClient
+      .from('orders')
+      .select('order_code, tracking_code')
+      .in('tracking_code', batch);
+    if (error) throw error;
+    for (const o of data || []) {
+      const tc =
+        o.tracking_code != null && o.tracking_code !== ''
+          ? String(o.tracking_code).trim()
+          : '';
+      const oc = o.order_code != null ? String(o.order_code).trim() : '';
+      if (!tc || !oc) continue;
+      if (!map.has(tc)) map.set(tc, new Set());
+      map.get(tc).add(oc);
+    }
+  }
+  const out = new Map();
+  for (const [tk, set] of map) {
+    out.set(tk, [...set].sort((a, b) => a.localeCompare(b)));
+  }
+  return out;
+}
+
 function DoiSoatBillCuoc() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('bill'); // 'bill' or 'cuoc'
@@ -193,14 +245,19 @@ function DoiSoatBillCuoc() {
             .in('tracking_code', batch);
 
           if (!trErr && byTracking) {
+            const tcGroups = new Map();
             byTracking.forEach((order) => {
               const tc =
                 order.tracking_code != null && order.tracking_code !== ''
                   ? String(order.tracking_code).trim()
                   : '';
-              if (tc && !trackingOrderMap.has(tc)) {
-                trackingOrderMap.set(tc, order);
-              }
+              if (!tc) return;
+              if (!tcGroups.has(tc)) tcGroups.set(tc, []);
+              tcGroups.get(tc).push(order);
+            });
+            tcGroups.forEach((arr, tc) => {
+              arr.sort((a, b) => String(a.order_code).localeCompare(String(b.order_code)));
+              trackingOrderMap.set(tc, arr[0]);
             });
           }
         }
@@ -230,16 +287,13 @@ function DoiSoatBillCuoc() {
 
         const tk =
           row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
-        const mdKey =
-          row.ma_don_hang != null && String(row.ma_don_hang).trim() !== ''
-            ? String(row.ma_don_hang).trim()
-            : null;
         const fromTracking =
           tk && !isBillTrackingDropoffPlaceholder(tk) ? trackingOrderMap.get(tk) : null;
+        /** Chỉ gắn đơn khi khớp Mã Tracking với orders (không fallback mã đơn trên dòng bill). */
         const effectiveOrder =
-          !tk || isBillTrackingDropoffPlaceholder(tk)
-            ? mdKey
-            : fromTracking?.order_code || mdKey || null;
+          tk && !isBillTrackingDropoffPlaceholder(tk)
+            ? fromTracking?.order_code ?? null
+            : null;
 
         if (effectiveOrder) {
           const shippingUnit = shippingUnitMap.get(effectiveOrder) || fromTracking?.shipping_unit;
@@ -888,7 +942,7 @@ function DoiSoatBillCuoc() {
   const handleSyncBill = async () => {
     if (
       !window.confirm(
-        'Đồng bộ Bill: cập nhật total_vnd (tổng Tiền Việt) lên bảng orders từ chi_tiet_bill_tien. Tiếp tục?'
+        'Đồng bộ Bill: ghi tổng Tiền Việt lên orders — theo Mã Tracking. Mỗi mã tracking gom hết tiền từ các dòng bill; mọi đơn có đúng tracking đó đều được cập nhật (nếu nhiều đơn trùng tracking thì tiền chia đều). Không dùng mã đơn trên dòng bill. Tiếp tục?'
       )
     ) {
       return;
@@ -902,68 +956,35 @@ function DoiSoatBillCuoc() {
 
       if (billError) throw billError;
 
-      const billTrackings = [
-        ...new Set(
-          (billData || [])
-            .map((r) => (r.ma_tracking != null ? String(r.ma_tracking).trim() : ''))
-            .filter((tk) => tk && !isBillTrackingDropoffPlaceholder(tk))
-        ),
-      ];
-      const billTrackingToOrder = new Map();
-      if (billTrackings.length > 0) {
-        const bs = 1000;
-        for (let i = 0; i < billTrackings.length; i += bs) {
-          const batch = billTrackings.slice(i, i + bs);
-          const { data: ordRows, error: boErr } = await supabase
-            .from('orders')
-            .select('order_code, tracking_code')
-            .in('tracking_code', batch);
-          if (!boErr && ordRows) {
-            ordRows.forEach((o) => {
-              const tc =
-                o.tracking_code != null && o.tracking_code !== ''
-                  ? String(o.tracking_code).trim()
-                  : '';
-              const oc = syncOrderKeyForScope(o.order_code);
-              if (tc && oc && !billTrackingToOrder.has(tc)) {
-                billTrackingToOrder.set(tc, oc);
-              }
-            });
-          }
-        }
+      /** Gom tổng Tiền Việt theo từng tracking (chỉ dòng có tracking hợp lệ + tien_viet số được). */
+      const vndByTracking = new Map();
+      for (const row of billData || []) {
+        const tk =
+          row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
+        if (!tk || isBillTrackingDropoffPlaceholder(tk)) continue;
+        if (row.tien_viet === null || row.tien_viet === undefined || row.tien_viet === '') continue;
+        const raw = String(row.tien_viet).replace(/,/g, '');
+        const num = parseFloat(raw);
+        if (isNaN(num)) continue;
+        vndByTracking.set(tk, (vndByTracking.get(tk) || 0) + num);
       }
 
-      const resolveBillOrderCodeForSync = (row) => {
-        const md = syncOrderKeyForScope(row.ma_don_hang);
-        const tk =
-          row.ma_tracking != null && row.ma_tracking !== ''
-            ? String(row.ma_tracking).trim()
-            : '';
-        if (!tk || isBillTrackingDropoffPlaceholder(tk)) {
-          return md;
-        }
-        const fromTr = billTrackingToOrder.get(tk);
-        return fromTr || md || null;
-      };
+      const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, vndByTracking.keys());
 
       const totalVndMap = new Map();
-      if (billData) {
-        billData.forEach((row) => {
-          const orderCode = resolveBillOrderCodeForSync(row);
-          if (
-            orderCode &&
-            row.tien_viet !== null &&
-            row.tien_viet !== undefined &&
-            row.tien_viet !== ''
-          ) {
-            const currentTotal = totalVndMap.get(orderCode) || 0;
-            const raw = String(row.tien_viet).replace(/,/g, '');
-            const num = parseFloat(raw);
-            if (!isNaN(num)) {
-              totalVndMap.set(orderCode, currentTotal + num);
-            }
-          }
-        });
+      let trackingsKhongCoDon = 0;
+      for (const [tk, sumVnd] of vndByTracking) {
+        const ocs = trackingToOrders.get(tk);
+        if (!ocs || ocs.length === 0) {
+          trackingsKhongCoDon += 1;
+          continue;
+        }
+        const perOrder = sumVnd / ocs.length;
+        for (const ocRaw of ocs) {
+          const oc = syncOrderKeyForScope(ocRaw);
+          if (!oc) continue;
+          totalVndMap.set(oc, (totalVndMap.get(oc) || 0) + perOrder);
+        }
       }
 
       const allOrderCodes = [...totalVndMap.keys()];
@@ -971,10 +992,16 @@ function DoiSoatBillCuoc() {
 
       if (allOrderCodes.length === 0) {
         alert(
-          `Không có mã đơn nào từ bill để cập nhật (cần Tiền Việt; ưu tiên tracking, hoặc mã đơn nếu tracking trống/Dropoff). Dòng trong DB: ${billRowCount}.`
+          `Không có đơn nào đủ điều kiện đồng bộ: cần Tiền Việt + Mã Tracking đã có trên đơn (tracking_code).\n` +
+            `• Dòng bill: ${billRowCount}\n` +
+            `• Mã tracking có tiền (gom được): ${vndByTracking.size}\n` +
+            `• Tracking không tìm thấy đơn: ${trackingsKhongCoDon}`
         );
         return;
       }
+
+      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, allOrderCodes);
+      const missingInOrders = allOrderCodes.filter((c) => !existingOrderCodes.has(c));
 
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
@@ -982,17 +1009,21 @@ function DoiSoatBillCuoc() {
       const syncRows = [];
 
       for (const orderCode of allOrderCodes) {
+        if (!existingOrderCodes.has(orderCode)) {
+          console.warn(`Đồng bộ Bill: bỏ qua — không có order_code="${orderCode}" trong orders`);
+          continue;
+        }
         const tv = totalVndMap.get(orderCode);
         const updateData = { total_vnd: tv };
-        const { data: updatedRows, error: updateError } = await supabase
+        /** Không dùng .select() sau update — RLS thường chặn RETURNING nhưng vẫn ghi được total_vnd. */
+        const { error: updateError } = await supabase
           .from('orders')
           .update(updateData)
-          .eq('order_code', orderCode)
-          .select('order_code');
+          .eq('order_code', orderCode);
 
         if (updateError) {
           console.error(`Error updating order ${orderCode}:`, updateError);
-        } else if (updatedRows?.length) {
+        } else {
           updateCount++;
           syncRows.push({
             sync_batch_id: syncBatchId,
@@ -1003,8 +1034,6 @@ function DoiSoatBillCuoc() {
             revenue_actual: tv ?? null,
             order_count_actual: null,
           });
-        } else {
-          console.warn(`Đồng bộ Bill: không có đơn khớp order_code="${orderCode}" trong orders`);
         }
       }
 
@@ -1014,11 +1043,28 @@ function DoiSoatBillCuoc() {
       }
 
       if (updateCount === 0) {
+        const sample = missingInOrders.slice(0, 8).join(', ');
         alert(
-          `Không cập nhật được đơn nào từ Bill. Kiểm tra order_code trên hệ thống. (${allOrderCodes.length} mã tính được từ ${billRowCount} dòng bill)`
+          `Không cập nhật được đơn nào từ Bill.\n` +
+            `• Dòng bill: ${billRowCount}\n` +
+            `• Số mã đơn khác nhau (sau khi gom tiền): ${allOrderCodes.length}\n` +
+            `• Có trong orders: ${existingOrderCodes.size}\n` +
+            (missingInOrders.length
+              ? `• Không có trong orders (${Math.min(missingInOrders.length, 8)}/${missingInOrders.length} ví dụ): ${sample}${missingInOrders.length > 8 ? '…' : ''}\n`
+              : '') +
+            `Gợi ý: Mã Tracking trên bill phải trùng tracking_code trên đơn.`
         );
       } else {
-        alert(`Đã đồng bộ Bill: ${updateCount} đơn.`);
+        alert(
+          `Đã đồng bộ Bill: ${updateCount} đơn (theo Mã Tracking).\n` +
+            `${billRowCount} dòng bill; ${vndByTracking.size} mã tracking đã gom tiền.` +
+            (trackingsKhongCoDon > 0
+              ? `\nLưu ý: ${trackingsKhongCoDon} mã tracking trên bill chưa có đơn tương ứng — không ghi được.`
+              : '') +
+            (missingInOrders.length > 0
+              ? `\n${missingInOrders.length} mã tính được nhưng không đọc được trong orders (kiểm tra quyền/RLS).`
+              : '')
+        );
       }
 
       setLastBillSyncTime(syncTime);
@@ -1084,12 +1130,20 @@ function DoiSoatBillCuoc() {
         return;
       }
 
+      const orderCodeList = [...allOrderCodes];
+      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, orderCodeList);
+      const missingInOrders = orderCodeList.filter((c) => !existingOrderCodes.has(c));
+
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
       const syncRows = [];
 
       for (const orderCode of allOrderCodes) {
+        if (!existingOrderCodes.has(orderCode)) {
+          console.warn(`Đồng bộ Cước: bỏ qua — không có order_code="${orderCode}" trong orders`);
+          continue;
+        }
         const updateData = {};
         if (shippingCostMap.has(orderCode)) {
           updateData.shipping_cost = shippingCostMap.get(orderCode);
@@ -1099,15 +1153,14 @@ function DoiSoatBillCuoc() {
         }
 
         if (Object.keys(updateData).length > 0) {
-          const { data: updatedRows, error: updateError } = await supabase
+          const { error: updateError } = await supabase
             .from('orders')
             .update(updateData)
-            .eq('order_code', orderCode)
-            .select('order_code');
+            .eq('order_code', orderCode);
 
           if (updateError) {
             console.error(`Error updating order ${orderCode}:`, updateError);
-          } else if (updatedRows?.length) {
+          } else {
             updateCount++;
             syncRows.push({
               sync_batch_id: syncBatchId,
@@ -1118,8 +1171,6 @@ function DoiSoatBillCuoc() {
               revenue_actual: null,
               order_count_actual: updateData.order_count_actual ?? null,
             });
-          } else {
-            console.warn(`Đồng bộ Cước: không có đơn khớp order_code="${orderCode}" trong orders`);
           }
         }
       }
@@ -1130,11 +1181,25 @@ function DoiSoatBillCuoc() {
       }
 
       if (updateCount === 0) {
+        const sample = missingInOrders.slice(0, 8).join(', ');
         alert(
-          `Không cập nhật được đơn nào từ Cước. Kiểm tra order_code. (chitiet_cuoc: ${cuocRowCount} dòng, ${allOrderCodes.size} mã gom được)`
+          `Không cập nhật được đơn nào từ Cước.\n` +
+            `• Dòng cước: ${cuocRowCount}\n` +
+            `• Mã gom được: ${allOrderCodes.size}\n` +
+            `• Có trong orders: ${existingOrderCodes.size}\n` +
+            (missingInOrders.length
+              ? `• Không có trong orders (ví dụ): ${sample}${missingInOrders.length > 8 ? '…' : ''}\n`
+              : '') +
+            `Kiểm tra cột Mã đơn hàng trên cước có trùng order_code trên hệ thống.`
         );
       } else {
-        alert(`Đã đồng bộ Cước: ${updateCount} đơn.`);
+        alert(
+          `Đã đồng bộ Cước: ${updateCount} đơn.\n` +
+            `Dòng cước: ${cuocRowCount}; mã gom: ${allOrderCodes.size}.` +
+            (missingInOrders.length > 0
+              ? `\nLưu ý: ${missingInOrders.length} mã không có trong orders — đã bỏ qua.`
+              : '')
+        );
       }
 
       setLastCuocSyncTime(syncTime);
@@ -1610,28 +1675,7 @@ function DoiSoatBillCuoc() {
               .filter((tk) => tk && !isBillTrackingDropoffPlaceholder(tk))
           ),
         ];
-        const trackingToOrder = new Map();
-        if (trackingNeed.length > 0) {
-          const bs = 1000;
-          for (let i = 0; i < trackingNeed.length; i += bs) {
-            const batch = trackingNeed.slice(i, i + bs);
-            const { data: ordRows, error: ordErr } = await supabase
-              .from('orders')
-              .select('order_code, tracking_code')
-              .in('tracking_code', batch);
-            if (!ordErr && ordRows) {
-              ordRows.forEach((o) => {
-                const tc =
-                  o.tracking_code != null && o.tracking_code !== ''
-                    ? String(o.tracking_code).trim()
-                    : '';
-                if (tc && !trackingToOrder.has(tc)) {
-                  trackingToOrder.set(tc, o.order_code);
-                }
-              });
-            }
-          }
-        }
+        const trackingToOrdersImport = await fetchOrderCodesByTrackingMap(supabase, trackingNeed);
 
         for (const r of recordsToInsert) {
           const tk = r.ma_tracking != null ? String(r.ma_tracking).trim() : '';
@@ -1643,12 +1687,12 @@ function DoiSoatBillCuoc() {
             continue;
           }
 
-          const oc = trackingToOrder.get(tk);
-          if (oc) {
-            r.ma_don_hang = oc;
+          const ocs = trackingToOrdersImport.get(tk);
+          if (ocs && ocs.length > 0) {
+            r.ma_don_hang = ocs[0];
           } else {
-            r.ma_don_hang = mdhRaw || null;
-            if (!mdhRaw) billImportWithoutOrderCode++;
+            r.ma_don_hang = null;
+            billImportWithoutOrderCode++;
           }
         }
         rowsToInsert = recordsToInsert;

@@ -83,6 +83,7 @@ export function buildPushDonByDayMatrix(rows, startIso, endIso) {
     return { dates, rows: list, colTotals, grandTotal: grand };
 }
 
+/** Ngày theo Asia/Ho_Chi_Minh (khớp báo cáo Từ/Đến ngày trong nước). */
 function ffmLogDayKey(r) {
     const raw =
         r?.pushed_at ??
@@ -93,7 +94,11 @@ function ffmLogDayKey(r) {
     if (raw == null || raw === '') return '';
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toISOString().slice(0, 10);
+    try {
+        return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+    } catch {
+        return d.toISOString().slice(0, 10);
+    }
 }
 
 function ffmLogMarket(r) {
@@ -104,13 +109,22 @@ function ffmLogProduct(r) {
     return String(r?.product ?? r?.['Mặt hàng'] ?? '').trim() || 'Không xác định';
 }
 
+function ffmLogOrderDedupeKey(r) {
+    const oc = r?.order_code != null ? String(r.order_code).trim() : '';
+    if (oc) return `oc:${oc}`;
+    const id = r?.id;
+    if (id != null && id !== '') return `id:${id}`;
+    return `row:${JSON.stringify([ffmLogDayKey(r), ffmLogMarket(r), ffmLogProduct(r), r?.batch_id])}`;
+}
+
 /**
- * Tab 4 (nguồn ffm_push_logs): đếm số dòng log theo ngày + thị trường + sản phẩm.
+ * Tab 4 (nguồn ffm_push_logs): số đơn theo từng ngày + thị trường + sản phẩm.
+ * Cùng một order_code trong cùng ngày (cùng ô) chỉ tính 1 đơn; nhiều lần đẩy log không cộng dồn.
  */
 export function buildPushDonByDayMatrixFromFfmLogs(rows, startIso, endIso) {
     const dates = enumerateIsoDatesInclusive(startIso, endIso);
     const dateSet = new Set(dates);
-    /** @type {Map<string, { market: string; product: string; byDate: Record<string, number>; total: number }>} */
+    /** @type {Map<string, { market: string; product: string; byDate: Record<string, Set<string>> }>} */
     const map = new Map();
 
     for (const r of rows || []) {
@@ -118,17 +132,28 @@ export function buildPushDonByDayMatrixFromFfmLogs(rows, startIso, endIso) {
         if (!dateSet.has(day)) continue;
         const key = `${ffmLogMarket(r)}\t${ffmLogProduct(r)}`;
         if (!map.has(key)) {
-            map.set(key, { market: ffmLogMarket(r), product: ffmLogProduct(r), byDate: {}, total: 0 });
+            map.set(key, { market: ffmLogMarket(r), product: ffmLogProduct(r), byDate: {} });
         }
         const e = map.get(key);
-        e.byDate[day] = (e.byDate[day] || 0) + 1;
-        e.total += 1;
+        if (!e.byDate[day]) e.byDate[day] = new Set();
+        e.byDate[day].add(ffmLogOrderDedupeKey(r));
     }
 
-    const list = [...map.values()].sort((a, b) => {
-        const c = a.market.localeCompare(b.market, 'vi');
-        return c !== 0 ? c : a.product.localeCompare(b.product, 'vi');
-    });
+    const list = [...map.values()]
+        .map((e) => {
+            const byDateNum = {};
+            let total = 0;
+            for (const d of dates) {
+                const n = e.byDate[d] ? e.byDate[d].size : 0;
+                byDateNum[d] = n;
+                total += n;
+            }
+            return { market: e.market, product: e.product, byDate: byDateNum, total };
+        })
+        .sort((a, b) => {
+            const c = a.market.localeCompare(b.market, 'vi');
+            return c !== 0 ? c : a.product.localeCompare(b.product, 'vi');
+        });
 
     const colTotals = {};
     for (const d of dates) colTotals[d] = 0;

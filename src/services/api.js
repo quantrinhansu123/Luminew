@@ -25,7 +25,7 @@ export const DB_TO_APP_MAPPING = {
     "delivery_status": "Trạng thái giao hàng",
     "payment_status": "Trạng thái thu tiền",
     "note": "Ghi chú",
-    "reason": "Lý do",
+    "lydo": "Lý do",
     "order_date": "Ngày lên đơn",
     "sale_price": "Giá bán",
     "shipping_unit": "Đơn vị vận chuyển",
@@ -154,6 +154,8 @@ const resolveAppKeyToDbKey = (appKey) => {
     if (nfc === 'Cảnh báo trùng'.normalize('NFC') || appKey === 'canh_bao') return 'canh_bao';
     /** Dữ liệu cũ / pending lưu tay vẫn có thể dùng khóa cột cũ */
     if (appKey === 'estimated_delivery_date' || nfc === 'estimated_delivery_date') return 'thoigiangiaohangffm';
+    /** Dữ liệu cũ / pending lưu tay có thể còn khóa reason */
+    if (appKey === 'reason' || nfc === 'reason') return 'lydo';
     return null;
 };
 
@@ -168,6 +170,15 @@ export const mapSupabaseOrderToApp = (sOrder) => {
             appOrder[appKey] = sOrder[dbKey];
         }
     });
+
+    // Lý do: ưu tiên cột lydo; nếu trống thì dùng reason (dữ liệu cũ).
+    {
+        const ly = appOrder['Lý do'];
+        const lyEmpty = ly === undefined || ly === null || String(ly).trim() === '';
+        if (lyEmpty && sOrder.reason !== undefined && sOrder.reason !== null && String(sOrder.reason).trim() !== '') {
+            appOrder['Lý do'] = sOrder.reason;
+        }
+    }
 
     // Thời gian giao dự kiến: ưu tiên thoigiangiaohangffm; estimated_delivery_date chỉ fallback (dữ liệu cũ)
     const estEd = sOrder.estimated_delivery_date;
@@ -829,7 +840,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
 export const VAN_DON_PAGE_COLUMN_LIST = [
     'order_code', 'customer_name', 'customer_phone', 'customer_address', 'city', 'state', 'country', 'zipcode',
     'product', 'total_amount_vnd', 'payment_method', 'payment_method_text', 'tracking_code', 'shipping_fee',
-    'marketing_staff', 'sale_staff', 'team', 'delivery_staff', 'delivery_status', 'payment_status', 'note', 'reason',
+    'marketing_staff', 'sale_staff', 'team', 'delivery_staff', 'delivery_status', 'payment_status', 'note', 'lydo',
     'order_date', 'sale_price', 'goods_amount', 'shipping_unit', 'accountant_confirm', 'created_at', 'ngaydonghang',
     'check_result', 'vandon_note', 'product_name_1', 'quantity_1', 'product_name_2', 'quantity_2', 'gift', 'gift_item', 'gift_quantity', 'gift_qty',
     'delivery_status_nb', 'payment_currency', 'estimated_delivery_date', 'thoigiangiaohangffm', 'warehouse_fee', 'luu_kho_usd',

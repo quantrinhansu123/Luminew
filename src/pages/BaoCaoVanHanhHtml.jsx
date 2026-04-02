@@ -426,20 +426,27 @@ export default function BaoCaoVanHanhHtml() {
         };
     }, [rawData, bcvhCriteriaRows]);
 
-    /** Tab1 cùng metric với hàng TỔNG Tab2 (slice theo từng dòng tiêu chí). */
-    const tab1SummaryDates = useMemo(() => {
-        const starts = bcvhCriteriaRows.map((r) => r.startDate).filter(Boolean);
-        const ends = bcvhCriteriaRows.map((r) => r.endDate).filter(Boolean);
-        if (starts.length && ends.length) {
-            return {
-                startDate: starts.reduce((a, b) => (a < b ? a : b)),
-                endDate: ends.reduce((a, b) => (a > b ? a : b))
-            };
-        }
-        return { startDate: reportFilters.startDate, endDate: reportFilters.endDate };
-    }, [bcvhCriteriaRows, reportFilters.startDate, reportFilters.endDate]);
+    /** Tab 1: một khoảng ngày + bộ lọc đã tải — cùng rule aggregateOperationalReportSlice với BC Vận Hành (tab 2). */
+    const tab1Operational = useMemo(() => {
+        const slice = filterSliceForCriteriaRow(rawData, {
+            startDate: reportFilters.startDate,
+            endDate: reportFilters.endDate,
+            product: '',
+            market: ''
+        });
+        return aggregateOperationalReportSlice(slice);
+    }, [rawData, reportFilters.startDate, reportFilters.endDate]);
 
-    const tab1SauHuy = bcvhTotal.tongNoiBo - bcvhTotal.huyNoiBo;
+    const tab1SauHuy = tab1Operational.tongNoiBo - tab1Operational.huyNoiBo;
+
+    const runTabSearch = async () => {
+        await fetchData();
+        const p = new URLSearchParams(searchParams);
+        p.set('from_date', reportFilters.startDate);
+        p.set('to_date', reportFilters.endDate);
+        p.set('tab', activeTab);
+        setSearchParams(p, { replace: true });
+    };
 
     const addBcvhRow = () => {
         setBcvhCriteriaRows((prev) => {
@@ -1025,14 +1032,7 @@ export default function BaoCaoVanHanhHtml() {
                         type="button"
                         disabled={loading}
                         className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
-                        onClick={async () => {
-                            await fetchData();
-                            const p = new URLSearchParams(searchParams);
-                            p.set('from_date', reportFilters.startDate);
-                            p.set('to_date', reportFilters.endDate);
-                            p.set('tab', activeTab);
-                            setSearchParams(p, { replace: true });
-                        }}
+                        onClick={runTabSearch}
                     >
                         {loading ? 'Đang tải…' : '🔍 Tìm'}
                     </button>
@@ -1085,6 +1085,19 @@ export default function BaoCaoVanHanhHtml() {
             {/* Tab 1 — Thống kê giao dịch (1 dòng tổng, giống mẫu HTML) */}
             {activeTab === 'tab1' && (
                 <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
+                    <div className="mb-3 flex flex-wrap items-end gap-3">
+                        <p className="text-xs text-gray-600">
+                            Chọn ngày rồi bấm <strong>Tìm</strong> — số liệu dùng cùng rule tổng hợp với tab BC Vận Hành.
+                        </p>
+                        <button
+                            type="button"
+                            disabled={loading}
+                            className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
+                            onClick={runTabSearch}
+                        >
+                            {loading ? 'Đang tải…' : '🔍 Tìm'}
+                        </button>
+                    </div>
                     <table className="min-w-max w-full border-collapse text-sm text-black">
                         <thead>
                             <tr>
@@ -1135,17 +1148,43 @@ export default function BaoCaoVanHanhHtml() {
                         </thead>
                         <tbody>
                             <tr>
-                                <td className="px-3 py-2">{isoToViDisplay(tab1SummaryDates.startDate)}</td>
-                                <td className="px-3 py-2">{isoToViDisplay(tab1SummaryDates.endDate)}</td>
-                                <td className="px-3 py-2">{formatSlVi(bcvhTotal.donCoBill)}</td>
-                                <td className="px-3 py-2">{formatNumVi(bcvhTotal.donCoBillAmount)}</td>
-                                <td className="px-3 py-2">{formatSlVi(bcvhTotal.giaoTC)}</td>
-                                <td className="px-3 py-2">{formatSlVi(bcvhTotal.coMa)}</td>
+                                <td className="px-3 py-2 align-middle">
+                                    <input
+                                        type="date"
+                                        className="w-full min-w-[9.5rem] rounded border border-gray-300 px-2 py-1 text-sm"
+                                        value={reportFilters.startDate}
+                                        onChange={(e) =>
+                                            setReportFilters((p) => ({
+                                                ...p,
+                                                startDate: e.target.value,
+                                                dateRange: ''
+                                            }))
+                                        }
+                                    />
+                                </td>
+                                <td className="px-3 py-2 align-middle">
+                                    <input
+                                        type="date"
+                                        className="w-full min-w-[9.5rem] rounded border border-gray-300 px-2 py-1 text-sm"
+                                        value={reportFilters.endDate}
+                                        onChange={(e) =>
+                                            setReportFilters((p) => ({
+                                                ...p,
+                                                endDate: e.target.value,
+                                                dateRange: ''
+                                            }))
+                                        }
+                                    />
+                                </td>
+                                <td className="px-3 py-2">{formatSlVi(tab1Operational.donCoBill)}</td>
+                                <td className="px-3 py-2">{formatNumVi(tab1Operational.donCoBillAmount)}</td>
+                                <td className="px-3 py-2">{formatSlVi(tab1Operational.giaoTC)}</td>
+                                <td className="px-3 py-2">{formatSlVi(tab1Operational.coMa)}</td>
                                 <td className="px-3 py-2 text-gray-500">{NO_AMOUNT}</td>
-                                <td className="bg-[#F4B084] px-3 py-2">{formatSlVi(bcvhTotal.dangGiao)}</td>
+                                <td className="bg-[#F4B084] px-3 py-2">{formatSlVi(tab1Operational.dangGiao)}</td>
                                 <td className="bg-[#F4B084] px-3 py-2 text-gray-500">{NO_AMOUNT}</td>
-                                <td className="px-3 py-2">{formatPct(bcvhTotal.giaoTC, bcvhTotal.tongNoiBo)}</td>
-                                <td className="px-3 py-2">{formatPct(bcvhTotal.coMa, tab1SauHuy)}</td>
+                                <td className="px-3 py-2">{formatPct(tab1Operational.giaoTC, tab1Operational.tongNoiBo)}</td>
+                                <td className="px-3 py-2">{formatPct(tab1Operational.coMa, tab1SauHuy)}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1201,14 +1240,7 @@ export default function BaoCaoVanHanhHtml() {
                                 type="button"
                                 disabled={loading}
                                 className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
-                                onClick={async () => {
-                                    await fetchData();
-                                    const p = new URLSearchParams(searchParams);
-                                    p.set('from_date', reportFilters.startDate);
-                                    p.set('to_date', reportFilters.endDate);
-                                    p.set('tab', activeTab);
-                                    setSearchParams(p, { replace: true });
-                                }}
+                                onClick={runTabSearch}
                             >
                                 {loading ? 'Đang tải…' : '🔍 Tìm'}
                             </button>
@@ -1654,7 +1686,10 @@ export default function BaoCaoVanHanhHtml() {
             {activeTab === 'tab4' && (
                 <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
                     <p className="mb-2 text-xs text-gray-600">
-                        Mỗi ô: số đơn có <strong>Mã tracking</strong> (histogram) theo ngày — thị trường / sản phẩm.
+                        Nguồn <strong>ffm_push_logs</strong> (thời điểm đẩy theo giờ Việt Nam). Mỗi ô:{' '}
+                        <strong>số đơn</strong> duy nhất theo <code className="rounded bg-gray-100 px-0.5">order_code</code>{' '}
+                        trong ngày (cùng thị trường / sản phẩm); nhiều bản ghi log cho một đơn trong cùng ngày chỉ tính một
+                        lần.
                     </p>
                     <table className="min-w-max w-full border-collapse text-[11px] text-black">
                         <thead>
@@ -1723,8 +1758,10 @@ export default function BaoCaoVanHanhHtml() {
                             })()}
                         </tbody>
                     </table>
-                    {rawData.length === 0 && !loading && (
-                        <p className="mt-3 text-center text-sm text-gray-500">Chưa có dữ liệu — chọn ngày và bấm Tìm.</p>
+                    {!loading && (ffmPushRows?.length ?? 0) === 0 && (
+                        <p className="mt-3 text-center text-sm text-gray-500">
+                            Chưa có dữ liệu ffm_push_logs trong khoảng ngày — chọn ngày và bấm Tìm.
+                        </p>
                     )}
                 </div>
             )}
