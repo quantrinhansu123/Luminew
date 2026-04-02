@@ -331,7 +331,8 @@ td.fixed-column {
     border: 1px solid #000;
     padding: 6px 8px;
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
     text-align: right;
     vertical-align: middle;
 }
@@ -364,7 +365,7 @@ td.fixed-column {
 .bcvh-total-row .bcvh-cell {
     background: #FFC000;
     color: #1a1a1a;
-    font-weight: 700;
+    font-weight: 800;
 }
 
 .bcvh-pill {

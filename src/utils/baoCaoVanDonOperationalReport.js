@@ -149,6 +149,8 @@ export function aggregateOperationalReportSlice(slice) {
     let donCoBill = 0;
     let donCoBillAmount = 0;
     let coMa = 0;
+    /** Tổng tiền (tong_tien_vnd, fallback total_amount_vnd trên virtual row) cho đúng các đơn được tính vào coMa. */
+    let coMaAmount = 0;
     let giaoTC = 0;
     let dangGiao = 0;
     let chuaGiao = 0;
@@ -157,6 +159,8 @@ export function aggregateOperationalReportSlice(slice) {
     let choCheck = 0;
     let chuaCoMa = 0;
     let daCkChuaDay = 0;
+    /** Doanh số (chỉ tong_tien_vnd qua _ds_tong_tien_vnd): có «Lên vận hành»/đơn vị VC nhưng chưa có mã tracking. */
+    let doanhSoDonChuaMa = 0;
     /** Tổng VNĐ theo jsonb tien_trang_thai_thanh_toan (reconciled_vnd theo trạng thái TT) — cột BC VH "Tổng thanh toán giao hàng NB". */
     let tongThanhToanGiaoHangNb = 0;
 
@@ -176,11 +180,18 @@ export function aggregateOperationalReportSlice(slice) {
         donCoBillAmount += sumDonCoBillFullAmount(r._tien_trang_thai_thanh_toan);
         mergePaymentHistogramIntoBuckets(r._trang_thai_thanh_toan, payBuckets);
 
-        // Cột «Tổng đơn lên VH»: đơn thỏa bộ lọc và có "Đơn vị vận chuyển" (shipping_unit) => bucket "Lên vận hành".
-        coMa += sumLenVanHanh(r._trang_thai_giao_hang);
+        // Cột «Đơn có mã» (tab1): đồng bộ đếm với bucket "Lên vận hành" (có shipping_unit).
+        const lenVh = sumLenVanHanh(r._trang_thai_giao_hang);
+        coMa += lenVh;
+        if (lenVh > 0) {
+            coMaAmount += Number(r._tong_tien_vnd ?? 0) || 0;
+        }
         // Cột «Tổng đơn chưa có mã»: đếm đơn có "Mã Tracking" = 0 (trống).
         const maTrackingCount = sumMaTracking(r._trang_thai_giao_hang);
         if (maTrackingCount <= 0) chuaCoMa += 1;
+        if (lenVh > 0 && maTrackingCount <= 0) {
+            doanhSoDonChuaMa += Number(r._ds_tong_tien_vnd ?? 0) || 0;
+        }
         if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0 && maTrackingCount <= 0) {
             daCkChuaDay += 1;
         }
@@ -202,6 +213,7 @@ export function aggregateOperationalReportSlice(slice) {
         donCoBill,
         donCoBillAmount,
         coMa,
+        coMaAmount,
         chuaCoMa,
         tyLeVHNoiBo,
         tyLeTTTrenPhi,
@@ -219,6 +231,7 @@ export function aggregateOperationalReportSlice(slice) {
         treo,
         vanDonXL,
         daCkChuaDay,
+        doanhSoDonChuaMa,
         payment: payBuckets
     };
 }

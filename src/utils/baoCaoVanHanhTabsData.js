@@ -1,5 +1,9 @@
-import { isGiaoHangHistogramSyntheticKey, parseBaoCaoVanDonHistogram } from './baoCaoVanDonFormat';
-import { aggregateVanHanhSlice } from './baoCaoVanDonMarketMatrix';
+import {
+    isGiaoHangHistogramSyntheticKey,
+    parseBaoCaoVanDonHistogram,
+    sumBaoCaoVanDonHistogramValues
+} from './baoCaoVanDonFormat';
+import { aggregateVanHanhSlice, sumHistogramKeyMatch } from './baoCaoVanDonMarketMatrix';
 
 function pad2(n) {
     return String(n).padStart(2, '0');
@@ -167,81 +171,110 @@ export function buildPushDonByDayMatrixFromFfmLogs(rows, startIso, endIso) {
     return { dates, rows: list, colTotals, grandTotal: grand };
 }
 
-function monthStartIso(endIso) {
-    const p = endIso.slice(0, 10).split('-');
-    if (p.length !== 3) return endIso;
-    return `${p[0]}-${p[1]}-01`;
+function sumHuyGiaoRow(r) {
+    let s = 0;
+    const o = parseBaoCaoVanDonHistogram(r._trang_thai_giao_hang);
+    for (const [key, raw] of Object.entries(o)) {
+        const n = Number(raw) || 0;
+        if (n <= 0) continue;
+        if (isGiaoHangHistogramSyntheticKey(key)) continue;
+        const nk = String(key).trim().toLowerCase();
+        if (nk.includes('huỷ') || nk.includes('hủy') || nk.includes('cancel')) s += n;
+    }
+    return s;
 }
 
 function sumHuyGiao(slice) {
     let s = 0;
-    for (const r of slice) {
-        const o = parseBaoCaoVanDonHistogram(r._trang_thai_giao_hang);
-        for (const [key, raw] of Object.entries(o)) {
-            const n = Number(raw) || 0;
-            if (n <= 0) continue;
-            if (isGiaoHangHistogramSyntheticKey(key)) continue;
-            const nk = String(key).trim().toLowerCase();
-            if (nk.includes('huỷ') || nk.includes('hủy') || nk.includes('cancel')) s += n;
-        }
+    for (const r of slice) s += sumHuyGiaoRow(r);
+    return s;
+}
+
+function sumKhachHenRow(r) {
+    let s = 0;
+    const o = parseBaoCaoVanDonHistogram(r._ket_qua_check);
+    for (const [k, raw] of Object.entries(o)) {
+        const n = Number(raw) || 0;
+        if (n <= 0) continue;
+        if (/hẹn|hen/i.test(String(k))) s += n;
     }
     return s;
 }
 
 function sumKhachHen(slice) {
     let s = 0;
-    for (const r of slice) {
-        const o = parseBaoCaoVanDonHistogram(r._ket_qua_check);
-        for (const [k, raw] of Object.entries(o)) {
-            const n = Number(raw) || 0;
-            if (n <= 0) continue;
-            if (/hẹn|hen/i.test(String(k))) s += n;
-        }
+    for (const r of slice) s += sumKhachHenRow(r);
+    return s;
+}
+
+function sumVanDonXlRow(r) {
+    let s = 0;
+    const o = parseBaoCaoVanDonHistogram(r._ket_qua_check);
+    for (const [k, raw] of Object.entries(o)) {
+        const n = Number(raw) || 0;
+        if (n <= 0) continue;
+        if (/\bxl\b/i.test(String(k)) || /vận đơn\s*xl/i.test(String(k))) s += n;
     }
     return s;
 }
 
 function sumVanDonXl(slice) {
     let s = 0;
-    for (const r of slice) {
-        const o = parseBaoCaoVanDonHistogram(r._ket_qua_check);
-        for (const [k, raw] of Object.entries(o)) {
-            const n = Number(raw) || 0;
-            if (n <= 0) continue;
-            if (/\bxl\b/i.test(String(k)) || /vận đơn\s*xl/i.test(String(k))) s += n;
-        }
-    }
+    for (const r of slice) s += sumVanDonXlRow(r);
     return s;
 }
 
+/** Tiền cho cột DS tab 5 — chỉ `tong_tien_vnd` trên virtual row (`_ds_tong_tien_vnd`). */
+function orderAmountVnd(r) {
+    return Number(r._ds_tong_tien_vnd ?? 0) || 0;
+}
+
+/** Doanh số (VNĐ) theo cùng điều kiện ô SL tab 5 — mỗi đơn cộng một lần nếu ô đó > 0. */
+function aggregateTrangThaiDonMoneySlice(slice) {
+    let dsTongLenDon = 0;
+    let dsOk = 0;
+    let dsTreo = 0;
+    let dsDoiHang = 0;
+    let dsHuyCheck = 0;
+    let dsKhachHen = 0;
+    let dsVanDonXL = 0;
+    let dsHuyGiao = 0;
+    for (const r of slice) {
+        const amt = orderAmountVnd(r);
+        if (sumBaoCaoVanDonHistogramValues(r._ket_qua_check) > 0) dsTongLenDon += amt;
+        if (sumHistogramKeyMatch(r._ket_qua_check, (k) => String(k).trim().toLowerCase() === 'ok') > 0)
+            dsOk += amt;
+        if (sumHistogramKeyMatch(r._ket_qua_check, (k) => /treo/i.test(String(k))) > 0) dsTreo += amt;
+        if (
+            sumHistogramKeyMatch(
+                r._ket_qua_check,
+                (k) => /đợi|doi/i.test(String(k)) && /hàng|hang/i.test(String(k))
+            ) > 0
+        )
+            dsDoiHang += amt;
+        if (sumHistogramKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k))) > 0)
+            dsHuyCheck += amt;
+        if (sumKhachHenRow(r) > 0) dsKhachHen += amt;
+        if (sumVanDonXlRow(r) > 0) dsVanDonXL += amt;
+        if (sumHuyGiaoRow(r) > 0) dsHuyGiao += amt;
+    }
+    return { dsTongLenDon, dsOk, dsTreo, dsDoiHang, dsHuyCheck, dsKhachHen, dsVanDonXL, dsHuyGiao };
+}
+
 /**
- * Tab 5: theo từng ngày trong khoảng + dòng lũy kế từ đầu tháng (đến ngày cuối lọc).
+ * Tab 5: mỗi ngày trong khoảng Từ/Đến + dòng «Tổng» = cộng SL/DS các ngày; % = trung bình các ngày có tỷ lệ.
  */
 export function buildTrangThaiDonByDay(rows, startIso, endIso) {
     const dates = enumerateIsoDatesInclusive(startIso, endIso);
-    const ms = monthStartIso(endIso);
-    const monthRows = rows.filter((r) => {
-        const d = (r['Ngày lên đơn'] || '').slice(0, 10);
-        return d >= ms && d <= endIso.slice(0, 10);
-    });
-    const base = aggregateVanHanhSlice(monthRows);
-    const monthRow = {
-        label: 'Từ đầu tháng',
-        ...base,
-        huyGiao: sumHuyGiao(monthRows),
-        khachHen: sumKhachHen(monthRows),
-        vanDonXL: sumVanDonXl(monthRows),
-        okChuaDay: Math.max(0, base.ok - base.coMa),
-        pctDayOk: base.ok > 0 ? base.coMa / base.ok : null
-    };
-
     const dayRows = dates.map((d) => {
         const slice = rows.filter((r) => (r['Ngày lên đơn'] || '').slice(0, 10) === d);
         const m = aggregateVanHanhSlice(slice);
+        const money = aggregateTrangThaiDonMoneySlice(slice);
         return {
             dateIso: d,
             label: isoToViDisplay(d),
             ...m,
+            ...money,
             huyGiao: sumHuyGiao(slice),
             khachHen: sumKhachHen(slice),
             vanDonXL: sumVanDonXl(slice),
@@ -249,6 +282,40 @@ export function buildTrangThaiDonByDay(rows, startIso, endIso) {
             pctDayOk: m.ok > 0 ? m.coMa / m.ok : null
         };
     });
+
+    const sumK = (key) => dayRows.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+    const pctOkVals = dayRows.map((r) => r.pctDayOk).filter((x) => x != null);
+    const pctDayOkAvg =
+        pctOkVals.length > 0 ? pctOkVals.reduce((a, b) => a + b, 0) / pctOkVals.length : null;
+    const huyRatios = dayRows
+        .filter((r) => (Number(r.tongLenDon) || 0) > 0)
+        .map((r) => (Number(r.huyCheck) || 0) / (Number(r.tongLenDon) || 0));
+    const avgPctHuyVsTong =
+        huyRatios.length > 0 ? huyRatios.reduce((a, b) => a + b, 0) / huyRatios.length : null;
+
+    const monthRow = {
+        label: 'Tổng',
+        coMa: sumK('coMa'),
+        okChuaDay: sumK('okChuaDay'),
+        pctDayOk: pctDayOkAvg,
+        tongLenDon: sumK('tongLenDon'),
+        dsTongLenDon: sumK('dsTongLenDon'),
+        ok: sumK('ok'),
+        dsOk: sumK('dsOk'),
+        treo: sumK('treo'),
+        dsTreo: sumK('dsTreo'),
+        doiHang: sumK('doiHang'),
+        dsDoiHang: sumK('dsDoiHang'),
+        khachHen: sumK('khachHen'),
+        dsKhachHen: sumK('dsKhachHen'),
+        vanDonXL: sumK('vanDonXL'),
+        dsVanDonXL: sumK('dsVanDonXL'),
+        huyCheck: sumK('huyCheck'),
+        dsHuyCheck: sumK('dsHuyCheck'),
+        huyGiao: sumK('huyGiao'),
+        dsHuyGiao: sumK('dsHuyGiao'),
+        avgPctHuyVsTong
+    };
 
     return { monthRow, dayRows };
 }

@@ -36,7 +36,8 @@ const normalizeHistogramKeyLabel = (key) =>
 
 const isMaTrackingHistogramKey = (key) => normalizeHistogramKeyLabel(key) === 'mã tracking';
 
-function sumKeyMatch(histogram, pred) {
+/** Đếm phần histogram khớp predicate (dùng chung tab 5 — đồng bộ SL/DS). */
+export function sumHistogramKeyMatch(histogram, pred) {
     const o = parseBaoCaoVanDonHistogram(histogram);
     let s = 0;
     for (const [k, raw] of Object.entries(o)) {
@@ -97,15 +98,15 @@ export function aggregateVanHanhSlice(slice) {
     const m = emptyMetrics();
     for (const r of slice) {
         m.tongLenDon += sumBaoCaoVanDonHistogramValues(r._ket_qua_check);
-        m.ok += sumKeyMatch(r._ket_qua_check, (k) => String(k).trim().toLowerCase() === 'ok');
-        m.treo += sumKeyMatch(r._ket_qua_check, (k) => /treo/i.test(String(k)));
-        m.doiHang += sumKeyMatch(
+        m.ok += sumHistogramKeyMatch(r._ket_qua_check, (k) => String(k).trim().toLowerCase() === 'ok');
+        m.treo += sumHistogramKeyMatch(r._ket_qua_check, (k) => /treo/i.test(String(k)));
+        m.doiHang += sumHistogramKeyMatch(
             r._ket_qua_check,
             (k) => /đợi|doi/i.test(String(k)) && /hàng|hang/i.test(String(k))
         );
-        m.huyCheck += sumKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k)));
+        m.huyCheck += sumHistogramKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k)));
         m.coMa += sumMaTracking(r._trang_thai_giao_hang);
-        m.mgt += sumKeyMatch(r._trang_thai_giao_hang, (k) => /mgt/i.test(String(k)));
+        m.mgt += sumHistogramKeyMatch(r._trang_thai_giao_hang, (k) => /mgt/i.test(String(k)));
         m.donCoBill += sumDonCoBillFullCount(r._trang_thai_thanh_toan);
         m.donCoBillAmount += sumDonCoBillFullAmount(r._tien_trang_thai_thanh_toan);
         m.giaoTC += sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công');

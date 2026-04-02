@@ -28,12 +28,13 @@ export default function DashboardQuanTri() {
       <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3">
         <h1 className="text-lg font-semibold text-slate-900">Dashboard quản trị</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Ghép trực tiếp hai báo cáo HTML (Sale + MKT) trên cùng trang, không mở link hay route React riêng.
+          Báo cáo Sale và MKT (HTML nhúng). Tab &quot;Báo cáo vận hành&quot; mở cùng route{' '}
+          <code className="rounded bg-slate-100 px-1 text-xs">/bao-cao-van-hanh</code>.
         </p>
       </header>
 
       <Tabs defaultValue="sale" className="flex flex-1 flex-col min-h-0 px-3 pb-3 pt-2">
-        <TabsList className="grid h-auto w-full max-w-lg shrink-0 grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-100/90 p-1.5 shadow-sm">
+        <TabsList className="grid h-auto w-full max-w-4xl shrink-0 grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-100/90 p-1.5 shadow-sm">
           <TabsTrigger
             value="sale"
             className="rounded-lg border border-transparent py-3 text-sm font-semibold text-slate-600 shadow-none transition-all data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md"
@@ -45,6 +46,12 @@ export default function DashboardQuanTri() {
             className="rounded-lg border border-transparent py-3 text-sm font-semibold text-slate-600 shadow-none transition-all data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md"
           >
             Báo cáo MKT
+          </TabsTrigger>
+          <TabsTrigger
+            value="van-hanh"
+            className="rounded-lg border border-transparent py-3 text-sm font-semibold text-slate-600 shadow-none transition-all data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md"
+          >
+            Báo cáo vận hành
           </TabsTrigger>
         </TabsList>
 
@@ -66,6 +73,16 @@ export default function DashboardQuanTri() {
             <iframe
               title="Báo cáo MKT — viewNsMoiNhanh.html"
               src="/viewNsMoiNhanh.html"
+              className="block min-h-[50vh] w-full flex-1 border-0 bg-white"
+            />
+          </TabsContent>
+          <TabsContent
+            value="van-hanh"
+            className="m-0 flex min-h-0 flex-1 flex-col p-0 outline-none ring-0 focus-visible:ring-0 data-[state=inactive]:hidden"
+          >
+            <iframe
+              title="Báo cáo vận hành — /bao-cao-van-hanh"
+              src="/bao-cao-van-hanh"
               className="block min-h-[50vh] w-full flex-1 border-0 bg-white"
             />
           </TabsContent>

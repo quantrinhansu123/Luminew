@@ -73,6 +73,17 @@ const mapOrderRowToVirtual = (row) => {
     const paymentLabelRaw = paymentLabelForOrder(row);
     const paymentLabel = paymentLabelRaw || '(Trống)';
     const tongTienVnd = Number(row?.total_amount_vnd) || 0;
+    /** Tab1 «Đơn có mã» — Số tiền: ưu tiên tong_tien_vnd (DB), không có thì total_amount_vnd. */
+    const tongTienCoMaRaw = row?.tong_tien_vnd ?? row?.tong_tien_VND;
+    const tongTienCoMa =
+        tongTienCoMaRaw != null && tongTienCoMaRaw !== '' && !Number.isNaN(Number(tongTienCoMaRaw))
+            ? Number(tongTienCoMaRaw)
+            : tongTienVnd;
+    /** Tab 5 DS — chỉ `tong_tien_vnd` (DB), không fallback `total_amount_vnd`. */
+    const dsTongTienVnd =
+        tongTienCoMaRaw != null && tongTienCoMaRaw !== '' && !Number.isNaN(Number(tongTienCoMaRaw))
+            ? Number(tongTienCoMaRaw)
+            : 0;
     const trackingCount = row?.tracking_code != null && String(row.tracking_code).trim() !== '' ? 1 : 0;
     const lenVhCount = row?.shipping_unit != null && String(row.shipping_unit).trim() !== '' ? 1 : 0;
     const ngay = normalizeYmd(row?.order_date) || normalizeYmd(row?.created_at);
@@ -88,6 +99,8 @@ const mapOrderRowToVirtual = (row) => {
         },
         _trang_thai_thanh_toan: { [paymentLabel]: 1 },
         _tien_trang_thai_thanh_toan: { [paymentLabel]: paymentLabelIsCoBillOnly(paymentLabel) ? tongTienVnd : 0 },
+        _tong_tien_vnd: tongTienCoMa,
+        _ds_tong_tien_vnd: dsTongTienVnd,
         'Ngày lên đơn': ngay,
         'NV Vận đơn': String(row?.delivery_staff ?? '').trim(),
         'Mặt hàng': String(row?.product ?? '').trim(),
@@ -115,6 +128,18 @@ const mapBaoCaoRowToVirtual = (row) => {
         _trang_thai_giao_hang: row.trang_thai_giao_hang,
         _trang_thai_thanh_toan: row.trang_thai_thanh_toan,
         _tien_trang_thai_thanh_toan: row.tien_trang_thai_thanh_toan ?? {},
+        _tong_tien_vnd:
+            row.tong_tien_vnd != null && row.tong_tien_vnd !== '' && !Number.isNaN(Number(row.tong_tien_vnd))
+                ? Number(row.tong_tien_vnd)
+                : row.tong_tien_VND != null && row.tong_tien_VND !== '' && !Number.isNaN(Number(row.tong_tien_VND))
+                  ? Number(row.tong_tien_VND)
+                  : Number(row.total_amount_vnd) || 0,
+        _ds_tong_tien_vnd:
+            row.tong_tien_vnd != null && row.tong_tien_vnd !== '' && !Number.isNaN(Number(row.tong_tien_vnd))
+                ? Number(row.tong_tien_vnd)
+                : row.tong_tien_VND != null && row.tong_tien_VND !== '' && !Number.isNaN(Number(row.tong_tien_VND))
+                  ? Number(row.tong_tien_VND)
+                  : 0,
         'Ngày lên đơn': dateStr,
         'NV Vận đơn': row.nhan_vien || '',
         'Mặt hàng': row.san_pham || '',
@@ -404,9 +429,14 @@ export default function BaoCaoVanHanhHtml() {
         }
         return buildPushDonByDayMatrix(rawData, reportFilters.startDate, reportFilters.endDate);
     }, [activeTab, ffmPushRows, rawData, reportFilters.startDate, reportFilters.endDate]);
+    /** Tab 5 — chỉ đếm từ đơn bảng `orders` (virtual row _source orders), không trộn nguồn bao_cao. */
+    const ordersRowsForTrangThai = useMemo(
+        () => rawData.filter((r) => r._source !== 'bao_cao'),
+        [rawData]
+    );
     const statusByDay = useMemo(
-        () => buildTrangThaiDonByDay(rawData, reportFilters.startDate, reportFilters.endDate),
-        [rawData, reportFilters.startDate, reportFilters.endDate]
+        () => buildTrangThaiDonByDay(ordersRowsForTrangThai, reportFilters.startDate, reportFilters.endDate),
+        [ordersRowsForTrangThai, reportFilters.startDate, reportFilters.endDate]
     );
 
     const { bcvhLines, bcvhTotal } = useMemo(() => {
@@ -526,10 +556,11 @@ export default function BaoCaoVanHanhHtml() {
             while (true) {
                 const from = page * PAGE_SIZE;
                 const to = from + PAGE_SIZE - 1;
+                // Cần cột tong_tien_vnd (migration 20260403180000_orders_tong_tien_vnd.sql) — tab 5 DS chỉ cộng trường này.
                 const { data, error: qErr } = await supabase
                     .from('orders')
                     .select(
-                        'id, order_code, order_date, created_at, delivery_staff, product, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tracking_code, shipping_unit'
+                        'id, order_code, order_date, created_at, delivery_staff, product, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, tracking_code, shipping_unit'
                     )
                     .gte('order_date', qStart)
                     .lte('order_date', qEnd)
@@ -700,7 +731,7 @@ export default function BaoCaoVanHanhHtml() {
 
         } catch (err) {
             console.error(err);
-            setError(err.message || 'Lỗi tải bao_cao_van_don');
+            setError(err.message || 'Lỗi tải dữ liệu orders');
             setRawData([]);
         } finally {
             setLoading(false);
@@ -709,22 +740,32 @@ export default function BaoCaoVanHanhHtml() {
 
     const renderMetricPair = (m) => (
         <>
-            <td className="border border-black px-2 py-1 text-right tabular-nums">{formatSlVi(m)}</td>
-            <td className="border border-black px-2 py-1 text-right text-gray-500">{NO_AMOUNT}</td>
+            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
+                {formatSlVi(m)}
+            </td>
+            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums text-gray-500">
+                {NO_AMOUNT}
+            </td>
         </>
     );
 
     const renderCoBillPair = (count, amountVnd) => (
         <>
-            <td className="border border-black px-2 py-1 text-right tabular-nums">{formatSlVi(count)}</td>
-            <td className="border border-black px-2 py-1 text-right tabular-nums">{formatNumVi(amountVnd)}</td>
+            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
+                {formatSlVi(count)}
+            </td>
+            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
+                {formatNumVi(amountVnd)}
+            </td>
         </>
     );
 
     const renderPctPair = (pctStr) => (
         <>
-            <td className="border border-black px-2 py-1 text-right">{pctStr}</td>
-            <td className="border border-black px-2 py-1 text-right text-gray-500">{pctStr}</td>
+            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">{pctStr}</td>
+            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums text-gray-500">
+                {pctStr}
+            </td>
         </>
     );
 
@@ -897,17 +938,11 @@ export default function BaoCaoVanHanhHtml() {
         <div className="min-h-[calc(100vh-64px)] bg-gray-100 p-4 md:p-6 overflow-y-auto overflow-x-hidden">
             {loading && (
                 <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/20">
-                    <div className="rounded-lg bg-white px-6 py-4 shadow-lg">Đang tải bao_cao_van_don…</div>
+                    <div className="rounded-lg bg-white px-6 py-4 shadow-lg">Đang tải dữ liệu…</div>
                 </div>
             )}
 
-            <h1 className="text-xl font-bold text-gray-800 mb-2">Báo cáo vận hành</h1>
-            <p className="text-sm text-gray-600 mb-4 max-w-4xl">
-                Số liệu gom từ bảng <strong>bao_cao_van_don</strong> (histogram kết quả check / giao hàng / thanh toán).
-                Cột <strong>Thành tiền</strong> đối với <strong>Đã thanh toán (có bill)</strong> lấy từ{' '}
-                <strong>tien_trang_thai_thanh_toan</strong> (đồng bộ từ <strong>orders.reconciled_vnd</strong>); các
-                block khác vẫn có thể hiển thị &quot;—&quot; khi không có số tiền tương ứng trong tổng hợp.
-            </p>
+            <h1 className="text-xl font-bold text-gray-800 mb-4">Báo cáo vận hành</h1>
 
             {error && (
                 <div className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-800" role="alert">
@@ -1085,10 +1120,7 @@ export default function BaoCaoVanHanhHtml() {
             {/* Tab 1 — Thống kê giao dịch (1 dòng tổng, giống mẫu HTML) */}
             {activeTab === 'tab1' && (
                 <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
-                    <div className="mb-3 flex flex-wrap items-end gap-3">
-                        <p className="text-xs text-gray-600">
-                            Chọn ngày rồi bấm <strong>Tìm</strong> — số liệu dùng cùng rule tổng hợp với tab BC Vận Hành.
-                        </p>
+                    <div className="mb-3 flex flex-wrap justify-end gap-3">
                         <button
                             type="button"
                             disabled={loading}
@@ -1126,9 +1158,9 @@ export default function BaoCaoVanHanhHtml() {
                                     VH chưa mã
                                 </th>
                                 <th rowSpan={2} className="bg-[#F4B084] px-3 py-2 font-normal leading-tight">
-                                    Dso đơn chưa
+                                    Doanh số đơn
                                     <br />
-                                    mã
+                                    chưa mã
                                 </th>
                                 <th rowSpan={2} className="bg-[#FFC000] px-3 py-2 font-normal">
                                     Tỉ lệ/đơn giao tc
@@ -1176,15 +1208,33 @@ export default function BaoCaoVanHanhHtml() {
                                         }
                                     />
                                 </td>
-                                <td className="px-3 py-2">{formatSlVi(tab1Operational.donCoBill)}</td>
-                                <td className="px-3 py-2">{formatNumVi(tab1Operational.donCoBillAmount)}</td>
-                                <td className="px-3 py-2">{formatSlVi(tab1Operational.giaoTC)}</td>
-                                <td className="px-3 py-2">{formatSlVi(tab1Operational.coMa)}</td>
-                                <td className="px-3 py-2 text-gray-500">{NO_AMOUNT}</td>
-                                <td className="bg-[#F4B084] px-3 py-2">{formatSlVi(tab1Operational.dangGiao)}</td>
-                                <td className="bg-[#F4B084] px-3 py-2 text-gray-500">{NO_AMOUNT}</td>
-                                <td className="px-3 py-2">{formatPct(tab1Operational.giaoTC, tab1Operational.tongNoiBo)}</td>
-                                <td className="px-3 py-2">{formatPct(tab1Operational.coMa, tab1SauHuy)}</td>
+                                <td className="px-3 py-2 font-extrabold tabular-nums">
+                                    {formatSlVi(tab1Operational.donCoBill)}
+                                </td>
+                                <td className="px-3 py-2 font-extrabold tabular-nums">
+                                    {formatNumVi(tab1Operational.donCoBillAmount)}
+                                </td>
+                                <td className="px-3 py-2 font-extrabold tabular-nums">
+                                    {formatSlVi(tab1Operational.giaoTC)}
+                                </td>
+                                <td className="px-3 py-2 font-extrabold tabular-nums">
+                                    {formatSlVi(tab1Operational.coMa)}
+                                </td>
+                                <td className="px-3 py-2 font-extrabold tabular-nums">
+                                    {formatNumVi(tab1Operational.coMaAmount)}
+                                </td>
+                                <td className="bg-[#F4B084] px-3 py-2 font-extrabold tabular-nums">
+                                    {formatSlVi(tab1Operational.dangGiao)}
+                                </td>
+                                <td className="bg-[#F4B084] px-3 py-2 font-extrabold tabular-nums">
+                                    {formatNumVi(tab1Operational.doanhSoDonChuaMa)}
+                                </td>
+                                <td className="px-3 py-2 font-extrabold tabular-nums">
+                                    {formatPct(tab1Operational.giaoTC, tab1Operational.tongNoiBo)}
+                                </td>
+                                <td className="px-3 py-2 font-extrabold tabular-nums">
+                                    {formatPct(tab1Operational.coMa, tab1SauHuy)}
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -1682,21 +1732,19 @@ export default function BaoCaoVanHanhHtml() {
             </div>
             )}
 
-            {/* Tab 4 — Đẩy đơn theo ngày (Mã tracking) */}
+            {/* Tab 4 — Đẩy đơn theo ngày (Mã tracking); 3 cột đầu sticky khi cuộn ngang */}
             {activeTab === 'tab4' && (
                 <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
-                    <p className="mb-2 text-xs text-gray-600">
-                        Nguồn <strong>ffm_push_logs</strong> (thời điểm đẩy theo giờ Việt Nam). Mỗi ô:{' '}
-                        <strong>số đơn</strong> duy nhất theo <code className="rounded bg-gray-100 px-0.5">order_code</code>{' '}
-                        trong ngày (cùng thị trường / sản phẩm); nhiều bản ghi log cho một đơn trong cùng ngày chỉ tính một
-                        lần.
-                    </p>
-                    <table className="min-w-max w-full border-collapse text-[11px] text-black">
+                    <table className="min-w-max w-full border-separate border-spacing-0 text-[11px] text-black">
                         <thead>
                             <tr className="bg-[#548235] text-white">
-                                <th className="w-16 border border-black px-2 py-2 font-bold">Thị trường</th>
-                                <th className="w-48 border border-black px-2 py-2 font-bold">Sản phẩm</th>
-                                <th className="border border-black px-2 py-2 font-bold leading-tight">
+                                <th className="sticky left-0 z-20 w-16 min-w-[4rem] border border-black bg-[#548235] px-2 py-2 font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+                                    Thị trường
+                                </th>
+                                <th className="sticky left-16 z-20 w-48 min-w-[12rem] border border-black bg-[#548235] px-2 py-2 font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+                                    Sản phẩm
+                                </th>
+                                <th className="sticky left-64 z-20 border border-black bg-[#548235] px-2 py-2 font-bold leading-tight shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
                                     TỔNG
                                     <br />
                                     lũy kế
@@ -1710,12 +1758,20 @@ export default function BaoCaoVanHanhHtml() {
                         </thead>
                         <tbody>
                             <tr className="bg-lime-400 text-center font-bold">
-                                <td colSpan={2} className="border border-black px-2 py-1">
+                                <td
+                                    colSpan={2}
+                                    className="sticky left-0 z-10 box-border w-64 min-w-[16rem] border border-black bg-lime-400 px-2 py-1 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.15)]"
+                                >
                                     Tổng
                                 </td>
-                                <td className="border border-black px-2 py-1">{formatSlVi(pushMatrix.grandTotal)}</td>
+                                <td className="sticky left-64 z-10 border border-black bg-lime-400 px-2 py-1 font-extrabold tabular-nums shadow-[4px_0_8px_-2px_rgba(0,0,0,0.15)]">
+                                    {formatSlVi(pushMatrix.grandTotal)}
+                                </td>
                                 {pushMatrix.dates.map((d) => (
-                                    <td key={d} className="border border-black px-2 py-1">
+                                    <td
+                                        key={d}
+                                        className="border border-black px-2 py-1 font-extrabold tabular-nums"
+                                    >
                                         {formatSlVi(pushMatrix.colTotals[d] || 0)}
                                     </td>
                                 ))}
@@ -1736,16 +1792,24 @@ export default function BaoCaoVanHanhHtml() {
                                                 className={`text-center ${k % 2 === 0 ? 'bg-[#E6E6FA]' : 'bg-[#E6E6FA]'}`}
                                             >
                                                 {k === 0 ? (
-                                                    <td rowSpan={rs} className="border border-black px-2 py-1 font-bold">
+                                                    <td
+                                                        rowSpan={rs}
+                                                        className="sticky left-0 z-10 w-16 min-w-[4rem] border border-black bg-[#E6E6FA] px-2 py-1 font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)]"
+                                                    >
                                                         {e.market}
                                                     </td>
                                                 ) : null}
-                                                <td className="border border-black px-2 py-1 text-left">{e.product}</td>
-                                                <td className="border border-black px-2 py-1 font-bold">
+                                                <td className="sticky left-16 z-10 w-48 min-w-[12rem] border border-black bg-[#E6E6FA] px-2 py-1 text-left shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)]">
+                                                    {e.product}
+                                                </td>
+                                                <td className="sticky left-64 z-10 border border-black bg-[#E6E6FA] px-2 py-1 font-extrabold tabular-nums shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)]">
                                                     {formatSlVi(e.total)}
                                                 </td>
                                                 {pushMatrix.dates.map((d) => (
-                                                    <td key={d} className="border border-black px-2 py-1">
+                                                    <td
+                                                        key={d}
+                                                        className="border border-black px-2 py-1 font-extrabold tabular-nums"
+                                                    >
                                                         {e.byDate[d] ? formatSlVi(e.byDate[d]) : ''}
                                                     </td>
                                                 ))}
@@ -1766,13 +1830,9 @@ export default function BaoCaoVanHanhHtml() {
                 </div>
             )}
 
-            {/* Tab 5 — Trạng thái đơn (theo ngày, rút gọn cột; doanh số = —) */}
+            {/* Tab 5 — Trạng thái đơn (theo ngày; DS = tổng tiền VNĐ theo cùng điều kiện ô SL) */}
             {activeTab === 'tab5' && (
                 <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
-                    <p className="mb-2 text-xs text-gray-600">
-                        Theo từng ngày trong khoảng lọc; dòng đầu = lũy kế từ đầu tháng của &quot;Đến ngày&quot;. Cột
-                        doanh số không có trong DB.
-                    </p>
                     <table className="min-w-max w-full border-collapse text-[11px] text-black">
                         <thead>
                             <tr className="text-center font-bold">
@@ -1841,7 +1901,11 @@ export default function BaoCaoVanHanhHtml() {
                         </thead>
                         <tbody>
                             {[
-                                { key: 'mtd', row: statusByDay.monthRow, trClass: 'bg-gray-50 font-bold text-red-600' },
+                                {
+                                    key: 'total',
+                                    row: statusByDay.monthRow,
+                                    trClass: 'bg-gray-50 font-bold text-red-600'
+                                },
                                 ...statusByDay.dayRows.map((r) => ({
                                     key: r.dateIso,
                                     row: r,
@@ -1850,42 +1914,78 @@ export default function BaoCaoVanHanhHtml() {
                             ].map(({ key, row, trClass }) => (
                                 <tr key={key} className={`text-center ${trClass}`}>
                                     <td className="border border-black px-2 py-1 text-left italic">{row.label}</td>
-                                    <td className="border border-black px-2 py-1 font-bold">{formatSlVi(row.coMa)}</td>
-                                    <td className="border border-black px-2 py-1 font-bold text-red-600">
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatSlVi(row.coMa)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums text-red-600">
                                         {formatSlVi(row.okChuaDay)}
                                     </td>
-                                    <td className="border border-black px-2 py-1 font-bold italic">
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums italic">
                                         {row.pctDayOk != null
                                             ? `${(100 * row.pctDayOk).toFixed(2).replace('.', ',')}%`
                                             : '—'}
                                     </td>
-                                    <td className="border border-black px-2 py-1 font-bold">
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
                                         {formatSlVi(row.tongLenDon)}
                                     </td>
-                                    <td className="border border-black px-2 py-1 font-bold">{NO_AMOUNT}</td>
-                                    <td className="border border-black px-2 py-1">{formatSlVi(row.ok)}</td>
-                                    <td className="border border-black px-2 py-1">{NO_AMOUNT}</td>
-                                    <td className="border border-black px-2 py-1">{formatSlVi(row.treo)}</td>
-                                    <td className="border border-black px-2 py-1">{NO_AMOUNT}</td>
-                                    <td className="border border-black px-2 py-1">{formatSlVi(row.doiHang)}</td>
-                                    <td className="border border-black px-2 py-1">{NO_AMOUNT}</td>
-                                    <td className="border border-black px-2 py-1">{formatSlVi(row.khachHen)}</td>
-                                    <td className="border border-black px-2 py-1">{NO_AMOUNT}</td>
-                                    <td className="border border-black px-2 py-1">{formatSlVi(row.vanDonXL)}</td>
-                                    <td className="border border-black px-2 py-1">{NO_AMOUNT}</td>
-                                    <td className="border border-black px-2 py-1">{formatSlVi(row.huyCheck)}</td>
-                                    <td className="border border-black px-2 py-1">{NO_AMOUNT}</td>
-                                    <td className="border border-black px-2 py-1">{formatSlVi(row.huyGiao)}</td>
-                                    <td className="border border-black px-2 py-1">{NO_AMOUNT}</td>
-                                    <td className="border border-black px-2 py-1 text-red-600">
-                                        {formatPct(row.huyCheck, row.tongLenDon)}
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatNumVi(row.dsTongLenDon)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatSlVi(row.ok)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatNumVi(row.dsOk)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatSlVi(row.treo)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatNumVi(row.dsTreo)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatSlVi(row.doiHang)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatNumVi(row.dsDoiHang)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatSlVi(row.khachHen)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatNumVi(row.dsKhachHen)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatSlVi(row.vanDonXL)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatNumVi(row.dsVanDonXL)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatSlVi(row.huyCheck)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatNumVi(row.dsHuyCheck)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatSlVi(row.huyGiao)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums">
+                                        {formatNumVi(row.dsHuyGiao)}
+                                    </td>
+                                    <td className="border border-black px-2 py-1 font-extrabold tabular-nums text-red-600">
+                                        {row.avgPctHuyVsTong != null
+                                            ? `${(100 * row.avgPctHuyVsTong).toFixed(2).replace('.', ',')}%`
+                                            : formatPct(row.huyCheck, row.tongLenDon)}
                                     </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
-                    {rawData.length === 0 && !loading && (
-                        <p className="mt-3 text-center text-sm text-gray-500">Chưa có dữ liệu — chọn ngày và bấm Tìm.</p>
+                    {ordersRowsForTrangThai.length === 0 && !loading && (
+                        <p className="mt-3 text-center text-sm text-gray-500">
+                            Chưa có đơn từ bảng orders trong khoảng ngày — chọn ngày và bấm Tìm.
+                        </p>
                     )}
                 </div>
             )}
