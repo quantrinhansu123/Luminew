@@ -133,6 +133,10 @@ export default function DanhSachBaoCaoTayMKT({
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
 
+    const isHcmMarketingReport = reportTableName === 'marketing_report_hcm';
+    /** HCM: đơn nguồn giống lumidata `/order_hcm` (Supabase `order_code_hcm`). */
+    const ordersTableForMktTotals = isHcmMarketingReport ? 'order_code_hcm' : 'orders';
+
     // Load human_resources to map tên -> email
     useEffect(() => {
         const loadHrEmails = async () => {
@@ -227,7 +231,7 @@ export default function DanhSachBaoCaoTayMKT({
 
             // Build query - chỉ select các cột cần thiết để tăng tốc
             let query = supabase
-                .from('orders')
+                .from(ordersTableForMktTotals)
                 .select('total_amount_vnd, total_vnd') // Chỉ select cột cần thiết
                 .eq('order_date', reportDate)
                 .ilike('marketing_staff', `%${reportName}%`);
@@ -863,11 +867,15 @@ export default function DanhSachBaoCaoTayMKT({
         if (mktRecalcLoading) return;
         if (teamFilter === 'RD') return;
 
+        const orderSourceHint = isHcmMarketingReport
+            ? 'Nguồn đơn: API lumidata `/order_hcm` (cùng nguồn với chi nhánh HCM).\n\n'
+            : 'Nguồn đơn: bảng Supabase `orders`.\n\n';
         const ok = window.confirm(
-            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
+            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match đơn ↔ báo cáo.\n\n' +
+                orderSourceHint +
                 'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
                 'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
-                'Thao tác sẽ cập nhật các dòng hiện có; nếu thiếu key (ngày + MKT + SP + thị trường + ca) sẽ tạo dòng mới từ dữ liệu đơn.\n\n' +
+                'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu hẳn dòng (key + ca) sẽ tạo mới từ đơn.\n\n' +
                 `Khoảng ngày: ${filters.startDate} → ${filters.endDate} (theo bộ lọc trái).\n\n` +
                 'Bạn có chắc muốn chạy không?'
         );
@@ -892,6 +900,8 @@ export default function DanhSachBaoCaoTayMKT({
                 startDate: normStart,
                 endDate: normEnd,
                 createMissingRows: true,
+                reportsTableName: reportTableName,
+                ordersApiPath: isHcmMarketingReport ? '/order_hcm' : null,
             });
 
             toast.dismiss();

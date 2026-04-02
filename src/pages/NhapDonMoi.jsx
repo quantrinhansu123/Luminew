@@ -1740,6 +1740,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                     previousOrderDate,
                     newOrderKey: newMktKey,
                     previousOrderKey: oldMktKey,
+                    reportsTableName: isHcmView ? 'marketing_report_hcm' : 'detail_reports',
+                    ordersApiPath: isHcmView ? '/order_hcm' : null,
                 })
                     .then((r) => {
                         if (r?.skipped) return;

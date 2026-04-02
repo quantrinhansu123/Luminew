@@ -72,24 +72,41 @@ function buildKey(dateStr, name, product, market) {
   ].join('|');
 }
 
+function orderHasGoTracking(order) {
+  const t = String(
+    order?.tracking_code ||
+      order?.trackingCode ||
+      order?.tracking ||
+      order?.ma_tracking ||
+      order?.maTracking ||
+      ''
+  ).trim();
+  return t !== '';
+}
+
 function makeId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `sale_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-async function fetchAllSalesReportsInRange(startDate, endDate, reportsTable = 'sales_reports') {
+async function fetchAllSalesReportsInRange(
+  startDate,
+  endDate,
+  reportsTable = 'sales_reports',
+  teamIn = null
+) {
   const PAGE_SIZE = 1000;
   const rows = [];
   let from = 0;
 
   while (true) {
-    const { data, error } = await supabase
+    let q = supabase
       .from(reportsTable)
       .select('*')
       .gte('date', startDate)
-      .lte('date', endDate)
-      .order('date', { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
+      .lte('date', endDate);
+    if (teamIn?.length) q = q.in('team', teamIn);
+    const { data, error } = await q.order('date', { ascending: false }).range(from, from + PAGE_SIZE - 1);
 
     if (error) throw error;
     if (!data || data.length === 0) break;
@@ -129,17 +146,19 @@ async function fetchAllOrdersInRangeForSale(startDate, endDate, ordersTable = 'o
   return orders;
 }
 
-async function fetchSalesReportsForExactKeys(exactKeys, reportsTable = 'sales_reports') {
+async function fetchSalesReportsForExactKeys(exactKeys, reportsTable = 'sales_reports', teamIn = null) {
   const rows = [];
   const seen = new Set();
   for (const k of exactKeys) {
-    const { data, error } = await supabase
+    let q = supabase
       .from(reportsTable)
       .select('*')
       .eq('date', k.date)
       .eq('name', k.name)
       .eq('product', k.product)
       .eq('market', k.market);
+    if (teamIn?.length) q = q.in('team', teamIn);
+    const { data, error } = await q;
     if (error) throw error;
     for (const r of data || []) {
       const id = r?.id ? String(r.id) : `${r?.date || ''}|${r?.name || ''}|${r?.product || ''}|${r?.market || ''}|${r?.shift || ''}`;
@@ -216,6 +235,10 @@ export async function recalcSaleOrderCountFromOrders({
   exactKeys = null,
   reportsTable = 'sales_reports',
   ordersTable = 'orders',
+  /** Chỉ đọc/ghi sales_reports thuộc các team này (vd. CSKH-HCM). null = mọi team. */
+  reportsTeamIn = null,
+  /** Team ghi cho dòng INSERT mới khi orders không có team ∈ reportsTeamIn. */
+  defaultTeamForNewRows = null,
 } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
@@ -235,10 +258,12 @@ export async function recalcSaleOrderCountFromOrders({
         .filter((k) => k.date && k.name && k.product && k.market)
     : [];
 
+  const teamScope = Array.isArray(reportsTeamIn) && reportsTeamIn.length > 0 ? reportsTeamIn : null;
+
   // Tuần tự — tránh mở quá nhiều kết nối cùng lúc (dễ Failed to fetch trên mạng yếu / giới hạn trình duyệt).
   const reports = normalizedExactKeys.length > 0
-    ? await fetchSalesReportsForExactKeys(normalizedExactKeys, reportsTable)
-    : await fetchAllSalesReportsInRange(normalizedStart, normalizedEnd, reportsTable);
+    ? await fetchSalesReportsForExactKeys(normalizedExactKeys, reportsTable, teamScope)
+    : await fetchAllSalesReportsInRange(normalizedStart, normalizedEnd, reportsTable, teamScope);
   const orders = normalizedExactKeys.length > 0
     ? await fetchOrdersForExactKeysForSale(normalizedExactKeys, ordersTable)
     : await fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd, ordersTable);
@@ -254,6 +279,7 @@ export async function recalcSaleOrderCountFromOrders({
 
     const vnd = orderAmountVnd(order);
     const huy = isCheckResultHuy(getCheckResult(order));
+    const goOrder = !huy && orderHasGoTracking(order);
 
     const exAll = countsAllByKey.get(key);
     if (exAll) {
@@ -263,12 +289,18 @@ export async function recalcSaleOrderCountFromOrders({
         exAll.cancelCount += 1;
         exAll.cancelRevenueVnd += vnd;
       }
+      if (goOrder) {
+        exAll.goCount = (exAll.goCount || 0) + 1;
+        exAll.goRevenueVnd = (exAll.goRevenueVnd || 0) + vnd;
+      }
     } else {
       countsAllByKey.set(key, {
         count: 1,
         revenueVnd: vnd,
         cancelCount: huy ? 1 : 0,
         cancelRevenueVnd: huy ? vnd : 0,
+        goCount: goOrder ? 1 : 0,
+        goRevenueVnd: goOrder ? vnd : 0,
         sample: {
           date: normalizeDateStr(order.order_date),
           name: String(order.sale_staff || '').trim(),
@@ -310,6 +342,8 @@ export async function recalcSaleOrderCountFromOrders({
     const revenueActual = agg?.revenueVnd ?? 0;
     const cancelActual = agg?.cancelCount ?? 0;
     const revenueCancelActual = agg?.cancelRevenueVnd ?? 0;
+    const goCount = agg?.goCount ?? 0;
+    const goRevenue = agg?.goRevenueVnd ?? 0;
 
     if (!r.id) continue;
     const resolvedEmail = emailFromName(r.name, hrEmailLookup);
@@ -317,8 +351,11 @@ export async function recalcSaleOrderCountFromOrders({
       id: r.id,
       order_count: count,
       revenue_actual: revenueActual,
+      order_cancel_count: cancelActual,
       order_cancel_count_actual: cancelActual,
       revenue_cancel_actual: revenueCancelActual,
+      order_go: goCount,
+      revenue_go_actual: goRevenue,
     };
     if (gs.length === 2) {
       patch.shift = 'Hết ca';
@@ -355,19 +392,31 @@ export async function recalcSaleOrderCountFromOrders({
 
       const email = emailFromName(entry.sample.name, hrEmailLookup) || '';
 
+      const orderTeam = String(entry.sample.team || '').trim();
+      let teamForRow = orderTeam || 'Sale';
+      if (teamScope?.length) {
+        if (orderTeam && teamScope.includes(orderTeam)) teamForRow = orderTeam;
+        else if (defaultTeamForNewRows && teamScope.includes(String(defaultTeamForNewRows).trim()))
+          teamForRow = String(defaultTeamForNewRows).trim();
+        else teamForRow = teamScope[0];
+      }
+
       const row = {
         id: makeId(),
         name: entry.sample.name,
         email: email || null,
-        team: entry.sample.team || 'Sale',
+        team: teamForRow,
         date: entry.sample.date,
         shift: group,
         product: entry.sample.product || null,
         market: entry.sample.market || null,
         order_count: entry.count,
         revenue_actual: entry.revenueVnd ?? 0,
+        order_cancel_count: entry.cancelCount ?? 0,
         order_cancel_count_actual: entry.cancelCount ?? 0,
         revenue_cancel_actual: entry.cancelRevenueVnd ?? 0,
+        order_go: entry.goCount ?? 0,
+        revenue_go_actual: entry.goRevenueVnd ?? 0,
       };
       createRows.push(row);
 

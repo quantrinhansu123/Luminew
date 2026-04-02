@@ -5,10 +5,8 @@ import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
-import {
-    fetchMatchingOrdersForReport,
-    syncReportsFromLumidataApi,
-} from '../utils/lumidataSalesReportSync';
+import { fetchMatchingOrdersForReport } from '../utils/lumidataSalesReportSync';
+import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -666,30 +664,32 @@ export default function DanhSachBaoCaoTayCSKH({
             toast.error('Vui lòng chọn khoảng thời gian trước khi tính toán!');
             return;
         }
-        if (!allReports.length) {
-            toast.error('Không có dữ liệu báo cáo để tính toán!');
-            return;
-        }
+        const scopeLabel = useTeamInQuery ? `Team ∈ { ${teamFilterLabel} }` : 'mọi team (admin xem full)';
         if (
             !window.confirm(
-                `Bạn có chắc chắn muốn tính và cập nhật số đơn / doanh số cho ${allReports.length} báo cáo (giống trang Sale)?\n\n` +
-                    `Khoảng thời gian: ${filters.startDate} đến ${filters.endDate}`
+                `Tính lại sales_reports (${scopeLabel}) từ bảng đơn Supabase — cùng luồng Admin Tools / cài đặt:\n\n` +
+                    '• Cập nhật số đơn, doanh số, đơn hủy, đơn go (có tracking, không hủy).\n' +
+                    '• Tự thêm dòng «Hết ca» nếu thiếu key (ngày + nhân viên sale + SP + thị trường).\n\n' +
+                    `Khoảng ngày: ${filters.startDate} → ${filters.endDate}\n\nChạy?`
             )
         ) {
             return;
         }
         setUpdatingOrders(true);
-        setUpdateProgress({ current: 0, total: allReports.length });
+        setUpdateProgress({ current: 0, total: 1 });
         try {
-            const { updatedCount, errorCount } = await syncReportsFromLumidataApi({
-                supabase,
-                reports: allReports,
-                logTag: '[DanhSachBaoCaoTayCSKH]',
-                onProgress: (current, total) => setUpdateProgress({ current, total }),
+            const result = await recalcSaleOrderCountFromOrders({
+                startDate: filters.startDate,
+                endDate: filters.endDate,
+                createMissingForHetCa: true,
+                reportsTeamIn: useTeamInQuery ? effectiveTeamFilter : null,
+                defaultTeamForNewRows: useTeamInQuery ? effectiveTeamFilter[0] : null,
             });
+            const n = result.upserted ?? 0;
+            const created = result.createdMissing ?? 0;
+            const updated = result.updatedExisting ?? 0;
             toast.success(
-                `Đã cập nhật ${updatedCount}/${allReports.length} báo cáo!` +
-                    (errorCount > 0 ? ` (${errorCount} lỗi)` : '')
+                `Hoàn tất: ${n} thao tác (cập nhật ${updated} dòng, tạo mới ${created} dòng).`
             );
             fetchData();
         } catch (err) {
@@ -1230,9 +1230,9 @@ export default function DanhSachBaoCaoTayCSKH({
                                 <button
                                     type="button"
                                     onClick={handleCalculateAndUpdateOrders}
-                                    disabled={updatingOrders || loading || removingDuplicates || allReports.length === 0}
+                                    disabled={updatingOrders || loading || removingDuplicates}
                                     className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                    title="Tính và cập nhật từ Lumidata API — giống trang Báo cáo tay Sale"
+                                    title="Tính từ Supabase orders + tự thêm dòng thiếu — giống Admin Tools (cài đặt)"
                                 >
                                     {updatingOrders ? (
                                         <>

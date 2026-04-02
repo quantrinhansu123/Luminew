@@ -229,8 +229,9 @@ function AppShell() {
               element={
                 <ProtectedRoute>
                   <XemBaoCaoMKTLegacy
+                    legacyHtmlPath="/viewNsMoiNhanh-HCM.html"
                     iframeAllowedTeams={[XEM_BAO_CAO_MKT_HCM_TEAM]}
-                    iframeTitle="Xem báo cáo MKT HCM (MKT - Đức Anh)"
+                    iframeTitle="Xem báo cáo MKT HCM (viewNsMoiNhanh-HCM)"
                   />
                 </ProtectedRoute>
               }

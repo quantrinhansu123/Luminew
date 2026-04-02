@@ -107,6 +107,65 @@ function orderShiftToGroups(shiftVal) {
   return groups;
 }
 
+/**
+ * Đơn (orders.shift): trống hoặc không chứa «Hết ca»/«Giữa ca» → vẫn cộng vào «Hết ca».
+ * Trước đây `orderShiftToGroups` trả [] → đơn bị bỏ qua hẳn → không có trong countsByGroup → không tự tạo dòng báo cáo.
+ */
+function orderShiftGroupsForRecalc(shiftVal) {
+  const g = orderShiftToGroups(shiftVal);
+  if (g.length) return g;
+  return ['Hết ca'];
+}
+
+/** Ca trống → «Hết ca» khi recalc (khớp normalizeCaForRowKey). Ca có chữ nhưng không nhận diện → bỏ qua dòng. */
+function reportCaGroupsForRecalc(caVal) {
+  const g = reportCaToGroups(caVal);
+  if (g.length) return g;
+  if (!String(caVal ?? '').trim()) return ['Hết ca'];
+  return [];
+}
+
+/**
+ * Dòng báo cáo thiếu SP hoặc TT: nếu trong tập đơn chỉ có đúng một cặp (product, country)
+ * khớp ngày + tên (+ SP/TT đã nhập nếu có) thì điền để khớp key với đơn.
+ */
+function inferProductMarketFromOrders(row, ordersList) {
+  const d = normalizeNgayForKey(row['Ngày']);
+  const n = normalizeNameForKey(row['Tên']);
+  if (!d || !n) return null;
+  const rowSp = String(row['Sản_phẩm'] ?? '').trim();
+  const rowTt = String(row['Thị_trường'] ?? '').trim();
+  const seen = new Map();
+  for (const o of ordersList || []) {
+    if (normalizeNgayForKey(o.order_date) !== d) continue;
+    if (normalizeNameForKey(o.marketing_staff) !== n) continue;
+    const p = String(o.product ?? '').trim();
+    const c = String(o.country ?? '').trim();
+    if (rowSp && normalizeFieldForKey(p) !== normalizeFieldForKey(rowSp)) continue;
+    if (rowTt && normalizeFieldForKey(c) !== normalizeFieldForKey(rowTt)) continue;
+    const pk = `${normalizeFieldForKey(p)}|${normalizeFieldForKey(c)}`;
+    if (!pk || pk === '|') continue;
+    if (!seen.has(pk)) seen.set(pk, { product: p, market: c });
+  }
+  if (seen.size !== 1) return null;
+  return [...seen.values()][0];
+}
+
+function effectiveKeyPartsForReportRow(r, ordersList) {
+  let product = String(r['Sản_phẩm'] ?? '').trim();
+  let market = String(r['Thị_trường'] ?? '').trim();
+  const inf = inferProductMarketFromOrders(
+    { ...r, 'Sản_phẩm': product, 'Thị_trường': market },
+    ordersList
+  );
+  const patchProduct = !product && !!inf?.product;
+  const patchMarket = !market && !!inf?.market;
+  if (patchProduct) product = inf.product;
+  if (patchMarket) market = inf.market;
+  const key = buildKey(r['Ngày'], r['Tên'], product, market);
+  return { product, market, key, patchProduct, patchMarket };
+}
+
 /** SP/TT: trim + lower + bỏ ký tự ẩn (không bỏ dấu câu như Tên — tránh gộp nhầm SP khác nhau). */
 function normalizeFieldForKey(v) {
   let s = String(v ?? '')
@@ -285,14 +344,84 @@ function wrapRecalcReadError(table, err) {
   return new Error(`[${table}] ${raw}`);
 }
 
-async function fetchAllReportsInRange(startDate, endDate) {
+const ORDERS_EXTERNAL_API_BASE = 'https://lumidataapi.vercel.app';
+
+/** YYYY-MM-DD → DD/MM/YYYY (lumidataapi). */
+function ymdToApiDdMmYyyy(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd || '').trim());
+  if (!m) return '';
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function mapExternalApiOrderToRecalcShape(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const order_date = normalizeDateStr(raw.order_date ?? raw.ngaydonghang ?? raw.date ?? '');
+  const marketing_staff = String(raw.marketing_staff ?? raw.nhanvien_marketing ?? '').trim();
+  const product = String(raw.product ?? raw.san_pham ?? '').trim();
+  const country = String(raw.country ?? raw.thi_truong ?? raw.market ?? '').trim();
+  return {
+    order_code: raw.order_code,
+    order_date,
+    marketing_staff,
+    product,
+    country,
+    shift: raw.shift ?? raw.ca ?? '',
+    team: raw.team ?? '',
+    check_result: raw.check_result ?? '',
+    payment_status: raw.payment_status ?? '',
+    total_amount_vnd: raw.total_amount_vnd,
+    total_vnd: raw.total_vnd,
+    reconciled_vnd: raw.reconciled_vnd,
+    goods_amount: raw.goods_amount,
+    sale_price: raw.sale_price,
+  };
+}
+
+/**
+ * Lấy đơn theo khoảng ngày từ lumidataapi (`/orders` hoặc `/order_hcm`).
+ */
+async function fetchAllOrdersInRangeViaExternalApi(startDate, endDate, apiPath) {
+  const from_date = ymdToApiDdMmYyyy(startDate);
+  const to_date = ymdToApiDdMmYyyy(endDate);
+  if (!from_date || !to_date) {
+    throw new Error('Khoảng ngày không hợp lệ cho API đơn.');
+  }
+  const rawPath = apiPath || '/orders';
+  const path = String(rawPath).startsWith('/') ? rawPath : `/${rawPath}`;
+  const all = [];
+  let next_after_id;
+  for (let guard = 0; guard < 600; guard += 1) {
+    const params = new URLSearchParams();
+    params.set('from_date', from_date);
+    params.set('to_date', to_date);
+    if (next_after_id) params.set('next_after_id', next_after_id);
+    const url = `${ORDERS_EXTERNAL_API_BASE}${path}?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`${path} HTTP ${res.status}: ${t || res.statusText}`);
+    }
+    const json = await res.json();
+    const chunk = json?.data || [];
+    for (const row of chunk) {
+      const mapped = mapExternalApiOrderToRecalcShape(row);
+      if (mapped && mapped.order_date) all.push(mapped);
+    }
+    next_after_id = json?.next_after_id;
+    if (!next_after_id) break;
+  }
+  return all;
+}
+
+async function fetchAllReportsInRange(startDate, endDate, reportsTableName) {
+  const table = reportsTableName || 'detail_reports';
   const PAGE_SIZE = 1000;
   const reports = [];
   let from = 0;
 
   while (true) {
     const { data, error } = await supabase
-      .from('detail_reports')
+      .from(table)
       .select('*')
       .gte('Ngày', startDate)
       .lte('Ngày', endDate)
@@ -310,7 +439,7 @@ async function fetchAllReportsInRange(startDate, endDate) {
   return reports;
 }
 
-async function fetchAllOrdersInRange(startDate, endDate) {
+async function fetchAllOrdersInRangeFromSupabase(startDate, endDate) {
   const PAGE_SIZE = 2000;
   const orders = [];
   let from = 0;
@@ -337,12 +466,13 @@ async function fetchAllOrdersInRange(startDate, endDate) {
   return orders;
 }
 
-async function fetchReportsForExactKeys(exactKeys) {
+async function fetchReportsForExactKeys(exactKeys, reportsTableName) {
+  const table = reportsTableName || 'detail_reports';
   const rows = [];
   const seen = new Set();
   for (const k of exactKeys) {
     const { data, error } = await supabase
-      .from('detail_reports')
+      .from(table)
       .select('*')
       .eq('Ngày', k.date)
       .eq('Tên', k.name)
@@ -359,7 +489,7 @@ async function fetchReportsForExactKeys(exactKeys) {
   return rows;
 }
 
-async function fetchOrdersForExactKeys(exactKeys) {
+async function fetchOrdersForExactKeysFromSupabase(exactKeys) {
   const rows = [];
   const seen = new Set();
   for (const k of exactKeys) {
@@ -383,6 +513,16 @@ async function fetchOrdersForExactKeys(exactKeys) {
     }
   }
   return rows;
+}
+
+function filterOrdersMatchingExactKeys(ordersList, exactKeys) {
+  if (!exactKeys?.length) return ordersList || [];
+  return (ordersList || []).filter((o) =>
+    exactKeys.some(
+      (k) =>
+        buildKey(o.order_date, o.marketing_staff, o.product, o.country) === buildKey(k.date, k.name, k.product, k.market)
+    )
+  );
 }
 
 async function fetchHumanResourceEmailLookup() {
@@ -484,9 +624,17 @@ export async function recalcMktSoDonThucTeFromOrders({
   createMissingRows = false,
   // Chỉ tính đúng các key này (không quét key khác trong ngày) khi có truyền vào.
   exactKeys = null,
+  /** Bảng báo cáo MKT (vd. marketing_report_hcm). */
+  reportsTableName = 'detail_reports',
+  /**
+   * Lấy đơn từ lumidataapi thay vì Supabase `orders`.
+   * Trang HCM: `/order_hcm`.
+   */
+  ordersApiPath = null,
 } = {}) {
   const normalizedStart = normalizeDateStr(startDate);
   const normalizedEnd = normalizeDateStr(endDate);
+  const reportsTable = String(reportsTableName || 'detail_reports').trim() || 'detail_reports';
 
   if (!normalizedStart || !normalizedEnd) {
     throw new Error('Khoảng ngày không hợp lệ. Vui lòng truyền startDate/endDate dạng YYYY-MM-DD.');
@@ -510,17 +658,30 @@ export async function recalcMktSoDonThucTeFromOrders({
   let usersLookup;
   try {
     reports = normalizedExactKeys.length > 0
-      ? await fetchReportsForExactKeys(normalizedExactKeys)
-      : await fetchAllReportsInRange(normalizedStart, normalizedEnd);
+      ? await fetchReportsForExactKeys(normalizedExactKeys, reportsTable)
+      : await fetchAllReportsInRange(normalizedStart, normalizedEnd, reportsTable);
   } catch (e) {
-    throw wrapRecalcReadError('detail_reports', e);
+    throw wrapRecalcReadError(reportsTable, e);
   }
   try {
-    orders = normalizedExactKeys.length > 0
-      ? await fetchOrdersForExactKeys(normalizedExactKeys)
-      : await fetchAllOrdersInRange(normalizedStart, normalizedEnd);
+    if (ordersApiPath) {
+      let apiStart = normalizedStart;
+      let apiEnd = normalizedEnd;
+      if (normalizedExactKeys.length > 0) {
+        const ds = normalizedExactKeys.map((k) => k.date).sort();
+        apiStart = ds[0];
+        apiEnd = ds[ds.length - 1];
+      }
+      const rawList = await fetchAllOrdersInRangeViaExternalApi(apiStart, apiEnd, ordersApiPath);
+      orders = filterOrdersMatchingExactKeys(rawList, normalizedExactKeys);
+    } else {
+      orders =
+        normalizedExactKeys.length > 0
+          ? await fetchOrdersForExactKeysFromSupabase(normalizedExactKeys)
+          : await fetchAllOrdersInRangeFromSupabase(normalizedStart, normalizedEnd);
+    }
   } catch (e) {
-    throw wrapRecalcReadError('orders', e);
+    throw wrapRecalcReadError(ordersApiPath || 'orders', e);
   }
   try {
     hrEmailLookup = await fetchHumanResourceEmailLookup();
@@ -535,7 +696,8 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   /*
    * Ca (shift) và số liệu:
-   * - Đơn: shift chỉ Hết ca → chỉ cộng nhóm Hết ca; chỉ Giữa ca → chỉ Giữa ca; "Giữa ca,Hết ca" → cộng cả hai nhóm.
+   * - Đơn: shift chỉ Hết ca → chỉ cộng nhóm Hết ca; chỉ Giữa ca → chỉ Giữa ca; "Giữa ca,Hết ca" → cộng cả hai nhóm;
+   *   shift trống/không nhận diện → coi là Hết ca (để vẫn tạo/cập nhật dòng báo cáo).
    * - Tự tạo / cập nhật dòng: mỗi dòng DB có ca chuẩn "Hết ca" hoặc "Giữa ca" (không gộp hai ca trong một dòng sau recalc).
    * - Dòng đang lưu chuỗi gộp (2 ca): coi là dòng Hết ca — cập nhật số theo nhóm Hết ca, ghi ca = "Hết ca";
    *   nếu chưa có dòng Giữa ca|cùng key thì chỉ UPDATE khi `createMissingRows=true` (mặc định là `false`).
@@ -549,8 +711,9 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy). Ghi Số đơn thực tế & Doanh số TT = tổng − phần hủy.
   for (const order of orders || []) {
-    const groups = orderShiftToGroups(order.shift);
-    if (!groups.length) continue;
+    const groups = orderShiftGroupsForRecalc(order.shift);
+
+    if (!normalizeNgayForKey(order.order_date) || !normalizeNameForKey(order.marketing_staff)) continue;
 
     const key = buildKey(order.order_date, order.marketing_staff, order.product, order.country);
     if (!key) continue;
@@ -588,7 +751,9 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   // existingByCaKey: caGroup|key => đã có dòng báo cáo (tránh tạo trùng)
   const existingByCaKey = new Set();
-  const reportRows = (reports || []).filter((r) => reportCaToGroups(r.ca).length > 0);
+  const reportRows = (reports || []).filter(
+    (r) => normalizeNgayForKey(r['Ngày']) && normalizeNameForKey(r['Tên'])
+  );
 
   // canonicalNameByNormalized: normalizedName -> Tên chuẩn đã có trong detail_reports (nếu có).
   // Khi tạo dòng mới: ưu tiên tên chuẩn này; nếu chưa có → dùng tên trên đơn (marketing_staff).
@@ -599,9 +764,11 @@ export async function recalcMktSoDonThucTeFromOrders({
   }
 
   for (const r of reportRows) {
-    const key = buildKey(r['Ngày'], r['Tên'], r['Sản_phẩm'], r['Thị_trường']);
+    const ek = effectiveKeyPartsForReportRow(r, orders);
+    const key = ek.key;
     if (!key) continue;
-    const gs = reportCaToGroups(r.ca);
+    const gs = reportCaGroupsForRecalc(r.ca);
+    if (!gs.length) continue;
     if (gs.length === 1) {
       existingByCaKey.add(`${gs[0]}|${key}`);
     } else if (gs.length === 2) {
@@ -616,9 +783,11 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   // 1) Update existing reports' "Số đơn thực tế"
   for (const r of reportRows) {
-    const gs = reportCaToGroups(r.ca);
+    const gs = reportCaGroupsForRecalc(r.ca);
     if (!gs.length) continue;
-    const key = buildKey(r['Ngày'], r['Tên'], r['Sản_phẩm'], r['Thị_trường']);
+    const ek = effectiveKeyPartsForReportRow(r, orders);
+    const key = ek.key;
+    const hadExplicitCa = reportCaToGroups(r.ca).length > 0;
     const primaryGroup = gs.length === 2 ? 'Hết ca' : gs[0];
     const agg = countsByGroup[primaryGroup]?.get(key);
     const grossCount = agg?.count || 0;
@@ -639,7 +808,11 @@ export async function recalcMktSoDonThucTeFromOrders({
     };
     if (gs.length === 2) {
       patch.ca = 'Hết ca';
+    } else if (!hadExplicitCa) {
+      patch.ca = 'Hết ca';
     }
+    if (ek.patchProduct) patch['Sản_phẩm'] = ek.product;
+    if (ek.patchMarket) patch['Thị_trường'] = ek.market;
     const rowEmail = String(r['Email'] ?? '').trim();
     const rowTeam = String(r['Team'] ?? '').trim();
     // Chỉ tự điền khi đang trống: users (theo tên+email) → HR
@@ -664,13 +837,14 @@ export async function recalcMktSoDonThucTeFromOrders({
         ca: primaryGroup,
         'Ngày': normalizeDateStr(r['Ngày']),
         'Tên': String(r['Tên'] || '').trim(),
-        'Sản_phẩm': String(r['Sản_phẩm'] || '').trim(),
-        'Thị_trường': String(r['Thị_trường'] || '').trim(),
+        'Sản_phẩm': ek.product,
+        'Thị_trường': ek.market,
         'Số đơn thực tế': count,
         'Doanh số TT': doanhSoTT,
         'Số đơn hoàn hủy thực tế': soDonHoanHuyTT,
         'Doanh số hoàn hủy thực tế': dsHoanHuyTT,
         action: 'update',
+        autoFilledKey: ek.patchProduct || ek.patchMarket || !hadExplicitCa,
       });
     }
   }
@@ -754,7 +928,7 @@ export async function recalcMktSoDonThucTeFromOrders({
       const results = await Promise.all(
         chunk.map((row) => {
           const { id, ...rest } = row;
-          return supabase.from('detail_reports').update(rest).eq('id', id);
+          return supabase.from(reportsTable).update(rest).eq('id', id);
         })
       );
       const firstErr = results.find((r) => r.error)?.error;
@@ -764,11 +938,11 @@ export async function recalcMktSoDonThucTeFromOrders({
       const isNetwork =
         e?.name === 'TypeError' ||
         (typeof raw === 'string' && raw.toLowerCase().includes('failed to fetch'));
-      if (!isNetwork) throw wrapRecalcReadError('detail_reports (cập nhật)', e);
+      if (!isNetwork) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, e);
       for (const row of chunk) {
         const { id, ...rest } = row;
-        const { error } = await supabase.from('detail_reports').update(rest).eq('id', id);
-        if (error) throw wrapRecalcReadError('detail_reports (cập nhật)', error);
+        const { error } = await supabase.from(reportsTable).update(rest).eq('id', id);
+        if (error) throw wrapRecalcReadError(`${reportsTable} (cập nhật)`, error);
       }
     }
     touched += chunk.length;
@@ -777,7 +951,7 @@ export async function recalcMktSoDonThucTeFromOrders({
   const INSERT_CHUNK = 200;
   for (let i = 0; i < createRows.length; i += INSERT_CHUNK) {
     const chunk = createRows.slice(i, i + INSERT_CHUNK);
-    const { error } = await supabase.from('detail_reports').insert(chunk);
+    const { error } = await supabase.from(reportsTable).insert(chunk);
     if (error) throw error;
     touched += chunk.length;
   }
@@ -807,6 +981,8 @@ export async function recalcMktSoDonAfterOrderSave({
   newOrderKey,
   previousOrderKey,
   createMissingRows = true,
+  reportsTableName = 'detail_reports',
+  ordersApiPath = null,
 } = {}) {
   const exactKeys = [newOrderKey, previousOrderKey]
     .filter(Boolean)
@@ -832,6 +1008,8 @@ export async function recalcMktSoDonAfterOrderSave({
       dryRun: false,
       createMissingRows,
       exactKeys: dedupedKeys,
+      reportsTableName,
+      ordersApiPath,
     });
   }
 
@@ -843,6 +1021,13 @@ export async function recalcMktSoDonAfterOrderSave({
   const dates = [n, p].filter(Boolean).sort();
   const startDate = dates[0];
   const endDate = dates[dates.length - 1];
-  return recalcMktSoDonThucTeFromOrders({ startDate, endDate, dryRun: false, createMissingRows });
+  return recalcMktSoDonThucTeFromOrders({
+    startDate,
+    endDate,
+    dryRun: false,
+    createMissingRows,
+    reportsTableName,
+    ordersApiPath,
+  });
 }
 

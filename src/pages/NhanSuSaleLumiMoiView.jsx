@@ -618,11 +618,15 @@ export default function NhanSuSaleLumiMoiView({
     }
   }, [idSheet, employeeData, rawData, hideBoPhanFilter]);
 
-  /** `sale_report_hcm`: toàn bộ dòng theo ngày từ Supabase, không lọc team/sidebar (vẫn tôn trọng phân quyền). */
-  const saleReportHcmFullData = reportTableName === 'sale_report_hcm';
+  /**
+   * Trang `sale_report_hcm`: vẫn lọc SP / ca / team / thị trường / tên như trang Sale.
+   * Chỉ khác chỗ tổng hợp bảng — giữ dòng team «Đã nghỉ» (trang mặc định ẩn).
+   */
+  const keepTeamNghiRowsForHcmReport = reportTableName === 'sale_report_hcm';
+  /** Tên biến cũ — giữ alias để tránh ReferenceError nếu còn chunk/hot-reload tham chiếu. */
+  const saleReportHcmFullData = keepTeamNghiRowsForHcmReport;
 
   const filteredData = useMemo(() => {
-    const bypass = saleReportHcmFullData;
     return filterRawData({
       rawData,
       isRestrictedView,
@@ -633,18 +637,17 @@ export default function NhanSuSaleLumiMoiView({
       allowedPersonnelNames,
       startDateStr: startDate,
       endDateStr: endDate,
-      productAll: bypass ? true : productAll,
-      selectedProducts: bypass || productAll ? null : productSel,
-      caAll: bypass ? true : caAll,
-      selectedShifts: bypass || caAll ? null : caSel,
-      teamAll: bypass ? true : teamAll,
-      selectedTeams: bypass || teamAll ? null : teamSel,
-      marketAll: bypass ? true : marketAll,
-      selectedMarkets: bypass || marketAll ? null : marketSel,
-      nameAll: bypass ? true : showPersonnelNameFilter ? nameAllApplied : true,
-      selectedNames:
-        bypass || !showPersonnelNameFilter || nameAllApplied ? null : nameSelApplied,
-      boPhanPick: bypass || hideBoPhanFilter ? '' : boPhanPick,
+      productAll,
+      selectedProducts: productAll ? null : productSel,
+      caAll,
+      selectedShifts: caAll ? null : caSel,
+      teamAll,
+      selectedTeams: teamAll ? null : teamSel,
+      marketAll,
+      selectedMarkets: marketAll ? null : marketSel,
+      nameAll: showPersonnelNameFilter ? nameAllApplied : true,
+      selectedNames: !showPersonnelNameFilter || nameAllApplied ? null : nameSelApplied,
+      boPhanPick: hideBoPhanFilter ? '' : boPhanPick,
     });
   }, [
     rawData,
@@ -669,7 +672,6 @@ export default function NhanSuSaleLumiMoiView({
     nameSelApplied,
     boPhanPick,
     hideBoPhanFilter,
-    saleReportHcmFullData,
   ]);
 
   /** Dùng chung cho sidebar — tránh gọi filterRawForRestrictedPopulate hàng chục lần mỗi render */
@@ -887,7 +889,7 @@ export default function NhanSuSaleLumiMoiView({
     }
 
     const { flatList } = summarizeAndSortSalesData(deferredFilteredDeduped);
-    const flatListFiltered = saleReportHcmFullData ? flatList : flatListFilteredNoTeamNghi(flatList);
+    const flatListFiltered = keepTeamNghiRowsForHcmReport ? flatList : flatListFilteredNoTeamNghi(flatList);
     const total = aggregateTotalFromFlatList(flatListFiltered);
     const doanhSoMap = {};
     flatListFiltered.forEach((item) => {
@@ -910,7 +912,7 @@ export default function NhanSuSaleLumiMoiView({
       soDonHuyTotal,
       tiLeHuyTotal,
     };
-  }, [deferredFilteredDeduped, shouldComputeMainFormulas, saleReportHcmFullData]);
+  }, [deferredFilteredDeduped, shouldComputeMainFormulas, keepTeamNghiRowsForHcmReport]);
 
   const onTabClick = (tab) => {
     setActiveTab(tab);
@@ -973,22 +975,21 @@ export default function NhanSuSaleLumiMoiView({
             title={
               !startDate || !endDate
                 ? 'Chọn đủ Từ ngày và Đến ngày'
-                : saleReportHcmFullData
-                  ? 'Tải lại toàn bộ sale_report_hcm theo khoảng ngày'
+                : keepTeamNghiRowsForHcmReport
+                  ? 'Tải lại dữ liệu sale_report_hcm theo khoảng ngày (bộ lọc SP / ca / TT / team / tên áp dụng sau khi tải)'
                   : 'Tải lại từ máy chủ theo khoảng ngày và áp dụng lọc Tên Sale (nếu có)'
             }
           >
             {loading ? 'Đang tải…' : 'Tải dữ liệu'}
           </button>
 
-          {saleReportHcmFullData && (
+          {keepTeamNghiRowsForHcmReport && (
             <p className="nssl-filter-hint" style={{ marginTop: 8 }}>
-              Báo cáo HCM: hiển thị toàn bộ dữ liệu bảng sale_report_hcm trong khoảng ngày (không lọc SP / ca / team / thị
-              trường / tên). Phân quyền xem (nếu có) vẫn áp dụng.
+              Báo cáo HCM: lọc theo sản phẩm, ca, team, thị trường và tên Sale như bên dưới. Phân quyền xem (nếu có) vẫn áp dụng.
             </p>
           )}
 
-          {showPersonnelNameFilter && !saleReportHcmFullData && (
+          {showPersonnelNameFilter && (
             <>
               <h3>Tên Sale</h3>
               <p className="nssl-filter-hint">
@@ -1127,8 +1128,7 @@ export default function NhanSuSaleLumiMoiView({
             </>
           )}
 
-          {!saleReportHcmFullData && (
-            <>
+          <>
           <h3>Sản phẩm</h3>
           <label>
             <input
@@ -1321,8 +1321,7 @@ restrictedForPopulate,
               </label>
             ))}
           </div>
-            </>
-          )}
+          </>
         </div>
 
         <div className="main-detailed">
@@ -1442,7 +1441,7 @@ restrictedForPopulate,
               <DailyBreakdownSauHuy
                 filteredData={deferredFilteredDeduped}
                 formatSaleName={formatSaleDisplayName}
-                keepTeamNghiRows={saleReportHcmFullData}
+                keepTeamNghiRows={keepTeamNghiRowsForHcmReport}
               />
             )}
           </div>
@@ -1513,7 +1512,7 @@ restrictedForPopulate,
               <DailyBreakdownChot
                 filteredData={deferredFilteredDeduped}
                 formatSaleName={formatSaleDisplayName}
-                keepTeamNghiRows={saleReportHcmFullData}
+                keepTeamNghiRows={keepTeamNghiRowsForHcmReport}
               />
             )}
           </div>

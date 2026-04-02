@@ -9,11 +9,13 @@ export const XEM_BAO_CAO_MKT_HCM_TEAM = 'MKT - Đức Anh';
 /**
  * @param {object} props
  * @param {boolean} [props.embedded]
+ * @param {string} [props.legacyHtmlPath] — đường dẫn file legacy trong public (vd. `/viewNsMoiNhanh-HCM.html`)
  * @param {string[] | null} [props.iframeAllowedTeams] — nếu có: iframe kèm ?allowedTeams=... (không ghép location.search)
  * @param {string} [props.iframeTitle]
  */
 export default function XemBaoCaoMKTLegacy({
   embedded = false,
+  legacyHtmlPath = '/viewNsMoiNhanh.html',
   iframeAllowedTeams = null,
   iframeTitle = 'Xem báo cáo MKT (viewNsMoiNhanh.html)',
 } = {}) {
@@ -28,14 +30,14 @@ export default function XemBaoCaoMKTLegacy({
     : canView('MKT_VIEW');
 
   const iframeSrc = useMemo(() => {
-    const base = '/viewNsMoiNhanh.html';
+    const base = legacyHtmlPath;
     if (usesIframeTeamFilter) {
       const qs = new URLSearchParams();
       iframeAllowedTeams.forEach((t) => qs.append('allowedTeams', t));
       return `${base}?${qs.toString()}`;
     }
     return `${base}${location.search || ''}`;
-  }, [iframeAllowedTeams, location.search, usesIframeTeamFilter]);
+  }, [iframeAllowedTeams, legacyHtmlPath, location.search, usesIframeTeamFilter]);
 
   if (!hasAccess) {
     const codes = usesIframeTeamFilter ? 'MKT_VIEW_HCM hoặc MKT_VIEW' : 'MKT_VIEW';

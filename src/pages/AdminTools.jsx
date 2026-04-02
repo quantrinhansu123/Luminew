@@ -1383,7 +1383,7 @@ const AdminTools = () => {
             'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
             'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
             'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
-            'Thao tác sẽ cập nhật các dòng hiện có; nếu thiếu key (ngày + MKT + SP + thị trường + ca) sẽ tạo dòng mới từ dữ liệu đơn.\n\n' +
+            'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu hẳn dòng (key + ca) sẽ tạo mới từ đơn.\n\n' +
             'Bạn có chắc muốn chạy không?'
         );
         if (!ok) return;

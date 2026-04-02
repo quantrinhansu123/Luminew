@@ -201,7 +201,21 @@ async function fetchDanhSachDonMergedRawOrders({
     }
   }
 
-  return mergedRaw;
+  // Trùng order_code (dữ liệu DB / gộp) → chỉ giữ một bản ghi, ưu tiên dòng có order_date.
+  const byKey = new Map();
+  mergedRaw.forEach((r, i) => {
+    const code = r?.order_code != null && String(r.order_code).trim() !== '' ? String(r.order_code).trim() : '';
+    const key = code || `__row_${r?.id ?? i}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, r);
+      return;
+    }
+    const prevOd = prev?.order_date != null && String(prev.order_date).trim() !== '';
+    const curOd = r?.order_date != null && String(r.order_date).trim() !== '';
+    if (!prevOd && curOd) byKey.set(key, r);
+  });
+  return [...byKey.values()];
 }
 
 /** Khóa trùng Name* + Phone* + Add trong danh sách (chuẩn hóa giống cảnh báo trùng khách). */
@@ -2442,19 +2456,15 @@ function DanhSachDon({ dataSource = 'default' }) {
     return filteredData.slice(start, start + rowsPerPage);
   }, [filteredData, currentPage, rowsPerPage]);
 
-  // Format date
+  // Format date — cùng logic lịch với isDateInRange (parseSmartDate), tránh lệch ±1 ngày do UTC của new Date(iso).
   const formatDate = (dateString) => {
     if (!dateString) return '';
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return dateString;
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
-      return `${day}/${month}/${year}`;
-    } catch (e) {
-      return dateString;
-    }
+    const d = parseSmartDate(dateString);
+    if (!d || isNaN(d.getTime())) return String(dateString);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
   };
 
   // Handle sort
