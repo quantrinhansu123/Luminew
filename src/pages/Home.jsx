@@ -14,6 +14,7 @@ import {
   LayoutGrid,
   ListTodo,
   LogOut,
+  MapPin,
   Megaphone,
   Menu,
   Package,
@@ -81,14 +82,6 @@ function Home() {
       active: location.pathname === "/" || location.pathname === "/trang-chu",
     },
     {
-      id: "delivery-danh-sach-hcm-quick",
-      label: "DS vận đơn HCM",
-      icon: <ListTodo className="w-5 h-5" />,
-      path: "/danh-sach-van-don-hcm",
-      permissionAny: ["ORDERS_DANH_SACH_VAN_DON_HCM", "ORDERS_DANH_SACH_VAN_DON"],
-      active: location.pathname === "/danh-sach-van-don-hcm",
-    },
-    {
       id: "dashboard",
       label: "Dashboard điều hành",
       icon: <BarChart3 className="w-5 h-5" />,
@@ -152,6 +145,13 @@ function Home() {
           icon: <Users className="w-4 h-4" />,
           path: "/quan-ly-cskh",
           permission: 'CSKH_LIST',
+        },
+        {
+          id: "crm-list-hcm",
+          label: "Danh sách đơn CSKH HCM",
+          icon: <MapPin className="w-4 h-4" />,
+          path: "/quan-ly-cskh-hcm",
+          permissionAny: ['CSKH_LIST_HCM', 'CSKH_LIST'],
         },
         {
           id: "crm-paid",
@@ -765,6 +765,14 @@ function Home() {
           path: "/quan-ly-cskh",
           status: "Mở ứng dụng",
           permission: 'CSKH_LIST',
+        },
+        {
+          title: "Danh sách đơn CSKH HCM",
+          icon: <MapPin className="w-8 h-8" />,
+          color: "bg-teal-700",
+          path: "/quan-ly-cskh-hcm",
+          status: "order_code_hcm",
+          permissionAny: ['CSKH_LIST_HCM', 'CSKH_LIST'],
         },
         {
           title: "Đơn đã thu tiền/cần CS",

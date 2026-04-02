@@ -744,6 +744,7 @@ export const MODULE_PAGES = {
         name: 'CSKH & CRM',
         pages: [
             { code: 'CSKH_LIST', name: 'Danh sách đơn', path: '/quan-ly-cskh' },
+            { code: 'CSKH_LIST_HCM', name: 'Danh sách đơn CSKH HCM', path: '/quan-ly-cskh-hcm' },
             { code: 'CSKH_PAID', name: 'Đơn đã thu tiền/cần CS', path: '/don-chia-cskh' },
             { code: 'CSKH_NEW_ORDER', name: 'Nhập đơn mới', path: '/nhap-don' },
             { code: 'CSKH_NEW_ORDER_HCM', name: 'Nhập đơn HCM', path: '/nhap-don?view=hcm' },

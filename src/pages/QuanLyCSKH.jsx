@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
+import { getSelectedPersonnel } from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 import {
@@ -86,8 +87,41 @@ async function resolveNameVariantsForOrderFilter(userEmail) {
   return [...variants];
 }
 
-function applyCSKHStaffOrFilter(query, variants, isManager) {
-  if (isManager) return query;
+/**
+ * Trang quan-ly-cskh-hcm: chỉ nhân sự Bộ phận CSKH + Chi nhánh HCM mới load full danh sách.
+ * (Admin hệ thống / finance / super_admin vẫn full — xử lý ở chỗ gọi qua bypassStaffFilter.)
+ */
+function userHasCskhHcmFullListProfile(user) {
+  if (!user) return false;
+  const dept = String(user?.['Bộ_phận'] || user?.['Bộ phận'] || user?.department || '').trim().toLowerCase();
+  const branch = String(
+    user?.['chi_nhánh'] || user?.['chi nhánh'] || user?.branch || user?.Chi_nhánh || ''
+  ).trim().toLowerCase();
+  const isCskh = dept === 'cskh' || dept.includes('cskh');
+  const isHcmBranch =
+    branch.includes('hcm') ||
+    branch.includes('hồ chí minh') ||
+    branch.includes('ho chi minh') ||
+    branch.includes('tp.hcm') ||
+    branch.includes('tp hcm');
+  return isCskh && isHcmBranch;
+}
+
+/** Khớp `rbacService`: chỉ dùng để biết user có cấu hình `selected_personnel` trong DB hay không. */
+function parseSelectedPersonnelRawLocal(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw.map((e) => String(e).trim()).filter(Boolean);
+  if (typeof raw === 'string') {
+    return raw
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function applyCSKHStaffOrFilter(query, variants, bypassStaffFilter) {
+  if (bypassStaffFilter) return query;
   if (!variants.length) return query.eq('id', EMPTY_ORDER_QUERY_ID);
   const orParts = [];
   for (const n of variants) {
@@ -215,10 +249,27 @@ function applyCSKHClientFilters(data, ctx) {
   return rows;
 }
 
-function QuanLyCSKH() {
+function QuanLyCSKH({
+  ordersTableName = 'orders',
+  pageTitle = 'QUẢN LÝ CSKH',
+  pageSubtitle = 'Dữ liệu từ F3',
+  accessPermissionCodes = ['CSKH_LIST'],
+} = {}) {
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   const navigate = useNavigate();
-  const { canView, canEdit, canDelete, role } = usePermissions();
+  const { canView, canEdit, role } = usePermissions();
+  const isHcmOrders = ordersTableName === 'order_code_hcm';
+
+  const canAccessPage = useMemo(
+    () => accessPermissionCodes.some((code) => canView(code)),
+    [accessPermissionCodes, canView]
+  );
+
+  const canEditFromThisList = useMemo(() => {
+    if (accessPermissionCodes.some((code) => canEdit(code))) return true;
+    if (isHcmOrders && canEdit('SALE_ORDERS_HCM')) return true;
+    return canEdit('SALE_ORDERS');
+  }, [accessPermissionCodes, canEdit, isHcmOrders]);
 
   const [allData, setAllData] = useState([]);
 
@@ -599,29 +650,80 @@ function QuanLyCSKH() {
       const roleLower = (role || '').toLowerCase();
       const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
 
+      const hcmCskhFullList = isHcmOrders && userHasCskhHcmFullListProfile(user);
+      const hcmSystemFullAccess =
+        userEmail === ADMIN_MAIL ||
+        boPhan === 'admin' ||
+        roleLower === 'admin' ||
+        roleLower === 'super_admin' ||
+        roleLower === 'finance';
+
+      let bypassStaffFilter;
       let variants = [];
-      if (!isManager) {
-        variants = await resolveNameVariantsForOrderFilter(userEmail);
-        if (!variants.length) {
-          console.warn('⚠️ [CSKH] Không có tên nào để lọc (username + users.name). Trả về rỗng.');
+
+      if (isHcmOrders) {
+        if (hcmSystemFullAccess) {
+          bypassStaffFilter = true;
+          console.log('✅ [CSKH HCM] Quyền quản trị: full danh sách (bỏ lọc nhân sự).');
         } else {
-          console.log('🔍 [CSKH] Lọc theo các biến thể tên:', variants);
+          const personnelMap = await getSelectedPersonnel([userEmail]);
+          const personnelNames = personnelMap[userEmail] || [];
+
+          const { data: uSpRow } = await supabase
+            .from('users')
+            .select('selected_personnel')
+            .eq('email', userEmail)
+            .maybeSingle();
+          const rawSelected = parseSelectedPersonnelRawLocal(uSpRow?.selected_personnel);
+          const allowFullCskhHcmWithoutConfiguredPersonnel =
+            hcmCskhFullList && rawSelected.length === 0;
+
+          if (allowFullCskhHcmWithoutConfiguredPersonnel) {
+            bypassStaffFilter = true;
+            console.log(
+              '✅ [CSKH HCM] CSKH + Chi nhánh HCM, chưa cấu hình selected_personnel: full danh sách trong khoảng ngày.'
+            );
+          } else {
+            bypassStaffFilter = false;
+            variants = personnelNames;
+            if (!variants.length) {
+              console.warn(
+                '⚠️ [CSKH HCM] selected_personnel / phạm vi nhân sự trống — không có tên để lọc (sale/mkt/vận đơn/CSKH).'
+              );
+            } else {
+              console.log(
+                '🔐 [CSKH HCM] Lọc đơn theo phạm vi nhân sự (selected_personnel + leader_teams + tên tài khoản):',
+                variants.length,
+                'tên'
+              );
+            }
+          }
         }
       } else {
-        console.log('✅ [CSKH] Admin/Manager: viewing all orders (filters applied client-side)');
+        bypassStaffFilter = isManager;
+        if (!bypassStaffFilter) {
+          variants = await resolveNameVariantsForOrderFilter(userEmail);
+          if (!variants.length) {
+            console.warn('⚠️ [CSKH] Không có tên nào để lọc (username + users.name). Trả về rỗng.');
+          } else {
+            console.log('🔍 [CSKH] Lọc theo các biến thể tên:', variants);
+          }
+        } else {
+          console.log('✅ [CSKH] Admin/Manager: viewing all orders (filters applied client-side)');
+        }
       }
 
       const FETCH_LIMIT = 10000;
       const { start: createdStart, end: createdEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
 
       let q1 = supabase
-        .from('orders')
+        .from(ordersTableName)
         .select('*')
         .gte('order_date', startDate)
         .lte('order_date', endDate)
         .order('order_date', { ascending: false })
         .limit(FETCH_LIMIT);
-      q1 = applyCSKHStaffOrFilter(q1, variants, isManager);
+      q1 = applyCSKHStaffOrFilter(q1, variants, bypassStaffFilter);
 
       const { data: d1, error: e1 } = await q1;
       if (e1) throw e1;
@@ -629,14 +731,14 @@ function QuanLyCSKH() {
       let d2 = [];
       if (createdStart && createdEnd) {
         let q2 = supabase
-          .from('orders')
+          .from(ordersTableName)
           .select('*')
           .is('order_date', null)
           .gte('created_at', createdStart)
           .lte('created_at', createdEnd)
           .order('created_at', { ascending: false })
           .limit(FETCH_LIMIT);
-        q2 = applyCSKHStaffOrFilter(q2, variants, isManager);
+        q2 = applyCSKHStaffOrFilter(q2, variants, bypassStaffFilter);
         const { data: d2raw, error: e2 } = await q2;
         if (e2) throw e2;
         d2 = d2raw || [];
@@ -676,7 +778,7 @@ function QuanLyCSKH() {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, role]);
+  }, [startDate, endDate, role, ordersTableName]);
 
   useEffect(() => {
     loadData();
@@ -1041,7 +1143,7 @@ function QuanLyCSKH() {
     setIsUpdating(true);
     try {
       const { error } = await supabase
-        .from('orders')
+        .from(ordersTableName)
         .update({
           customer_name: editingOrder.customer_name,
           customer_phone: editingOrder.customer_phone,
@@ -1086,7 +1188,7 @@ function QuanLyCSKH() {
     if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác!")) return;
 
     try {
-      const { error } = await supabase.from('orders').delete().eq('id', id);
+      const { error } = await supabase.from(ordersTableName).delete().eq('id', id);
       if (error) throw error;
 
       alert("✅ Đã xóa đơn hàng thành công!");
@@ -1098,8 +1200,13 @@ function QuanLyCSKH() {
     }
   };
 
-  if (!canView('CSKH_LIST')) {
-    return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (CSKH_LIST).</div>;
+  if (!canAccessPage) {
+    const codes = accessPermissionCodes.join(', ');
+    return (
+      <div className="p-8 text-center text-red-600 font-bold">
+        Bạn không có quyền truy cập trang này ({codes}).
+      </div>
+    );
   }
 
   return (
@@ -1111,8 +1218,8 @@ function QuanLyCSKH() {
             <div className="flex items-center gap-4">
 
               <div>
-                <h1 className="text-xl font-bold text-gray-800">QUẢN LÝ CSKH</h1>
-                <p className="text-xs text-gray-500">Dữ liệu từ F3</p>
+                <h1 className="text-xl font-bold text-gray-800">{pageTitle}</h1>
+                <p className="text-xs text-gray-500">{pageSubtitle}</p>
               </div>
             </div>
 
@@ -1985,13 +2092,14 @@ function QuanLyCSKH() {
                             </button>
 
                             {/* Edit - Chỉnh sửa đầy đủ trong form NhapDonMoi */}
-                            {(canEdit('CSKH_LIST') || canEdit('SALE_ORDERS') || isAdmin()) && (
+                            {(canEditFromThisList || isAdmin()) && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const orderId = row['Mã đơn hàng'] || row.order_code;
                                   if (orderId) {
-                                    navigate(`/chinh-sua-don?orderId=${orderId}`);
+                                    const hcm = isHcmOrders ? '&view=hcm' : '';
+                                    navigate(`/chinh-sua-don?orderId=${encodeURIComponent(orderId)}${hcm}`);
                                   } else {
                                     toast.error('Không tìm thấy mã đơn hàng');
                                   }

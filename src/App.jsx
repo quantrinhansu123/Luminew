@@ -173,6 +173,19 @@ function AppShell() {
             <Route path="/chinh-sua-don" element={<ProtectedRoute><NhapDonMoi isEdit={true} /></ProtectedRoute>} />
 
             <Route path="/quan-ly-cskh" element={<ProtectedRoute><QuanLyCSKH /></ProtectedRoute>} />
+            <Route
+              path="/quan-ly-cskh-hcm"
+              element={
+                <ProtectedRoute>
+                  <QuanLyCSKH
+                    ordersTableName="order_code_hcm"
+                    pageTitle="QUẢN LÝ CSKH HCM"
+                    pageSubtitle="Dữ liệu từ order_code_hcm"
+                    accessPermissionCodes={['CSKH_LIST_HCM', 'CSKH_LIST']}
+                  />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/don-chia-cskh" element={<ProtectedRoute><DonChiaCSKH /></ProtectedRoute>} />
             <Route
               path="/xem-bao-cao-cskh"

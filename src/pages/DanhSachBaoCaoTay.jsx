@@ -185,6 +185,12 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const [sortColumn, setSortColumn] = useState(null);
     const [sortDirection, setSortDirection] = useState('asc');
 
+    useEffect(() => {
+        if (isHcm && (sortColumn === 'Số đơn go' || sortColumn === 'Doanh số go')) {
+            setSortColumn(null);
+        }
+    }, [isHcm, sortColumn]);
+
     // Available options for filters
     const [availableOptions, setAvailableOptions] = useState({
         products: [],
@@ -1716,10 +1722,9 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             'Phản hồi': 'response_count',
             'Số đơn': 'order_count',
             'Số đơn hủy': 'order_cancel_count',
-            'Số đơn go': 'order_go',
             'Doanh số': 'revenue_actual',
             'Doanh số hủy': 'revenue_cancel_actual',
-            'Doanh số go': 'revenue_go_actual'
+            ...(!isHcm ? { 'Số đơn go': 'order_go', 'Doanh số go': 'revenue_go_actual' } : {}),
         };
 
         const field = columnMap[sortColumn];
@@ -1736,7 +1741,16 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         }
 
         // Handle number sorting
-        if (['mess_count', 'response_count', 'order_count', 'order_cancel_count', 'order_go', 'revenue_actual', 'revenue_cancel_actual', 'revenue_go_actual'].includes(field)) {
+        const numericSortFields = [
+            'mess_count',
+            'response_count',
+            'order_count',
+            'order_cancel_count',
+            'revenue_actual',
+            'revenue_cancel_actual',
+            ...(isHcm ? [] : ['order_go', 'revenue_go_actual']),
+        ];
+        if (numericSortFields.includes(field)) {
             const numA = Number(aVal) || 0;
             const numB = Number(bVal) || 0;
             return sortDirection === 'asc' ? numA - numB : numB - numA;
@@ -2264,34 +2278,38 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             )}
                                         </div>
                                     </th>
-                                    <th
-                                        className="cursor-pointer hover:bg-gray-100 select-none"
-                                        onClick={() => handleSort('Số đơn go')}
-                                        style={{ userSelect: 'none' }}
-                                    >
-                                        <div className="flex items-center gap-1">
-                                            Số đơn go
-                                            {sortColumn === 'Số đơn go' && (
-                                                <span className="text-[#F37021]">
-                                                    {sortDirection === 'asc' ? '↑' : '↓'}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </th>
-                                    <th
-                                        className="cursor-pointer hover:bg-gray-100 select-none"
-                                        onClick={() => handleSort('Doanh số go')}
-                                        style={{ userSelect: 'none' }}
-                                    >
-                                        <div className="flex items-center gap-1">
-                                            Doanh số go
-                                            {sortColumn === 'Doanh số go' && (
-                                                <span className="text-[#F37021]">
-                                                    {sortDirection === 'asc' ? '↑' : '↓'}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </th>
+                                    {!isHcm && (
+                                        <>
+                                            <th
+                                                className="cursor-pointer hover:bg-gray-100 select-none"
+                                                onClick={() => handleSort('Số đơn go')}
+                                                style={{ userSelect: 'none' }}
+                                            >
+                                                <div className="flex items-center gap-1">
+                                                    Số đơn go
+                                                    {sortColumn === 'Số đơn go' && (
+                                                        <span className="text-[#F37021]">
+                                                            {sortDirection === 'asc' ? '↑' : '↓'}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </th>
+                                            <th
+                                                className="cursor-pointer hover:bg-gray-100 select-none"
+                                                onClick={() => handleSort('Doanh số go')}
+                                                style={{ userSelect: 'none' }}
+                                            >
+                                                <div className="flex items-center gap-1">
+                                                    Doanh số go
+                                                    {sortColumn === 'Doanh số go' && (
+                                                        <span className="text-[#F37021]">
+                                                            {sortDirection === 'asc' ? '↑' : '↓'}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </th>
+                                        </>
+                                    )}
                                     <th>Thao tác</th>
                                 </tr>
                             </thead>
@@ -2307,14 +2325,18 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                         <td className="total-value">{formatNumber(reportTableTotals.order_cancel_count)}</td>
                                         <td className="total-value">{formatCurrency(reportTableTotals.revenue_actual)}</td>
                                         <td className="total-value">{formatCurrency(reportTableTotals.revenue_cancel_actual)}</td>
-                                        <td className="total-value">{formatNumber(reportTableTotals.order_go)}</td>
-                                        <td className="total-value">{formatCurrency(reportTableTotals.revenue_go_actual)}</td>
+                                        {!isHcm && (
+                                            <>
+                                                <td className="total-value">{formatNumber(reportTableTotals.order_go)}</td>
+                                                <td className="total-value">{formatCurrency(reportTableTotals.revenue_go_actual)}</td>
+                                            </>
+                                        )}
                                         <td className="text-center">—</td>
                                     </tr>
                                 )}
                                 {sortedReports.length === 0 ? (
                                     <tr>
-                                        <td colSpan="16" className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td colSpan={isHcm ? 14 : 16} className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
                                     sortedReports.map((item, index) => (
@@ -2332,8 +2354,12 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             <td>{formatNumber(item.order_cancel_count || 0)}</td>
                                             <td>{formatCurrency(item.revenue_actual || 0)}</td>
                                             <td>{formatCurrency(item.revenue_cancel_actual || 0)}</td>
-                                            <td>{formatNumber(item.order_go || 0)}</td>
-                                            <td>{formatCurrency(item.revenue_go_actual || 0)}</td>
+                                            {!isHcm && (
+                                                <>
+                                                    <td>{formatNumber(item.order_go || 0)}</td>
+                                                    <td>{formatCurrency(item.revenue_go_actual || 0)}</td>
+                                                </>
+                                            )}
                                             <td className="text-center">
                                                 {item._sourceCount > 1 ? (
                                                     <span className="text-xs text-gray-500">
@@ -2514,26 +2540,30 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                     className="w-full border rounded px-2 py-1"
                                 />
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Số đơn go:</label>
-                                <input
-                                    type="number"
-                                    name="order_go"
-                                    value={editForm.order_go || 0}
-                                    onChange={handleInputChange}
-                                    className="w-full border rounded px-2 py-1"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Doanh số go:</label>
-                                <input
-                                    type="number"
-                                    name="revenue_go_actual"
-                                    value={editForm.revenue_go_actual || 0}
-                                    onChange={handleInputChange}
-                                    className="w-full border rounded px-2 py-1"
-                                />
-                            </div>
+                            {!isHcm && (
+                                <>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Số đơn go:</label>
+                                        <input
+                                            type="number"
+                                            name="order_go"
+                                            value={editForm.order_go || 0}
+                                            onChange={handleInputChange}
+                                            className="w-full border rounded px-2 py-1"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Doanh số go:</label>
+                                        <input
+                                            type="number"
+                                            name="revenue_go_actual"
+                                            value={editForm.revenue_go_actual || 0}
+                                            onChange={handleInputChange}
+                                            className="w-full border rounded px-2 py-1"
+                                        />
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div className="mt-6 flex justify-end gap-2">

@@ -1,14 +1,15 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { ArrowLeft, RefreshCw, Plus, X, Settings, RotateCw, Download, Upload } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Plus, X, Settings, RotateCw, Download, Upload, Eye } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 import * as XLSX from 'xlsx';
 
-// Bill: đúng 10 cột theo mẫu đối soát (ngay_update / note lưu DB nhưng không hiện bảng & Excel)
+// Bill: mẫu đối soát (ngay_update / note lưu DB nhưng không hiện bảng & Excel)
 const BILL_TIEN_COLUMNS = [
   { key: 'stt', label: 'STT' },
   { key: 'ma_don_hang', label: 'Mã đơn hàng' },
   { key: 'ma_tracking', label: 'Mã Tracking' },
+  { key: 'bill_row_key', label: 'Key dòng' },
   { key: 'ngay_doi_soat', label: 'Ngày đối soát' },
   { key: 'ffm', label: 'FFM' },
   { key: 'don_vi_tien', label: 'Đơn vị tiền' },
@@ -75,6 +76,25 @@ function sheetToJsonCuocImport(ws) {
   return out;
 }
 
+function normalizeCuocMaDon(code) {
+  if (code == null || code === '') return '';
+  return String(code).trim();
+}
+
+/** Bill: ưu tiên mã tracking; chỉ gom theo mã đơn khi tracking trống hoặc placeholder Dropoff (biến thể chữ hoa/thường, khoảng trắng, gạch). */
+function isBillTrackingDropoffPlaceholder(maTracking) {
+  if (maTracking == null) return true;
+  const t = String(maTracking).trim();
+  if (t === '') return true;
+  const n = t
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s._-]+/g, '');
+  if (n === '') return true;
+  return n === 'dropoff' || n.startsWith('dropoff');
+}
+
 function DoiSoatBillCuoc() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('bill'); // 'bill' or 'cuoc'
@@ -92,17 +112,19 @@ function DoiSoatBillCuoc() {
   const isSelecting = useRef(false);
   const [exchangeRates, setExchangeRates] = useState({ AUD: null, CAD: null, USD: null, YEN: null });
   const [syncing, setSyncing] = useState(false);
-  // Sau khi nhấn Đồng bộ, 2 tab nhập sẽ ẩn đi, chỉ còn tab xem dữ liệu đã tải lên
-  const [hasSynced, setHasSynced] = useState(false);
-  // Thời điểm đồng bộ gần nhất – dùng để ẩn các bản ghi đã sync khỏi view (data DB vẫn giữ nguyên)
-  const [lastSyncTime, setLastSyncTime] = useState(null);
+  // Đồng bộ bill / cước tách riêng: mỗi bên có mốc thời gian để ẩn bản ghi đã sync khỏi view
+  const [lastBillSyncTime, setLastBillSyncTime] = useState(null);
+  const [lastCuocSyncTime, setLastCuocSyncTime] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+  /** Chuẩn hóa mã đơn — modal chi tiết trùng cước */
+  const [cuocDupDetailKey, setCuocDupDetailKey] = useState(null);
 
-  // Load data từ chi_tiet_bill_tien
-  const loadBillData = async () => {
+  // Load data từ chi_tiet_bill_tien — truyền syncCutoff (ISO) khi vừa đồng bộ để tránh stale state
+  const loadBillData = async (syncCutoff) => {
     setLoading(true);
     try {
+      const billCutoff = syncCutoff !== undefined && syncCutoff !== null ? syncCutoff : lastBillSyncTime;
       const { data, error } = await supabase
         .from('chi_tiet_bill_tien')
         .select('*')
@@ -130,7 +152,7 @@ function DoiSoatBillCuoc() {
             .map((row) =>
               row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : ''
             )
-            .filter(Boolean)
+            .filter((tc) => tc && !isBillTrackingDropoffPlaceholder(tc))
         ),
       ];
       const shippingUnitMap = new Map();
@@ -208,8 +230,16 @@ function DoiSoatBillCuoc() {
 
         const tk =
           row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
-        const fromTracking = tk ? trackingOrderMap.get(tk) : null;
-        const effectiveOrder = row.ma_don_hang || fromTracking?.order_code || null;
+        const mdKey =
+          row.ma_don_hang != null && String(row.ma_don_hang).trim() !== ''
+            ? String(row.ma_don_hang).trim()
+            : null;
+        const fromTracking =
+          tk && !isBillTrackingDropoffPlaceholder(tk) ? trackingOrderMap.get(tk) : null;
+        const effectiveOrder =
+          !tk || isBillTrackingDropoffPlaceholder(tk)
+            ? mdKey
+            : fromTracking?.order_code || mdKey || null;
 
         if (effectiveOrder) {
           const shippingUnit = shippingUnitMap.get(effectiveOrder) || fromTracking?.shipping_unit;
@@ -233,9 +263,8 @@ function DoiSoatBillCuoc() {
         return updatedRow;
       });
 
-      // Nếu đã đồng bộ, chỉ hiển thị các bản ghi được tạo sau lần sync cuối cùng
-      if (lastSyncTime) {
-        const last = new Date(lastSyncTime).getTime();
+      if (billCutoff) {
+        const last = new Date(billCutoff).getTime();
         processedData = processedData.filter((row) => {
           if (!row.created_at) return false;
           const created = new Date(row.created_at).getTime();
@@ -243,7 +272,7 @@ function DoiSoatBillCuoc() {
           return created > last;
         });
       }
-      
+
       setBillData(processedData);
     } catch (error) {
       console.error('Error loading bill data:', error);
@@ -253,10 +282,11 @@ function DoiSoatBillCuoc() {
     }
   };
 
-  // Load data từ chitiet_cuoc
-  const loadCuocData = async () => {
+  // Load data từ chitiet_cuoc — syncCutoff tương tự loadBillData
+  const loadCuocData = async (syncCutoff) => {
     setLoading(true);
     try {
+      const cuocCutoff = syncCutoff !== undefined && syncCutoff !== null ? syncCutoff : lastCuocSyncTime;
       const { data, error } = await supabase
         .from('chitiet_cuoc')
         .select('*')
@@ -264,17 +294,17 @@ function DoiSoatBillCuoc() {
 
       if (error) throw error;
       
-      // Đếm số lần lặp lại của mỗi mã đơn hàng
+      // Đếm số lần lặp lại của mỗi mã đơn hàng (chuẩn hóa trim để khớp Excel / DB)
       const orderCodeCounts = {};
       (data || []).forEach((row) => {
-        const orderCode = row.ma_don_hang;
+        const orderCode = normalizeCuocMaDon(row.ma_don_hang);
         if (orderCode) {
           orderCodeCounts[orderCode] = (orderCodeCounts[orderCode] || 0) + 1;
         }
       });
-      
+
       // Lấy danh sách mã đơn hàng để tìm chi nhánh từ bảng orders
-      const orderCodes = [...new Set((data || []).map(row => row.ma_don_hang).filter(Boolean))];
+      const orderCodes = [...new Set((data || []).map((row) => normalizeCuocMaDon(row.ma_don_hang)).filter(Boolean))];
       
       // Load orders data để lấy chi nhánh
       const ordersMap = new Map();
@@ -289,9 +319,10 @@ function DoiSoatBillCuoc() {
             .in('order_code', batch);
           
           if (!ordersError && ordersData) {
-            ordersData.forEach(order => {
-              if (order.order_code && order.team) {
-                ordersMap.set(order.order_code, order.team);
+            ordersData.forEach((order) => {
+              const k = normalizeCuocMaDon(order.order_code);
+              if (k && order.team) {
+                ordersMap.set(k, order.team);
               }
             });
           }
@@ -301,7 +332,7 @@ function DoiSoatBillCuoc() {
       let processedData = (data || []).map((row) => {
         const updatedRow = { ...row };
 
-        const orderCode = row.ma_don_hang;
+        const orderCode = normalizeCuocMaDon(row.ma_don_hang);
         if (orderCode && orderCodeCounts[orderCode] > 1) {
           updatedRow.loc_trung = orderCodeCounts[orderCode];
         } else {
@@ -318,9 +349,8 @@ function DoiSoatBillCuoc() {
         return updatedRow;
       });
 
-      // Nếu đã đồng bộ, chỉ hiển thị các bản ghi được tạo sau lần sync cuối cùng
-      if (lastSyncTime) {
-        const last = new Date(lastSyncTime).getTime();
+      if (cuocCutoff) {
+        const last = new Date(cuocCutoff).getTime();
         processedData = processedData.filter((row) => {
           if (!row.created_at) return false;
           const created = new Date(row.created_at).getTime();
@@ -328,7 +358,7 @@ function DoiSoatBillCuoc() {
           return created > last;
         });
       }
-      
+
       setCuocData(processedData);
     } catch (error) {
       console.error('Error loading cuoc data:', error);
@@ -396,6 +426,15 @@ function DoiSoatBillCuoc() {
       loadCuocData();
     }
   }, [activeTab, exchangeRates]);
+
+  useEffect(() => {
+    if (activeTab === 'bill' && lastBillSyncTime) {
+      setActiveTab('bill_view');
+    }
+    if (activeTab === 'cuoc' && lastCuocSyncTime) {
+      setActiveTab('cuoc_view');
+    }
+  }, [activeTab, lastBillSyncTime, lastCuocSyncTime]);
 
   // Tự động cập nhật tỷ giá cho tab bill (tab cước không còn cột đơn vị tiền / tỷ giá trên UI)
   useEffect(() => {
@@ -830,22 +869,33 @@ function DoiSoatBillCuoc() {
     }
   };
 
-  // Hàm đồng bộ dữ liệu từ bill/cuoc sang orders
-  const handleSync = async () => {
-    if (!window.confirm('Bạn có chắc chắn muốn đồng bộ dữ liệu? Hành động này sẽ cập nhật bảng orders.')) {
+  const syncOrderKeyForScope = (code) => {
+    if (code == null || code === '') return null;
+    const s = String(code).trim();
+    return s || null;
+  };
+
+  const makeSyncBatchId = () =>
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+
+  /** Chỉ ghi total_vnd từ chi_tiet_bill_tien → orders */
+  const handleSyncBill = async () => {
+    if (
+      !window.confirm(
+        'Đồng bộ Bill: cập nhật total_vnd (tổng Tiền Việt) lên bảng orders từ chi_tiet_bill_tien. Tiếp tục?'
+      )
+    ) {
       return;
     }
 
     setSyncing(true);
     try {
-      // 1. Lấy tất cả dữ liệu từ chitiet_cuoc để tính tổng tien_ship_vnd theo ma_don_hang
-      const { data: cuocData, error: cuocError } = await supabase
-        .from('chitiet_cuoc')
-        .select('ma_don_hang, tien_ship_vnd');
-
-      if (cuocError) throw cuocError;
-
-      // 2. Lấy dữ liệu bill (mã đơn hoặc mã tracking → quy về mã đơn khi đồng bộ)
       const { data: billData, error: billError } = await supabase
         .from('chi_tiet_bill_tien')
         .select('ma_don_hang, ma_tracking, tien_viet');
@@ -855,9 +905,8 @@ function DoiSoatBillCuoc() {
       const billTrackings = [
         ...new Set(
           (billData || [])
-            .filter((r) => !r.ma_don_hang && r.ma_tracking)
-            .map((r) => String(r.ma_tracking).trim())
-            .filter(Boolean)
+            .map((r) => (r.ma_tracking != null ? String(r.ma_tracking).trim() : ''))
+            .filter((tk) => tk && !isBillTrackingDropoffPlaceholder(tk))
         ),
       ];
       const billTrackingToOrder = new Map();
@@ -875,50 +924,32 @@ function DoiSoatBillCuoc() {
                 o.tracking_code != null && o.tracking_code !== ''
                   ? String(o.tracking_code).trim()
                   : '';
-              if (tc && !billTrackingToOrder.has(tc)) {
-                billTrackingToOrder.set(tc, o.order_code);
+              const oc = syncOrderKeyForScope(o.order_code);
+              if (tc && oc && !billTrackingToOrder.has(tc)) {
+                billTrackingToOrder.set(tc, oc);
               }
             });
           }
         }
       }
 
-      const resolveBillOrderCode = (row) => {
-        if (row.ma_don_hang) return row.ma_don_hang;
+      const resolveBillOrderCodeForSync = (row) => {
+        const md = syncOrderKeyForScope(row.ma_don_hang);
         const tk =
           row.ma_tracking != null && row.ma_tracking !== ''
             ? String(row.ma_tracking).trim()
             : '';
-        if (!tk) return null;
-        return billTrackingToOrder.get(tk) || null;
+        if (!tk || isBillTrackingDropoffPlaceholder(tk)) {
+          return md;
+        }
+        const fromTr = billTrackingToOrder.get(tk);
+        return fromTr || md || null;
       };
 
-      // 3. Tính tổng shipping_cost từ chitiet_cuoc theo ma_don_hang
-      const shippingCostMap = new Map();
-      if (cuocData) {
-        cuocData.forEach((row) => {
-          if (
-            row.ma_don_hang &&
-            row.tien_ship_vnd !== null &&
-            row.tien_ship_vnd !== undefined &&
-            row.tien_ship_vnd !== ''
-          ) {
-            const orderCode = row.ma_don_hang;
-            const currentTotal = shippingCostMap.get(orderCode) || 0;
-            const raw = String(row.tien_ship_vnd).replace(/,/g, '');
-            const num = parseFloat(raw);
-            if (!isNaN(num)) {
-              shippingCostMap.set(orderCode, currentTotal + num);
-            }
-          }
-        });
-      }
-
-      // 4. Tính tổng total_vnd từ chi_tiet_bill_tien theo mã đơn (sau khi quy từ tracking)
       const totalVndMap = new Map();
       if (billData) {
         billData.forEach((row) => {
-          const orderCode = resolveBillOrderCode(row);
+          const orderCode = resolveBillOrderCodeForSync(row);
           if (
             orderCode &&
             row.tien_viet !== null &&
@@ -935,114 +966,183 @@ function DoiSoatBillCuoc() {
         });
       }
 
-      // 5. Tính order_count_actual (số lượng records trong chitiet_cuoc theo ma_don_hang)
+      const allOrderCodes = [...totalVndMap.keys()];
+      const billRowCount = billData?.length ?? 0;
+
+      if (allOrderCodes.length === 0) {
+        alert(
+          `Không có mã đơn nào từ bill để cập nhật (cần Tiền Việt; ưu tiên tracking, hoặc mã đơn nếu tracking trống/Dropoff). Dòng trong DB: ${billRowCount}.`
+        );
+        return;
+      }
+
+      let updateCount = 0;
+      const syncBatchId = makeSyncBatchId();
+      const syncTime = new Date().toISOString();
+      const syncRows = [];
+
+      for (const orderCode of allOrderCodes) {
+        const tv = totalVndMap.get(orderCode);
+        const updateData = { total_vnd: tv };
+        const { data: updatedRows, error: updateError } = await supabase
+          .from('orders')
+          .update(updateData)
+          .eq('order_code', orderCode)
+          .select('order_code');
+
+        if (updateError) {
+          console.error(`Error updating order ${orderCode}:`, updateError);
+        } else if (updatedRows?.length) {
+          updateCount++;
+          syncRows.push({
+            sync_batch_id: syncBatchId,
+            synced_at: syncTime,
+            order_code: orderCode,
+            shipping_cost: null,
+            total_vnd: tv ?? null,
+            revenue_actual: tv ?? null,
+            order_count_actual: null,
+          });
+        } else {
+          console.warn(`Đồng bộ Bill: không có đơn khớp order_code="${orderCode}" trong orders`);
+        }
+      }
+
+      if (syncRows.length > 0) {
+        const { error: syncLogError } = await supabase.from('bill_sync_results').insert(syncRows);
+        if (syncLogError) console.error('Error inserting bill_sync_results:', syncLogError);
+      }
+
+      if (updateCount === 0) {
+        alert(
+          `Không cập nhật được đơn nào từ Bill. Kiểm tra order_code trên hệ thống. (${allOrderCodes.length} mã tính được từ ${billRowCount} dòng bill)`
+        );
+      } else {
+        alert(`Đã đồng bộ Bill: ${updateCount} đơn.`);
+      }
+
+      setLastBillSyncTime(syncTime);
+      setActiveTab('bill_view');
+      await loadBillData(syncTime);
+    } catch (error) {
+      console.error('Error syncing bill:', error);
+      alert('Lỗi khi đồng bộ Bill: ' + error.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  /** Chỉ ghi shipping_cost + order_count_actual từ chitiet_cuoc → orders */
+  const handleSyncCuoc = async () => {
+    if (
+      !window.confirm(
+        'Đồng bộ Cước: cập nhật shipping_cost và order_count_actual lên bảng orders từ chitiet_cuoc. Tiếp tục?'
+      )
+    ) {
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const { data: cuocData, error: cuocError } = await supabase
+        .from('chitiet_cuoc')
+        .select('ma_don_hang, tien_ship_vnd');
+
+      if (cuocError) throw cuocError;
+
+      const shippingCostMap = new Map();
       const orderCountMap = new Map();
       if (cuocData) {
         cuocData.forEach((row) => {
-          if (row.ma_don_hang) {
-            const orderCode = row.ma_don_hang;
+          const orderCode = syncOrderKeyForScope(row.ma_don_hang);
+          if (orderCode) {
             orderCountMap.set(orderCode, (orderCountMap.get(orderCode) || 0) + 1);
+            if (
+              row.tien_ship_vnd !== null &&
+              row.tien_ship_vnd !== undefined &&
+              row.tien_ship_vnd !== ''
+            ) {
+              const currentTotal = shippingCostMap.get(orderCode) || 0;
+              const raw = String(row.tien_ship_vnd).replace(/,/g, '');
+              const num = parseFloat(raw);
+              if (!isNaN(num)) {
+                shippingCostMap.set(orderCode, currentTotal + num);
+              }
+            }
           }
         });
       }
 
-      // 6. Tính revenue_actual (tổng total_vnd từ chi_tiet_bill_tien theo ma_don_hang)
-      // revenue_actual = total_vnd (đã tính ở trên)
-
-      // 7. Lấy tất cả order codes cần update
       const allOrderCodes = new Set([
         ...Array.from(shippingCostMap.keys()),
-        ...Array.from(totalVndMap.keys()),
-        ...Array.from(orderCountMap.keys())
+        ...Array.from(orderCountMap.keys()),
       ]);
+      const cuocRowCount = cuocData?.length ?? 0;
 
-      // 8. Update orders table
+      if (allOrderCodes.size === 0) {
+        alert(`Không có dòng cước nào có mã đơn hợp lệ để đồng bộ. (chitiet_cuoc: ${cuocRowCount} dòng)`);
+        return;
+      }
+
       let updateCount = 0;
-      const syncBatchId =
-        typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-              const r = (Math.random() * 16) | 0;
-              const v = c === 'x' ? r : (r & 0x3) | 0x8;
-              return v.toString(16);
-            });
+      const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
       const syncRows = [];
+
       for (const orderCode of allOrderCodes) {
         const updateData = {};
-        
-        // Update shipping_cost
         if (shippingCostMap.has(orderCode)) {
           updateData.shipping_cost = shippingCostMap.get(orderCode);
         }
-        
-        // Update total_vnd
-        if (totalVndMap.has(orderCode)) {
-          updateData.total_vnd = totalVndMap.get(orderCode);
-        }
-        
-        // Update order_count_actual
         if (orderCountMap.has(orderCode)) {
           updateData.order_count_actual = orderCountMap.get(orderCode);
         }
-        
-        // Update revenue_actual = total_vnd
-        if (totalVndMap.has(orderCode)) {
-          updateData.revenue_actual = totalVndMap.get(orderCode);
-        }
 
         if (Object.keys(updateData).length > 0) {
-          const { error: updateError } = await supabase
+          const { data: updatedRows, error: updateError } = await supabase
             .from('orders')
             .update(updateData)
-            .eq('order_code', orderCode);
+            .eq('order_code', orderCode)
+            .select('order_code');
 
           if (updateError) {
             console.error(`Error updating order ${orderCode}:`, updateError);
-          } else {
+          } else if (updatedRows?.length) {
             updateCount++;
-            // Lưu snapshot giá trị tổng hợp khi đồng bộ (để đối chiếu sau này)
             syncRows.push({
               sync_batch_id: syncBatchId,
               synced_at: syncTime,
               order_code: orderCode,
               shipping_cost: updateData.shipping_cost ?? null,
-              total_vnd: updateData.total_vnd ?? null,
-              revenue_actual: updateData.revenue_actual ?? null,
+              total_vnd: null,
+              revenue_actual: null,
               order_count_actual: updateData.order_count_actual ?? null,
             });
+          } else {
+            console.warn(`Đồng bộ Cước: không có đơn khớp order_code="${orderCode}" trong orders`);
           }
         }
       }
 
       if (syncRows.length > 0) {
         const { error: syncLogError } = await supabase.from('bill_sync_results').insert(syncRows);
-        if (syncLogError) {
-          // Không chặn sync nếu chỉ log thất bại
-          console.error('Error inserting bill_sync_results:', syncLogError);
-        }
+        if (syncLogError) console.error('Error inserting bill_sync_results:', syncLogError);
       }
 
-      const cuocRowCount = cuocData?.length ?? 0;
-      const billRowCount = billData?.length ?? 0;
       if (updateCount === 0) {
         alert(
-          `Không cập nhật được đơn nào. (chitiet_cuoc: ${cuocRowCount} dòng, chi_tiet_bill_tien: ${billRowCount} dòng, order codes cần update: ${allOrderCodes.size})`
+          `Không cập nhật được đơn nào từ Cước. Kiểm tra order_code. (chitiet_cuoc: ${cuocRowCount} dòng, ${allOrderCodes.size} mã gom được)`
         );
       } else {
-        alert(`Đã đồng bộ thành công ${updateCount} đơn hàng!`);
+        alert(`Đã đồng bộ Cước: ${updateCount} đơn.`);
       }
-      // Ghi nhận thời điểm sync để ẩn các bản ghi đã sync khỏi view (data DB vẫn giữ nguyên)
-      setLastSyncTime(syncTime);
-      // Sau khi đồng bộ: ẩn tab nhập, chuyển sang tab xem dữ liệu bill
-      setHasSynced(true);
-      setActiveTab('bill_view');
-      
-      // Reload data – lúc này loadBillData sẽ chỉ hiển thị các bản ghi tạo sau thời điểm sync
-      await loadBillData();
+
+      setLastCuocSyncTime(syncTime);
+      setActiveTab('cuoc_view');
+      await loadCuocData(syncTime);
     } catch (error) {
-      console.error('Error syncing data:', error);
-      alert('Lỗi khi đồng bộ dữ liệu: ' + error.message);
+      console.error('Error syncing cuoc:', error);
+      alert('Lỗi khi đồng bộ Cước: ' + error.message);
     } finally {
       setSyncing(false);
     }
@@ -1277,18 +1377,15 @@ function DoiSoatBillCuoc() {
 
   // Tải mẫu Excel
   const handleDownloadTemplate = () => {
-    const today = new Date().toISOString().split('T')[0];
-    
-    // Tạo dữ liệu mẫu với 3 dòng ví dụ
     const templateData = [];
-    
+
     if (activeTab === 'bill' || activeTab === 'bill_view') {
-      // 10 cột mẫu: có thể chỉ điền mã đơn HOẶC mã tracking; cột đếm lần thanh toán để trống (hệ thống tự đếm)
+      // Ngày đối soát: không có trong mẫu — khi import hệ thống tự gán today.
       templateData.push({
         STT: 1,
         'Mã đơn hàng': 'Bona272f26d',
         'Mã Tracking': '',
-        'Ngày đối soát': today,
+        'Key dòng': 'BILL-001',
         FFM: '',
         'Đơn vị tiền': 'USD',
         'Số tiền đối soát': 100.5,
@@ -1300,7 +1397,7 @@ function DoiSoatBillCuoc() {
         STT: 2,
         'Mã đơn hàng': '',
         'Mã Tracking': 'TRACK002',
-        'Ngày đối soát': today,
+        'Key dòng': 'BILL-002',
         FFM: '',
         'Đơn vị tiền': 'AUD',
         'Số tiền đối soát': 50.75,
@@ -1312,7 +1409,7 @@ function DoiSoatBillCuoc() {
         STT: 3,
         'Mã đơn hàng': 'DG6da921bf',
         'Mã Tracking': 'TRACK003',
-        'Ngày đối soát': today,
+        'Key dòng': 'BILL-003',
         FFM: '',
         'Đơn vị tiền': 'CAD',
         'Số tiền đối soát': 75.25,
@@ -1321,6 +1418,7 @@ function DoiSoatBillCuoc() {
         'Đếm lần thanh toán': '',
       });
     } else {
+      const today = new Date().toISOString().split('T')[0];
       const wb = XLSX.utils.book_new();
       const cuocAoa = [
         ['Mã đơn hàng', 'Ngày đối soát cước', 'Tiền ship (Vnđ)'],
@@ -1383,9 +1481,18 @@ function DoiSoatBillCuoc() {
             .replace(/[\u0300-\u036f]/g, ''); // bỏ dấu tiếng Việt
 
         const exNorm = normalizeLabel(excelLabel);
-        const col = columns.find((c) => normalizeLabel(c.label) === exNorm);
-        if (!col || col.computed) return null;
-        return col.key;
+        const col = columns.find((c) => !c.computed && normalizeLabel(c.label) === exNorm);
+        if (col) return col.key;
+        if (tableName === 'chi_tiet_bill_tien') {
+          const billKeyAliases = {
+            key: 'bill_row_key',
+            'ma key': 'bill_row_key',
+            'key dong': 'bill_row_key',
+          };
+          const alias = billKeyAliases[exNorm];
+          if (alias) return alias;
+        }
+        return null;
       };
 
       // Map dữ liệu từ Excel vào format database
@@ -1402,6 +1509,10 @@ function DoiSoatBillCuoc() {
             
             // Bỏ qua các cột read-only
             if (dbKey === 'id' || dbKey === 'created_at' || dbKey === 'updated_at' || dbKey === 'loc_trung') {
+              return;
+            }
+
+            if (tableName === 'chi_tiet_bill_tien' && dbKey === 'ngay_doi_soat') {
               return;
             }
 
@@ -1454,11 +1565,11 @@ function DoiSoatBillCuoc() {
           delete record.loc_trung;
         }
 
-        const mdh = record.ma_don_hang != null && String(record.ma_don_hang).trim() !== '';
-        const mtk = record.ma_tracking != null && String(record.ma_tracking).trim() !== '';
-        if ((activeTab === 'bill' || activeTab === 'bill_view') && !mdh && !mtk) {
-          continue;
+        if (tableName === 'chi_tiet_bill_tien') {
+          record.ngay_doi_soat = today;
         }
+
+        const mdh = record.ma_don_hang != null && String(record.ma_don_hang).trim() !== '';
         if (tableName === 'chitiet_cuoc' && !mdh) {
           continue;
         }
@@ -1471,7 +1582,7 @@ function DoiSoatBillCuoc() {
       if (recordsToInsert.length === 0) {
         alert(
           activeTab === 'bill' || activeTab === 'bill_view'
-            ? 'Không có dòng hợp lệ: mỗi dòng bill cần có ít nhất Mã đơn hàng hoặc Mã Tracking.'
+            ? 'Không có dòng hợp lệ: không map được cột nào từ Excel (kiểm tra tên cột theo mẫu Bill; Ngày đối soát không cần trong file — hệ thống tự gán).'
             : activeTab === 'cuoc' || activeTab === 'cuoc_view'
               ? 'Không có dòng hợp lệ: mỗi dòng cước cần có Mã đơn hàng (các cột Tiền cước / Đơn vị / Tỷ giá / Thị trường / Lọc trùng / Chi nhánh không lấy từ Excel).'
               : 'Không tìm thấy dữ liệu hợp lệ trong file Excel. Vui lòng kiểm tra lại định dạng file.'
@@ -1482,7 +1593,7 @@ function DoiSoatBillCuoc() {
       }
 
       let rowsToInsert = recordsToInsert;
-      let billImportSkippedNoOrder = 0;
+      let billImportWithoutOrderCode = 0;
 
       if (activeTab === 'bill' || activeTab === 'bill_view') {
         recordsToInsert.forEach((r) => {
@@ -1495,9 +1606,8 @@ function DoiSoatBillCuoc() {
         const trackingNeed = [
           ...new Set(
             recordsToInsert
-              .filter((r) => !r.ma_don_hang && r.ma_tracking)
-              .map((r) => String(r.ma_tracking).trim())
-              .filter(Boolean)
+              .map((r) => (r.ma_tracking != null ? String(r.ma_tracking).trim() : ''))
+              .filter((tk) => tk && !isBillTrackingDropoffPlaceholder(tk))
           ),
         ];
         const trackingToOrder = new Map();
@@ -1523,34 +1633,25 @@ function DoiSoatBillCuoc() {
           }
         }
 
-        const billFiltered = [];
         for (const r of recordsToInsert) {
-          let mdh = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
-          if (!mdh && r.ma_tracking) {
-            const oc = trackingToOrder.get(String(r.ma_tracking).trim());
-            if (oc) {
-              r.ma_don_hang = oc;
-              mdh = oc;
-            }
-          }
-          if (!mdh) {
-            billImportSkippedNoOrder++;
+          const tk = r.ma_tracking != null ? String(r.ma_tracking).trim() : '';
+          const mdhRaw = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
+
+          if (!tk || isBillTrackingDropoffPlaceholder(tk)) {
+            r.ma_don_hang = mdhRaw || null;
+            if (!mdhRaw) billImportWithoutOrderCode++;
             continue;
           }
-          billFiltered.push(r);
-        }
-        rowsToInsert = billFiltered;
 
-        if (rowsToInsert.length === 0) {
-          alert(
-            billImportSkippedNoOrder > 0
-              ? `Không thể nhập: mỗi dòng cần có Mã đơn hàng, hoặc Mã Tracking khớp một đơn trong bảng orders. Đã bỏ qua ${billImportSkippedNoOrder} dòng không gán được mã đơn. (Nếu cần lưu chỉ tracking khi chưa có đơn, chạy migration ALTER ma_don_hang NULL trên chi_tiet_bill_tien.)`
-              : 'Không có dòng bill hợp lệ để nhập.'
-          );
-          setUploading(false);
-          if (fileInputRef.current) fileInputRef.current.value = '';
-          return;
+          const oc = trackingToOrder.get(tk);
+          if (oc) {
+            r.ma_don_hang = oc;
+          } else {
+            r.ma_don_hang = mdhRaw || null;
+            if (!mdhRaw) billImportWithoutOrderCode++;
+          }
         }
+        rowsToInsert = recordsToInsert;
       } else if (tableName === 'chitiet_cuoc') {
         recordsToInsert.forEach((r) => {
           const d = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
@@ -1572,13 +1673,13 @@ function DoiSoatBillCuoc() {
         }
       } else {
         const successCount = data?.length || 0;
-        const billSkipNote =
+        const billInfoNote =
           activeTab === 'bill' || activeTab === 'bill_view'
-            ? billImportSkippedNoOrder > 0
-              ? ` Đã bỏ qua ${billImportSkippedNoOrder} dòng không có mã đơn (và tracking không khớp đơn nào).`
+            ? billImportWithoutOrderCode > 0
+              ? ` (${billImportWithoutOrderCode} dòng chưa có mã đơn trên hệ thống — vẫn đã lưu; có thể gán sau hoặc khi tracking khớp đơn.)`
               : ''
             : '';
-        alert(`Đã nhập thành công ${successCount} bản ghi từ file Excel!${billSkipNote}`);
+        alert(`Đã nhập thành công ${successCount} bản ghi từ file Excel!${billInfoNote}`);
         
         // Reload data
         const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
@@ -1618,16 +1719,11 @@ function DoiSoatBillCuoc() {
 
       let recordsToInsert;
       if (isBillTab) {
-        const { data: hitByCode, error: e1 } = await supabase.from('orders').select('order_code').in('order_code', codes);
-        if (e1) throw e1;
-        const asOrder = new Set((hitByCode || []).map((o) => o.order_code));
-
-        const needTrack = codes.filter((c) => !asOrder.has(c));
         const trackingToOrder = new Map();
-        if (needTrack.length > 0) {
+        if (codes.length > 0) {
           const bs = 1000;
-          for (let i = 0; i < needTrack.length; i += bs) {
-            const batch = needTrack.slice(i, i + bs);
+          for (let i = 0; i < codes.length; i += bs) {
+            const batch = codes.slice(i, i + bs);
             const { data: hitByTr, error: e2 } = await supabase
               .from('orders')
               .select('order_code, tracking_code')
@@ -1642,15 +1738,23 @@ function DoiSoatBillCuoc() {
           }
         }
 
+        const { data: hitByCode, error: e1 } = await supabase.from('orders').select('order_code').in('order_code', codes);
+        if (e1) throw e1;
+        const asOrder = new Set((hitByCode || []).map((o) => o.order_code));
+
         recordsToInsert = codes.map((code) => {
-          if (asOrder.has(code)) {
-            return { ma_don_hang: code };
+          const c = String(code).trim();
+          if (isBillTrackingDropoffPlaceholder(c)) {
+            return { ma_tracking: c || null, ma_don_hang: null };
           }
-          const oc = trackingToOrder.get(code);
-          if (oc) {
-            return { ma_don_hang: oc, ma_tracking: code };
+          if (trackingToOrder.has(c)) {
+            const oc = trackingToOrder.get(c);
+            return { ma_don_hang: oc, ma_tracking: c };
           }
-          return { ma_tracking: code, ma_don_hang: null };
+          if (asOrder.has(c)) {
+            return { ma_don_hang: c };
+          }
+          return { ma_tracking: c, ma_don_hang: null };
         });
       } else {
         recordsToInsert = codes.map((code) => ({ ma_don_hang: code }));
@@ -1727,38 +1831,54 @@ function DoiSoatBillCuoc() {
                 className="hidden"
               />
             </label>
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
-            >
-              {syncing ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Đang đồng bộ...
-                </>
-              ) : (
-                <>
-                  <RotateCw className="w-4 h-4" />
-                  Đồng bộ
-                </>
-              )}
-            </button>
-            {/* Khu vực xử lý tạm thời dữ liệu Excel (staging) */}
-            <button
-              onClick={handleClearAllBillTemp}
-              disabled={loading}
-              className="flex items-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-medium transition disabled:opacity-50"
-            >
-              Xóa bill tạm
-            </button>
-            <button
-              onClick={handleClearAllCuocTemp}
-              disabled={loading}
-              className="flex items-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-medium transition disabled:opacity-50"
-            >
-              Xóa cước tạm
-            </button>
+            <div className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-2 py-1">
+              <span className="text-[11px] font-medium text-blue-900 px-1 shrink-0">Bill</span>
+              <button
+                type="button"
+                onClick={handleSyncBill}
+                disabled={syncing}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium transition disabled:opacity-50"
+              >
+                {syncing ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RotateCw className="w-3.5 h-3.5" />
+                )}
+                Đồng bộ
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAllBillTemp}
+                disabled={loading || syncing}
+                className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium transition disabled:opacity-50"
+              >
+                Xóa tạm
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50/80 px-2 py-1">
+              <span className="text-[11px] font-medium text-teal-900 px-1 shrink-0">Cước</span>
+              <button
+                type="button"
+                onClick={handleSyncCuoc}
+                disabled={syncing}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-md text-xs font-medium transition disabled:opacity-50"
+              >
+                {syncing ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RotateCw className="w-3.5 h-3.5" />
+                )}
+                Đồng bộ
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAllCuocTemp}
+                disabled={loading || syncing}
+                className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium transition disabled:opacity-50"
+              >
+                Xóa tạm
+              </button>
+            </div>
             <button
               onClick={() => navigate('/quan-ly-ty-gia')}
               className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm font-medium transition"
@@ -1766,7 +1886,7 @@ function DoiSoatBillCuoc() {
               <Settings className="w-4 h-4" />
               Cài đặt tỷ giá
             </button>
-            {!hasSynced && (
+            {((activeTab === 'bill' && !lastBillSyncTime) || (activeTab === 'cuoc' && !lastCuocSyncTime)) && (
               <>
                 <button
                   onClick={() => setShowAddModal(true)}
@@ -1813,36 +1933,36 @@ function DoiSoatBillCuoc() {
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200 px-4">
         <div className="flex gap-2">
-          {/* Tabs nhập dữ liệu - sẽ ẩn sau khi đồng bộ */}
-          {!hasSynced && (
-            <>
-              <button
-                onClick={() => {
-                  setActiveTab('bill');
-                  setCurrentPage(1);
-                }}
-                className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
-                  activeTab === 'bill'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Nhập bill
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('cuoc');
-                  setCurrentPage(1);
-                }}
-                className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
-                  activeTab === 'cuoc'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Nhập Cước
-              </button>
-            </>
+          {/* Tab nhập — ẩn riêng sau khi đồng bộ từng loại */}
+          {!lastBillSyncTime && (
+            <button
+              onClick={() => {
+                setActiveTab('bill');
+                setCurrentPage(1);
+              }}
+              className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'bill'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Nhập bill
+            </button>
+          )}
+          {!lastCuocSyncTime && (
+            <button
+              onClick={() => {
+                setActiveTab('cuoc');
+                setCurrentPage(1);
+              }}
+              className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'cuoc'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Nhập Cước
+            </button>
           )}
 
           {/* Tabs xem toàn bộ data đã tải lên */}
@@ -1891,14 +2011,15 @@ function DoiSoatBillCuoc() {
               </p>
               {(activeTab === 'bill' || activeTab === 'bill_view') && (
                 <p className="text-sm text-gray-600 mt-2 max-w-4xl">
-                  Bill: mỗi dòng cần ít nhất Mã đơn hàng hoặc Mã Tracking (một trong hai có thể để trống). Đếm lần thanh toán
-                  tự tính theo số dòng cùng mã tracking, không nhập tay.
+                  Bill: <strong>ưu tiên Mã Tracking</strong> để gán đơn (đồng bộ tổng Tiền Việt); chỉ dùng{' '}
+                  <strong>Mã đơn hàng</strong> khi tracking trống hoặc là placeholder kiểu Dropoff (mọi viết hoa/thường, có/không dấu cách).
+                  Key dòng: tham chiếu file khi thiếu mã. Đếm lần thanh toán theo tracking. Nhập Excel: Ngày đối soát tự gán today.
                 </p>
               )}
               {(activeTab === 'cuoc' || activeTab === 'cuoc_view') && (
                 <p className="text-sm text-gray-600 mt-2 max-w-4xl">
                   Cước: chỉ nhập Mã đơn hàng, Ngày đối soát cước, Tiền ship (Vnđ). Không dùng Excel cho Tiền cước / Đơn vị tiền /
-                  Tỷ giá / Thị trường. Lọc trùng: hệ thống đếm trùng mã đơn và báo đỏ. Chi nhánh: lấy từ đơn hàng, không nhập.
+                  Tỷ giá / Thị trường. Lọc trùng: đếm số lần mã đơn xuất hiện trong chitiet_cuoc, ô đỏ nếu trùng; bấm mắt để xem chi tiết các dòng trùng. Chi nhánh: lấy từ đơn hàng.
                 </p>
               )}
             </div>
@@ -2071,18 +2192,41 @@ function DoiSoatBillCuoc() {
                           onMouseEnter={() => handleMouseEnter(rowIdx, colIdx)}
                         >
                               {isReadOnly ? (
-                                <span
-                                  className={
-                                    col.key === 'loc_trung' &&
-                                    displayValue !== '' &&
-                                    displayValue != null &&
-                                    Number(displayValue) > 1
-                                      ? 'text-red-600 font-semibold'
-                                      : 'text-gray-500'
-                                  }
-                                >
-                                  {formattedValue || '-'}
-                                </span>
+                                col.key === 'loc_trung' &&
+                                (activeTab === 'cuoc' || activeTab === 'cuoc_view') &&
+                                displayValue !== '' &&
+                                displayValue != null &&
+                                Number(displayValue) > 1 ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span className="text-red-600 font-semibold">{formattedValue}</span>
+                                    <button
+                                      type="button"
+                                      className="inline-flex shrink-0 rounded p-0.5 text-red-700 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
+                                      title="Xem chi tiết các dòng trùng mã trong chitiet_cuoc"
+                                      aria-label="Xem chi tiết trùng mã"
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCuocDupDetailKey(normalizeCuocMaDon(row.ma_don_hang));
+                                      }}
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={
+                                      col.key === 'loc_trung' &&
+                                      displayValue !== '' &&
+                                      displayValue != null &&
+                                      Number(displayValue) > 1
+                                        ? 'text-red-600 font-semibold'
+                                        : 'text-gray-500'
+                                    }
+                                  >
+                                    {formattedValue || '-'}
+                                  </span>
+                                )
                               ) : isCurrencyField ? (
                                 <select
                                   value={displayValue || ''}
@@ -2253,7 +2397,7 @@ function DoiSoatBillCuoc() {
                 <ul className="text-sm text-blue-700 mt-1 list-disc list-inside space-y-1">
                   {activeTab === 'bill' || activeTab === 'bill_view' ? (
                     <>
-                      <li>Tab bill: mỗi dòng là mã đơn hoặc mã tracking; hệ thống nhận diện theo bảng orders</li>
+                      <li>Tab bill: ưu tiên tracking; mã đơn khi tracking trống hoặc Dropoff; có thể thêm Key dòng</li>
                       <li>Tối đa 1000 mã mỗi lần thêm</li>
                       <li>Các cột khác điền sau trên lưới hoặc qua Excel</li>
                     </>
@@ -2298,6 +2442,88 @@ function DoiSoatBillCuoc() {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cuocDupDetailKey && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setCuocDupDetailKey(null)}
+          role="presentation"
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-lg bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cuoc-dup-modal-title"
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+              <h2 id="cuoc-dup-modal-title" className="text-lg font-semibold text-gray-800">
+                Trùng mã đơn trong chitiet_cuoc — <span className="font-mono text-red-700">{cuocDupDetailKey}</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCuocDupDetailKey(null)}
+                className="rounded p-1 hover:bg-gray-100"
+                aria-label="Đóng"
+              >
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="overflow-auto px-4 py-3">
+              <p className="mb-3 text-sm text-gray-600">
+                Có{' '}
+                <strong>
+                  {
+                    cuocData.filter((r) => normalizeCuocMaDon(r.ma_don_hang) === cuocDupDetailKey)
+                      .length
+                  }
+                </strong>{' '}
+                dòng cùng mã (theo dữ liệu đã tải; có thể đã lọc sau đồng bộ Cước nếu có mốc thời gian).
+              </p>
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-gray-700">
+                    <th className="px-3 py-2 font-medium">#</th>
+                    <th className="px-3 py-2 font-medium">Mã đơn hàng</th>
+                    <th className="px-3 py-2 font-medium">Ngày đối soát cước</th>
+                    <th className="px-3 py-2 font-medium text-right">Tiền ship (VNĐ)</th>
+                    <th className="px-3 py-2 font-medium">Chi nhánh</th>
+                    <th className="px-3 py-2 font-medium">Tạo lúc</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {cuocData
+                    .filter((r) => normalizeCuocMaDon(r.ma_don_hang) === cuocDupDetailKey)
+                    .slice()
+                    .sort((a, b) => {
+                      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+                      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+                      return tb - ta;
+                    })
+                    .map((r, i) => (
+                      <tr key={r.id ?? `${r.ma_don_hang}-${i}`} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 text-gray-500">{i + 1}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{r.ma_don_hang ?? '—'}</td>
+                        <td className="px-3 py-2">
+                          {r.ngay_doi_soat_cuoc != null && r.ngay_doi_soat_cuoc !== ''
+                            ? String(r.ngay_doi_soat_cuoc)
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatNumber(r.tien_ship_vnd) || '—'}
+                        </td>
+                        <td className="px-3 py-2">{r.chi_nhanh ?? '—'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-gray-600">
+                          {r.created_at ? formatDateTime(r.created_at) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

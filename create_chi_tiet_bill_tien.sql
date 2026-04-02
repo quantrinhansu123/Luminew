@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS public.chi_tiet_bill_tien (
     stt INTEGER,
     ma_don_hang VARCHAR(100),
     ma_tracking VARCHAR(100),
+    bill_row_key TEXT,
     ngay_doi_soat DATE,
     ffm VARCHAR(50),
     don_vi_tien VARCHAR(10),
