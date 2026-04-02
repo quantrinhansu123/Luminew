@@ -202,6 +202,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
     const [teamSyncing, setTeamSyncing] = useState(false);
     const [renamingReporter, setRenamingReporter] = useState(false);
+    const [fixingUsMarket, setFixingUsMarket] = useState(false);
     const [removingDuplicates, setRemovingDuplicates] = useState(false);
 
     // View Orders Modal
@@ -1633,6 +1634,36 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         }
     }, [fetchData, reportTable]);
 
+    /** HCM: sửa thị trường gõ nhầm "Us" → "US" trong sale_report_hcm. */
+    const handleFixUsMarketToUS = useCallback(async () => {
+        if (!isHcm) return;
+        if (
+            !window.confirm(
+                'Đổi cột Thị trường (market) từ "Us" sang "US" trong bảng sale_report_hcm?\n\n' +
+                    'Chỉ các dòng có giá trị market chính xác "Us" (không đổi "us", "US", v.v.). Tiếp tục?'
+            )
+        ) {
+            return;
+        }
+        setFixingUsMarket(true);
+        try {
+            const { data, error } = await supabase
+                .from(reportTable)
+                .update({ market: 'US' })
+                .eq('market', 'Us')
+                .select('id');
+            if (error) throw error;
+            const n = Array.isArray(data) ? data.length : 0;
+            toast.success(`Đã cập nhật ${n} dòng: Us → US (thị trường).`);
+            fetchData();
+        } catch (error) {
+            console.error('handleFixUsMarketToUS:', error);
+            toast.error('Lỗi đổi Us → US: ' + (error.message || String(error)));
+        } finally {
+            setFixingUsMarket(false);
+        }
+    }, [fetchData, isHcm, reportTable]);
+
     // Hiển thị từng dòng báo cáo, không gộp theo ngày + tên (mỗi bản ghi một hàng, đủ thao tác).
     const reportsGroupedByDateAndName = useMemo(() => {
         return (reportsAfterPersonnelFilter || []).map((row) => ({
@@ -1990,6 +2021,30 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             `Đổi email → ${RENAME_REPORTER_TO_NAME}`
                                         )}
                                     </button>
+                                    {isHcm && (
+                                        <button
+                                            type="button"
+                                            onClick={handleFixUsMarketToUS}
+                                            disabled={
+                                                fixingUsMarket ||
+                                                loading ||
+                                                updatingOrders ||
+                                                renamingReporter ||
+                                                teamSyncing
+                                            }
+                                            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded-md text-sm font-semibold transition shadow-sm"
+                                            title="Cập nhật toàn bảng sale_report_hcm: market = Us → US"
+                                        >
+                                            {fixingUsMarket ? (
+                                                <>
+                                                    <span className="inline-block animate-spin mr-1">⏳</span>
+                                                    Đang đổi Us → US…
+                                                </>
+                                            ) : (
+                                                'Đổi Us → US (thị trường)'
+                                            )}
+                                        </button>
+                                    )}
                                 </>
                             )}
                         </div>

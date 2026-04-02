@@ -51,14 +51,30 @@ function nextDateStr(dateStr) {
 
 /**
  * Parse ca để nhận diện dòng sales_reports thuộc slot nào.
+ * Danh sách ngăn bởi phẩy/chấm phẩy (vd. "Giữa ca,Hết ca") → nhận cả hai; không dấu tách thì quét cả chuỗi.
  * Lưu ý: aggregate số liệu bên dưới đã bỏ điều kiện ca (mọi ca dùng chung cùng một tổng theo key).
  */
 function orderShiftToGroups(shiftVal) {
-  const shiftLower = normalizeStr(shiftVal);
+  const raw = String(shiftVal ?? '').trim();
+  if (!raw) return [];
+
+  const segments = raw
+    .split(/[,，;；]/)
+    .map((p) => normalizeStr(String(p).trim()))
+    .filter((p) => p.length > 0);
+
+  const parts = segments.length > 0 ? segments : [normalizeStr(raw)];
+  let hasHet = false;
+  let hasGua = false;
+  for (const seg of parts) {
+    if (!seg) continue;
+    if (seg.includes('hết ca') || seg.includes('het ca')) hasHet = true;
+    if (seg.includes('giữa ca') || seg.includes('giua ca')) hasGua = true;
+  }
+
   const groups = [];
-  if (!shiftLower) return groups;
-  if (shiftLower.includes('hết ca') || shiftLower.includes('het ca')) groups.push('Hết ca');
-  if (shiftLower.includes('giữa ca') || shiftLower.includes('giua ca')) groups.push('Giữa ca');
+  if (hasHet) groups.push('Hết ca');
+  if (hasGua) groups.push('Giữa ca');
   return groups;
 }
 

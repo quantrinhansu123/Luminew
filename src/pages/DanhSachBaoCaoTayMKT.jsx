@@ -23,6 +23,12 @@ const formatDate = (dateValue) => {
     return `${day}/${month}/${year}`;
 };
 
+const normalizePersonName = (s) =>
+    String(s || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+
 /** Phạm vi detail_reports cho trang MKT: MKT/null/non-RD + team Test (thường department=RD nên trước đây bị loại). */
 const MKT_DETAIL_REPORTS_SCOPE_OR =
     'department.is.null,department.eq.MKT,department.neq.RD,Team.ilike.test';
@@ -100,6 +106,8 @@ export default function DanhSachBaoCaoTayMKT({
     const [personnelSearch, setPersonnelSearch] = useState('');
     const [syncing, setSyncing] = useState(false);
     const [syncingTeamHanoi, setSyncingTeamHanoi] = useState(false);
+    const [syncingTeamFromUsers, setSyncingTeamFromUsers] = useState(false);
+    const [fixingUsThiTruong, setFixingUsThiTruong] = useState(false);
     const [mktRecalcLoading, setMktRecalcLoading] = useState(false);
     const [deleting, setDeleting] = useState(false);
     
@@ -134,7 +142,7 @@ export default function DanhSachBaoCaoTayMKT({
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
 
     const isHcmMarketingReport = reportTableName === 'marketing_report_hcm';
-    /** HCM: đơn nguồn giống lumidata `/order_hcm` (Supabase `order_code_hcm`). */
+    /** HCM: đơn từ Supabase `order_code_hcm` (khớp recalc Số đơn TT). */
     const ordersTableForMktTotals = isHcmMarketingReport ? 'order_code_hcm' : 'orders';
 
     // Load human_resources to map tên -> email
@@ -681,6 +689,107 @@ export default function DanhSachBaoCaoTayMKT({
         });
     }, [allReports, filters.personnelNames, filters.shifts, filters.teams, filters.products, filters.markets]);
 
+    /** HCM marketing: khớp cột `Tên` với users.name / username → ghi users.team vào `Team` (theo bộ lọc danh sách). */
+    const handleSyncTeamFromUsersForMarketing = async () => {
+        if (!isAdminOnly || !isHcmMarketingReport) return;
+        if (
+            !window.confirm(
+                'Đồng bộ cột Team từ bảng users?\n\n' +
+                    'Áp dụng cho các dòng đang có trong danh sách (theo bộ lọc ngày / nhân sự).\n' +
+                    'Khớp tên cột "Tên" với users.name / username (không phân biệt hoa thường, sau khi chuẩn hóa khoảng trắng).'
+            )
+        ) {
+            return;
+        }
+        if (!reportsAfterFilters.length) {
+            alert('Không có dữ liệu trong khoảng đã lọc.');
+            return;
+        }
+        setSyncingTeamFromUsers(true);
+        try {
+            const { data: users, error: userErr } = await supabase
+                .from('users')
+                .select('name, username, team');
+            if (userErr) throw userErr;
+
+            const nameToTeam = new Map();
+            (users || []).forEach((u) => {
+                const teamVal = String(u.team ?? '').trim();
+                if (!teamVal) return;
+                const n = normalizePersonName(u.name);
+                const un = normalizePersonName(u.username);
+                if (n) nameToTeam.set(n, teamVal);
+                if (un) nameToTeam.set(un, teamVal);
+            });
+
+            let updated = 0;
+            let skippedNoMatch = 0;
+            let skippedSame = 0;
+
+            for (const r of reportsAfterFilters) {
+                const key = normalizePersonName(r['Tên']);
+                const newTeam = nameToTeam.get(key);
+                if (!newTeam) {
+                    skippedNoMatch += 1;
+                    continue;
+                }
+                const curTeam = String(r['Team'] ?? '').trim();
+                if (curTeam === newTeam) {
+                    skippedSame += 1;
+                    continue;
+                }
+                const { error: upErr } = await supabase
+                    .from(reportTableName)
+                    .update({ Team: newTeam })
+                    .eq('id', r.id);
+                if (upErr) throw upErr;
+                updated += 1;
+            }
+
+            alert(
+                `Đã cập nhật Team: ${updated} dòng.\n` +
+                    `Không khớp tên với users (hoặc user không có team): ${skippedNoMatch} dòng.\n` +
+                    `Đã khớp, không đổi: ${skippedSame} dòng.`
+            );
+            fetchData();
+        } catch (error) {
+            console.error('handleSyncTeamFromUsersForMarketing:', error);
+            alert('Lỗi: ' + (error.message || String(error)));
+        } finally {
+            setSyncingTeamFromUsers(false);
+        }
+    };
+
+    /** HCM MKT: sửa thị trường gõ nhầm "Us" → "US" trong marketing_report_hcm. */
+    const handleFixUsThiTruongToUS = async () => {
+        if (!isAdminOnly || !isHcmMarketingReport) return;
+        if (
+            !window.confirm(
+                'Đổi cột Thị trường (Thị_trường) từ "Us" sang "US" trong bảng marketing_report_hcm?\n\n' +
+                    'Chỉ các dòng có giá trị chính xác "Us". Tiếp tục?'
+            )
+        ) {
+            return;
+        }
+        setFixingUsThiTruong(true);
+        try {
+            const { data, error } = await supabase
+                .from(reportTableName)
+                .update({ Thị_trường: 'US' })
+                .eq('Thị_trường', 'Us')
+                .select('id');
+            if (error) throw error;
+            const n = Array.isArray(data) ? data.length : 0;
+            toast.success(`Đã cập nhật ${n} dòng: Us → US (thị trường).`);
+            fetchData();
+        } catch (error) {
+            console.error('handleFixUsThiTruongToUS:', error);
+            toast.error('Lỗi đổi Us → US: ' + (error.message || String(error)));
+        } finally {
+            setFixingUsThiTruong(false);
+        }
+    };
+
     // Apply sorting (before pagination)
     const sortedReports = useMemo(() => {
         const rows = [...(reportsAfterFilters || [])];
@@ -868,7 +977,7 @@ export default function DanhSachBaoCaoTayMKT({
         if (teamFilter === 'RD') return;
 
         const orderSourceHint = isHcmMarketingReport
-            ? 'Nguồn đơn: API lumidata `/order_hcm` (cùng nguồn với chi nhánh HCM).\n\n'
+            ? 'Báo cáo: Supabase `marketing_report_hcm`. Nguồn đơn: Supabase `order_code_hcm` (không gọi API ngoài).\n\n'
             : 'Nguồn đơn: bảng Supabase `orders`.\n\n';
         const ok = window.confirm(
             'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match đơn ↔ báo cáo.\n\n' +
@@ -901,11 +1010,16 @@ export default function DanhSachBaoCaoTayMKT({
                 endDate: normEnd,
                 createMissingRows: true,
                 reportsTableName: reportTableName,
-                ordersApiPath: isHcmMarketingReport ? '/order_hcm' : null,
+                ordersSupabaseTable: isHcmMarketingReport ? 'order_code_hcm' : null,
+                ordersApiPath: null,
             });
 
             toast.dismiss();
-            toast.success(`Hoàn tất: cập nhật ${result.upserted || 0} dòng.`);
+            const nUpd = result.updatedExisting ?? 0;
+            const nNew = result.createdMissing ?? 0;
+            toast.success(
+                `Hoàn tất: cập nhật ${nUpd} dòng, tạo mới ${nNew} dòng (tổng ${result.upserted || 0}).`
+            );
             setRealValuesMap({});
             await fetchData();
         } catch (error) {
@@ -1424,6 +1538,8 @@ export default function DanhSachBaoCaoTayMKT({
                                         deleting ||
                                         syncing ||
                                         syncingTeamHanoi ||
+                                        syncingTeamFromUsers ||
+                                        fixingUsThiTruong ||
                                         !filters.startDate ||
                                         !filters.endDate
                                     }
@@ -1440,7 +1556,7 @@ export default function DanhSachBaoCaoTayMKT({
                                     )}
                                 </button>
                             )}
-                            {isAdminOnly && (
+                            {isAdminOnly && !isHcmMarketingReport && (
                                 <button
                                     type="button"
                                     onClick={handleSyncTeamHanoiToHnMkt}
@@ -1457,6 +1573,56 @@ export default function DanhSachBaoCaoTayMKT({
                                         <>🏷️ Đồng bộ Team: Hà Nội → HN-MKT</>
                                     )}
                                 </button>
+                            )}
+                            {isAdminOnly && isHcmMarketingReport && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={handleSyncTeamFromUsersForMarketing}
+                                        disabled={
+                                            syncingTeamFromUsers ||
+                                            loading ||
+                                            deleting ||
+                                            syncing ||
+                                            mktRecalcLoading ||
+                                            fixingUsThiTruong
+                                        }
+                                        className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                        title="Khớp cột Tên với users → cập nhật Team theo users.team (chỉ các dòng đang lọc trên danh sách)"
+                                    >
+                                        {syncingTeamFromUsers ? (
+                                            <>
+                                                <span className="animate-spin">⏳</span>
+                                                Đang đồng bộ Team từ users…
+                                            </>
+                                        ) : (
+                                            <>🏷️ Đồng bộ team từ users</>
+                                        )}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleFixUsThiTruongToUS}
+                                        disabled={
+                                            fixingUsThiTruong ||
+                                            loading ||
+                                            deleting ||
+                                            syncing ||
+                                            syncingTeamFromUsers ||
+                                            mktRecalcLoading
+                                        }
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                        title="Cập nhật toàn bảng marketing_report_hcm: Thị_trường = Us → US"
+                                    >
+                                        {fixingUsThiTruong ? (
+                                            <>
+                                                <span className="animate-spin">⏳</span>
+                                                Đang đổi Us → US…
+                                            </>
+                                        ) : (
+                                            <>Đổi Us → US (thị trường)</>
+                                        )}
+                                    </button>
+                                </>
                             )}
                         </div>
                         <div style={{ display: 'none', gap: '10px', flexWrap: 'wrap' }}>

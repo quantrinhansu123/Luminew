@@ -92,18 +92,36 @@ function nextDateStr(dateStr) {
   return `${y}-${m}-${day}`;
 }
 
-/** Parse cột ca giống orders.shift: một ca hoặc "Giữa ca,Hết ca" → 2 nhóm. */
+/** Parse cột ca giống orders.shift: một ca hoặc danh sách ngăn bởi dấu phẩy/chấm phẩy (vd. "Giữa ca,Hết ca") → 2 nhóm. */
 function reportCaToGroups(caVal) {
   return orderShiftToGroups(caVal);
 }
 
+/**
+ * Mỗi phần sau khi tách (phẩy / chấm phẩy / bản fullwidth) được quét riêng — «Hết ca» ở phần sau vẫn nhận (vd. "Giữa ca,Hết ca").
+ * Không có dấu tách: quét cả chuỗi (vd. một cụm có cả hai từ).
+ */
 function orderShiftToGroups(shiftVal) {
-  const shiftLower = normalizeStr(shiftVal);
-  const groups = [];
-  if (!shiftLower) return groups;
+  const raw = String(shiftVal ?? '').trim();
+  if (!raw) return [];
 
-  if (shiftLower.includes('hết ca') || shiftLower.includes('het ca')) groups.push('Hết ca');
-  if (shiftLower.includes('giữa ca') || shiftLower.includes('giua ca')) groups.push('Giữa ca');
+  const segments = raw
+    .split(/[,，;；]/)
+    .map((p) => normalizeStr(String(p).trim()))
+    .filter((p) => p.length > 0);
+
+  const parts = segments.length > 0 ? segments : [normalizeStr(raw)];
+  let hasHet = false;
+  let hasGua = false;
+  for (const seg of parts) {
+    if (!seg) continue;
+    if (seg.includes('hết ca') || seg.includes('het ca')) hasHet = true;
+    if (seg.includes('giữa ca') || seg.includes('giua ca')) hasGua = true;
+  }
+
+  const groups = [];
+  if (hasHet) groups.push('Hết ca');
+  if (hasGua) groups.push('Giữa ca');
   return groups;
 }
 
@@ -212,13 +230,13 @@ function buildKey(dateStr, name, product, market) {
   ].join('|');
 }
 
-/** Chuẩn ca về nhãn cố định để 2 dòng cùng ca không tách key do khoảng trắng/dấu. */
+/** Chuẩn ca về nhãn cố định — cùng logic tách phẩy với orderShiftToGroups. */
 function normalizeCaForRowKey(caVal) {
   const s = normalizeFieldForKey(caVal);
-  // Trống ca thường tương đương dòng «Hết ca» trong thực tế — gộp key với "Hết ca" để không cộng đôi Số đơn TT.
   if (!s) return 'het';
-  const hasHet = s.includes('hết ca') || s.includes('het ca');
-  const hasGua = s.includes('giữa ca') || s.includes('giua ca');
+  const g = orderShiftToGroups(caVal);
+  const hasHet = g.includes('Hết ca');
+  const hasGua = g.includes('Giữa ca');
   if (hasHet && hasGua) return 'het+gua';
   if (hasHet) return 'het';
   if (hasGua) return 'gua';
@@ -356,9 +374,20 @@ function ymdToApiDdMmYyyy(ymd) {
 function mapExternalApiOrderToRecalcShape(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const order_date = normalizeDateStr(raw.order_date ?? raw.ngaydonghang ?? raw.date ?? '');
-  const marketing_staff = String(raw.marketing_staff ?? raw.nhanvien_marketing ?? '').trim();
-  const product = String(raw.product ?? raw.san_pham ?? '').trim();
-  const country = String(raw.country ?? raw.thi_truong ?? raw.market ?? '').trim();
+  const marketing_staff = String(
+    raw.marketing_staff ??
+      raw.nhanvien_marketing ??
+      raw.nhan_vien_marketing ??
+      raw.Nhan_vien_Marketing ??
+      raw.marketingStaff ??
+      ''
+  ).trim();
+  const product = String(
+    raw.product ?? raw.san_pham ?? raw.mat_hang ?? raw.San_pham ?? raw['mặt_hàng'] ?? ''
+  ).trim();
+  const country = String(
+    raw.country ?? raw.thi_truong ?? raw.khu_vuc ?? raw.Khu_vuc ?? raw.market ?? ''
+  ).trim();
   return {
     order_code: raw.order_code,
     order_date,
@@ -413,6 +442,56 @@ async function fetchAllOrdersInRangeViaExternalApi(startDate, endDate, apiPath) 
   return all;
 }
 
+/** Gộp đơn API + Supabase: ưu tiên thứ tự API trước, bổ sung mã chưa có (tránh đếm trùng). */
+function mergeOrdersByOrderCode(apiOrders, supaOrders) {
+  const out = [...(apiOrders || [])];
+  const codes = new Set(
+    out.map((o) => String(o?.order_code ?? '').trim()).filter(Boolean)
+  );
+  for (const o of supaOrders || []) {
+    const c = String(o?.order_code ?? '').trim();
+    if (c && !codes.has(c)) {
+      codes.add(c);
+      out.push(o);
+    }
+  }
+  return out;
+}
+
+function isOrderHcmApiPath(ordersApiPath) {
+  return String(ordersApiPath || '')
+    .toLowerCase()
+    .includes('order_hcm');
+}
+
+async function fetchAllOrdersInRangeFromSupabaseTable(startDate, endDate, tableName = 'orders') {
+  const table = String(tableName || 'orders').trim() || 'orders';
+  const PAGE_SIZE = 2000;
+  const orders = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(
+        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
+      )
+      .gte('order_date', startDate)
+      .lte('order_date', endDate)
+      .order('order_date', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    orders.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return orders;
+}
+
 async function fetchAllReportsInRange(startDate, endDate, reportsTableName) {
   const table = reportsTableName || 'detail_reports';
   const PAGE_SIZE = 1000;
@@ -440,30 +519,7 @@ async function fetchAllReportsInRange(startDate, endDate, reportsTableName) {
 }
 
 async function fetchAllOrdersInRangeFromSupabase(startDate, endDate) {
-  const PAGE_SIZE = 2000;
-  const orders = [];
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from('orders')
-      .select(
-        'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
-      )
-      .gte('order_date', startDate)
-      .lte('order_date', endDate)
-      .order('order_date', { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    orders.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return orders;
+  return fetchAllOrdersInRangeFromSupabaseTable(startDate, endDate, 'orders');
 }
 
 async function fetchReportsForExactKeys(exactKeys, reportsTableName) {
@@ -489,13 +545,14 @@ async function fetchReportsForExactKeys(exactKeys, reportsTableName) {
   return rows;
 }
 
-async function fetchOrdersForExactKeysFromSupabase(exactKeys) {
+async function fetchOrdersForExactKeysFromSupabaseTable(exactKeys, tableName = 'orders') {
+  const table = String(tableName || 'orders').trim() || 'orders';
   const rows = [];
   const seen = new Set();
   for (const k of exactKeys) {
     const next = nextDateStr(k.date);
     const { data, error } = await supabase
-      .from('orders')
+      .from(table)
       .select(
         'order_code, order_date, marketing_staff, product, country, shift, team, check_result, payment_status, total_amount_vnd, total_vnd, reconciled_vnd, goods_amount, sale_price'
       )
@@ -513,6 +570,10 @@ async function fetchOrdersForExactKeysFromSupabase(exactKeys) {
     }
   }
   return rows;
+}
+
+async function fetchOrdersForExactKeysFromSupabase(exactKeys) {
+  return fetchOrdersForExactKeysFromSupabaseTable(exactKeys, 'orders');
 }
 
 function filterOrdersMatchingExactKeys(ordersList, exactKeys) {
@@ -627,8 +688,13 @@ export async function recalcMktSoDonThucTeFromOrders({
   /** Bảng báo cáo MKT (vd. marketing_report_hcm). */
   reportsTableName = 'detail_reports',
   /**
-   * Lấy đơn từ lumidataapi thay vì Supabase `orders`.
-   * Trang HCM: `/order_hcm`.
+   * Lấy đơn từ bảng Supabase (vd. `order_code_hcm`). Nếu set thì **không** gọi API `ordersApiPath`.
+   * Dùng cùng stack HCM: báo cáo `marketing_report_hcm` + đơn `order_code_hcm`.
+   */
+  ordersSupabaseTable = null,
+  /**
+   * Lấy đơn từ lumidataapi (khi không dùng `ordersSupabaseTable`).
+   * Ví dụ: `/order_hcm`.
    */
   ordersApiPath = null,
 } = {}) {
@@ -664,16 +730,31 @@ export async function recalcMktSoDonThucTeFromOrders({
     throw wrapRecalcReadError(reportsTable, e);
   }
   try {
-    if (ordersApiPath) {
-      let apiStart = normalizedStart;
-      let apiEnd = normalizedEnd;
-      if (normalizedExactKeys.length > 0) {
-        const ds = normalizedExactKeys.map((k) => k.date).sort();
-        apiStart = ds[0];
-        apiEnd = ds[ds.length - 1];
+    let rangeStart = normalizedStart;
+    let rangeEnd = normalizedEnd;
+    if (normalizedExactKeys.length > 0) {
+      const ds = normalizedExactKeys.map((k) => k.date).sort();
+      rangeStart = ds[0];
+      rangeEnd = ds[ds.length - 1];
+    }
+
+    const ordersTableOpt = String(ordersSupabaseTable || '').trim();
+
+    if (ordersTableOpt) {
+      orders =
+        normalizedExactKeys.length > 0
+          ? await fetchOrdersForExactKeysFromSupabaseTable(normalizedExactKeys, ordersTableOpt)
+          : await fetchAllOrdersInRangeFromSupabaseTable(rangeStart, rangeEnd, ordersTableOpt);
+      orders = filterOrdersMatchingExactKeys(orders, normalizedExactKeys);
+    } else if (ordersApiPath) {
+      const rawList = await fetchAllOrdersInRangeViaExternalApi(rangeStart, rangeEnd, ordersApiPath);
+      let merged = filterOrdersMatchingExactKeys(rawList, normalizedExactKeys);
+      if (isOrderHcmApiPath(ordersApiPath)) {
+        const localOrders = await fetchAllOrdersInRangeFromSupabaseTable(rangeStart, rangeEnd, 'order_code_hcm');
+        merged = mergeOrdersByOrderCode(merged, localOrders);
+        merged = filterOrdersMatchingExactKeys(merged, normalizedExactKeys);
       }
-      const rawList = await fetchAllOrdersInRangeViaExternalApi(apiStart, apiEnd, ordersApiPath);
-      orders = filterOrdersMatchingExactKeys(rawList, normalizedExactKeys);
+      orders = merged;
     } else {
       orders =
         normalizedExactKeys.length > 0
@@ -681,7 +762,8 @@ export async function recalcMktSoDonThucTeFromOrders({
           : await fetchAllOrdersInRangeFromSupabase(normalizedStart, normalizedEnd);
     }
   } catch (e) {
-    throw wrapRecalcReadError(ordersApiPath || 'orders', e);
+    const src = String(ordersSupabaseTable || '').trim() || ordersApiPath || 'orders';
+    throw wrapRecalcReadError(src, e);
   }
   try {
     hrEmailLookup = await fetchHumanResourceEmailLookup();
@@ -772,7 +854,9 @@ export async function recalcMktSoDonThucTeFromOrders({
     if (gs.length === 1) {
       existingByCaKey.add(`${gs[0]}|${key}`);
     } else if (gs.length === 2) {
+      // Một dòng gộp 2 ca → đã có cả hai nhóm, không tạo thêm dòng «Giữa ca» trùng key.
       existingByCaKey.add(`Hết ca|${key}`);
+      existingByCaKey.add(`Giữa ca|${key}`);
     }
   }
 
@@ -982,6 +1066,7 @@ export async function recalcMktSoDonAfterOrderSave({
   previousOrderKey,
   createMissingRows = true,
   reportsTableName = 'detail_reports',
+  ordersSupabaseTable = null,
   ordersApiPath = null,
 } = {}) {
   const exactKeys = [newOrderKey, previousOrderKey]
@@ -1009,6 +1094,7 @@ export async function recalcMktSoDonAfterOrderSave({
       createMissingRows,
       exactKeys: dedupedKeys,
       reportsTableName,
+      ordersSupabaseTable,
       ordersApiPath,
     });
   }
@@ -1027,6 +1113,7 @@ export async function recalcMktSoDonAfterOrderSave({
     dryRun: false,
     createMissingRows,
     reportsTableName,
+    ordersSupabaseTable,
     ordersApiPath,
   });
 }

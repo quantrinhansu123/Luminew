@@ -1412,7 +1412,9 @@ const AdminTools = () => {
             });
 
             toast.dismiss();
-            toast.success(`Hoàn tất: cập nhật ${result.upserted || 0} dòng.`);
+            toast.success(
+                `Hoàn tất: cập nhật ${result.updatedExisting ?? 0} dòng, tạo mới ${result.createdMissing ?? 0} (tổng ${result.upserted || 0}).`
+            );
             setMktRecalcResult(result);
         } catch (error) {
             console.error('Recalc MKT error:', error);
