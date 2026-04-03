@@ -1251,10 +1251,6 @@ export default function DanhSachBaoCaoTayMKT({
         }
     };
 
-    if (!canView(permissionCode)) {
-        return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này ({permissionCode}).</div>;
-    }
-
     // isAdmin đã được định nghĩa ở trên, không cần định nghĩa lại
     
     // Kiểm tra quyền xóa (Admin hoặc user có quyền delete cho permissionCode)

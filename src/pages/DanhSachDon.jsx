@@ -1,5 +1,5 @@
 import { AlertTriangle, Calculator, Clock, Download, History, Layers, Pencil, RefreshCw, Search, Settings, Trash2, Truck, Wrench, X } from 'lucide-react';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
@@ -26,6 +26,14 @@ import {
  * Vì vậy phải fetch theo trang bằng range().
  */
 const ORDERS_PAGE_SIZE = 1000;
+
+function chunkArray(arr, size) {
+  const a = arr || [];
+  const out = [];
+  for (let i = 0; i < a.length; i += size) out.push(a.slice(i, i + size));
+  return out;
+}
+
 
 /** Giá trị Ca sau khi gộp Giữa ca + Hết ca (khớp NhapDonMoi / báo cáo) */
 const SHIFT_GIUA_CA_HET_CA = 'Giữa ca,Hết ca';
@@ -344,6 +352,11 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [isRecalculatingZeroTotalVnd, setIsRecalculatingZeroTotalVnd] = useState(false); // Tính lại Tổng tiền VNĐ (chỉ ô = 0)
   const [isApplyingCanhBaoTrung, setIsApplyingCanhBaoTrung] = useState(false); // Ghi canh_bao theo trùng khách (Ngày lên đơn + created_at)
   const [isRenamingManhCuong, setIsRenamingManhCuong] = useState(false); // Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường"
+  /** Chỉ HCM: tra cứu `orders` (team chứa HCM), theo Từ/Đến ngày trên trang — modal xem, không ghi DB. */
+  const [isFetchingOrdersHcmLookaside, setIsFetchingOrdersHcmLookaside] = useState(false);
+  const [isFillingHcmFromOrdersLookaside, setIsFillingHcmFromOrdersLookaside] = useState(false);
+  const [hcmOrdersLookasideOpen, setHcmOrdersLookasideOpen] = useState(false);
+  const [hcmOrdersLookasideRows, setHcmOrdersLookasideRows] = useState([]);
   const [selectedRowId, setSelectedRowId] = useState(null); // For copy feature
   /** Bôi đỏ dòng trùng bộ ba Name* / Phone* / Add trong phạm vi filteredData */
   const [highlightDupNamePhoneAdd, setHighlightDupNamePhoneAdd] = useState(false);
@@ -1183,6 +1196,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       let successCount = 0;
       let errorCount = 0;
       let lastError = null;
+      const skippedDuplicateCodes = [];
 
       for (let i = 0; i < firebaseData.length; i += batchSize) {
         const batch = firebaseData.slice(i, i + batchSize);
@@ -1279,65 +1293,86 @@ function DanhSachDon({ dataSource = 'default' }) {
           };
         });
 
-        // Insert only new records to Supabase (don't update existing)
+        const codesInBatch = [
+          ...new Set(transformedBatch.map((t) => String(t.order_code ?? '').trim()).filter(Boolean)),
+        ];
+        const existingInDb = new Set();
+        for (const codeChunk of chunkArray(codesInBatch, 200)) {
+          if (codeChunk.length === 0) continue;
+          const { data: existingRows, error: exErr } = await supabase
+            .from('orders')
+            .select('order_code')
+            .in('order_code', codeChunk);
+          if (exErr) throw exErr;
+          (existingRows || []).forEach((r) => {
+            if (r?.order_code != null) existingInDb.add(String(r.order_code).trim());
+          });
+        }
+
+        const toInsert = transformedBatch.filter((t) => {
+          const code = String(t.order_code ?? '').trim();
+          if (!code) return false;
+          return !existingInDb.has(code);
+        });
+        transformedBatch.forEach((t) => {
+          const code = String(t.order_code ?? '').trim();
+          if (code && existingInDb.has(code)) skippedDuplicateCodes.push(code);
+        });
+
+        const toInsertUnique = [...new Map(toInsert.map((t) => [String(t.order_code ?? '').trim(), t])).values()];
+
+        if (toInsertUnique.length === 0) {
+          continue;
+        }
+
         const { error } = await supabase
-          .from("orders")
-          .upsert(transformedBatch, { onConflict: 'order_code', ignoreDuplicates: true });
+          .from('orders')
+          .upsert(toInsertUnique, { onConflict: 'order_code', ignoreDuplicates: true });
 
         if (error) {
           console.error("Batch error:", error);
-          // Capture the first error closely
           if (!lastError) lastError = error;
-          errorCount += batch.length;
+          errorCount += toInsertUnique.length;
         } else {
-          successCount += batch.length;
+          successCount += toInsertUnique.length;
 
-          // Log changes asynchronously
           const userEmail = localStorage.getItem('userEmail') || 'system_sync';
-          const validLogEntries = [];
+          const validLogEntries = toInsertUnique.map((newItem) => ({
+            action: 'SYNC_F3',
+            table_name: 'orders',
+            record_id: newItem.order_code,
+            user_email: userEmail,
+            old_value: null,
+            new_value: JSON.stringify(newItem),
+            details: {
+              note: `Đồng bộ đơn mới: Trạng thái "${newItem.delivery_status || ''}"`,
+              orderCode: newItem.order_code,
+            },
+          }));
 
-          // Create a lookup map for current data to find old values
-          const currentDataMap = new Map();
-          if (Array.isArray(allData)) {
-            allData.forEach(row => {
-              if (row["Mã đơn hàng"]) currentDataMap.set(String(row["Mã đơn hàng"]), row);
-            });
-          }
-
-          transformedBatch.forEach(newItem => {
-            const oldItem = currentDataMap.get(String(newItem.order_code));
-
-            // POLICY: ONLY ADD NEW, DO NOT UPDATE
-            // So if oldItem exists, the DB upsert with ignoreDuplicates: true did NOTHING.
-            // Therefore, we should NOT log any changes for existing items.
-
-            if (!oldItem) {
-              // Truly new item
-              validLogEntries.push({
-                action: 'SYNC_F3',
-                table_name: 'orders',
-                record_id: newItem.order_code,
-                user_email: userEmail,
-                old_value: null,
-                new_value: JSON.stringify(newItem),
-                details: {
-                  note: `Đồng bộ đơn mới: Trạng thái "${newItem.delivery_status || ''}"`,
-                  orderCode: newItem.order_code
-                }
-              });
-            }
-            // Else: Item exists. Since ignoreDuplicates is TRUE, nothing happened in DB.
-            // LOG NOTHING.
-          });
-
-          Promise.all(validLogEntries.map(entry => logDataChange(entry)))
-            .catch(err => console.error("Logging sync error", err));
+          Promise.all(validLogEntries.map((entry) => logDataChange(entry))).catch((err) =>
+            console.error('Logging sync error', err)
+          );
         }
       }
 
-      let msg = `Đồng bộ hoàn tất!\nThành công: ${successCount}\nLỗi: ${errorCount}`;
+      const dupUnique = [...new Set(skippedDuplicateCodes)];
+      const dupPreview =
+        dupUnique.length > 40 ? `${dupUnique.slice(0, 40).join(', ')}… (+${dupUnique.length - 40} mã)` : dupUnique.join(', ');
+
+      let msg =
+        `Đồng bộ hoàn tất!\n` +
+        `• Đã gửi chèn mới (upsert): ${successCount} dòng\n` +
+        `• Bỏ qua (trùng Mã đơn hàng đã có trong DB): ${dupUnique.length} mã`;
+      if (dupUnique.length > 0) {
+        msg += `\n\nMã bỏ qua:\n${dupPreview}`;
+      }
+      msg += `\n\nLỗi xử lý batch: ${errorCount}`;
       if (lastError) {
-        msg += `\n\nChi tiết lỗi cuối cùng: ${lastError.message || JSON.stringify(lastError)}`;
+        msg += `\n\nChi tiết lỗi cuối: ${lastError.message || JSON.stringify(lastError)}`;
+      }
+      if (dupUnique.length > 0) {
+        toast.info(`Đã bỏ qua ${dupUnique.length} mã đơn trùng (đã tồn tại).`, { autoClose: 6000, hideProgressBar: true });
       }
       alert(msg);
       loadData(); // Reload table
@@ -1465,6 +1500,210 @@ function DanhSachDon({ dataSource = 'default' }) {
     } finally {
       setIsFixingTeams(false);
       loadData();
+    }
+  };
+
+  /**
+   * Chỉ /danh-sach-don-hcm: đọc bảng `orders` (không phải order_code_hcm).
+   * Team: cột team chứa "HCM" (ilike, vd. CSKH-HCM, HCM-Sale đêm).
+   * Ngày: theo Từ/Đến ngày trên trang + đơn order_date null nhưng created_at trong khoảng.
+   * Mở modal bảng — không ghi DB.
+   */
+  const handlePreviewOrdersHcmFromMainTable = useCallback(async () => {
+    if (!isHcmView) return;
+    if (!startDate || !endDate) {
+      toast.warning('Chọn đủ «Từ ngày» và «Đến ngày» ở bộ lọc phía dưới, rồi bấm lại.', {
+        autoClose: 5000,
+        hideProgressBar: true,
+      });
+      return;
+    }
+    setIsFetchingOrdersHcmLookaside(true);
+    try {
+      const selectCols = 'id, order_code, order_date, team, customer_name, customer_phone, sale_staff, created_at';
+      const fetchPaged = async (buildQuery, applyOrder) => {
+        const all = [];
+        let from = 0;
+        for (let page = 0; page < 500; page++) {
+          let q = buildQuery();
+          q = applyOrder(q);
+          const { data, error } = await q.range(from, from + ORDERS_PAGE_SIZE - 1);
+          if (error) throw error;
+          const chunk = data || [];
+          all.push(...chunk);
+          if (chunk.length < ORDERS_PAGE_SIZE) break;
+          from += ORDERS_PAGE_SIZE;
+        }
+        return all;
+      };
+
+      const orderByOd = (q) => q.order('order_date', { ascending: false }).order('order_code', { ascending: false });
+      const orderByCreated = (q) => q.order('created_at', { ascending: false }).order('order_code', { ascending: false });
+
+      const withTeamHcm = () => {
+        let q = supabase.from('orders').select(selectCols).ilike('team', '%HCM%');
+        if (startDate) q = q.gte('order_date', startDate);
+        if (endDate) q = q.lte('order_date', endDate);
+        return q;
+      };
+
+      const mainRows = await fetchPaged(withTeamHcm, orderByOd);
+
+      let extraNullOd = [];
+      const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+      if (cStart && cEnd) {
+        const withTeamHcmNullOd = () => {
+          let q = supabase
+            .from('orders')
+            .select(selectCols)
+            .ilike('team', '%HCM%')
+            .is('order_date', null)
+            .gte('created_at', cStart)
+            .lte('created_at', cEnd);
+          return q;
+        };
+        extraNullOd = await fetchPaged(withTeamHcmNullOd, orderByCreated);
+      }
+
+      const seen = new Set();
+      const merged = [];
+      for (const r of [...mainRows, ...extraNullOd]) {
+        const code = r?.order_code != null && String(r.order_code).trim() !== '' ? String(r.order_code).trim() : '';
+        const key = code || `__id_${r?.id ?? Math.random()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(r);
+      }
+
+      merged.sort((a, b) => {
+        const ta = a?.order_date ? String(a.order_date) : String(a?.created_at ?? '');
+        const tb = b?.order_date ? String(b.order_date) : String(b?.created_at ?? '');
+        return tb.localeCompare(ta);
+      });
+
+      console.log('[DanhSachDon HCM] orders (team %HCM%, khoảng ngày trang):', merged);
+      setHcmOrdersLookasideRows(merged);
+      setHcmOrdersLookasideOpen(true);
+      if (merged.length > 0) {
+        toast.success(`Tìm thấy ${merged.length} dòng trong bảng orders (team chứa HCM). Xem bảng bật lên.`, {
+          autoClose: 4000,
+          hideProgressBar: true,
+        });
+      } else {
+        toast.info(
+          'Không có dòng nào trong bảng orders: team chứa «HCM» trong khoảng ngày đã chọn. Thử mở rộng Từ/Đến ngày hoặc kiểm tra RLS/team trên DB.',
+          { autoClose: 7000, hideProgressBar: true }
+        );
+      }
+    } catch (err) {
+      console.error('Preview orders HCM:', err);
+      toast.error(`Lỗi tra cứu bảng orders: ${err?.message || String(err)}`);
+    } finally {
+      setIsFetchingOrdersHcmLookaside(false);
+    }
+  }, [isHcmView, startDate, endDate]);
+
+  /** Modal HCM: chèn bản đầy đủ từ `orders` → `order_code_hcm`; trùng mã đơn thì bỏ qua + thông báo. */
+  const handleFillHcmFromOrdersLookaside = async () => {
+    if (!isHcmView || !hcmOrdersLookasideRows.length) return;
+    if (
+      !window.confirm(
+        'Chèn các dòng đang xem từ bảng orders sang order_code_hcm?\n\n' +
+          '• Nếu Mã đơn hàng đã tồn tại trong order_code_hcm → bỏ qua và sẽ liệt kê trong thông báo.\n' +
+          '• Chỉ chèn dòng mới.'
+      )
+    ) {
+      return;
+    }
+    setIsFillingHcmFromOrdersLookaside(true);
+    try {
+      const IN_CHUNK = 100;
+      const preview = hcmOrdersLookasideRows;
+      const ids = [...new Set(preview.map((r) => r.id).filter(Boolean))];
+      const fullById = new Map();
+      for (const idChunk of chunkArray(ids, IN_CHUNK)) {
+        const { data, error } = await supabase.from('orders').select('*').in('id', idChunk);
+        if (error) throw error;
+        (data || []).forEach((row) => {
+          if (row?.id != null) fullById.set(row.id, row);
+        });
+      }
+
+      const orderedFull = [];
+      const couldNotLoad = [];
+      for (const pr of preview) {
+        let full = pr.id != null ? fullById.get(pr.id) : null;
+        if (!full && pr.order_code) {
+          const code = String(pr.order_code).trim();
+          const { data: one, error: e1 } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('order_code', code)
+            .maybeSingle();
+          if (e1) throw e1;
+          full = one;
+        }
+        if (full) orderedFull.push(full);
+        else couldNotLoad.push(String(pr.order_code ?? pr.id ?? '?'));
+      }
+
+      if (couldNotLoad.length) {
+        toast.warning(`Không tải được ${couldNotLoad.length} dòng từ orders.`, { autoClose: 5000, hideProgressBar: true });
+      }
+
+      const codes = orderedFull.map((r) => String(r.order_code ?? '').trim()).filter(Boolean);
+      const existingHcm = new Set();
+      for (const ch of chunkArray(codes, 150)) {
+        if (!ch.length) continue;
+        const { data: ex, error: e2 } = await supabase.from('order_code_hcm').select('order_code').in('order_code', ch);
+        if (e2) throw e2;
+        (ex || []).forEach((r) => existingHcm.add(String(r.order_code).trim()));
+      }
+
+      const skippedDup = [];
+      const payloads = [];
+      for (const row of orderedFull) {
+        const code = String(row.order_code ?? '').trim();
+        if (!code) {
+          skippedDup.push('(trống mã)');
+          continue;
+        }
+        if (existingHcm.has(code)) {
+          skippedDup.push(code);
+          continue;
+        }
+        const { id: _omitId, ...rest } = row;
+        payloads.push(rest);
+      }
+
+      let inserted = 0;
+      for (const insChunk of chunkArray(payloads, 25)) {
+        if (!insChunk.length) continue;
+        const { error: insErr } = await supabase.from('order_code_hcm').insert(insChunk);
+        if (insErr) throw insErr;
+        inserted += insChunk.length;
+      }
+
+      const dupUnique = [...new Set(skippedDup)];
+      const dupPreview =
+        dupUnique.length > 45 ? `${dupUnique.slice(0, 45).join(', ')}… (+${dupUnique.length - 45} mã)` : dupUnique.join(', ');
+
+      toast.success(
+        `Điền HCM: đã chèn ${inserted} đơn. Bỏ qua ${dupUnique.length} dòng (trùng mã / trống mã).`,
+        { autoClose: 6500, hideProgressBar: true }
+      );
+      if (dupUnique.length > 0) {
+        window.alert(
+          `Đã bỏ qua ${dupUnique.length} dòng — trùng Mã đơn hàng trong order_code_hcm hoặc không có mã:\n\n${dupPreview}`
+        );
+      }
+      setHcmOrdersLookasideOpen(false);
+      loadData();
+    } catch (err) {
+      console.error('Fill HCM from orders:', err);
+      toast.error(`Lỗi điền sang order_code_hcm: ${err?.message || String(err)}`);
+    } finally {
+      setIsFillingHcmFromOrdersLookaside(false);
     }
   };
 
@@ -2860,6 +3099,39 @@ function DanhSachDon({ dataSource = 'default' }) {
                   </button>
                 </>
               )}
+              {isHcmView && (
+                <button
+                  type="button"
+                  onClick={handlePreviewOrdersHcmFromMainTable}
+                  disabled={
+                    loading ||
+                    syncing ||
+                    deleting ||
+                    isClearingShippingInfo ||
+                    isFixingTeams ||
+                    isFixingShift ||
+                    isFillingPaymentCurrency ||
+                    isRecalculatingZeroTotalVnd ||
+                    isApplyingCanhBaoTrung ||
+                    isRenamingManhCuong ||
+                    isFetchingOrdersHcmLookaside
+                  }
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                  title="Đọc bảng orders: team chứa HCM — theo Từ/Đến ngày đang chọn; mở bảng xem (không ghi DB)"
+                >
+                  {isFetchingOrdersHcmLookaside ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      Đang tra…
+                    </>
+                  ) : (
+                    <>
+                      <Layers className="w-4 h-4" />
+                      Đơn HCM từ orders
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 onClick={loadData}
                 disabled={loading || isClearingShippingInfo}
@@ -2876,6 +3148,100 @@ function DanhSachDon({ dataSource = 'default' }) {
           </div>
         </div>
       </div>
+
+      {isHcmView && hcmOrdersLookasideOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="hcm-orders-lookaside-title"
+          onClick={() => setHcmOrdersLookasideOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[88vh] flex flex-col border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50 rounded-t-xl">
+              <div>
+                <h2 id="hcm-orders-lookaside-title" className="text-lg font-bold text-gray-900">
+                  Đơn từ bảng orders (team chứa HCM)
+                </h2>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Nguồn: <code className="bg-gray-200 px-1 rounded">orders</code> — không phải{' '}
+                  <code className="bg-gray-200 px-1 rounded">order_code_hcm</code>. Khoảng ngày (order_date; thêm đơn
+                  order_date trống theo created_at): <strong>{startDate}</strong> → <strong>{endDate}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                className="p-2 rounded-lg hover:bg-gray-200 text-gray-700"
+                aria-label="Đóng"
+                onClick={() => setHcmOrdersLookasideOpen(false)}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-auto flex-1 p-3">
+              {hcmOrdersLookasideRows.length === 0 ? (
+                <p className="text-sm text-gray-600 py-8 text-center">Không có dòng nào khớp điều kiện.</p>
+              ) : (
+                <table className="min-w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 text-left text-xs uppercase text-gray-600">
+                      <th className="p-2 border border-gray-200">#</th>
+                      <th className="p-2 border border-gray-200">Mã đơn</th>
+                      <th className="p-2 border border-gray-200">Team</th>
+                      <th className="p-2 border border-gray-200">Ngày lên đơn</th>
+                      <th className="p-2 border border-gray-200">Tên KH</th>
+                      <th className="p-2 border border-gray-200">SĐT</th>
+                      <th className="p-2 border border-gray-200">Sale</th>
+                      <th className="p-2 border border-gray-200">created_at</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hcmOrdersLookasideRows.map((r, i) => (
+                      <tr key={r.id ?? `${r.order_code}-${i}`} className="hover:bg-orange-50/50">
+                        <td className="p-2 border border-gray-200 text-gray-500">{i + 1}</td>
+                        <td className="p-2 border border-gray-200 font-mono text-xs">{String(r.order_code ?? '').trim() || '—'}</td>
+                        <td className="p-2 border border-gray-200">{String(r.team ?? '').trim() || '—'}</td>
+                        <td className="p-2 border border-gray-200 whitespace-nowrap text-xs">
+                          {r.order_date != null && String(r.order_date).trim() !== ''
+                            ? String(r.order_date).slice(0, 19)
+                            : '—'}
+                        </td>
+                        <td className="p-2 border border-gray-200 max-w-[200px] truncate" title={String(r.customer_name ?? '')}>
+                          {String(r.customer_name ?? '').trim() || '—'}
+                        </td>
+                        <td className="p-2 border border-gray-200 font-mono text-xs">{String(r.customer_phone ?? '').trim() || '—'}</td>
+                        <td className="p-2 border border-gray-200 max-w-[140px] truncate">{String(r.sale_staff ?? '').trim() || '—'}</td>
+                        <td className="p-2 border border-gray-200 whitespace-nowrap text-xs text-gray-600">
+                          {r.created_at != null ? String(r.created_at).slice(0, 19) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 rounded-b-xl text-xs text-gray-600 flex flex-wrap items-center justify-between gap-2">
+              <span>
+                Tổng: <strong>{hcmOrdersLookasideRows.length}</strong> dòng
+              </span>
+              {hcmOrdersLookasideRows.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleFillHcmFromOrdersLookaside}
+                  disabled={isFillingHcmFromOrdersLookaside || isFetchingOrdersHcmLookaside}
+                  className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-[#F37021] hover:bg-[#e55f1a] text-white disabled:bg-gray-400 disabled:opacity-60"
+                  title="Chèn vào order_code_hcm; mã đơn đã có thì bỏ qua và hiện thông báo"
+                >
+                  {isFillingHcmFromOrdersLookaside ? 'Đang điền…' : 'Điền sang order_code_hcm'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="max-w-full mx-auto px-6 py-6">
