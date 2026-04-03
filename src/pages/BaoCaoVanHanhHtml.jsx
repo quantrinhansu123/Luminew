@@ -53,6 +53,9 @@ const normalizeYmd = (value) => {
     return s.slice(0, 10);
 };
 
+/** Không tính đơn chi nhánh `team = HCM` (cột `orders.team`), so khớp các tab dùng `rawData`. */
+const isOrdersRowTeamHcm = (row) => String(row?.team ?? '').trim().toLowerCase() === 'hcm';
+
 const paymentLabelForOrder = (order) => {
     const d = String(order?.payment_status_detail ?? '').trim();
     if (d) return d;
@@ -560,7 +563,7 @@ export default function BaoCaoVanHanhHtml() {
                 const { data, error: qErr } = await supabase
                     .from('orders')
                     .select(
-                        'id, order_code, order_date, created_at, delivery_staff, product, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, tracking_code, shipping_unit'
+                        'id, order_code, order_date, created_at, team, delivery_staff, product, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, tracking_code, shipping_unit'
                     )
                     .gte('order_date', qStart)
                     .lte('order_date', qEnd)
@@ -574,6 +577,8 @@ export default function BaoCaoVanHanhHtml() {
                 page += 1;
                 if (page >= MAX_PAGES) break;
             }
+
+            allOrderRows = (allOrderRows || []).filter((row) => !isOrdersRowTeamHcm(row));
 
             let rows = (allOrderRows || []).map(mapOrderRowToVirtual);
             if (reportFilters.product?.length > 0) {
