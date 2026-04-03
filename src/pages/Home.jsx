@@ -374,6 +374,13 @@ function Home() {
           permission: 'ORDERS_FFM_RECONCILE',
         },
         {
+          id: "ffm-push-reconcile-hcm",
+          label: "Bảng đối soát đẩy FFM (HCM)",
+          icon: <Table2 className="w-4 h-4" />,
+          path: "/bang-doi-soat-day-ffm-hcm",
+          permission: 'ORDERS_FFM_RECONCILE',
+        },
+        {
           id: "ffm-mgt",
           label: "ffm_MGT",
           icon: <ClipboardList className="w-4 h-4" />,
@@ -1053,6 +1060,14 @@ function Home() {
           icon: <Table2 className="w-8 h-8" />,
           color: "bg-slate-600",
           path: "/bang-doi-soat-day-ffm",
+          status: "Mở ứng dụng",
+          permission: 'ORDERS_FFM_RECONCILE',
+        },
+        {
+          title: "Bảng đối soát đẩy FFM (HCM)",
+          icon: <Table2 className="w-8 h-8" />,
+          color: "bg-slate-700",
+          path: "/bang-doi-soat-day-ffm-hcm",
           status: "Mở ứng dụng",
           permission: 'ORDERS_FFM_RECONCILE',
         },

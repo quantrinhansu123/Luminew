@@ -51,7 +51,7 @@ import NhapDonMoi from './pages/NhapDonMoi';
 import Profile from './pages/Profile';
 import QuanLyCSKH from './pages/QuanLyCSKH';
 import ReportDashboard from './pages/ReportDashboard';
-import BangDoiSoatDayFFM from './pages/BangDoiSoatDayFFM';
+import BangDoiSoatDayFFM, { BangDoiSoatDayFFMHcm } from './pages/BangDoiSoatDayFFM';
 import VanDon from './pages/VanDon';
 import DanhSachVanDon from './pages/DanhSachVanDon';
 import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
@@ -163,6 +163,7 @@ function AppShell() {
             <Route path="/van-don" element={<ProtectedRoute><VanDon /></ProtectedRoute>} />
             <Route path="/van-don-hcm" element={<ProtectedRoute><VanDon dataSource="hcm" /></ProtectedRoute>} />
             <Route path="/bang-doi-soat-day-ffm" element={<ProtectedRoute><BangDoiSoatDayFFM /></ProtectedRoute>} />
+            <Route path="/bang-doi-soat-day-ffm-hcm" element={<ProtectedRoute><BangDoiSoatDayFFMHcm /></ProtectedRoute>} />
             <Route path="/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />
             <Route path="/bao-cao-van-hanh" element={<ProtectedRoute><BaoCaoVanHanhHtml /></ProtectedRoute>} />
             <Route path="/embed/bao-cao-van-don" element={<ProtectedRoute><BaoCaoVanDon /></ProtectedRoute>} />

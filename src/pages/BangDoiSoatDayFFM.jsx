@@ -47,7 +47,7 @@ const PREFERRED_COL_ORDER = [
 
 const EMPTY_TOKEN = "__EMPTY__";
 
-/** Nhóm ngày + lọc Từ/Đến ngày: theo cột `pushed_at` (view ffm_push_logs). */
+/** Nhóm ngày + lọc Từ/Đến ngày: theo cột `pushed_at` (ffm_push_logs / ffm_push_logs_hcm). */
 function getRowDayKey(row) {
   const raw =
     row?.pushed_at ??
@@ -270,8 +270,24 @@ function FilterCheckboxDropdown({ label, options, value, onChange, menuKey, open
   );
 }
 
-export default function BangDoiSoatDayFFM() {
+function BangDoiSoatDayFFMInner({
+  logsTable = "ffm_push_logs",
+  ordersTable = "orders",
+  pageTitle = "Bảng đối soát đẩy FFM",
+  sourceTableLabel = "ffm_push_logs",
+  ordersTableLabel = "orders",
+  /** Một mã quyền (mặc định) */
+  permissionCode = "ORDERS_LIST",
+  /** Nếu có: đủ một trong các mã là được (ưu tiên hơn `permissionCode` khi length > 0) */
+  permissionCodes = null,
+} = {}) {
   const { canView } = usePermissions();
+  const allowed = useMemo(() => {
+    if (Array.isArray(permissionCodes) && permissionCodes.length > 0) {
+      return permissionCodes.some((c) => canView(c));
+    }
+    return canView(permissionCode);
+  }, [canView, permissionCode, permissionCodes]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -288,7 +304,7 @@ export default function BangDoiSoatDayFFM() {
     setLoading(true);
     setError(null);
     try {
-      const data = await API.fetchFfmPushLogsForReconciliation();
+      const data = await API.fetchFfmPushLogsForReconciliation({ logsTable });
       setRows(data);
     } catch (e) {
       console.error(e);
@@ -297,7 +313,7 @@ export default function BangDoiSoatDayFFM() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [logsTable]);
 
   useEffect(() => {
     load();
@@ -306,7 +322,7 @@ export default function BangDoiSoatDayFFM() {
   const handleSyncFromOrders = useCallback(async () => {
     setSyncing(true);
     try {
-      const r = await API.syncFfmPushLogsFromOrders();
+      const r = await API.syncFfmPushLogsFromOrders({ logsTable, ordersTable });
       const parts = [
         `Đã quét ${r.scanned} dòng log`,
         r.needCount === 0
@@ -325,7 +341,7 @@ export default function BangDoiSoatDayFFM() {
     } finally {
       setSyncing(false);
     }
-  }, [load]);
+  }, [load, logsTable, ordersTable]);
 
   const filterOptions = useMemo(
     () => ({
@@ -407,10 +423,14 @@ export default function BangDoiSoatDayFFM() {
     setOpenFilterMenu(null);
   };
 
-  if (!canView("ORDERS_LIST")) {
+  if (!allowed) {
+    const hint =
+      Array.isArray(permissionCodes) && permissionCodes.length > 0
+        ? permissionCodes.join(" hoặc ")
+        : permissionCode;
     return (
       <div className="p-8 text-center text-red-600 font-bold">
-        Bạn không có quyền truy cập trang này (ORDERS_LIST).
+        Bạn không có quyền truy cập trang này ({hint}).
       </div>
     );
   }
@@ -420,7 +440,7 @@ export default function BangDoiSoatDayFFM() {
       <div className="bg-white shadow-sm sticky top-0 z-20 border-b border-gray-200">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3 py-4">
-            <h1 className="text-xl font-bold text-gray-900">Bảng đối soát đẩy FFM</h1>
+            <h1 className="text-xl font-bold text-gray-900">{pageTitle}</h1>
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative min-w-[200px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -445,7 +465,7 @@ export default function BangDoiSoatDayFFM() {
                 type="button"
                 onClick={handleSyncFromOrders}
                 disabled={loading || syncing}
-                title="Điền Sản phẩm, Thị trường, Chi nhánh, Tổng tiền VNĐ từ orders theo order_code (chỉ ô đang trống)"
+                title={`Điền Sản phẩm, Thị trường, Chi nhánh, Tổng tiền VNĐ từ bảng ${ordersTableLabel} theo order_code (chỉ ô đang trống)`}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
               >
                 <Database className={`w-4 h-4 ${syncing ? "animate-pulse" : ""}`} />
@@ -528,7 +548,12 @@ export default function BangDoiSoatDayFFM() {
               <span className="font-bold text-emerald-700 tabular-nums">{formatMoneyVnd(grandRevenue)}</span>
             </div>
             <p className="text-xs text-gray-500 w-full m-0">
-              Nguồn: <code className="bg-gray-100 px-1 rounded">ffm_push_logs</code>
+              Nguồn: <code className="bg-gray-100 px-1 rounded">{sourceTableLabel}</code>
+              {ordersTableLabel !== sourceTableLabel && (
+                <span className="ml-1">
+                  · Đồng bộ snapshot từ <code className="bg-gray-100 px-1 rounded">{ordersTableLabel}</code>
+                </span>
+              )}
               {rows.length > 0 && (
                 <span className="ml-2">
                   · Đã tải {rows.length} dòng · Hiển thị theo nhóm ngày (ẩn cột ID, mã lô, mã đơn)
@@ -694,5 +719,24 @@ export default function BangDoiSoatDayFFM() {
         )}
       </div>
     </div>
+  );
+}
+
+/** Hà Nội / mặc định: `ffm_push_logs` + đồng bộ từ `orders`. */
+export default function BangDoiSoatDayFFM() {
+  return <BangDoiSoatDayFFMInner />;
+}
+
+/** HCM: `ffm_push_logs_hcm` + đồng bộ từ `order_code_hcm`. */
+export function BangDoiSoatDayFFMHcm() {
+  return (
+    <BangDoiSoatDayFFMInner
+      logsTable="ffm_push_logs_hcm"
+      ordersTable="order_code_hcm"
+      pageTitle="Bảng đối soát đẩy FFM (HCM)"
+      sourceTableLabel="ffm_push_logs_hcm"
+      ordersTableLabel="order_code_hcm"
+      permissionCodes={["ORDERS_LIST_HCM", "ORDERS_FFM_RECONCILE"]}
+    />
   );
 }

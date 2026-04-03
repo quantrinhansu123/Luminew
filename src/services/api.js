@@ -1516,12 +1516,20 @@ export const createFfmPushLogs = async (orderIdsOrEntries, carrier, pushedBy, op
     }
 };
 
-/** Đọc view/bảng `ffm_push_logs` (đối soát đẩy FFM). Không dùng order DB để tương thích cột thời gian khác nhau. */
-export const fetchFfmPushLogsForReconciliation = async ({ limit = 8000 } = {}) => {
-    const { data, error } = await supabase
-        .from('ffm_push_logs')
-        .select('*')
-        .limit(limit);
+const FFM_SYNC_ORDERS_TABLE_ALLOWLIST = new Set(['orders', 'order_code_hcm']);
+
+function resolveFfmSyncOrdersTable(ordersTable) {
+    const t = ordersTable && String(ordersTable).trim() !== '' ? String(ordersTable).trim() : 'orders';
+    if (!FFM_SYNC_ORDERS_TABLE_ALLOWLIST.has(t)) {
+        throw new Error(`Invalid ffm sync orders table: ${t}`);
+    }
+    return t;
+}
+
+/** Đọc `ffm_push_logs` hoặc `ffm_push_logs_hcm` (đối soát đẩy FFM). */
+export const fetchFfmPushLogsForReconciliation = async ({ limit = 8000, logsTable } = {}) => {
+    const table = resolveFfmPushLogsTable(logsTable);
+    const { data, error } = await supabase.from(table).select('*').limit(limit);
     if (error) {
         console.error('fetchFfmPushLogsForReconciliation:', error);
         throw error;
@@ -1555,12 +1563,19 @@ function needsFfmLogSnapshotFill(row) {
 }
 
 /**
- * Điền product, country, chi_nhanh, total_amount_vnd trên ffm_push_logs từ bảng orders (theo order_code).
+ * Điền product, country, chi_nhanh, total_amount_vnd trên ffm_push_logs (hoặc _hcm) từ orders / order_code_hcm.
  * Chỉ ghi các ô đang trống / total_amount_vnd null; không ghi đè dữ liệu đã có.
+ * @param {{ scanLimit?: number, logsTable?: 'ffm_push_logs' | 'ffm_push_logs_hcm', ordersTable?: 'orders' | 'order_code_hcm' }} [opts]
  */
-export const syncFfmPushLogsFromOrders = async ({ scanLimit = 12000 } = {}) => {
+export const syncFfmPushLogsFromOrders = async ({
+    scanLimit = 12000,
+    logsTable,
+    ordersTable,
+} = {}) => {
+    const logsTbl = resolveFfmPushLogsTable(logsTable);
+    const ordersTbl = resolveFfmSyncOrdersTable(ordersTable);
     const { data: logs, error: logErr } = await supabase
-        .from('ffm_push_logs')
+        .from(logsTbl)
         .select('id, order_code, product, country, chi_nhanh, total_amount_vnd')
         .not('order_code', 'is', null)
         .limit(scanLimit);
@@ -1584,7 +1599,7 @@ export const syncFfmPushLogsFromOrders = async ({ scanLimit = 12000 } = {}) => {
     for (let i = 0; i < codes.length; i += chunkSize) {
         const part = codes.slice(i, i + chunkSize);
         const { data: orders, error: oErr } = await supabase
-            .from('orders')
+            .from(ordersTbl)
             .select('order_code, product, country, team, total_amount_vnd')
             .in('order_code', part);
         if (oErr) throw oErr;
@@ -1632,7 +1647,7 @@ export const syncFfmPushLogsFromOrders = async ({ scanLimit = 12000 } = {}) => {
         const slice = updateTasks.slice(i, i + batch);
         const results = await Promise.all(
             slice.map(({ id, patch }) =>
-                supabase.from('ffm_push_logs').update(patch).eq('id', id).then(({ error }) => ({ error }))
+                supabase.from(logsTbl).update(patch).eq('id', id).then(({ error }) => ({ error }))
             )
         );
         results.forEach((r) => {
