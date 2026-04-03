@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import MultiSelect from '../components/MultiSelect';
 import * as rbacService from '../services/rbacService';
@@ -22,6 +22,8 @@ import {
 import {
     aggregateOperationalReportSlice,
     BC_VH_PAYMENT_COLUMNS,
+    bcvhDrillMetricTitle,
+    filterSliceByBcvhDrillMetric,
     filterSliceForCriteriaRow,
     formatNumVi,
     formatPctComma
@@ -52,6 +54,12 @@ const normalizeYmd = (value) => {
     if (s.includes('T')) return s.slice(0, 10);
     return s.slice(0, 10);
 };
+
+/** Có mã tracking / ĐVVC: không tính chỉ khoảng trắng (NBSP → space rồi trim). */
+const meaningfulTrim = (value) =>
+    String(value ?? '')
+        .replace(/\u00a0/g, ' ')
+        .trim();
 
 /** Không tính đơn chi nhánh `team = HCM` (cột `orders.team`), so khớp các tab dùng `rawData`. */
 const isOrdersRowTeamHcm = (row) => String(row?.team ?? '').trim().toLowerCase() === 'hcm';
@@ -87,8 +95,9 @@ const mapOrderRowToVirtual = (row) => {
         tongTienCoMaRaw != null && tongTienCoMaRaw !== '' && !Number.isNaN(Number(tongTienCoMaRaw))
             ? Number(tongTienCoMaRaw)
             : 0;
-    const trackingCount = row?.tracking_code != null && String(row.tracking_code).trim() !== '' ? 1 : 0;
-    const lenVhCount = row?.shipping_unit != null && String(row.shipping_unit).trim() !== '' ? 1 : 0;
+    const trackingCount = meaningfulTrim(row?.tracking_code) !== '' ? 1 : 0;
+    const shippingUnitNorm = meaningfulTrim(row?.shipping_unit);
+    const lenVhCount = shippingUnitNorm !== '' ? 1 : 0;
     const ngay = normalizeYmd(row?.order_date) || normalizeYmd(row?.created_at);
     const checkResult = String(row?.check_result ?? '').trim() || '(Trống)';
     return {
@@ -104,6 +113,9 @@ const mapOrderRowToVirtual = (row) => {
         _tien_trang_thai_thanh_toan: { [paymentLabel]: paymentLabelIsCoBillOnly(paymentLabel) ? tongTienVnd : 0 },
         _tong_tien_vnd: tongTienCoMa,
         _ds_tong_tien_vnd: dsTongTienVnd,
+        /** BC VH: «lên vận hành» = có ĐVVC thật (không cộng dồn từ histogram — tránh lệch 1). */
+        _len_vh_don_vi: lenVhCount,
+        order_code: String(row?.order_code ?? '').trim(),
         'Ngày lên đơn': ngay,
         'NV Vận đơn': String(row?.delivery_staff ?? '').trim(),
         'Mặt hàng': String(row?.product ?? '').trim(),
@@ -127,6 +139,7 @@ const mapBaoCaoRowToVirtual = (row) => {
     return {
         _source: 'bao_cao',
         id: row.id,
+        order_code: String(row?.order_code ?? row?.['Mã đơn hàng'] ?? '').trim(),
         _ket_qua_check: row.ket_qua_check,
         _trang_thai_giao_hang: row.trang_thai_giao_hang,
         _trang_thai_thanh_toan: row.trang_thai_thanh_toan,
@@ -257,6 +270,8 @@ export default function BaoCaoVanHanhHtml() {
         const stored = readStoredBcvhRows();
         return stored || buildDefaultBcvhRows();
     });
+    /** Tab 2: drill-down danh sách đơn theo ô số đã bấm */
+    const [bcvhDrill, setBcvhDrill] = useState(null);
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
 
     const [showStaffDropdown, setShowStaffDropdown] = useState(false);
@@ -296,6 +311,15 @@ export default function BaoCaoVanHanhHtml() {
         if (showStaffDropdown) document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [showStaffDropdown]);
+
+    useEffect(() => {
+        if (!bcvhDrill) return;
+        const onKey = (e) => {
+            if (e.key === 'Escape') setBcvhDrill(null);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [bcvhDrill]);
 
     useEffect(() => {
         if (!urlStartDate || !urlEndDate) return;
@@ -442,7 +466,7 @@ export default function BaoCaoVanHanhHtml() {
         [ordersRowsForTrangThai, reportFilters.startDate, reportFilters.endDate]
     );
 
-    const { bcvhLines, bcvhTotal } = useMemo(() => {
+    const { bcvhLines, bcvhTotal, bcvhSlicesByRow } = useMemo(() => {
         // "TỔNG" phải theo đúng các dòng tiêu chí đang hiển thị trong tab 2.
         // Hiện tại bcvhTotal đang cộng rawData (bỏ qua product/market/start-end của từng dòng),
         // nên khi user sửa các dòng tiêu chí mà không bấm "Tìm", hàng "TỔNG" sẽ lệch.
@@ -455,7 +479,8 @@ export default function BaoCaoVanHanhHtml() {
             bcvhLines: lines,
             // Nếu nhiều dòng tiêu chí chồng lấn, phép cộng theo slice sẽ tự double-count,
             // tương tự cách Excel "tổng các hàng" (mỗi hàng là một breakdown riêng).
-            bcvhTotal: aggregateOperationalReportSlice(slicesByRow.flat())
+            bcvhTotal: aggregateOperationalReportSlice(slicesByRow.flat()),
+            bcvhSlicesByRow: slicesByRow
         };
     }, [rawData, bcvhCriteriaRows]);
 
@@ -505,32 +530,65 @@ export default function BaoCaoVanHanhHtml() {
         setBcvhCriteriaRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
     };
 
-    const renderBcvhMetricCells = (m) => (
+    const bcvhRowContextLabel = (line) => {
+        const p = String(line?.product ?? '').trim() || 'Tất cả';
+        const m = String(line?.market ?? '').trim() || 'Tất cả';
+        return `${p} / ${m}`;
+    };
+
+    const openBcvhDrill = (slice, metricId, rowCtx) => {
+        if (!slice || !metricId) return;
+        const rows = filterSliceByBcvhDrillMetric(slice, metricId);
+        setBcvhDrill({
+            title: `${rowCtx} — ${bcvhDrillMetricTitle(metricId)} (${rows.length} đơn)`,
+            rows
+        });
+    };
+
+    const renderBcvhDrillableCell = (slice, metricId, rowCtx, num) => (
+        <td className="bcvh-cell align-middle">
+            <button
+                type="button"
+                className="max-w-full cursor-pointer text-left font-inherit tabular-nums text-blue-800 underline decoration-dotted underline-offset-2 hover:text-blue-950"
+                onClick={() => openBcvhDrill(slice, metricId, rowCtx)}
+            >
+                {formatNumVi(num)}
+            </button>
+        </td>
+    );
+
+    const renderBcvhMetricCells = (m, slice, rowCtx) => (
         <>
-            <td className="bcvh-cell">{formatNumVi(m.donCoBill)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.donCoBillAmount)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.tongNoiBo)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.coMa)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.chuaCoMa)}</td>
+            {renderBcvhDrillableCell(slice, 'donCoBill', rowCtx, m.donCoBill)}
+            {renderBcvhDrillableCell(slice, 'donCoBillAmount', rowCtx, m.donCoBillAmount)}
+            {renderBcvhDrillableCell(slice, 'tongNoiBo', rowCtx, m.tongNoiBo)}
+            {renderBcvhDrillableCell(slice, 'tongDonLenVanHanh', rowCtx, m.tongDonLenVanHanh)}
+            {renderBcvhDrillableCell(slice, 'chuaCoMa', rowCtx, m.chuaCoMa)}
             <td className="bcvh-cell">{formatPctComma(m.tyLeVHNoiBo)}</td>
             <td className="bcvh-cell">{formatPctComma(m.tyLeTTTrenPhi)}</td>
             <td className="bcvh-cell">{formatPctComma(m.tyLeTTThanhCong)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.giaoTC)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.dangGiao)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.chuaGiao)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.hoan)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.huyVH)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.choCheck)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.tongThanhToanGiaoHangNb)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.huyNoiBo)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.doiHang)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.khachHen)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.treo)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.vanDonXL)}</td>
-            <td className="bcvh-cell">{formatNumVi(m.daCkChuaDay)}</td>
+            {renderBcvhDrillableCell(slice, 'giaoTC', rowCtx, m.giaoTC)}
+            {renderBcvhDrillableCell(slice, 'dangGiao', rowCtx, m.dangGiao)}
+            {renderBcvhDrillableCell(slice, 'chuaGiao', rowCtx, m.chuaGiao)}
+            {renderBcvhDrillableCell(slice, 'hoan', rowCtx, m.hoan)}
+            {renderBcvhDrillableCell(slice, 'huyVH', rowCtx, m.huyVH)}
+            {renderBcvhDrillableCell(slice, 'choCheck', rowCtx, m.choCheck)}
+            {renderBcvhDrillableCell(slice, 'tongThanhToanGiaoHangNb', rowCtx, m.tongThanhToanGiaoHangNb)}
+            {renderBcvhDrillableCell(slice, 'huyNoiBo', rowCtx, m.huyNoiBo)}
+            {renderBcvhDrillableCell(slice, 'doiHang', rowCtx, m.doiHang)}
+            {renderBcvhDrillableCell(slice, 'khachHen', rowCtx, m.khachHen)}
+            {renderBcvhDrillableCell(slice, 'treo', rowCtx, m.treo)}
+            {renderBcvhDrillableCell(slice, 'vanDonXL', rowCtx, m.vanDonXL)}
+            {renderBcvhDrillableCell(slice, 'daCkChuaDay', rowCtx, m.daCkChuaDay)}
             {BC_VH_PAYMENT_COLUMNS.map((c) => (
-                <td key={c.id} className="bcvh-cell">
-                    {formatNumVi(m.payment[c.id] || 0)}
+                <td key={c.id} className="bcvh-cell align-middle">
+                    <button
+                        type="button"
+                        className="max-w-full cursor-pointer text-left font-inherit tabular-nums text-blue-800 underline decoration-dotted underline-offset-2 hover:text-blue-950"
+                        onClick={() => openBcvhDrill(slice, `payment:${c.id}`, rowCtx)}
+                    >
+                        {formatNumVi(m.payment[c.id] || 0)}
+                    </button>
                 </td>
             ))}
         </>
@@ -1229,7 +1287,7 @@ export default function BaoCaoVanHanhHtml() {
                                     {formatNumVi(tab1Operational.coMaAmount)}
                                 </td>
                                 <td className="bg-[#F4B084] px-3 py-2 font-extrabold tabular-nums">
-                                    {formatSlVi(tab1Operational.dangGiao)}
+                                    {formatSlVi(tab1Operational.chuaCoMa)}
                                 </td>
                                 <td className="bg-[#F4B084] px-3 py-2 font-extrabold tabular-nums">
                                     {formatNumVi(tab1Operational.doanhSoDonChuaMa)}
@@ -1466,7 +1524,7 @@ export default function BaoCaoVanHanhHtml() {
                                         <br />
                                         CHƯA CÓ MÃ
                                         <br />
-                                        <span className="font-normal">(đang/chưa giao)</span>
+                                        <span className="font-normal">(đã lên VH, trống mã)</span>
                                     </th>
                                     <th colSpan={3} className="bcvh-h-yellow">
                                         TỶ LỆ
@@ -1528,11 +1586,23 @@ export default function BaoCaoVanHanhHtml() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {bcvhLines.map((line) => (
-                                    <tr key={line.id}>{renderBcvhMetricCells(line.metrics)}</tr>
+                                {bcvhLines.map((line, idx) => (
+                                    <tr key={line.id}>
+                                        {renderBcvhMetricCells(
+                                            line.metrics,
+                                            bcvhSlicesByRow[idx],
+                                            bcvhRowContextLabel(line)
+                                        )}
+                                    </tr>
                                 ))}
                                 {rawData.length > 0 && (
-                                    <tr className="bcvh-total-row">{renderBcvhMetricCells(bcvhTotal)}</tr>
+                                    <tr className="bcvh-total-row">
+                                        {renderBcvhMetricCells(
+                                            bcvhTotal,
+                                            bcvhSlicesByRow.flat(),
+                                            'TỔNG'
+                                        )}
+                                    </tr>
                                 )}
                             </tbody>
                         </table>
@@ -1548,6 +1618,120 @@ export default function BaoCaoVanHanhHtml() {
                     </div>
                 </div>
             )}
+
+            {bcvhDrill &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[10002] flex items-center justify-center bg-black/40 p-4"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="bcvh-drill-title"
+                        onMouseDown={(e) => {
+                            if (e.target === e.currentTarget) setBcvhDrill(null);
+                        }}
+                    >
+                        <div
+                            className="flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg bg-white shadow-xl select-text"
+                            onMouseDown={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex shrink-0 flex-col gap-1 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                <div className="min-w-0 select-text">
+                                    <h2 id="bcvh-drill-title" className="text-sm font-bold text-gray-900">
+                                        {bcvhDrill.title}
+                                    </h2>
+                                    <p className="mt-1 text-[11px] text-gray-500">
+                                        Bôi đen một hoặc nhiều ô (kéo qua nhiều dòng/cột), rồi Ctrl+C — dán vào Excel
+                                        được tách cột bằng tab.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="shrink-0 select-none rounded border border-gray-400 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    onClick={() => setBcvhDrill(null)}
+                                >
+                                    Đóng (Esc)
+                                </button>
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-auto p-4 select-text">
+                                {bcvhDrill.rows.length === 0 ? (
+                                    <p className="text-center text-sm text-gray-500 select-text">Không có đơn.</p>
+                                ) : (
+                                    <table className="bcvh-drill-table min-w-full border-collapse text-xs text-black">
+                                        <thead className="sticky top-0 z-[1] bg-gray-100">
+                                            <tr>
+                                                <th className="border border-gray-300 px-2 py-1.5 text-left">
+                                                    Mã đơn
+                                                </th>
+                                                <th className="border border-gray-300 px-2 py-1.5 text-left">
+                                                    Ngày lên đơn
+                                                </th>
+                                                <th className="border border-gray-300 px-2 py-1.5 text-left">
+                                                    Mặt hàng
+                                                </th>
+                                                <th className="border border-gray-300 px-2 py-1.5 text-left">
+                                                    Khu vực
+                                                </th>
+                                                <th className="border border-gray-300 px-2 py-1.5 text-left">
+                                                    NV vận đơn
+                                                </th>
+                                                <th className="border border-gray-300 px-2 py-1.5 text-left">
+                                                    Kết quả check
+                                                </th>
+                                                <th className="border border-gray-300 px-2 py-1.5 text-left">
+                                                    Giao hàng NB
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {bcvhDrill.rows.map((r) => {
+                                                const code =
+                                                    (r.order_code && String(r.order_code).trim()) ||
+                                                    String(r.id ?? '');
+                                                return (
+                                                    <tr key={String(r.id)} className="hover:bg-gray-50">
+                                                        <td className="border border-gray-300 px-2 py-1.5 align-top">
+                                                            <span className="font-medium text-gray-900">
+                                                                {code || '—'}
+                                                            </span>
+                                                            {r._source === 'orders' && code ? (
+                                                                <Link
+                                                                    to="/van-don"
+                                                                    className="ml-2 inline-block align-baseline text-[11px] text-blue-700 hover:underline"
+                                                                    onClick={() => setBcvhDrill(null)}
+                                                                >
+                                                                    Mở
+                                                                </Link>
+                                                            ) : null}
+                                                        </td>
+                                                        <td className="whitespace-nowrap border border-gray-300 px-2 py-1.5">
+                                                            {r['Ngày lên đơn'] || '—'}
+                                                        </td>
+                                                        <td className="border border-gray-300 px-2 py-1.5">
+                                                            {r['Mặt hàng'] || '—'}
+                                                        </td>
+                                                        <td className="border border-gray-300 px-2 py-1.5">
+                                                            {r['khu vực'] || '—'}
+                                                        </td>
+                                                        <td className="border border-gray-300 px-2 py-1.5">
+                                                            {r['NV Vận đơn'] || '—'}
+                                                        </td>
+                                                        <td className="max-w-[200px] whitespace-pre-wrap border border-gray-300 px-2 py-1.5">
+                                                            {r['Kết quả check'] ?? '—'}
+                                                        </td>
+                                                        <td className="max-w-[220px] border border-gray-300 px-2 py-1.5 text-[11px] whitespace-pre-wrap">
+                                                            {r['Trạng thái giao hàng NB'] ?? '—'}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )}
 
             {/* Tab 3 — Thống Kê Đơn (matrix) */}
             {activeTab === 'tab3' && (

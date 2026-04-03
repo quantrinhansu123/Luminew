@@ -2,7 +2,8 @@
 .bcvh-wrap {
     font-family: Arial, Helvetica, sans-serif;
     font-size: 14px;
-    overflow: hidden; /* Không cho thanh kéo ngang chạy ra ngoài khung bảng */
+    overflow: hidden; /* cuộn ngang trong .bcvh-scroll-metric, không để bảng tràn card */
+    max-width: 100%;
     --bcvh-head-row-1-height: 43px;
 }
 
@@ -38,7 +39,8 @@
 .bcvh-scroll-metric {
     overflow-x: auto;
     overflow-y: scroll; /* luôn hiện thanh dọc ở pane phải */
-    scrollbar-gutter: stable both-edges; /* giữ chỗ thanh dọc, tránh bị "mất" */
+    /* both-edges: thu hẹp viewport ngang → kéo hết scrollLeft vẫn thấy thiếu cột phải */
+    scrollbar-gutter: stable;
     scrollbar-width: auto;
 }
 
@@ -132,10 +134,16 @@
 /* Vùng cuộn dành riêng cho tab2 — sticky chỉ hoạt động trong scroll container này. */
 .bcvh-scroll {
     position: relative;
-    max-width: 100%;
+    min-width: 0; /* flex: cho phép co — max-width:100% từng gây cắt scrollWidth */
     overflow-x: auto; /* Giữ logic cuộn ngang chuẩn cho bảng */
     overflow-y: auto;
     isolation: isolate;
+}
+
+/* Thêm phạm vi cuộn ngang/dọc: cột cuối + hàng cuối không nằm dưới thanh scrollbar */
+.bcvh-scroll-metric .bcvh-metric-table {
+    margin-right: 20px;
+    margin-bottom: 12px;
 }
 
 /* Lớp dùng chung cho cả th và td cần cố định */
@@ -394,4 +402,26 @@ td.fixed-column {
 .bcvh-pill-market-other {
     background: #9FB3C8;
     color: #000;
+}
+
+/* Modal drill-down: ghi đè `table { user-select: none }` từ selection.css (FFM/Vận đơn) — bôi đen nhiều ô + Ctrl+C */
+table.bcvh-drill-table {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+}
+
+table.bcvh-drill-table td,
+table.bcvh-drill-table th {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+    cursor: text;
+}
+
+table.bcvh-drill-table td:hover,
+table.bcvh-drill-table th:hover {
+    cursor: text;
 }

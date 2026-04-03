@@ -499,11 +499,12 @@ function sanitizeLogJsonbForSupabase(arr) {
  * Lưới vận đơn sửa "Nhật ký" dạng text (formatOrderLogJsonbForDisplay).
  * Luôn merge thêm bản ghi khi còn nội dung — tránh bỏ qua do lệch so khớp chuỗi với DB.
  */
-async function resolveOrderLogJsonbAfterGridEdit(orderCode, newDisplayText, modifiedBy) {
+async function resolveOrderLogJsonbAfterGridEdit(orderCode, newDisplayText, modifiedBy, sourceTable = 'orders') {
     const oc = String(orderCode ?? '').trim();
     if (!oc) throw new Error('Thiếu mã đơn hàng khi lưu Nhật ký.');
+    const table = String(sourceTable || 'orders').trim() || 'orders';
     const newStr = normalizeVanDonLogDisplayText(newDisplayText);
-    const { data: row, error } = await supabase.from('orders').select('log').eq('order_code', oc).maybeSingle();
+    const { data: row, error } = await supabase.from(table).select('log').eq('order_code', oc).maybeSingle();
     if (error) throw error;
     const prev = parseOrderLogJsonb(row?.log);
     const oldFmt = normalizeVanDonLogDisplayText(formatOrderLogJsonbForDisplay(row?.log));
@@ -521,17 +522,18 @@ async function resolveOrderLogJsonbAfterGridEdit(orderCode, newDisplayText, modi
     return sanitizeLogJsonbForSupabase(mergeOrderLogJsonb(prev, [entry]));
 }
 
-export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy) => {
+export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy, options = {}) => {
     try {
         const oid = String(orderId ?? '').trim();
         if (!oid) throw new Error('Thiếu mã đơn hàng.');
+        const sourceTable = String(options?.sourceTable || 'orders').trim() || 'orders';
 
         const dbKey = resolveAppKeyToDbKey(columnKey);
         if (!dbKey) throw new Error(`Không tìm thấy cột tương ứng trong DB cho: ${columnKey}`);
 
         let formattedValue;
         if (dbKey === 'log') {
-            formattedValue = await resolveOrderLogJsonbAfterGridEdit(oid, newValue, modifiedBy);
+            formattedValue = await resolveOrderLogJsonbAfterGridEdit(oid, newValue, modifiedBy, sourceTable);
         } else {
             formattedValue = prepareValueForDB(dbKey, newValue);
         }
@@ -542,7 +544,7 @@ export const updateSingleCell = async (orderId, columnKey, newValue, modifiedBy)
         }
 
         /** Không dùng `.select()` sau update — nhiều project RLS cho phép UPDATE nhưng trả về 0 dòng khi RETURNING. */
-        const { error } = await supabase.from('orders').update(updatePayload).eq('order_code', oid);
+        const { error } = await supabase.from(sourceTable).update(updatePayload).eq('order_code', oid);
 
         if (error) throw error;
 
@@ -574,8 +576,11 @@ export const fetchFFMOrdersBatch = async ({
     trackedFrom = 0,
     pageSize = 1000,
     mgtExhausted: mgtSkip = false,
-    trackedExhausted: trackedSkip = false
+    trackedExhausted: trackedSkip = false,
+    /** @type {string} Cùng schema `orders` (vd. `order_code_hcm` cho FFM MGT HCM). */
+    ordersTable = 'orders'
 } = {}) => {
+    const table = String(ordersTable || 'orders').trim() || 'orders';
     const mode = getDataSourceMode();
     if (mode === 'test') {
         const mock = [
@@ -604,7 +609,7 @@ export const fetchFFMOrdersBatch = async ({
     const mgtPromise = mgtSkip
         ? Promise.resolve({ data: [], error: null })
         : supabase
-              .from('orders')
+              .from(table)
               .select('*')
               .or('shipping_unit.ilike.%MGT%,shipping_unit.ilike.%T&T%')
               .order('order_date', { ascending: false })
@@ -613,7 +618,7 @@ export const fetchFFMOrdersBatch = async ({
     const trackedPromise = trackedSkip
         ? Promise.resolve({ data: [], error: null })
         : supabase
-              .from('orders')
+              .from(table)
               .select('*')
               .not('tracking_code', 'is', null)
               .neq('tracking_code', '')
@@ -670,7 +675,7 @@ export const fetchMGTNoiBoOrders = async () => {
 };
 
 /** Tải toàn bộ FFM (lặp batch) — ưu tiên dùng fetchFFMOrdersBatch + gộp phía UI để hiện từng lô. */
-export const fetchFFMOrders = async () => {
+export const fetchFFMOrders = async ({ ordersTable = 'orders' } = {}) => {
     const merge = new Map();
     let state = {
         mgtFrom: 0,
@@ -688,7 +693,8 @@ export const fetchFFMOrders = async () => {
                 trackedFrom: state.trackedFrom,
                 pageSize,
                 mgtExhausted: state.mgtExhausted,
-                trackedExhausted: state.trackedExhausted
+                trackedExhausted: state.trackedExhausted,
+                ordersTable
             });
             for (const r of b.rows) {
                 if (r?.[PRIMARY_KEY_COLUMN]) merge.set(r[PRIMARY_KEY_COLUMN], r);
@@ -801,7 +807,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                 }
             } else if (Object.prototype.hasOwnProperty.call(payload, 'log')) {
                 const rawLog = payload.log;
-                payload.log = await resolveOrderLogJsonbAfterGridEdit(oc, rawLog, modifiedBy);
+                payload.log = await resolveOrderLogJsonbAfterGridEdit(oc, rawLog, modifiedBy, sourceTable);
             }
 
             const keys = Object.keys(payload).filter((k) => k !== 'last_modified_by');
@@ -890,6 +896,28 @@ function addOneCalendarDayYmd(ymd) {
 
 function escapeIlikePattern(s) {
     return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/** Cột dropdown trên /van-don: `.in()` / `.eq()` phân biệt hoa thường → DB `treo` không khớp UI `Treo`. Dùng ILIKE không wildcard = so khớp cả chuỗi, không phân biệt hoa thường. */
+const VAN_DON_ILIKE_EXACT_DB_COLS = new Set([
+    'check_result',
+    'delivery_status',
+    'delivery_status_nb',
+    'payment_status',
+    'cskh_status',
+    'payment_bill',
+    'note_caps',
+    'vandon_note',
+]);
+
+/** Ghép điều kiện `col.ilike.val` cho `.or()` (PostgREST). */
+function buildVanDonOrIlikeExact(field, values) {
+    return values
+        .map((v) => {
+            const esc = escapeIlikePattern(String(v).trim());
+            return `${field}.ilike.${esc}`;
+        })
+        .join(',');
 }
 
 /** @param {string} uiKey — khóa trong filterValues (tiêu đề cột). */
@@ -1025,11 +1053,21 @@ export const fetchVanDon = async (options = {}) => {
                       ? [value]
                       : [];
 
+                const useIlikeExact = VAN_DON_ILIKE_EXACT_DB_COLS.has(field);
+
                 if (inValues.length > 0 && hasEmpty) {
-                    const enc = orEncodeInList(inValues);
-                    query = query.or(`${field}.in.(${enc}),${field}.is.null,${field}.eq.`);
+                    if (useIlikeExact) {
+                        query = query.or(`${buildVanDonOrIlikeExact(field, inValues)},${field}.is.null,${field}.eq.`);
+                    } else {
+                        const enc = orEncodeInList(inValues);
+                        query = query.or(`${field}.in.(${enc}),${field}.is.null,${field}.eq.`);
+                    }
                 } else if (inValues.length > 0) {
-                    query = query.in(field, inValues);
+                    if (useIlikeExact) {
+                        query = query.or(buildVanDonOrIlikeExact(field, inValues));
+                    } else {
+                        query = query.in(field, inValues);
+                    }
                 } else if (hasEmpty) {
                     query = query.or(`${field}.is.null,${field}.eq.`);
                 }
@@ -1117,7 +1155,11 @@ export const fetchVanDon = async (options = {}) => {
                         const next = addOneCalendarDayYmd(day);
                         query = query.gte(dbCol, `${day}T00:00:00`).lt(dbCol, `${next}T00:00:00`);
                     } else if (isVanDonDropdownColumnFilter(uiKey)) {
-                        query = query.eq(dbCol, t);
+                        if (VAN_DON_ILIKE_EXACT_DB_COLS.has(dbCol)) {
+                            query = query.ilike(dbCol, escapeIlikePattern(t));
+                        } else {
+                            query = query.eq(dbCol, t);
+                        }
                     } else {
                         const esc = escapeIlikePattern(t);
                         query = query.filter(`${dbCol}::text`, 'ilike', `%${esc}%`);
@@ -1157,7 +1199,7 @@ export const fetchVanDon = async (options = {}) => {
                                 .map((s) => s.trim())
                                 .filter(Boolean);
                             if (codes.length > 0) {
-                                query = query.in('tracking_code', codes);
+                                query = query.or(buildVanDonOrIlikeExact('tracking_code', codes));
                             }
                         } else {
                             const escInc = escapeIlikePattern(incTrim);
@@ -1170,24 +1212,68 @@ export const fetchVanDon = async (options = {}) => {
             return query;
         };
 
+        /** Đọc giá trị SUM từ PostgREST (maybeSingle / mảng 1 phần tử / khóa lạ). */
+        const pickPostgrestAggregateSum = (data) => {
+            if (data == null) return null;
+            if (typeof data === 'number') return Number.isFinite(data) ? data : null;
+            if (Array.isArray(data)) {
+                if (data.length === 1) return pickPostgrestAggregateSum(data[0]);
+                return null;
+            }
+            if (typeof data === 'object') {
+                const s = data.sum;
+                if (s != null && s !== '' && Number.isFinite(Number(s))) return Number(s);
+                for (const v of Object.values(data)) {
+                    if (v != null && v !== '' && typeof v !== 'object') {
+                        const n = Number(v);
+                        if (Number.isFinite(n)) return n;
+                    }
+                }
+            }
+            return null;
+        };
+
         const loadVanDonFromTable = async (tableName) => {
             const baseData = applyVanDonFilters(supabase.from(tableName).select(VAN_DON_SELECT_QUERY, { count: 'exact' }));
-            const baseSum = applyVanDonFilters(supabase.from(tableName).select('total_amount_vnd.sum()'));
+            /** SUM trên bảng vật lý: view `van_don_page` có thể chưa có cột generated `van_don_line_total_vnd`. */
+            const sumFromTable = tableName === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
+            const sumPreferredQ = applyVanDonFilters(
+                supabase.from(sumFromTable).select('van_don_line_total_vnd.sum()')
+            );
+            const sumLegacyQ = applyVanDonFilters(
+                supabase.from(sumFromTable).select('total_amount_vnd.sum()')
+            );
 
-            const [listRes, sumRes] = await Promise.all([
+            const [listRes, sumPreferredRes, sumLegacyRes] = await Promise.all([
                 baseData.range(pageFrom, pageTo).order('order_date', { ascending: false }),
-                baseSum.maybeSingle(),
+                sumPreferredQ.maybeSingle(),
+                sumLegacyQ.maybeSingle(),
             ]);
 
-            const rawSum = sumRes.data?.sum;
-            const totalAmountVndSum =
-                rawSum != null && rawSum !== '' && Number.isFinite(Number(rawSum)) ? Number(rawSum) : 0;
+            const preferredErr = sumPreferredRes.error;
+            const lineMissing =
+                preferredErr &&
+                (String(preferredErr.message || '').toLowerCase().includes('van_don_line_total_vnd') ||
+                    String(preferredErr.code || '') === '42703');
+
+            let totalAmountVndSum = null;
+            const lineRaw = pickPostgrestAggregateSum(sumPreferredRes.data);
+            if (!lineMissing && lineRaw != null) {
+                totalAmountVndSum = lineRaw;
+            }
+            if (totalAmountVndSum == null) {
+                const leg = pickPostgrestAggregateSum(sumLegacyRes.data);
+                if (leg != null) totalAmountVndSum = leg;
+            }
+            if (totalAmountVndSum == null) totalAmountVndSum = 0;
+
+            const sumError = lineMissing ? sumLegacyRes.error : preferredErr || sumLegacyRes.error;
 
             return {
                 data: listRes.data,
                 error: listRes.error,
                 count: listRes.count,
-                sumError: sumRes.error,
+                sumError,
                 totalAmountVndSum,
             };
         };

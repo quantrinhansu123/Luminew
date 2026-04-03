@@ -48,6 +48,19 @@ function sumKeyMatch(histogram, pred) {
     return s;
 }
 
+/** Giống `sumKeyMatch` nhưng chỉ trên nhãn thật của cột «Trạng thái giao hàng NB» (bỏ Mã Tracking / Lên vận hành). */
+function sumKeyMatchTrangThaiNb(histogram, pred) {
+    const o = parseBaoCaoVanDonHistogram(histogram);
+    let s = 0;
+    for (const [k, raw] of Object.entries(o)) {
+        const n = Number(raw) || 0;
+        if (n <= 0) continue;
+        if (isGiaoHangHistogramSyntheticKey(k)) continue;
+        if (pred(k)) s += n;
+    }
+    return s;
+}
+
 const normalizeCheckLabel = (value) =>
     String(value ?? '')
         .normalize('NFD')
@@ -55,6 +68,14 @@ const normalizeCheckLabel = (value) =>
         .toLowerCase()
         .trim()
         .replace(/\s+/g, ' ');
+
+/** «Treo»: không dùng includes('treo') — nhãn «Không treo» chuẩn hóa vẫn chứa "treo" → đếm thừa. */
+const checkLabelIsTreoOnly = (key) => {
+    const nk = normalizeCheckLabel(key);
+    if (nk === 'treo') return true;
+    if (/^treo(\s|[\/\-]|$)/.test(nk)) return true;
+    return false;
+};
 
 function sumDeliveryBucket(delH, bucketName) {
     const o = parseBaoCaoVanDonHistogram(delH);
@@ -140,7 +161,6 @@ export function aggregateOperationalReportSlice(slice) {
     });
 
     let tongNoiBo = 0;
-    let ok = 0;
     let treo = 0;
     let doiHang = 0;
     let huyNoiBo = 0;
@@ -149,6 +169,8 @@ export function aggregateOperationalReportSlice(slice) {
     let donCoBill = 0;
     let donCoBillAmount = 0;
     let coMa = 0;
+    /** Tab2 «TỔNG ĐƠN LÊN VẬN HÀNH»: đơn có đơn vị giao hàng / shipping_unit khác trống (histogram «Lên vận hành»). */
+    let tongDonLenVanHanh = 0;
     /** Tổng tiền (tong_tien_vnd, fallback total_amount_vnd trên virtual row) cho đúng các đơn được tính vào coMa. */
     let coMaAmount = 0;
     let giaoTC = 0;
@@ -157,6 +179,7 @@ export function aggregateOperationalReportSlice(slice) {
     let hoan = 0;
     let huyVH = 0;
     let choCheck = 0;
+    /** «Tổng đơn chưa mã» (tab2) = tab1 «đẩy VH chưa mã»: lên vận hành (có ĐVVC) nhưng trống mã tracking. */
     let chuaCoMa = 0;
     let daCkChuaDay = 0;
     /** Doanh số (chỉ tong_tien_vnd qua _ds_tong_tien_vnd): có «Lên vận hành»/đơn vị VC nhưng chưa có mã tracking. */
@@ -167,33 +190,48 @@ export function aggregateOperationalReportSlice(slice) {
     for (const r of slice) {
         // Tổng đơn nội bộ mới: đếm trực tiếp số đơn theo bộ lọc (mỗi row = 1 đơn).
         tongNoiBo += 1;
-        ok += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok');
-        treo += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('treo'));
-        doiHang += sumKeyMatch(
-            r._ket_qua_check,
-            (k) => normalizeCheckLabel(k).includes('doi hang')
-        );
-        huyNoiBo += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy'));
-        khachHen += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen'));
-        vanDonXL += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('van don xl'));
+
+        const maTrackingCount = sumMaTracking(r._trang_thai_giao_hang);
+        const hasMaTracking = maTrackingCount > 0;
+        // Orders: theo `shipping_unit` (virtual `_len_vh_don_vi`); bao_cao: histogram «Lên vận hành».
+        const lenVhDonVi =
+            r._source === 'orders' ? Number(r._len_vh_don_vi) || 0 : sumLenVanHanh(r._trang_thai_giao_hang);
+        const chuaLenVh = lenVhDonVi <= 0;
+
+        // Khối «TỔNG ĐƠN CHƯA LÊN VẬN HÀNH»: chỉ đơn chưa có ĐVVC (chưa lên VH) — tránh cộng thừa đơn đã có shipping_unit.
+        if (chuaLenVh) {
+            treo += sumKeyMatchTrangThaiNb(r._trang_thai_giao_hang, (k) => checkLabelIsTreoOnly(k));
+            doiHang += sumKeyMatch(
+                r._ket_qua_check,
+                (k) => normalizeCheckLabel(k).includes('doi hang')
+            );
+            huyNoiBo += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy'));
+            khachHen += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen'));
+            vanDonXL += sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('van don xl'));
+            if (
+                sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0 &&
+                !hasMaTracking
+            ) {
+                daCkChuaDay += 1;
+            }
+        }
+
         donCoBill += sumDonCoBillFullCount(r._trang_thai_thanh_toan);
         donCoBillAmount += sumDonCoBillFullAmount(r._tien_trang_thai_thanh_toan);
         mergePaymentHistogramIntoBuckets(r._trang_thai_thanh_toan, payBuckets);
 
-        // Cột «Đơn có mã» (tab1): đồng bộ đếm với bucket "Lên vận hành" (có shipping_unit).
-        const lenVh = sumLenVanHanh(r._trang_thai_giao_hang);
-        coMa += lenVh;
-        if (lenVh > 0) {
+        if (lenVhDonVi > 0) {
+            tongDonLenVanHanh += 1;
+        }
+
+        // «Đơn có mã»: có mã tracking (orders.tracking_code / histogram «Mã Tracking»).
+        if (hasMaTracking) {
+            coMa += 1;
             coMaAmount += Number(r._tong_tien_vnd ?? 0) || 0;
         }
-        // Cột «Tổng đơn chưa có mã»: đếm đơn có "Mã Tracking" = 0 (trống).
-        const maTrackingCount = sumMaTracking(r._trang_thai_giao_hang);
-        if (maTrackingCount <= 0) chuaCoMa += 1;
-        if (lenVh > 0 && maTrackingCount <= 0) {
+        if (lenVhDonVi > 0 && !hasMaTracking) {
+            chuaCoMa += 1;
             doanhSoDonChuaMa += Number(r._ds_tong_tien_vnd ?? 0) || 0;
-        }
-        if (sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0 && maTrackingCount <= 0) {
-            daCkChuaDay += 1;
         }
         giaoTC += sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công');
         dangGiao += sumDeliveryBucket(r._trang_thai_giao_hang, 'Đang Giao');
@@ -204,7 +242,7 @@ export function aggregateOperationalReportSlice(slice) {
         tongThanhToanGiaoHangNb += sumBaoCaoVanDonHistogramValues(r._tien_trang_thai_thanh_toan);
     }
 
-    const tyLeVHNoiBo = tongNoiBo > 0 ? (100 * coMa) / tongNoiBo : null;
+    const tyLeVHNoiBo = tongNoiBo > 0 ? (100 * tongDonLenVanHanh) / tongNoiBo : null;
     const tyLeTTTrenPhi = coMa > 0 ? (100 * donCoBill) / coMa : null;
     const tyLeTTThanhCong = giaoTC > 0 ? (100 * donCoBill) / giaoTC : null;
 
@@ -214,6 +252,7 @@ export function aggregateOperationalReportSlice(slice) {
         donCoBillAmount,
         coMa,
         coMaAmount,
+        tongDonLenVanHanh,
         chuaCoMa,
         tyLeVHNoiBo,
         tyLeTTTrenPhi,
@@ -400,4 +439,133 @@ export function expandBcvhCriteriaRowsFromRawData(prevRows, rawRows, newRowId) {
     }
 
     return changed ? next : prevRows;
+}
+
+function rowLenVhDonViForDrill(r) {
+    return r._source === 'orders' ? Number(r._len_vh_don_vi) || 0 : sumLenVanHanh(r._trang_thai_giao_hang);
+}
+
+function rowChuaLenVhForDrill(r) {
+    return rowLenVhDonViForDrill(r) <= 0;
+}
+
+function rowHasMaTrackingForDrill(r) {
+    return sumMaTracking(r._trang_thai_giao_hang) > 0;
+}
+
+function rowMatchesPaymentCol(r, col) {
+    const o = parseBaoCaoVanDonHistogram(r._trang_thai_thanh_toan);
+    for (const [k, raw] of Object.entries(o)) {
+        if (Number(raw) > 0 && col.test(k)) return true;
+    }
+    return false;
+}
+
+/** Tiêu đề drill-down theo `metricId` (trừ payment — dùng `bcvhDrillMetricTitle`). */
+export const BCVH_DRILL_METRIC_LABELS = {
+    donCoBill: 'Đã thanh toán (có bill) — Số đơn',
+    donCoBillAmount: 'Đã thanh toán (có bill) — Thành tiền',
+    tongNoiBo: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ',
+    tongDonLenVanHanh: 'TỔNG ĐƠN LÊN VẬN HÀNH',
+    chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (đã lên VH, trống mã)',
+    giaoTC: 'Giao thành công',
+    dangGiao: 'Đang giao',
+    chuaGiao: 'Chưa giao',
+    hoan: 'Hoàn',
+    huyVH: 'Hủy vận hành',
+    choCheck: 'Chờ check',
+    tongThanhToanGiaoHangNb: 'Tổng thanh toán giao hàng NB',
+    huyNoiBo: 'Huỷ nội bộ',
+    doiHang: 'Đợi hàng',
+    khachHen: 'Khách hẹn',
+    treo: 'Treo',
+    vanDonXL: 'Vận đơn XL',
+    daCkChuaDay: 'Đơn Ok nhưng chưa có mã'
+};
+
+export function bcvhDrillMetricTitle(metricId) {
+    if (metricId && String(metricId).startsWith('payment:')) {
+        const pid = String(metricId).slice('payment:'.length);
+        return BC_VH_PAYMENT_COLUMNS.find((c) => c.id === pid)?.label ?? metricId;
+    }
+    return BCVH_DRILL_METRIC_LABELS[metricId] ?? metricId;
+}
+
+/**
+ * Danh sách đơn (virtual row) khớp một ô số BC Vận hành — cùng rule `aggregateOperationalReportSlice`.
+ * @param {string} metricId — key metric hoặc `payment:${id}` (theo BC_VH_PAYMENT_COLUMNS)
+ */
+export function filterSliceByBcvhDrillMetric(slice, metricId) {
+    if (!slice?.length) return [];
+    switch (metricId) {
+        case 'tongNoiBo':
+            return [...slice];
+        case 'donCoBill':
+        case 'donCoBillAmount':
+            return slice.filter((r) => sumDonCoBillFullCount(r._trang_thai_thanh_toan) > 0);
+        case 'tongDonLenVanHanh':
+            return slice.filter((r) => rowLenVhDonViForDrill(r) > 0);
+        case 'chuaCoMa':
+            return slice.filter((r) => rowLenVhDonViForDrill(r) > 0 && !rowHasMaTrackingForDrill(r));
+        case 'giaoTC':
+            return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công') > 0);
+        case 'dangGiao':
+            return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Đang Giao') > 0);
+        case 'chuaGiao':
+            return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Chưa Giao') > 0);
+        case 'hoan':
+            return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Hoàn') > 0);
+        case 'huyVH':
+            return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Hủy') > 0);
+        case 'choCheck':
+            return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'chờ check') > 0);
+        case 'tongThanhToanGiaoHangNb':
+            return slice.filter((r) => sumBaoCaoVanDonHistogramValues(r._tien_trang_thai_thanh_toan) > 0);
+        case 'huyNoiBo':
+            return slice.filter(
+                (r) =>
+                    rowChuaLenVhForDrill(r) &&
+                    sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('huy')) > 0
+            );
+        case 'doiHang':
+            return slice.filter(
+                (r) =>
+                    rowChuaLenVhForDrill(r) &&
+                    sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('doi hang')) > 0
+            );
+        case 'khachHen':
+            return slice.filter(
+                (r) =>
+                    rowChuaLenVhForDrill(r) &&
+                    sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('khach hen')) > 0
+            );
+        case 'treo':
+            return slice.filter(
+                (r) =>
+                    rowChuaLenVhForDrill(r) &&
+                    sumKeyMatchTrangThaiNb(r._trang_thai_giao_hang, (k) => checkLabelIsTreoOnly(k)) > 0
+            );
+        case 'vanDonXL':
+            return slice.filter(
+                (r) =>
+                    rowChuaLenVhForDrill(r) &&
+                    sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k).includes('van don xl')) > 0
+            );
+        case 'daCkChuaDay':
+            return slice.filter(
+                (r) =>
+                    rowChuaLenVhForDrill(r) &&
+                    !rowHasMaTrackingForDrill(r) &&
+                    sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0
+            );
+        default: {
+            if (metricId && String(metricId).startsWith('payment:')) {
+                const pid = String(metricId).slice('payment:'.length);
+                const col = BC_VH_PAYMENT_COLUMNS.find((c) => c.id === pid);
+                if (!col) return [];
+                return slice.filter((r) => rowMatchesPaymentCol(r, col));
+            }
+            return [];
+        }
+    }
 }

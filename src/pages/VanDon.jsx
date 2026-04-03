@@ -102,6 +102,36 @@ function getVanDonGridCellValue(row, colHeader) {
   return '';
 }
 
+/** Một dòng tiền cho header «Tổng tiền»: khớp thứ tự ưu tiên với DB / lưới (kể cả tong_tien_vnd, format VN). */
+function pickVanDonRowMoneyVnd(row) {
+  if (!row) return 0;
+  const candidates = [
+    getVanDonGridCellValue(row, 'Tổng tiền VNĐ'),
+    row['Tổng tiền VNĐ'],
+    row.tong_tien_vnd,
+    row.total_amount_vnd,
+    getVanDonGridCellValue(row, 'Giá bán'),
+    row['Giá bán'],
+    row.sale_price,
+    row.goods_amount,
+  ];
+  for (let i = 0; i < candidates.length; i++) {
+    const raw = candidates[i];
+    if (raw === undefined || raw === null) continue;
+    if (typeof raw === 'string' && raw.trim() === '') continue;
+    const n = parseVietnameseMoneyToNumber(raw);
+    if (n != null && Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
+function sumVanDonRowsMoneyVnd(rows) {
+  if (!rows?.length) return 0;
+  let s = 0;
+  for (let i = 0; i < rows.length; i++) s += pickVanDonRowMoneyVnd(rows[i]);
+  return s;
+}
+
 /**
  * Mã đơn chuẩn cho một dòng — luôn string đã trim.
  * PendingChanges dùng Map theo mã đơn: nếu nhiều dòng cùng `undefined`/'' hoặc number vs "123" không khớp,
@@ -3040,16 +3070,15 @@ function VanDon({ dataSource = 'default' }) {
   }, [selectionBounds, paginatedData, currentColumns]);
 
   const totalMoney = useMemo(() => {
-    if (useBackendPagination) {
-      const n = Number(totalAmountVndSumFromServer);
-      return Number.isFinite(n) ? n : 0;
+    if (!useBackendPagination) {
+      return getFilteredData.reduce((sum, row) => sum + pickVanDonRowMoneyVnd(row), 0);
     }
-    return getFilteredData.reduce((sum, row) => {
-      let val = row["Tổng tiền VNĐ"] || row["Tổng_tiền_VNĐ"] || row["Giá bán"] || 0;
-      const num = parseFloat(String(val).replace(/[^\d.-]/g, "")) || 0;
-      return sum + num;
-    }, 0);
-  }, [useBackendPagination, totalAmountVndSumFromServer, getFilteredData]);
+    const server = Number(totalAmountVndSumFromServer);
+    const pageSum = sumVanDonRowsMoneyVnd(paginatedData);
+    if (Number.isFinite(server) && server > 0) return server;
+    /** Server SUM = 0 (RLS, cột generated lỗi, tong_tien_vnd=0 cũ…): hiển thị tổng tiền các dòng đang có trên lưới. */
+    return pageSum;
+  }, [useBackendPagination, totalAmountVndSumFromServer, getFilteredData, paginatedData]);
   const totalOrdersCount = useBackendPagination ? totalRecords : getFilteredData.length;
 
   const teams = Array.from(new Set(allData.map(r => r[TEAM_COLUMN_NAME]).filter(Boolean))).sort();

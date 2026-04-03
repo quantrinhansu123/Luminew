@@ -33,6 +33,7 @@ import DonChiaCSKH from './pages/DonChiaCSKH';
 import ExternalView from './pages/ExternalView';
 import F3Report from './pages/F3Report';
 import FFM from './pages/FFM';
+import FFMMgtHcm from './pages/FFMMgtHcm';
 import DienBill from './pages/DienBill';
 import DoiSoatBillCuoc from './pages/DoiSoatBillCuoc';
 import QuanLyTyGia from './pages/QuanLyTyGia';
@@ -277,6 +278,7 @@ function AppShell() {
             <Route path="/test-mkt" element={<ProtectedRoute><TestMKT /></ProtectedRoute>} />
             <Route path="/test-bao-cao-orders" element={<ProtectedRoute><TestBaoCaoOrders /></ProtectedRoute>} />
             <Route path="/ffm_MGT" element={<ProtectedRoute><FFM variant="MGT" /></ProtectedRoute>} />
+            <Route path="/ffm_MGT-hcm" element={<ProtectedRoute><FFMMgtHcm /></ProtectedRoute>} />
             <Route path="/ffm_TT" element={<ProtectedRoute><FFM variant="TT" /></ProtectedRoute>} />
             <Route path="/ffm" element={<Navigate to="/ffm_MGT" replace />} />
             <Route path="/dien-bill" element={<ProtectedRoute><DienBill /></ProtectedRoute>} />

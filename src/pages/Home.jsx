@@ -33,6 +33,7 @@ import {
 import { useEffect, useState, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ChangePasswordModal } from "../components/modals/ChangePasswordModal";
+import FfmMgtHcmIcon from "../components/icons/FfmMgtHcmIcon";
 
 import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "../supabase/config";
@@ -378,6 +379,13 @@ function Home() {
           icon: <ClipboardList className="w-4 h-4" />,
           path: "/ffm_MGT",
           permission: 'ORDERS_FFM_MGT',
+        },
+        {
+          id: "ffm-mgt-hcm",
+          label: "ffm_MGT-hcm",
+          icon: <FfmMgtHcmIcon className="w-4 h-4" />,
+          path: "/ffm_MGT-hcm",
+          permissionAny: ['ORDERS_FFM_MGT_HCM', 'ORDERS_FFM_MGT'],
         },
         {
           id: "ffm-tt",
@@ -1015,6 +1023,14 @@ function Home() {
           path: "/ffm_MGT",
           status: "Mở ứng dụng",
           permission: 'ORDERS_FFM_MGT',
+        },
+        {
+          title: "ffm_MGT-hcm",
+          icon: <FfmMgtHcmIcon className="w-8 h-8" />,
+          color: "bg-indigo-600",
+          path: "/ffm_MGT-hcm",
+          status: "Mở ứng dụng",
+          permissionAny: ['ORDERS_FFM_MGT_HCM', 'ORDERS_FFM_MGT'],
         },
         {
           title: "FFM_TT",
