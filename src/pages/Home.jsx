@@ -34,6 +34,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ChangePasswordModal } from "../components/modals/ChangePasswordModal";
 import FfmMgtHcmIcon from "../components/icons/FfmMgtHcmIcon";
+import FfmReconcileHcmIcon from "../components/icons/FfmReconcileHcmIcon";
 
 import { usePermissions } from "../hooks/usePermissions";
 import { supabase } from "../supabase/config";
@@ -376,9 +377,9 @@ function Home() {
         {
           id: "ffm-push-reconcile-hcm",
           label: "Bảng đối soát đẩy FFM (HCM)",
-          icon: <Table2 className="w-4 h-4" />,
+          icon: <FfmReconcileHcmIcon className="w-4 h-4" />,
           path: "/bang-doi-soat-day-ffm-hcm",
-          permission: 'ORDERS_FFM_RECONCILE',
+          permissionAny: ['ORDERS_FFM_RECONCILE_HCM', 'ORDERS_FFM_RECONCILE', 'ORDERS_LIST_HCM'],
         },
         {
           id: "ffm-mgt",
@@ -1065,11 +1066,11 @@ function Home() {
         },
         {
           title: "Bảng đối soát đẩy FFM (HCM)",
-          icon: <Table2 className="w-8 h-8" />,
+          icon: <FfmReconcileHcmIcon className="w-8 h-8" />,
           color: "bg-slate-700",
           path: "/bang-doi-soat-day-ffm-hcm",
           status: "Mở ứng dụng",
-          permission: 'ORDERS_FFM_RECONCILE',
+          permissionAny: ['ORDERS_FFM_RECONCILE_HCM', 'ORDERS_FFM_RECONCILE', 'ORDERS_LIST_HCM'],
         },
       ],
     },

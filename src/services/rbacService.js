@@ -735,6 +735,7 @@ export const MODULE_PAGES = {
             { code: 'ORDERS_REPORT_OPERATION', name: 'Báo cáo vận hành', path: '/bao-cao-van-hanh' },
             { code: 'ORDERS_REPORT_DAILY_DATA', name: 'Dữ liệu báo cáo hàng ngày', path: '/danh-sach-bao-cao-van-don' },
             { code: 'ORDERS_FFM_RECONCILE', name: 'Bảng đối soát đẩy FFM', path: '/bang-doi-soat-day-ffm' },
+            { code: 'ORDERS_FFM_RECONCILE_HCM', name: 'Bảng đối soát đẩy FFM (HCM)', path: '/bang-doi-soat-day-ffm-hcm' },
             { code: 'ORDERS_FFM_MGT', name: 'FFM MGT', path: '/ffm_MGT' },
             { code: 'ORDERS_FFM_MGT_HCM', name: 'FFM MGT HCM', path: '/ffm_MGT-hcm' },
             { code: 'ORDERS_FFM_TT', name: 'FFM T&T', path: '/ffm_TT' },

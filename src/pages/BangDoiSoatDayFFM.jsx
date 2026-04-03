@@ -736,7 +736,11 @@ export function BangDoiSoatDayFFMHcm() {
       pageTitle="Bảng đối soát đẩy FFM (HCM)"
       sourceTableLabel="ffm_push_logs_hcm"
       ordersTableLabel="order_code_hcm"
-      permissionCodes={["ORDERS_LIST_HCM", "ORDERS_FFM_RECONCILE"]}
+      permissionCodes={[
+        "ORDERS_FFM_RECONCILE_HCM",
+        "ORDERS_FFM_RECONCILE",
+        "ORDERS_LIST_HCM",
+      ]}
     />
   );
 }
