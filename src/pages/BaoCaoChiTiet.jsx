@@ -28,10 +28,8 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     // Permission Logic
     const { canView, role, loading: permissionsLoading } = usePermissions();
     const permissionCode = teamFilter === 'RD' ? 'RND_ORDERS' : 'MKT_ORDERS';
-    const hasChiTietAccess = isHcm
-        ? canView('MKT_ORDERS_HCM') || canView('MKT_ORDERS')
-        : canView(permissionCode);
-    const deniedPermissionLabel = isHcm ? 'MKT_ORDERS_HCM hoặc MKT_ORDERS' : permissionCode;
+    const hasChiTietAccess = isHcm ? canView('MKT_ORDERS_HCM') : canView(permissionCode);
+    const deniedPermissionLabel = isHcm ? 'MKT_ORDERS_HCM' : permissionCode;
 
     // Get User Name for filtering
     const userJson = localStorage.getItem("user");

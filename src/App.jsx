@@ -137,7 +137,7 @@ function AppShell() {
                     hcmXemBaoCaoSaleTeamFilter
                     showPersonnelNameFilter
                     hideBoPhanFilter
-                    pageAccessCodes={['SALE_VIEW_HCM', 'SALE_VIEW']}
+                    pageAccessCodes={['SALE_VIEW_HCM']}
                   />
                 </ProtectedRoute>
               }
@@ -186,7 +186,7 @@ function AppShell() {
                     ordersTableName="order_code_hcm"
                     pageTitle="QUẢN LÝ CSKH HCM"
                     pageSubtitle="Dữ liệu từ order_code_hcm"
-                    accessPermissionCodes={['CSKH_LIST_HCM', 'CSKH_LIST']}
+                    accessPermissionCodes={['CSKH_LIST_HCM']}
                   />
                 </ProtectedRoute>
               }
@@ -206,7 +206,7 @@ function AppShell() {
                 <ProtectedRoute>
                   <NhanSuSaleLumiMoiView
                     teamInFilter={CSKH_MANUAL_REPORT_HCM_TEAMS}
-                    pageAccessCodes={['CSKH_VIEW_HCM', 'CSKH_VIEW']}
+                    pageAccessCodes={['CSKH_VIEW_HCM']}
                   />
                 </ProtectedRoute>
               }
@@ -227,7 +227,7 @@ function AppShell() {
                 <ProtectedRoute>
                   <DanhSachBaoCaoTayCSKH
                     salesReportTeamIn={CSKH_MANUAL_REPORT_HCM_TEAMS}
-                    pageAccessCodes={['CSKH_MANUAL_HCM', 'CSKH_VIEW']}
+                    pageAccessCodes={['CSKH_MANUAL_HCM']}
                     pageTitleSuffix=" (HCM)"
                   />
                 </ProtectedRoute>

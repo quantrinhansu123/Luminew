@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TableVirtuoso } from 'react-virtuoso';
+import * as XLSX from 'xlsx';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import MultiSelect from '../components/MultiSelect';
@@ -13,6 +14,7 @@ import '../styles/selection.css';
 import { supabase } from '../supabase/config';
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
+import { matchesVanDonHeaderSearch, normalizeVanDonFilterWhitespace } from '../utils/vanDonFilterNormalize';
 
 import {
   BILL_LADING_COLUMNS, COLUMN_MAPPING,
@@ -123,13 +125,6 @@ function pickVanDonRowMoneyVnd(row) {
     if (n != null && Number.isFinite(n)) return n;
   }
   return 0;
-}
-
-function sumVanDonRowsMoneyVnd(rows) {
-  if (!rows?.length) return 0;
-  let s = 0;
-  for (let i = 0; i < rows.length; i++) s += pickVanDonRowMoneyVnd(rows[i]);
-  return s;
 }
 
 /**
@@ -295,13 +290,18 @@ function VanDon({ dataSource = 'default' }) {
   const roleLower = (role || '').toLowerCase();
   const isAdmin = ['admin', 'super_admin', 'director', 'manager'].includes(roleLower);
 
-
+  /** Bảng log đẩy FFM: HCM dùng `ffm_push_logs_hcm`, còn lại `ffm_push_logs`. */
+  const ffmPushLogsTable = useMemo(
+    () => (dataSource === 'hcm' ? 'ffm_push_logs_hcm' : 'ffm_push_logs'),
+    [dataSource]
+  );
 
   // --- Data State ---
 
   // --- Data State ---
   const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
   const [useBackendPagination, setUseBackendPagination] = useState(true); // Enable backend pagination
+  const [exportingMaDon, setExportingMaDon] = useState(false);
   // Always use BILL_OF_LADING view - ORDER_MANAGEMENT is hidden
   const [viewMode] = useState('BILL_OF_LADING');
   const isLoadingDataRef = useRef(false);
@@ -341,7 +341,7 @@ function VanDon({ dataSource = 'default' }) {
     }
   }, []);
 
-  const [confirmPushData, setConfirmPushData] = useState(null); // { batchId, carrier, count, orderIds }
+  const [confirmPushData, setConfirmPushData] = useState(null); // { batchId, carrier, count, orderIds, logsTable }
 
   const hasUnsavedDraft = () =>
     pendingChangesRef.current.size > 0 || dbQueueRef.current.length > 0;
@@ -827,24 +827,9 @@ function VanDon({ dataSource = 'default' }) {
     isAdmin
   ]);
 
-  const {
-    data: queryResult,
-    isLoading: isQueryLoading,
-    isFetching,
-    refetch: refetchVanDonData
-  } = useQuery({
-    queryKey: [
-      'vanDon',
-      activeFilters,
-      activeFilters.tab === 'japan' || activeFilters.tab === 'hanoi'
-        ? 'no-personnel-scope'
-        : selectedPersonnelNames.slice().sort().join('|'),
-      isAdmin
-    ],
-    queryFn: async () => {
-      console.log('🚀 [VanDon] Query Function Started. useBackendPagination:', useBackendPagination, 'permissionsLoading:', permissionsLoading);
-      if (!useBackendPagination || permissionsLoading) return null;
-
+  /** Cùng logic quyền + filter API với useQuery; `page`/`limit` truyền vào (xuất Excel tải nhiều trang). */
+  const runVanDonFetch = useCallback(
+    async (page, limit) => {
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = [
@@ -864,11 +849,6 @@ function VanDon({ dataSource = 'default' }) {
         const picked = (selectedPersonnelNames || []).map((n) => String(n || "").trim()).filter(Boolean);
         const selfKeys = getVanDonSelfNameKeySet();
         const withoutSelf = picked.filter((n) => !isVanDonStaffNameSelf(n, selfKeys));
-        /**
-         * - Còn tên khác sau khi trừ bản thân → chỉ OR các tên đó (tab Đơn nhắc hộ không tự thêm mình).
-         * - RBAC chỉ có đúng tên mình → vẫn dùng `picked`, không để trang trắng.
-         * - RBAC rỗng → fallback `userName` như trước (môi trường chưa cấu hình danh sách).
-         */
         if (withoutSelf.length > 0) {
           allAllowedNames = withoutSelf;
         } else if (picked.length > 0) {
@@ -888,13 +868,12 @@ function VanDon({ dataSource = 'default' }) {
           data: [],
           total: 0,
           totalAmountVndSum: 0,
-          page: currentPage,
-          limit: rowsPerPage,
+          page,
+          limit,
           totalPages: 0
         };
       }
 
-      /** Tab khác `ca_nhan` / `japan` / `hanoi` / `readonly_all` cần `allowedStaff`: nếu không còn tên, không gọi API không lọc NV (sẽ lộ dữ liệu). Đơn Nhật + Đẩy Hà Nội + Xem tất cả (khóa sửa): không khóa theo danh sách nhân sự — phạm vi đã gắn với tab / ngày / bộ lọc toolbar. */
       if (
         !isManager &&
         activeFilters.tab !== 'ca_nhan' &&
@@ -907,13 +886,12 @@ function VanDon({ dataSource = 'default' }) {
           data: [],
           total: 0,
           totalAmountVndSum: 0,
-          page: currentPage,
-          limit: rowsPerPage,
+          page,
+          limit,
           totalPages: 0
         };
       }
 
-      /** Đơn cá nhân / Đơn Nhật / Đẩy Hà Nội / Xem tất cả (khóa sửa): không gửi `allowedStaff` (Hà Nội = full hàng đợi Team Hà Nội; cá nhân chỉ `deliveryStaffSelfFilter`; readonly = xem toàn phạm vi theo ngày + bộ lọc). */
       const allowedStaffForRequest =
         isManager ||
         activeFilters.tab === 'ca_nhan' ||
@@ -928,10 +906,9 @@ function VanDon({ dataSource = 'default' }) {
       const result = await API.fetchVanDon({
         sourceView: dataSource === 'hcm' ? null : 'van_don_page',
         sourceTable: dataSource === 'hcm' ? 'order_code_hcm' : 'orders',
-        page: currentPage,
-        limit: rowsPerPage,
+        page,
+        limit,
         team: activeFilters.team,
-        // /van-don should not load rows where team="HCM" (route /van-don-hcm keeps them)
         excludeHcmTeam: dataSource !== 'hcm',
         market: activeFilters.market,
         product: activeFilters.product,
@@ -962,10 +939,31 @@ function VanDon({ dataSource = 'default' }) {
         throw new Error(result.error);
       }
 
-      // Load MGT Noi Bo in background if needed
-      API.fetchMGTNoiBoOrders().then(mgtOrder => setMgtNoiBoOrder(mgtOrder));
+      API.fetchMGTNoiBoOrders().then((mgtOrder) => setMgtNoiBoOrder(mgtOrder));
 
       return result;
+    },
+    [activeFilters, dataSource, isAdmin, role, selectedPersonnelNames]
+  );
+
+  const {
+    data: queryResult,
+    isLoading: isQueryLoading,
+    isFetching,
+    refetch: refetchVanDonData
+  } = useQuery({
+    queryKey: [
+      'vanDon',
+      activeFilters,
+      activeFilters.tab === 'japan' || activeFilters.tab === 'hanoi'
+        ? 'no-personnel-scope'
+        : selectedPersonnelNames.slice().sort().join('|'),
+      isAdmin
+    ],
+    queryFn: async () => {
+      console.log('🚀 [VanDon] Query Function Started. useBackendPagination:', useBackendPagination, 'permissionsLoading:', permissionsLoading);
+      if (!useBackendPagination || permissionsLoading) return null;
+      return runVanDonFetch(currentPage, rowsPerPage);
     },
     enabled: useBackendPagination && !permissionsLoading,
     keepPreviousData: true,
@@ -998,11 +996,12 @@ function VanDon({ dataSource = 'default' }) {
   }, [queryResult?.data, bolActiveTab]);
 
   const totalRecords = queryResult?.total || 0;
-  const totalAmountVndSumFromServer = queryResult?.totalAmountVndSum ?? 0;
+  /** SUM toàn bộ đơn khớp lọc — giữ `undefined` khi chưa có kết quả query (không nhầm với 0 thật). */
+  const totalAmountVndSumFromServer = queryResult?.totalAmountVndSum;
   // totalPages is calculated below based on pagination mode
 
-  const getFilteredData = useMemo(() => {
-    let data = [...allData];
+  const computeFilteredData = useCallback((sourceRows) => {
+    let data = [...sourceRows];
 
     // 1. Apply changes (Pending > Original)
     data = data.map(row => {
@@ -1036,7 +1035,7 @@ function VanDon({ dataSource = 'default' }) {
       }
       return undefined;
     };
-    const strNorm = (v) => String(v ?? '').trim();
+    const strNorm = (v) => normalizeVanDonFilterWhitespace(String(v ?? ''));
 
     if (viewMode === 'ORDER_MANAGEMENT') {
       // --- ORDER MANAGEMENT FILTERING LOGIC ---
@@ -1151,9 +1150,8 @@ function VanDon({ dataSource = 'default' }) {
     // --- COMMON FILTERS ---
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
 
-    const traCuuKhach = strNorm(appliedCustomerQuickSearch);
+    const traCuuKhach = normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch);
     if (traCuuKhach) {
-      const qLower = traCuuKhach.toLowerCase();
       const digitsOnly = (s) => String(s ?? '').replace(/\D/g, '');
       const qDigits = digitsOnly(traCuuKhach);
       data = data.filter((row) => {
@@ -1161,13 +1159,14 @@ function VanDon({ dataSource = 'default' }) {
         const nameO = getPendingOriginal(orderId, 'Name*', 'customer_name');
         const phoneO = getPendingOriginal(orderId, 'Phone*', 'customer_phone');
         const addO = getPendingOriginal(orderId, 'Add', 'customer_address');
-        const name = strNorm(nameO !== undefined ? nameO : row['Name*'] ?? row.customer_name).toLowerCase();
+        const nameRaw = nameO !== undefined ? nameO : row['Name*'] ?? row.customer_name;
         const phoneRaw = phoneO !== undefined ? phoneO : row['Phone*'] ?? row.customer_phone ?? '';
-        const addr = strNorm(addO !== undefined ? addO : row['Add'] ?? row.customer_address).toLowerCase();
-        if (name.includes(qLower)) return true;
-        if (addr.includes(qLower)) return true;
-        const phoneLower = String(phoneRaw).toLowerCase();
-        if (phoneLower.includes(qLower)) return true;
+        const addrRaw = addO !== undefined ? addO : row['Add'] ?? row.customer_address;
+        if (matchesVanDonHeaderSearch(nameRaw, traCuuKhach)) return true;
+        if (matchesVanDonHeaderSearch(addrRaw, traCuuKhach)) return true;
+        const phoneNorm = normalizeVanDonFilterWhitespace(phoneRaw).toLowerCase();
+        const qLower = traCuuKhach.toLowerCase();
+        if (phoneNorm.includes(qLower)) return true;
         if (qDigits.length >= 3 && digitsOnly(phoneRaw).includes(qDigits)) return true;
         return false;
       });
@@ -1382,9 +1381,8 @@ function VanDon({ dataSource = 'default' }) {
               }
 
               if (typeof val !== 'string') return true;
-              const searchVal = val.toLowerCase().trim();
-              if (!searchVal) return true;
-              return cellValue.toLowerCase().includes(searchVal);
+              if (!normalizeVanDonFilterWhitespace(val)) return true;
+              return matchesVanDonHeaderSearch(cellValue, val);
             } catch (err) {
               console.warn(`⚠️ [Filter Error] Lỗi khi filter column "${key}":`, err);
               return true;
@@ -1439,7 +1437,6 @@ function VanDon({ dataSource = 'default' }) {
 
     return data;
   }, [
-    allData,
     pendingChanges,
     viewMode,
     omActiveTeam,
@@ -1456,6 +1453,83 @@ function VanDon({ dataSource = 'default' }) {
     mgtNoiBoOrder,
     isAdmin,
     useBackendPagination
+  ]);
+
+  const getFilteredData = useMemo(() => computeFilteredData(allData), [computeFilteredData, allData]);
+
+  const handleExportMaDonExcel = useCallback(async () => {
+    if (permissionsLoading) {
+      addToast('Đang tải quyền, thử lại sau.', 'warning');
+      return;
+    }
+    setExportingMaDon(true);
+    const loadingId = addToast('Đang xuất Excel mã đơn hàng…', 'loading', 0);
+    try {
+      let sourceRows;
+      if (!useBackendPagination) {
+        sourceRows = allData;
+      } else {
+        const limit = 1000;
+        let page = 1;
+        const accumulated = [];
+        let total = 0;
+        while (page <= 500) {
+          const res = await runVanDonFetch(page, limit);
+          total = res.total || 0;
+          const batch = res.data || [];
+          accumulated.push(...batch);
+          if (batch.length < limit || accumulated.length >= total) break;
+          page += 1;
+        }
+        sourceRows = accumulated;
+      }
+
+      let rows = sourceRows;
+      if (bolActiveTab === 'hanoi') {
+        rows = rows.filter((row) => {
+          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+          return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
+        });
+      }
+      rows = mergePendingRowsIntoFetchedData(rows);
+      const filtered = computeFilteredData(rows);
+
+      const codeOf = (row) =>
+        String(row['Mã đơn hàng'] ?? row.order_code ?? row[PRIMARY_KEY_COLUMN] ?? '').trim();
+      const codes = [...new Set(filtered.map(codeOf).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, 'vi', { sensitivity: 'base' })
+      );
+
+      removeToast(loadingId);
+      if (codes.length === 0) {
+        addToast('Không có mã đơn hàng phù hợp bộ lọc.', 'warning');
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([['Mã đơn hàng'], ...codes.map((c) => [c])]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Ma_don');
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      XLSX.writeFile(wb, `VanDon_ma_don_loc_${stamp}.xlsx`);
+      addToast(`Đã xuất ${codes.length} mã đơn hàng ra Excel.`, 'success');
+    } catch (e) {
+      removeToast(loadingId);
+      console.error(e);
+      addToast(e?.message || 'Lỗi xuất Excel', 'error');
+    } finally {
+      setExportingMaDon(false);
+    }
+  }, [
+    permissionsLoading,
+    useBackendPagination,
+    allData,
+    bolActiveTab,
+    mergePendingRowsIntoFetchedData,
+    computeFilteredData,
+    runVanDonFetch,
+    addToast,
+    removeToast
   ]);
 
   // --- Render Prep (moved up for dependencies) ---
@@ -1799,7 +1873,9 @@ function VanDon({ dataSource = 'default' }) {
         };
       });
 
-      const { batchId } = await API.createFfmPushLogs(entries, carrierName, currentUser);
+      const { batchId } = await API.createFfmPushLogs(entries, carrierName, currentUser, {
+        logsTable: ffmPushLogsTable,
+      });
 
       removeToast(toastId);
 
@@ -1808,7 +1884,8 @@ function VanDon({ dataSource = 'default' }) {
         batchId,
         carrier: carrierName,
         count: selectedCount,
-        orderIds: orderIds
+        orderIds: orderIds,
+        logsTable: ffmPushLogsTable,
       });
     } catch (err) {
       console.error('❌ Error initializing FFM push:', err);
@@ -1820,7 +1897,7 @@ function VanDon({ dataSource = 'default' }) {
   const confirmPushFinal = async () => {
     if (!confirmPushData) return;
 
-    const { batchId, carrier, orderIds } = confirmPushData;
+    const { batchId, carrier, orderIds, logsTable } = confirmPushData;
     const carrierKey = 'Đơn vị vận chuyển';
     const accountingDateKey = 'Ngày Kế toán đối soát với FFM lần 2';
     const now = new Date().toISOString();
@@ -1850,7 +1927,7 @@ function VanDon({ dataSource = 'default' }) {
 
     try {
       // 1. Update logs to confirmed
-      await API.updateFfmPushLogStatus(batchId, 'confirmed');
+      await API.updateFfmPushLogStatus(batchId, 'confirmed', { logsTable });
 
       // 2. Apply changes to main UI/Queue
       pushChange(historyChanges);
@@ -1868,10 +1945,10 @@ function VanDon({ dataSource = 'default' }) {
   // Step 3: Handle Canceled Change - Update log status to cancelled
   const cancelPushFinal = async () => {
     if (!confirmPushData) return;
-    const { batchId } = confirmPushData;
+    const { batchId, logsTable } = confirmPushData;
 
     try {
-      await API.updateFfmPushLogStatus(batchId, 'cancelled');
+      await API.updateFfmPushLogStatus(batchId, 'cancelled', { logsTable });
     } catch (err) {
       console.warn('⚠️ Could not update cancel log status:', err);
     } finally {
@@ -3073,13 +3150,22 @@ function VanDon({ dataSource = 'default' }) {
     if (!useBackendPagination) {
       return getFilteredData.reduce((sum, row) => sum + pickVanDonRowMoneyVnd(row), 0);
     }
-    const server = Number(totalAmountVndSumFromServer);
-    const pageSum = sumVanDonRowsMoneyVnd(paginatedData);
-    if (Number.isFinite(server) && server > 0) return server;
-    /** Server SUM = 0 (RLS, cột generated lỗi, tong_tien_vnd=0 cũ…): hiển thị tổng tiền các dòng đang có trên lưới. */
-    return pageSum;
-  }, [useBackendPagination, totalAmountVndSumFromServer, getFilteredData, paginatedData]);
-  const totalOrdersCount = useBackendPagination ? totalRecords : getFilteredData.length;
+    const raw = totalAmountVndSumFromServer;
+    /** SUM PostgREST trên toàn bộ đơn khớp lọc (không `.range`) — luôn dùng kể cả khi = 0. `> 0` cũ khiến fallback sang tổng một trang (sai, ví dụ hiện 179). */
+    if (raw != null && raw !== '' && Number.isFinite(Number(raw))) {
+      return Number(raw);
+    }
+    return 0;
+  }, [useBackendPagination, totalAmountVndSumFromServer, getFilteredData]);
+  /**
+   * Tổng khớp lọc từ máy chủ (`totalRecords`) có thể nhỏ hơn số dòng trên lưới khi có đơn ghép từ nháp
+   * chưa lưu (`mergePendingRowsIntoFetchedData`) — Ctrl+C/copy theo `getFilteredData` nên đếm phải khớp lưới trong trường hợp đó.
+   */
+  const totalOrdersCount = useMemo(() => {
+    if (!useBackendPagination) return getFilteredData.length;
+    if (getFilteredData.length > totalRecords) return getFilteredData.length;
+    return totalRecords;
+  }, [useBackendPagination, getFilteredData.length, totalRecords]);
 
   const teams = Array.from(new Set(allData.map(r => r[TEAM_COLUMN_NAME]).filter(Boolean))).sort();
 
@@ -3517,12 +3603,9 @@ function VanDon({ dataSource = 'default' }) {
   };
 
   const hasVanDonListAccess =
-    dataSource === 'hcm'
-      ? canView('ORDERS_LIST_HCM') || canView('ORDERS_LIST')
-      : canView('ORDERS_LIST');
+    dataSource === 'hcm' ? canView('ORDERS_LIST_HCM') : canView('ORDERS_LIST');
   if (!hasVanDonListAccess) {
-    const permHint =
-      dataSource === 'hcm' ? 'ORDERS_LIST_HCM hoặc ORDERS_LIST' : 'ORDERS_LIST';
+    const permHint = dataSource === 'hcm' ? 'ORDERS_LIST_HCM' : 'ORDERS_LIST';
     return (
       <div className="p-8 text-center text-red-600 font-bold">
         Bạn không có quyền truy cập trang này ({permHint}).
@@ -3553,7 +3636,7 @@ function VanDon({ dataSource = 'default' }) {
                 { id: 'ca_nhan', label: 'Đơn cá nhân', icon: '👤' },
                 { id: 'readonly_all', label: 'Xem tất cả (khóa sửa)', icon: '👁️' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
-                { id: 'hanoi', label: 'Đẩy đơn Hà Nội', icon: '🏛️' }
+                { id: 'hanoi', label: 'Đẩy Đơn HCM', icon: '🏛️' }
               ]
                 .filter((tab) => {
                   if (tab.id === 'hanoi') {
@@ -3779,6 +3862,20 @@ function VanDon({ dataSource = 'default' }) {
                   <span>🔄</span>
                 )}
                 {isQueryLoading ? '...' : 'TẢI LẠI'}
+              </button>
+              <button
+                type="button"
+                onClick={handleExportMaDonExcel}
+                disabled={exportingMaDon || isQueryLoading || permissionsLoading}
+                className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
+                title="Xuất file Excel một cột «Mã đơn hàng» theo bộ lọc hiện tại (tải đủ trang từ máy chủ khi bật phân trang backend)"
+              >
+                {exportingMaDon ? (
+                  <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <span>📥</span>
+                )}
+                {exportingMaDon ? '…' : 'Excel mã đơn'}
               </button>
             </div>
           </div>
@@ -4096,7 +4193,11 @@ function VanDon({ dataSource = 'default' }) {
               </span>
               {totalRecords > 0 && (
                 <span className="text-[10px] text-gray-400 font-bold uppercase ml-1">
-                  ({(useBackendPagination ? totalRecords : getFilteredData.length).toLocaleString()} kết quả)
+                  (
+                  {useBackendPagination
+                    ? `${getFilteredData.length.toLocaleString()} dòng · ${totalRecords.toLocaleString()} tổng`
+                    : `${getFilteredData.length.toLocaleString()} kết quả`}
+                  )
                 </span>
               )}
             </div>

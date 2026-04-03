@@ -2,6 +2,12 @@ import { COLUMN_MAPPING, DROPDOWN_OPTIONS, PRIMARY_KEY_COLUMN, SETTINGS_KEY } fr
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { formatOrderLogJsonbForDisplay, mergeOrderLogJsonb, parseOrderLogJsonb } from '../utils/orderLogJsonb';
+import {
+    buildVanDonDropdownIlikeOrSegment,
+    buildVanDonFlexibleIlikePattern,
+    escapeIlikePattern,
+    normalizeVanDonFilterWhitespace
+} from '../utils/vanDonFilterNormalize';
 import { supabase } from './supabaseClient';
 
 export const DB_TO_APP_MAPPING = {
@@ -894,10 +900,6 @@ function addOneCalendarDayYmd(ymd) {
     return d.toISOString().slice(0, 10);
 }
 
-function escapeIlikePattern(s) {
-    return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
-
 /** Cột dropdown trên /van-don: `.in()` / `.eq()` phân biệt hoa thường → DB `treo` không khớp UI `Treo`. Dùng ILIKE không wildcard = so khớp cả chuỗi, không phân biệt hoa thường. */
 const VAN_DON_ILIKE_EXACT_DB_COLS = new Set([
     'check_result',
@@ -912,11 +914,20 @@ const VAN_DON_ILIKE_EXACT_DB_COLS = new Set([
 
 /** Ghép điều kiện `col.ilike.val` cho `.or()` (PostgREST). */
 function buildVanDonOrIlikeExact(field, values) {
+    if (field === 'tracking_code') {
+        return values
+            .map((v) => {
+                const norm = normalizeVanDonFilterWhitespace(String(v));
+                if (!norm) return null;
+                const flex = buildVanDonFlexibleIlikePattern(norm);
+                return flex ? `${field}.ilike.${flex}` : null;
+            })
+            .filter(Boolean)
+            .join(',');
+    }
     return values
-        .map((v) => {
-            const esc = escapeIlikePattern(String(v).trim());
-            return `${field}.ilike.${esc}`;
-        })
+        .map((v) => buildVanDonDropdownIlikeOrSegment(field, v))
+        .filter(Boolean)
         .join(',');
 }
 
@@ -1099,9 +1110,8 @@ export const fetchVanDon = async (options = {}) => {
             }
 
             if (deliveryStaffSelfFilter !== undefined && deliveryStaffSelfFilter !== null && String(deliveryStaffSelfFilter).trim() !== '') {
-                const raw = String(deliveryStaffSelfFilter).trim();
-                const esc = raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-                query = query.ilike('delivery_staff', `%${esc}%`);
+                const pat = buildVanDonFlexibleIlikePattern(deliveryStaffSelfFilter);
+                if (pat) query = query.ilike('delivery_staff', pat);
             }
 
             const dateColumnMapping = {
@@ -1123,11 +1133,11 @@ export const fetchVanDon = async (options = {}) => {
                 const conditions = [];
                 allowedStaff.forEach((staffName) => {
                     if (!staffName) return;
-                    const safeName = String(staffName).trim();
-                    if (!safeName) return;
-                    conditions.push(`sale_staff.ilike.%${safeName}%`);
-                    conditions.push(`marketing_staff.ilike.%${safeName}%`);
-                    conditions.push(`delivery_staff.ilike.%${safeName}%`);
+                    const pat = buildVanDonFlexibleIlikePattern(staffName);
+                    if (!pat) return;
+                    conditions.push(`sale_staff.ilike.${pat}`);
+                    conditions.push(`marketing_staff.ilike.${pat}`);
+                    conditions.push(`delivery_staff.ilike.${pat}`);
                 });
 
                 if (conditions.length > 0) {
@@ -1147,7 +1157,7 @@ export const fetchVanDon = async (options = {}) => {
                     continue;
                 }
                 if (typeof val === 'string') {
-                    const t = val.trim();
+                    const t = normalizeVanDonFilterWhitespace(val);
                     if (!t) continue;
                     if (VAN_DON_PER_COL_DATE_UI_KEYS.has(uiKey)) {
                         const day = normalizeVanDonFilterDateToYmd(t);
@@ -1156,13 +1166,18 @@ export const fetchVanDon = async (options = {}) => {
                         query = query.gte(dbCol, `${day}T00:00:00`).lt(dbCol, `${next}T00:00:00`);
                     } else if (isVanDonDropdownColumnFilter(uiKey)) {
                         if (VAN_DON_ILIKE_EXACT_DB_COLS.has(dbCol)) {
-                            query = query.ilike(dbCol, escapeIlikePattern(t));
+                            if (!/\s/.test(t)) {
+                                query = query.ilike(dbCol, escapeIlikePattern(t));
+                            } else {
+                                const flex = buildVanDonFlexibleIlikePattern(t);
+                                if (flex) query = query.ilike(dbCol, flex);
+                            }
                         } else {
                             query = query.eq(dbCol, t);
                         }
                     } else {
-                        const esc = escapeIlikePattern(t);
-                        query = query.filter(`${dbCol}::text`, 'ilike', `%${esc}%`);
+                        const flex = buildVanDonFlexibleIlikePattern(t);
+                        if (flex) query = query.filter(`${dbCol}::text`, 'ilike', flex);
                     }
                 }
             }
@@ -1188,22 +1203,22 @@ export const fetchVanDon = async (options = {}) => {
 
                 if (statusTf === 'Tình trạng mã' || !tf.status) {
                     if (exc) {
-                        const escExc = escapeIlikePattern(excRaw.trim());
-                        query = query.not('tracking_code', 'ilike', `%${escExc}%`);
+                        const patExc = buildVanDonFlexibleIlikePattern(excRaw);
+                        if (patExc) query = query.not('tracking_code', 'ilike', patExc);
                     }
                     if (incRaw.trim()) {
-                        const incTrim = incRaw.trim();
+                        const incTrim = normalizeVanDonFilterWhitespace(incRaw);
                         if (incTrim.includes('\n')) {
                             const codes = incTrim
                                 .split('\n')
-                                .map((s) => s.trim())
+                                .map((s) => normalizeVanDonFilterWhitespace(s))
                                 .filter(Boolean);
                             if (codes.length > 0) {
                                 query = query.or(buildVanDonOrIlikeExact('tracking_code', codes));
                             }
                         } else {
-                            const escInc = escapeIlikePattern(incTrim);
-                            query = query.ilike('tracking_code', `%${escInc}%`);
+                            const patInc = buildVanDonFlexibleIlikePattern(incTrim);
+                            if (patInc) query = query.ilike('tracking_code', patInc);
                         }
                     }
                 }
@@ -1453,12 +1468,24 @@ export const fetchGoogleSheetData = async () => {
         return [];
     }
 };
+const FFM_PUSH_LOGS_TABLE_ALLOWLIST = new Set(['ffm_push_logs', 'ffm_push_logs_hcm']);
+
+function resolveFfmPushLogsTable(logsTable) {
+    const t = logsTable && String(logsTable).trim() !== '' ? String(logsTable).trim() : 'ffm_push_logs';
+    if (!FFM_PUSH_LOGS_TABLE_ALLOWLIST.has(t)) {
+        throw new Error(`Invalid ffm push logs table: ${t}`);
+    }
+    return t;
+}
+
 /**
  * Ghi log chuẩn bị đẩy FFM.
  * @param {Array<string | { orderId: string, product?: string | null, country?: string | null, chi_nhanh?: string | null, total_amount_vnd?: number | null }>} orderIdsOrEntries — mã đơn hoặc object có snapshot từ lưới vận đơn
+ * @param {{ logsTable?: 'ffm_push_logs' | 'ffm_push_logs_hcm' }} [opts] — `/van-don-hcm` dùng `ffm_push_logs_hcm`
  */
-export const createFfmPushLogs = async (orderIdsOrEntries, carrier, pushedBy) => {
+export const createFfmPushLogs = async (orderIdsOrEntries, carrier, pushedBy, opts = {}) => {
     try {
+        const table = resolveFfmPushLogsTable(opts.logsTable);
         const batchId = crypto.randomUUID();
         const rows = orderIdsOrEntries.map((item) => {
             const isObj = item !== null && typeof item === 'object' && !Array.isArray(item);
@@ -1479,10 +1506,7 @@ export const createFfmPushLogs = async (orderIdsOrEntries, carrier, pushedBy) =>
             };
         });
 
-        const { data, error } = await supabase
-            .from('ffm_push_logs')
-            .insert(rows)
-            .select();
+        const { data, error } = await supabase.from(table).insert(rows).select();
 
         if (error) throw error;
         return { batchId, logs: data };
@@ -1632,16 +1656,14 @@ export const syncFfmPushLogsFromOrders = async ({ scanLimit = 12000 } = {}) => {
 };
 
 /** Cập nhật trạng thái log sau xác nhận; khi confirmed ghi `pushed_at` cho đối soát */
-export const updateFfmPushLogStatus = async (batchId, status) => {
+export const updateFfmPushLogStatus = async (batchId, status, opts = {}) => {
     try {
+        const table = resolveFfmPushLogsTable(opts.logsTable);
         const payload = { status };
         if (status === 'confirmed') {
             payload.pushed_at = new Date().toISOString();
         }
-        const { error } = await supabase
-            .from('ffm_push_logs')
-            .update(payload)
-            .eq('batch_id', batchId);
+        const { error } = await supabase.from(table).update(payload).eq('batch_id', batchId);
 
         if (error) throw error;
     } catch (err) {

@@ -3048,7 +3048,7 @@ function FFMMgtHcm() {
     variant === 'TT'
       ? canView('ORDERS_FFM_TT')
       : variant === 'MGT_HCM'
-        ? canView('ORDERS_FFM_MGT_HCM') || canView('ORDERS_FFM_MGT')
+        ? canView('ORDERS_FFM_MGT_HCM')
         : canView('ORDERS_FFM_MGT');
   const ffmDeniedLabel =
     variant === 'TT' ? 'FFM T&T' : variant === 'MGT_HCM' ? 'FFM MGT HCM' : 'FFM MGT';

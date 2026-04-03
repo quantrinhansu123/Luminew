@@ -126,10 +126,8 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const permissionCode = isHcm ? 'SALE_MANUAL_HCM' : teamFilter === 'RD' ? 'RND_MANUAL' : 'SALE_MANUAL';
 
     const { canView, role, loading: permissionsLoading } = usePermissions();
-    const hasManualListAccess = isHcm
-        ? canView('SALE_MANUAL_HCM') || canView('SALE_MANUAL')
-        : canView(permissionCode);
-    const deniedPermissionLabel = isHcm ? 'SALE_MANUAL_HCM hoặc SALE_MANUAL' : permissionCode;
+    const hasManualListAccess = isHcm ? canView('SALE_MANUAL_HCM') : canView(permissionCode);
+    const deniedPermissionLabel = isHcm ? 'SALE_MANUAL_HCM' : permissionCode;
 
     /** Hai nút chỉnh team / đổi tên người báo cáo: chỉ role admin thật từ DB (không tin localStorage). */
     const showBaoCaoTayAdminToolbarButtons = useMemo(() => {

@@ -276,17 +276,23 @@ export default function NhapDonMoi({ isEdit = false }) {
                 canView('RND_NEW_ORDER_HCM')
             );
         }
+        if (isHcmView) {
+            return (
+                canView('SALE_ORDERS_HCM') ||
+                canView('SALE_NEW_ORDER_HCM') ||
+                canView('CSKH_NEW_ORDER_HCM') ||
+                canView('ORDERS_NEW') ||
+                canView('RND_NEW_ORDER')
+            );
+        }
         return (
             canView('SALE_ORDERS') ||
-            canView('SALE_ORDERS_HCM') ||
             canView('SALE_NEW_ORDER') ||
-            canView('SALE_NEW_ORDER_HCM') ||
             canView('CSKH_NEW_ORDER') ||
-            canView('CSKH_NEW_ORDER_HCM') ||
             canView('ORDERS_NEW') ||
             canView('RND_NEW_ORDER')
         );
-    }, [canView, teamFilter]);
+    }, [canView, teamFilter, isHcmView]);
 
 
 

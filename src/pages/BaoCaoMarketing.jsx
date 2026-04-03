@@ -46,7 +46,7 @@ export default function BaoCaoMarketing({
     teamFilter === 'RD'
       ? ['RND_INPUT']
       : isHcmReport
-        ? ['MKT_INPUT_HCM', 'MKT_INPUT']
+        ? ['MKT_INPUT_HCM']
         : ['MKT_INPUT'];
   const hasPageAccess = pageAccessCodes.some((code) => canView(code));
 

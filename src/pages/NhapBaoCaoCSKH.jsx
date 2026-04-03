@@ -4,10 +4,8 @@ import ReportFormCSKH from './ReportFormCSKH';
 export default function NhapBaoCaoCSKH({ dataSource = 'default' }) {
     const { canView } = usePermissions();
     const isHcm = dataSource === 'hcm';
-    const hasAccess = isHcm
-        ? canView('CSKH_INPUT_HCM') || canView('CSKH_INPUT')
-        : canView('CSKH_INPUT');
-    const deniedLabel = isHcm ? 'CSKH_INPUT_HCM hoặc CSKH_INPUT' : 'CSKH_INPUT';
+    const hasAccess = isHcm ? canView('CSKH_INPUT_HCM') : canView('CSKH_INPUT');
+    const deniedLabel = isHcm ? 'CSKH_INPUT_HCM' : 'CSKH_INPUT';
 
     if (!hasAccess) {
         return (

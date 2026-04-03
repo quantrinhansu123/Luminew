@@ -25,9 +25,7 @@ export default function XemBaoCaoMKTLegacy({
   const usesIframeTeamFilter =
     iframeAllowedTeams != null && Array.isArray(iframeAllowedTeams) && iframeAllowedTeams.length > 0;
 
-  const hasAccess = usesIframeTeamFilter
-    ? canView('MKT_VIEW_HCM') || canView('MKT_VIEW')
-    : canView('MKT_VIEW');
+  const hasAccess = usesIframeTeamFilter ? canView('MKT_VIEW_HCM') : canView('MKT_VIEW');
 
   const iframeSrc = useMemo(() => {
     const base = legacyHtmlPath;
@@ -40,7 +38,7 @@ export default function XemBaoCaoMKTLegacy({
   }, [iframeAllowedTeams, legacyHtmlPath, location.search, usesIframeTeamFilter]);
 
   if (!hasAccess) {
-    const codes = usesIframeTeamFilter ? 'MKT_VIEW_HCM hoặc MKT_VIEW' : 'MKT_VIEW';
+    const codes = usesIframeTeamFilter ? 'MKT_VIEW_HCM' : 'MKT_VIEW';
     return (
       <div className="p-8 text-center text-red-600 font-bold">
         Bạn không có quyền truy cập trang này ({codes}).

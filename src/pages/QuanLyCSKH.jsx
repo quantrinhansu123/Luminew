@@ -267,7 +267,7 @@ function QuanLyCSKH({
 
   const canEditFromThisList = useMemo(() => {
     if (accessPermissionCodes.some((code) => canEdit(code))) return true;
-    if (isHcmOrders && canEdit('SALE_ORDERS_HCM')) return true;
+    if (isHcmOrders) return canEdit('SALE_ORDERS_HCM');
     return canEdit('SALE_ORDERS');
   }, [accessPermissionCodes, canEdit, isHcmOrders]);
 

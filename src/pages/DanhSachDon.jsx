@@ -267,21 +267,15 @@ function DanhSachDon({ dataSource = 'default' }) {
   const ORDER_LIST_ACCESS_RD = ['RND_ORDERS', 'RND_NEW_ORDER', 'RND_NEW_ORDER_HCM'];
   const ORDER_LIST_ACCESS_SALE_HCM = [
     'SALE_ORDERS_HCM',
-    'SALE_ORDERS',
     'SALE_NEW_ORDER_HCM',
-    'SALE_NEW_ORDER',
     'CSKH_NEW_ORDER_HCM',
-    'CSKH_NEW_ORDER',
     'ORDERS_NEW',
     'RND_NEW_ORDER',
   ];
   const ORDER_LIST_ACCESS_SALE_DEFAULT = [
     'SALE_ORDERS',
-    'SALE_ORDERS_HCM',
     'SALE_NEW_ORDER',
-    'SALE_NEW_ORDER_HCM',
     'CSKH_NEW_ORDER',
-    'CSKH_NEW_ORDER_HCM',
     'ORDERS_NEW',
     'RND_NEW_ORDER',
   ];

@@ -28,6 +28,7 @@ import {
     formatNumVi,
     formatPctComma
 } from '../utils/baoCaoVanDonOperationalReport';
+import * as XLSX from 'xlsx';
 import './BaoCaoVanHanh.css';
 
 const formatDateForInput = (date) => {
@@ -64,6 +65,33 @@ const meaningfulTrim = (value) =>
 /** Không tính đơn chi nhánh `team = HCM` (cột `orders.team`), so khớp các tab dùng `rawData`. */
 const isOrdersRowTeamHcm = (row) => String(row?.team ?? '').trim().toLowerCase() === 'hcm';
 
+/**
+ * Tiền đơn cho báo cáo (Tab1 «Đơn có mã», v.v.) — khớp `orders.van_don_line_total_vnd`:
+ * coalesce(nullif(tong_tien_vnd, 0), total_amount_vnd, sale_price, goods_amount, 0).
+ * Trước đây `tong_tien_vnd === 0` vẫn được dùng → bỏ qua total_amount_vnd → sai tổng tiền.
+ */
+function sqlCoalesceNumbers(...vals) {
+    for (const v of vals) {
+        if (v == null || v === '') continue;
+        const n = Number(v);
+        if (!Number.isNaN(n)) return n;
+    }
+    return 0;
+}
+
+function resolveVanDonDisplayTotalVnd(row) {
+    if (row?.van_don_line_total_vnd != null && row.van_don_line_total_vnd !== '') {
+        const v = Number(row.van_don_line_total_vnd);
+        if (!Number.isNaN(v)) return v;
+    }
+    const rawTong = row?.tong_tien_vnd ?? row?.tong_tien_VND;
+    if (rawTong != null && rawTong !== '' && !Number.isNaN(Number(rawTong))) {
+        const tn = Number(rawTong);
+        if (tn !== 0) return tn;
+    }
+    return sqlCoalesceNumbers(row?.total_amount_vnd, row?.sale_price, row?.goods_amount, 0);
+}
+
 const paymentLabelForOrder = (order) => {
     const d = String(order?.payment_status_detail ?? '').trim();
     if (d) return d;
@@ -84,13 +112,10 @@ const mapOrderRowToVirtual = (row) => {
     const paymentLabelRaw = paymentLabelForOrder(row);
     const paymentLabel = paymentLabelRaw || '(Trống)';
     const tongTienVnd = Number(row?.total_amount_vnd) || 0;
-    /** Tab1 «Đơn có mã» — Số tiền: ưu tiên tong_tien_vnd (DB), không có thì total_amount_vnd. */
     const tongTienCoMaRaw = row?.tong_tien_vnd ?? row?.tong_tien_VND;
-    const tongTienCoMa =
-        tongTienCoMaRaw != null && tongTienCoMaRaw !== '' && !Number.isNaN(Number(tongTienCoMaRaw))
-            ? Number(tongTienCoMaRaw)
-            : tongTienVnd;
-    /** Tab 5 DS — chỉ `tong_tien_vnd` (DB), không fallback `total_amount_vnd`. */
+    /** Tab1 «Đơn có mã» / tổng tiền đơn: khớp nullif(tong_tien_vnd,0) + coalesce (xem resolveVanDonDisplayTotalVnd). */
+    const tongTienCoMa = resolveVanDonDisplayTotalVnd(row);
+    /** Tab 5 DS — chỉ cộng `tong_tien_vnd` từ DB (không fallback total_amount_vnd); chỉ sửa map JS, không đụng DB. */
     const dsTongTienVnd =
         tongTienCoMaRaw != null && tongTienCoMaRaw !== '' && !Number.isNaN(Number(tongTienCoMaRaw))
             ? Number(tongTienCoMaRaw)
@@ -144,12 +169,7 @@ const mapBaoCaoRowToVirtual = (row) => {
         _trang_thai_giao_hang: row.trang_thai_giao_hang,
         _trang_thai_thanh_toan: row.trang_thai_thanh_toan,
         _tien_trang_thai_thanh_toan: row.tien_trang_thai_thanh_toan ?? {},
-        _tong_tien_vnd:
-            row.tong_tien_vnd != null && row.tong_tien_vnd !== '' && !Number.isNaN(Number(row.tong_tien_vnd))
-                ? Number(row.tong_tien_vnd)
-                : row.tong_tien_VND != null && row.tong_tien_VND !== '' && !Number.isNaN(Number(row.tong_tien_VND))
-                  ? Number(row.tong_tien_VND)
-                  : Number(row.total_amount_vnd) || 0,
+        _tong_tien_vnd: resolveVanDonDisplayTotalVnd(row),
         _ds_tong_tien_vnd:
             row.tong_tien_vnd != null && row.tong_tien_vnd !== '' && !Number.isNaN(Number(row.tong_tien_vnd))
                 ? Number(row.tong_tien_vnd)
@@ -495,8 +515,6 @@ export default function BaoCaoVanHanhHtml() {
         return aggregateOperationalReportSlice(slice);
     }, [rawData, reportFilters.startDate, reportFilters.endDate]);
 
-    const tab1SauHuy = tab1Operational.tongNoiBo - tab1Operational.huyNoiBo;
-
     const runTabSearch = async () => {
         await fetchData();
         const p = new URLSearchParams(searchParams);
@@ -505,6 +523,30 @@ export default function BaoCaoVanHanhHtml() {
         p.set('tab', activeTab);
         setSearchParams(p, { replace: true });
     };
+
+    /** Cùng tập đơn với dòng tổng tab 1 (Ngày lên đơn trong khoảng; rawData đã lọc SP/khu vực/NV nếu có). */
+    const exportTab1MaDonExcel = useCallback(() => {
+        const slice = filterSliceForCriteriaRow(rawData, {
+            startDate: reportFilters.startDate,
+            endDate: reportFilters.endDate,
+            product: '',
+            market: ''
+        });
+        const codes = [
+            ...new Set(slice.map((r) => String(r.order_code || '').trim()).filter(Boolean))
+        ].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+        if (codes.length === 0) {
+            alert(
+                'Không có mã đơn hàng — chọn khoảng ngày, bấm Tìm, hoặc kiểm tra bộ lọc Mặt hàng / khu vực / NV Vận đơn.'
+            );
+            return;
+        }
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([['Mã đơn hàng'], ...codes.map((c) => [c])]);
+        XLSX.utils.book_append_sheet(wb, ws, 'Ma_don');
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+        XLSX.writeFile(wb, `BaoCaoVH_ma_don_tab1_${stamp}.xlsx`);
+    }, [rawData, reportFilters.startDate, reportFilters.endDate]);
 
     const addBcvhRow = () => {
         setBcvhCriteriaRows((prev) => {
@@ -621,7 +663,7 @@ export default function BaoCaoVanHanhHtml() {
                 const { data, error: qErr } = await supabase
                     .from('orders')
                     .select(
-                        'id, order_code, order_date, created_at, team, delivery_staff, product, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, tracking_code, shipping_unit'
+                        'id, order_code, order_date, created_at, team, delivery_staff, product, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit'
                     )
                     .gte('order_date', qStart)
                     .lte('order_date', qEnd)
@@ -1186,6 +1228,15 @@ export default function BaoCaoVanHanhHtml() {
                     <div className="mb-3 flex flex-wrap justify-end gap-3">
                         <button
                             type="button"
+                            disabled={loading || rawData.length === 0}
+                            className="rounded bg-emerald-700 px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
+                            onClick={exportTab1MaDonExcel}
+                            title="Xuất Excel một cột «Mã đơn hàng» theo ngày tab 1 và bộ lọc đã tải (Mặt hàng / khu vực / NV)"
+                        >
+                            📥 Excel mã đơn
+                        </button>
+                        <button
+                            type="button"
                             disabled={loading}
                             className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
                             onClick={runTabSearch}
@@ -1229,9 +1280,9 @@ export default function BaoCaoVanHanhHtml() {
                                     Tỉ lệ/đơn giao tc
                                 </th>
                                 <th rowSpan={2} className="bg-[#FFC000] px-3 py-2 font-normal leading-tight">
-                                    tỷ lệ/đơn
+                                    tỷ lệ đơn có bill
                                     <br />
-                                    có mã
+                                    / đơn có mã
                                 </th>
                             </tr>
                             <tr>
@@ -1296,7 +1347,7 @@ export default function BaoCaoVanHanhHtml() {
                                     {formatPct(tab1Operational.giaoTC, tab1Operational.tongNoiBo)}
                                 </td>
                                 <td className="px-3 py-2 font-extrabold tabular-nums">
-                                    {formatPct(tab1Operational.coMa, tab1SauHuy)}
+                                    {formatPct(tab1Operational.donCoBill, tab1Operational.coMa)}
                                 </td>
                             </tr>
                         </tbody>

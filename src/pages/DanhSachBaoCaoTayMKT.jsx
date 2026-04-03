@@ -43,7 +43,9 @@ export default function DanhSachBaoCaoTayMKT({
 
     // Permission Logic
     const { canView, canDelete, role, team: userTeam, permissions } = usePermissions();
-    const permissionCode = teamFilter === 'RD' ? 'RND_MANUAL' : 'MKT_MANUAL';
+    const isHcmMarketingReport = reportTableName === 'marketing_report_hcm';
+    const permissionCode =
+        teamFilter === 'RD' ? 'RND_MANUAL' : isHcmMarketingReport ? 'MKT_MANUAL_HCM' : 'MKT_MANUAL';
     
     // Kiểm tra Admin
     const roleFromHook = (role || '').toUpperCase();
@@ -142,7 +144,6 @@ export default function DanhSachBaoCaoTayMKT({
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
 
-    const isHcmMarketingReport = reportTableName === 'marketing_report_hcm';
     /** HCM: đơn từ Supabase `order_code_hcm` (khớp recalc Số đơn TT). */
     const ordersTableForMktTotals = isHcmMarketingReport ? 'order_code_hcm' : 'orders';
 

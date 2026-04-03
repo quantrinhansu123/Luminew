@@ -152,7 +152,7 @@ function Home() {
           label: "Danh sách đơn CSKH HCM",
           icon: <MapPin className="w-4 h-4" />,
           path: "/quan-ly-cskh-hcm",
-          permissionAny: ['CSKH_LIST_HCM', 'CSKH_LIST'],
+          permission: 'CSKH_LIST_HCM',
         },
         {
           id: "crm-paid",
@@ -187,7 +187,7 @@ function Home() {
           label: "Nhập báo cáo CSKH HCM",
           icon: <Edit3 className="w-4 h-4" />,
           path: "/nhap-bao-cao-cskh-hcm",
-          permissionAny: ['CSKH_INPUT_HCM', 'CSKH_INPUT'],
+          permission: 'CSKH_INPUT_HCM',
         },
         {
           id: "crm-view-report",
@@ -201,7 +201,7 @@ function Home() {
           label: "Xem báo cáo CSKH HCM",
           icon: <BarChart3 className="w-4 h-4" />,
           path: "/xem-bao-cao-cskh-hcm",
-          permissionAny: ['CSKH_VIEW_HCM', 'CSKH_VIEW'],
+          permission: 'CSKH_VIEW_HCM',
         },
         {
           id: "crm-manual-cskh",
@@ -215,7 +215,7 @@ function Home() {
           label: "Ds báo cáo tay CSKH HCM",
           icon: <Database className="w-4 h-4" />,
           path: "/danh-sach-bao-cao-tay-cskh-hcm",
-          permissionAny: ['CSKH_MANUAL_HCM', 'CSKH_VIEW'],
+          permission: 'CSKH_MANUAL_HCM',
         },
         {
           id: "crm-history",
@@ -286,7 +286,7 @@ function Home() {
           label: "Xem báo cáo Sale HCM",
           icon: <BarChart3 className="w-4 h-4" />,
           path: "/xem-bao-cao-sale-hcm",
-          permissionAny: ['SALE_VIEW_HCM', 'SALE_VIEW'],
+          permission: 'SALE_VIEW_HCM',
         },
         {
           id: "sale-manual-report",
@@ -300,7 +300,7 @@ function Home() {
           label: "Danh sách báo cáo tay HCM",
           icon: <Database className="w-4 h-4" />,
           path: "/danh-sach-bao-cao-tay-hcm",
-          permissionAny: ['SALE_MANUAL_HCM', 'SALE_MANUAL'],
+          permission: 'SALE_MANUAL_HCM',
         },
         {
           id: "sale-history",
@@ -343,7 +343,7 @@ function Home() {
           label: "Danh sách vận đơn HCM",
           icon: <ListTodo className="w-4 h-4" />,
           path: "/danh-sach-van-don-hcm",
-          permissionAny: ['ORDERS_DANH_SACH_VAN_DON_HCM', 'ORDERS_DANH_SACH_VAN_DON'],
+          permission: 'ORDERS_DANH_SACH_VAN_DON_HCM',
         },
         {
           id: "delivery-report",
@@ -385,7 +385,7 @@ function Home() {
           label: "ffm_MGT-hcm",
           icon: <FfmMgtHcmIcon className="w-4 h-4" />,
           path: "/ffm_MGT-hcm",
-          permissionAny: ['ORDERS_FFM_MGT_HCM', 'ORDERS_FFM_MGT'],
+          permission: 'ORDERS_FFM_MGT_HCM',
         },
         {
           id: "ffm-tt",
@@ -421,7 +421,7 @@ function Home() {
           label: "Nhập báo cáo HCM",
           icon: <TrendingUp className="w-4 h-4" />,
           path: "/bao-cao-marketing-hcm",
-          permissionAny: ['MKT_INPUT_HCM', 'MKT_INPUT'],
+          permission: 'MKT_INPUT_HCM',
         },
         {
           id: "mkt-view",
@@ -435,7 +435,7 @@ function Home() {
           label: "Xem báo cáo MKT HCM",
           icon: <BarChart3 className="w-4 h-4" />,
           path: "/xem-bao-cao-mkt-hcm",
-          permissionAny: ['MKT_VIEW_HCM', 'MKT_VIEW'],
+          permission: 'MKT_VIEW_HCM',
         },
         {
           id: "mkt-detail",
@@ -449,7 +449,7 @@ function Home() {
           label: "Báo cáo chi tiết đơn HCM",
           icon: <ClipboardList className="w-4 h-4" />,
           path: "/bao-cao-chi-tiet-hcm",
-          permissionAny: ['MKT_ORDERS_HCM', 'MKT_ORDERS'],
+          permission: 'MKT_ORDERS_HCM',
         },
         {
           id: "mkt-pages",
@@ -470,7 +470,7 @@ function Home() {
           label: "Ds báo cáo tay HCM",
           icon: <Database className="w-4 h-4" />,
           path: "/danh-sach-bao-cao-tay-mkt-hcm",
-          permissionAny: ['MKT_MANUAL_HCM', 'MKT_MANUAL'],
+          permission: 'MKT_MANUAL_HCM',
         },
       ],
     },
@@ -780,7 +780,7 @@ function Home() {
           color: "bg-teal-700",
           path: "/quan-ly-cskh-hcm",
           status: "order_code_hcm",
-          permissionAny: ['CSKH_LIST_HCM', 'CSKH_LIST'],
+          permission: 'CSKH_LIST_HCM',
         },
         {
           title: "Đơn đã thu tiền/cần CS",
@@ -820,7 +820,7 @@ function Home() {
           color: "bg-teal-600",
           path: "/nhap-bao-cao-cskh-hcm",
           status: "Ghi sale_report_hcm",
-          permissionAny: ['CSKH_INPUT_HCM', 'CSKH_INPUT'],
+          permission: 'CSKH_INPUT_HCM',
         },
         {
           title: "Ds báo cáo tay",
@@ -836,7 +836,7 @@ function Home() {
           color: "bg-teal-600",
           path: "/danh-sach-bao-cao-tay-cskh-hcm",
           status: "HCM-Sale Đêm, CSKH-HCM, HCM",
-          permissionAny: ['CSKH_MANUAL_HCM', 'CSKH_VIEW'],
+          permission: 'CSKH_MANUAL_HCM',
         },
         {
           title: "Xem báo cáo CSKH",
@@ -852,7 +852,7 @@ function Home() {
           color: "bg-orange-700",
           path: "/xem-bao-cao-cskh-hcm",
           status: "HCM-Sale Đêm, CSKH-HCM, HCM",
-          permissionAny: ['CSKH_VIEW_HCM', 'CSKH_VIEW'],
+          permission: 'CSKH_VIEW_HCM',
         },
         {
           title: "Lịch sử thay đổi",
@@ -929,7 +929,7 @@ function Home() {
           color: "bg-amber-700",
           path: "/xem-bao-cao-sale-hcm",
           status: "sale_report_hcm",
-          permissionAny: ['SALE_VIEW_HCM', 'SALE_VIEW'],
+          permission: 'SALE_VIEW_HCM',
         },
         {
           title: "Ds báo cáo tay",
@@ -945,7 +945,7 @@ function Home() {
           color: "bg-teal-700",
           path: "/danh-sach-bao-cao-tay-hcm",
           status: "sale_report_hcm",
-          permissionAny: ['SALE_MANUAL_HCM', 'SALE_MANUAL'],
+          permission: 'SALE_MANUAL_HCM',
         },
         {
           title: "Lịch sử thay đổi",
@@ -990,7 +990,7 @@ function Home() {
           color: "bg-cyan-600",
           path: "/danh-sach-van-don-hcm",
           status: "Chi nhánh HCM",
-          permissionAny: ['ORDERS_DANH_SACH_VAN_DON_HCM', 'ORDERS_DANH_SACH_VAN_DON'],
+          permission: 'ORDERS_DANH_SACH_VAN_DON_HCM',
         },
         {
           title: "Báo cáo vận đơn",
@@ -1030,7 +1030,7 @@ function Home() {
           color: "bg-indigo-600",
           path: "/ffm_MGT-hcm",
           status: "Mở ứng dụng",
-          permissionAny: ['ORDERS_FFM_MGT_HCM', 'ORDERS_FFM_MGT'],
+          permission: 'ORDERS_FFM_MGT_HCM',
         },
         {
           title: "FFM_TT",
@@ -1075,7 +1075,7 @@ function Home() {
           color: "bg-emerald-600",
           path: "/bao-cao-marketing-hcm",
           status: "Mở ứng dụng",
-          permissionAny: ['MKT_INPUT_HCM', 'MKT_INPUT'],
+          permission: 'MKT_INPUT_HCM',
         },
         {
           title: "Xem báo cáo MKT",
@@ -1091,7 +1091,7 @@ function Home() {
           color: "bg-amber-600",
           path: "/xem-bao-cao-mkt-hcm",
           status: "Team MKT - Đức Anh",
-          permissionAny: ['MKT_VIEW_HCM', 'MKT_VIEW'],
+          permission: 'MKT_VIEW_HCM',
         },
         {
           title: "Báo cáo chi tiết đơn",
@@ -1107,7 +1107,7 @@ function Home() {
           color: "bg-sky-600",
           path: "/bao-cao-chi-tiet-hcm",
           status: "bảng order_code_hcm",
-          permissionAny: ['MKT_ORDERS_HCM', 'MKT_ORDERS'],
+          permission: 'MKT_ORDERS_HCM',
         },
         {
           title: "Danh sách Page",
@@ -1131,7 +1131,7 @@ function Home() {
           color: "bg-cyan-700",
           path: "/danh-sach-bao-cao-tay-mkt-hcm",
           status: "marketing_report_hcm",
-          permissionAny: ['MKT_MANUAL_HCM', 'MKT_MANUAL'],
+          permission: 'MKT_MANUAL_HCM',
         },
       ],
     },
