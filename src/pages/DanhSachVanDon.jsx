@@ -67,6 +67,8 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchText, setSearchText] = useState('');
+    // Bộ lọc chi nhánh (dựa vào cột `chi_nhanh`)
+    const [branchFilter, setBranchFilter] = useState(() => (isHcmView ? 'HCM' : ''));
 
     // Date filter
     const [startDate, setStartDate] = useState(() => {
@@ -403,22 +405,29 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
     // Filter Data
     useEffect(() => {
+        let base = data || [];
+
+        if (branchFilter) {
+            base = base.filter((item) => isBranchMatched(item?.chi_nhanh, branchFilter));
+        }
+
         if (!searchText.trim()) {
-            setFilteredData(data);
+            setFilteredData(base);
             return;
         }
 
         const searchLower = searchText.toLowerCase();
-        const filtered = data.filter(item =>
+        const filtered = base.filter((item) =>
             item.ho_va_ten?.toLowerCase().includes(searchLower) ||
             item.trang_thai_chia?.toLowerCase().includes(searchLower) ||
             item.chi_nhanh?.toLowerCase().includes(searchLower) ||
             item.nguoi_sua_ho?.toLowerCase().includes(searchLower) ||
-            (item.nguoi_day_ffm_parsed && item.nguoi_day_ffm_parsed.some(name => name.toLowerCase().includes(searchLower))) ||
+            (item.nguoi_day_ffm_parsed &&
+                item.nguoi_day_ffm_parsed.some((name) => name.toLowerCase().includes(searchLower))) ||
             String(item.so_don || '').includes(searchText)
         );
         setFilteredData(filtered);
-    }, [searchText, data]);
+    }, [searchText, data, branchFilter]);
 
     const handleAdd = async () => {
         // Đảm bảo danh sách nhân sự đã được load
@@ -598,14 +607,14 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
     };
 
     return (
-        <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gray-50">
-            <div className="mb-6">
-                <h1 className="text-3xl font-bold text-gray-800 mb-2">Danh sách vận đơn</h1>
-                <p className="text-gray-600">Quản lý danh sách vận đơn</p>
+        <div className="flex flex-col w-full max-w-none min-h-[calc(100dvh-3.5rem)] bg-gray-50 px-3 sm:px-4 py-3 gap-4 box-border">
+            <div className="shrink-0">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-1">Danh sách vận đơn</h1>
+                <p className="text-gray-600 text-sm sm:text-base">Quản lý danh sách vận đơn</p>
             </div>
 
             {/* Date Filter */}
-            <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
+            <div className="shrink-0 bg-white rounded-lg shadow-md border border-gray-200 p-4">
                 <div className="flex flex-wrap items-center gap-4">
                     <div className="flex items-center gap-2">
                         <Calendar className="w-5 h-5 text-gray-500" />
@@ -629,6 +638,20 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                             onChange={(e) => setEndDate(e.target.value)}
                         />
                     </div>
+                <div>
+                    <label className="text-xs text-gray-600 block mb-1">Chi nhánh</label>
+                    <select
+                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={branchFilter}
+                        onChange={(e) => setBranchFilter(e.target.value)}
+                        disabled={isHcmView}
+                        title={isHcmView ? 'Trang HCM tự khóa chi nhánh = HCM' : 'Chọn chi nhánh'}
+                    >
+                        <option value="">Tất cả</option>
+                        <option value="Hà Nội">Hà Nội</option>
+                        <option value="HCM">HCM</option>
+                    </select>
+                </div>
                     <div className="text-xs text-gray-500 mt-6">
                         Số đơn sẽ tự động đếm theo khoảng ngày này
                     </div>
@@ -636,7 +659,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             </div>
 
             {/* Toolbar */}
-            <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
+            <div className="shrink-0 bg-white rounded-lg shadow-md border border-gray-200 p-4">
                 <div className="flex flex-wrap items-center gap-4">
                     {/* Search */}
                     <div className="flex-1 min-w-[250px] relative">
@@ -671,20 +694,22 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                 </div>
             </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+            {/* Table — flex-1 để chiếm trọn chiều cao còn lại (full màn hình dưới header) */}
+            <div className="flex flex-1 min-h-0 flex-col bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
                 {loading ? (
-                    <div className="p-8 text-center text-gray-500">
-                        <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
-                        Đang tải...
+                    <div className="flex flex-1 min-h-[12rem] items-center justify-center p-8 text-center text-gray-500">
+                        <div>
+                            <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
+                            Đang tải...
+                        </div>
                     </div>
                 ) : filteredData.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">
+                    <div className="flex flex-1 min-h-[12rem] items-center justify-center p-8 text-center text-gray-500">
                         Không có dữ liệu
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
+                    <div className="overflow-auto flex-1 min-h-0 min-w-0">
+                        <table className="w-full text-sm text-left min-w-[640px]">
                             <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
                                 <tr>
                                     {/* Only render columns not in HIDDEN_COLUMNS */}
