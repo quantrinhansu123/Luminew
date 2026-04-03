@@ -14,6 +14,7 @@ import {
   sortOrdersByDisplayDateDesc,
 } from '../utils/dateParsing';
 import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
+import { getCheckResult } from '../utils/orderCheckAndVnd';
 
 // Helper Functions
 const getRowValue = (row, ...keys) => {
@@ -74,6 +75,8 @@ function mapDonChiaOrderToFriendly(item) {
     "Nhân viên Sale": item.sale_staff,
     "Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
+    /** Cột DB `check_result` — bộ lọc Kết quả Check chỉ dùng field này */
+    check_result: String(item.check_result ?? '').trim(),
     "Kết quả Check": item.check_result,
     "Ghi chú": item.note,
     "CSKH": item.cskh ? String(item.cskh).trim() : '',
@@ -132,8 +135,11 @@ function applyDonChiaClientTableFilters(data, ctx) {
 
   if (ctx.filterCheckResult.length > 0) {
     rows = rows.filter((row) => {
-      const checkResult = row["Kết quả Check"];
-      return ctx.filterCheckResult.includes(String(checkResult).trim());
+      const s = getCheckResult(row);
+      if (ctx.filterCheckResult.includes('(Trống)')) {
+        if (!s) return true;
+      }
+      return ctx.filterCheckResult.includes(s);
     });
   }
 
@@ -900,11 +906,15 @@ function DonChiaCSKH() {
 
   const uniqueCheckResults = useMemo(() => {
     const checkResults = new Set();
-    allData.forEach(row => {
-      const checkResult = row["Kết quả Check"];
-      if (checkResult) checkResults.add(String(checkResult).trim());
+    let hasEmpty = false;
+    allData.forEach((row) => {
+      const s = getCheckResult(row);
+      if (s) checkResults.add(s);
+      else hasEmpty = true;
     });
-    return Array.from(checkResults).sort();
+    const sorted = Array.from(checkResults).sort();
+    if (hasEmpty) return ['(Trống)', ...sorted];
+    return sorted;
   }, [allData]);
 
 

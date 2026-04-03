@@ -13,6 +13,7 @@ import {
   sortOrdersByDisplayDateDesc,
 } from '../utils/dateParsing';
 import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
+import { getCheckResult } from '../utils/orderCheckAndVnd';
 
 const QUICK_FILTER_OPTIONS = [
   { value: 'today', label: 'Hôm nay' },
@@ -49,6 +50,8 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Nhân viên Sale": item.sale_staff,
     "Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
+    /** Cột DB `check_result` — bộ lọc Kết quả Check chỉ dùng field này */
+    check_result: String(item.check_result ?? '').trim(),
     "Kết quả Check": item.check_result,
     "Ghi chú": item.note,
     "CSKH": item.cskh,
@@ -206,8 +209,7 @@ function applyCSKHClientFilters(data, ctx) {
 
   if (filterCheckResult.length > 0) {
     rows = rows.filter((row) => {
-      const raw = row["Kết quả Check"] ?? row.check_result;
-      const checkStr = raw ? String(raw).trim() : '';
+      const checkStr = getCheckResult(row);
       if (filterCheckResult.includes('(Trống)')) {
         if (!checkStr) return true;
       }
@@ -832,8 +834,7 @@ function QuanLyCSKH({
     const set = new Set();
     let hasEmpty = false;
     allData.forEach((row) => {
-      const raw = row['Kết quả Check'] ?? row.check_result;
-      const s = raw ? String(raw).trim() : '';
+      const s = getCheckResult(row);
       if (s) set.add(s);
       else hasEmpty = true;
     });

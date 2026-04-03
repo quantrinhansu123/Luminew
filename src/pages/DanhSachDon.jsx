@@ -20,6 +20,7 @@ import {
   normalizeCustomerTextForDup,
   normalizePhoneDigits,
 } from '../utils/customerDuplicateCanhBao';
+import { getCheckResult } from '../utils/orderCheckAndVnd';
 
 /**
  * PostgREST thường bị giới hạn ~1000 dòng / request.
@@ -566,7 +567,9 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Nhân viên Sale": item.sale_staff || item.saleStaff || '',
     "Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
-    "Kết quả Check": item.check_result || item.payment_status, // Ưu tiên check_result, fallback về payment_status
+    /** Cột DB `check_result` — dùng cho bộ lọc Kết quả Check (không gộp payment_status). */
+    check_result: String(item.check_result ?? '').trim(),
+    "Kết quả Check": item.check_result || item.payment_status, // Hiển thị lưới: ưu tiên check_result, fallback payment_status
     "Ghi chú": item.note,
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
@@ -2353,13 +2356,10 @@ function DanhSachDon({ dataSource = 'default' }) {
   const uniqueCheckResults = useMemo(() => {
     const checkResults = new Set();
     let hasEmpty = false;
-    allData.forEach(row => {
-      const checkResult = row["Kết quả Check"];
-      if (checkResult && String(checkResult).trim()) {
-        checkResults.add(String(checkResult).trim());
-      } else {
-        hasEmpty = true;
-      }
+    allData.forEach((row) => {
+      const s = getCheckResult(row);
+      if (s) checkResults.add(s);
+      else hasEmpty = true;
     });
     const sortedCheckResults = Array.from(checkResults).sort();
     if (hasEmpty) {
@@ -2565,11 +2565,10 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
     }
 
-    // Check Result filter - Hỗ trợ multi-select và giá trị trống
+    // Check Result filter — chỉ theo cột DB check_result (không theo payment_status fallback trên cột hiển thị)
     if (filterCheckResult.length > 0) {
-      data = data.filter(row => {
-        const checkResult = row["Kết quả Check"];
-        const checkResultStr = checkResult ? String(checkResult).trim() : '';
+      data = data.filter((row) => {
+        const checkResultStr = getCheckResult(row);
 
         if (filterCheckResult.includes('(Trống)')) {
           if (!checkResultStr) return true;
