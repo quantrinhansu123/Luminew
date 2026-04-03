@@ -264,13 +264,16 @@ function vanDonDeliveryStaffIsSelf(row, sessionNorm) {
 }
 
 /** Khi ghép đơn chưa lưu vào kết quả API sau đổi bộ lọc — chỉ giữ dòng phù hợp tab (tránh lệch với Đơn Nhật/Hà Nội). */
-function rowMatchesBolTabForInject(row, tab, isAdminVanDonTab = false) {
+function rowMatchesBolTabForInject(row, tab, isAdminVanDonTab = false, dataSource = 'default') {
   if (tab === 'hanoi') {
     const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
     const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
     const isCheckOk = checkResult.toLowerCase() === 'ok';
     const isDeliveryUnitEmpty = !deliveryUnit || deliveryUnit === '' || deliveryUnit === 'null';
-    return isCheckOk && isDeliveryUnitEmpty;
+    if (!isCheckOk || !isDeliveryUnitEmpty) return false;
+    const team = String(row['Team'] || row.team || '').trim();
+    const wantTeam = dataSource === 'hcm' ? 'HCM' : 'Hà Nội';
+    return team === wantTeam;
   }
   if (tab === 'japan') {
     const country = String(row.country || row['Country'] || row['Khu vực'] || '').trim();
@@ -733,7 +736,7 @@ function VanDon({ dataSource = 'default' }) {
       if (!orderId || ids.has(orderId)) return;
       const snap = pendingRowSnapshotsRef.current.get(orderId);
       if (!snap) return;
-      if (!rowMatchesBolTabForInject(snap, bolActiveTab, isAdmin)) return;
+      if (!rowMatchesBolTabForInject(snap, bolActiveTab, isAdmin, dataSource)) return;
       extra.push({ ...snap });
     });
     return extra.length ? [...rows, ...extra] : rows;
@@ -790,7 +793,14 @@ function VanDon({ dataSource = 'default' }) {
   const activeFilters = useMemo(() => {
     const sessionName = getVanDonSessionDisplayName().trim();
     const filters = {
-      team: bolActiveTab === 'hanoi' ? 'Hà Nội' : (omActiveTeam !== 'all' ? omActiveTeam : undefined),
+      team:
+        bolActiveTab === 'hanoi'
+          ? dataSource === 'hcm'
+            ? 'HCM'
+            : 'Hà Nội'
+          : omActiveTeam !== 'all'
+            ? omActiveTeam
+            : undefined,
       market: bolActiveTab === 'japan' ? ['Nhật Bản', 'CĐ Nhật Bản'] : appliedFilterValues.market,
       product: appliedFilterValues.product,
       nv_sale: appliedFilterValues.nv_sale,
@@ -824,7 +834,8 @@ function VanDon({ dataSource = 'default' }) {
     useBackendPagination,
     serverColumnFilters,
     serverTrackingFilter,
-    isAdmin
+    isAdmin,
+    dataSource
   ]);
 
   /** Cùng logic quyền + filter API với useQuery; `page`/`limit` truyền vào (xuất Excel tải nhiều trang). */
@@ -1115,25 +1126,26 @@ function VanDon({ dataSource = 'default' }) {
           const n = getVanDonSessionDisplayName().trim().toLowerCase();
           data = n ? data.filter((row) => vanDonDeliveryStaffIsSelf(row, n)) : [];
         } else if (bolActiveTab === 'hanoi') {
-          // Tab "Đẩy đơn Hà Nội": chỉ hiển thị đơn có Team="Hà Nội", Kết quả Check="Ok", Mã Tracking trống/null và Đơn vị vận chuyển trống/null
+          // Tab đẩy FFM: /van-don → Team "Hà Nội"; /van-don-hcm → Team "HCM"
+          const wantTeam = dataSource === 'hcm' ? 'HCM' : 'Hà Nội';
           data = data.filter(row => {
-            const team = String(row['Team'] || '').trim();
+            const team = String(row['Team'] || row.team || '').trim();
             const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
             const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
             const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
 
-            // Team phải là "Hà Nội"
-            const isTeamHanoi = team === 'Hà Nội';
-            // Kết quả Check phải là "Ok" hoặc "OK"
+            const isTeamMatch = team === wantTeam;
             const isCheckOk = checkResult.toLowerCase() === 'ok';
-            // Mã Tracking phải trống hoặc null
             const isTrackingEmpty = isVanDonSemanticEmpty(tracking);
-            // Đơn vị vận chuyển phải trống hoặc null
             const isDeliveryUnitEmpty = isVanDonSemanticEmpty(deliveryUnit);
 
-            return isTeamHanoi && isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
+            return isTeamMatch && isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
           });
-          console.log('🏛️ [VanDon Fallback] Tab Hà Nội - Filtered by Team="Hà Nội", Check="Ok", empty Tracking and empty Đơn vị vận chuyển:', data.length, 'orders');
+          console.log(
+            `🏛️ [VanDon Fallback] Tab đẩy FFM — Team="${wantTeam}", Check=Ok, empty Tracking & ĐVVC:`,
+            data.length,
+            'orders'
+          );
         }
       } else {
         console.log('👑 [VanDon Client-side] Admin - Không filter theo tab (hiển thị tất cả)');
@@ -1452,7 +1464,8 @@ function VanDon({ dataSource = 'default' }) {
     appliedEnableDateFilter,
     mgtNoiBoOrder,
     isAdmin,
-    useBackendPagination
+    useBackendPagination,
+    dataSource
   ]);
 
   const getFilteredData = useMemo(() => computeFilteredData(allData), [computeFilteredData, allData]);
