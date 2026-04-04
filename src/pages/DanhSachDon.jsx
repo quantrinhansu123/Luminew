@@ -1,4 +1,4 @@
-import { AlertTriangle, Calculator, Clock, Download, History, Layers, Pencil, RefreshCw, Search, Settings, Trash2, Truck, Wrench, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Calculator, Clock, Download, History, Layers, Pencil, RefreshCw, Search, Settings, Trash2, Truck, Wrench, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -357,6 +357,8 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [highlightDupNamePhoneAdd, setHighlightDupNamePhoneAdd] = useState(false);
   const [deleting, setDeleting] = useState(false); // State for delete all process
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  /** Modal: số đơn theo từng Sale / MKT trong phạm vi filteredData */
+  const [showStaffOrderStatsModal, setShowStaffOrderStatsModal] = useState(false);
   const [historyOrderCode, setHistoryOrderCode] = useState(null);
   const [historyTableRows, setHistoryTableRows] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -2643,6 +2645,27 @@ function DanhSachDon({ dataSource = 'default' }) {
     return dup;
   }, [filteredData]);
 
+  /** Số đơn theo Nhân viên Sale / Marketing — cùng tập filteredData với bảng (mọi bộ lọc đã áp). */
+  const staffOrderStatsBreakdown = useMemo(() => {
+    const saleMap = new Map();
+    const mktMap = new Map();
+    for (const row of filteredData) {
+      const sale = String(row['Nhân viên Sale'] || '').trim() || '(Trống)';
+      const mkt = String(row['Nhân viên Marketing'] || '').trim() || '(Trống)';
+      saleMap.set(sale, (saleMap.get(sale) || 0) + 1);
+      mktMap.set(mkt, (mktMap.get(mkt) || 0) + 1);
+    }
+    const sortEntries = (map) =>
+      [...map.entries()].sort(
+        (a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'vi', { sensitivity: 'base' })
+      );
+    return {
+      sale: sortEntries(saleMap),
+      mkt: sortEntries(mktMap),
+      total: filteredData.length,
+    };
+  }, [filteredData]);
+
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
     const handleKeyDown = async (e) => {
@@ -2885,6 +2908,15 @@ function DanhSachDon({ dataSource = 'default' }) {
                   }, 0).toLocaleString('vi-VN')} ₫
                 </span>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowStaffOrderStatsModal(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 shadow-sm"
+                title="Số đơn của từng Sale và từng MKT theo đúng bộ lọc đang áp dụng trên trang"
+              >
+                <BarChart3 className="w-4 h-4 shrink-0" />
+                Thống kê Sale / MKT
+              </button>
               {isAdmin && canEditOnThisOrderList && (
                 <button
                   type="button"
@@ -4280,6 +4312,108 @@ function DanhSachDon({ dataSource = 'default' }) {
               <button
                 onClick={() => setShowHistoryModal(false)}
                 className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showStaffOrderStatsModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="staff-order-stats-title"
+          onClick={() => setShowStaffOrderStatsModal(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[88vh] flex flex-col border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50 rounded-t-xl shrink-0">
+              <div>
+                <h2 id="staff-order-stats-title" className="text-lg font-bold text-gray-900">
+                  Thống kê số đơn theo Sale &amp; Marketing
+                </h2>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Theo bộ lọc hiện tại: <strong>{staffOrderStatsBreakdown.total}</strong> đơn
+                  {isHcmView ? (
+                    <>
+                      {' '}
+                      ·{' '}
+                      <code className="bg-gray-200 px-1 rounded text-[11px]">order_code_hcm</code>
+                    </>
+                  ) : (
+                    <>
+                      {' '}
+                      ·{' '}
+                      <code className="bg-gray-200 px-1 rounded text-[11px]">orders</code> (view Hà Nội)
+                    </>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="p-2 rounded-lg hover:bg-gray-200 text-gray-700"
+                aria-label="Đóng"
+                onClick={() => setShowStaffOrderStatsModal(false)}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-auto flex-1 p-4 grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0">
+              {['sale', 'mkt'].map((kind) => {
+                const label = kind === 'sale' ? 'Nhân viên Sale' : 'Nhân viên Marketing';
+                const rows = kind === 'sale' ? staffOrderStatsBreakdown.sale : staffOrderStatsBreakdown.mkt;
+                const total = staffOrderStatsBreakdown.total;
+                return (
+                  <div key={kind} className="flex flex-col min-h-0 border border-gray-200 rounded-lg overflow-hidden">
+                    <h3 className="text-sm font-bold text-gray-800 bg-indigo-50 px-3 py-2 border-b border-gray-200">
+                      {label}
+                    </h3>
+                    <div className="overflow-auto flex-1 max-h-[55vh] md:max-h-[60vh]">
+                      {rows.length === 0 ? (
+                        <p className="text-sm text-gray-500 p-4 text-center">Không có dữ liệu.</p>
+                      ) : (
+                        <table className="min-w-full text-sm border-collapse">
+                          <thead className="sticky top-0 bg-gray-100 text-left text-xs uppercase text-gray-600 z-10">
+                            <tr>
+                              <th className="p-2 border-b border-gray-200 font-semibold">#</th>
+                              <th className="p-2 border-b border-gray-200 font-semibold">{label}</th>
+                              <th className="p-2 border-b border-gray-200 font-semibold whitespace-nowrap">Số đơn</th>
+                              <th className="p-2 border-b border-gray-200 font-semibold whitespace-nowrap">%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map(([name, count], i) => (
+                              <tr key={`${kind}-${name}`} className="hover:bg-indigo-50/40">
+                                <td className="p-2 border-b border-gray-100 text-gray-500">{i + 1}</td>
+                                <td className="p-2 border-b border-gray-100 text-gray-900 break-words max-w-[200px]">
+                                  {name}
+                                </td>
+                                <td className="p-2 border-b border-gray-100 font-semibold text-indigo-700 whitespace-nowrap">
+                                  {count.toLocaleString('vi-VN')}
+                                </td>
+                                <td className="p-2 border-b border-gray-100 text-gray-600 whitespace-nowrap">
+                                  {total > 0 ? ((count / total) * 100).toFixed(1) : '0.0'}%
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowStaffOrderStatsModal(false)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium transition-colors"
               >
                 Đóng
               </button>

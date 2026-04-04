@@ -1197,14 +1197,24 @@ export default function BaoCaoMarketing({
                                   className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
                                 />
                               ) : header === 'Sản_phẩm' ? (
-                                <input
-                                  type="text"
-                                  list={`product-datalist-${row.id}`}
-                                  placeholder="--"
+                                <select
                                   value={row.data[header] || ''}
                                   onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                                />
+                                  className="w-full min-w-[10rem] px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600 bg-white"
+                                  title="Chọn sản phẩm — luôn mở được toàn bộ danh sách (khác datalist trình duyệt)"
+                                >
+                                  <option value="">-- Chọn sản phẩm --</option>
+                                  {(() => {
+                                    const list = appData.productList || [];
+                                    const cur = String(row.data[header] || '').trim();
+                                    const head = cur && !list.includes(cur) ? [cur] : [];
+                                    return [...head, ...list].map((product) => (
+                                      <option key={product} value={product}>
+                                        {product}
+                                      </option>
+                                    ));
+                                  })()}
+                                </select>
                               ) : header === 'Thị_trường' ? (
                                 <input
                                   type="text"
@@ -1322,15 +1332,6 @@ export default function BaoCaoMarketing({
           <datalist key={`ca-${row.id}`} id={`ca-datalist-${row.id}`}>
             {appData.shiftList?.map((shift) => (
               <option key={shift} value={shift} />
-            ))}
-          </datalist>
-        ))}
-
-        {/* Product Datalist - Dynamic for each row */}
-        {tableRows.map((row) => (
-          <datalist key={`product-${row.id}`} id={`product-datalist-${row.id}`}>
-            {appData.productList?.map((product) => (
-              <option key={product} value={product} />
             ))}
           </datalist>
         ))}
