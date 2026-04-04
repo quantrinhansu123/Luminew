@@ -1490,7 +1490,7 @@ function VanDon({ dataSource = 'default' }) {
       return;
     }
     setExportingMaDon(true);
-    const loadingId = addToast('Đang xuất Excel mã đơn hàng…', 'loading', 0);
+    const loadingId = addToast('Đang xuất Excel vận đơn…', 'loading', 0);
     try {
       let sourceRows;
       if (!useBackendPagination) {
@@ -1524,9 +1524,29 @@ function VanDon({ dataSource = 'default' }) {
 
       const codeOf = (row) =>
         String(row['Mã đơn hàng'] ?? row.order_code ?? row[PRIMARY_KEY_COLUMN] ?? '').trim();
+
+      const excelCellStr = (row, appKeys, dbKeys = []) => {
+        if (!row) return '';
+        for (const k of appKeys) {
+          const v = row[k];
+          if (v != null && String(v).trim() !== '') return String(v).trim();
+        }
+        for (const k of dbKeys) {
+          const v = row[k];
+          if (v != null && String(v).trim() !== '') return String(v).trim();
+        }
+        return '';
+      };
+
       const codes = [...new Set(filtered.map(codeOf).filter(Boolean))].sort((a, b) =>
         a.localeCompare(b, 'vi', { sensitivity: 'base' })
       );
+
+      const rowByCode = new Map();
+      for (const row of filtered) {
+        const c = codeOf(row);
+        if (c && !rowByCode.has(c)) rowByCode.set(c, row);
+      }
 
       removeToast(loadingId);
       if (codes.length === 0) {
@@ -1534,12 +1554,30 @@ function VanDon({ dataSource = 'default' }) {
         return;
       }
 
+      const headerRow = [
+        'Mã đơn hàng',
+        'NV Vận đơn',
+        'Kết quả Check',
+        'Trạng thái giao hàng NB',
+        'Trạng thái thu tiền',
+      ];
+      const dataRows = codes.map((c) => {
+        const row = rowByCode.get(c);
+        return [
+          c,
+          excelCellStr(row, ['NV Vận đơn'], ['delivery_staff']),
+          excelCellStr(row, ['Kết quả Check', 'Kết quả check'], ['check_result']),
+          excelCellStr(row, ['Trạng thái giao hàng NB'], ['delivery_status_nb']),
+          excelCellStr(row, ['Trạng thái thu tiền'], ['payment_status']),
+        ];
+      });
+
       const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet([['Mã đơn hàng'], ...codes.map((c) => [c])]);
-      XLSX.utils.book_append_sheet(wb, ws, 'Ma_don');
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Van_don');
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      XLSX.writeFile(wb, `VanDon_ma_don_loc_${stamp}.xlsx`);
-      addToast(`Đã xuất ${codes.length} mã đơn hàng ra Excel.`, 'success');
+      XLSX.writeFile(wb, `VanDon_export_${stamp}.xlsx`);
+      addToast(`Đã xuất ${codes.length} dòng (mã + NV + trạng thái) ra Excel.`, 'success');
     } catch (e) {
       removeToast(loadingId);
       console.error(e);
@@ -3905,7 +3943,7 @@ function VanDon({ dataSource = 'default' }) {
                 onClick={handleExportMaDonExcel}
                 disabled={exportingMaDon || isQueryLoading || permissionsLoading}
                 className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
-                title="Xuất file Excel một cột «Mã đơn hàng» theo bộ lọc hiện tại (tải đủ trang từ máy chủ khi bật phân trang backend)"
+                title="Excel: Mã đơn hàng, NV Vận đơn, Kết quả Check, Trạng thái giao hàng NB, Trạng thái thu tiền — theo bộ lọc (tải đủ trang khi phân trang backend)"
               >
                 {exportingMaDon ? (
                   <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
