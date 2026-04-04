@@ -104,27 +104,22 @@ function getVanDonGridCellValue(row, colHeader) {
   return '';
 }
 
-/** Một dòng tiền cho header «Tổng tiền»: khớp thứ tự ưu tiên với DB / lưới (kể cả tong_tien_vnd, format VN). */
+/** Một dòng tiền cho header «Tổng tiền»: ưu tiên ô «Tổng tiền VNĐ»; sau đó cùng logic DB (line → nullif tong → total → …). */
 function pickVanDonRowMoneyVnd(row) {
   if (!row) return 0;
-  const candidates = [
+  const displayedCandidates = [
     getVanDonGridCellValue(row, 'Tổng tiền VNĐ'),
     row['Tổng tiền VNĐ'],
-    row.tong_tien_vnd,
-    row.total_amount_vnd,
-    getVanDonGridCellValue(row, 'Giá bán'),
-    row['Giá bán'],
-    row.sale_price,
-    row.goods_amount,
   ];
-  for (let i = 0; i < candidates.length; i++) {
-    const raw = candidates[i];
+  for (let i = 0; i < displayedCandidates.length; i++) {
+    const raw = displayedCandidates[i];
     if (raw === undefined || raw === null) continue;
     if (typeof raw === 'string' && raw.trim() === '') continue;
-    const n = parseVietnameseMoneyToNumber(raw);
+    const n =
+      typeof raw === 'number' && Number.isFinite(raw) ? raw : parseVietnameseMoneyToNumber(raw);
     if (n != null && Number.isFinite(n)) return n;
   }
-  return 0;
+  return API.resolveVanDonMoneyVndFromDbRow(row);
 }
 
 /**

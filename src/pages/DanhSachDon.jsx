@@ -35,6 +35,21 @@ function chunkArray(arr, size) {
   return out;
 }
 
+/**
+ * Chèn từ `orders` → `order_code_hcm`: chỉ copy own keys, bỏ `id` và mọi cột GENERATED STORED
+ * (vd. `van_don_line_total_vnd` — Postgres lỗi «cannot insert a non-DEFAULT value» nếu gửi tay).
+ */
+function cloneOrderRowForHcmInsert(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return {};
+  const out = {};
+  for (const key of Object.keys(row)) {
+    if (key === 'id') continue;
+    if (key === 'van_don_line_total_vnd') continue;
+    out[key] = row[key];
+  }
+  return out;
+}
+
 
 /** Giá trị Ca sau khi gộp Giữa ca + Hết ca (khớp NhapDonMoi / báo cáo) */
 const SHIFT_GIUA_CA_HET_CA = 'Giữa ca,Hết ca';
@@ -1671,14 +1686,14 @@ function DanhSachDon({ dataSource = 'default' }) {
           skippedDup.push(code);
           continue;
         }
-        const { id: _omitId, ...rest } = row;
-        payloads.push(rest);
+        payloads.push(cloneOrderRowForHcmInsert(row));
       }
 
       let inserted = 0;
       for (const insChunk of chunkArray(payloads, 25)) {
         if (!insChunk.length) continue;
-        const { error: insErr } = await supabase.from('order_code_hcm').insert(insChunk);
+        const sanitized = insChunk.map((p) => cloneOrderRowForHcmInsert(p));
+        const { error: insErr } = await supabase.from('order_code_hcm').insert(sanitized);
         if (insErr) throw insErr;
         inserted += insChunk.length;
       }
