@@ -817,7 +817,12 @@ function VanDon({ dataSource = 'default' }) {
       limit: rowsPerPage,
       useBackend: useBackendPagination,
       columnFilters: serverColumnFilters,
-      trackingFilter: serverTrackingFilter
+      trackingFilter: serverTrackingFilter,
+      customerQuickSearch: normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch) || undefined,
+      canh_bao_filter:
+        appliedFilterValues.canh_bao_filter === 'co_trung' || appliedFilterValues.canh_bao_filter === 'khong_trung'
+          ? appliedFilterValues.canh_bao_filter
+          : undefined
     };
     console.log('🔍 [VanDon] Active Filters:', filters);
     return filters;
@@ -825,6 +830,7 @@ function VanDon({ dataSource = 'default' }) {
     bolActiveTab,
     omActiveTeam,
     appliedFilterValues,
+    appliedCustomerQuickSearch,
     appliedEnableDateFilter,
     appliedDateFrom,
     appliedDateTo,
@@ -933,7 +939,9 @@ function VanDon({ dataSource = 'default' }) {
         allowedStaff: allowedStaffForRequest,
         deliveryStaffSelfFilter: selfDeliveryName || undefined,
         columnFilters: activeFilters.columnFilters || {},
-        trackingFilter: activeFilters.trackingFilter || null
+        trackingFilter: activeFilters.trackingFilter || null,
+        customerQuickSearch: activeFilters.customerQuickSearch,
+        canh_bao_filter: activeFilters.canh_bao_filter
       });
 
       console.log('✅ [VanDon] fetchVanDon Result:', {
@@ -963,8 +971,11 @@ function VanDon({ dataSource = 'default' }) {
     isFetching,
     refetch: refetchVanDonData
   } = useQuery({
+    // Bắt buộc tách cache theo nguồn: /van-don (orders + van_don_page) vs /van-don-hcm (order_code_hcm).
+    // Nếu thiếu `dataSource`, hai trang có cùng filter sẽ dùng nhầm cache → dữ liệu thiếu/sai.
     queryKey: [
       'vanDon',
+      dataSource,
       activeFilters,
       activeFilters.tab === 'japan' || activeFilters.tab === 'hanoi'
         ? 'no-personnel-scope'
@@ -1163,7 +1174,8 @@ function VanDon({ dataSource = 'default' }) {
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
 
     const traCuuKhach = normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch);
-    if (traCuuKhach) {
+    // Phân trang backend: tra cứu khách đã lọc ở API — tránh lệch tổng đơn / tổng tiền và lọc hai lần.
+    if (traCuuKhach && !useBackendPagination) {
       const digitsOnly = (s) => String(s ?? '').replace(/\D/g, '');
       const qDigits = digitsOnly(traCuuKhach);
       data = data.filter((row) => {
@@ -1184,96 +1196,99 @@ function VanDon({ dataSource = 'default' }) {
       });
     }
 
-    // Market & Product — tab Đơn Nhật / Đẩy Hà Nội: không lọc lại Khu vực / NV trên toolbar (tránh ẩn đơn Nhật trong hàng đợi Hà Nội)
+    // Market & Product / NV / ĐVVC — tab Đơn Nhật & Đẩy FFM: bỏ lọc toolbar trên client (logic tab + API).
+    // Phân trang backend: toolbar đã lọc ở API — lọc lại client dễ lệch chuẩn hóa → sót / ẩn nhầm dòng.
     const queueTabSkipMarketAndNvToolbar = bolActiveTab === 'japan' || bolActiveTab === 'hanoi';
     try {
-      if (
-        !queueTabSkipMarketAndNvToolbar &&
-        appliedFilterValues.market &&
-        Array.isArray(appliedFilterValues.market) &&
-        appliedFilterValues.market.length > 0
-      ) {
-        const set = new Set(appliedFilterValues.market);
-        data = data.filter(row => {
-          const orderId = row[PRIMARY_KEY_COLUMN];
-          const o = getPendingOriginal(orderId, 'Khu vực', 'khu vực', 'country');
-          const market = o !== undefined ? strNorm(o) : strNorm(row["Khu vực"] || row["khu vực"] || '');
-          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(market)) return true;
-          return !isVanDonSemanticEmpty(market) && set.has(market);
-        });
-      }
-      if (appliedFilterValues.product && Array.isArray(appliedFilterValues.product) && appliedFilterValues.product.length > 0) {
-        const set = new Set(appliedFilterValues.product);
-        data = data.filter(row => {
-          const orderId = row[PRIMARY_KEY_COLUMN];
-          const o = getPendingOriginal(orderId, 'Mặt hàng');
-          const product = o !== undefined ? strNorm(o) : strNorm(row["Mặt hàng"] || '');
-          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(product)) return true;
-          return !isVanDonSemanticEmpty(product) && set.has(product);
-        });
-      }
-      if (
-        !queueTabSkipMarketAndNvToolbar &&
-        appliedFilterValues.nv_sale &&
-        Array.isArray(appliedFilterValues.nv_sale) &&
-        appliedFilterValues.nv_sale.length > 0
-      ) {
-        const set = new Set(appliedFilterValues.nv_sale);
-        data = data.filter((row) => {
-          const orderId = row[PRIMARY_KEY_COLUMN];
-          const o = getPendingOriginal(orderId, 'Nhân viên Sale', 'sale_staff');
-          const v = o !== undefined ? strNorm(o) : strNorm(row.sale_staff || row['Nhân viên Sale'] || '');
-          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
-          return !isVanDonSemanticEmpty(v) && set.has(v);
-        });
-      }
-      if (
-        !queueTabSkipMarketAndNvToolbar &&
-        appliedFilterValues.nv_mkt &&
-        Array.isArray(appliedFilterValues.nv_mkt) &&
-        appliedFilterValues.nv_mkt.length > 0
-      ) {
-        const set = new Set(appliedFilterValues.nv_mkt);
-        data = data.filter((row) => {
-          const orderId = row[PRIMARY_KEY_COLUMN];
-          const o = getPendingOriginal(orderId, 'Nhân viên MKT', 'marketing_staff');
-          const v = o !== undefined ? strNorm(o) : strNorm(row.marketing_staff || row['Nhân viên MKT'] || '');
-          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
-          return !isVanDonSemanticEmpty(v) && set.has(v);
-        });
-      }
-      if (
-        !queueTabSkipMarketAndNvToolbar &&
-        appliedFilterValues.nv_van_don &&
-        Array.isArray(appliedFilterValues.nv_van_don) &&
-        appliedFilterValues.nv_van_don.length > 0
-      ) {
-        const set = new Set(appliedFilterValues.nv_van_don);
-        data = data.filter((row) => {
-          const orderId = row[PRIMARY_KEY_COLUMN];
-          const o = getPendingOriginal(orderId, 'NV Vận đơn', 'Nhân viên Vận đơn', 'delivery_staff');
-          const v = o !== undefined ? strNorm(o) : strNorm(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '');
-          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
-          return !isVanDonSemanticEmpty(v) && set.has(v);
-        });
-      }
-      if (appliedFilterValues.shipping_unit && Array.isArray(appliedFilterValues.shipping_unit) && appliedFilterValues.shipping_unit.length > 0) {
-        const set = new Set(appliedFilterValues.shipping_unit);
-        data = data.filter((row) => {
-          const orderId = row[PRIMARY_KEY_COLUMN];
-          const o = getPendingOriginal(orderId, 'Đơn vị vận chuyển', 'Đơn vị Vận chuyển', 'Đơn_vị_vận_chuyển');
-          const v = o !== undefined ? strNorm(o) : strNorm(row['Đơn vị vận chuyển'] || row['Đơn_vị_vận_chuyển'] || '');
-          if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
-          return !isVanDonSemanticEmpty(v) && set.has(v);
-        });
+      if (!useBackendPagination) {
+        if (
+          !queueTabSkipMarketAndNvToolbar &&
+          appliedFilterValues.market &&
+          Array.isArray(appliedFilterValues.market) &&
+          appliedFilterValues.market.length > 0
+        ) {
+          const set = new Set(appliedFilterValues.market);
+          data = data.filter(row => {
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            const o = getPendingOriginal(orderId, 'Khu vực', 'khu vực', 'country');
+            const market = o !== undefined ? strNorm(o) : strNorm(row["Khu vực"] || row["khu vực"] || row.country || '');
+            if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(market)) return true;
+            return !isVanDonSemanticEmpty(market) && set.has(market);
+          });
+        }
+        if (appliedFilterValues.product && Array.isArray(appliedFilterValues.product) && appliedFilterValues.product.length > 0) {
+          const set = new Set(appliedFilterValues.product);
+          data = data.filter(row => {
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            const o = getPendingOriginal(orderId, 'Mặt hàng');
+            const product = o !== undefined ? strNorm(o) : strNorm(row["Mặt hàng"] || '');
+            if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(product)) return true;
+            return !isVanDonSemanticEmpty(product) && set.has(product);
+          });
+        }
+        if (
+          !queueTabSkipMarketAndNvToolbar &&
+          appliedFilterValues.nv_sale &&
+          Array.isArray(appliedFilterValues.nv_sale) &&
+          appliedFilterValues.nv_sale.length > 0
+        ) {
+          const set = new Set(appliedFilterValues.nv_sale);
+          data = data.filter((row) => {
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            const o = getPendingOriginal(orderId, 'Nhân viên Sale', 'sale_staff');
+            const v = o !== undefined ? strNorm(o) : strNorm(row.sale_staff || row['Nhân viên Sale'] || '');
+            if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+            return !isVanDonSemanticEmpty(v) && set.has(v);
+          });
+        }
+        if (
+          !queueTabSkipMarketAndNvToolbar &&
+          appliedFilterValues.nv_mkt &&
+          Array.isArray(appliedFilterValues.nv_mkt) &&
+          appliedFilterValues.nv_mkt.length > 0
+        ) {
+          const set = new Set(appliedFilterValues.nv_mkt);
+          data = data.filter((row) => {
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            const o = getPendingOriginal(orderId, 'Nhân viên MKT', 'marketing_staff');
+            const v = o !== undefined ? strNorm(o) : strNorm(row.marketing_staff || row['Nhân viên MKT'] || '');
+            if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+            return !isVanDonSemanticEmpty(v) && set.has(v);
+          });
+        }
+        if (
+          !queueTabSkipMarketAndNvToolbar &&
+          appliedFilterValues.nv_van_don &&
+          Array.isArray(appliedFilterValues.nv_van_don) &&
+          appliedFilterValues.nv_van_don.length > 0
+        ) {
+          const set = new Set(appliedFilterValues.nv_van_don);
+          data = data.filter((row) => {
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            const o = getPendingOriginal(orderId, 'NV Vận đơn', 'Nhân viên Vận đơn', 'delivery_staff');
+            const v = o !== undefined ? strNorm(o) : strNorm(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '');
+            if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+            return !isVanDonSemanticEmpty(v) && set.has(v);
+          });
+        }
+        if (appliedFilterValues.shipping_unit && Array.isArray(appliedFilterValues.shipping_unit) && appliedFilterValues.shipping_unit.length > 0) {
+          const set = new Set(appliedFilterValues.shipping_unit);
+          data = data.filter((row) => {
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            const o = getPendingOriginal(orderId, 'Đơn vị vận chuyển', 'Đơn vị Vận chuyển', 'Đơn_vị_vận_chuyển');
+            const v = o !== undefined ? strNorm(o) : strNorm(row['Đơn vị vận chuyển'] || row['Đơn_vị_vận_chuyển'] || '');
+            if ((set.has('Trống') || set.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+            return !isVanDonSemanticEmpty(v) && set.has(v);
+          });
+        }
       }
     } catch (err) {
       console.warn('⚠️ [Filter Error] Lỗi khi xử lý Market/Product filter:', err);
     }
 
-    if (appliedFilterValues.canh_bao_filter === 'co_trung') {
+    if (appliedFilterValues.canh_bao_filter === 'co_trung' && !useBackendPagination) {
       data = data.filter((row) => rowHasVanDonCanhBao(row));
-    } else if (appliedFilterValues.canh_bao_filter === 'khong_trung') {
+    } else if (appliedFilterValues.canh_bao_filter === 'khong_trung' && !useBackendPagination) {
       data = data.filter((row) => !rowHasVanDonCanhBao(row));
     }
 

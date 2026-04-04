@@ -3,7 +3,6 @@ import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { formatOrderLogJsonbForDisplay, mergeOrderLogJsonb, parseOrderLogJsonb } from '../utils/orderLogJsonb';
 import {
-    buildVanDonDropdownIlikeOrSegment,
     buildVanDonFlexibleIlikePattern,
     escapeIlikePattern,
     normalizeVanDonFilterWhitespace
@@ -275,6 +274,57 @@ export const mapSupabaseOrderToApp = (sOrder) => {
 
     return appOrder;
 };
+
+/** Tiền một dòng DB (orders / order_code_hcm) — cùng thứ tự ưu tiên với pickVanDonRowMoneyVnd trên lưới. */
+function pickVanDonMoneyFromDbRow(r) {
+    if (!r || typeof r !== 'object') return 0;
+    const candidates = [r.tong_tien_vnd, r.total_amount_vnd, r.sale_price, r.goods_amount];
+    for (let i = 0; i < candidates.length; i++) {
+        const raw = candidates[i];
+        if (raw === undefined || raw === null) continue;
+        if (typeof raw === 'string' && raw.trim() === '') continue;
+        if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+        const n = parseVietnameseMoneyToNumber(raw);
+        if (n != null && Number.isFinite(n)) return n;
+    }
+    return 0;
+}
+
+function unwrapPostgrestAggregateRow(data) {
+    if (data == null) return null;
+    if (Array.isArray(data)) {
+        if (data.length === 0) return null;
+        return data[0];
+    }
+    return data;
+}
+
+/**
+ * PostgREST / Supabase: kết quả aggregate có thể là `[{ sum: n }]`, `{ "col.sum": n }`, hoặc `{ sum: "..." }`.
+ * maybeSingle() đôi khi làm mất / lệch dữ liệu — luôn unwrap mảng một dòng.
+ */
+function extractPostgrestAggregateNumeric(data) {
+    const row = unwrapPostgrestAggregateRow(data);
+    if (row == null || typeof row !== 'object') return null;
+    const keys = Object.keys(row);
+    for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        if (k === 'sum' || k.endsWith('.sum')) {
+            const v = row[k];
+            if (v !== null && v !== undefined && v !== '') {
+                const n = typeof v === 'number' ? v : Number(v);
+                if (Number.isFinite(n)) return n;
+            }
+        }
+    }
+    for (let i = 0; i < keys.length; i++) {
+        const v = row[keys[i]];
+        if (v === null || v === undefined || v === '' || typeof v === 'object') continue;
+        const n = typeof v === 'number' ? v : Number(v);
+        if (Number.isFinite(n)) return n;
+    }
+    return null;
+}
 
 const PROD_HOST = 'https://n-api-gamma.vercel.app';
 // const LOCAL_HOST = 'http://localhost:8081'; 
@@ -900,7 +950,7 @@ function addOneCalendarDayYmd(ymd) {
     return d.toISOString().slice(0, 10);
 }
 
-/** Cột dropdown trên /van-don: `.in()` / `.eq()` phân biệt hoa thường → DB `treo` không khớp UI `Treo`. Dùng ILIKE không wildcard = so khớp cả chuỗi, không phân biệt hoa thường. */
+/** Cột dropdown trên /van-don: `.in()` / `.eq()` phân biệt hoa thường → dùng ILIKE không `%` = khớp nguyên giá trị (vd. «Có bill» không gộp «Có bill một phần» / «Có bill 1 phần»). */
 const VAN_DON_ILIKE_EXACT_DB_COLS = new Set([
     'check_result',
     'delivery_status',
@@ -926,7 +976,11 @@ function buildVanDonOrIlikeExact(field, values) {
             .join(',');
     }
     return values
-        .map((v) => buildVanDonDropdownIlikeOrSegment(field, v))
+        .map((v) => {
+            const norm = normalizeVanDonFilterWhitespace(String(v));
+            if (!norm) return null;
+            return `${field}.ilike.${escapeIlikePattern(norm)}`;
+        })
         .filter(Boolean)
         .join(',');
 }
@@ -982,6 +1036,10 @@ export const fetchVanDon = async (options = {}) => {
         columnFilters = {},
         /** { status, include, exclude } — khớp bộ lọc Mã Tracking trên lưới. */
         trackingFilter = null,
+        /** Tra cứu nhanh khách: OR ilike trên tên / SĐT / địa chỉ (đồng bộ tổng đơn & tổng tiền với lưới). */
+        customerQuickSearch = '',
+        /** `co_trung` | `khong_trung` — lọc cột cảnh báo (mức SQL; gần với lưới). */
+        canh_bao_filter = null,
     } = options;
 
     const mode = getDataSourceMode();
@@ -1166,12 +1224,7 @@ export const fetchVanDon = async (options = {}) => {
                         query = query.gte(dbCol, `${day}T00:00:00`).lt(dbCol, `${next}T00:00:00`);
                     } else if (isVanDonDropdownColumnFilter(uiKey)) {
                         if (VAN_DON_ILIKE_EXACT_DB_COLS.has(dbCol)) {
-                            if (!/\s/.test(t)) {
-                                query = query.ilike(dbCol, escapeIlikePattern(t));
-                            } else {
-                                const flex = buildVanDonFlexibleIlikePattern(t);
-                                if (flex) query = query.ilike(dbCol, flex);
-                            }
+                            query = query.ilike(dbCol, escapeIlikePattern(t));
                         } else {
                             query = query.eq(dbCol, t);
                         }
@@ -1224,33 +1277,30 @@ export const fetchVanDon = async (options = {}) => {
                 }
             }
 
-            return query;
-        };
-
-        /** Đọc giá trị SUM từ PostgREST (maybeSingle / mảng 1 phần tử / khóa lạ). */
-        const pickPostgrestAggregateSum = (data) => {
-            if (data == null) return null;
-            if (typeof data === 'number') return Number.isFinite(data) ? data : null;
-            if (Array.isArray(data)) {
-                if (data.length === 1) return pickPostgrestAggregateSum(data[0]);
-                return null;
-            }
-            if (typeof data === 'object') {
-                const s = data.sum;
-                if (s != null && s !== '' && Number.isFinite(Number(s))) return Number(s);
-                for (const v of Object.values(data)) {
-                    if (v != null && v !== '' && typeof v !== 'object') {
-                        const n = Number(v);
-                        if (Number.isFinite(n)) return n;
-                    }
+            const cq = normalizeVanDonFilterWhitespace(
+                customerQuickSearch != null ? String(customerQuickSearch) : ''
+            );
+            if (cq) {
+                const pat = buildVanDonFlexibleIlikePattern(cq);
+                if (pat) {
+                    query = query.or(
+                        `customer_name.ilike.${pat},customer_phone.ilike.${pat},customer_address.ilike.${pat}`
+                    );
                 }
             }
-            return null;
+
+            if (canh_bao_filter === 'co_trung') {
+                query = query.not('canh_bao', 'is', null).neq('canh_bao', '');
+            } else if (canh_bao_filter === 'khong_trung') {
+                query = query.or('canh_bao.is.null,canh_bao.eq.');
+            }
+
+            return query;
         };
 
         const loadVanDonFromTable = async (tableName) => {
             const baseData = applyVanDonFilters(supabase.from(tableName).select(VAN_DON_SELECT_QUERY, { count: 'exact' }));
-            /** SUM trên bảng vật lý: view `van_don_page` có thể chưa có cột generated `van_don_line_total_vnd`. */
+            /** SUM trên bảng vật lý: view `van_don_page` có thể thiếu cột generated — dùng `orders` trừ HCM. */
             const sumFromTable = tableName === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
             const sumPreferredQ = applyVanDonFilters(
                 supabase.from(sumFromTable).select('van_don_line_total_vnd.sum()')
@@ -1258,11 +1308,15 @@ export const fetchVanDon = async (options = {}) => {
             const sumLegacyQ = applyVanDonFilters(
                 supabase.from(sumFromTable).select('total_amount_vnd.sum()')
             );
+            const sumTongTienQ = applyVanDonFilters(
+                supabase.from(sumFromTable).select('tong_tien_vnd.sum()')
+            );
 
-            const [listRes, sumPreferredRes, sumLegacyRes] = await Promise.all([
+            const [listRes, sumPreferredRes, sumLegacyRes, sumTongTienRes] = await Promise.all([
                 baseData.range(pageFrom, pageTo).order('order_date', { ascending: false }),
-                sumPreferredQ.maybeSingle(),
-                sumLegacyQ.maybeSingle(),
+                sumPreferredQ,
+                sumLegacyQ,
+                sumTongTienQ,
             ]);
 
             const preferredErr = sumPreferredRes.error;
@@ -1272,17 +1326,76 @@ export const fetchVanDon = async (options = {}) => {
                     String(preferredErr.code || '') === '42703');
 
             let totalAmountVndSum = null;
-            const lineRaw = pickPostgrestAggregateSum(sumPreferredRes.data);
+            const lineRaw = extractPostgrestAggregateNumeric(sumPreferredRes.data);
             if (!lineMissing && lineRaw != null) {
                 totalAmountVndSum = lineRaw;
             }
             if (totalAmountVndSum == null) {
-                const leg = pickPostgrestAggregateSum(sumLegacyRes.data);
+                const leg = extractPostgrestAggregateNumeric(sumLegacyRes.data);
                 if (leg != null) totalAmountVndSum = leg;
+            }
+            const tongErr = sumTongTienRes.error;
+            const tongMissing =
+                tongErr &&
+                (String(tongErr.message || '').toLowerCase().includes('tong_tien_vnd') ||
+                    String(tongErr.code || '') === '42703');
+            if (totalAmountVndSum == null) {
+                const tongRaw = extractPostgrestAggregateNumeric(sumTongTienRes.data);
+                if (!tongMissing && tongRaw != null) {
+                    totalAmountVndSum = tongRaw;
+                }
             }
             if (totalAmountVndSum == null) totalAmountVndSum = 0;
 
-            const sumError = lineMissing ? sumLegacyRes.error : preferredErr || sumLegacyRes.error;
+            const sumError =
+                lineMissing ? sumLegacyRes.error : preferredErr || sumLegacyRes.error || (tongMissing ? null : tongErr);
+
+            const rowCount = listRes.count ?? 0;
+            const pageRows = listRes.data || [];
+            const pageHasPositiveMoney = pageRows.some((r) => pickVanDonMoneyFromDbRow(r) > 0);
+            const needMoneyFallback =
+                totalAmountVndSum === 0 && rowCount > 0 && rowCount <= 80000;
+            if (needMoneyFallback) {
+                const moneyCols = 'tong_tien_vnd,total_amount_vnd,sale_price,goods_amount';
+                const PROBE = 800;
+                const { data: probeRows, error: probeErr } = await applyVanDonFilters(
+                    supabase.from(sumFromTable).select(moneyCols)
+                )
+                    .order('order_date', { ascending: false })
+                    .range(0, PROBE - 1);
+                if (probeErr) {
+                    console.warn('[fetchVanDon] money probe:', probeErr.message);
+                } else {
+                    const probeSum = (probeRows || []).reduce((s, r) => s + pickVanDonMoneyFromDbRow(r), 0);
+                    const runFullScan = pageHasPositiveMoney || probeSum > 0;
+                    if (runFullScan) {
+                        const MONEY_BATCH = 2500;
+                        const MAX_BATCHES = 40;
+                        let scanned = 0;
+                        let fallbackSum = 0;
+                        for (let b = 0; b < MAX_BATCHES; b++) {
+                            const { data: chunk, error: chunkErr } = await applyVanDonFilters(
+                                supabase.from(sumFromTable).select(moneyCols)
+                            )
+                                .order('order_date', { ascending: false })
+                                .range(scanned, scanned + MONEY_BATCH - 1);
+                            if (chunkErr) {
+                                console.warn('[fetchVanDon] money scan batch:', chunkErr.message);
+                                break;
+                            }
+                            if (!chunk?.length) break;
+                            for (let i = 0; i < chunk.length; i++) {
+                                fallbackSum += pickVanDonMoneyFromDbRow(chunk[i]);
+                            }
+                            if (chunk.length < MONEY_BATCH) break;
+                            scanned += MONEY_BATCH;
+                        }
+                        if (fallbackSum > 0) {
+                            totalAmountVndSum = fallbackSum;
+                        }
+                    }
+                }
+            }
 
             return {
                 data: listRes.data,
