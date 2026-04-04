@@ -110,6 +110,11 @@ function sumMaTracking(delH) {
     return s;
 }
 
+/** «Kết quả check» = OK (bỏ dấu, không phân biệt hoa thường) — khớp histogram `_ket_qua_check`. */
+function rowKetQuaCheckIsOk(r) {
+    return sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0;
+}
+
 /** Cột trạng thái thu tiền (mẫu báo cáo vận hành) — gán key histogram vào đúng cột (ưu tiên thứ tự). */
 export const BC_VH_PAYMENT_COLUMNS = [
     { id: 'bom', label: 'Bom_bùng_chặn', test: (k) => /bom|bùng|chặn/i.test(String(k)) },
@@ -179,10 +184,10 @@ export function aggregateOperationalReportSlice(slice) {
     let hoan = 0;
     let huyVH = 0;
     let choCheck = 0;
-    /** «Tổng đơn chưa mã» (tab2) = tab1 «đẩy VH chưa mã»: lên vận hành (có ĐVVC) nhưng trống mã tracking. */
+    /** «Tổng đơn chưa mã» / «Doanh số đơn chưa mã»: đã lên VH, trống mã tracking, và Kết quả check = OK. */
     let chuaCoMa = 0;
     let daCkChuaDay = 0;
-    /** Doanh số (chỉ tong_tien_vnd qua _ds_tong_tien_vnd): có «Lên vận hành»/đơn vị VC nhưng chưa có mã tracking. */
+    /** Doanh số (chỉ tong_tien_vnd qua _ds_tong_tien_vnd) trên cùng tập đơn `chuaCoMa`. */
     let doanhSoDonChuaMa = 0;
     /** Tổng VNĐ theo jsonb tien_trang_thai_thanh_toan (reconciled_vnd theo trạng thái TT) — cột BC VH "Tổng thanh toán giao hàng NB". */
     let tongThanhToanGiaoHangNb = 0;
@@ -229,7 +234,7 @@ export function aggregateOperationalReportSlice(slice) {
             coMa += 1;
             coMaAmount += Number(r._tong_tien_vnd ?? 0) || 0;
         }
-        if (lenVhDonVi > 0 && !hasMaTracking) {
+        if (lenVhDonVi > 0 && !hasMaTracking && rowKetQuaCheckIsOk(r)) {
             chuaCoMa += 1;
             doanhSoDonChuaMa += Number(r._ds_tong_tien_vnd ?? 0) || 0;
         }
@@ -467,7 +472,7 @@ export const BCVH_DRILL_METRIC_LABELS = {
     donCoBillAmount: 'Đã thanh toán (có bill) — Thành tiền',
     tongNoiBo: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ',
     tongDonLenVanHanh: 'TỔNG ĐƠN LÊN VẬN HÀNH',
-    chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (đã lên VH, trống mã)',
+    chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (đã lên VH, trống mã, Kết quả check OK)',
     giaoTC: 'Giao thành công',
     dangGiao: 'Đang giao',
     chuaGiao: 'Chưa giao',
@@ -506,7 +511,12 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
         case 'tongDonLenVanHanh':
             return slice.filter((r) => rowLenVhDonViForDrill(r) > 0);
         case 'chuaCoMa':
-            return slice.filter((r) => rowLenVhDonViForDrill(r) > 0 && !rowHasMaTrackingForDrill(r));
+            return slice.filter(
+                (r) =>
+                    rowLenVhDonViForDrill(r) > 0 &&
+                    !rowHasMaTrackingForDrill(r) &&
+                    rowKetQuaCheckIsOk(r)
+            );
         case 'giaoTC':
             return slice.filter((r) => sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công') > 0);
         case 'dangGiao':
