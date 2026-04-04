@@ -171,6 +171,7 @@ export default function NhanSuSaleLumiMoiView({
 }) {
   const idSheet = useResolvedIdsheet();
   const { role, canView } = usePermissions();
+  const inIframe = typeof window !== 'undefined' && window.self !== window.top;
 
   const hasPageAccess =
     !pageAccessCodes || !Array.isArray(pageAccessCodes) || pageAccessCodes.length === 0
@@ -964,7 +965,7 @@ export default function NhanSuSaleLumiMoiView({
   }
 
   return (
-    <div className="nssl-root" data-report-table={reportTableName}>
+    <div className={`nssl-root${inIframe ? ' nssl-root--embed' : ''}`} data-report-table={reportTableName}>
       <div className={`nssl-loading-overlay ${loading ? 'visible' : ''}`}>Đang tải dữ liệu...</div>
 
       <div className="report-container">
@@ -1337,10 +1338,12 @@ restrictedForPopulate,
         </div>
 
         <div className="main-detailed">
-          <div className="header">
-            <img src={LOGO_URL} alt="Logo" />
-            <h2>{reportTitle}</h2>
-          </div>
+          {!inIframe && (
+            <div className="header">
+              <img src={LOGO_URL} alt="Logo" />
+              <h2>{reportTitle}</h2>
+            </div>
+          )}
 
           <div className="tabs-container">
             <button

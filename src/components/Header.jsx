@@ -23,24 +23,27 @@ export default function Header() {
     return null;
   }
 
+  /** Dashboard quản trị: thanh mỏng hơn để ưu tiên iframe báo cáo */
+  const compact = location.pathname === "/dashboard-quan-tri";
+
   return (
     <nav className="bg-green-600 shadow-lg sticky top-0 z-50">
-      <div className="mx-auto px-8">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center space-x-4">
+      <div className={`mx-auto ${compact ? "px-3 sm:px-4" : "px-8"}`}>
+        <div className={`flex items-center justify-between ${compact ? "h-11 min-h-[2.75rem]" : "h-16"}`}>
+          <div className={`flex items-center ${compact ? "space-x-2" : "space-x-4"}`}>
             <img
               src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg"
               alt="Logo"
-              className="h-10 w-10 rounded-full shadow-md"
+              className={`rounded-full shadow-md ${compact ? "h-7 w-7" : "h-10 w-10"}`}
             />
-            <span className="text-white text-xl font-bold">
+            <span className={`text-white font-bold ${compact ? "text-sm sm:text-base" : "text-xl"}`}>
               LUMI OMS
             </span>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className={`flex items-center ${compact ? "space-x-1.5" : "space-x-4"}`}>
             <Link
               to="/trang-chu"
-              className="text-white hover:bg-green-700 px-3 py-2 rounded-md text-sm font-medium transition"
+              className={`text-white hover:bg-green-700 rounded-md font-medium transition ${compact ? "px-2 py-1 text-xs" : "px-3 py-2 text-sm"}`}
             >
               Trang chủ
             </Link>
@@ -64,16 +67,19 @@ export default function Header() {
             )} */}
 
             {isAuthenticated && (
-              <div className="flex items-center space-x-3 ml-4 pl-4 border-l border-green-600">
+              <div
+                className={`flex items-center border-l border-green-600 ${compact ? "ml-2 space-x-1.5 pl-2" : "ml-4 space-x-3 pl-4"}`}
+              >
                 <Link
                   to="/ho-so"
-                  className="text-white hover:bg-green-700 px-3 py-2 rounded-md text-sm font-medium transition"
+                  className={`text-white hover:bg-green-700 rounded-md font-medium transition ${compact ? "max-w-[9rem] truncate px-2 py-1 text-xs" : "px-3 py-2 text-sm"}`}
+                  title={username}
                 >
                   👤 {username}
                 </Link>
                 <button
                   onClick={handleLogout}
-                  className="text-white hover:bg-red-600 bg-red-500 px-3 py-2 rounded-md text-sm font-medium transition"
+                  className={`text-white hover:bg-red-600 bg-red-500 rounded-md font-medium transition ${compact ? "px-2 py-1 text-xs" : "px-3 py-2 text-sm"}`}
                 >
                   Đăng xuất
                 </button>

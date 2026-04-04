@@ -5,6 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Check, ChevronDown, Edit, Lock, Plus, Shield, Trash2, Users, X, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
+import { dispatchPermissionsInvalidate } from '../../hooks/usePermissions';
 import * as rbacService from '../../services/rbacService';
 import PermissionTree from './PermissionTree';
 
@@ -960,6 +961,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             toast.success(`Đã gán ${assignEmail} vào nhóm ${assignRole}${selectedEmp ? ` và tự động điền tên nhân sự` : ''}`);
             setAssignEmail('');
             loadData();
+            dispatchPermissionsInvalidate();
         } catch (error) {
             toast.error("Lỗi gán quyền: " + error.message);
         }
@@ -971,6 +973,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             await rbacService.removeUserRole(email);
             toast.success("Đã gỡ quyền");
             loadData();
+            dispatchPermissionsInvalidate();
         } catch (error) {
             toast.error("Lỗi: " + error.message);
         }
@@ -986,6 +989,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             setSelectedUserEmails([]);
             setBulkAssignRole('');
             loadData();
+            dispatchPermissionsInvalidate();
         } catch (error) {
             toast.error("Lỗi gán quyền hàng loạt: " + error.message);
         }

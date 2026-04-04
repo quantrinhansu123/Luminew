@@ -69,7 +69,7 @@ const formatLocalDateYMD = (date) => {
 /**
  * @param {object} [props]
  * @param {string[] | null} [props.salesReportTeamIn] — nếu có: lọc sales_reports theo các team này (kể cả admin).
- * @param {string[] | null} [props.pageAccessCodes] — can_view một trong các mã; mặc định ['CSKH_VIEW'].
+ * @param {string[] | null} [props.pageAccessCodes] — can_view một trong các mã; mặc định CSKH_VIEW | CSKH_MANUAL.
  * @param {string} [props.pageTitleSuffix] — ví dụ " (HCM)" cho tiêu đề trang.
  */
 export default function DanhSachBaoCaoTayCSKH({
@@ -83,7 +83,7 @@ export default function DanhSachBaoCaoTayCSKH({
 
     // Permission Logic
     const { canView, role, team: userTeam, permissions } = usePermissions();
-    const accessCodes = pageAccessCodes ?? ['CSKH_VIEW'];
+    const accessCodes = pageAccessCodes ?? ['CSKH_VIEW', 'CSKH_MANUAL'];
     const hasPageAccess = accessCodes.some((c) => canView(c));
 
     const effectiveTeamFilter = useMemo(

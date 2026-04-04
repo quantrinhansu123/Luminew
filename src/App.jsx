@@ -71,10 +71,12 @@ function BaocaokpiCEORedirect() {
   return <Navigate to={`/bao-cao-hieu-suat-kpi${search}`} replace />;
 }
 
-/** Không render Header (dùng trong iframe tab Vận đơn Sale). */
+/** Không render Header: route `/embed/*`, hoặc toàn bộ app đang chạy trong iframe (vd. tab Dashboard quản trị). */
 function AppShell() {
   const location = useLocation();
-  const hideHeader = location.pathname.startsWith('/embed/');
+  const inIframe =
+    typeof window !== 'undefined' && window.self !== window.top;
+  const hideHeader = location.pathname.startsWith('/embed/') || inIframe;
 
   return (
     <>
@@ -300,8 +302,9 @@ function AppShell() {
             <Route path="/lich-su-sale-order" element={<ProtectedRoute><SalesOrderHistoryPage /></ProtectedRoute>} />
             <Route path="/lich-su-cskh" element={<ProtectedRoute><CskhCrmHistoryPage /></ProtectedRoute>} />
 
-            {/* Admin Tools & System */}
-            <Route path="/admin-tools" element={<AdminTools />} />
+            {/* Admin Tools & System — cần đăng nhập + quyền ADMIN_TOOLS (xem trong AdminTools.jsx) */}
+            <Route path="/admin-tools" element={<ProtectedRoute><AdminTools /></ProtectedRoute>} />
+            <Route path="/admin" element={<Navigate to="/admin-tools" replace />} />
 
             <Route path="/news/:id" element={<ProtectedRoute><NewsDetail /></ProtectedRoute>} />
             <Route path="/external-view" element={<ProtectedRoute><ExternalView /></ProtectedRoute>} />

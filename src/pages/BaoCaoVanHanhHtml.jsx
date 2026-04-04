@@ -189,6 +189,7 @@ const mapBaoCaoRowToVirtual = (row) => {
 export default function BaoCaoVanHanhHtml() {
     const { canView } = usePermissions();
     const [searchParams, setSearchParams] = useSearchParams();
+    const inIframe = typeof window !== 'undefined' && window.self !== window.top;
     const urlStartDate = searchParams.get('from_date');
     const urlEndDate = searchParams.get('to_date');
     const buildDefaultBcvhRows = useCallback(() => {
@@ -1039,24 +1040,35 @@ export default function BaoCaoVanHanhHtml() {
     const { markets, byMarket, total } = matrix;
     const colSpanMain = 1 + markets.length * 2 + 2;
 
+    /** Nhúng dashboard: padding & khối điều khiển mỏng để ưu tiên bảng */
+    const c = inIframe;
+    const paneMaxH = c ? 'max-h-[calc(100vh-6.5rem)]' : 'max-h-[calc(100vh-160px)]';
+
     return (
-        <div className="min-h-[calc(100vh-64px)] bg-gray-100 p-4 md:p-6 overflow-y-auto overflow-x-hidden">
+        <div
+            className={`${c ? 'min-h-screen' : 'min-h-[calc(100vh-64px)]'} bg-gray-100 ${c ? 'p-1.5' : 'p-4 md:p-6'} overflow-y-auto overflow-x-hidden`}
+        >
             {loading && (
                 <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/20">
                     <div className="rounded-lg bg-white px-6 py-4 shadow-lg">Đang tải dữ liệu…</div>
                 </div>
             )}
 
-            <h1 className="text-xl font-bold text-gray-800 mb-4">Báo cáo vận hành</h1>
+            {!inIframe && <h1 className="text-xl font-bold text-gray-800 mb-4">Báo cáo vận hành</h1>}
 
             {error && (
-                <div className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-800" role="alert">
+                <div
+                    className={`rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-800 sm:text-sm ${c ? 'mb-2' : 'mb-4'}`}
+                    role="alert"
+                >
                     {error}
                 </div>
             )}
 
             {activeTab !== 'tab2' && (
-                <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
+                <div
+                    className={`flex flex-wrap items-center rounded-lg bg-white shadow ${c ? 'mb-2 gap-2 p-2' : 'mb-4 gap-3 p-4 items-end'}`}
+                >
                     <label className="text-xs text-gray-700">
                         Chọn nhanh
                         <select
@@ -1171,14 +1183,14 @@ export default function BaoCaoVanHanhHtml() {
                     <button
                         type="button"
                         disabled={loading}
-                        className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
+                        className={`rounded bg-[#20744a] font-semibold text-white disabled:bg-gray-400 ${c ? 'px-2 py-1 text-[11px]' : 'px-4 py-1.5 text-xs'}`}
                         onClick={runTabSearch}
                     >
                         {loading ? 'Đang tải…' : '🔍 Tìm'}
                     </button>
                     <button
                         type="button"
-                        className="rounded border border-gray-400 px-3 py-1.5 text-xs"
+                        className={`rounded border border-gray-400 text-xs ${c ? 'px-2 py-1' : 'px-3 py-1.5'}`}
                         onClick={() => {
                             setReportFilters({
                                 dateRange: '',
@@ -1213,9 +1225,11 @@ export default function BaoCaoVanHanhHtml() {
                         key={t.id}
                         type="button"
                         onClick={() => setTab(t.id)}
-                        className={`rounded-t-md border border-gray-400 border-b-0 px-3 py-2 text-xs font-bold transition-colors sm:px-4 sm:text-sm ${
-                            activeTab === t.id ? 'bg-[#FFA500] text-black' : 'bg-gray-200 text-gray-800'
-                        }`}
+                        className={`rounded-t border border-gray-400 border-b-0 font-semibold transition-colors ${
+                            c
+                                ? 'px-2 py-0.5 text-[10px] leading-tight sm:text-[11px]'
+                                : 'rounded-t-md px-3 py-2 text-xs sm:px-4 sm:text-sm font-bold'
+                        } ${activeTab === t.id ? 'bg-[#FFA500] text-black' : 'bg-gray-200 text-gray-800'}`}
                     >
                         {t.label}
                     </button>
@@ -1224,8 +1238,8 @@ export default function BaoCaoVanHanhHtml() {
 
             {/* Tab 1 — Thống kê giao dịch (1 dòng tổng, giống mẫu HTML) */}
             {activeTab === 'tab1' && (
-                <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
-                    <div className="mb-3 flex flex-wrap justify-end gap-3">
+                <div className={`overflow-x-auto rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'}`}>
+                    <div className={`flex flex-wrap justify-end ${c ? 'mb-2 gap-2' : 'mb-3 gap-3'}`}>
                         <button
                             type="button"
                             disabled={loading || rawData.length === 0}
@@ -1360,7 +1374,10 @@ export default function BaoCaoVanHanhHtml() {
 
             {/* Tab 2 — BC Vận Hành (layout mẫu Excel) */}
             {activeTab === 'tab2' && (
-                <div ref={bcvhWrapRef} className="bcvh-wrap rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
+                <div
+                    ref={bcvhWrapRef}
+                    className={`bcvh-wrap rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'}`}
+                >
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                         {/* Bộ lọc khoảng ngày cho link & query */}
                         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
@@ -1424,7 +1441,7 @@ export default function BaoCaoVanHanhHtml() {
                     <div className="bcvh-split flex items-stretch">
                         <div
                             ref={bcvhFixedPaneRef}
-                            className="bcvh-fixed-pane bcvh-fixed-pane-scroll max-h-[calc(100vh-160px)] shrink-0 self-start"
+                            className={`bcvh-fixed-pane bcvh-fixed-pane-scroll shrink-0 self-start ${paneMaxH}`}
                         >
                             <table
                                 ref={bcvhFixedTableRef}
@@ -1542,7 +1559,7 @@ export default function BaoCaoVanHanhHtml() {
                                 </tbody>
                             </table>
                         </div>
-                        <div className="bcvh-metric-scroll-wrap flex min-h-0 flex-1 min-w-0 max-h-[calc(100vh-160px)] items-stretch">
+                        <div className={`bcvh-metric-scroll-wrap flex min-h-0 min-w-0 flex-1 items-stretch ${paneMaxH}`}>
                         <div
                             ref={bcvhScrollRef}
                             className="bcvh-scroll bcvh-scroll-metric bcvh-scroll-main min-h-0 flex-1 overflow-auto"
@@ -1786,7 +1803,7 @@ export default function BaoCaoVanHanhHtml() {
 
             {/* Tab 3 — Thống Kê Đơn (matrix) */}
             {activeTab === 'tab3' && (
-            <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
+            <div className={`overflow-x-auto rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'}`}>
                 <table className="min-w-max w-full border-collapse text-xs text-black">
                     <thead>
                         <tr>
@@ -1974,7 +1991,7 @@ export default function BaoCaoVanHanhHtml() {
 
             {/* Tab 4 — Đẩy đơn theo ngày (Mã tracking); 3 cột đầu sticky khi cuộn ngang */}
             {activeTab === 'tab4' && (
-                <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
+                <div className={`overflow-x-auto rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'}`}>
                     <table className="min-w-max w-full border-separate border-spacing-0 text-[11px] text-black">
                         <thead>
                             <tr className="bg-[#548235] text-white">
@@ -2072,7 +2089,7 @@ export default function BaoCaoVanHanhHtml() {
 
             {/* Tab 5 — Trạng thái đơn (theo ngày; DS = tổng tiền VNĐ theo cùng điều kiện ô SL) */}
             {activeTab === 'tab5' && (
-                <div className="overflow-x-auto rounded-b-md rounded-tr-md bg-white p-4 shadow-lg">
+                <div className={`overflow-x-auto rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'}`}>
                     <table className="min-w-max w-full border-collapse text-[11px] text-black">
                         <thead>
                             <tr className="text-center font-bold">

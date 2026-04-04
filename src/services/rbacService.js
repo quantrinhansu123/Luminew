@@ -82,10 +82,11 @@ export const getUserRoles = async () => {
 };
 
 export const assignUserRole = async (email, role_code) => {
+    const roleNorm = String(role_code ?? '').trim();
     // Update users table directly
     const { data, error } = await supabase
         .from('users')
-        .update({ role: role_code })
+        .update({ role: roleNorm })
         .eq('email', email)
         .select();
 
@@ -96,7 +97,7 @@ export const assignUserRole = async (email, role_code) => {
     try {
         await supabase
             .from('human_resources')
-            .update({ role: role_code })
+            .update({ role: roleNorm })
             .eq('email', email);
     } catch (err) {
         console.warn("Could not sync role to human_resources (optional):", err);
@@ -713,15 +714,16 @@ export const MODULE_PAGES = {
         pages: [
             { code: 'SALE_ORDERS', name: 'Danh sách đơn', path: '/danh-sach-don' },
             { code: 'SALE_ORDERS_HCM', name: 'Danh sách đơn HCM', path: '/danh-sach-don-hcm' },
-            { code: 'SALE_NEW_ORDER', name: 'Nhập đơn mới', path: '/nhap-don' },
-            { code: 'SALE_NEW_ORDER_HCM', name: 'Nhập đơn HCM', path: '/nhap-don?view=hcm' },
+            { code: 'ORDERS_NEW', name: 'Nhập đơn (quyền chung OMS)', path: '/nhap-don' },
+            { code: 'SALE_NEW_ORDER', name: 'Nhập đơn mới (Sale)', path: '/nhap-don' },
+            { code: 'SALE_NEW_ORDER_HCM', name: 'Nhập đơn HCM (Sale)', path: '/nhap-don?view=hcm' },
             { code: 'SALE_INPUT', name: 'Sale nhập báo cáo', path: '/sale-nhap-bao-cao' },
             { code: 'SALE_INPUT_HCM', name: 'Sale nhập báo cáo HCM', path: '/sale-nhap-bao-cao-hcm' },
-            { code: 'SALE_VIEW', name: 'Xem báo cáo Sale', path: '/bao-cao-sale' },
+            { code: 'SALE_VIEW', name: 'Xem báo cáo Sale', path: '/xem-bao-cao-sale' },
             { code: 'SALE_VIEW_HCM', name: 'Xem báo cáo Sale HCM', path: '/xem-bao-cao-sale-hcm' },
             { code: 'SALE_MANUAL', name: 'Danh sách báo cáo tay', path: '/danh-sach-bao-cao-tay' },
             { code: 'SALE_MANUAL_HCM', name: 'Danh sách báo cáo tay HCM', path: '/danh-sach-bao-cao-tay-hcm' },
-            { code: 'SALE_HISTORY', name: 'Lịch sử thay đổi', path: '/lich-su-sale-order' }
+            { code: 'SALE_HISTORY', name: 'Lịch sử thay đổi đơn / Sale', path: '/lich-su-sale-order' }
         ]
     },
     'MODULE_ORDERS': {
@@ -748,19 +750,21 @@ export const MODULE_PAGES = {
             { code: 'CSKH_LIST', name: 'Danh sách đơn', path: '/quan-ly-cskh' },
             { code: 'CSKH_LIST_HCM', name: 'Danh sách đơn CSKH HCM', path: '/quan-ly-cskh-hcm' },
             { code: 'CSKH_PAID', name: 'Đơn đã thu tiền/cần CS', path: '/don-chia-cskh' },
-            { code: 'CSKH_NEW_ORDER', name: 'Nhập đơn mới', path: '/nhap-don' },
-            { code: 'CSKH_NEW_ORDER_HCM', name: 'Nhập đơn HCM', path: '/nhap-don?view=hcm' },
-            { code: 'CSKH_INPUT', name: 'Nhập báo cáo', path: '/nhap-bao-cao-cskh' },
+            { code: 'CSKH_NEW_ORDER', name: 'Nhập đơn mới (CSKH)', path: '/nhap-don' },
+            { code: 'CSKH_NEW_ORDER_HCM', name: 'Nhập đơn HCM (CSKH)', path: '/nhap-don?view=hcm' },
+            { code: 'CSKH_INPUT', name: 'Nhập báo cáo CSKH', path: '/nhap-bao-cao-cskh' },
             { code: 'CSKH_INPUT_HCM', name: 'Nhập báo cáo CSKH HCM', path: '/nhap-bao-cao-cskh-hcm' },
             { code: 'CSKH_VIEW', name: 'Xem báo cáo CSKH', path: '/xem-bao-cao-cskh' },
             { code: 'CSKH_VIEW_HCM', name: 'Xem báo cáo CSKH HCM', path: '/xem-bao-cao-cskh-hcm' },
+            { code: 'CSKH_MANUAL', name: 'Ds báo cáo tay CSKH (HN)', path: '/danh-sach-bao-cao-tay-cskh' },
             { code: 'CSKH_MANUAL_HCM', name: 'Ds báo cáo tay CSKH HCM', path: '/danh-sach-bao-cao-tay-cskh-hcm' },
-            { code: 'CSKH_HISTORY', name: 'Lịch sử thay đổi', path: '/lich-su-cskh' }
+            { code: 'CSKH_HISTORY', name: 'Lịch sử CSKH / CRM', path: '/lich-su-cskh' }
         ]
     },
     'MODULE_HR': {
         name: 'QUẢN LÝ NHÂN SỰ',
         pages: [
+            { code: 'HR_ACCESS', name: 'Truy cập HR / menu HRLumi (mobile)', path: '/nhan-su' },
             { code: 'HR_LIST', name: 'Danh sách nhân sự', path: '/nhan-su' },
             { code: 'HR_DASHBOARD', name: 'HR Dashboard', path: '/hr-dashboard' },
             { code: 'HR_KPI', name: 'Báo cáo hiệu suất', path: '/bao-cao-hieu-suat-kpi' },
@@ -770,14 +774,18 @@ export const MODULE_PAGES = {
     'MODULE_FINANCE': {
         name: 'QUẢN LÝ TÀI CHÍNH',
         pages: [
+            { code: 'FINANCE_ACCESS', name: 'Truy cập module tài chính (menu mobile)', path: '/finance-dashboard' },
             { code: 'FINANCE_DASHBOARD', name: 'Finance Dashboard', path: '/finance-dashboard' },
-            { code: 'FINANCE_KPI', name: 'Báo cáo KPI', path: '/bao-cao-kpi' }
+            { code: 'FINANCE_KPI', name: 'Báo cáo KPI', path: '/bao-cao-kpi' },
+            { code: 'FINANCE_DOI_SOAT_BILL', name: 'Đối soát bill cước', path: '/doi-soat-bill-cuoc' }
         ]
     },
     'MODULE_ADMIN': {
         name: 'Admin Tools',
         pages: [
-            { code: 'ADMIN_TOOLS', name: 'Công cụ quản trị & Cấu hình', path: '/admin' }
+            { code: 'ADMIN_TOOLS', name: 'Công cụ quản trị & Chốt ca', path: '/admin-tools' },
+            { code: 'CHANGE_LOG', name: 'Lịch sử thay đổi hệ thống', path: '/lich-su-thay-doi' },
+            { code: 'DASHBOARD_QUAN_TRI', name: 'Dashboard quản trị (Sale/MKT/CSKH/VH)', path: '/dashboard-quan-tri' }
         ]
     }
 };
@@ -850,10 +858,12 @@ export const getPagePermissions = async (role_code) => {
 
 // Sanitize payload to ensure it matches DB schema exactly
 const sanitizePermission = (p) => {
+    const roleNorm = String(p.role_code ?? '').trim();
+    const pageNorm = String(p.page_code ?? '').trim().toUpperCase();
     // Đảm bảo có đầy đủ các trường bắt buộc
     const sanitized = {
-        role_code: p.role_code || '',
-        page_code: p.page_code || '',
+        role_code: roleNorm,
+        page_code: pageNorm,
         can_view: !!p.can_view,
         can_edit: false, // Luôn false vì chỉ cho phép xem
         can_delete: false, // Luôn false vì chỉ cho phép xem

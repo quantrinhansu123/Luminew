@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../supabase/config';
+import { normalizePermissionCode } from '../utils/permissionCodes';
 
 // Cache to prevent repetitive fetching
 let cachedPermissions = null;
@@ -11,16 +12,87 @@ let permissionPromise = null;
 const CACHE_DURATION = 5 * 1000; // Keep cache very short so new grants appear quickly
 let lastFetchTime = 0;
 
+const PERMISSIONS_INVALIDATE_EVENT = 'luminew-permissions-invalidate';
+
+/** Xóa cache module + báo mọi tab/hook refetch (sau khi admin sửa matrix hoặc gán role). */
+export function dispatchPermissionsInvalidate() {
+    lastFetchTime = 0;
+    cachedPermissions = null;
+    cachedRole = null;
+    cachedTeam = null;
+    cachedEmail = null;
+    permissionPromise = null;
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(PERMISSIONS_INVALIDATE_EVENT));
+    }
+}
+
+function findPermissionRow(permissions, pageCode) {
+    const key = normalizePermissionCode(pageCode);
+    return permissions.find((x) => normalizePermissionCode(x.page_code) === key);
+}
+
+const normKey = (s) => String(s ?? '').trim().toLowerCase();
+
+/**
+ * Matrix lưu theo app_roles.code; nếu users.role đang là tên hiển thị hoặc khác hoa/thường
+ * thì .eq('role_code', users.role) trả về rỗng dù đã tick quyền.
+ */
+async function fetchPermissionsForRole(supabase, rawRoleFromUser) {
+    const userRoleCode = String(rawRoleFromUser ?? '').trim();
+    if (!userRoleCode) {
+        return { permissions: [], resolvedRoleCode: null };
+    }
+
+    const fetchByCode = async (code) => {
+        const { data, error } = await supabase
+            .from('app_page_permissions')
+            .select('*')
+            .eq('role_code', code);
+        if (error) console.error('Error fetching permissions', error);
+        return data || [];
+    };
+
+    let perms = await fetchByCode(userRoleCode);
+    if (perms.length > 0) {
+        return { permissions: perms, resolvedRoleCode: userRoleCode };
+    }
+
+    const { data: roles, error: rolesErr } = await supabase.from('app_roles').select('code,name');
+    if (rolesErr || !roles?.length) {
+        return { permissions: [], resolvedRoleCode: userRoleCode };
+    }
+
+    const nk = normKey(userRoleCode);
+    const matched = roles.find(
+        (r) => normKey(r.code) === nk || normKey(r.name) === nk
+    );
+    const canonical = matched?.code ? String(matched.code).trim() : null;
+    if (canonical && canonical !== userRoleCode) {
+        perms = await fetchByCode(canonical);
+        if (perms.length > 0) {
+            return { permissions: perms, resolvedRoleCode: canonical };
+        }
+    }
+
+    // Đúng nhóm nhưng chưa cấu hình dòng nào trong matrix → vẫn trả canonical để UI/RLS nhất quán
+    return { permissions: perms, resolvedRoleCode: canonical || userRoleCode };
+}
+
 export const usePermissions = () => {
-    // Initial state: only use cache if email matches (can't check sync perfectly, but effective for re-renders)
-    // For safety, start empty/loading unless we are sure.
-    // Ideally, we depend on the effect to set it.
     const [permissions, setPermissions] = useState([]);
     const [role, setRole] = useState(null);
     const [team, setTeam] = useState(null); // Add team state
     const [loading, setLoading] = useState(true);
+    const [cacheBust, setCacheBust] = useState(0);
 
     const userEmail = localStorage.getItem('userEmail');
+
+    useEffect(() => {
+        const bump = () => setCacheBust((v) => v + 1);
+        window.addEventListener(PERMISSIONS_INVALIDATE_EVENT, bump);
+        return () => window.removeEventListener(PERMISSIONS_INVALIDATE_EVENT, bump);
+    }, []);
 
     useEffect(() => {
         if (!userEmail) {
@@ -45,9 +117,6 @@ export const usePermissions = () => {
             // Deduplicate requests
             if (permissionPromise) {
                 const data = await permissionPromise;
-                // Double check if the promise result matches current user (unlikely to change mid-flight but good practice)
-                // Actually, if a promise is inflight for User A, and we switch to User B, we shouldn't use it.
-                // But for simplicity, we assume one active session.
                 setPermissions(data.permissions);
                 setRole(data.role);
                 setTeam(data.team); // Set team from promise
@@ -68,32 +137,26 @@ export const usePermissions = () => {
                         console.error("Error fetching user data", urError);
                     }
 
-                    const userRoleCode = userData?.role;
+                    const userRoleCode = String(userData?.role ?? '').trim();
                     const userTeam = userData?.team; // Get team
 
                     if (!userRoleCode) {
-                        // Default to no role
-                        return { permissions: [], role: null, team: null }; // Add team
+                        return { permissions: [], role: null, team: null };
                     }
 
-                    // 2. Get Permissions for Role
-                    const { data: permData, error: pError } = await supabase
-                        .from('app_page_permissions')
-                        .select('*')
-                        .eq('role_code', userRoleCode);
-
-                    if (pError) console.error("Error fetching permissions", pError);
-
-                    const finalPerms = permData || [];
+                    const { permissions: finalPerms, resolvedRoleCode } = await fetchPermissionsForRole(
+                        supabase,
+                        userRoleCode
+                    );
 
                     // Update Cache
                     cachedPermissions = finalPerms;
-                    cachedRole = userRoleCode;
+                    cachedRole = resolvedRoleCode;
                     cachedTeam = userTeam; // Cache team
                     cachedEmail = userEmail;
                     lastFetchTime = Date.now();
 
-                    return { permissions: finalPerms, role: userRoleCode, team: userTeam }; // Return team
+                    return { permissions: finalPerms, role: resolvedRoleCode, team: userTeam };
                 } catch (e) {
                     console.error("Permission load error", e);
                     return { permissions: [], role: null, team: null };
@@ -105,6 +168,7 @@ export const usePermissions = () => {
             const result = await permissionPromise;
             setPermissions(result.permissions);
             setRole(result.role);
+            setTeam(result.team);
             setLoading(false);
         };
 
@@ -128,7 +192,7 @@ export const usePermissions = () => {
             window.removeEventListener('focus', handleWindowFocus);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [userEmail]);
+    }, [userEmail, cacheBust]);
 
     // --- CHECKER FUNCTIONS ---
 
@@ -150,14 +214,8 @@ export const usePermissions = () => {
         // Strict RBAC: chỉ admin/super_admin bypass, còn lại bám app_page_permissions
         if (hasAdminBypass()) return true;
 
-        // If the pageCode is actually a module code (e.g., checking if module is visible)
-        // We might want to return true if ANY page in the module is visible, or check specifically.
-        // For now, assume strict page code checking.
-
-        const p = permissions.find(x => x.page_code === pageCode);
+        const p = findPermissionRow(permissions, pageCode);
         if (p) return !!p.can_view;
-
-
 
         return false;
     };
@@ -165,21 +223,21 @@ export const usePermissions = () => {
     const canEdit = (pageCode) => {
         if (hasAdminBypass()) return true;
         
-        const p = permissions.find(x => x.page_code === pageCode);
+        const p = findPermissionRow(permissions, pageCode);
         return !!p?.can_edit;
     };
 
     const canDelete = (pageCode) => {
         if (hasAdminBypass()) return true;
         
-        const p = permissions.find(x => x.page_code === pageCode);
+        const p = findPermissionRow(permissions, pageCode);
         return !!p?.can_delete;
     };
 
     const getAllowedColumns = (pageCode) => {
         if (hasAdminBypass()) return ['*'];
         
-        const p = permissions.find(x => x.page_code === pageCode);
+        const p = findPermissionRow(permissions, pageCode);
         if (!p) return []; // No permission entry means access denied generally
         return p.allowed_columns || []; // JSON array
     };
@@ -192,6 +250,10 @@ export const usePermissions = () => {
         return cols.includes(columnName);
     };
 
+    const refreshPermissions = useCallback(() => {
+        dispatchPermissionsInvalidate();
+    }, []);
+
     return {
         role,
         team,
@@ -202,7 +264,7 @@ export const usePermissions = () => {
         canDelete,
         getAllowedColumns,
         isColumnAllowed,
-        refreshPermissions: () => { lastFetchTime = 0; } // Force refresh
+        refreshPermissions
     };
 };
 

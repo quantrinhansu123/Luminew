@@ -229,6 +229,12 @@
   overflow-y: auto;
 }
 
+/* Nhúng iframe (Dashboard quản trị): không có Header app — sidebar bộ lọc cao theo viewport iframe */
+.nssl-root.nssl-root--embed .sidebar {
+  top: 8px;
+  max-height: calc(100vh - 16px);
+}
+
 .nssl-root .main-detailed {
   flex-grow: 1;
   min-width: 0;

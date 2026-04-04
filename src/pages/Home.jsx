@@ -37,11 +37,14 @@ import FfmMgtHcmIcon from "../components/icons/FfmMgtHcmIcon";
 import FfmReconcileHcmIcon from "../components/icons/FfmReconcileHcmIcon";
 
 import { usePermissions } from "../hooks/usePermissions";
+import { useUserDepartment } from "../hooks/useUserDepartment";
 import { supabase } from "../supabase/config";
+import { isExecutiveDashboardAudience } from "../utils/executiveAccess";
 
 function Home() {
   const navigate = useNavigate();
-  const { canView, loading: permsLoading } = usePermissions();
+  const { canView, loading: permsLoading, role: dbRoleCode } = usePermissions();
+  const { department: userDepartment } = useUserDepartment();
   const [userRole, setUserRole] = useState("user");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const location = useLocation();
@@ -89,6 +92,7 @@ function Home() {
       icon: <BarChart3 className="w-5 h-5" />,
       path: "#",
       adminOnly: true,
+      allowDirectorDept: true,
       subItems: [
         {
           id: "dashboard-growth",
@@ -131,6 +135,7 @@ function Home() {
           icon: <LayoutGrid className="w-4 h-4" />,
           path: "/dashboard-quan-tri",
           adminOnly: true,
+          allowDirectorDept: true,
         },
       ],
     },
@@ -209,7 +214,7 @@ function Home() {
           label: "Ds báo cáo tay CSKH",
           icon: <Database className="w-4 h-4" />,
           path: "/danh-sach-bao-cao-tay-cskh",
-          permission: 'CSKH_VIEW',
+          permissionAny: ['CSKH_VIEW', 'CSKH_MANUAL'],
         },
         {
           id: "crm-manual-cskh-hcm",
@@ -557,7 +562,7 @@ function Home() {
           label: "Bảng tin nội bộ",
           icon: <Users className="w-4 h-4" />,
           path: "/nhan-su",
-          permission: 'HR_DASHBOARD',
+          permissionAny: ['HR_DASHBOARD', 'HR_ACCESS', 'HR_LIST'],
           // adminOnly: true, // Allow HR team
         },
         {
@@ -566,7 +571,7 @@ function Home() {
           icon: <ClipboardList className="w-4 h-4" />,
           path: "https://hrlumi.vercel.app/employees",
           isExternal: true,
-          permission: 'HR_DASHBOARD',
+          permissionAny: ['HR_DASHBOARD', 'HR_ACCESS', 'HR_LIST'],
           // adminOnly: true,
         },
         {
@@ -575,7 +580,7 @@ function Home() {
           icon: <UserPlus className="w-4 h-4" />,
           path: "https://hrlumi.vercel.app/recruitment",
           isExternal: true,
-          permission: 'HR_DASHBOARD',
+          permissionAny: ['HR_DASHBOARD', 'HR_ACCESS', 'HR_LIST'],
           // adminOnly: true,
         },
         {
@@ -584,7 +589,7 @@ function Home() {
           icon: <DollarSign className="w-4 h-4" />,
           path: "https://hrlumi.vercel.app/salary",
           isExternal: true,
-          permission: 'HR_DASHBOARD',
+          permissionAny: ['HR_DASHBOARD', 'HR_ACCESS', 'HR_LIST'],
           // adminOnly: true,
         },
         {
@@ -593,7 +598,7 @@ function Home() {
           icon: <Award className="w-4 h-4" />,
           path: "https://hrlumi.vercel.app/competency",
           isExternal: true,
-          permission: 'HR_DASHBOARD',
+          permissionAny: ['HR_DASHBOARD', 'HR_ACCESS', 'HR_LIST'],
           // adminOnly: true,
         },
         {
@@ -602,7 +607,7 @@ function Home() {
           icon: <Target className="w-4 h-4" />,
           path: "https://hrlumi.vercel.app/kpi",
           isExternal: true,
-          permission: 'HR_DASHBOARD',
+          permissionAny: ['HR_DASHBOARD', 'HR_ACCESS', 'HR_LIST'],
           // adminOnly: true,
         },
         {
@@ -611,7 +616,7 @@ function Home() {
           icon: <ListTodo className="w-4 h-4" />,
           path: "https://hrlumi.vercel.app/tasks",
           isExternal: true,
-          permission: 'HR_DASHBOARD',
+          permissionAny: ['HR_DASHBOARD', 'HR_ACCESS', 'HR_LIST'],
           // adminOnly: true,
         },
         {
@@ -620,7 +625,7 @@ function Home() {
           icon: <CalendarCheck className="w-4 h-4" />,
           path: "https://hrlumi.vercel.app/attendance",
           isExternal: true,
-          permission: 'HR_DASHBOARD',
+          permissionAny: ['HR_DASHBOARD', 'HR_ACCESS', 'HR_LIST'],
           // adminOnly: true,
         },
         // Removed Honor (Tôn vinh) item
@@ -685,7 +690,7 @@ function Home() {
           label: "Đối soát bill cước",
           icon: <DollarSign className="w-4 h-4" />,
           path: "/doi-soat-bill-cuoc",
-          permission: 'FINANCE_DASHBOARD',
+          permissionAny: ['FINANCE_DASHBOARD', 'FINANCE_ACCESS', 'FINANCE_DOI_SOAT_BILL'],
         },
       ],
     },
@@ -725,6 +730,7 @@ function Home() {
           status: "Mở ứng dụng",
           isExternal: true,
           adminOnly: true,
+          allowDirectorDept: true,
         },
         {
           title: "Dashboard KPI",
@@ -734,6 +740,7 @@ function Home() {
           status: "Mở ứng dụng",
           isExternal: true,
           adminOnly: true,
+          allowDirectorDept: true,
         },
         {
           title: "Dashboard OKR",
@@ -743,6 +750,7 @@ function Home() {
           status: "Mở ứng dụng",
           isExternal: true,
           adminOnly: true,
+          allowDirectorDept: true,
         },
         {
           title: "Dashboard Đơn hủy",
@@ -751,6 +759,7 @@ function Home() {
           path: "#",
           status: "Sắp ra mắt",
           adminOnly: true,
+          allowDirectorDept: true,
         },
         {
           title: "Dashboard Vận hành",
@@ -760,6 +769,7 @@ function Home() {
           status: "Mở ứng dụng",
           isExternal: true,
           adminOnly: true,
+          allowDirectorDept: true,
         },
         {
           title: "Dashboard quản trị",
@@ -768,6 +778,7 @@ function Home() {
           path: "/dashboard-quan-tri",
           status: "Mở ứng dụng",
           adminOnly: true,
+          allowDirectorDept: true,
         },
       ],
     },
@@ -836,7 +847,7 @@ function Home() {
           color: "bg-cyan-600",
           path: "/danh-sach-bao-cao-tay-cskh",
           status: "Mở ứng dụng",
-          permission: 'CSKH_VIEW',
+          permissionAny: ['CSKH_VIEW', 'CSKH_MANUAL'],
         },
         {
           title: "Ds báo cáo tay CSKH HCM",
@@ -1319,7 +1330,7 @@ function Home() {
           color: "bg-pink-500",
           path: "/nhan-su",
           status: "Mở ứng dụng",
-          permission: 'HR_ACCESS',
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
         },
         {
           title: "Hồ sơ nhân sự",
@@ -1328,7 +1339,7 @@ function Home() {
           path: "https://hrlumi.vercel.app/employees",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'HR_ACCESS',
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
         },
         {
           title: "Tuyển dụng",
@@ -1337,7 +1348,7 @@ function Home() {
           path: "https://hrlumi.vercel.app/recruitment",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'HR_ACCESS',
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
         },
         {
           title: "Bậc lương & thăng tiến",
@@ -1346,7 +1357,7 @@ function Home() {
           path: "https://hrlumi.vercel.app/salary",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'HR_ACCESS',
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
         },
         {
           title: "Năng lực nhân sự",
@@ -1355,7 +1366,7 @@ function Home() {
           path: "https://hrlumi.vercel.app/competency",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'HR_ACCESS',
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
         },
         {
           title: "KPI",
@@ -1364,7 +1375,7 @@ function Home() {
           path: "https://hrlumi.vercel.app/kpi",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'HR_ACCESS',
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
         },
         {
           title: "Giao việc",
@@ -1373,7 +1384,7 @@ function Home() {
           path: "https://hrlumi.vercel.app/tasks",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'HR_ACCESS',
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
         },
         {
           title: "Chấm công & lương",
@@ -1382,7 +1393,7 @@ function Home() {
           path: "https://hrlumi.vercel.app/attendance",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'HR_ACCESS',
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
         },
         // Removed Honor card
       ],
@@ -1459,7 +1470,7 @@ function Home() {
           color: "bg-purple-600",
           path: "/doi-soat-bill-cuoc",
           status: "Mở ứng dụng",
-          permission: 'FINANCE_ACCESS',
+          permissionAny: ['FINANCE_ACCESS', 'FINANCE_DASHBOARD', 'FINANCE_DOI_SOAT_BILL'],
         },
       ],
     },
@@ -1490,16 +1501,17 @@ function Home() {
 
   // --- RECURSIVE PERMISSION FILTERING ---
 
-  // Strict RBAC: chỉ admin mới bypass hiển thị menu/adminOnly
+  // Strict RBAC: chỉ admin mới bypass toàn bộ; Giám đốc / Leader-BGD (department hoặc mã role DB) xem full Dashboard điều hành
   const isAdminOrLeadership = ['admin', 'administrator', 'super_admin'].includes((userRole || '').toLowerCase());
+  const executiveDashboardAccess = isExecutiveDashboardAudience(userDepartment, dbRoleCode);
 
   // Helper to check if an item (or any of its children) is visible
   const isItemVisible = (item) => {
     // 1. Admin Bypass - admins see everything
     if (isAdminOrLeadership) return true;
 
-    // 2. Check adminOnly flag
-    if (item.adminOnly) return false;
+    // 2. Check adminOnly flag (ngoại lệ: allowDirectorDept + đối tượng điều hành BGĐ/Leader)
+    if (item.adminOnly && !(item.allowDirectorDept && executiveDashboardAccess)) return false;
 
     // 3. Removed Team restrictions
 
@@ -1596,7 +1608,7 @@ function Home() {
     }
 
     return sections;
-  }, [selectedGroup, searchQuery, isAdminOrLeadership, canView]);
+  }, [selectedGroup, searchQuery, isAdminOrLeadership, executiveDashboardAccess, canView, userDepartment, dbRoleCode]);
 
   // --- NEWS FEED LOGIC ---
   const [news, setNews] = useState([]);
@@ -1806,7 +1818,13 @@ function Home() {
                 {!sidebarCollapsed && item.subItems && isExpanded && (
                   <div className="ml-4 mt-1 space-y-1">
                     {item.subItems.filter(subItem => {
-                      if (subItem.adminOnly && !isAdminOrLeadership) return false;
+                      if (
+                        subItem.adminOnly &&
+                        !isAdminOrLeadership &&
+                        !(subItem.allowDirectorDept && executiveDashboardAccess)
+                      ) {
+                        return false;
+                      }
                       if (subItem.permissionAny?.length) {
                         if (!subItem.permissionAny.some((c) => canView(c))) return false;
                       } else if (subItem.permission && !canView(subItem.permission)) return false;

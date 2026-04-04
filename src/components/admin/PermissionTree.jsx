@@ -1,7 +1,9 @@
 import { ChevronDown, ChevronRight, Eye } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
+import { dispatchPermissionsInvalidate } from '../../hooks/usePermissions';
 import * as rbacService from '../../services/rbacService';
+import { normalizePermissionCode } from '../../utils/permissionCodes';
 
 const REQUIRED_PAGE_OVERRIDES = {
     MODULE_SALE: [
@@ -67,13 +69,13 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
 
         const knownCodes = new Set(
             Object.values(modulesWithRequired)
-                .flatMap((m) => (m?.pages || []).map((p) => p.code))
+                .flatMap((m) => (m?.pages || []).map((p) => normalizePermissionCode(p.code)))
                 .filter(Boolean)
         );
 
         const orphanFromDb = (permissions || [])
             .map((p) => String(p?.page_code || '').trim())
-            .filter((code) => code && !knownCodes.has(code))
+            .filter((code) => code && !knownCodes.has(normalizePermissionCode(code)))
             .map((code) => ({ code, name: code, path: '(tự phát hiện từ DB)' }));
 
         const customEntries = (customPages || []).map((p) => ({
@@ -160,9 +162,12 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
     };
 
     const getPagePermission = (pageCode) => {
-        return permissions.find(p => p.page_code === pageCode) || {
+        const found = permissions.find(
+            (p) => normalizePermissionCode(p.page_code) === normalizePermissionCode(pageCode)
+        );
+        return found || {
             role_code: roleCode,
-            page_code: pageCode,
+            page_code: normalizePermissionCode(pageCode) || pageCode,
             can_view: false
         };
     };
@@ -200,7 +205,7 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
         // Chỉ cho phép toggle can_view
         if (action !== 'can_view') return;
         
-        const module = rbacService.MODULE_PAGES[moduleCode];
+        const module = dynamicModulePages[moduleCode];
         if (!module) return;
 
         // Check if all pages in this module have this action enabled
@@ -226,7 +231,8 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
 
         // Update local state optimistically
         setPermissions(prev => {
-            const filtered = prev.filter(p => !module.pages.some(page => page.code === p.page_code));
+            const moduleKeys = new Set(module.pages.map((page) => normalizePermissionCode(page.code)));
+            const filtered = prev.filter((p) => !moduleKeys.has(normalizePermissionCode(p.page_code)));
             return [...filtered, ...updates];
         });
 
@@ -240,6 +246,7 @@ const PermissionTree = ({ roleCode, onPermissionChange }) => {
                 }
             }
             toast.success(`Đã cập nhật thành công ${updates.length} quyền`);
+            dispatchPermissionsInvalidate();
         } catch (err) {
             console.error('Lỗi cập nhật hàng loạt:', err);
             const errorMsg = err.message || 'Unknown error';
