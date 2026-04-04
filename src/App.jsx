@@ -15,7 +15,10 @@ import BaoCaoVanDon from './pages/BaoCaoVanDon';
 import BaoCaoVanHanhHtml from './pages/BaoCaoVanHanhHtml';
 import ChangeLogViewer from './pages/ChangeLogViewer';
 import CskhCrmHistoryPage from './pages/CskhCrmHistoryPage';
-import DanhSachBaoCaoTayCSKH, { CSKH_MANUAL_REPORT_HCM_TEAMS } from './pages/DanhSachBaoCaoTayCSKH';
+import DanhSachBaoCaoTayCSKH, {
+  CSKH_MANUAL_REPORT_HCM_TEAMS,
+  CSKH_MANUAL_REPORT_HN_TEAMS,
+} from './pages/DanhSachBaoCaoTayCSKH';
 import NhapBaoCaoCSKH from './pages/NhapBaoCaoCSKH';
 import SalesOrderHistoryPage from './pages/SalesOrderHistoryPage';
 // ... (existing imports)
@@ -223,7 +226,14 @@ function AppShell() {
                 </ProtectedRoute>
               }
             />
-            <Route path="/danh-sach-bao-cao-tay-cskh" element={<ProtectedRoute><DanhSachBaoCaoTayCSKH /></ProtectedRoute>} />
+            <Route
+              path="/danh-sach-bao-cao-tay-cskh"
+              element={
+                <ProtectedRoute>
+                  <DanhSachBaoCaoTayCSKH salesReportTeamIn={CSKH_MANUAL_REPORT_HN_TEAMS} />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/danh-sach-bao-cao-tay-cskh-hcm"
               element={

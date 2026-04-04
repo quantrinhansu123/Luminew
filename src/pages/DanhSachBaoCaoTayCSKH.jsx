@@ -28,8 +28,8 @@ const filterOptionsBySearch = (list, q) => {
     return (list || []).filter((item) => String(item).toLowerCase().includes(needle));
 };
 
-/** Trang /danh-sach-bao-cao-tay-cskh: team HN (đồng bộ với /xem-bao-cao-cskh). */
-const DEFAULT_CSKH_MANUAL_TEAMS = ['CSKH-HN'];
+/** HN: team trong `sales_reports` / `users` cho báo cáo tay CSKH Hà Nội (đồng bộ /xem-bao-cao-cskh). */
+export const CSKH_MANUAL_REPORT_HN_TEAMS = ['CSKH-HN'];
 
 /** HCM: chỉ các team này trong sales_reports (khớp cột `team`). */
 export const CSKH_MANUAL_REPORT_HCM_TEAMS = ['HCM-Sale Đêm', 'CSKH-HCM', 'HCM'];
@@ -90,7 +90,7 @@ export default function DanhSachBaoCaoTayCSKH({
         () =>
             Array.isArray(salesReportTeamIn) && salesReportTeamIn.length > 0
                 ? salesReportTeamIn.map((t) => String(t).trim()).filter(Boolean)
-                : DEFAULT_CSKH_MANUAL_TEAMS,
+                : CSKH_MANUAL_REPORT_HN_TEAMS,
         [salesReportTeamIn]
     );
     const teamFilterLabel = useMemo(() => effectiveTeamFilter.join(', '), [effectiveTeamFilter]);
