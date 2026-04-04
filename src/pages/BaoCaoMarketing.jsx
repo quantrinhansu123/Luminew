@@ -5,6 +5,37 @@ import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
 import { buildMktReportDedupeKey, normalizeMktReportDate } from '../utils/mktDetailReportKey';
 
+/** Độ rộng cột nút — lưới nhập báo cáo MKT */
+const MKT_REPORT_ACTION_COL = '5.75rem';
+
+/** `grid-template-columns` theo từng field — header và ô cùng một cột → không lệch */
+function mktReportGridColWidth(header) {
+  switch (header) {
+    case 'Tên':
+      return 'minmax(13rem, 22rem)';
+    case 'Email':
+      return 'minmax(12rem, 18rem)';
+    case 'Ngày':
+      return '10rem';
+    case 'ca':
+      return '7.5rem';
+    case 'Sản_phẩm':
+      return 'minmax(14rem, 18rem)';
+    case 'Thị_trường':
+      return '8.5rem';
+    case 'TKQC':
+    case 'CPQC':
+      return '7rem';
+    case 'Số_Mess_Cmt':
+      return '8rem';
+    case 'Số đơn':
+    case 'Doanh số':
+      return '7.5rem';
+    default:
+      return 'minmax(6.5rem, 10rem)';
+  }
+}
+
 /**
  * Họ tên cho cột "Tên": ưu tiên trường Name / name trong JSON user (localStorage),
  * rồi các key tiếng Việt, cuối cùng username (sau đăng nhập thường trùng name từ bảng users).
@@ -1256,6 +1287,130 @@ export default function BaoCaoMarketing({
     return out;
   }, [appData.employeeDetails, hrEmailLookup]);
 
+  const visibleMktHeaders = headerMkt.filter((h) => !hiddenFields.includes(h.toLowerCase()));
+  const mktReportGridTemplate = [MKT_REPORT_ACTION_COL, ...visibleMktHeaders.map(mktReportGridColWidth)].join(' ');
+
+  const mktInputCls =
+    'box-border w-full max-w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-600';
+
+  const renderMktReportCell = (row, rowIndex, header) => {
+    if (header === 'Ngày') {
+      return (
+        <input
+          type="date"
+          value={row.data[header] || ''}
+          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+          className={mktInputCls}
+        />
+      );
+    }
+    if (header === 'ca') {
+      return (
+        <input
+          type="text"
+          list={`ca-datalist-${row.id}`}
+          placeholder="--"
+          value={row.data[header] || ''}
+          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+          className={mktInputCls}
+        />
+      );
+    }
+    if (header === 'Sản_phẩm') {
+      return (
+        <select
+          value={row.data[header] || ''}
+          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+          className={`${mktInputCls} bg-white`}
+          title="Chọn sản phẩm — luôn mở được toàn bộ danh sách (khác datalist trình duyệt)"
+        >
+          <option value="">-- Chọn sản phẩm --</option>
+          {(() => {
+            const list = appData.productList || [];
+            const cur = String(row.data[header] || '').trim();
+            const head = cur && !list.includes(cur) ? [cur] : [];
+            return [...head, ...list].map((product) => (
+              <option key={product} value={product}>
+                {product}
+              </option>
+            ));
+          })()}
+        </select>
+      );
+    }
+    if (header === 'Thị_trường') {
+      return (
+        <input
+          type="text"
+          list={`market-datalist-${row.id}`}
+          placeholder="--"
+          value={row.data[header] || ''}
+          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+          className={mktInputCls}
+        />
+      );
+    }
+    if (header === 'Email') {
+      return (
+        <input
+          type="email"
+          list="email-datalist"
+          placeholder="--"
+          value={row.data[header] || ''}
+          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+          className={mktInputCls}
+        />
+      );
+    }
+    if (header === 'Tên') {
+      if (isManagerRole) {
+        return (
+          <input
+            type="text"
+            list="employee-datalist"
+            autoComplete="off"
+            placeholder="Gõ để tìm tên…"
+            value={row.data[header] || ''}
+            onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+            onBlur={(e) => syncTenColumnFromInput(rowIndex, e.target.value)}
+            className={`${mktInputCls} bg-white`}
+            title="Gõ để lọc gợi ý; chọn từ danh sách hoặc nhập đủ họ tên khớp Sheet/HR"
+          />
+        );
+      }
+      return (
+        <input
+          type="text"
+          readOnly
+          disabled
+          value={row.data[header] || ''}
+          className="box-border w-full max-w-full px-2 py-1.5 text-xs border border-gray-200 rounded bg-gray-100 text-gray-700"
+          title="Tên theo tài khoản đăng nhập"
+        />
+      );
+    }
+    if (numberFields.includes(header)) {
+      return (
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="Số"
+          value={row.data[header] ? formatNumberInput(row.data[header]) : ''}
+          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+          className={`${mktInputCls} text-right tabular-nums`}
+        />
+      );
+    }
+    return (
+      <input
+        type="text"
+        value={row.data[header] || ''}
+        onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+        className={mktInputCls}
+      />
+    );
+  };
+
   if (!hasPageAccess) {
     return (
       <div className="p-8 text-center text-red-600 font-bold">
@@ -1292,170 +1447,67 @@ export default function BaoCaoMarketing({
           ➕ Thêm dòng
         </button>
 
-        {/* Table */}
+        {/* Lưới nhập: một CSS Grid — header và ô dùng chung template cột → không lệch như table+sticky */}
         <form onSubmit={handleSubmit}>
-          <div className="overflow-x-auto mb-4 border border-gray-300 rounded-lg">
-            <div className="w-full align-middle">
-              <table className="w-full border-collapse bg-white text-xs table-fixed">
-                <thead>
-                  <tr className="bg-blue-600 text-white sticky top-0">
-                    <th className="border px-2 py-1 text-left font-semibold whitespace-nowrap">Hành động</th>
-                    {headerMkt.map(
-                      (header) =>
-                        !hiddenFields.includes(header.toLowerCase()) && (
-                          <th key={header} className="border px-2 py-1 text-left font-semibold whitespace-nowrap">
-                            {header}
-                          </th>
-                        )
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableRows.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={
-                          1 +
-                          headerMkt.filter((h) => !hiddenFields.includes(h.toLowerCase())).length
-                        }
-                        className="border px-4 py-6 text-center text-gray-600 text-sm bg-amber-50"
+          <div className="mb-4 overflow-x-auto rounded-lg border border-gray-300 bg-neutral-300 p-px shadow-sm">
+            <div
+              className="grid w-max min-w-full gap-px bg-neutral-300 text-xs"
+              style={{ gridTemplateColumns: mktReportGridTemplate }}
+            >
+              <div className="sticky top-0 z-20 flex items-center bg-blue-600 px-2 py-2 text-left text-[11px] font-semibold text-white shadow-sm">
+                Hành động
+              </div>
+              {visibleMktHeaders.map((h) => (
+                <div
+                  key={`hdr-${h}`}
+                  className="sticky top-0 z-20 bg-blue-600 px-2 py-2 text-left text-[11px] font-semibold leading-tight text-white shadow-sm"
+                >
+                  <span className="whitespace-nowrap">{h}</span>
+                </div>
+              ))}
+
+              {tableRows.length === 0 ? (
+                <div className="col-span-full bg-amber-50 px-4 py-6 text-center text-sm text-gray-600">
+                  Chưa có dòng nhập liệu. Nhấn <strong>➕ Thêm dòng</strong> hoặc tải lại trang. Nếu vừa thấy lỗi khởi tạo,
+                  mở Console (F12) để xem chi tiết.
+                </div>
+              ) : (
+                tableRows.map((row, rowIndex) => {
+                  const rowStripe = rowIndex % 2 === 1;
+                  const rowBg = rowStripe ? 'bg-neutral-50' : 'bg-white';
+                  return (
+                    <div key={row.id} className="contents">
+                      <div
+                        className={`flex flex-nowrap items-center gap-1 px-2 py-2 ${rowBg} transition-colors hover:bg-neutral-100`}
                       >
-                        Chưa có dòng nhập liệu. Nhấn <strong>➕ Thêm dòng</strong> hoặc tải lại trang. Nếu vừa thấy lỗi
-                        khởi tạo, mở Console (F12) để xem chi tiết.
-                      </td>
-                    </tr>
-                  )}
-                  {tableRows.map((row, rowIndex) => (
-                    <tr key={row.id} className="hover:bg-gray-50 even:bg-gray-50">
-                      <td className="border px-2 py-1 align-middle whitespace-nowrap">
-                        <div className="flex gap-1 flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => handleAddRow(rowIndex)}
-                            className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition text-xs font-semibold"
-                            title="Thêm dòng giống dòng này (ngay bên dưới)"
-                          >
-                            ➕
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveRow(rowIndex)}
-                            className="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded transition text-xs font-semibold"
-                          >
-                            ❌
-                          </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAddRow(rowIndex)}
+                          className="shrink-0 rounded bg-green-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-green-700"
+                          title="Thêm dòng giống dòng này (ngay bên dưới)"
+                        >
+                          ➕
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRow(rowIndex)}
+                          className="shrink-0 rounded bg-gray-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-gray-700"
+                        >
+                          ❌
+                        </button>
+                      </div>
+                      {visibleMktHeaders.map((header) => (
+                        <div
+                          key={`${row.id}-${header}`}
+                          className={`min-w-0 px-2 py-2 align-top ${rowBg} transition-colors hover:bg-neutral-100`}
+                        >
+                          {renderMktReportCell(row, rowIndex, header)}
                         </div>
-                      </td>
-                      {headerMkt.map(
-                        (header) =>
-                          !hiddenFields.includes(header.toLowerCase()) && (
-                            <td key={`${row.id}-${header}`} className="border px-2 py-2">
-                              {header === 'Ngày' ? (
-                                <input
-                                  type="date"
-                                  value={row.data[header] || ''}
-                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                                />
-                              ) : header === 'ca' ? (
-                                <input
-                                  type="text"
-                                  list={`ca-datalist-${row.id}`}
-                                  placeholder="--"
-                                  value={row.data[header] || ''}
-                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                                />
-                              ) : header === 'Sản_phẩm' ? (
-                                <select
-                                  value={row.data[header] || ''}
-                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-full min-w-[10rem] px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600 bg-white"
-                                  title="Chọn sản phẩm — luôn mở được toàn bộ danh sách (khác datalist trình duyệt)"
-                                >
-                                  <option value="">-- Chọn sản phẩm --</option>
-                                  {(() => {
-                                    const list = appData.productList || [];
-                                    const cur = String(row.data[header] || '').trim();
-                                    const head = cur && !list.includes(cur) ? [cur] : [];
-                                    return [...head, ...list].map((product) => (
-                                      <option key={product} value={product}>
-                                        {product}
-                                      </option>
-                                    ));
-                                  })()}
-                                </select>
-                              ) : header === 'Thị_trường' ? (
-                                <input
-                                  type="text"
-                                  list={`market-datalist-${row.id}`}
-                                  placeholder="--"
-                                  value={row.data[header] || ''}
-                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                                />
-                              ) : header === 'Email' ? (
-                                <input
-                                  type="email"
-                                  list="email-datalist"
-                                  placeholder="--"
-                                  value={row.data[header] || ''}
-                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-48 px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                                />
-                              ) : header === 'Tên' ? (
-                                isManagerRole ? (
-                                  <div className="min-w-[12rem] max-w-[20rem]">
-                                    <input
-                                      type="text"
-                                      list="employee-datalist"
-                                      autoComplete="off"
-                                      placeholder="Gõ để tìm tên…"
-                                      value={row.data[header] || ''}
-                                      onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                      onBlur={(e) => syncTenColumnFromInput(rowIndex, e.target.value)}
-                                      className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600 bg-white"
-                                      title="Gõ để lọc gợi ý; chọn từ danh sách hoặc nhập đủ họ tên khớp Sheet/HR"
-                                    />
-                                    <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">
-                                      Sổ gợi ý: <span className="font-mono">users</span> (MKT, Hà Nội) + tên MKT trong{' '}
-                                      <span className="font-mono">human_resources</span> (cùng email thì tự điền Team/id_NS). Không có users: Sheet «Nhân sự» + toàn bộ HR.
-                                    </p>
-                                  </div>
-                                ) : (
-                                  <input
-                                    type="text"
-                                    readOnly
-                                    disabled
-                                    value={row.data[header] || ''}
-                                    className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded bg-gray-100 text-gray-700"
-                                    title="Tên theo tài khoản đăng nhập"
-                                  />
-                                )
-                              ) : numberFields.includes(header) ? (
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  placeholder="Số"
-                                  value={row.data[header] ? formatNumberInput(row.data[header]) : ''}
-                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-28 px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                                />
-                              ) : (
-                                <input
-                                  type="text"
-                                  value={row.data[header] || ''}
-                                  onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-                                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-600"
-                                />
-                              )}
-                            </td>
-                          )
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      ))}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
