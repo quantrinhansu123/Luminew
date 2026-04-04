@@ -199,7 +199,7 @@ function AppShell() {
               path="/xem-bao-cao-cskh"
               element={
                 <ProtectedRoute>
-                  <NhanSuSaleLumiMoiView teamExactFilter="CSKH- Lý" />
+                  <NhanSuSaleLumiMoiView teamExactFilter="CSKH-HN" />
                 </ProtectedRoute>
               }
             />

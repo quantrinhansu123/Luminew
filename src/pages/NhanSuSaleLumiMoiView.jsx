@@ -145,7 +145,7 @@ export default function NhanSuSaleLumiMoiView({
   thuCongTableName = 'Báo cáo sale',
   /** Lọc team chứa chuỗi (giống BaoCaoSale: sale | cskh). Bỏ qua khi có `teamExactFilter`. */
   teamKeyword = 'sale',
-  /** Chỉ giữ dòng có Team khớp đúng (sau trim/gom khoảng trắng), ví dụ CSKH- Lý. Bỏ qua nếu có `teamInFilter`. */
+  /** Chỉ giữ dòng có Team khớp đúng (sau trim/gom khoảng trắng), ví dụ CSKH-HN. Bỏ qua nếu có `teamInFilter`. */
   teamExactFilter = null,
   /** Chỉ giữ dòng có Team thuộc danh sách (khớp sau normalize). Ưu tiên hơn `teamExactFilter` / `teamKeyword`. */
   teamInFilter = null,

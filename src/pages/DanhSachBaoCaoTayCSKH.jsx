@@ -28,8 +28,8 @@ const filterOptionsBySearch = (list, q) => {
     return (list || []).filter((item) => String(item).toLowerCase().includes(needle));
 };
 
-/** Trang /danh-sach-bao-cao-tay-cskh: chỉ CSKH Lý (hai cách ghi team trong DB). */
-const DEFAULT_CSKH_MANUAL_TEAMS = ['CSKH-Lý', 'CSKH- Lý'];
+/** Trang /danh-sach-bao-cao-tay-cskh: team HN (đồng bộ với /xem-bao-cao-cskh). */
+const DEFAULT_CSKH_MANUAL_TEAMS = ['CSKH-HN'];
 
 /** HCM: chỉ các team này trong sales_reports (khớp cột `team`). */
 export const CSKH_MANUAL_REPORT_HCM_TEAMS = ['HCM-Sale Đêm', 'CSKH-HCM', 'HCM'];
@@ -138,7 +138,7 @@ export default function DanhSachBaoCaoTayCSKH({
         roleFromUserObj === 'admin' ||
         roleFromUserObj === 'super_admin';
 
-    /** Luôn giới hạn theo effectiveTeamFilter (CSKH-Lý hoặc danh sách HCM từ props). */
+    /** Luôn giới hạn theo effectiveTeamFilter (CSKH-HN hoặc danh sách HCM từ props). */
     const useTeamInQuery = true;
 
     const [loading, setLoading] = useState(true);
@@ -320,7 +320,7 @@ export default function DanhSachBaoCaoTayCSKH({
                             else if (un) personnelSet.add(un);
                         });
                     } catch (err) {
-                        console.error('Error loading CSKH-Lý personnel from users:', err);
+                        console.error('Error loading CSKH-HN personnel from users:', err);
                     }
                 }
 
