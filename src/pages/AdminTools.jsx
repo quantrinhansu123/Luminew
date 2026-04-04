@@ -2105,23 +2105,22 @@ const AdminTools = () => {
 
             const list = data || [];
 
-            // Sắp xếp theo thời gian lên đơn (hoặc theo order_code) để có thứ tự ổn định
+            // STT chia = thu_tu_chia (thứ tự ghi khi chạy chia đơn trong ngày); sắp xếp theo STT để khớp lượt vòng
             const sorted = [...list].sort((a, b) => {
+                const t1 = Number(a.thu_tu_chia);
+                const t2 = Number(b.thu_tu_chia);
+                const ok1 = Number.isFinite(t1) && t1 > 0;
+                const ok2 = Number.isFinite(t2) && t2 > 0;
+                if (ok1 && ok2 && t1 !== t2) return t1 - t2;
+                if (ok1 && !ok2) return -1;
+                if (!ok1 && ok2) return 1;
                 const d1 = a.order_date ? new Date(a.order_date) : new Date(0);
                 const d2 = b.order_date ? new Date(b.order_date) : new Date(0);
-                if (d1.getTime() !== d2.getTime()) {
-                    return d1 - d2;
-                }
+                if (d1.getTime() !== d2.getTime()) return d1 - d2;
                 return (a.order_code || '').localeCompare(b.order_code || '');
             });
 
-            // Tính thứ tự chia trong ngày (STT) theo thứ tự đã sort
-            const withIndex = sorted.map((o, idx) => ({
-                ...o,
-                chia_order_index: idx + 1,
-            }));
-
-            setChiaDonViewOrders(withIndex);
+            setChiaDonViewOrders(sorted);
         } catch (err) {
             console.error('❌ [View chia đơn vận đơn] Exception:', err);
             toast.error('Có lỗi xảy ra khi tải danh sách đơn đã chia vận đơn');
@@ -4101,9 +4100,15 @@ const AdminTools = () => {
                                     <ol className="list-decimal list-inside space-y-1 text-xs text-gray-600">
                                         <li>Lọc nhân viên có trạng thái "U1" từ danh sách vận đơn</li>
                                         <li>Phân loại theo chi nhánh (HCM và Hà Nội)</li>
-                                        <li>Sử dụng lastIndex để đảm bảo tính công bằng (chia đều, bắt đầu từ vị trí tiếp theo)</li>
+                                        <li>
+                                            Chia theo vòng (round-robin): trong ngày chạy, tìm đơn có{' '}
+                                            <code className="text-[10px] bg-white px-0.5 rounded">thu_tu_chia</code> cao nhất (
+                                            <code className="text-[10px] bg-white px-0.5 rounded">ngay_chia_van_don</code> = hôm nay)
+                                            → NV đó là cuối vòng; đơn tiếp theo gán cho NV kế trong danh sách U1
+                                        </li>
                                         <li>Lọc đơn: delivery_staff trống, loại trừ "Nhật Bản" và "CĐ Nhật Bản"</li>
-                                        <li>Chia đều cho nhân viên theo Team tương ứng</li>
+                                        <li>Chỉ gán khi team đơn khớp chi nhánh của NV U1</li>
+                                        <li>STT chia lưu ở cột thu_tu_chia (thứ tự trong ngày khi ghi DB)</li>
                                     </ol>
                                 </div>
                                 <div className="space-y-3">
@@ -4221,14 +4226,15 @@ const AdminTools = () => {
                                                 <table className="min-w-full text-xs">
                                                     <thead className="bg-gray-50">
                                                         <tr>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700"># (trong view)</th>
+                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700 whitespace-nowrap">
+                                                                STT chia
+                                                            </th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Mã đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Khách hàng</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Chi nhánh</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">NV Vận đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Ngày lên đơn</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Ngày chia vận đơn</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Thứ tự chia</th>
                                                             <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Country</th>
                                                         </tr>
                                                     </thead>
@@ -4272,8 +4278,10 @@ const AdminTools = () => {
 
                                                             return (
                                                                 <tr key={o.order_code} className="hover:bg-gray-50">
-                                                                    <td className="px-2 py-1 border-b text-gray-700 font-mono">
-                                                                        {o.chia_order_index}
+                                                                    <td className="px-2 py-1 border-b text-gray-700 font-mono text-center whitespace-nowrap">
+                                                                        {o.thu_tu_chia != null && o.thu_tu_chia !== ''
+                                                                            ? o.thu_tu_chia
+                                                                            : '—'}
                                                                     </td>
                                                                     <td className="px-2 py-1 border-b text-blue-700 font-mono">
                                                                         {o.order_code || 'N/A'}
@@ -4292,9 +4300,6 @@ const AdminTools = () => {
                                                                     </td>
                                                                     <td className="px-2 py-1 border-b text-gray-700 whitespace-nowrap">
                                                                         {ngayChiaDisplay || 'N/A'}
-                                                                    </td>
-                                                                    <td className="px-2 py-1 border-b text-gray-700 text-center">
-                                                                        {o.thu_tu_chia ?? '-'}
                                                                     </td>
                                                                     <td className="px-2 py-1 border-b text-gray-700">
                                                                         {o.country || 'N/A'}

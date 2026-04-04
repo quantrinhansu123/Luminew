@@ -61,7 +61,8 @@ export const DB_TO_APP_MAPPING = {
     "reconciled_vnd": "Tiền đã thanh toán",
     "cskh_status": "Trạng thái cskh",
     "log": "Nhật ký",
-    "canh_bao": "Cảnh báo trùng"
+    "canh_bao": "Cảnh báo trùng",
+    "thu_tu_chia": "Thứ tự chia"
 };
 
 /**
@@ -161,6 +162,7 @@ const resolveAppKeyToDbKey = (appKey) => {
     if (appKey === 'estimated_delivery_date' || nfc === 'estimated_delivery_date') return 'thoigiangiaohangffm';
     /** Dữ liệu cũ / pending lưu tay có thể còn khóa reason */
     if (appKey === 'reason' || nfc === 'reason') return 'lydo';
+    if (nfc === 'Thứ tự chia'.normalize('NFC') || appKey === 'thu_tu_chia') return 'thu_tu_chia';
     return null;
 };
 
@@ -928,6 +930,9 @@ export const VAN_DON_PAGE_COLUMN_LIST = [
 
 const VAN_DON_SELECT_QUERY = VAN_DON_PAGE_COLUMN_LIST.join(',');
 
+/** `/van-don-hcm` (bảng `order_code_hcm`): thêm cột chia vận đơn — không gộp vào view `van_don_page` để tránh lệch schema. */
+const VAN_DON_SELECT_QUERY_ORDER_CODE_HCM = `${VAN_DON_SELECT_QUERY},thu_tu_chia,ngay_chia_van_don`;
+
 /** Cột ngày lọc theo 1 ngày ở header (khớp logic VanDon.jsx). */
 const VAN_DON_PER_COL_DATE_UI_KEYS = new Set([
     'Ngày lên đơn',
@@ -1007,19 +1012,38 @@ export function resolveVanDonFilterUiKeyToDb(uiKey) {
     const resolved = COLUMN_MAPPING[uiKey] || uiKey;
     const override = VAN_DON_UI_COL_DB_OVERRIDE[resolved] || VAN_DON_UI_COL_DB_OVERRIDE[uiKey];
     if (override) return override;
+    /** Sau COLUMN_MAPPING, `resolved` có thể đã là tên cột DB (sale_staff, shipping_unit, …) — vòng for dưới chỉ khớp nhãn Việt nên trước đây bị bỏ qua → lọc SQL không chạy. */
+    if (Object.prototype.hasOwnProperty.call(DB_TO_APP_MAPPING, resolved)) {
+        return resolved;
+    }
     for (const [dbCol, label] of Object.entries(DB_TO_APP_MAPPING)) {
         if (label === resolved) return dbCol;
     }
     return null;
 }
 
+/** Cột lọc kiểu chọn nhiều (toolbar hoặc header MultiSelect) — khớp `resolveVanDonFilterUiKeyToDb`. */
+const VAN_DON_MULTISELECT_FILTER_DB_COLS = new Set([
+    'sale_staff',
+    'marketing_staff',
+    'delivery_staff',
+    'shipping_unit',
+    'country',
+    'product',
+]);
+
 function isVanDonDropdownColumnFilter(uiKey) {
     const dataKey = COLUMN_MAPPING[uiKey] || uiKey;
-    return Boolean(
+    if (
         DROPDOWN_OPTIONS[dataKey] ||
-            DROPDOWN_OPTIONS[uiKey] ||
-            ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)
-    );
+        DROPDOWN_OPTIONS[uiKey] ||
+        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey) ||
+        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển'].includes(uiKey)
+    ) {
+        return true;
+    }
+    const dbCol = resolveVanDonFilterUiKeyToDb(uiKey);
+    return Boolean(dbCol && VAN_DON_MULTISELECT_FILTER_DB_COLS.has(dbCol));
 }
 
 // Fetch Van Don data với pagination và filters từ backend (NOW SUPABASE)
@@ -1113,6 +1137,10 @@ export const fetchVanDon = async (options = {}) => {
         /** Escape giá trị trong PostgREST `in.(...)` khi ghép vào `.or(...)`. */
         const orEncodeInList = (vals) =>
             vals.map((v) => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',');
+
+        /** Pattern `ILIKE` trong `.or(...)` PostgREST — bọc ngoặc kép để `,` / ký tự đặc biệt không làm tách nhánh OR sai. */
+        const quotePostgrestOrIlikePattern = (p) =>
+            `"${String(p).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
         const applyVanDonFilters = (initialQuery) => {
             let query = initialQuery;
@@ -1299,9 +1327,19 @@ export const fetchVanDon = async (options = {}) => {
             if (cq) {
                 const pat = buildVanDonFlexibleIlikePattern(cq);
                 if (pat) {
-                    query = query.or(
-                        `customer_name.ilike.${pat},customer_phone.ilike.${pat},customer_address.ilike.${pat}`
-                    );
+                    const qv = quotePostgrestOrIlikePattern(pat);
+                    const segments = [
+                        `customer_name.ilike.${qv}`,
+                        `customer_phone.ilike.${qv}`,
+                        `customer_address.ilike.${qv}`,
+                        `order_code.ilike.${qv}`,
+                    ];
+                    const digitsOnly = cq.replace(/\D/g, '');
+                    if (digitsOnly.length >= 6 && digitsOnly.length <= 16) {
+                        const flexPhonePat = `%${digitsOnly.split('').join('%')}%`;
+                        segments.push(`customer_phone.ilike.${quotePostgrestOrIlikePattern(flexPhonePat)}`);
+                    }
+                    query = query.or(segments.join(','));
                 }
             }
 
@@ -1315,7 +1353,9 @@ export const fetchVanDon = async (options = {}) => {
         };
 
         const loadVanDonFromTable = async (tableName) => {
-            const baseData = applyVanDonFilters(supabase.from(tableName).select(VAN_DON_SELECT_QUERY, { count: 'exact' }));
+            const selectCols =
+                tableName === 'order_code_hcm' ? VAN_DON_SELECT_QUERY_ORDER_CODE_HCM : VAN_DON_SELECT_QUERY;
+            const baseData = applyVanDonFilters(supabase.from(tableName).select(selectCols, { count: 'exact' }));
             /** SUM trên bảng vật lý: ưu tiên total_amount_vnd — khớp cột «Tổng tiền VNĐ» trên lưới (không dùng line total trước). */
             const sumFromTable = tableName === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
             const sumTotalAmountQ = applyVanDonFilters(

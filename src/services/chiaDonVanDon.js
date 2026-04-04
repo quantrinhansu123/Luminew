@@ -957,15 +957,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         }
 
         // ============================================================
-        // Bước 4: CHIA ĐƠN THEO 4 RULES + RULE LOẠI TRỪ NHẬT BẢN
-        // 
-        // RULE LOẠI TRỪ: Đơn có country = "Nhật Bản"/"CĐ Nhật Bản" sẽ KHÔNG được chia
-        //   (Đã được xử lý ở bước 3a: ordersExcluded - dòng 1291-1296)
+        // Bước 4: CHIA ĐƠN THEO VÒNG (U1) + RULE LOẠI TRỪ NHẬT BẢN
         //
-        // Rule 1: Xác định người được chia cuối cùng (từ DB)
-        // Rule 2: List nhân viên U1 đang đi làm (đã có ở trên)
-        // Rule 3: Ưu tiên người có ít đơn hơn để cân bằng
-        // Rule 4: Round-robin tiếp từ người sau người cuối cùng
+        // RULE LOẠI TRỪ: Đơn Nhật Bản (đã xử lý ở bước trước).
+        //
+        // Rule 1: Trong ngày hiện tại, lấy đơn có thu_tu_chia lớn nhất → người đó là “cuối vòng”; bắt đầu chia kế tiếp.
+        // Rule 2: Danh sách nhân viên U1 (theo chi nhánh khớp team đơn).
+        // Rule 3: Round-robin — bắt đầu từ người kế sau người có STT chia cao nhất trong ngày.
+        // STT ghi DB: thu_tu_chia toàn cục trong ngày (bước 8).
         // ============================================================
 
         // Helper: Hàm chia đơn thông minh cho 1 chi nhánh
@@ -1063,122 +1062,98 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             }
 
             const result = [];
-            const staffList = staffListWithBranch.map(s => s.name);
-
-            // --- RULE 1: Xác định người được chia cuối cùng ---
-            // MỚI: Lấy người có số lớn nhất trong cột thu_tu_chia của NGÀY HÔM TRƯỚC (ngay_chia_van_don)
+            const staffList = staffListWithBranch.map((s) => s.name);
             const staffSet = new Set(staffList);
 
-            // Tính ngày hôm trước theo định dạng YYYY-MM-DD
-            const today = new Date();
-            const yesterday = new Date(today);
-            yesterday.setDate(today.getDate() - 1);
-            const yesterdayStr = yesterday.toISOString().slice(0, 10);
+            // --- Rule 1: Trong ngày hiện tại — người có đơn mang thu_tu_chia cao nhất (cuối vòng) ---
+            const todayStrForRound = new Date().toISOString().slice(0, 10);
 
-            // Ưu tiên: tìm trong allDBOrders các đơn đã chia ngày hôm trước cho nhóm nhân viên này
-            const yesterdayAssigned = allDBOrders
-                .filter(o => {
+            const todayAssignedByStt = allDBOrders
+                .filter((o) => {
                     const ds = o.delivery_staff?.toString().trim();
-                    const ngayChia = o.ngay_chia_van_don?.toString().slice(0, 10); // phòng trường hợp là Date/Timestamp
+                    const ngayChia = o.ngay_chia_van_don?.toString().slice(0, 10);
                     const thuTu = o.thu_tu_chia;
                     return (
                         ds &&
                         staffSet.has(ds) &&
-                        ngayChia === yesterdayStr &&
+                        ngayChia === todayStrForRound &&
                         thuTu !== null &&
-                        thuTu !== undefined
+                        thuTu !== undefined &&
+                        Number(thuTu) > 0
                     );
                 })
                 .sort((a, b) => {
                     const aVal = Number(a.thu_tu_chia) || 0;
                     const bVal = Number(b.thu_tu_chia) || 0;
-                    // Lớn hơn = được chia sau hơn
-                    return bVal - aVal;
+                    if (bVal !== aVal) return bVal - aVal;
+                    if (a.id != null && b.id != null) return b.id - a.id;
+                    return String(b.order_code || '').localeCompare(String(a.order_code || ''));
                 });
 
             let lastAssignedPerson = null;
-
-            if (yesterdayAssigned.length > 0) {
-                // Lấy người được chia CUỐI CÙNG trong ngày hôm trước
-                lastAssignedPerson = yesterdayAssigned[0].delivery_staff?.toString().trim() || null;
-                console.log(`🔍 [${branchName}] Rule 1 - Dùng thu_tu_chia ngày hôm trước (${yesterdayStr}), người cuối cùng: "${lastAssignedPerson}"`);
+            if (todayAssignedByStt.length > 0) {
+                lastAssignedPerson = todayAssignedByStt[0].delivery_staff?.toString().trim() || null;
+                const maxStt = todayAssignedByStt[0].thu_tu_chia;
+                console.log(
+                    `🔍 [${branchName}] Rule 1 — Trong ngày ${todayStrForRound}, STT chia cao nhất=${maxStt} → NV cuối vòng: "${lastAssignedPerson}"`
+                );
             } else {
-                // Fallback cũ: nếu chưa có dữ liệu thu_tu_chia, dùng đơn mới nhất theo id/order_date
                 const assignedOrders = allDBOrders
-                    .filter(o => o.delivery_staff && staffSet.has(o.delivery_staff.trim()))
+                    .filter((o) => o.delivery_staff && staffSet.has(String(o.delivery_staff).trim()))
                     .sort((a, b) => {
-                        // Ưu tiên sort theo id (auto-increment, lớn hơn = mới hơn)
-                        if (a.id && b.id) return b.id - a.id;
-                        // Fallback theo order_date
+                        if (a.id != null && b.id != null) return b.id - a.id;
                         const dateA = a.order_date ? new Date(a.order_date) : new Date(0);
                         const dateB = b.order_date ? new Date(b.order_date) : new Date(0);
                         return dateB - dateA;
                     });
-
-                lastAssignedPerson = assignedOrders.length > 0
-                    ? assignedOrders[0].delivery_staff.trim()
-                    : null;
-
-                console.log(`🔍 [${branchName}] Rule 1 - Không tìm thấy thu_tu_chia ngày hôm trước, fallback dùng đơn mới nhất trong DB`);
+                lastAssignedPerson =
+                    assignedOrders.length > 0 ? String(assignedOrders[0].delivery_staff).trim() : null;
+                console.log(
+                    `🔍 [${branchName}] Rule 1 — Chưa có đơn chia trong ngày ${todayStrForRound}, fallback NV gần nhất (theo DB): "${lastAssignedPerson || '(không có)'}"`
+                );
             }
 
-            const lastAssignedIndex = lastAssignedPerson
-                ? staffList.indexOf(lastAssignedPerson)
-                : -1;
+            const lastAssignedIndex = lastAssignedPerson ? staffList.indexOf(lastAssignedPerson) : -1;
+            console.log(
+                `👥 [${branchName}] Nhân viên U1: [${staffList.join(', ')}] — bắt đầu vòng sau index ${lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0}`
+            );
 
-            console.log(`🔍 [${branchName}] Rule 1 - Người được chia cuối cùng: "${lastAssignedPerson || '(không có)'}" (index: ${lastAssignedIndex})`);
+            const remainingOrders = [...pendingOrders].sort((a, b) => {
+                const ta = a.order_date ? new Date(a.order_date).getTime() : 0;
+                const tb = b.order_date ? new Date(b.order_date).getTime() : 0;
+                if (ta !== tb) return ta - tb;
+                return String(a.order_code || '').localeCompare(String(b.order_code || ''));
+            });
 
-            // --- RULE 2: List nhân viên U1 (đã có sẵn = staffList) ---
-            console.log(`👥 [${branchName}] Rule 2 - Nhân viên U1: [${staffList.join(', ')}]`);
-
-            // Bỏ RULE 3: không cân bằng theo số đơn nữa, chỉ dùng round-robin theo thứ tự danh sách U1
-            let remainingOrders = [...pendingOrders];
-
-            // --- RULE 4: Round-robin phần còn lại từ người tiếp theo sau người cuối cùng ---
             if (remainingOrders.length > 0) {
-                // Bắt đầu từ người SAU người được chia cuối cùng (Rule 1)
-                let startIndex = lastAssignedIndex >= 0
-                    ? (lastAssignedIndex + 1) % staffListWithBranch.length
-                    : 0;
-
-                console.log(`🔄 [${branchName}] Rule 4 - Round-robin ${remainingOrders.length} đơn còn lại, bắt đầu từ index ${startIndex} ("${staffListWithBranch[startIndex].name}")`);
-
+                let startIndex =
+                    lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0;
                 let nextIndex = startIndex;
 
-                remainingOrders.forEach((order, i) => {
-                    let assigned = false;
+                console.log(
+                    `🔄 [${branchName}] Round-robin ${remainingOrders.length} đơn, start index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
+                );
 
+                remainingOrders.forEach((order) => {
+                    let assigned = false;
                     for (let attempt = 0; attempt < staffListWithBranch.length; attempt++) {
                         const idx = (nextIndex + attempt) % staffListWithBranch.length;
                         const staff = staffListWithBranch[idx];
                         const orderTeam = order.team?.toString().trim() || '';
-                        const staffChiNhanh = staff.chi_nhanh?.toString().trim() || '';
-                        const isMatch = isTeamBranchMatch(orderTeam, staffChiNhanh);
-
-                        // Log đặc biệt cho đơn cần kiểm tra
-                        if (order.order_code === TARGET_ORDER_CODE) {
-                            console.log(`\n🔍 [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE} - Rule 4]`);
-                            console.log(`  - orderTeam: "${order.team || '(null)'}"`);
-                            console.log(`  - staffChiNhanh: "${staff.chi_nhanh}"`);
-                            console.log(`  - staff.name: "${staff.name}"`);
-                            console.log(`  - index: ${idx}, startIndex: ${startIndex}, i: ${i}, attempt: ${attempt}`);
-                            console.log(`  - isMatch: ${isMatch}`);
-                        }
-
-                        if (!isMatch) {
-                            continue;
-                        }
+                        const isMatch = isTeamBranchMatch(orderTeam, staff.chi_nhanh?.toString().trim() || '');
 
                         if (order.order_code === TARGET_ORDER_CODE) {
-                            console.log(`  ✅ Đơn ${TARGET_ORDER_CODE} được chia cho: ${staff.name}`);
+                            console.log(
+                                `\n🔍 [${TARGET_ORDER_CODE}] idx=${idx}, nextIndex=${nextIndex}, isMatch=${isMatch}, team="${orderTeam}", chi_nhanh="${staff.chi_nhanh}"`
+                            );
                         }
+
+                        if (!isMatch) continue;
 
                         result.push({
                             order_code: order.order_code,
-                            delivery_staff: staff.name
+                            delivery_staff: staff.name,
                         });
-
-                        // Tiếp tục vòng tròn sau người vừa nhận đơn để giữ round-robin công bằng
                         nextIndex = (idx + 1) % staffListWithBranch.length;
                         assigned = true;
                         break;
@@ -1186,16 +1161,12 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
 
                     if (!assigned) {
                         const orderTeam = order.team?.toString().trim() || '';
-                        console.warn(`⚠️ [${branchName}] Rule 4 - Bỏ qua đơn ${order.order_code}: không tìm thấy nhân viên nào có chi_nhanh khớp với team="${orderTeam}"`);
-                        // Log chi tiết để debug
-                        console.warn(`  - Danh sách nhân viên và chi_nhanh:`);
-                        staffListWithBranch.forEach(s => {
-                            const isMatch = isTeamBranchMatch(orderTeam, s.chi_nhanh);
-                            console.warn(`    - ${s.name}: chi_nhanh="${s.chi_nhanh}", isMatch=${isMatch}`);
-                        });
+                        console.warn(
+                            `⚠️ [${branchName}] Bỏ qua đơn ${order.order_code}: không có NV U1 khớp team="${orderTeam}"`
+                        );
                     }
                 });
-                console.log(`✅ [${branchName}] Rule 4 - Đã chia đơn theo round-robin`);
+                console.log(`✅ [${branchName}] Đã chia ${result.length} đơn theo vòng (round-robin U1)`);
             }
 
             // Log tổng kết
@@ -1237,7 +1208,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         });
 
         // Chia đơn HCM
-        addLog('📋 Bước 7: Bắt đầu chia đơn theo 4 rules', 'info');
+        addLog('📋 Bước 7: Chia đơn theo vòng (U1) — round-robin', 'info');
         if (!branchFilter || branchFilter === 'HCM') {
             addLog(`📋 Chia đơn HCM - Nhân viên: ${nhanVienHCM.length} người, Đơn cần chia: ${ordersHCM.length} đơn`, 'info');
             console.log(`\n📋 [Chia đơn vận đơn] ========== BẮT ĐẦU CHIA ĐƠN HCM ==========`);

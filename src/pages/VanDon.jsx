@@ -43,6 +43,8 @@ const BULK_THRESHOLD = 1;
 const VAN_DON_CHECKBOX_COL_PX = 50;
 /** Cột orders.canh_bao — luôn hiển thị trên mọi tab vận đơn */
 const VAN_DON_CANH_BAO_COLUMN = 'Cảnh báo trùng';
+/** Chỉ trang /van-don-hcm — map DB `thu_tu_chia` */
+const VAN_DON_HCM_THU_TU_CHIA_COLUMN = 'Thứ tự chia';
 
 function rowHasVanDonCanhBao(row) {
   if (!row) return false;
@@ -1181,8 +1183,10 @@ function VanDon({ dataSource = 'default' }) {
         const nameRaw = nameO !== undefined ? nameO : row['Name*'] ?? row.customer_name;
         const phoneRaw = phoneO !== undefined ? phoneO : row['Phone*'] ?? row.customer_phone ?? '';
         const addrRaw = addO !== undefined ? addO : row['Add'] ?? row.customer_address;
+        const codeRaw = row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? row['Mã đơn hàng'] ?? '';
         if (matchesVanDonHeaderSearch(nameRaw, traCuuKhach)) return true;
         if (matchesVanDonHeaderSearch(addrRaw, traCuuKhach)) return true;
+        if (matchesVanDonHeaderSearch(codeRaw, traCuuKhach)) return true;
         const phoneNorm = normalizeVanDonFilterWhitespace(phoneRaw).toLowerCase();
         const qLower = traCuuKhach.toLowerCase();
         if (phoneNorm.includes(qLower)) return true;
@@ -2038,6 +2042,17 @@ function VanDon({ dataSource = 'default' }) {
     return base.filter(col => !HIDDEN_COLUMNS.includes(col));
   }, [viewMode]);
   const currentColumns = useMemo(() => {
+    const withHcmThuTuChia = (arr) => {
+      if (dataSource !== 'hcm' || arr.includes(VAN_DON_HCM_THU_TU_CHIA_COLUMN)) return arr;
+      const nvIdx = arr.findIndex(
+        (c) => normalizeColHeader(c) === normalizeColHeader('NV Vận đơn')
+      );
+      if (nvIdx >= 0) {
+        return [...arr.slice(0, nvIdx + 1), VAN_DON_HCM_THU_TU_CHIA_COLUMN, ...arr.slice(nvIdx + 1)];
+      }
+      return [...arr, VAN_DON_HCM_THU_TU_CHIA_COLUMN];
+    };
+
     const filtered = allColumns.filter(col => visibleColumns[col] === true);
     let cols = filtered;
 
@@ -2069,22 +2084,20 @@ function VanDon({ dataSource = 'default' }) {
       (c) => String(c).trim().toLowerCase() === 'mã tracking'
     );
 
-    if (!internalDeliveryCol || !trackingCol) return cols;
+    if (!internalDeliveryCol || !trackingCol) return withHcmThuTuChia(cols);
 
     const internalIdx = cols.indexOf(internalDeliveryCol);
     const trackingIdx = cols.indexOf(trackingCol);
     const desiredIdx = internalIdx + 1;
 
-    if (trackingIdx === desiredIdx) return cols; // Đã đúng kề nhau
+    if (trackingIdx === desiredIdx) return withHcmThuTuChia(cols);
 
     const next = [...cols];
-    // Remove tracking first
     next.splice(trackingIdx, 1);
-    // Re-find internalIdx after removal
     const internalIdxAfter = next.indexOf(internalDeliveryCol);
     next.splice(internalIdxAfter + 1, 0, trackingCol);
-    return next;
-  }, [allColumns, visibleColumns, bolActiveTab]);
+    return withHcmThuTuChia(next);
+  }, [allColumns, visibleColumns, bolActiveTab, dataSource]);
 
   /** Luôn cố định tối thiểu 2 cột trái khi cuộn ngang. */
   const effectiveFixedColumns = useMemo(() => {
@@ -2156,6 +2169,7 @@ function VanDon({ dataSource = 'default' }) {
     if (isProductCol) return 160;
     if (isProductNameCol) return 260;
     if (cl === 'cảnh báo trùng') return 240;
+    if (cl === 'thứ tự chia') return 96;
     return 120;
   }, [mktColumnWidth]);
 
@@ -3692,7 +3706,7 @@ function VanDon({ dataSource = 'default' }) {
             <label
               className="text-[10px] font-semibold text-gray-700 whitespace-nowrap shrink-0"
               htmlFor="van-don-customer-quick-search"
-              title="Tra SĐT / tên / địa chỉ"
+              title="Tra mã đơn / SĐT / tên / địa chỉ"
             >
               Tìm:
             </label>
@@ -3701,8 +3715,8 @@ function VanDon({ dataSource = 'default' }) {
               type="search"
               enterKeyHint="search"
               autoComplete="off"
-              placeholder="SĐT, tên, địa chỉ…"
-              title="Tra SĐT / tên / địa chỉ"
+              placeholder="Mã đơn, SĐT, tên…"
+              title="Tra mã đơn / SĐT / tên / địa chỉ"
               value={customerQuickSearch}
               onChange={(e) => {
                 setCustomerQuickSearch(e.target.value);
