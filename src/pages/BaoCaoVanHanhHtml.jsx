@@ -5,7 +5,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import MultiSelect from '../components/MultiSelect';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
-import usePermissions from '../hooks/usePermissions';
 import { formatBaoCaoVanDonStatusHistogram, isGiaoHangHistogramSyntheticKey } from '../utils/baoCaoVanDonFormat';
 import {
     buildBaoCaoVanHanhMatrix,
@@ -187,7 +186,6 @@ const mapBaoCaoRowToVirtual = (row) => {
 };
 
 export default function BaoCaoVanHanhHtml() {
-    const { canView } = usePermissions();
     const [searchParams, setSearchParams] = useSearchParams();
     const inIframe = typeof window !== 'undefined' && window.self !== window.top;
     const urlStartDate = searchParams.get('from_date');
@@ -1028,14 +1026,6 @@ export default function BaoCaoVanHanhHtml() {
             rightBar.removeEventListener('scroll', onBarScroll);
         };
     }, [activeTab, bcvhLines.length, rawData.length]);
-
-    if (!canView('ORDERS_REPORT')) {
-        return (
-            <div className="p-8 text-center text-red-600 font-bold">
-                Bạn không có quyền truy cập trang này (ORDERS_REPORT).
-            </div>
-        );
-    }
 
     const { markets, byMarket, total } = matrix;
     const colSpanMain = 1 + markets.length * 2 + 2;
