@@ -29,7 +29,7 @@ const normalizePersonName = (s) =>
         .replace(/\s+/g, ' ')
         .toLowerCase();
 
-/** Phạm vi detail_reports cho trang MKT: MKT/null/non-RD + team Test (thường department=RD nên trước đây bị loại). */
+/** Phạm vi `detail_reports` (HN): MKT/null/non-RD + team Test. Không dùng cho `marketing_report_hcm` — bảng HCM không cùng schema department / trang xem legacy chỉ lọc Team. */
 const MKT_DETAIL_REPORTS_SCOPE_OR =
     'department.is.null,department.eq.MKT,department.neq.RD,Team.ilike.test';
 
@@ -371,10 +371,10 @@ export default function DanhSachBaoCaoTayMKT({
                     .lte('Ngày', endDate);
             }
 
-            // Department filter
+            // Department filter — chỉ cho detail_reports (HN). marketing_report_hcm: không lọc department (khớp nguồn legacy / tránh cột không tồn tại).
             if (teamFilter === 'RD') {
                 query = query.eq('department', 'RD');
-            } else {
+            } else if (!isHcmMarketingReport) {
                 query = query.or(MKT_DETAIL_REPORTS_SCOPE_OR);
             }
 
@@ -436,13 +436,15 @@ export default function DanhSachBaoCaoTayMKT({
                 .select('*')
                 .limit(50);
 
-            // Filter theo department (MKT hoặc RD)
+            // Filter theo department — chỉ detail_reports (HN)
             if (teamFilter === 'RD') {
                 query = query.eq('department', 'RD');
                 console.log('📋 Filter: department = RD');
-            } else {
+            } else if (!isHcmMarketingReport) {
                 query = query.or(MKT_DETAIL_REPORTS_SCOPE_OR);
                 console.log('📋 Filter: MKT scope (incl. Team=test)');
+            } else {
+                console.log('📋 HCM: không lọc department — toàn bộ marketing_report_hcm (theo RLS + lọc nhân sự)');
             }
 
             // Admin: xem tất cả data, không filter theo selected_personnel
