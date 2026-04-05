@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../services/supabaseClient';
+import { isSalesReportUserSuppliedRowId } from '../utils/salesReportRowId';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -672,8 +673,9 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     /**
      * Xóa trùng:
      * - Xóa hết Ca = Giữa ca
-     * - Với các bản không phải Giữa ca: gộp trùng theo (date + name + product + market + team),
-     *   giữ bản mới nhất (created_at lớn nhất)
+     * - Với các bản không phải Giữa ca: gộp trùng theo (date + name + product + market + team).
+     *   Nếu trong nhóm có ít nhất một dòng id do người dùng/ghi tay (số serial) → chỉ xóa các dòng id hệ thống (UUID…).
+     *   Nếu cả nhóm đều id hệ thống → giữ bản mới nhất (created_at), xóa các bản còn lại.
      */
     const handleRemoveDuplicateReports = async () => {
         if (!reportsAfterPersonnelFilter.length) {
@@ -700,14 +702,19 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
 
         for (const [, rows] of byKey) {
             if (rows.length < 2) continue;
+            const hasUserId = rows.some((r) => isSalesReportUserSuppliedRowId(r.id));
+            if (hasUserId) {
+                for (const r of rows) {
+                    if (!isSalesReportUserSuppliedRowId(r.id)) toDeleteSet.add(r.id);
+                }
+                continue;
+            }
             const sorted = [...rows].sort((a, b) => {
                 const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
                 const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-                // Sort desc created_at (giữ mới nhất)
                 if (tb !== ta) return tb - ta;
                 return String(b.id).localeCompare(String(a.id));
             });
-            // Xóa trừ bản đầu tiên (mới nhất)
             sorted.slice(1).forEach((r) => toDeleteSet.add(r.id));
         }
 
@@ -721,7 +728,9 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             !window.confirm(
                 `Sẽ xóa ${toDelete.length} bản ghi (trong ${reportsAfterPersonnelFilter.length} dòng hiện tại).\n\n` +
                     '• Xóa toàn bộ dòng có Ca = Giữa ca.\n' +
-                    '• Trong phần không phải Giữa ca: gộp trùng (cùng ngày, người, SP, TT, team), giữ bản mới nhất.\n\n' +
+                    '• Trong phần không phải Giữa ca: gộp trùng (cùng ngày, người, SP, TT, team). ' +
+                    'Có dòng id số (ghi tay): chỉ xóa bản trùng có id hệ thống (UUID). ' +
+                    'Không có id số: giữ bản mới nhất, xóa các bản còn lại.\n\n' +
                     'Tiếp tục?'
             )
         ) {

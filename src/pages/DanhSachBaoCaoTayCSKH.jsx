@@ -7,6 +7,7 @@ import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { fetchMatchingOrdersForReport } from '../utils/lumidataSalesReportSync';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
+import { isSalesReportUserSuppliedRowId } from '../utils/salesReportRowId';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -36,7 +37,7 @@ export const CSKH_MANUAL_REPORT_HCM_TEAMS = ['HCM-Sale Đêm', 'CSKH-HCM', 'HCM'
 
 /**
  * Trùng: cùng ngày + người + SP + TT + team — KHÔNG tính cột Ca.
- * Nút xóa trùng: xóa HẾT bản Ca = Giữa ca; với bản không phải Giữa ca, gộp trùng (giữ mới nhất).
+ * Nút xóa trùng: xóa HẾT Giữa ca; gộp trùng — ưu tiên giữ dòng id số (ghi tay), chỉ xóa UUID trùng khi có id số.
  */
 function reportBusinessDedupeKey(r) {
     const d = r.date ? String(r.date).split('T')[0] : '';
@@ -761,7 +762,10 @@ export default function DanhSachBaoCaoTayCSKH({
         }
     };
 
-    /** Xóa hết Ca = Giữa ca; trên bản còn lại, gộp trùng theo khóa (không tính Ca), giữ created_at mới nhất. */
+    /**
+ * Xóa hết Ca = Giữa ca; gộp trùng theo khóa (không tính Ca).
+ * Có id số (ghi tay) trong nhóm trùng → chỉ xóa dòng id hệ thống; toàn UUID → giữ created_at mới nhất.
+ */
     const handleRemoveDuplicateReports = async () => {
         if (!allReports.length) {
             toast.error('Không có dữ liệu trong danh sách hiện tại.');
@@ -782,6 +786,13 @@ export default function DanhSachBaoCaoTayCSKH({
         }
         for (const [, rows] of byKey) {
             if (rows.length < 2) continue;
+            const hasUserId = rows.some((r) => isSalesReportUserSuppliedRowId(r.id));
+            if (hasUserId) {
+                for (const r of rows) {
+                    if (!isSalesReportUserSuppliedRowId(r.id)) toDeleteSet.add(r.id);
+                }
+                continue;
+            }
             const sorted = [...rows].sort((a, b) => {
                 const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
                 const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -802,7 +813,9 @@ export default function DanhSachBaoCaoTayCSKH({
             !window.confirm(
                 `Sẽ xóa ${toDelete.length} bản ghi (trong ${allReports.length} dòng hiện tại).\n\n` +
                     '• Xóa toàn bộ dòng có Ca = Giữa ca.\n' +
-                    '• Trong phần không phải Giữa ca: gộp trùng (cùng ngày, người, SP, TT, team), giữ bản mới nhất.\n\n' +
+                    '• Trong phần không phải Giữa ca: gộp trùng (cùng ngày, người, SP, TT, team). ' +
+                    'Có dòng id số (ghi tay): chỉ xóa bản trùng có id hệ thống (UUID). ' +
+                    'Không có id số: giữ bản mới nhất, xóa các bản còn lại.\n\n' +
                     'Tiếp tục?'
             )
         ) {
