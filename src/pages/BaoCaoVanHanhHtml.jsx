@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import MultiSelect from '../components/MultiSelect';
 import * as rbacService from '../services/rbacService';
@@ -187,6 +187,8 @@ const mapBaoCaoRowToVirtual = (row) => {
 
 export default function BaoCaoVanHanhHtml() {
     const [searchParams, setSearchParams] = useSearchParams();
+    const location = useLocation();
+    const isHcmVariant = typeof location?.pathname === 'string' && location.pathname.includes('bao-cao-van-hanh-hcm');
     const inIframe = typeof window !== 'undefined' && window.self !== window.top;
     const urlStartDate = searchParams.get('from_date');
     const urlEndDate = searchParams.get('to_date');
@@ -441,10 +443,43 @@ export default function BaoCaoVanHanhHtml() {
         }
     }, [reportFilters.dateRange]);
 
-    const uniqueProducts = useMemo(
-        () => [...new Set(rawData.map((r) => r['Mặt hàng']).filter(Boolean))].sort(),
-        [rawData]
-    );
+    const [hcmProductOptions, setHcmProductOptions] = useState([]);
+    useEffect(() => {
+        let cancelled = false;
+        const loadHcmProducts = async () => {
+            if (!isHcmVariant) {
+                setHcmProductOptions([]);
+                return;
+            }
+            try {
+                // Lấy distinct sản phẩm từ bảng HCM để sổ xuống trong cột Mặt hàng
+                const { data, error } = await supabase
+                    .from('marketing_report_hcm')
+                    .select('Sản_phẩm')
+                    .not('Sản_phẩm', 'is', null)
+                    .neq('Sản_phẩm', '')
+                    .limit(10000);
+                if (error) {
+                    console.warn('⚠️ loadHcmProducts error:', error.message);
+                    setHcmProductOptions([]);
+                    return;
+                }
+                const vals = [...new Set((data || []).map((r) => String(r['Sản_phẩm'] || '').trim()).filter(Boolean))].sort();
+                if (!cancelled) setHcmProductOptions(vals);
+            } catch (e) {
+                console.warn('⚠️ loadHcmProducts unexpected error:', e);
+                if (!cancelled) setHcmProductOptions([]);
+            }
+        };
+        loadHcmProducts();
+        return () => { cancelled = true; };
+    }, [isHcmVariant]);
+
+    const uniqueProducts = useMemo(() => {
+        const fromOrders = [...new Set(rawData.map((r) => r['Mặt hàng']).filter(Boolean))];
+        const merged = isHcmVariant ? new Set([...fromOrders, ...hcmProductOptions]) : new Set(fromOrders);
+        return [...merged].sort();
+    }, [rawData, isHcmVariant, hcmProductOptions]);
     const uniqueMarkets = useMemo(
         () => [...new Set(rawData.map((r) => r['khu vực']).filter(Boolean))].sort(),
         [rawData]
