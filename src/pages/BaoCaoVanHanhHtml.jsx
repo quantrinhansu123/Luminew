@@ -694,8 +694,9 @@ export default function BaoCaoVanHanhHtml() {
                 const from = page * PAGE_SIZE;
                 const to = from + PAGE_SIZE - 1;
                 // Cần cột tong_tien_vnd (migration 20260403180000_orders_tong_tien_vnd.sql) — tab 5 DS chỉ cộng trường này.
+                const ordersTable = isHcmVariant ? 'order_code_hcm' : 'orders';
                 const { data, error: qErr } = await supabase
-                    .from('orders')
+                    .from(ordersTable)
                     .select(
                         'id, order_code, order_date, created_at, team, delivery_staff, product, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit'
                     )
@@ -712,7 +713,10 @@ export default function BaoCaoVanHanhHtml() {
                 if (page >= MAX_PAGES) break;
             }
 
-            allOrderRows = (allOrderRows || []).filter((row) => !isOrdersRowTeamHcm(row));
+            // Trang HCM: KHÔNG loại team HCM; Trang thường: loại team HCM để chỉ tính HN
+            if (!isHcmVariant) {
+                allOrderRows = (allOrderRows || []).filter((row) => !isOrdersRowTeamHcm(row));
+            }
 
             let rows = (allOrderRows || []).map(mapOrderRowToVirtual);
             if (reportFilters.product?.length > 0) {
@@ -780,14 +784,15 @@ export default function BaoCaoVanHanhHtml() {
             }
             setRawData(rows);
 
-            // Tab 4: nguồn dữ liệu theo yêu cầu lấy từ ffm_push_logs.
+            // Tab 4: nguồn dữ liệu theo yêu cầu lấy từ ffm_push_logs (HCM → ffm_push_logs_hcm).
             // Tải theo khoảng ngày đang lọc (ưu tiên pushed_at; fallback theo cột timestamp khác nếu thiếu pushed_at).
             if (activeTab === 'tab4') {
                 setError(null);
                 const fromIso = `${reportFilters.startDate}T00:00:00`;
                 const toIso = `${reportFilters.endDate}T23:59:59`;
+                const logsTable = isHcmVariant ? 'ffm_push_logs_hcm' : 'ffm_push_logs';
                 const { data: pushedRows, error: pushedErr } = await supabase
-                    .from('ffm_push_logs')
+                    .from(logsTable)
                     .select('*')
                     .gte('pushed_at', fromIso)
                     .lte('pushed_at', toIso)
@@ -800,7 +805,7 @@ export default function BaoCaoVanHanhHtml() {
                 let fallbackErr = null;
                 try {
                     const r1 = await supabase
-                        .from('ffm_push_logs')
+                        .from(logsTable)
                         .select('*')
                         .is('pushed_at', null)
                         .gte('inserted_at', fromIso)
@@ -823,7 +828,7 @@ export default function BaoCaoVanHanhHtml() {
                     if (insertedMissing) {
                         try {
                             const r2 = await supabase
-                                .from('ffm_push_logs')
+                                .from(logsTable)
                                 .select('*')
                                 .is('pushed_at', null)
                                 .gte('updated_at', fromIso)
