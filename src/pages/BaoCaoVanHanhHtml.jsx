@@ -27,6 +27,7 @@ import {
     formatNumVi,
     formatPctComma
 } from '../utils/baoCaoVanDonOperationalReport';
+import { parseDashboardGlobalDateMessage, readDashboardGlobalDateRange } from '../utils/dashboardGlobalDateRange';
 import * as XLSX from 'xlsx';
 import './BaoCaoVanHanh.css';
 
@@ -204,6 +205,20 @@ export default function BaoCaoVanHanhHtml() {
                 }
             ];
         }
+        if (inIframe) {
+            const g = readDashboardGlobalDateRange();
+            if (g) {
+                return [
+                    {
+                        id: newBcvhRowId(),
+                        startDate: g.from,
+                        endDate: g.to,
+                        product: '',
+                        market: ''
+                    }
+                ];
+            }
+        }
         const end = new Date();
         const start = new Date();
         start.setDate(start.getDate() - 9);
@@ -216,7 +231,7 @@ export default function BaoCaoVanHanhHtml() {
                 market: ''
             }
         ];
-    }, [urlEndDate, urlStartDate]);
+    }, [inIframe, urlEndDate, urlStartDate]);
 
     const readStoredBcvhRows = useCallback(() => {
         try {
@@ -248,16 +263,22 @@ export default function BaoCaoVanHanhHtml() {
         if (urlStartDate && urlEndDate) {
             return { startDate: urlStartDate, endDate: urlEndDate };
         }
+        if (inIframe) {
+            const g = readDashboardGlobalDateRange();
+            if (g) return { startDate: g.from, endDate: g.to };
+        }
         const end = new Date();
         const start = new Date();
         start.setDate(start.getDate() - 9);
         return { startDate: formatDateForInput(start), endDate: formatDateForInput(end) };
-    }, [urlStartDate, urlEndDate]);
+    }, [inIframe, urlStartDate, urlEndDate]);
 
     const [reportFilters, setReportFilters] = useState(() => {
         const d = getDefaultDates();
+        const fromUrl = Boolean(urlStartDate && urlEndDate);
+        const fromDashEmbed = Boolean(inIframe && readDashboardGlobalDateRange());
         return {
-            dateRange: urlStartDate && urlEndDate ? '' : 'last10Days',
+            dateRange: fromUrl || fromDashEmbed ? '' : 'last10Days',
             startDate: d.startDate,
             endDate: d.endDate,
             product: [],
@@ -341,6 +362,22 @@ export default function BaoCaoVanHanhHtml() {
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [bcvhDrill]);
+
+    useEffect(() => {
+        if (!inIframe) return undefined;
+        const onMsg = (e) => {
+            const r = parseDashboardGlobalDateMessage(e.data);
+            if (!r) return;
+            setReportFilters((p) => ({ ...p, startDate: r.from, endDate: r.to, dateRange: '' }));
+            setBcvhCriteriaRows((prev) => {
+                if (!prev.length) return prev;
+                const [first, ...rest] = prev;
+                return [{ ...first, startDate: r.from, endDate: r.to }, ...rest];
+            });
+        };
+        window.addEventListener('message', onMsg);
+        return () => window.removeEventListener('message', onMsg);
+    }, [inIframe]);
 
     useEffect(() => {
         if (!urlStartDate || !urlEndDate) return;
@@ -685,16 +722,29 @@ export default function BaoCaoVanHanhHtml() {
         setLoading(true);
         setError(null);
         try {
+            // Xác định tổng số bản ghi (để không dừng nhầm ở đúng ngưỡng 1000)
+            const ordersTable = isHcmVariant ? 'order_code_hcm' : 'orders';
+            let totalRows = null;
+            try {
+                const { count } = await supabase
+                    .from(ordersTable)
+                    .select('id', { count: 'exact', head: true })
+                    .gte('order_date', qStart)
+                    .lte('order_date', qEnd);
+                totalRows = typeof count === 'number' ? count : null;
+            } catch {
+                totalRows = null;
+            }
+
             // Lấy FULL dữ liệu trong khoảng ngày bằng cách phân trang 1000 bản ghi/lần
             let allOrderRows = [];
             let page = 0;
-            const MAX_PAGES = 100; // an toàn: tối đa ~100.000 bản ghi
+            const MAX_PAGES = 5000; // an toàn
             // eslint-disable-next-line no-constant-condition
             while (true) {
                 const from = page * PAGE_SIZE;
                 const to = from + PAGE_SIZE - 1;
                 // Cần cột tong_tien_vnd (migration 20260403180000_orders_tong_tien_vnd.sql) — tab 5 DS chỉ cộng trường này.
-                const ordersTable = isHcmVariant ? 'order_code_hcm' : 'orders';
                 const { data, error: qErr } = await supabase
                     .from(ordersTable)
                     .select(
@@ -709,6 +759,7 @@ export default function BaoCaoVanHanhHtml() {
                 if (batch.length === 0) break;
                 allOrderRows = allOrderRows.concat(batch);
                 if (batch.length < PAGE_SIZE) break;
+                if (totalRows != null && allOrderRows.length >= totalRows) break;
                 page += 1;
                 if (page >= MAX_PAGES) break;
             }

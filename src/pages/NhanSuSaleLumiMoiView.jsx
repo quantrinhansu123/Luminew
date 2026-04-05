@@ -4,10 +4,16 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { supabase } from '../supabase/config';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import '../styles/NhanSuSaleLumiMoiView.css';
+import {
+  isValidDashboardYmd,
+  parseDashboardGlobalDateMessage,
+  readDashboardGlobalDateRange,
+} from '../utils/dashboardGlobalDateRange';
 import {
   NSSL_IFRAME_THU_CONG,
   buildKpiEmbedUrl,
@@ -37,6 +43,10 @@ import {
 
 const LOGO_URL =
   'https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg';
+
+/** Chuẩn hóa tên nhập nhầm trên stack HCM (xem-bao-cao-sale-hcm). */
+const HCM_RENAME_ANH_NGUYET_FROM = 'Nguyễn Thị Ánh Nguyệt 1';
+const HCM_RENAME_ANH_NGUYET_TO = 'Nguyễn Thị Ánh Nguyệt';
 
 function useResolvedIdsheet() {
   const [searchParams] = useSearchParams();
@@ -170,6 +180,9 @@ export default function NhanSuSaleLumiMoiView({
   hideBoPhanFilter = false,
 }) {
   const idSheet = useResolvedIdsheet();
+  const [searchParams] = useSearchParams();
+  const dashboardFromQ = searchParams.get('dashboard_from');
+  const dashboardToQ = searchParams.get('dashboard_to');
   const { role, canView } = usePermissions();
   const inIframe = typeof window !== 'undefined' && window.self !== window.top;
 
@@ -223,6 +236,8 @@ export default function NhanSuSaleLumiMoiView({
   const [endDate, setEndDate] = useState('');
   /** Tăng khi bấm «Tải dữ liệu» — ép gọi lại API theo Từ/Đến ngày hiện tại. */
   const [loadRequestId, setLoadRequestId] = useState(0);
+  /** Đổi tên hàng loạt HCM (Ánh Nguyệt 1 → Ánh Nguyệt). */
+  const [renamingAnhNguyet, setRenamingAnhNguyet] = useState(false);
   /**
    * id Appsheet đã từng chạy resetFilterLists thành công (có user + raw).
    * Khác id → reset; cùng id mà có raw mới → chỉ sync (giữ Sản phẩm/Ca/Team/TT/Tên Sale).
@@ -315,10 +330,33 @@ export default function NhanSuSaleLumiMoiView({
     setEndDate(endDateStr);
   }, []);
 
-  /** Mặc định Từ/Đến ngày: 3 ngày kết thúc tại ngày mới nhất trong bảng báo cáo (theo `reportTableName`); không có thì 3 ngày gần nhất (máy). */
+  /** Mặc định Từ/Đến ngày: ưu tiên Dashboard quản trị / query; sau đó 3 ngày theo Supabase hoặc máy. */
   useEffect(() => {
     let cancelled = false;
     const ac = new AbortController();
+
+    if (
+      isValidDashboardYmd(dashboardFromQ) &&
+      isValidDashboardYmd(dashboardToQ)
+    ) {
+      setStartDate(dashboardFromQ);
+      setEndDate(dashboardToQ);
+      return () => {
+        cancelled = true;
+        ac.abort();
+      };
+    }
+
+    const globalDash = inIframe ? readDashboardGlobalDateRange() : null;
+    if (globalDash) {
+      setStartDate(globalDash.from);
+      setEndDate(globalDash.to);
+      return () => {
+        cancelled = true;
+        ac.abort();
+      };
+    }
+
     (async () => {
       try {
         const range = await fetchLatestSalesReportNDayRange(ac.signal, 3, reportTableName);
@@ -355,7 +393,19 @@ export default function NhanSuSaleLumiMoiView({
       cancelled = true;
       ac.abort();
     };
-  }, [setDefaultDates, reportTableName]);
+  }, [setDefaultDates, reportTableName, dashboardFromQ, dashboardToQ, inIframe]);
+
+  useEffect(() => {
+    if (!inIframe) return undefined;
+    const onMsg = (e) => {
+      const r = parseDashboardGlobalDateMessage(e.data);
+      if (!r) return;
+      setStartDate(r.from);
+      setEndDate(r.to);
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [inIframe]);
 
   const applyNameFiltersFromSidebar = useCallback(() => {
     if (!showPersonnelNameFilter) return;
@@ -367,6 +417,47 @@ export default function NhanSuSaleLumiMoiView({
     applyNameFiltersFromSidebar();
     setLoadRequestId((n) => n + 1);
   }, [applyNameFiltersFromSidebar]);
+
+  const handleRenameAnhNguyetHcm = useCallback(async () => {
+    if (reportTableName !== 'sale_report_hcm' || !isAdmin) return;
+    const FROM = HCM_RENAME_ANH_NGUYET_FROM;
+    const TO = HCM_RENAME_ANH_NGUYET_TO;
+    if (
+      !window.confirm(
+        `Thay tên khớp chính xác (toàn bộ dòng có giá trị đúng như vậy):\n\n«${FROM}»\n→\n«${TO}»\n\n` +
+          'Cập nhật trên:\n' +
+          '• sale_report_hcm (cột name)\n' +
+          '• order_code_hcm (sale_staff, marketing_staff, delivery_staff, cskh)\n' +
+          '• users (name)\n\n' +
+          'Tiếp tục?'
+      )
+    ) {
+      return;
+    }
+    setRenamingAnhNguyet(true);
+    const lines = [];
+    const countUpdate = async (label, table, patch, column) => {
+      try {
+        const { data, error } = await supabase.from(table).update(patch).eq(column, FROM).select('id');
+        if (error) throw error;
+        const n = Array.isArray(data) ? data.length : 0;
+        lines.push(`${label}: ${n} dòng`);
+      } catch (e) {
+        lines.push(`${label}: lỗi — ${e?.message || String(e)}`);
+      }
+    };
+    try {
+      await countUpdate('sale_report_hcm.name', 'sale_report_hcm', { name: TO }, 'name');
+      for (const col of ['sale_staff', 'marketing_staff', 'delivery_staff', 'cskh']) {
+        await countUpdate(`order_code_hcm.${col}`, 'order_code_hcm', { [col]: TO }, col);
+      }
+      await countUpdate('users.name', 'users', { name: TO }, 'name');
+      toast.success(lines.join('\n'), { autoClose: 8000 });
+    } finally {
+      setRenamingAnhNguyet(false);
+      handleLoadReportData();
+    }
+  }, [reportTableName, isAdmin, handleLoadReportData]);
 
   /** Dữ liệu báo cáo: Supabase `reportTableName` (fallback lumidata chỉ khi bảng là `sales_reports`). Phân quyền `?id=`: users. */
   useEffect(() => {
@@ -1000,6 +1091,21 @@ export default function NhanSuSaleLumiMoiView({
             <p className="nssl-filter-hint" style={{ marginTop: 8 }}>
               Báo cáo HCM: lọc theo sản phẩm, ca, team, thị trường và tên Sale như bên dưới. Phân quyền xem (nếu có) vẫn áp dụng.
             </p>
+          )}
+
+          {reportTableName === 'sale_report_hcm' && isAdmin && (
+            <button
+              type="button"
+              className="nssl-load-data-btn"
+              style={{ marginTop: 10, background: '#6d28d9', color: '#fff', border: 'none' }}
+              disabled={renamingAnhNguyet}
+              onClick={handleRenameAnhNguyetHcm}
+              title={`Đổi «${HCM_RENAME_ANH_NGUYET_FROM}» thành «${HCM_RENAME_ANH_NGUYET_TO}» trên sale_report_hcm, order_code_hcm và users (admin)`}
+            >
+              {renamingAnhNguyet
+                ? 'Đang đổi tên…'
+                : `Đổi «${HCM_RENAME_ANH_NGUYET_FROM}» → «${HCM_RENAME_ANH_NGUYET_TO}» (toàn HCM)`}
+            </button>
           )}
 
           {showPersonnelNameFilter && (

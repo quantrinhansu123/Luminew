@@ -256,6 +256,14 @@ function tripleNamePhoneAddKey(row) {
   return `${np}\u001f${nn}\u001f${na}`;
 }
 
+/** Cùng nguồn giá trị với ô lưới (COLUMN_MAPPING → sale_staff / marketing_staff). */
+function rowDisplaySaleStaff(row) {
+  return String(row?.['Nhân viên Sale'] ?? row?.sale_staff ?? row?.saleStaff ?? '').trim();
+}
+function rowDisplayMktStaff(row) {
+  return String(row?.['Nhân viên Marketing'] ?? row?.marketing_staff ?? row?.marketingStaff ?? '').trim();
+}
+
 function DanhSachDon({ dataSource = 'default' }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -2453,8 +2461,8 @@ function DanhSachDon({ dataSource = 'default' }) {
   const uniqueSaleStaff = useMemo(() => {
     const vals = new Set();
     allData.forEach(row => {
-      const v = row["Nhân viên Sale"];
-      if (v && String(v).trim()) vals.add(String(v).trim());
+      const v = rowDisplaySaleStaff(row);
+      if (v) vals.add(v);
     });
     return Array.from(vals).sort();
   }, [allData]);
@@ -2468,8 +2476,8 @@ function DanhSachDon({ dataSource = 'default' }) {
   const uniqueMktStaff = useMemo(() => {
     const vals = new Set();
     allData.forEach(row => {
-      const v = row["Nhân viên Marketing"];
-      if (v && String(v).trim()) vals.add(String(v).trim());
+      const v = rowDisplayMktStaff(row);
+      if (v) vals.add(v);
     });
     return Array.from(vals).sort();
   }, [allData]);
@@ -2524,8 +2532,8 @@ function DanhSachDon({ dataSource = 'default' }) {
       let debugCount = 0;
 
       data = data.filter((row, index) => {
-        const marketingStaff = String(row["Nhân viên Marketing"] || '').toLowerCase().trim();
-        const salesStaff = String(row["Nhân viên Sale"] || '').toLowerCase().trim();
+        const marketingStaff = rowDisplayMktStaff(row).toLowerCase();
+        const salesStaff = rowDisplaySaleStaff(row).toLowerCase();
         const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || '').toLowerCase().trim();
 
         // Match theo tên (selectedPersonnelNames giờ là tên trực tiếp)
@@ -2582,8 +2590,8 @@ function DanhSachDon({ dataSource = 'default' }) {
           // Khu vực
           String(row["Khu vực"] || '').toLowerCase().includes(searchLower) ||
           // Tên nhân viên - Marketing, Sale, CSKH, Vận đơn
-          String(row["Nhân viên Marketing"] || '').toLowerCase().includes(searchLower) ||
-          String(row["Nhân viên Sale"] || '').toLowerCase().includes(searchLower) ||
+          rowDisplayMktStaff(row).toLowerCase().includes(searchLower) ||
+          rowDisplaySaleStaff(row).toLowerCase().includes(searchLower) ||
           String(row["CSKH"] || '').toLowerCase().includes(searchLower) ||
           String(row["NV Vận đơn"] || '').toLowerCase().includes(searchLower) ||
           // Team
@@ -2657,7 +2665,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     // Sale Staff filter
     if (filterSaleStaff.length > 0) {
       data = data.filter(row => {
-        const val = row["Nhân viên Sale"] ? String(row["Nhân viên Sale"]).trim() : '';
+        const val = rowDisplaySaleStaff(row);
         return filterSaleStaff.includes(val);
       });
     }
@@ -2665,7 +2673,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     // MKT Staff filter
     if (filterMktStaff.length > 0) {
       data = data.filter(row => {
-        const val = row["Nhân viên Marketing"] ? String(row["Nhân viên Marketing"]).trim() : '';
+        const val = rowDisplayMktStaff(row);
         return filterMktStaff.includes(val);
       });
     }
@@ -2724,8 +2732,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     const saleMap = new Map();
     const mktMap = new Map();
     for (const row of filteredData) {
-      const sale = String(row['Nhân viên Sale'] || '').trim() || '(Trống)';
-      const mkt = String(row['Nhân viên Marketing'] || '').trim() || '(Trống)';
+      const sale = rowDisplaySaleStaff(row) || '(Trống)';
+      const mkt = rowDisplayMktStaff(row) || '(Trống)';
       saleMap.set(sale, (saleMap.get(sale) || 0) + 1);
       mktMap.set(mkt, (mktMap.get(mkt) || 0) + 1);
     }
@@ -4722,6 +4730,17 @@ function DanhSachDon({ dataSource = 'default' }) {
                               </tr>
                             ))}
                           </tbody>
+                          <tfoot>
+                            <tr className="bg-indigo-50/80 text-xs font-semibold text-gray-800">
+                              <td className="p-2 border-t border-indigo-200" colSpan={2}>
+                                Cộng (khớp tổng đơn đã lọc)
+                              </td>
+                              <td className="p-2 border-t border-indigo-200 whitespace-nowrap text-indigo-800">
+                                {total.toLocaleString('vi-VN')}
+                              </td>
+                              <td className="p-2 border-t border-indigo-200 whitespace-nowrap">100%</td>
+                            </tr>
+                          </tfoot>
                         </table>
                       )}
                     </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { ArrowLeft, RefreshCw, Plus, X, Settings, RotateCw, Download, Upload, Eye } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Plus, X, Settings, RotateCw, Download, Upload, Eye, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 import * as XLSX from 'xlsx';
@@ -9,10 +9,8 @@ const BILL_TIEN_COLUMNS = [
   { key: 'stt', label: 'STT' },
   { key: 'ma_don_hang', label: 'Mã đơn hàng' },
   { key: 'ma_tracking', label: 'Mã Tracking' },
-  { key: 'bill_row_key', label: 'Key dòng' },
   { key: 'ngay_doi_soat', label: 'Ngày đối soát' },
   { key: 'ffm', label: 'FFM' },
-  { key: 'don_vi_tien', label: 'Đơn vị tiền' },
   { key: 'so_tien_doi_soat', label: 'Số tiền đối soát' },
   { key: 'ty_gia', label: 'Tỷ giá' },
   { key: 'tien_viet', label: 'Tiền Việt' },
@@ -81,7 +79,26 @@ function normalizeCuocMaDon(code) {
   return String(code).trim();
 }
 
-/** Bill: ưu tiên mã tracking; chỉ gom theo mã đơn khi tracking trống hoặc placeholder Dropoff (biến thể chữ hoa/thường, khoảng trắng, gạch). */
+/** Mã tracking hiện trên bảng bill (ưu tiên pending). */
+function getEffectiveBillMaTracking(row, pendingChanges) {
+  const pendRow = pendingChanges.get(row.id);
+  const v = pendRow?.has('ma_tracking') ? pendRow.get('ma_tracking') : row.ma_tracking;
+  if (v == null || v === '') return '';
+  return String(v).trim();
+}
+
+/** Mã đơn hiện trên bảng bill (ưu tiên pending). */
+function getEffectiveBillMaDonHang(row, pendingChanges) {
+  const pendRow = pendingChanges.get(row.id);
+  const v = pendRow?.has('ma_don_hang') ? pendRow.get('ma_don_hang') : row.ma_don_hang;
+  if (v == null || v === '') return '';
+  return String(v).trim();
+}
+
+/**
+ * Bill: tracking trống / null hoặc placeholder Dropoff (Drop off, DROPP OFF, droppoff, …).
+ * Các trường hợp này khớp logic theo Mã đơn hàng trên dòng bill.
+ */
 function isBillTrackingDropoffPlaceholder(maTracking) {
   if (maTracking == null) return true;
   const t = String(maTracking).trim();
@@ -92,7 +109,19 @@ function isBillTrackingDropoffPlaceholder(maTracking) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[\s._-]+/g, '');
   if (n === '') return true;
-  return n === 'dropoff' || n.startsWith('dropoff');
+  if (n === 'dropoff' || n.startsWith('dropoff')) return true;
+  if (n === 'droppoff' || n.startsWith('droppoff')) return true;
+  return false;
+}
+
+/** Khóa gom "Đếm lần thanh toán" / modal: theo tracking thật, hoặc theo mã đơn khi dropoff/trống tracking. */
+function getBillDemLanDetailId(row, pendingChanges) {
+  const tk = getEffectiveBillMaTracking(row, pendingChanges);
+  if (tk && !isBillTrackingDropoffPlaceholder(tk)) {
+    return `tr:${tk}`;
+  }
+  const mdh = getEffectiveBillMaDonHang(row, pendingChanges);
+  return mdh ? `ord:${mdh}` : '';
 }
 
 /** Mã đơn có thật trong bảng orders (batch), tránh đếm sai khi UPDATE không trả dòng do RLS. */
@@ -171,6 +200,27 @@ function DoiSoatBillCuoc() {
   const fileInputRef = useRef(null);
   /** Chuẩn hóa mã đơn — modal chi tiết trùng cước */
   const [cuocDupDetailKey, setCuocDupDetailKey] = useState(null);
+  /** Mã tracking — modal các dòng bill cùng mã (theo bảng đang hiện) */
+  const [billTrackingDetailKey, setBillTrackingDetailKey] = useState(null);
+  const [deletingBillDetailRowId, setDeletingBillDetailRowId] = useState(null);
+  const [deletingCuocDetailRowId, setDeletingCuocDetailRowId] = useState(null);
+
+  /** Đếm lần thanh toán: cùng Mã Tracking (tracking thật) hoặc cùng Mã đơn (dropoff / trống tracking). */
+  const billDataWithTableDemLan = useMemo(() => {
+    const rows = billData || [];
+    const counts = {};
+    rows.forEach((r) => {
+      const id = getBillDemLanDetailId(r, pendingChanges);
+      if (id) counts[id] = (counts[id] || 0) + 1;
+    });
+    return rows.map((row) => {
+      const id = getBillDemLanDetailId(row, pendingChanges);
+      return {
+        ...row,
+        dem_lan_thanh_toan: id ? counts[id] : null,
+      };
+    });
+  }, [billData, pendingChanges]);
 
   // Load data từ chi_tiet_bill_tien — truyền syncCutoff (ISO) khi vừa đồng bộ để tránh stale state
   const loadBillData = async (syncCutoff) => {
@@ -183,18 +233,6 @@ function DoiSoatBillCuoc() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
-      // Đếm số dòng bill trùng mã tracking (cột "Đếm lần thanh toán" — hệ thống tự tính)
-      const trackingPaymentCount = {};
-      (data || []).forEach((row) => {
-        const tk =
-          row.ma_tracking != null && row.ma_tracking !== ''
-            ? String(row.ma_tracking).trim()
-            : '';
-        if (tk) {
-          trackingPaymentCount[tk] = (trackingPaymentCount[tk] || 0) + 1;
-        }
-      });
 
       // Lấy shipping_unit và payment_type từ orders theo mã đơn; theo mã tracking nếu thiếu mã đơn
       const orderCodes = [...new Set((data || []).map((row) => row.ma_don_hang).filter(Boolean))];
@@ -287,13 +325,15 @@ function DoiSoatBillCuoc() {
 
         const tk =
           row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
+        const mdh =
+          row.ma_don_hang != null && row.ma_don_hang !== '' ? String(row.ma_don_hang).trim() : '';
         const fromTracking =
           tk && !isBillTrackingDropoffPlaceholder(tk) ? trackingOrderMap.get(tk) : null;
-        /** Chỉ gắn đơn khi khớp Mã Tracking với orders (không fallback mã đơn trên dòng bill). */
+        /** Tracking thật → đơn từ orders theo tracking; Dropoff / trống → đơn theo Mã đơn trên dòng bill. */
         const effectiveOrder =
           tk && !isBillTrackingDropoffPlaceholder(tk)
             ? fromTracking?.order_code ?? null
-            : null;
+            : mdh || null;
 
         if (effectiveOrder) {
           const shippingUnit = shippingUnitMap.get(effectiveOrder) || fromTracking?.shipping_unit;
@@ -303,8 +343,6 @@ function DoiSoatBillCuoc() {
           const paymentType = paymentTypeMap.get(effectiveOrder) || fromTracking?.payment_type;
           applyPaymentTypeToRow(updatedRow, paymentType);
         }
-
-        updatedRow.dem_lan_thanh_toan = tk ? trackingPaymentCount[tk] : null;
 
         if (updatedRow.don_vi_tien && (!updatedRow.ty_gia || updatedRow.ty_gia === null || updatedRow.ty_gia === '')) {
           const currency = String(updatedRow.don_vi_tien).toUpperCase();
@@ -569,7 +607,7 @@ function DoiSoatBillCuoc() {
 
   const getCurrentData = () => {
     const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
-    return isBillTab ? billData : cuocData;
+    return isBillTab ? billDataWithTableDemLan : cuocData;
   };
 
   const getCurrentColumns = () => {
@@ -875,6 +913,66 @@ function DoiSoatBillCuoc() {
     }
   };
 
+  const handleDeleteBillDetailRow = async (rowId) => {
+    if (rowId == null) return;
+    if (
+      !window.confirm('Xóa dòng này khỏi chi_tiet_bill_tien? Thao tác không hoàn tác.')
+    ) {
+      return;
+    }
+    setDeletingBillDetailRowId(rowId);
+    try {
+      const { error } = await supabase.from('chi_tiet_bill_tien').delete().eq('id', rowId);
+      if (error) throw error;
+      setPendingChanges((prev) => {
+        const next = new Map(prev);
+        next.delete(rowId);
+        return next;
+      });
+      await loadBillData();
+    } catch (err) {
+      console.error('Error deleting bill row:', err);
+      alert('Lỗi khi xóa: ' + err.message);
+    } finally {
+      setDeletingBillDetailRowId(null);
+    }
+  };
+
+  const handleDeleteCuocDetailRow = async (rowId) => {
+    if (rowId == null) return;
+    if (!window.confirm('Xóa dòng này khỏi chitiet_cuoc? Thao tác không hoàn tác.')) return;
+    setDeletingCuocDetailRowId(rowId);
+    try {
+      const { error } = await supabase.from('chitiet_cuoc').delete().eq('id', rowId);
+      if (error) throw error;
+      setPendingChanges((prev) => {
+        const next = new Map(prev);
+        next.delete(rowId);
+        return next;
+      });
+      await loadCuocData();
+    } catch (err) {
+      console.error('Error deleting cuoc row:', err);
+      alert('Lỗi khi xóa: ' + err.message);
+    } finally {
+      setDeletingCuocDetailRowId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!billTrackingDetailKey) return;
+    const n = billDataWithTableDemLan.filter(
+      (r) => getBillDemLanDetailId(r, pendingChanges) === billTrackingDetailKey
+    ).length;
+    if (n === 0) setBillTrackingDetailKey(null);
+  }, [billTrackingDetailKey, billDataWithTableDemLan, pendingChanges]);
+
+  useEffect(() => {
+    if (!cuocDupDetailKey) return;
+    const n = cuocData.filter((r) => normalizeCuocMaDon(r.ma_don_hang) === cuocDupDetailKey).length;
+    if (n === 0) setCuocDupDetailKey(null);
+  }, [cuocDupDetailKey, cuocData]);
+
   // Xóa toàn bộ dữ liệu tạm của bill (staging), KHÔNG ảnh hưởng bảng orders
   const handleClearAllBillTemp = async () => {
     if (
@@ -942,7 +1040,7 @@ function DoiSoatBillCuoc() {
   const handleSyncBill = async () => {
     if (
       !window.confirm(
-        'Đồng bộ Bill: ghi tổng Tiền Việt lên orders — theo Mã Tracking. Mỗi mã tracking gom hết tiền từ các dòng bill; mọi đơn có đúng tracking đó đều được cập nhật (nếu nhiều đơn trùng tracking thì tiền chia đều). Không dùng mã đơn trên dòng bill. Tiếp tục?'
+        'Đồng bộ Bill: ghi tổng Tiền Việt lên orders. Theo Mã Tracking: gom tiền theo tracking; mọi đơn cùng tracking_code được cập nhật (nhiều đơn trùng tracking thì chia đều). Dòng Drop off / DROPP OFF / trống tracking: gom theo Mã đơn hàng trên dòng bill (một đơn một tổng). Tiếp tục?'
       )
     ) {
       return;
@@ -956,16 +1054,25 @@ function DoiSoatBillCuoc() {
 
       if (billError) throw billError;
 
-      /** Gom tổng Tiền Việt theo từng tracking (chỉ dòng có tracking hợp lệ + tien_viet số được). */
+      /** Gom Tiền Việt theo tracking thật; dropoff/trống tracking → theo mã đơn trên dòng. */
       const vndByTracking = new Map();
+      const vndByOrderFromDropoff = new Map();
       for (const row of billData || []) {
-        const tk =
-          row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
-        if (!tk || isBillTrackingDropoffPlaceholder(tk)) continue;
         if (row.tien_viet === null || row.tien_viet === undefined || row.tien_viet === '') continue;
         const raw = String(row.tien_viet).replace(/,/g, '');
         const num = parseFloat(raw);
         if (isNaN(num)) continue;
+
+        const tk =
+          row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
+        const mdh =
+          row.ma_don_hang != null && row.ma_don_hang !== '' ? String(row.ma_don_hang).trim() : '';
+
+        if (!tk || isBillTrackingDropoffPlaceholder(tk)) {
+          if (!mdh) continue;
+          vndByOrderFromDropoff.set(mdh, (vndByOrderFromDropoff.get(mdh) || 0) + num);
+          continue;
+        }
         vndByTracking.set(tk, (vndByTracking.get(tk) || 0) + num);
       }
 
@@ -987,14 +1094,21 @@ function DoiSoatBillCuoc() {
         }
       }
 
+      for (const [oc, sumVnd] of vndByOrderFromDropoff) {
+        const k = syncOrderKeyForScope(oc);
+        if (!k) continue;
+        totalVndMap.set(k, (totalVndMap.get(k) || 0) + sumVnd);
+      }
+
       const allOrderCodes = [...totalVndMap.keys()];
       const billRowCount = billData?.length ?? 0;
 
       if (allOrderCodes.length === 0) {
         alert(
-          `Không có đơn nào đủ điều kiện đồng bộ: cần Tiền Việt + Mã Tracking đã có trên đơn (tracking_code).\n` +
+          `Không có đơn nào đủ điều kiện đồng bộ: cần Tiền Việt và (Mã Tracking khớp đơn, hoặc Dropoff/trống tracking kèm Mã đơn hàng).\n` +
             `• Dòng bill: ${billRowCount}\n` +
-            `• Mã tracking có tiền (gom được): ${vndByTracking.size}\n` +
+            `• Mã tracking (gom theo tracking): ${vndByTracking.size}\n` +
+            `• Mã đơn (gom Dropoff/trống tracking): ${vndByOrderFromDropoff.size}\n` +
             `• Tracking không tìm thấy đơn: ${trackingsKhongCoDon}`
         );
         return;
@@ -1052,12 +1166,12 @@ function DoiSoatBillCuoc() {
             (missingInOrders.length
               ? `• Không có trong orders (${Math.min(missingInOrders.length, 8)}/${missingInOrders.length} ví dụ): ${sample}${missingInOrders.length > 8 ? '…' : ''}\n`
               : '') +
-            `Gợi ý: Mã Tracking trên bill phải trùng tracking_code trên đơn.`
+            `Gợi ý: Tracking thật phải khớp tracking_code trên đơn; Dropoff/trống tracking cần Mã đơn hàng đúng orders.`
         );
       } else {
         alert(
-          `Đã đồng bộ Bill: ${updateCount} đơn (theo Mã Tracking).\n` +
-            `${billRowCount} dòng bill; ${vndByTracking.size} mã tracking đã gom tiền.` +
+          `Đã đồng bộ Bill: ${updateCount} đơn.\n` +
+            `${billRowCount} dòng bill; ${vndByTracking.size} mã tracking gom tiền; ${vndByOrderFromDropoff.size} mã đơn (Dropoff/trống tracking).` +
             (trackingsKhongCoDon > 0
               ? `\nLưu ý: ${trackingsKhongCoDon} mã tracking trên bill chưa có đơn tương ứng — không ghi được.`
               : '') +
@@ -1372,9 +1486,28 @@ function DoiSoatBillCuoc() {
     }
 
     if ((activeTab === 'bill' || activeTab === 'bill_view') && columnKey === 'ma_tracking' && newValue) {
-      getOrderByTrackingCode(newValue).then((ord) => {
-        if (ord) applyBillOrderDerivedFields(rowId, ord);
-      });
+      const t = String(newValue).trim();
+      if (isBillTrackingDropoffPlaceholder(t)) {
+        const data = getCurrentData();
+        const r = data.find((x) => x.id === rowId);
+        const pend = pendingChanges.get(rowId);
+        const mdhRaw = pend?.has('ma_don_hang') ? pend.get('ma_don_hang') : r?.ma_don_hang;
+        const mdh = mdhRaw != null && String(mdhRaw).trim() !== '' ? String(mdhRaw).trim() : '';
+        if (mdh) {
+          supabase
+            .from('orders')
+            .select('order_code, shipping_unit, payment_type')
+            .eq('order_code', mdh)
+            .maybeSingle()
+            .then(({ data: ord }) => {
+              if (ord) applyBillOrderDerivedFields(rowId, ord);
+            });
+        }
+      } else {
+        getOrderByTrackingCode(newValue).then((ord) => {
+          if (ord) applyBillOrderDerivedFields(rowId, ord);
+        });
+      }
     }
   };
 
@@ -1406,6 +1539,17 @@ function DoiSoatBillCuoc() {
         });
         if (isBillTab) {
           updateObj.ngay_update = today;
+          const row = billData.find((r) => r.id === rowId);
+          const pendingDate = rowChanges.get('ngay_doi_soat');
+          const fromUpdate =
+            pendingDate !== undefined ? pendingDate : undefined;
+          const effective =
+            fromUpdate !== undefined && fromUpdate !== '' && fromUpdate != null
+              ? fromUpdate
+              : row?.ngay_doi_soat;
+          if (effective === undefined || effective === '' || effective === null) {
+            updateObj.ngay_doi_soat = new Date().toISOString().split('T')[0];
+          }
         }
         updates.push(updateObj);
       });
@@ -1450,9 +1594,7 @@ function DoiSoatBillCuoc() {
         STT: 1,
         'Mã đơn hàng': 'Bona272f26d',
         'Mã Tracking': '',
-        'Key dòng': 'BILL-001',
         FFM: '',
-        'Đơn vị tiền': 'USD',
         'Số tiền đối soát': 100.5,
         'Tỷ giá': 25000,
         'Tiền Việt': 2512500,
@@ -1462,9 +1604,7 @@ function DoiSoatBillCuoc() {
         STT: 2,
         'Mã đơn hàng': '',
         'Mã Tracking': 'TRACK002',
-        'Key dòng': 'BILL-002',
         FFM: '',
-        'Đơn vị tiền': 'AUD',
         'Số tiền đối soát': 50.75,
         'Tỷ giá': 18000,
         'Tiền Việt': 913500,
@@ -1474,9 +1614,7 @@ function DoiSoatBillCuoc() {
         STT: 3,
         'Mã đơn hàng': 'DG6da921bf',
         'Mã Tracking': 'TRACK003',
-        'Key dòng': 'BILL-003',
         FFM: '',
-        'Đơn vị tiền': 'CAD',
         'Số tiền đối soát': 75.25,
         'Tỷ giá': 19000,
         'Tiền Việt': 1429750,
@@ -1548,15 +1686,6 @@ function DoiSoatBillCuoc() {
         const exNorm = normalizeLabel(excelLabel);
         const col = columns.find((c) => !c.computed && normalizeLabel(c.label) === exNorm);
         if (col) return col.key;
-        if (tableName === 'chi_tiet_bill_tien') {
-          const billKeyAliases = {
-            key: 'bill_row_key',
-            'ma key': 'bill_row_key',
-            'key dong': 'bill_row_key',
-          };
-          const alias = billKeyAliases[exNorm];
-          if (alias) return alias;
-        }
         return null;
       };
 
@@ -1647,7 +1776,7 @@ function DoiSoatBillCuoc() {
       if (recordsToInsert.length === 0) {
         alert(
           activeTab === 'bill' || activeTab === 'bill_view'
-            ? 'Không có dòng hợp lệ: không map được cột nào từ Excel (kiểm tra tên cột theo mẫu Bill; Ngày đối soát không cần trong file — hệ thống tự gán).'
+            ? 'Không có dòng hợp lệ: không map được cột nào từ Excel (kiểm tra tên cột theo mẫu Bill; Ngày đối soát / Đơn vị tiền không cần trong file — hệ thống tự gán / lấy từ đơn hàng).'
             : activeTab === 'cuoc' || activeTab === 'cuoc_view'
               ? 'Không có dòng hợp lệ: mỗi dòng cước cần có Mã đơn hàng (các cột Tiền cước / Đơn vị / Tỷ giá / Thị trường / Lọc trùng / Chi nhánh không lấy từ Excel).'
               : 'Không tìm thấy dữ liệu hợp lệ trong file Excel. Vui lòng kiểm tra lại định dạng file.'
@@ -2055,9 +2184,10 @@ function DoiSoatBillCuoc() {
               </p>
               {(activeTab === 'bill' || activeTab === 'bill_view') && (
                 <p className="text-sm text-gray-600 mt-2 max-w-4xl">
-                  Bill: <strong>ưu tiên Mã Tracking</strong> để gán đơn (đồng bộ tổng Tiền Việt); chỉ dùng{' '}
-                  <strong>Mã đơn hàng</strong> khi tracking trống hoặc là placeholder kiểu Dropoff (mọi viết hoa/thường, có/không dấu cách).
-                  Key dòng: tham chiếu file khi thiếu mã. Đếm lần thanh toán theo tracking. Nhập Excel: Ngày đối soát tự gán today.
+                  Bill: <strong>ưu tiên Mã Tracking</strong> để gán đơn và đồng bộ Tiền Việt; với{' '}
+                  <strong>Drop off / DROPP OFF / trống tracking</strong> thì gán đơn, đồng bộ và đếm lần thanh toán theo{' '}
+                  <strong>Mã đơn hàng</strong> trên dòng.
+                  Đơn vị tiền không hiện trên bảng — hệ thống gán theo đơn hàng khi khớp tracking/đơn. Đếm lần thanh toán: số lần cùng Mã Tracking trong bảng đang hiện; bấm số để xem các dòng. Nhập Excel: Ngày đối soát tự gán today.
                 </p>
               )}
               {(activeTab === 'cuoc' || activeTab === 'cuoc_view') && (
@@ -2175,6 +2305,15 @@ function DoiSoatBillCuoc() {
                           if (col.key === 'ngay_update' && (!displayValue || displayValue === '' || displayValue === null)) {
                             displayValue = new Date().toISOString();
                           }
+
+                          // Bill: Ngày đối soát luôn hiện today khi chưa có giá trị (khớp import Excel)
+                          if (
+                            (activeTab === 'bill' || activeTab === 'bill_view') &&
+                            col.key === 'ngay_doi_soat' &&
+                            (!displayValue || displayValue === '' || displayValue === null)
+                          ) {
+                            displayValue = new Date().toISOString().split('T')[0];
+                          }
                           
                           // Format dựa trên loại dữ liệu (chỉ format khi hiển thị, không format khi edit)
                           let formattedValue = displayValue;
@@ -2236,7 +2375,29 @@ function DoiSoatBillCuoc() {
                           onMouseEnter={() => handleMouseEnter(rowIdx, colIdx)}
                         >
                               {isReadOnly ? (
-                                col.key === 'loc_trung' &&
+                                (activeTab === 'bill' || activeTab === 'bill_view') &&
+                                col.key === 'dem_lan_thanh_toan' &&
+                                (() => {
+                                  const detailId = getBillDemLanDetailId(row, pendingChanges);
+                                  const cnt =
+                                    displayValue !== '' && displayValue != null
+                                      ? Number(displayValue)
+                                      : NaN;
+                                  return detailId && !Number.isNaN(cnt) && cnt >= 1;
+                                })() ? (
+                                  <button
+                                    type="button"
+                                    className="font-semibold text-blue-700 underline decoration-blue-400 underline-offset-2 hover:text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-0.5"
+                                    title="Xem các dòng cùng nhóm (tracking hoặc mã đơn nếu Dropoff)"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setBillTrackingDetailKey(getBillDemLanDetailId(row, pendingChanges));
+                                    }}
+                                  >
+                                    {formattedValue}
+                                  </button>
+                                ) : col.key === 'loc_trung' &&
                                 (activeTab === 'cuoc' || activeTab === 'cuoc_view') &&
                                 displayValue !== '' &&
                                 displayValue != null &&
@@ -2441,7 +2602,7 @@ function DoiSoatBillCuoc() {
                 <ul className="text-sm text-blue-700 mt-1 list-disc list-inside space-y-1">
                   {activeTab === 'bill' || activeTab === 'bill_view' ? (
                     <>
-                      <li>Tab bill: ưu tiên tracking; mã đơn khi tracking trống hoặc Dropoff; có thể thêm Key dòng</li>
+                      <li>Tab bill: ưu tiên tracking; mã đơn khi tracking trống hoặc Dropoff</li>
                       <li>Tối đa 1000 mã mỗi lần thêm</li>
                       <li>Các cột khác điền sau trên lưới hoặc qua Excel</li>
                     </>
@@ -2491,6 +2652,127 @@ function DoiSoatBillCuoc() {
         </div>
       )}
 
+      {billTrackingDetailKey && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setBillTrackingDetailKey(null)}
+          role="presentation"
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bill-tracking-modal-title"
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+              <h2 id="bill-tracking-modal-title" className="text-lg font-semibold text-gray-800">
+                {billTrackingDetailKey.startsWith('ord:')
+                  ? 'Cùng Mã đơn hàng (Dropoff / trống tracking) — '
+                  : 'Cùng Mã Tracking trong bảng — '}
+                <span className="font-mono text-blue-800">
+                  {billTrackingDetailKey.startsWith('ord:')
+                    ? billTrackingDetailKey.slice(4)
+                    : billTrackingDetailKey.startsWith('tr:')
+                      ? billTrackingDetailKey.slice(3)
+                      : billTrackingDetailKey}
+                </span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setBillTrackingDetailKey(null)}
+                className="rounded p-1 hover:bg-gray-100"
+                aria-label="Đóng"
+              >
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="overflow-auto px-4 py-3">
+              <p className="mb-3 text-sm text-gray-600">
+                Có{' '}
+                <strong>
+                  {
+                    billDataWithTableDemLan.filter(
+                      (r) => getBillDemLanDetailId(r, pendingChanges) === billTrackingDetailKey
+                    ).length
+                  }
+                </strong>{' '}
+                dòng (theo nhóm hiện tại trên bảng; gồm chỉnh sửa chưa lưu nếu có).
+              </p>
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-gray-700">
+                    <th className="px-3 py-2 font-medium">#</th>
+                    <th className="px-3 py-2 font-medium">Mã đơn hàng</th>
+                    <th className="px-3 py-2 font-medium">Mã Tracking</th>
+                    <th className="px-3 py-2 font-medium">Ngày đối soát</th>
+                    <th className="px-3 py-2 font-medium">FFM</th>
+                    <th className="px-3 py-2 font-medium text-right">Số tiền đối soát</th>
+                    <th className="px-3 py-2 font-medium text-right">Tiền Việt</th>
+                    <th className="px-3 py-2 font-medium">Tạo lúc</th>
+                    <th className="px-3 py-2 font-medium w-24">Xóa</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {billDataWithTableDemLan
+                    .filter(
+                      (r) => getBillDemLanDetailId(r, pendingChanges) === billTrackingDetailKey
+                    )
+                    .slice()
+                    .sort((a, b) => {
+                      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+                      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+                      return tb - ta;
+                    })
+                    .map((r, i) => {
+                      const tkShow = getEffectiveBillMaTracking(r, pendingChanges);
+                      const canDelete = r.id != null;
+                      return (
+                        <tr key={r.id ?? `${tkShow}-${i}`} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-500">{i + 1}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{r.ma_don_hang ?? '—'}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{tkShow || '—'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {r.ngay_doi_soat ? formatDate(r.ngay_doi_soat) : '—'}
+                          </td>
+                          <td className="px-3 py-2">{r.ffm ?? '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {formatNumber(r.so_tien_doi_soat) || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {formatNumber(r.tien_viet) || '—'}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-600">
+                            {r.created_at ? formatDateTime(r.created_at) : '—'}
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              title="Xóa dòng khỏi chi_tiet_bill_tien"
+                              disabled={!canDelete || deletingBillDetailRowId != null}
+                              className="inline-flex items-center justify-center rounded p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:pointer-events-none"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteBillDetailRow(r.id);
+                              }}
+                            >
+                              {deletingBillDetailRowId === r.id ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {cuocDupDetailKey && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
@@ -2498,7 +2780,7 @@ function DoiSoatBillCuoc() {
           role="presentation"
         >
           <div
-            className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-lg bg-white shadow-xl"
+            className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -2537,6 +2819,7 @@ function DoiSoatBillCuoc() {
                     <th className="px-3 py-2 font-medium text-right">Tiền ship (VNĐ)</th>
                     <th className="px-3 py-2 font-medium">Chi nhánh</th>
                     <th className="px-3 py-2 font-medium">Tạo lúc</th>
+                    <th className="px-3 py-2 font-medium w-24">Xóa</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -2548,24 +2831,45 @@ function DoiSoatBillCuoc() {
                       const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
                       return tb - ta;
                     })
-                    .map((r, i) => (
-                      <tr key={r.id ?? `${r.ma_don_hang}-${i}`} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 text-gray-500">{i + 1}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{r.ma_don_hang ?? '—'}</td>
-                        <td className="px-3 py-2">
-                          {r.ngay_doi_soat_cuoc != null && r.ngay_doi_soat_cuoc !== ''
-                            ? String(r.ngay_doi_soat_cuoc)
-                            : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {formatNumber(r.tien_ship_vnd) || '—'}
-                        </td>
-                        <td className="px-3 py-2">{r.chi_nhanh ?? '—'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-gray-600">
-                          {r.created_at ? formatDateTime(r.created_at) : '—'}
-                        </td>
-                      </tr>
-                    ))}
+                    .map((r, i) => {
+                      const canDelete = r.id != null;
+                      return (
+                        <tr key={r.id ?? `${r.ma_don_hang}-${i}`} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-500">{i + 1}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{r.ma_don_hang ?? '—'}</td>
+                          <td className="px-3 py-2">
+                            {r.ngay_doi_soat_cuoc != null && r.ngay_doi_soat_cuoc !== ''
+                              ? String(r.ngay_doi_soat_cuoc)
+                              : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {formatNumber(r.tien_ship_vnd) || '—'}
+                          </td>
+                          <td className="px-3 py-2">{r.chi_nhanh ?? '—'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-600">
+                            {r.created_at ? formatDateTime(r.created_at) : '—'}
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              title="Xóa dòng khỏi chitiet_cuoc"
+                              disabled={!canDelete || deletingCuocDetailRowId != null}
+                              className="inline-flex items-center justify-center rounded p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:pointer-events-none"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteCuocDetailRow(r.id);
+                              }}
+                            >
+                              {deletingCuocDetailRowId === r.id ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>

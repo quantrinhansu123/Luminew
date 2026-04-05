@@ -1372,6 +1372,37 @@
     // --- II. KHỞI TẠO ỨNG DỤNG ---
     // =================================================================================
 
+    const LUMI_DASH_GLOBAL_KEY = 'lumi_oms_dashboard_global_date_range';
+    const LUMI_DASH_MSG = 'LUMI_OMS_DASHBOARD_GLOBAL_DATE_RANGE';
+
+    function readLumiDashboardGlobalRange() {
+      try {
+        const raw = localStorage.getItem(LUMI_DASH_GLOBAL_KEY);
+        if (!raw) return null;
+        const o = JSON.parse(raw);
+        const from = String(o.from || '').trim();
+        const to = String(o.to || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+        return { from, to };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function applyLumiDashboardGlobalDatesToMktInputs(from, to) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return;
+      const dateInputs = [
+        'start-date-tab1', 'end-date-tab1',
+        'start-date-tab3', 'end-date-tab3',
+        'start-date-mkt', 'end-date-mkt'
+      ];
+      dateInputs.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.value = id.startsWith('start-') ? from : to;
+      });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       // Đăng ký plugin datalabels trên toàn cục
       Chart.register(ChartDataLabels);
@@ -1383,19 +1414,50 @@
       document.getElementById("defaultOpen").click();
     });
 
+    window.addEventListener('message', (e) => {
+      if (!e.data || e.data.type !== LUMI_DASH_MSG) return;
+      const from = String(e.data.from || '').trim();
+      const to = String(e.data.to || '').trim();
+      applyLumiDashboardGlobalDatesToMktInputs(from, to);
+      if (typeof fetchAndProcessData === 'function') {
+        fetchAndProcessData();
+      }
+    });
+
     /** Mặc định 2 ngày (hôm qua → hôm nay): ít dòng hơn cả tháng, tải nhanh; local date (tránh lệch TZ). */
+    /** Ưu tiên khoảng ngày Dashboard quản trị (localStorage) nếu có. */
     function setDefaultDates() {
-      const now = new Date();
-      const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const yesterdayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
       const formatDateForInput = (date) => {
         const y = date.getFullYear();
         const m = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
       };
-      const startVal = formatDateForInput(yesterdayLocal);
-      const endVal = formatDateForInput(todayLocal);
+      let startVal;
+      let endVal;
+      try {
+        const qp = new URLSearchParams(window.location.search);
+        const qFrom = String(qp.get('dashboard_from') || '').trim();
+        const qTo = String(qp.get('dashboard_to') || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(qFrom) && /^\d{4}-\d{2}-\d{2}$/.test(qTo)) {
+          startVal = qFrom;
+          endVal = qTo;
+        }
+      } catch (e) { /* ignore */ }
+      if (!startVal || !endVal) {
+        const g = readLumiDashboardGlobalRange();
+        if (g) {
+          startVal = g.from;
+          endVal = g.to;
+        }
+      }
+      if (!startVal || !endVal) {
+        const now = new Date();
+        const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const yesterdayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        startVal = formatDateForInput(yesterdayLocal);
+        endVal = formatDateForInput(todayLocal);
+      }
 
       const dateInputs = [
         'start-date-tab1', 'end-date-tab1',

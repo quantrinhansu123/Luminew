@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Calculator, Database, Eye, RefreshCw, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
+import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../services/supabaseClient';
 import { isSalesReportUserSuppliedRowId } from '../utils/salesReportRowId';
@@ -53,29 +54,176 @@ function addDaysYmd(dateYmd, days = 1) {
     return formatDateYmdLocal(date);
 }
 
+/**
+ * Chuẩn YYYY-MM-DD: ưu tiên prefix từ ISO, với chuỗi có giờ dùng lịch local (tránh lệch ngày do toISOString UTC).
+ * Khớp hướng xử lý với `normalizeDateStr` trong mktRecalcSoDonThucTeFromOrders.js.
+ */
+function normalizeDateYmd(dateVal) {
+    if (dateVal == null || dateVal === '') return '';
+    if (dateVal instanceof Date) {
+        if (Number.isNaN(dateVal.getTime())) return '';
+        const y = dateVal.getFullYear();
+        const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+        const d = String(dateVal.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    const s = String(dateVal).trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    if (s.includes('T')) {
+        const parsed = new Date(s);
+        if (!Number.isNaN(parsed.getTime())) {
+            const y = parsed.getFullYear();
+            const m = String(parsed.getMonth() + 1).padStart(2, '0');
+            const d = String(parsed.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+        return s.split('T')[0].slice(0, 10);
+    }
+    if (s.includes('/')) {
+        const parts = s.split('/');
+        if (parts.length === 3) {
+            const [day, month, year] = parts;
+            if (year && month && day) {
+                return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            }
+        }
+    }
+    const parsed = new Date(s);
+    if (!Number.isNaN(parsed.getTime())) {
+        const y = parsed.getFullYear();
+        const m = String(parsed.getMonth() + 1).padStart(2, '0');
+        const d = String(parsed.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    return '';
+}
+
+function scalarLooselyEqual(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
 function normalizeOrderForCalc(order, index = 0) {
     const normalized = {
         ...order,
         order_date: order?.order_date || order?.ngaydonghang || order?.date || '',
-        sale_staff: order?.sale_staff || order?.nhanvien_sale || '',
-        nhanvien_sale: order?.nhanvien_sale || order?.sale_staff || '',
-        product: order?.product || order?.san_pham || '',
-        country: order?.country || order?.market || order?.thi_truong || '',
+        sale_staff:
+            order?.sale_staff ||
+            order?.nhanvien_sale ||
+            order?.nhan_vien_sale ||
+            order?.Nhan_vien_Sale ||
+            order?.['Nhân viên Sale'] ||
+            '',
+        nhanvien_sale:
+            order?.nhanvien_sale ||
+            order?.sale_staff ||
+            order?.nhan_vien_sale ||
+            order?.Nhan_vien_Sale ||
+            order?.['Nhân viên Sale'] ||
+            '',
+        product: String(
+            order?.product ??
+                order?.san_pham ??
+                order?.mat_hang ??
+                order?.San_pham ??
+                order?.['mặt_hàng'] ??
+                ''
+        ).trim(),
+        country: String(
+            order?.country ??
+                order?.thi_truong ??
+                order?.khu_vuc ??
+                order?.Khu_vuc ??
+                order?.market ??
+                ''
+        ).trim(),
         check_result: order?.check_result || order?.delivery_status_nb || '',
         tracking_code:
             order?.tracking_code || order?.trackingCode || order?.tracking || order?.ma_tracking || order?.maTracking || '',
-        total_amount_vnd: order?.total_amount_vnd || order?.total_vnd || order?.tongtien || order?.revenue_vnd || order?.total_amount || order?.amount || 0,
+        total_amount_vnd:
+            order?.total_amount_vnd ||
+            order?.total_vnd ||
+            order?.tongtien ||
+            order?.revenue_vnd ||
+            order?.total_amount ||
+            order?.amount ||
+            0,
     };
     normalized.__rowKey = normalized.id || normalized.order_code || `row_${index}`;
     return normalized;
 }
 
-function buildReportKey({ date, name, product, market }) {
-    const d = String(date || '').split('T')[0];
-    const n = canonicalPersonName(name || '');
-    const p = String(product || '').trim().toLowerCase();
-    const m = String(market || '').trim().toLowerCase();
-    return `${d}|${n}|${p}|${m}`;
+function mergeOrdersByOrderCode(primary, secondary) {
+    const out = [...(primary || [])];
+    const codes = new Set(out.map((o) => String(o?.order_code ?? '').trim()).filter(Boolean));
+    for (const o of secondary || []) {
+        const c = String(o?.order_code ?? '').trim();
+        if (c && !codes.has(c)) {
+            codes.add(c);
+            out.push(o);
+        }
+    }
+    return out;
+}
+
+/** YYYY-MM-DD → DD/MM/YYYY cho lumidataapi (không dùng new Date(ymd) để tránh lệch múi giờ). */
+function ymdToDdMmYyyyForApi(ymd) {
+    const d = normalizeDateYmd(ymd);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+    if (!m) return '';
+    return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+async function fetchOrderCodeHcmOrdersForDate(reportDateYmd) {
+    const PAGE_SIZE = 2000;
+    const rows = [];
+    let from = 0;
+    for (let guard = 0; guard < 500; guard += 1) {
+        const { data, error } = await supabase
+            .from('order_code_hcm')
+            .select('*')
+            .gte('order_date', reportDateYmd)
+            .lte('order_date', reportDateYmd)
+            .order('id', { ascending: true })
+            .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data?.length) break;
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+    }
+    return rows;
+}
+
+/** Lọc đơn khớp một dòng báo cáo Sale (ngày + NV Sale + SP + TT). */
+function filterOrdersMatchingSaleReport(matchingOrders, reportDateYmd, report, namesMatch) {
+    let orders = matchingOrders || [];
+    orders = orders.filter((order) => {
+        const nd = normalizeDateYmd(order.order_date);
+        return nd && nd === reportDateYmd;
+    });
+    if (report?.name && String(report.name).trim()) {
+        orders = orders.filter((order) => {
+            const orderSaleStaff = String(order.nhanvien_sale || order.sale_staff || '').trim();
+            if (!orderSaleStaff) return false;
+            return namesMatch(orderSaleStaff, report.name);
+        });
+    }
+    if (report?.product && String(report.product).trim()) {
+        orders = orders.filter((order) => {
+            const orderProduct = String(order.product || '').trim();
+            if (!orderProduct) return false;
+            return scalarLooselyEqual(orderProduct, report.product);
+        });
+    }
+    if (report?.market && String(report.market).trim()) {
+        orders = orders.filter((order) => {
+            const orderCountry = String(order.country || '').trim();
+            if (!orderCountry) return false;
+            return scalarLooselyEqual(orderCountry, report.market);
+        });
+    }
+    return orders;
 }
 
 /**
@@ -205,14 +353,13 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const [saving, setSaving] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
 
-    // Calculate Orders Modal
-    const [updatingOrders, setUpdatingOrders] = useState(false);
-    const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
     const [teamSyncing, setTeamSyncing] = useState(false);
     const [normalizingCskhLyTeam, setNormalizingCskhLyTeam] = useState(false);
     const [fixingUsMarket, setFixingUsMarket] = useState(false);
     const [removingDuplicates, setRemovingDuplicates] = useState(false);
     const [backingUp, setBackingUp] = useState(false);
+    const [updatingOrders, setUpdatingOrders] = useState(false);
+    const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
 
     // View Orders Modal
     const [showViewOrdersModal, setShowViewOrdersModal] = useState(false);
@@ -340,26 +487,30 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             try {
                 let productsSet = new Set();
                 let marketsSet = new Set();
+                const isHcmReportTable = reportTable === 'sale_report_hcm';
 
-                // Bước 1: Load tất cả sản phẩm từ system_settings (type <> 'test') để có danh sách đầy đủ
-                try {
-                    const { data: productsData, error: productsError } = await supabase
-                        .from('system_settings')
-                        .select('name')
-                        .neq('type', 'test')
-                        .order('name', { ascending: true });
+                // Bước 1: system_settings — trang HCM (sale_report_hcm) bỏ qua: danh sách SP master thường là toàn công ty,
+                // gộp vào đây làm bộ lọc lệch dữ liệu HCM và dễ tạo .in() hàng nghìn phần tử khi «Tất cả».
+                if (!isHcmReportTable) {
+                    try {
+                        const { data: productsData, error: productsError } = await supabase
+                            .from('system_settings')
+                            .select('name')
+                            .neq('type', 'test')
+                            .order('name', { ascending: true });
 
-                    if (!productsError && productsData && productsData.length > 0) {
-                        productsData.forEach(item => {
-                            if (item.name?.trim()) productsSet.add(item.name.trim());
-                        });
-                        console.log(`✅ Loaded ${productsData.length} products from system_settings (excluding test)`);
+                        if (!productsError && productsData && productsData.length > 0) {
+                            productsData.forEach(item => {
+                                if (item.name?.trim()) productsSet.add(item.name.trim());
+                            });
+                            console.log(`✅ Loaded ${productsData.length} products from system_settings (excluding test)`);
+                        }
+                    } catch (supabaseError) {
+                        console.log('⚠️ Could not fetch products from system_settings:', supabaseError);
                     }
-                } catch (supabaseError) {
-                    console.log('⚠️ Could not fetch products from system_settings:', supabaseError);
                 }
 
-                // Bước 2: Load sản phẩm và thị trường từ sales_reports
+                // Bước 2: Load sản phẩm và thị trường từ bảng báo cáo đang xem (sales_reports / sale_report_hcm)
                 // Tối ưu: Chỉ load một số lượng giới hạn records để lấy unique values
                 // Với 10000 records đã đủ để có được hầu hết các unique products và markets
                 try {
@@ -388,7 +539,9 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
 
                             // Chỉ log mỗi 5 pages để giảm spam
                             if (page % 5 === 0 || !hasMore) {
-                                console.log(`📄 Loaded ${allData.length} records từ sales_reports (để lấy unique products/markets)`);
+                                console.log(
+                                    `📄 Loaded ${allData.length} records từ ${reportTable} (để lấy unique products/markets)`
+                                );
                             }
                         } else {
                             hasMore = false;
@@ -405,9 +558,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                     productsFromReports.forEach(p => productsSet.add(p));
                     marketsFromReports.forEach(m => marketsSet.add(m));
 
-                    console.log(`✅ Loaded ${productsFromReports.length} products and ${marketsFromReports.length} markets from sales_reports`);
+                    console.log(
+                        `✅ Loaded ${productsFromReports.length} products and ${marketsFromReports.length} markets from ${reportTable}`
+                    );
                 } catch (dbError) {
-                    console.error('Error fetching from sales_reports:', dbError);
+                    console.error(`Error fetching from ${reportTable}:`, dbError);
                 }
 
                 const finalProducts = Array.from(productsSet).sort();
@@ -442,6 +597,23 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         }
     }, [selectedPersonnelNames, reportTable]); // Reload khi selectedPersonnelNames / bảng báo cáo thay đổi
 
+    /** Chỉ gửi .in() khi thực sự thu hẹp: bỏ qua khi đã chọn đủ mọi mục trong danh sách (≈ không lọc), tránh URL/query .in quá dài. */
+    const productFilterValues = useMemo(() => {
+        const sel = filters.products || [];
+        const all = availableOptions.products || [];
+        if (sel.length === 0) return null;
+        if (all.length > 0 && sel.length === all.length) return null;
+        return sel;
+    }, [filters.products, availableOptions.products]);
+
+    const marketFilterValues = useMemo(() => {
+        const sel = filters.markets || [];
+        const all = availableOptions.markets || [];
+        if (sel.length === 0) return null;
+        if (all.length > 0 && sel.length === all.length) return null;
+        return sel;
+    }, [filters.markets, availableOptions.markets]);
+
     // Fetch Data
     const fetchData = useCallback(async () => {
         if (!filters.startDate || !filters.endDate) return;
@@ -465,11 +637,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                     .lte('date', filters.endDate)
                     .order('created_at', { ascending: false });
 
-                if (filters.products && filters.products.length > 0) {
-                    query = query.in('product', filters.products);
+                if (productFilterValues && productFilterValues.length > 0) {
+                    query = query.in('product', productFilterValues);
                 }
-                if (filters.markets && filters.markets.length > 0) {
-                    query = query.in('market', filters.markets);
+                if (marketFilterValues && marketFilterValues.length > 0) {
+                    query = query.in('market', marketFilterValues);
                 }
 
                 const { data, error } = await query.range(from, to);
@@ -503,12 +675,55 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     }, [
         filters.startDate,
         filters.endDate,
-        filters.products,
-        filters.markets,
+        productFilterValues,
+        marketFilterValues,
         selectedPersonnelNames,
         isAdmin,
         reportTable,
     ]);
+
+    const handleCalculateAndUpdateOrders = useCallback(async () => {
+        if (!filters.startDate || !filters.endDate) {
+            toast.error('Vui lòng chọn khoảng thời gian trước khi tính toán!');
+            return;
+        }
+        const tableLabel = isHcm ? 'sale_report_hcm' : 'sales_reports';
+        const ordersLabel = isHcm ? 'order_code_hcm' : 'orders';
+        if (
+            !window.confirm(
+                `Tính lại ${tableLabel} từ ${ordersLabel} (Supabase) — cùng luồng Admin Tools:\n\n` +
+                    '• Cập nhật số đơn, doanh số, đơn hủy, đơn go (có tracking, không hủy).\n' +
+                    '• Tự thêm dòng «Hết ca» nếu thiếu key (ngày + nhân viên sale + SP + thị trường).\n\n' +
+                    `Khoảng: ${filters.startDate} → ${filters.endDate}\n\nChạy?`
+            )
+        ) {
+            return;
+        }
+        setUpdatingOrders(true);
+        setUpdateProgress({ current: 0, total: 1 });
+        try {
+            const result = await recalcSaleOrderCountFromOrders({
+                startDate: filters.startDate,
+                endDate: filters.endDate,
+                createMissingForHetCa: true,
+                reportsTable: isHcm ? 'sale_report_hcm' : 'sales_reports',
+                ordersTable: isHcm ? 'order_code_hcm' : 'orders',
+            });
+            const n = result.upserted ?? 0;
+            const created = result.createdMissing ?? 0;
+            const updated = result.updatedExisting ?? 0;
+            toast.success(
+                `Hoàn tất: ${n} thao tác (cập nhật ${updated} dòng, tạo mới ${created} dòng).`
+            );
+            await fetchData();
+        } catch (err) {
+            console.error('handleCalculateAndUpdateOrders:', err);
+            toast.error('Lỗi khi tính toán: ' + (err.message || String(err)));
+        } finally {
+            setUpdatingOrders(false);
+            setUpdateProgress({ current: 0, total: 0 });
+        }
+    }, [fetchData, filters.startDate, filters.endDate, isHcm]);
 
     useEffect(() => {
         fetchData();
@@ -902,24 +1117,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         }
     };
 
-    // Convert date from YYYY-MM-DD to DD/MM/YYYY for API
-    const convertDateToAPIFormat = (dateStr) => {
-        if (!dateStr) return '';
-        const date = new Date(dateStr);
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
-    };
-
-    // Normalize date to YYYY-MM-DD format
-    const normalizeDate = (dateStr) => {
-        if (!dateStr) return '';
-        const date = new Date(dateStr);
-        if (isNaN(date.getTime())) return '';
-        return date.toISOString().split('T')[0];
-    };
-
     // Normalize name for matching (remove extra spaces, lowercase)
     const normalizeNameForMatch = (str) => {
         if (!str) return '';
@@ -933,19 +1130,53 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         return n1 === n2 || n1.includes(n2) || n2.includes(n1);
     };
 
-    const fetchOrdersByReportDate = useCallback(async (reportDate) => {
-        const apiDate = convertDateToAPIFormat(reportDate);
-        const params = new URLSearchParams();
-        params.append('from_date', apiDate);
-        params.append('to_date', apiDate);
-        const url = `https://lumidataapi.vercel.app${ordersApiEndpoint}?${params.toString()}`;
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const result = await response.json();
-        return (result.data || []).map((row, idx) => normalizeOrderForCalc(row, idx));
-    }, [ordersApiEndpoint]);
+    const fetchOrdersByReportDate = useCallback(
+        async (reportDate) => {
+            const ymd = normalizeDateYmd(reportDate);
+            if (!ymd) return [];
+            const apiDate = ymdToDdMmYyyyForApi(ymd);
+            if (!apiDate) return [];
+
+            const fetchApiPaged = async () => {
+                const all = [];
+                let next_after_id;
+                for (let guard = 0; guard < 600; guard += 1) {
+                    const params = new URLSearchParams();
+                    params.set('from_date', apiDate);
+                    params.set('to_date', apiDate);
+                    if (next_after_id) params.set('next_after_id', next_after_id);
+                    const url = `https://lumidataapi.vercel.app${ordersApiEndpoint}?${params.toString()}`;
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const result = await response.json();
+                    const chunk = result.data || [];
+                    const base = all.length;
+                    chunk.forEach((row, idx) => {
+                        all.push(normalizeOrderForCalc(row, base + idx));
+                    });
+                    next_after_id = result.next_after_id;
+                    if (!next_after_id) break;
+                }
+                return all;
+            };
+
+            if (isHcm) {
+                try {
+                    const fromDb = await fetchOrderCodeHcmOrdersForDate(ymd);
+                    const dbNorm = fromDb.map((row, idx) => normalizeOrderForCalc(row, idx));
+                    const fromApi = await fetchApiPaged();
+                    return mergeOrdersByOrderCode(dbNorm, fromApi);
+                } catch (e) {
+                    console.warn('[DanhSachBaoCaoTay] order_code_hcm không đọc được, chỉ dùng API:', e?.message || e);
+                    return fetchApiPaged();
+                }
+            }
+            return fetchApiPaged();
+        },
+        [ordersApiEndpoint, isHcm]
+    );
 
     // View orders for a specific report
     const handleViewOrders = async (report) => {
@@ -955,8 +1186,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         setLoadingOrders(true);
 
         try {
-            // Get report date normalized
-            const reportDate = normalizeDate(report.date);
+            const reportDate = normalizeDateYmd(report.date);
             if (!reportDate) {
                 toast.error('Báo cáo không có ngày hợp lệ!');
                 setLoadingOrders(false);
@@ -974,100 +1204,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
 
             let matchingOrders = await fetchOrdersByReportDate(reportDate);
             console.log(
-                `✅ [DanhSachBaoCaoTay] Fetched ${matchingOrders.length} orders from API ${ordersApiEndpoint}`
+                `✅ [DanhSachBaoCaoTay] Fetched ${matchingOrders.length} orders (API ${ordersApiEndpoint}${isHcm ? ' + order_code_hcm' : ''})`
             );
             console.log(`📅 [DanhSachBaoCaoTay] Report date (normalized): ${reportDate}`);
 
-            // Filter by order_date (must match report date)
-            const beforeDateFilter = matchingOrders.length;
-            matchingOrders = matchingOrders.filter(order => {
-                const orderDate = order.order_date;
-                if (!orderDate) {
-                    console.log(`⚠️ [DanhSachBaoCaoTay] Order ${order.order_code || order.id} has no order_date`);
-                    return false;
-                }
-                
-                // Normalize order_date to YYYY-MM-DD format for comparison
-                let normalizedOrderDate = '';
-                try {
-                    if (orderDate instanceof Date) {
-                        normalizedOrderDate = orderDate.toISOString().split('T')[0];
-                    } else if (typeof orderDate === 'string') {
-                        // Handle different date formats
-                        if (orderDate.includes('/')) {
-                            // DD/MM/YYYY or MM/DD/YYYY
-                            const parts = orderDate.split('/');
-                            if (parts.length === 3) {
-                                // Assume DD/MM/YYYY
-                                normalizedOrderDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                            }
-                        } else if (orderDate.includes('-')) {
-                            // Already in YYYY-MM-DD format or similar
-                            normalizedOrderDate = orderDate.split('T')[0]; // Remove time if present
-                        } else {
-                            // Try to parse as Date
-                            const dateObj = new Date(orderDate);
-                            if (!isNaN(dateObj.getTime())) {
-                                normalizedOrderDate = dateObj.toISOString().split('T')[0];
-                            }
-                        }
-                    } else {
-                        // Try to parse as Date
-                        const dateObj = new Date(orderDate);
-                        if (!isNaN(dateObj.getTime())) {
-                            normalizedOrderDate = dateObj.toISOString().split('T')[0];
-                        }
-                    }
-                } catch (error) {
-                    console.warn(`⚠️ [DanhSachBaoCaoTay] Error normalizing order_date for order ${order.order_code || order.id}:`, orderDate, error);
-                    return false;
-                }
-                
-                if (!normalizedOrderDate) {
-                    console.log(`⚠️ [DanhSachBaoCaoTay] Could not normalize order_date: ${orderDate} for order ${order.order_code || order.id}`);
-                    return false;
-                }
-                
-                // Compare with report date (already normalized to YYYY-MM-DD)
-                const matches = normalizedOrderDate === reportDate;
-                if (!matches && beforeDateFilter <= 10) {
-                    // Log first 10 mismatches for debugging
-                    console.log(`🔍 [DanhSachBaoCaoTay] Order ${order.order_code || order.id}: order_date="${orderDate}" → normalized="${normalizedOrderDate}" vs reportDate="${reportDate}" → ${matches ? 'MATCH' : 'NO MATCH'}`);
-                }
-                return matches;
-            });
-            
-            console.log(`📊 [DanhSachBaoCaoTay] After order_date filter: ${matchingOrders.length} / ${beforeDateFilter} orders`);
-
-            // Additional filtering for nhanvien_sale if report has name
-            // API filter might not match exactly, so we do fuzzy matching
-            if (report.name && report.name.trim()) {
-                matchingOrders = matchingOrders.filter(order => {
-                    const orderSaleStaff = (order.nhanvien_sale || order.sale_staff || '').trim();
-                    if (!orderSaleStaff) return false;
-                    return namesMatch(orderSaleStaff, report.name);
-                });
-            }
-
-            // Shift filtering removed - không lọc theo shift nữa
-
-            // Additional filtering for product if needed
-            if (report.product && report.product.trim()) {
-                matchingOrders = matchingOrders.filter(order => {
-                    const orderProduct = (order.product || '').trim();
-                    if (!orderProduct) return false;
-                    return orderProduct === report.product.trim();
-                });
-            }
-
-            // Additional filtering for market/country if needed
-            if (report.market && report.market.trim()) {
-                matchingOrders = matchingOrders.filter(order => {
-                    const orderCountry = (order.country || '').trim();
-                    if (!orderCountry) return false;
-                    return orderCountry === report.market.trim();
-                });
-            }
+            matchingOrders = filterOrdersMatchingSaleReport(matchingOrders, reportDate, report, namesMatch);
 
             console.log(`✅ [DanhSachBaoCaoTay] Found ${matchingOrders.length} matching orders after filtering`);
             setViewingOrders(matchingOrders);
@@ -1078,404 +1219,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             setLoadingOrders(false);
         }
     };
-
-    // Calculate and update order_count for all reports
-    const handleCalculateAndUpdateOrders = async () => {
-        if (!filters.startDate || !filters.endDate) {
-            toast.error('Vui lòng chọn khoảng thời gian trước khi tính toán!');
-            return;
-        }
-
-        if (manualReports.length === 0) {
-            toast.error('Không có dữ liệu báo cáo để tính toán!');
-            return;
-        }
-
-        const confirm = window.confirm(
-            `Bạn có chắc chắn muốn tính và cập nhật số đơn cho ${manualReports.length} báo cáo?\n\n` +
-            `Khoảng thời gian: ${filters.startDate} đến ${filters.endDate}\n\n` +
-            `Quá trình này có thể mất vài phút tùy vào số lượng dữ liệu.`
-        );
-
-        if (!confirm) return;
-
-        setUpdatingOrders(true);
-        setUpdateProgress({ current: 0, total: manualReports.length });
-
-        try {
-            let reportsToProcess = [...manualReports];
-
-            // Tự thêm dòng báo cáo nếu thiếu key gộp: ngày + sale_staff + sản phẩm + thị trường.
-            // Chỉ áp dụng cho HCM theo yêu cầu.
-            if (isHcm) {
-                const dateSet = [...new Set(reportsToProcess.map((r) => normalizeDate(r?.date)).filter(Boolean))];
-                const existingKeySet = new Set(
-                    reportsToProcess.map((r) =>
-                        buildReportKey({
-                            date: normalizeDate(r?.date),
-                            name: r?.name,
-                            product: r?.product,
-                            market: r?.market,
-                        })
-                    )
-                );
-
-                const missingRows = [];
-                for (const dateYmd of dateSet) {
-                    const ordersOnDate = await fetchOrdersByReportDate(dateYmd);
-                    const grouped = new Map();
-
-                    for (const order of ordersOnDate) {
-                        const orderDate = normalizeDate(order?.order_date);
-                        if (!orderDate) continue;
-                        const saleName = cleanPersonName(order?.sale_staff || order?.nhanvien_sale || '');
-                        const product = String(order?.product || '').trim();
-                        const market = String(order?.country || '').trim();
-                        if (!saleName || !product || !market) continue;
-
-                        const key = buildReportKey({
-                            date: orderDate,
-                            name: saleName,
-                            product,
-                            market,
-                        });
-                        if (!grouped.has(key)) {
-                            grouped.set(key, {
-                                date: orderDate,
-                                name: saleName,
-                                product,
-                                market,
-                            });
-                        }
-                    }
-
-                    for (const [key, row] of grouped.entries()) {
-                        if (existingKeySet.has(key)) continue;
-                        existingKeySet.add(key);
-                        missingRows.push({
-                            ...row,
-                            shift: 'Hết ca',
-                            team: '',
-                            branch: '',
-                            mess_count: 0,
-                            response_count: 0,
-                            order_count: 0,
-                            order_cancel_count: 0,
-                            order_go: 0,
-                            revenue_actual: 0,
-                            revenue_cancel_actual: 0,
-                            revenue_go_actual: 0,
-                        });
-                    }
-                }
-
-                if (missingRows.length > 0) {
-                    const { data: insertedRows, error: insertError } = await supabase
-                        .from(reportTable)
-                        .insert(missingRows)
-                        .select('*');
-                    if (insertError) throw insertError;
-                    reportsToProcess = reportsToProcess.concat(insertedRows || []);
-                    setManualReports(reportsToProcess);
-                    toast.info(`Đã tự thêm ${missingRows.length} dòng thiếu key vào ${reportTable}.`);
-                }
-            }
-
-            // Process each report
-            let updatedCount = 0;
-            let errorCount = 0;
-            setUpdateProgress({ current: 0, total: reportsToProcess.length });
-
-            for (let i = 0; i < reportsToProcess.length; i++) {
-                const report = reportsToProcess[i];
-                setUpdateProgress({ current: i + 1, total: reportsToProcess.length });
-
-                try {
-                    // Get report date normalized
-                    const reportDate = normalizeDate(report.date);
-                    if (!reportDate) {
-                        console.warn(`⚠️ Report ${report.id} has invalid date, skipping`);
-                        continue;
-                    }
-
-                    let matchingOrders = await fetchOrdersByReportDate(reportDate);
-
-                    console.log(
-                        `📊 [DanhSachBaoCaoTay] Report ${report.id}: Fetched ${matchingOrders.length} orders from API ${ordersApiEndpoint}`
-                    );
-                    console.log(`📅 [DanhSachBaoCaoTay] Report date (normalized): ${reportDate}`);
-
-                    // Filter by order_date (must match report date)
-                    const beforeDateFilter = matchingOrders.length;
-                    matchingOrders = matchingOrders.filter(order => {
-                        const orderDate = order.order_date;
-                        if (!orderDate) {
-                            console.log(`⚠️ [DanhSachBaoCaoTay] Order ${order.order_code || order.id} has no order_date`);
-                            return false;
-                        }
-                        
-                        // Normalize order_date to YYYY-MM-DD format for comparison
-                        let normalizedOrderDate = '';
-                        try {
-                            if (orderDate instanceof Date) {
-                                normalizedOrderDate = orderDate.toISOString().split('T')[0];
-                            } else if (typeof orderDate === 'string') {
-                                // Handle different date formats
-                                if (orderDate.includes('/')) {
-                                    // DD/MM/YYYY or MM/DD/YYYY
-                                    const parts = orderDate.split('/');
-                                    if (parts.length === 3) {
-                                        // Assume DD/MM/YYYY
-                                        normalizedOrderDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                                    }
-                                } else if (orderDate.includes('-')) {
-                                    // Already in YYYY-MM-DD format or similar
-                                    normalizedOrderDate = orderDate.split('T')[0]; // Remove time if present
-                                } else {
-                                    // Try to parse as Date
-                                    const dateObj = new Date(orderDate);
-                                    if (!isNaN(dateObj.getTime())) {
-                                        normalizedOrderDate = dateObj.toISOString().split('T')[0];
-                                    }
-                                }
-                            } else {
-                                // Try to parse as Date
-                                const dateObj = new Date(orderDate);
-                                if (!isNaN(dateObj.getTime())) {
-                                    normalizedOrderDate = dateObj.toISOString().split('T')[0];
-                                }
-                            }
-                        } catch (error) {
-                            console.warn(`⚠️ [DanhSachBaoCaoTay] Error normalizing order_date for order ${order.order_code || order.id}:`, orderDate, error);
-                            return false;
-                        }
-                        
-                        if (!normalizedOrderDate) {
-                            console.log(`⚠️ [DanhSachBaoCaoTay] Could not normalize order_date: ${orderDate} for order ${order.order_code || order.id}`);
-                            return false;
-                        }
-                        
-                        // Compare with report date (already normalized to YYYY-MM-DD)
-                        const matches = normalizedOrderDate === reportDate;
-                        if (!matches && beforeDateFilter <= 10) {
-                            // Log first 10 mismatches for debugging
-                            console.log(`🔍 [DanhSachBaoCaoTay] Order ${order.order_code || order.id}: order_date="${orderDate}" → normalized="${normalizedOrderDate}" vs reportDate="${reportDate}" → ${matches ? 'MATCH' : 'NO MATCH'}`);
-                        }
-                        return matches;
-                    });
-                    
-                    console.log(`📊 [DanhSachBaoCaoTay] After order_date filter: ${matchingOrders.length} / ${beforeDateFilter} orders`);
-
-                    // Additional filtering for nhanvien_sale if report has name
-                    // API filter might not match exactly, so we do fuzzy matching
-                    if (report.name && report.name.trim()) {
-                        matchingOrders = matchingOrders.filter(order => {
-                            const orderSaleStaff = (order.nhanvien_sale || order.sale_staff || '').trim();
-                            if (!orderSaleStaff) return false;
-                            return namesMatch(orderSaleStaff, report.name);
-                        });
-                    }
-
-                    // Shift filtering removed - không lọc theo shift nữa
-
-                    // Additional filtering for product if needed
-                    if (report.product && report.product.trim()) {
-                        matchingOrders = matchingOrders.filter(order => {
-                            const orderProduct = (order.product || '').trim();
-                            if (!orderProduct) return false;
-                            return orderProduct === report.product.trim();
-                        });
-                    }
-
-                    // Additional filtering for market/country if needed
-                    if (report.market && report.market.trim()) {
-                        matchingOrders = matchingOrders.filter(order => {
-                            const orderCountry = (order.country || '').trim();
-                            if (!orderCountry) return false;
-                            return orderCountry === report.market.trim();
-                        });
-                    }
-
-                    const orderCount = matchingOrders.length;
-                    
-                    // Calculate number of cancelled orders (check_result = "Hủy")
-                    const cancelledOrders = matchingOrders.filter(order => {
-                        const checkResult = (order.check_result || '').trim();
-                        return checkResult === 'Hủy';
-                    });
-                    const orderCancelCount = cancelledOrders.length;
-                    
-                    // Calculate number of "go" orders (có Mã Tracking khác rỗng và không hủy)
-                    const goOrders = matchingOrders.filter(order => {
-                        const trackingCode = (order.tracking_code || order.trackingCode || order.tracking || order.ma_tracking || order.maTracking || '').trim();
-                        const checkResult = (order.check_result || '').trim();
-                        return trackingCode !== '' && checkResult !== 'Hủy';
-                    });
-                    const orderGoCount = goOrders.length;
-                    
-                    // Calculate total revenue from cancelled orders (revenue_cancel_actual)
-                    const revenueCancelActual = cancelledOrders.reduce((sum, order) => {
-                        const revenue = parseFloat(
-                            order.total_amount_vnd || 
-                            order.total_vnd || 
-                            order.tongtien || 
-                            order.revenue_vnd ||
-                            order.total_amount ||
-                            order.amount ||
-                            0
-                        );
-                        return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
-                    }, 0);
-                    
-                    // Calculate total revenue from "go" orders (revenue_go_actual)
-                    const revenueGoActual = goOrders.reduce((sum, order) => {
-                        const revenue = parseFloat(
-                            order.total_amount_vnd || 
-                            order.total_vnd || 
-                            order.tongtien || 
-                            order.revenue_vnd ||
-                            order.total_amount ||
-                            order.amount ||
-                            0
-                        );
-                        return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
-                    }, 0);
-                    
-                    // Calculate total revenue from all matching orders
-                    // Try multiple field names that API might return
-                    const totalRevenue = matchingOrders.reduce((sum, order) => {
-                        const revenue = parseFloat(
-                            order.total_amount_vnd || 
-                            order.total_vnd || 
-                            order.tongtien || 
-                            order.revenue_vnd ||
-                            order.total_amount ||
-                            order.amount ||
-                            0
-                        );
-                        return sum + (isNaN(revenue) || !isFinite(revenue) ? 0 : revenue);
-                    }, 0);
-
-                    // Ensure revenue is a valid number (not NaN, Infinity, etc.)
-                    const validRevenue = isNaN(totalRevenue) || !isFinite(totalRevenue) ? 0 : Number(totalRevenue);
-                    const validRevenueCancel = isNaN(revenueCancelActual) || !isFinite(revenueCancelActual) ? 0 : Number(revenueCancelActual);
-                    const validRevenueGo = isNaN(revenueGoActual) || !isFinite(revenueGoActual) ? 0 : Number(revenueGoActual);
-                    const validOrderCount = Number(orderCount) || 0;
-                    const validOrderCancelCount = Number(orderCancelCount) || 0;
-                    const validOrderGoCount = Number(orderGoCount) || 0;
-
-                    console.log(`📊 [DanhSachBaoCaoTay] Report ${report.id}: ${validOrderCount} orders, ${validOrderCancelCount} cancelled, ${validOrderGoCount} go, revenue: ${validRevenue}, revenue_cancel: ${validRevenueCancel}, revenue_go: ${validRevenueGo}`);
-
-                    // Update order_count, order_cancel_count, order_go, revenue_actual, revenue_cancel_actual and revenue_go_actual in database
-                    const updateData = { 
-                        order_count: validOrderCount,
-                        order_cancel_count: validOrderCancelCount,
-                        order_go: validOrderGoCount,
-                        revenue_actual: validRevenue,
-                        revenue_cancel_actual: validRevenueCancel,
-                        revenue_go_actual: validRevenueGo
-                    };
-                    
-                    // Try to update all fields, handle missing columns gracefully
-                    let { error } = await supabase
-                        .from(reportTable)
-                        .update(updateData)
-                        .eq('id', report.id);
-
-                    // If error is about missing column, try with fewer fields
-                    if (error && error.code === 'PGRST204') {
-                        const missingColumn = error.message?.match(/column '(\w+)'/)?.[1];
-                        console.log(`⚠️ [DanhSachBaoCaoTay] Column '${missingColumn}' not found, trying with fewer fields`);
-                        
-                        // Try with only order_count and order_cancel_count
-                        const { error: retryError } = await supabase
-                            .from(reportTable)
-                            .update({ 
-                                order_count: validOrderCount,
-                                order_cancel_count: validOrderCancelCount
-                            })
-                            .eq('id', report.id);
-                        
-                        if (retryError) {
-                            // Last resort: only order_count
-                            const { error: finalError } = await supabase
-                                .from(reportTable)
-                                .update({ order_count: validOrderCount })
-                                .eq('id', report.id);
-                            
-                            if (finalError) {
-                                console.error(`❌ Error updating report ${report.id}:`, finalError);
-                                errorCount++;
-                            } else {
-                                updatedCount++;
-                                console.log(`✅ Updated report ${report.id}: ${validOrderCount} orders`);
-                            }
-                        } else {
-                            // Try to update revenue_actual and revenue_cancel_actual separately if columns exist
-                            const { error: revenueError } = await supabase
-                                .from(reportTable)
-                                .update({ revenue_actual: validRevenue })
-                                .eq('id', report.id);
-                            
-                            if (revenueError && revenueError.code !== 'PGRST204') {
-                                console.error(`❌ Error updating revenue_actual for report ${report.id}:`, revenueError);
-                            }
-                            
-                            const { error: revenueCancelError } = await supabase
-                                .from(reportTable)
-                                .update({ revenue_cancel_actual: validRevenueCancel })
-                                .eq('id', report.id);
-                            
-                            if (revenueCancelError && revenueCancelError.code !== 'PGRST204') {
-                                console.error(`❌ Error updating revenue_cancel_actual for report ${report.id}:`, revenueCancelError);
-                            }
-                            
-                            const { error: revenueGoError } = await supabase
-                                .from(reportTable)
-                                .update({ revenue_go_actual: validRevenueGo })
-                                .eq('id', report.id);
-                            
-                            if (revenueGoError && revenueGoError.code !== 'PGRST204') {
-                                console.error(`❌ Error updating revenue_go_actual for report ${report.id}:`, revenueGoError);
-                            }
-                            
-                            updatedCount++;
-                            console.log(`✅ Updated report ${report.id}: ${validOrderCount} orders, ${validOrderCancelCount} cancelled, ${validOrderGoCount} go`);
-                        }
-                    } else if (error) {
-                        console.error(`❌ Error updating report ${report.id}:`, error);
-                        errorCount++;
-                    } else {
-                        updatedCount++;
-                        console.log(`✅ Updated report ${report.id}: ${validOrderCount} orders, ${validOrderCancelCount} cancelled, ${validOrderGoCount} go, revenue: ${validRevenue} VNĐ, revenue_cancel: ${validRevenueCancel} VNĐ, revenue_go: ${validRevenueGo} VNĐ`);
-                    }
-
-                    // Small delay to avoid overwhelming the database
-                    if (i % 10 === 0) {
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                    }
-                } catch (error) {
-                    console.error(`❌ Error processing report ${report.id}:`, error);
-                    errorCount++;
-                }
-            }
-
-            toast.success(
-                `Đã cập nhật thành công ${updatedCount}/${reportsToProcess.length} báo cáo!` +
-                (errorCount > 0 ? ` (${errorCount} lỗi)` : '')
-            );
-
-            // Refresh data
-            fetchData();
-        } catch (error) {
-            console.error('❌ [DanhSachBaoCaoTay] Error calculating orders:', error);
-            toast.error('Lỗi khi tính toán số đơn: ' + error.message);
-        } finally {
-            setUpdatingOrders(false);
-            setUpdateProgress({ current: 0, total: 0 });
-        }
-    };
-
 
     const availablePersonnelOptions = useMemo(
         () => [...new Set((manualReports || []).map((item) => String(item?.name || '').trim()).filter(Boolean))]
@@ -2074,7 +1817,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                     <button
                                         type="button"
                                         onClick={handleSyncTeamFromUsers}
-                                        disabled={teamSyncing || loading || updatingOrders || reportsAfterPersonnelFilter.length === 0}
+                                        disabled={teamSyncing || loading || reportsAfterPersonnelFilter.length === 0}
                                         className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md text-sm font-bold transition shadow-sm"
                                         title="Cập nhật Team & Chi nhánh trên các dòng đang hiển thị theo bảng users (name / username)"
                                     >
@@ -2090,7 +1833,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                     <button
                                         type="button"
                                         onClick={handleNormalizeCskhLyTeamToHn}
-                                        disabled={normalizingCskhLyTeam || loading || updatingOrders}
+                                        disabled={normalizingCskhLyTeam || loading}
                                         className="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:bg-gray-400 text-white rounded-md text-sm font-semibold transition shadow-sm"
                                         title={`Tìm team CSKH-Lý / CSKH- Lý → đổi thành ${CSKH_HN_TEAM_CANONICAL} (sales_reports, users${isHcm ? ', sale_report_hcm' : ''})`}
                                     >
@@ -2110,7 +1853,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             disabled={
                                                 fixingUsMarket ||
                                                 loading ||
-                                                updatingOrders ||
                                                 normalizingCskhLyTeam ||
                                                 teamSyncing
                                             }
@@ -2131,14 +1873,43 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                             )}
                         </div>
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            {isAdminOnly && (
+                                <button
+                                    type="button"
+                                    onClick={handleCalculateAndUpdateOrders}
+                                    disabled={
+                                        updatingOrders ||
+                                        loading ||
+                                        backingUp ||
+                                        removingDuplicates ||
+                                        teamSyncing ||
+                                        normalizingCskhLyTeam ||
+                                        fixingUsMarket
+                                    }
+                                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    title="Tính từ Supabase đơn + cập nhật báo cáo tay — giống Admin Tools (cài đặt)"
+                                >
+                                    {updatingOrders ? (
+                                        <>
+                                            <RefreshCw className="w-4 h-4 animate-spin" />
+                                            Đang tính... ({updateProgress.current}/{updateProgress.total})
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Calculator className="w-4 h-4" />
+                                            Tính toán dữ liệu
+                                        </>
+                                    )}
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 onClick={handleBackupFilteredToSalesReportsBackup}
                                 disabled={
                                     backingUp ||
                                     loading ||
-                                    updatingOrders ||
-                                    reportsAfterPersonnelFilter.length === 0
+                                    reportsAfterPersonnelFilter.length === 0 ||
+                                    updatingOrders
                                 }
                                 className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
                                 title={`Ghi các dòng đang hiển thị (theo bộ lọc) vào ${SALES_REPORTS_BACKUP_TABLE}`}
@@ -2158,28 +1929,14 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                             {isAdminOnly && (
                                 <>
                                     <button
-                                        onClick={handleCalculateAndUpdateOrders}
-                                        disabled={updatingOrders || loading || manualReports.length === 0}
-                                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                        title="Tính và cập nhật số đơn cho tất cả báo cáo trong khoảng thời gian đã chọn"
-                                    >
-                                        {updatingOrders ? (
-                                            <>
-                                                <RefreshCw className="w-4 h-4 animate-spin" />
-                                                Đang tính... ({updateProgress.current}/{updateProgress.total})
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Calculator className="w-4 h-4" />
-                                                Tính số đơn (như Sale)
-                                            </>
-                                        )}
-                                    </button>
-
-                                    <button
                                         type="button"
                                         onClick={handleRemoveDuplicateReports}
-                                        disabled={removingDuplicates || loading || updatingOrders || reportsAfterPersonnelFilter.length === 0}
+                                        disabled={
+                                            removingDuplicates ||
+                                            loading ||
+                                            reportsAfterPersonnelFilter.length === 0 ||
+                                            updatingOrders
+                                        }
                                         className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
                                         title="Xóa hết dòng Giữa ca; với phần còn lại gộp trùng (không tính Ca), giữ bản mới nhất"
                                     >
