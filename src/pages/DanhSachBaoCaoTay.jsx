@@ -6,7 +6,6 @@ import usePermissions from '../hooks/usePermissions';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../services/supabaseClient';
-import { isSalesReportUserSuppliedRowId } from '../utils/salesReportRowId';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -226,28 +225,6 @@ function filterOrdersMatchingSaleReport(matchingOrders, reportDateYmd, report, n
     return orders;
 }
 
-/**
- * Dedupe key: cùng ngày + người + SP + TT + team — KHÔNG tính cột Ca (shift).
- * Dùng chung với logic nút "Xóa bản ghi trùng" (giống trang CSKH).
- */
-function reportBusinessDedupeKey(r) {
-    const d = r.date ? String(r.date).split('T')[0] : '';
-    const name = String(r.name ?? '')
-        .trim()
-        .replace(/\s+/g, ' ')
-        .toLowerCase();
-    const product = String(r.product ?? '').trim().toLowerCase();
-    const market = String(r.market ?? '').trim().toLowerCase();
-    const team = String(r.team ?? '').trim();
-    return `${d}|${name}|${product}|${market}|${team}`;
-}
-
-function isGiuaCaShift(shift) {
-    const s = String(shift ?? '').trim().toLowerCase();
-    const sn = s.normalize('NFD').replace(/\p{M}/gu, '');
-    return (s.includes('giữa') && s.includes('ca')) || (sn.includes('giua') && sn.includes('ca'));
-}
-
 /** Trang báo cáo tay HCM: hiển thị team + chi nhánh khi có dữ liệu. */
 function formatHcmReportTeamCell(row) {
     const team = String(row?.team ?? '').trim();
@@ -351,12 +328,12 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const [editingReport, setEditingReport] = useState(null);
     const [editForm, setEditForm] = useState({});
     const [saving, setSaving] = useState(false);
+    const [savingMessId, setSavingMessId] = useState(null);
     const [deletingId, setDeletingId] = useState(null);
 
     const [teamSyncing, setTeamSyncing] = useState(false);
     const [normalizingCskhLyTeam, setNormalizingCskhLyTeam] = useState(false);
     const [fixingUsMarket, setFixingUsMarket] = useState(false);
-    const [removingDuplicates, setRemovingDuplicates] = useState(false);
     const [backingUp, setBackingUp] = useState(false);
     const [updatingOrders, setUpdatingOrders] = useState(false);
     const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
@@ -889,92 +866,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         }
     };
 
-    /**
-     * Xóa trùng:
-     * - Xóa hết Ca = Giữa ca
-     * - Với các bản không phải Giữa ca: gộp trùng theo (date + name + product + market + team).
-     *   Nếu trong nhóm có ít nhất một dòng id do người dùng/ghi tay (số serial) → chỉ xóa các dòng id hệ thống (UUID…).
-     *   Nếu cả nhóm đều id hệ thống → giữ bản mới nhất (created_at), xóa các bản còn lại.
-     */
-    const handleRemoveDuplicateReports = async () => {
-        if (!reportsAfterPersonnelFilter.length) {
-            toast.error('Không có dữ liệu trong danh sách hiện tại.');
-            return;
-        }
-
-        const toDeleteSet = new Set();
-
-        // 1) Luôn xóa toàn bộ dòng Giữa ca
-        for (const r of reportsAfterPersonnelFilter) {
-            if (!r?.id) continue;
-            if (isGiuaCaShift(r.shift)) toDeleteSet.add(r.id);
-        }
-
-        // 2) Dedupe phần không phải Giữa ca
-        const nonGiua = reportsAfterPersonnelFilter.filter((r) => r?.id && !isGiuaCaShift(r.shift));
-        const byKey = new Map();
-        for (const r of nonGiua) {
-            const k = reportBusinessDedupeKey(r);
-            if (!byKey.has(k)) byKey.set(k, []);
-            byKey.get(k).push(r);
-        }
-
-        for (const [, rows] of byKey) {
-            if (rows.length < 2) continue;
-            const hasUserId = rows.some((r) => isSalesReportUserSuppliedRowId(r.id));
-            if (hasUserId) {
-                for (const r of rows) {
-                    if (!isSalesReportUserSuppliedRowId(r.id)) toDeleteSet.add(r.id);
-                }
-                continue;
-            }
-            const sorted = [...rows].sort((a, b) => {
-                const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-                const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-                if (tb !== ta) return tb - ta;
-                return String(b.id).localeCompare(String(a.id));
-            });
-            sorted.slice(1).forEach((r) => toDeleteSet.add(r.id));
-        }
-
-        const toDelete = [...toDeleteSet];
-        if (toDelete.length === 0) {
-            toast.info('Không có bản Giữa ca và không có cặp trùng trong các bản còn lại.');
-            return;
-        }
-
-        if (
-            !window.confirm(
-                `Sẽ xóa ${toDelete.length} bản ghi (trong ${reportsAfterPersonnelFilter.length} dòng hiện tại).\n\n` +
-                    '• Xóa toàn bộ dòng có Ca = Giữa ca.\n' +
-                    '• Trong phần không phải Giữa ca: gộp trùng (cùng ngày, người, SP, TT, team). ' +
-                    'Có dòng id số (ghi tay): chỉ xóa bản trùng có id hệ thống (UUID). ' +
-                    'Không có id số: giữ bản mới nhất, xóa các bản còn lại.\n\n' +
-                    'Tiếp tục?'
-            )
-        ) {
-            return;
-        }
-
-        setRemovingDuplicates(true);
-        try {
-            const BATCH = 500;
-            for (let i = 0; i < toDelete.length; i += BATCH) {
-                const batch = toDelete.slice(i, i + BATCH);
-                const { error } = await supabase.from(reportTable).delete().in('id', batch);
-                if (error) throw error;
-            }
-
-            toast.success(`Đã xóa ${toDelete.length} bản ghi (Giữa ca + trùng).`);
-            fetchData(); // Refresh after deleting duplicates
-        } catch (e) {
-            console.error('handleRemoveDuplicateReports:', e);
-            toast.error('Lỗi khi xóa trùng: ' + (e.message || String(e)));
-        } finally {
-            setRemovingDuplicates(false);
-        }
-    };
-
     // Load options for edit form (phải đặt trước early return)
     useEffect(() => {
         const loadEditOptions = async () => {
@@ -1104,6 +995,25 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
             alert('Lỗi cập nhật: ' + error.message);
         } finally {
             setSaving(false);
+        }
+    };
+
+    const saveMessCountInline = async (reportId, nextCount) => {
+        if (reportId == null) return;
+        setSavingMessId(reportId);
+        try {
+            const { error } = await supabase
+                .from(reportTable)
+                .update({ mess_count: nextCount })
+                .eq('id', reportId);
+            if (error) throw error;
+            await fetchData();
+        } catch (error) {
+            console.error('Error updating mess_count:', error);
+            toast.error('Lỗi cập nhật Số mess: ' + (error.message || String(error)));
+            await fetchData();
+        } finally {
+            setSavingMessId(null);
         }
     };
 
@@ -1881,7 +1791,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                         updatingOrders ||
                                         loading ||
                                         backingUp ||
-                                        removingDuplicates ||
                                         teamSyncing ||
                                         normalizingCskhLyTeam ||
                                         fixingUsMarket
@@ -1926,31 +1835,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                     </>
                                 )}
                             </button>
-                            {isAdminOnly && (
-                                <>
-                                    <button
-                                        type="button"
-                                        onClick={handleRemoveDuplicateReports}
-                                        disabled={
-                                            removingDuplicates ||
-                                            loading ||
-                                            reportsAfterPersonnelFilter.length === 0 ||
-                                            updatingOrders
-                                        }
-                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                        title="Xóa hết dòng Giữa ca; với phần còn lại gộp trùng (không tính Ca), giữ bản mới nhất"
-                                    >
-                                        {removingDuplicates ? (
-                                            <>
-                                                <span className="animate-spin">⏳</span>
-                                                Đang xóa trùng...
-                                            </>
-                                        ) : (
-                                            <>Xóa bản ghi trùng</>
-                                        )}
-                                    </button>
-                                </>
-                            )}
                         </div>
                     </div>
 
@@ -2197,7 +2081,35 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             <td>{isHcm ? formatHcmReportTeamCell(item) || '—' : item.team}</td>
                                             <td>{item.product}</td>
                                             <td>{item.market}</td>
-                                            <td>{formatNumber(item.mess_count)}</td>
+                                            <td className="align-middle">
+                                                {item._sourceCount > 1 ? (
+                                                    formatNumber(item.mess_count)
+                                                ) : (
+                                                    <input
+                                                        key={`mess-${item.id}-${item.mess_count}`}
+                                                        type="number"
+                                                        min={0}
+                                                        step={1}
+                                                        className="w-full min-w-[4.5rem] max-w-[6.5rem] border border-gray-300 rounded px-1.5 py-0.5 text-sm text-right"
+                                                        defaultValue={Number(item.mess_count) || 0}
+                                                        disabled={savingMessId === item.id}
+                                                        title="Sửa trực tiếp; nhấn Enter hoặc ra khỏi ô để lưu"
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                e.currentTarget.blur();
+                                                            }
+                                                        }}
+                                                        onBlur={(e) => {
+                                                            const next = Number(e.target.value);
+                                                            const parsed = Number.isFinite(next) ? Math.max(0, Math.floor(next)) : 0;
+                                                            const prev = Number(item.mess_count) || 0;
+                                                            if (parsed === prev) return;
+                                                            void saveMessCountInline(item.id, parsed);
+                                                        }}
+                                                    />
+                                                )}
+                                            </td>
                                             <td>{formatNumber(item.response_count)}</td>
                                             <td>{formatNumber(item.order_count)}</td>
                                             <td>{formatNumber(item.order_cancel_count || 0)}</td>

@@ -13,6 +13,7 @@ import {
 import { formatBaoCaoVanDonStatusHistogram } from '../utils/baoCaoVanDonFormat';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
+import { resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
 import * as ApiService from '../services/api';
 import { runChiaDonVanDon } from '../services/chiaDonVanDon';
 
@@ -52,6 +53,26 @@ export const getSystemSettings = () => {
 };
 
 const GLOBAL_SETTINGS_ID = 'global_config';
+
+const CSKH_ORDER_TABLE_HN = 'orders';
+const CSKH_ORDER_TABLE_HCM = 'order_code_hcm';
+
+function normalizeVietnamesePaymentLabel(s) {
+    return String(s ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .replace(/\s+/g, ' ');
+}
+
+/** Trạng thái thanh toán: ưu tiên payment_status_detail, fallback payment_status — khớp "Có Bill" (không phân biệt hoa thường/dấu). */
+function orderTrangThaiThanhToanIsCoBill(order) {
+    return (
+        normalizeVietnamesePaymentLabel(resolveTrangThaiThuTienFromOrder(order)) ===
+        normalizeVietnamesePaymentLabel('Có Bill')
+    );
+}
 
 const AdminTools = () => {
     const { canView } = usePermissions();
@@ -1724,7 +1745,7 @@ const AdminTools = () => {
         }
     };
 
-    const handlePhanBoDonHang = async () => {
+    async function runPhanBoCskhOrders(ordersTable, { requireCoBillPayment = false } = {}) {
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
         setNotDividedOrders([]);
@@ -1740,17 +1761,24 @@ const AdminTools = () => {
             const startDate = new Date(year, month - 1, 1);
             const endDate = new Date(year, month, 0, 23, 59, 59);
 
-            // Lấy tất cả đơn hàng thỏa điều kiện (filter theo tháng được chọn)
-            // Lưu ý: Bỏ điều kiện accountant_confirm để có thể chia đơn ngay cả khi chưa có xác nhận
-            const { data: orders, error: ordersError } = await supabase
-                .from('orders')
+            const { data: ordersRaw, error: ordersError } = await supabase
+                .from(ordersTable)
                 .select('*')
                 .eq('team', selectedTeam)
-                // .eq('accountant_confirm', 'Đã thu tiền') // Đã bỏ để có thể chia đơn ngay
                 .gte('order_date', startDate.toISOString().split('T')[0])
                 .lte('order_date', endDate.toISOString().split('T')[0]);
 
             if (ordersError) throw ordersError;
+
+            let orders = ordersRaw;
+            if (requireCoBillPayment) {
+                orders = (ordersRaw || []).filter(orderTrangThaiThanhToanIsCoBill);
+                if (!orders.length && (ordersRaw || []).length > 0) {
+                    toast.info(
+                        'Không có đơn nào có Trạng thái thanh toán = "Có Bill" (payment_status_detail / payment_status) trong khoảng đã chọn.'
+                    );
+                }
+            }
 
             // --- Bước bổ sung: Điền chi nhánh (team) cho đơn hàng trống ---
             const ordersWithoutTeam = orders?.filter(o => !o.team || o.team.toString().trim() === '') || [];
@@ -1758,7 +1786,6 @@ const AdminTools = () => {
             if (ordersWithoutTeam.length > 0) {
                 console.log(`🔍 [Chia đơn CSKH] Có ${ordersWithoutTeam.length} đơn chưa có chi nhánh (team), đang điền lại...`);
 
-                // Lấy danh sách users để tra cứu branch theo tên
                 const { data: allUsers, error: usersError } = await supabase
                     .from('users')
                     .select('name, branch');
@@ -1781,7 +1808,6 @@ const AdminTools = () => {
                                 order_code: order.order_code,
                                 team: nameToBranch[saleName]
                             });
-                            // Cập nhật luôn trong array orders để logic phía sau dùng đúng
                             order.team = nameToBranch[saleName];
                         }
                     });
@@ -1793,7 +1819,7 @@ const AdminTools = () => {
                             const chunk = branchUpdates.slice(i, i + CHUNK_SIZE);
                             const updatePromises = chunk.map(u =>
                                 supabase
-                                    .from('orders')
+                                    .from(ordersTable)
                                     .update({ team: u.team })
                                     .eq('order_code', u.order_code)
                             );
@@ -1807,30 +1833,25 @@ const AdminTools = () => {
                 }
             }
 
-            // Filter: Chỉ chia các đơn có cột CSKH trống
             const eligibleOrders = orders?.filter(order => {
                 const hasCSKH = order.cskh && order.cskh.toString().trim() !== '';
-                return !hasCSKH; // Chỉ kiểm tra CSKH trống, không quan tâm cutoff
+                return !hasCSKH;
             }) || [];
 
-            // Helper function: Lấy tháng từ order_date (format: YYYY-MM)
             const getMonthKey = (orderDate) => {
                 if (!orderDate) return null;
                 const date = new Date(orderDate);
                 if (isNaN(date.getTime())) return null;
-                const year = date.getFullYear();
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                return `${year}-${month}`;
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                return `${y}-${m}`;
             };
 
-            // Đếm số đơn hiện tại của mỗi nhân viên THEO TỪNG THÁNG
-            // counter[staffName][monthKey] = số đơn
             const counter = {};
             staffList.forEach(name => {
                 counter[name] = {};
             });
 
-            // Đếm đơn đã có CSKH (không phải Sale tự chăm) - theo tháng
             orders?.forEach(order => {
                 const cskh = order.cskh?.toString().trim();
                 const sale = order.sale_staff?.toString().trim();
@@ -1841,14 +1862,12 @@ const AdminTools = () => {
                 }
             });
 
-            // Xử lý đơn Sale tự chăm
             const waitingRows = [];
             const updates = [];
 
             eligibleOrders.forEach(order => {
                 const sale = order.sale_staff?.toString().trim();
 
-                // Nếu Sale là CSKH -> tự chăm
                 if (sale && staffList.includes(sale)) {
                     updates.push({
                         order_code: order.order_code,
@@ -1859,7 +1878,6 @@ const AdminTools = () => {
                 }
             });
 
-            // Chia đều các đơn còn lại - THEO THÁNG của Ngày lên đơn
             waitingRows.forEach(order => {
                 const monthKey = getMonthKey(order.order_date);
                 if (!monthKey) {
@@ -1871,7 +1889,6 @@ const AdminTools = () => {
                 let minVal = Infinity;
 
                 staffList.forEach(name => {
-                    // Đếm số đơn của nhân viên này trong tháng này
                     const val = counter[name][monthKey] || 0;
                     if (val < minVal) {
                         minVal = val;
@@ -1884,19 +1901,17 @@ const AdminTools = () => {
                         order_code: order.order_code,
                         cskh: selectedName
                     });
-                    // Tăng counter cho tháng này
                     counter[selectedName][monthKey] = (counter[selectedName][monthKey] || 0) + 1;
                 }
             });
 
-            // Cập nhật database
             if (updates.length > 0) {
                 const CHUNK_SIZE = 50;
                 for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
                     const chunk = updates.slice(i, i + CHUNK_SIZE);
                     const updatePromises = chunk.map(update =>
                         supabase
-                            .from('orders')
+                            .from(ordersTable)
                             .update({ cskh: update.cskh })
                             .eq('order_code', update.order_code)
                     );
@@ -1904,7 +1919,13 @@ const AdminTools = () => {
                 }
             }
 
-            const message = `✅ Phân bổ đơn hàng thành công!\n\n` +
+            const tableHint =
+                ordersTable === CSKH_ORDER_TABLE_HCM
+                    ? '\n- Nguồn: bảng order_code_hcm; chỉ đơn có Trạng thái thanh toán = \"Có Bill\" (ưu tiên payment_status_detail).'
+                    : '';
+
+            const message =
+                `✅ Phân bổ đơn hàng thành công!${tableHint}\n\n` +
                 `- Tổng đơn đã xử lý: ${updates.length}\n` +
                 `- Đơn Sale tự chăm: ${updates.filter(u => orders?.find(o => o.order_code === u.order_code)?.sale_staff === u.cskh).length}\n` +
                 `- Đơn được chia mới: ${updates.length - updates.filter(u => orders?.find(o => o.order_code === u.order_code)?.sale_staff === u.cskh).length}\n` +
@@ -1913,12 +1934,20 @@ const AdminTools = () => {
             setAutoAssignResult({ success: true, message });
             toast.success(`Đã phân bổ ${updates.length} đơn hàng!`);
         } catch (error) {
-            console.error('Error in handlePhanBoDonHang:', error);
+            console.error('Error in runPhanBoCskhOrders:', error);
             setAutoAssignResult({ success: false, message: `Lỗi: ${error.message}` });
             toast.error('Lỗi phân bổ đơn hàng: ' + error.message);
         } finally {
             setAutoAssignLoading(false);
         }
+    }
+
+    const handlePhanBoDonHang = async () => {
+        await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HN, { requireCoBillPayment: false });
+    };
+
+    const handlePhanBoDonHangCskhHcm = async () => {
+        await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, { requireCoBillPayment: true });
     };
 
     const handleHachToanBaoCao = async () => {

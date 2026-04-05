@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { ArrowLeft, RefreshCw, Plus, X, Settings, RotateCw, Download, Upload, Eye, Trash2 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, RefreshCw, Plus, X, RotateCw, Download, Upload, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 import * as XLSX from 'xlsx';
 
@@ -18,13 +18,13 @@ const BILL_TIEN_COLUMNS = [
 ];
 
 // Cước: theo mẫu — bỏ Tiền cước / Đơn vị tiền / Tỷ giá / Thị trường (không nhập, không import Excel)
-// Lọc trùng: hệ thống đếm trùng mã đơn, báo đỏ, không nhập từ Excel
+// Đếm lần thanh toán: số dòng cùng mã đơn trên bảng (pending), giống quy tắc Bill; ô đỏ nếu > 1
 // Chi nhánh: tự link từ orders.team, không nhập từ Excel
 const CUOC_COLUMNS = [
   { key: 'ma_don_hang', label: 'Mã đơn hàng' },
   { key: 'ngay_doi_soat_cuoc', label: 'Ngày đối soát cước' },
   { key: 'tien_ship_vnd', label: 'Tiền ship (Vnđ)' },
-  { key: 'loc_trung', label: 'Lọc trùng', computed: true },
+  { key: 'dem_lan_thanh_toan', label: 'Đếm lần thanh toán', computed: true },
   { key: 'chi_nhanh', label: 'Chi nhánh', computed: true },
 ];
 
@@ -77,6 +77,13 @@ function sheetToJsonCuocImport(ws) {
 function normalizeCuocMaDon(code) {
   if (code == null || code === '') return '';
   return String(code).trim();
+}
+
+/** Mã đơn cước trên bảng (ưu tiên pending), đã normalize trim. */
+function getEffectiveCuocMaDonHang(row, pendingChanges) {
+  const pendRow = pendingChanges.get(row.id);
+  const v = pendRow?.has('ma_don_hang') ? pendRow.get('ma_don_hang') : row.ma_don_hang;
+  return normalizeCuocMaDon(v);
 }
 
 /** Mã tracking hiện trên bảng bill (ưu tiên pending). */
@@ -177,7 +184,6 @@ async function fetchOrderCodesByTrackingMap(supabaseClient, trackingKeys) {
 }
 
 function DoiSoatBillCuoc() {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('bill'); // 'bill' or 'cuoc'
   const [billData, setBillData] = useState([]);
   const [cuocData, setCuocData] = useState([]);
@@ -221,6 +227,24 @@ function DoiSoatBillCuoc() {
       };
     });
   }, [billData, pendingChanges]);
+
+  /** Đếm lần thanh toán (cước): số dòng cùng mã đơn trên bảng đang hiện + pending — cùng quy tắc cột Bill. */
+  const cuocDataWithTableDemLan = useMemo(() => {
+    const rows = cuocData || [];
+    const counts = {};
+    rows.forEach((r) => {
+      const k = getEffectiveCuocMaDonHang(r, pendingChanges);
+      if (k) counts[k] = (counts[k] || 0) + 1;
+    });
+    return rows.map((row) => {
+      const k = getEffectiveCuocMaDonHang(row, pendingChanges);
+      const n = k ? counts[k] : 0;
+      return {
+        ...row,
+        dem_lan_thanh_toan: k ? n : null,
+      };
+    });
+  }, [cuocData, pendingChanges]);
 
   // Load data từ chi_tiet_bill_tien — truyền syncCutoff (ISO) khi vừa đồng bộ để tránh stale state
   const loadBillData = async (syncCutoff) => {
@@ -385,15 +409,6 @@ function DoiSoatBillCuoc() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      
-      // Đếm số lần lặp lại của mỗi mã đơn hàng (chuẩn hóa trim để khớp Excel / DB)
-      const orderCodeCounts = {};
-      (data || []).forEach((row) => {
-        const orderCode = normalizeCuocMaDon(row.ma_don_hang);
-        if (orderCode) {
-          orderCodeCounts[orderCode] = (orderCodeCounts[orderCode] || 0) + 1;
-        }
-      });
 
       // Lấy danh sách mã đơn hàng để tìm chi nhánh từ bảng orders
       const orderCodes = [...new Set((data || []).map((row) => normalizeCuocMaDon(row.ma_don_hang)).filter(Boolean))];
@@ -423,21 +438,13 @@ function DoiSoatBillCuoc() {
       
       let processedData = (data || []).map((row) => {
         const updatedRow = { ...row };
-
         const orderCode = normalizeCuocMaDon(row.ma_don_hang);
-        if (orderCode && orderCodeCounts[orderCode] > 1) {
-          updatedRow.loc_trung = orderCodeCounts[orderCode];
-        } else {
-          updatedRow.loc_trung = null;
-        }
-
         if (orderCode) {
           const branch = ordersMap.get(orderCode);
           if (branch) {
             updatedRow.chi_nhanh = branch;
           }
         }
-
         return updatedRow;
       });
 
@@ -607,7 +614,7 @@ function DoiSoatBillCuoc() {
 
   const getCurrentData = () => {
     const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
-    return isBillTab ? billDataWithTableDemLan : cuocData;
+    return isBillTab ? billDataWithTableDemLan : cuocDataWithTableDemLan;
   };
 
   const getCurrentColumns = () => {
@@ -771,7 +778,14 @@ function DoiSoatBillCuoc() {
         if (col.computed) continue;
 
         // Skip read-only fields
-        if (colKey === 'id' || colKey === 'created_at' || colKey === 'updated_at' || colKey === 'loc_trung') continue;
+        if (
+          colKey === 'id' ||
+          colKey === 'created_at' ||
+          colKey === 'updated_at' ||
+          colKey === 'dem_lan_thanh_toan'
+        ) {
+          continue;
+        }
 
         // Determine source col:
         // - If data has 1 col, use it for all target cols (repeat value)
@@ -969,9 +983,11 @@ function DoiSoatBillCuoc() {
 
   useEffect(() => {
     if (!cuocDupDetailKey) return;
-    const n = cuocData.filter((r) => normalizeCuocMaDon(r.ma_don_hang) === cuocDupDetailKey).length;
+    const n = cuocDataWithTableDemLan.filter(
+      (r) => getEffectiveCuocMaDonHang(r, pendingChanges) === cuocDupDetailKey
+    ).length;
     if (n === 0) setCuocDupDetailKey(null);
-  }, [cuocDupDetailKey, cuocData]);
+  }, [cuocDupDetailKey, cuocDataWithTableDemLan, pendingChanges]);
 
   // Xóa toàn bộ dữ liệu tạm của bill (staging), KHÔNG ảnh hưởng bảng orders
   const handleClearAllBillTemp = async () => {
@@ -1529,11 +1545,7 @@ function DoiSoatBillCuoc() {
       pendingChanges.forEach((rowChanges, rowId) => {
         const updateObj = { id: rowId };
         rowChanges.forEach((value, columnKey) => {
-          if (
-            columnKey !== 'loc_trung' &&
-            columnKey !== 'dem_lan_thanh_toan' &&
-            columnKey !== 'chi_nhanh'
-          ) {
+          if (columnKey !== 'dem_lan_thanh_toan' && columnKey !== 'chi_nhanh') {
             updateObj[columnKey] = value;
           }
         });
@@ -1702,7 +1714,12 @@ function DoiSoatBillCuoc() {
             const value = row[excelKey];
             
             // Bỏ qua các cột read-only
-            if (dbKey === 'id' || dbKey === 'created_at' || dbKey === 'updated_at' || dbKey === 'loc_trung') {
+            if (
+              dbKey === 'id' ||
+              dbKey === 'created_at' ||
+              dbKey === 'updated_at' ||
+              dbKey === 'dem_lan_thanh_toan'
+            ) {
               return;
             }
 
@@ -1756,7 +1773,6 @@ function DoiSoatBillCuoc() {
 
         if (tableName === 'chitiet_cuoc') {
           delete record.chi_nhanh;
-          delete record.loc_trung;
         }
 
         if (tableName === 'chi_tiet_bill_tien') {
@@ -1778,7 +1794,7 @@ function DoiSoatBillCuoc() {
           activeTab === 'bill' || activeTab === 'bill_view'
             ? 'Không có dòng hợp lệ: không map được cột nào từ Excel (kiểm tra tên cột theo mẫu Bill; Ngày đối soát / Đơn vị tiền không cần trong file — hệ thống tự gán / lấy từ đơn hàng).'
             : activeTab === 'cuoc' || activeTab === 'cuoc_view'
-              ? 'Không có dòng hợp lệ: mỗi dòng cước cần có Mã đơn hàng (các cột Tiền cước / Đơn vị / Tỷ giá / Thị trường / Lọc trùng / Chi nhánh không lấy từ Excel).'
+              ? 'Không có dòng hợp lệ: mỗi dòng cước cần có Mã đơn hàng (các cột Tiền cước / Đơn vị / Tỷ giá / Thị trường / Đếm lần thanh toán / Chi nhánh không lấy từ Excel).'
               : 'Không tìm thấy dữ liệu hợp lệ trong file Excel. Vui lòng kiểm tra lại định dạng file.'
         );
         setUploading(false);
@@ -2052,13 +2068,6 @@ function DoiSoatBillCuoc() {
                 Xóa tạm
               </button>
             </div>
-            <button
-              onClick={() => navigate('/quan-ly-ty-gia')}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm font-medium transition"
-            >
-              <Settings className="w-4 h-4" />
-              Cài đặt tỷ giá
-            </button>
             {((activeTab === 'bill' && !lastBillSyncTime) || (activeTab === 'cuoc' && !lastCuocSyncTime)) && (
               <>
                 <button
@@ -2193,7 +2202,7 @@ function DoiSoatBillCuoc() {
               {(activeTab === 'cuoc' || activeTab === 'cuoc_view') && (
                 <p className="text-sm text-gray-600 mt-2 max-w-4xl">
                   Cước: chỉ nhập Mã đơn hàng, Ngày đối soát cước, Tiền ship (Vnđ). Không dùng Excel cho Tiền cước / Đơn vị tiền /
-                  Tỷ giá / Thị trường. Lọc trùng: đếm số lần mã đơn xuất hiện trong chitiet_cuoc, ô đỏ nếu trùng; bấm mắt để xem chi tiết các dòng trùng. Chi nhánh: lấy từ đơn hàng.
+                  Tỷ giá / Thị trường. Đếm lần thanh toán: số lần cùng mã đơn trong bảng đang hiện (gồm chỉnh sửa chưa lưu); ô đỏ khi từ hai dòng trở lên cùng mã; bấm số để xem chi tiết và xóa dòng. Chi nhánh: lấy từ đơn hàng.
                 </p>
               )}
             </div>
@@ -2244,8 +2253,8 @@ function DoiSoatBillCuoc() {
                     
                     const isCuocDup =
                       (activeTab === 'cuoc' || activeTab === 'cuoc_view') &&
-                      row.loc_trung != null &&
-                      Number(row.loc_trung) > 1;
+                      row.dem_lan_thanh_toan != null &&
+                      Number(row.dem_lan_thanh_toan) > 1;
 
                     return (
                       <tr
@@ -2332,11 +2341,10 @@ function DoiSoatBillCuoc() {
                               col.key.includes('so_tien') ||
                               col.key.includes('ty_gia') ||
                               col.key.includes('cuoc') ||
-                              col.key === 'dem_lan_thanh_toan' ||
-                              col.key === 'loc_trung'
+                              col.key === 'dem_lan_thanh_toan'
                             ) {
                               formattedValue =
-                                col.key === 'dem_lan_thanh_toan' || col.key === 'loc_trung'
+                                col.key === 'dem_lan_thanh_toan'
                                   ? displayValue !== '' && displayValue != null
                                     ? String(displayValue)
                                     : ''
@@ -2397,31 +2405,33 @@ function DoiSoatBillCuoc() {
                                   >
                                     {formattedValue}
                                   </button>
-                                ) : col.key === 'loc_trung' &&
-                                (activeTab === 'cuoc' || activeTab === 'cuoc_view') &&
-                                displayValue !== '' &&
-                                displayValue != null &&
-                                Number(displayValue) > 1 ? (
-                                  <span className="inline-flex items-center gap-1.5">
-                                    <span className="text-red-600 font-semibold">{formattedValue}</span>
-                                    <button
-                                      type="button"
-                                      className="inline-flex shrink-0 rounded p-0.5 text-red-700 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-300"
-                                      title="Xem chi tiết các dòng trùng mã trong chitiet_cuoc"
-                                      aria-label="Xem chi tiết trùng mã"
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setCuocDupDetailKey(normalizeCuocMaDon(row.ma_don_hang));
-                                      }}
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </button>
-                                  </span>
+                                ) : (activeTab === 'cuoc' || activeTab === 'cuoc_view') &&
+                                col.key === 'dem_lan_thanh_toan' &&
+                                (() => {
+                                  const dupKey = getEffectiveCuocMaDonHang(row, pendingChanges);
+                                  const cnt =
+                                    displayValue !== '' && displayValue != null
+                                      ? Number(displayValue)
+                                      : NaN;
+                                  return dupKey && !Number.isNaN(cnt) && cnt >= 1;
+                                })() ? (
+                                  <button
+                                    type="button"
+                                    className="font-semibold text-blue-700 underline decoration-blue-400 underline-offset-2 hover:text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-0.5"
+                                    title="Xem các dòng cùng mã đơn trong bảng"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCuocDupDetailKey(getEffectiveCuocMaDonHang(row, pendingChanges));
+                                    }}
+                                  >
+                                    {formattedValue}
+                                  </button>
                                 ) : (
                                   <span
                                     className={
-                                      col.key === 'loc_trung' &&
+                                      col.key === 'dem_lan_thanh_toan' &&
+                                      (activeTab === 'cuoc' || activeTab === 'cuoc_view') &&
                                       displayValue !== '' &&
                                       displayValue != null &&
                                       Number(displayValue) > 1
@@ -2804,11 +2814,12 @@ function DoiSoatBillCuoc() {
                 Có{' '}
                 <strong>
                   {
-                    cuocData.filter((r) => normalizeCuocMaDon(r.ma_don_hang) === cuocDupDetailKey)
-                      .length
+                    cuocDataWithTableDemLan.filter(
+                      (r) => getEffectiveCuocMaDonHang(r, pendingChanges) === cuocDupDetailKey
+                    ).length
                   }
                 </strong>{' '}
-                dòng cùng mã (theo dữ liệu đã tải; có thể đã lọc sau đồng bộ Cước nếu có mốc thời gian).
+                dòng cùng mã (theo bảng hiện tại; gồm chỉnh sửa chưa lưu nếu có).
               </p>
               <table className="min-w-full text-left text-sm">
                 <thead>
@@ -2823,8 +2834,8 @@ function DoiSoatBillCuoc() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {cuocData
-                    .filter((r) => normalizeCuocMaDon(r.ma_don_hang) === cuocDupDetailKey)
+                  {cuocDataWithTableDemLan
+                    .filter((r) => getEffectiveCuocMaDonHang(r, pendingChanges) === cuocDupDetailKey)
                     .slice()
                     .sort((a, b) => {
                       const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -2833,10 +2844,11 @@ function DoiSoatBillCuoc() {
                     })
                     .map((r, i) => {
                       const canDelete = r.id != null;
+                      const mdhShow = getEffectiveCuocMaDonHang(r, pendingChanges);
                       return (
-                        <tr key={r.id ?? `${r.ma_don_hang}-${i}`} className="hover:bg-gray-50">
+                        <tr key={r.id ?? `${mdhShow}-${i}`} className="hover:bg-gray-50">
                           <td className="px-3 py-2 text-gray-500">{i + 1}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{r.ma_don_hang ?? '—'}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{mdhShow || '—'}</td>
                           <td className="px-3 py-2">
                             {r.ngay_doi_soat_cuoc != null && r.ngay_doi_soat_cuoc !== ''
                               ? String(r.ngay_doi_soat_cuoc)
