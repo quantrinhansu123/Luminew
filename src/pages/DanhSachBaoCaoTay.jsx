@@ -111,9 +111,9 @@ function formatHcmReportTeamCell(row) {
     return '';
 }
 
-/** Đổi tên hiển thị cột Người báo cáo (sales_reports.name) — nút tiện ích trên trang báo cáo tay Sale. */
-const RENAME_REPORTER_FROM_EMAIL = 'Congthien436@gmail.com';
-const RENAME_REPORTER_TO_NAME = 'Nguyễn Duy Đức';
+/** Các giá trị team cũ cần gộp về CSKH-HN (đồng bộ với supabase/manual/update_sales_reports_team_cskh_ly_to_cskh_hn.sql). */
+const CSKH_LY_TEAM_VARIANTS = ['CSKH- Lý', 'CSKH-Lý'];
+const CSKH_HN_TEAM_CANONICAL = 'CSKH-HN';
 
 export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const location = useLocation();
@@ -129,7 +129,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const hasManualListAccess = isHcm ? canView('SALE_MANUAL_HCM') : canView(permissionCode);
     const deniedPermissionLabel = isHcm ? 'SALE_MANUAL_HCM' : permissionCode;
 
-    /** Hai nút chỉnh team / đổi tên người báo cáo: chỉ role admin thật từ DB (không tin localStorage). */
+    /** Nút chỉnh team / chuẩn hoá CSKH-Lý: chỉ role admin thật từ DB (không tin localStorage). */
     const showBaoCaoTayAdminToolbarButtons = useMemo(() => {
         if (permissionsLoading) return false;
         if (role == null || String(role).trim() === '') return false;
@@ -205,7 +205,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const [updatingOrders, setUpdatingOrders] = useState(false);
     const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
     const [teamSyncing, setTeamSyncing] = useState(false);
-    const [renamingReporter, setRenamingReporter] = useState(false);
+    const [normalizingCskhLyTeam, setNormalizingCskhLyTeam] = useState(false);
     const [fixingUsMarket, setFixingUsMarket] = useState(false);
     const [removingDuplicates, setRemovingDuplicates] = useState(false);
 
@@ -1593,50 +1593,66 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         }
     }, [reportsAfterPersonnelFilter, fetchData, normalizeNameForUserTeamLookup, reportTable]);
 
-    /** Đổi toàn bộ báo cáo tay + orders có tên/email cũ -> tên hiển thị mới. */
-    const handleRenameReporterEmailToName = useCallback(async () => {
+    /**
+     * Gộp team «CSKH-Lý» / «CSKH- Lý» → CSKH-HN trên sales_reports, users
+     * và (khi đang xem HCM) sale_report_hcm — khớp manual SQL trong repo.
+     */
+    const handleNormalizeCskhLyTeamToHn = useCallback(async () => {
+        const variantList = CSKH_LY_TEAM_VARIANTS.join('», «');
         if (
             !window.confirm(
-                `Đổi cột Người báo cáo (name) trong bảng ${reportTable}:\n\n` +
-                    `Từ: ${RENAME_REPORTER_FROM_EMAIL}\n` +
-                    `Thành: ${RENAME_REPORTER_TO_NAME}\n\n` +
-                    `Đồng thời cập nhật cả bảng orders (cột sale_staff).\n` +
-                    `Áp dụng mọi dòng khớp (không phân biệt hoa/thường). Tiếp tục?`
+                `Cập nhật cột team: «${variantList}» → ${CSKH_HN_TEAM_CANONICAL}\n\n` +
+                    `• Bảng sales_reports\n` +
+                    `• Bảng users\n` +
+                    (isHcm ? `• Bảng sale_report_hcm (trang HCM)\n` : '') +
+                    `\nChỉ các dòng có team khớp chính xác một trong các biến thể trên. Tiếp tục?`
             )
         ) {
             return;
         }
-        setRenamingReporter(true);
+        setNormalizingCskhLyTeam(true);
         try {
-            const { data: reportRows, error: reportErr } = await supabase
-                .from(reportTable)
-                .update({ name: RENAME_REPORTER_TO_NAME })
-                .ilike('name', RENAME_REPORTER_FROM_EMAIL)
+            const { data: sr, error: eSr } = await supabase
+                .from('sales_reports')
+                .update({ team: CSKH_HN_TEAM_CANONICAL })
+                .in('team', CSKH_LY_TEAM_VARIANTS)
                 .select('id');
-            if (reportErr) throw reportErr;
+            if (eSr) throw eSr;
 
-            const { data: orderRows, error: orderErr } = await supabase
-                .from('orders')
-                .update({ sale_staff: RENAME_REPORTER_TO_NAME })
-                .ilike('sale_staff', RENAME_REPORTER_FROM_EMAIL)
+            const { data: ur, error: eUr } = await supabase
+                .from('users')
+                .update({ team: CSKH_HN_TEAM_CANONICAL })
+                .in('team', CSKH_LY_TEAM_VARIANTS)
                 .select('id');
-            if (orderErr) throw orderErr;
+            if (eUr) throw eUr;
 
-            const reportChanged = Array.isArray(reportRows) ? reportRows.length : 0;
-            const ordersChanged = Array.isArray(orderRows) ? orderRows.length : 0;
+            let hcmN = 0;
+            if (isHcm && reportTable === 'sale_report_hcm') {
+                const { data: hr, error: eHr } = await supabase
+                    .from('sale_report_hcm')
+                    .update({ team: CSKH_HN_TEAM_CANONICAL })
+                    .in('team', CSKH_LY_TEAM_VARIANTS)
+                    .select('id');
+                if (eHr) throw eHr;
+                hcmN = Array.isArray(hr) ? hr.length : 0;
+            }
+
+            const nSr = Array.isArray(sr) ? sr.length : 0;
+            const nUr = Array.isArray(ur) ? ur.length : 0;
 
             toast.success(
-                `Đã đổi tên "${RENAME_REPORTER_FROM_EMAIL}" → "${RENAME_REPORTER_TO_NAME}". ` +
-                    `Báo cáo tay: ${reportChanged} dòng, Orders: ${ordersChanged} dòng.`
+                `Đã chuẩn hoá team → ${CSKH_HN_TEAM_CANONICAL}: sales_reports ${nSr} dòng, users ${nUr} dòng` +
+                    (isHcm && reportTable === 'sale_report_hcm' ? `, sale_report_hcm ${hcmN} dòng` : '') +
+                    '.'
             );
             fetchData();
         } catch (error) {
-            console.error('handleRenameReporterEmailToName:', error);
-            toast.error('Lỗi đổi tên người báo cáo: ' + (error.message || String(error)));
+            console.error('handleNormalizeCskhLyTeamToHn:', error);
+            toast.error('Lỗi chuẩn hoá team CSKH-Lý: ' + (error.message || String(error)));
         } finally {
-            setRenamingReporter(false);
+            setNormalizingCskhLyTeam(false);
         }
-    }, [fetchData, reportTable]);
+    }, [fetchData, isHcm, reportTable]);
 
     /** HCM: sửa thị trường gõ nhầm "Us" → "US" trong sale_report_hcm. */
     const handleFixUsMarketToUS = useCallback(async () => {
@@ -2019,18 +2035,18 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={handleRenameReporterEmailToName}
-                                        disabled={renamingReporter || loading || updatingOrders}
+                                        onClick={handleNormalizeCskhLyTeamToHn}
+                                        disabled={normalizingCskhLyTeam || loading || updatingOrders}
                                         className="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:bg-gray-400 text-white rounded-md text-sm font-semibold transition shadow-sm"
-                                        title={`Đổi Người báo cáo từ ${RENAME_REPORTER_FROM_EMAIL} sang ${RENAME_REPORTER_TO_NAME} (toàn bộ ${reportTable})`}
+                                        title={`Tìm team CSKH-Lý / CSKH- Lý → đổi thành ${CSKH_HN_TEAM_CANONICAL} (sales_reports, users${isHcm ? ', sale_report_hcm' : ''})`}
                                     >
-                                        {renamingReporter ? (
+                                        {normalizingCskhLyTeam ? (
                                             <>
                                                 <span className="inline-block animate-spin mr-1">⏳</span>
-                                                Đang đổi tên…
+                                                Đang chuẩn hoá team…
                                             </>
                                         ) : (
-                                            `Đổi email → ${RENAME_REPORTER_TO_NAME}`
+                                            `Tìm CSKH-Lý → ${CSKH_HN_TEAM_CANONICAL}`
                                         )}
                                     </button>
                                     {isHcm && (
@@ -2041,7 +2057,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                                 fixingUsMarket ||
                                                 loading ||
                                                 updatingOrders ||
-                                                renamingReporter ||
+                                                normalizingCskhLyTeam ||
                                                 teamSyncing
                                             }
                                             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded-md text-sm font-semibold transition shadow-sm"

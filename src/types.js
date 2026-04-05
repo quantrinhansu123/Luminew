@@ -99,6 +99,5 @@ export const FFM_QUICK_ADD_COLUMNS = [
     "Trạng thái giao hàng",
     "GHI CHÚ",
     "Thời gian giao dự kiến",
-    "Ngày đối soát kế toán",
-    "Phí xử lý đơn đóng hàng-Lưu kho(usd)"
+    "Ngày đối soát kế toán"
 ];

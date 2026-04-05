@@ -759,6 +759,8 @@ const PermissionManager = ({ searchQuery = "" }) => {
     const [userRoles, setUserRoles] = useState([]);
     const [permissions, setPermissions] = useState([]);
     const [employees, setEmployees] = useState([]);
+    /** Distinct `users.team` từ Supabase — nguồn dropdown «Team chính». */
+    const [distinctUserTeams, setDistinctUserTeams] = useState([]);
 
     const [activeTab, setActiveTab] = useState('roles'); // 'roles' | 'users' | 'matrix'
     const [loading, setLoading] = useState(false);
@@ -820,7 +822,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
         )].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
     }, [employees]);
 
-    /** Team chính ↔ cột `users.team` — danh sách từ mọi giá trị đang có trong DB. */
+    /** Fallback nếu `getDistinctTeamsFromUsers` lỗi/rỗng — vẫn từ `users.team` qua danh sách employees. */
     const uniquePrimaryTeamValues = useMemo(() => {
         return [...new Set(
             employees
@@ -829,8 +831,10 @@ const PermissionManager = ({ searchQuery = "" }) => {
         )].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
     }, [employees]);
 
+    const primaryTeamChoices = distinctUserTeams.length > 0 ? distinctUserTeams : uniquePrimaryTeamValues;
+
     const editPrimaryTeamSelectOptions = useMemo(() => {
-        const fromDb = new Set(uniquePrimaryTeamValues);
+        const fromDb = new Set(primaryTeamChoices);
         const current = String(editFormData.team || '').trim();
         if (current) fromDb.add(current);
         const sorted = [...fromDb].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
@@ -838,7 +842,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             { value: '', label: '-- Chọn Team chính --' },
             ...sorted.map((t) => ({ value: t, label: t })),
         ];
-    }, [uniquePrimaryTeamValues, editFormData.team]);
+    }, [primaryTeamChoices, editFormData.team]);
 
     const buildRoleCodeAndName = useMemo(() => (dept, pos, branch) => {
         const deptCode = getStandardizedCode(dept || '');
@@ -863,14 +867,16 @@ const PermissionManager = ({ searchQuery = "" }) => {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [rData, uData, eData] = await Promise.all([
+            const [rData, uData, eData, teamsFromUsers] = await Promise.all([
                 rbacService.getRoles(),
                 rbacService.getUserRoles(),
-                rbacService.getEmployees()
+                rbacService.getEmployees(),
+                rbacService.getDistinctTeamsFromUsers(),
             ]);
             setRoles(rData || []);
             setUserRoles(uData || []);
             setEmployees(eData || []);
+            setDistinctUserTeams(Array.isArray(teamsFromUsers) ? teamsFromUsers : []);
 
             // Load leader_teams from users table
             if (uData && uData.length > 0) {

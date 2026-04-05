@@ -971,11 +971,38 @@
       return Number.isFinite(n2) ? n2 : 0;
     }
 
+    /** Có giá trị «Số đơn thực tế» gốc trên DB/recalc (kể cả 0) — phân biệt với dòng chưa từng có cột TT. */
+    function rowHasExplicitSoDonThucTe(item) {
+      if (!item || typeof item !== 'object') return false;
+      return ['Số đơn thực tế', 'Số_đơn_thực_tế', 'so_don_thuc_te', 'order_count_actual'].some((k) => {
+        const v = item[k];
+        return v != null && String(v).trim() !== '';
+      });
+    }
+
+    /**
+     * Cột «Số đơn» (xanh): đơn thực tế, không tính Hủy — khớp recalc MKT (Số đơn thực tế = gross − hủy).
+     * Nếu chưa có TT trên dòng: fallback max(0, Số đơn − Số đơn hoàn hủy).
+     */
+    function soDonNetForDisplayRow(r) {
+      if (!r) return 0;
+      const supplied = r._soDonThucTeSupplied === true || rowHasExplicitSoDonThucTe(r);
+      const donTT = parseIntegerVi(r['Số đơn thực tế'] ?? r.so_don_thuc_te ?? r.order_count_actual ?? 0);
+      const donNhap = parseIntegerVi(r['Số đơn'] ?? r['Số_đơn'] ?? r.so_don ?? r.order_count ?? 0);
+      const donHuy = parseIntegerVi(
+        r['Số đơn hoàn hủy'] ?? r['Số đơn hoàn huỷ'] ?? r.so_don_hoan_huy ?? r.order_cancel_count ?? 0
+      );
+      if (supplied) return Math.max(0, donTT);
+      return Math.max(0, donNhap - donHuy);
+    }
+
     /** Chuẩn hóa tên cột giống XemBaoCaoMKT (Supabase / snake_case / tiếng Anh). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
+      const _soDonThucTeSupplied = rowHasExplicitSoDonThucTe(item);
       return {
         ...item,
+        _soDonThucTeSupplied,
         'Ngày': item['Ngày'] || item.ngay || item.date || '',
         'Team': item['Team'] || item.team || '',
         'Tên': item['Tên'] || item.ten || item.name || '',
@@ -1410,8 +1437,10 @@
           .map(r => {
             const dsChotTT = parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0);
             const dsChotThucTeVal = dsChotTT || parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
-            const donNhap = parseIntegerVi(r["Số đơn"]);
             const donTT = parseIntegerVi(r["Số đơn thực tế"]);
+            const soDonNet = soDonNetForDisplayRow(r);
+            /** TT: giữ số từ DB khi đã recalc; nếu chưa có cột TT thì dùng cùng logic ròng với cột Số đơn. */
+            const soDonThucTeEffective = r._soDonThucTeSupplied ? donTT : soDonNet;
             const dsSauHoanHuy = parseMoneyNumber(r["DS sau hoàn hủy"] ?? 0);
             const ngayParsed = parseNgayToDate(r["Ngày"]);
             const detailRowKey = buildMktDetailReportRowKey(r);
@@ -1435,7 +1464,7 @@
                   r.so_mess ??
                   r.so_mess_cmt
               ),
-              soDon: donNhap,
+              soDon: soDonNet,
               dsChot: dsChotThucTeVal,
               soDonHuy: parseIntegerVi(r["Số đơn hoàn hủy"]),
               doanhSoHuy: dsChotThucTeVal - dsSauHoanHuy,
@@ -1443,7 +1472,7 @@
               dsSauShip: parseMoneyNumber(r["Doanh số sau ship"] ?? 0),
               dsThanhCong: parseMoneyNumber(r["Doanh số TC"] ?? 0),
               kpiValue: parseMoneyNumber(r["KPIs"] ?? 0),
-              soDonThucTe: donTT,
+              soDonThucTe: soDonThucTeEffective,
               dsChotThucTe: dsChotThucTeVal,
               dsHoanHuyThucTe: parseMoneyNumber(r["Doanh số hoàn hủy thực tế"] ?? 0),
               soDonHuyThucTe: parseIntegerVi(r["Số đơn hoàn hủy thực tế"]),

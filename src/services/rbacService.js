@@ -648,6 +648,25 @@ export const getEmployees = async () => {
     }
 };
 
+/**
+ * Danh sách Team chính cho dropdown: distinct `users.team` trên Supabase (trim, sort vi).
+ */
+export const getDistinctTeamsFromUsers = async () => {
+    try {
+        const { data, error } = await supabase.from('users').select('team');
+        if (error) throw error;
+        const set = new Set();
+        for (const row of data || []) {
+            const t = String(row?.team ?? '').trim();
+            if (t) set.add(t);
+        }
+        return [...set].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+    } catch (error) {
+        console.error('Error fetching distinct users.team:', error);
+        return [];
+    }
+};
+
 // --- PERMISSIONS ---
 export const getPermissions = async (role_code) => {
     const { data, error } = await supabase

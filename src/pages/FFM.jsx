@@ -84,9 +84,15 @@ const DRAG_FOCUS_THRESHOLD_PX = 5;
 const FFM_FILTER_SKIP_KEYS = new Set([
   'market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status',
   'packing_date_status', 'delivery_status_filter', 'delivery_status_search',
-  'us_shipping_fee_search'
+  'us_shipping_fee_search',
+  'ngay_doi_soat_kt_filter',
+  'ngay_doi_soat_kt_search',
 ]);
-const HIDDEN_FFM_COLUMNS = new Set(['Payment Bill', 'Payment Image']);
+const HIDDEN_FFM_COLUMNS = new Set([
+  'Payment Bill',
+  'Payment Image',
+  'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+]);
 
 /** Xuất Excel: các cột khớp bộ lọc bảng (Mã đơn, Tracking + cột trong UI FFM). */
 const FFM_EXCEL_EXPORT_COLUMNS = [
@@ -100,7 +106,6 @@ const FFM_EXCEL_EXPORT_COLUMNS = [
   'Ngày đẩy đơn',
   'Ngày có mã tracking',
   'Ngày đối soát kế toán',
-  'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
 ];
 const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Kết quả Check',
@@ -197,6 +202,18 @@ function isEditableColFFM(colName) {
   return FFM_ALLOWED_EDIT_COLUMNS.has(String(colName || '').trim());
 }
 
+function isFfmFilterCellEmpty(val) {
+  if (val === null || val === undefined) return true;
+  const s = String(val).trim();
+  return s === '' || s === 'null' || s === 'undefined';
+}
+
+/** Chuỗi ngày đối soát kế toán sau chuẩn hoá (cùng quy tắc api / cột FFM). */
+function getFfmAccountingReconDateNormalizedForFilter(row) {
+  const v = row['Ngày đối soát kế toán'] ?? row.warehouse_fee ?? row.luu_kho_usd ?? '';
+  return API.normalizeNgayDoiSoatKeToanText(v);
+}
+
 /** Giá trị UI gốc (sau pending) cho một ô — dùng khi fill / paste. */
 function getFfmRowColRaw(row, colName, pendingChanges) {
   const orderId = row[PRIMARY_KEY_COLUMN];
@@ -264,6 +281,30 @@ const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal
 const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
 
 
+/** Ô lọc chữ: không cập nhật bảng khi gõ — chỉ khi bấm Enter (tránh «nhảy» dữ liệu). */
+function FfmFilterTextCommitOnEnter({ committed, onCommit, placeholder, className, title }) {
+  const [draft, setDraft] = useState(committed ?? '');
+  useEffect(() => {
+    setDraft(committed ?? '');
+  }, [committed]);
+  return (
+    <input
+      type="text"
+      className={className}
+      placeholder={placeholder}
+      title={title || 'Nhập xong bấm Enter để áp dụng lọc'}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          onCommit(String(draft));
+        }
+      }}
+    />
+  );
+}
+
 function FFM({ variant = 'MGT' }) {
   const { canView } = usePermissions();
   const visibleColumnsStorageKey =
@@ -326,7 +367,9 @@ function FFM({ variant = 'MGT' }) {
     packing_date_status: 'Tất cả',
     delivery_status_filter: 'Tất cả',
     delivery_status_search: '',
-    us_shipping_fee_search: ''
+    us_shipping_fee_search: '',
+    ngay_doi_soat_kt_filter: 'Tất cả',
+    ngay_doi_soat_kt_search: '',
   });
   const [localFilterValues, setLocalFilterValues] = useState(filterValues);
   const deferredFilterValues = useDeferredValue(filterValues);
@@ -344,12 +387,14 @@ function FFM({ variant = 'MGT' }) {
 
   const [omActiveTeam, setOmActiveTeam] = useState('all');
   const [omDateType, setOmDateType] = useState('Ngày đóng hàng');
-  const [showFilters, setShowFilters] = useState(false); // Collapse/expand filters
+  const [showFilters, setShowFilters] = useState(true); // Bộ lọc mở mặc định để dễ thấy
 
   /** Chi nhánh: Tất cả | Hà Nội | HCM */
   const [ffmBranchFilter, setFfmBranchFilter] = useState('all');
   /** Mã Tracking: Tất cả | có mã | chưa có mã */
   const [ffmTrackingPresence, setFfmTrackingPresence] = useState('all');
+  /** FFM T&T / MGT: chỉ hiện dòng trống cột Ngày đối soát kế toán */
+  const [ffmEmptyCellsQuickFilter, setFfmEmptyCellsQuickFilter] = useState('off');
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -851,7 +896,9 @@ function FFM({ variant = 'MGT' }) {
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
       delivery_status_search: '',
-      us_shipping_fee_search: ''
+      us_shipping_fee_search: '',
+      ngay_doi_soat_kt_filter: 'Tất cả',
+      ngay_doi_soat_kt_search: '',
     };
     setFilterValues(defaultFilters);
     setLocalFilterValues(defaultFilters);
@@ -859,6 +906,7 @@ function FFM({ variant = 'MGT' }) {
     setDateTo('');
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
+    setFfmEmptyCellsQuickFilter('off');
     setCurrentPage(1);
     savePendingToLocalStorage(new Map());
     await loadData();
@@ -1115,24 +1163,30 @@ function FFM({ variant = 'MGT' }) {
       });
     }
 
+    if (fv.ngay_doi_soat_kt_filter && fv.ngay_doi_soat_kt_filter !== 'Tất cả') {
+      const mode = fv.ngay_doi_soat_kt_filter;
+      const sub = fv.ngay_doi_soat_kt_search ? String(fv.ngay_doi_soat_kt_search).trim().toLowerCase() : '';
+      data = data.filter((row) => {
+        const norm = getFfmAccountingReconDateNormalizedForFilter(row);
+        if (mode === 'Trống') return isFfmFilterCellEmpty(norm);
+        if (mode === 'Lọc theo chữ...') {
+          return sub ? String(norm).trim().toLowerCase().includes(sub) : true;
+        }
+        return true;
+      });
+    }
+
     const shipFeeSearch =
       fv.us_shipping_fee_search != null && String(fv.us_shipping_fee_search).trim() !== ''
         ? String(fv.us_shipping_fee_search).trim().toLowerCase()
         : '';
     if (shipFeeSearch) {
       data = data.filter((row) => {
-        const rawNgay = API.normalizeNgayDoiSoatKeToanText(
-          row['Ngày đối soát kế toán'] ||
-          row.luu_kho_usd ||
-          row.warehouse_fee ||
-          row.shipping_fee
-        );
         const rawShip =
           row['Phí ship nội địa Mỹ (usd)'] ||
           row['Phí_ship_nội_địa_Mỹ_(usd)'] ||
           '';
-        const rawVal = rawNgay || rawShip;
-        return String(rawVal).trim().toLowerCase().includes(shipFeeSearch);
+        return String(rawShip).trim().toLowerCase().includes(shipFeeSearch);
       });
     }
 
@@ -1204,9 +1258,13 @@ function FFM({ variant = 'MGT' }) {
       });
     }
 
+    if (ffmEmptyCellsQuickFilter === 'any') {
+      data = data.filter((row) => isFfmFilterCellEmpty(getFfmAccountingReconDateNormalizedForFilter(row)));
+    }
+
     // Lọc dựa trên data gốc (không pending), sau đó map sang row có pending để UI thể hiện ngay thay đổi.
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
-  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant]);
+  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, ffmEmptyCellsQuickFilter, variant]);
 
   const getFilteredData = useMemo(() => {
     return applyFfmFilters(ffmEnrichedRowsForFilter, deferredFilterValues);
@@ -1224,7 +1282,9 @@ function FFM({ variant = 'MGT' }) {
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
       delivery_status_search: '',
-      us_shipping_fee_search: ''
+      us_shipping_fee_search: '',
+      ngay_doi_soat_kt_filter: 'Tất cả',
+      ngay_doi_soat_kt_search: '',
     };
     ffmColumns.forEach((col) => {
       if (col === 'STT') return;
@@ -1247,6 +1307,7 @@ function FFM({ variant = 'MGT' }) {
     setDateTo('');
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
+    setFfmEmptyCellsQuickFilter('off');
     setOmActiveTeam('all');
     setCurrentPage(1);
     addToast('Đã xóa bộ lọc hiển thị (giữ nguyên dữ liệu đã tải).', 'success', 2500);
@@ -2777,17 +2838,17 @@ function FFM({ variant = 'MGT' }) {
           </select>
           {(localFilterValues.tracking_status === 'Tình trạng mã' || !localFilterValues.tracking_status) && (
             <>
-              <input
+              <FfmFilterTextCommitOnEnter
                 className="w-full text-xs px-1 py-0.5 border rounded"
-                placeholder="Bao gồm..."
-                value={localFilterValues.tracking_include}
-                onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_include: e.target.value }))}
+                placeholder="Bao gồm… (Enter)"
+                committed={localFilterValues.tracking_include}
+                onCommit={(v) => setLocalFilterValues((p) => ({ ...p, tracking_include: v }))}
               />
-              <input
+              <FfmFilterTextCommitOnEnter
                 className="w-full text-xs px-1 py-0.5 border rounded"
-                placeholder="Loại trừ..."
-                value={localFilterValues.tracking_exclude}
-                onChange={(e) => setLocalFilterValues((p) => ({ ...p, tracking_exclude: e.target.value }))}
+                placeholder="Loại trừ… (Enter)"
+                committed={localFilterValues.tracking_exclude}
+                onCommit={(v) => setLocalFilterValues((p) => ({ ...p, tracking_exclude: v }))}
               />
             </>
           )}
@@ -2835,26 +2896,49 @@ function FFM({ variant = 'MGT' }) {
             <option value="Tìm kiếm...">Tìm kiếm...</option>
           </select>
           {localFilterValues.delivery_status_filter === 'Tìm kiếm...' && (
-            <input
-              type="text"
+            <FfmFilterTextCommitOnEnter
               className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-              placeholder="Nhập trạng thái..."
-              value={localFilterValues.delivery_status_search || ''}
-              onChange={(e) => setLocalFilterValues((p) => ({ ...p, delivery_status_search: e.target.value }))}
+              placeholder="Nhập trạng thái… (Enter)"
+              committed={localFilterValues.delivery_status_search || ''}
+              onCommit={(v) => setLocalFilterValues((p) => ({ ...p, delivery_status_search: v }))}
             />
           )}
         </div>
       );
     }
-    if (col === 'Ngày đối soát kế toán' || col === 'Phí ship nội địa Mỹ (usd)' || col === 'Phí ship nội địa mỹ') {
+    if (col === 'Ngày đối soát kế toán') {
       return (
         <div className="flex flex-col gap-1.5 relative">
-          <input
-            type="text"
+          <select
+            className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
+            value={localFilterValues.ngay_doi_soat_kt_filter || 'Tất cả'}
+            onChange={(e) =>
+              setLocalFilterValues((p) => ({ ...p, ngay_doi_soat_kt_filter: e.target.value }))
+            }
+          >
+            <option value="Tất cả">Tất cả</option>
+            <option value="Trống">Trống</option>
+            <option value="Lọc theo chữ...">Lọc theo chữ...</option>
+          </select>
+          {localFilterValues.ngay_doi_soat_kt_filter === 'Lọc theo chữ...' && (
+            <FfmFilterTextCommitOnEnter
+              className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+              placeholder="Lọc theo nội dung ô… (Enter)"
+              committed={localFilterValues.ngay_doi_soat_kt_search || ''}
+              onCommit={(v) => setLocalFilterValues((p) => ({ ...p, ngay_doi_soat_kt_search: v }))}
+            />
+          )}
+        </div>
+      );
+    }
+    if (col === 'Phí ship nội địa Mỹ (usd)' || col === 'Phí ship nội địa mỹ') {
+      return (
+        <div className="flex flex-col gap-1.5 relative">
+          <FfmFilterTextCommitOnEnter
             className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-            placeholder="Lọc theo nội dung ô..."
-            value={localFilterValues.us_shipping_fee_search || ''}
-            onChange={(e) => setLocalFilterValues((p) => ({ ...p, us_shipping_fee_search: e.target.value }))}
+            placeholder="Lọc theo nội dung ô… (Enter)"
+            committed={localFilterValues.us_shipping_fee_search || ''}
+            onCommit={(v) => setLocalFilterValues((p) => ({ ...p, us_shipping_fee_search: v }))}
           />
         </div>
       );
@@ -2880,12 +2964,11 @@ function FFM({ variant = 'MGT' }) {
       );
     }
     return (
-      <input
-        type="text"
+      <FfmFilterTextCommitOnEnter
         className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-        placeholder="..."
-        value={localFilterValues[filterKey] || ''}
-        onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+        placeholder="… (Enter)"
+        committed={localFilterValues[filterKey] || ''}
+        onCommit={(v) => setLocalFilterValues((p) => ({ ...p, [filterKey]: v }))}
       />
     );
   };
@@ -3039,19 +3122,19 @@ function FFM({ variant = 'MGT' }) {
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden font-sans text-gray-800 bg-[#f8f9fa] p-2">
       {/* Header */}
       <div className="bg-white rounded-lg shadow-sm p-2 mb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
             {variant !== 'TT' && (
               <img
                 src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Fbe61f44f.%E1%BA%A2nh.021347.png"
                 alt="Header"
-                className="h-7 object-contain"
+                className="h-7 object-contain shrink-0"
               />
             )}
             <h2 className="text-lg font-bold text-gray-700">
               {variant === 'TT' ? 'HỆ THỐNG QUẢN LÝ LUMI-T&T' : 'HỆ THỐNG QUẢN LÝ SPEEGO'}
             </h2>
-            <div className="flex items-center gap-1.5 text-xs">
+            <div className="flex items-center gap-1.5 text-xs shrink-0">
               <span className={`h-2 w-2 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
               <span className="text-gray-600" title="Số đơn sau bộ lọc / số đơn đã tải">
                 {getFilteredData.length !== allData.length
@@ -3059,6 +3142,24 @@ function FFM({ variant = 'MGT' }) {
                   : `${allData.length.toLocaleString('vi-VN')} đơn hàng`}
               </span>
             </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <label htmlFor="ffm-dskt-empty-filter" className="text-xs font-semibold text-gray-600 whitespace-nowrap">
+              Ngày đối soát KT
+            </label>
+            <select
+              id="ffm-dskt-empty-filter"
+              className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white min-w-[148px]"
+              value={ffmEmptyCellsQuickFilter}
+              onChange={(e) => {
+                setFfmEmptyCellsQuickFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              title="Chỉ hiện đơn không có giá trị ở cột Ngày đối soát kế toán (sau chuẩn hoá ngày như trang FFM)"
+            >
+              <option value="off">Tất cả</option>
+              <option value="any">Chỉ dòng trống</option>
+            </select>
           </div>
         </div>
       </div>

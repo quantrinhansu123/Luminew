@@ -36,14 +36,16 @@ function chunkArray(arr, size) {
 }
 
 /**
- * Chèn từ `orders` → `order_code_hcm`: chỉ copy own keys, bỏ `id` và mọi cột GENERATED STORED
+ * Chèn từ `orders` → `order_code_hcm`: chỉ copy own keys, bỏ mọi cột GENERATED STORED
  * (vd. `van_don_line_total_vnd` — Postgres lỗi «cannot insert a non-DEFAULT value» nếu gửi tay).
+ * `preserveId`: giữ `id` từ orders để trùng khóa 1–1 và tránh điền trùng khi đã có cùng id trên HCM.
  */
-function cloneOrderRowForHcmInsert(row) {
+function cloneOrderRowForHcmInsert(row, opts = {}) {
+  const preserveId = !!opts.preserveId;
   if (!row || typeof row !== 'object' || Array.isArray(row)) return {};
   const out = {};
   for (const key of Object.keys(row)) {
-    if (key === 'id') continue;
+    if (key === 'id' && !preserveId) continue;
     if (key === 'van_don_line_total_vnd') continue;
     out[key] = row[key];
   }
@@ -1619,14 +1621,15 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
   }, [isHcmView, startDate, endDate]);
 
-  /** Modal HCM: chèn bản đầy đủ từ `orders` → `order_code_hcm`; trùng mã đơn thì bỏ qua + thông báo. */
+  /** Modal HCM: chèn từ `orders` → `order_code_hcm` (giữ cùng id). Ưu tiên kiểm tra mã: trùng Mã đơn trên HCM → không chèn nhưng xóa orders; trùng id (mã không trùng) → không chèn, giữ orders; chèn mới → xóa orders. */
   const handleFillHcmFromOrdersLookaside = async () => {
     if (!isHcmView || !hcmOrdersLookasideRows.length) return;
     if (
       !window.confirm(
-        'Chèn các dòng đang xem từ bảng orders sang order_code_hcm?\n\n' +
-          '• Nếu Mã đơn hàng đã tồn tại trong order_code_hcm → bỏ qua và sẽ liệt kê trong thông báo.\n' +
-          '• Chỉ chèn dòng mới.'
+        'Chuyển các dòng đang xem từ bảng orders sang order_code_hcm?\n\n' +
+          '• Trùng Mã đơn hàng đã có trên order_code_hcm → không chèn, nhưng vẫn xóa dòng đó ở orders.\n' +
+          '• Trùng id trên HCM (mã không trùng như vậy) → không chèn, giữ orders.\n' +
+          '• Chèn mới thành công → xóa khỏi orders.'
       )
     ) {
       return;
@@ -1667,6 +1670,17 @@ function DanhSachDon({ dataSource = 'default' }) {
         toast.warning(`Không tải được ${couldNotLoad.length} dòng từ orders.`, { autoClose: 5000, hideProgressBar: true });
       }
 
+      const ordersRowIds = [...new Set(orderedFull.map((r) => r.id).filter((x) => x != null))];
+      const existingHcmIds = new Set();
+      for (const idChunk of chunkArray(ordersRowIds, 150)) {
+        if (!idChunk.length) continue;
+        const { data: exId, error: eId } = await supabase.from('order_code_hcm').select('id').in('id', idChunk);
+        if (eId) throw eId;
+        (exId || []).forEach((r) => {
+          if (r?.id != null) existingHcmIds.add(r.id);
+        });
+      }
+
       const codes = orderedFull.map((r) => String(r.order_code ?? '').trim()).filter(Boolean);
       const existingHcm = new Set();
       for (const ch of chunkArray(codes, 150)) {
@@ -1676,42 +1690,85 @@ function DanhSachDon({ dataSource = 'default' }) {
         (ex || []).forEach((r) => existingHcm.add(String(r.order_code).trim()));
       }
 
-      const skippedDup = [];
+      const skippedDupCodeDeleteOrders = [];
+      const skippedDupNoDelete = [];
+      const orderIdsToDeleteFromOrders = [];
       const payloads = [];
+      const payloadSourceIds = [];
       for (const row of orderedFull) {
         const code = String(row.order_code ?? '').trim();
+        const oid = row.id;
+        if (oid == null) {
+          skippedDupNoDelete.push('(thiếu id)');
+          continue;
+        }
         if (!code) {
-          skippedDup.push('(trống mã)');
+          skippedDupNoDelete.push('(trống mã)');
           continue;
         }
         if (existingHcm.has(code)) {
-          skippedDup.push(code);
+          skippedDupCodeDeleteOrders.push(`${code} (trùng mã HCM — đã xóa orders)`);
+          orderIdsToDeleteFromOrders.push(oid);
           continue;
         }
-        payloads.push(cloneOrderRowForHcmInsert(row));
+        if (existingHcmIds.has(oid)) {
+          skippedDupNoDelete.push(`id:${oid} (HCM đã có cùng id)`);
+          continue;
+        }
+        payloads.push(cloneOrderRowForHcmInsert(row, { preserveId: true }));
+        payloadSourceIds.push(oid);
       }
 
       let inserted = 0;
       for (const insChunk of chunkArray(payloads, 25)) {
         if (!insChunk.length) continue;
-        const sanitized = insChunk.map((p) => cloneOrderRowForHcmInsert(p));
+        const start = inserted;
+        const sanitized = insChunk.map((p) => cloneOrderRowForHcmInsert(p, { preserveId: true }));
         const { error: insErr } = await supabase.from('order_code_hcm').insert(sanitized);
         if (insErr) throw insErr;
         inserted += insChunk.length;
+        for (let i = 0; i < insChunk.length; i++) {
+          orderIdsToDeleteFromOrders.push(payloadSourceIds[start + i]);
+        }
       }
 
-      const dupUnique = [...new Set(skippedDup)];
-      const dupPreview =
-        dupUnique.length > 45 ? `${dupUnique.slice(0, 45).join(', ')}… (+${dupUnique.length - 45} mã)` : dupUnique.join(', ');
+      let deletedOrders = 0;
+      const uniqueDeleteIds = [...new Set(orderIdsToDeleteFromOrders)];
+      for (const delChunk of chunkArray(uniqueDeleteIds, 50)) {
+        if (!delChunk.length) continue;
+        const { error: delErr } = await supabase.from('orders').delete().in('id', delChunk);
+        if (delErr) throw delErr;
+        deletedOrders += delChunk.length;
+      }
+
+      const dupCodeUnique = [...new Set(skippedDupCodeDeleteOrders)];
+      const dupNoDelUnique = [...new Set(skippedDupNoDelete)];
+      const dupCodePreview =
+        dupCodeUnique.length > 45
+          ? `${dupCodeUnique.slice(0, 45).join(', ')}… (+${dupCodeUnique.length - 45})`
+          : dupCodeUnique.join(', ');
+      const dupNoDelPreview =
+        dupNoDelUnique.length > 45
+          ? `${dupNoDelUnique.slice(0, 45).join(', ')}… (+${dupNoDelUnique.length - 45})`
+          : dupNoDelUnique.join(', ');
 
       toast.success(
-        `Điền HCM: đã chèn ${inserted} đơn. Bỏ qua ${dupUnique.length} dòng (trùng mã / trống mã).`,
+        `Điền HCM: chèn mới ${inserted} đơn; đã xóa ${deletedOrders} dòng trong orders (gồm cả trùng mã đã có trên HCM). Giữ orders: ${dupNoDelUnique.length} dòng (trùng id / trống mã / thiếu id).`,
         { autoClose: 6500, hideProgressBar: true }
       );
-      if (dupUnique.length > 0) {
-        window.alert(
-          `Đã bỏ qua ${dupUnique.length} dòng — trùng Mã đơn hàng trong order_code_hcm hoặc không có mã:\n\n${dupPreview}`
-        );
+      if (dupCodeUnique.length > 0 || dupNoDelUnique.length > 0) {
+        const parts = [];
+        if (dupCodeUnique.length > 0) {
+          parts.push(
+            `Trùng Mã đơn trên HCM — không chèn, đã xóa orders (${dupCodeUnique.length} dòng):\n${dupCodePreview}`
+          );
+        }
+        if (dupNoDelUnique.length > 0) {
+          parts.push(
+            `Bỏ qua, giữ orders — trùng id trên HCM, trống mã hoặc thiếu id (${dupNoDelUnique.length} dòng):\n${dupNoDelPreview}`
+          );
+        }
+        window.alert(parts.join('\n\n'));
       }
       setHcmOrdersLookasideOpen(false);
       loadData();
@@ -3347,7 +3404,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                   onClick={handleFillHcmFromOrdersLookaside}
                   disabled={isFillingHcmFromOrdersLookaside || isFetchingOrdersHcmLookaside}
                   className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-[#F37021] hover:bg-[#e55f1a] text-white disabled:bg-gray-400 disabled:opacity-60"
-                  title="Chèn vào order_code_hcm; mã đơn đã có thì bỏ qua và hiện thông báo"
+                  title="Chuyển sang order_code_hcm (giữ id); trùng Mã đơn trên HCM → không chèn nhưng xóa orders; trùng id / trống mã → giữ orders; chèn xong xóa orders"
                 >
                   {isFillingHcmFromOrdersLookaside ? 'Đang điền…' : 'Điền sang order_code_hcm'}
                 </button>

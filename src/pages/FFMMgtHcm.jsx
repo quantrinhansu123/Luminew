@@ -90,7 +90,11 @@ const FFM_FILTER_SKIP_KEYS = new Set([
   'packing_date_status', 'delivery_status_filter', 'delivery_status_search',
   'us_shipping_fee_search'
 ]);
-const HIDDEN_FFM_COLUMNS = new Set(['Payment Bill', 'Payment Image']);
+const HIDDEN_FFM_COLUMNS = new Set([
+  'Payment Bill',
+  'Payment Image',
+  'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+]);
 
 /** Xuất Excel: các cột khớp bộ lọc bảng (Mã đơn, Tracking + cột trong UI FFM). */
 const FFM_EXCEL_EXPORT_COLUMNS = [
@@ -104,7 +108,6 @@ const FFM_EXCEL_EXPORT_COLUMNS = [
   'Ngày đẩy đơn',
   'Ngày có mã tracking',
   'Ngày đối soát kế toán',
-  'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
 ];
 const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Kết quả Check',
@@ -1136,8 +1139,8 @@ function FFMMgtHcm() {
       data = data.filter((row) => {
         const rawNgay = API.normalizeNgayDoiSoatKeToanText(
           row['Ngày đối soát kế toán'] ||
-          row.luu_kho_usd ||
           row.warehouse_fee ||
+          row.luu_kho_usd ||
           row.shipping_fee
         );
         const rawShip =
