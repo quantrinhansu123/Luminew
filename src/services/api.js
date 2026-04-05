@@ -1029,6 +1029,11 @@ export const fetchVanDon = async (options = {}) => {
         customerQuickSearch = '',
         /** `co_trung` | `khong_trung` — lọc cột cảnh báo (mức SQL; gần với lưới). */
         canh_bao_filter = null,
+        /**
+         * Tab «Đẩy Đơn» (hanoi): lưới chỉ giữ đơn Check=OK, chưa có ĐVVC (và NV thường: chưa có mã tracking).
+         * Không đẩy xuống SQL → phân trang + tổng tiền + count PostgREST lệch hoàn toàn với dữ liệu hiển thị (/van-don-hcm gồm).
+         */
+        hanoiTabSqlScope = null,
     } = options;
 
     const mode = getDataSourceMode();
@@ -1101,6 +1106,14 @@ export const fetchVanDon = async (options = {}) => {
             if (excludeHcmTeam) {
                 // Keep NULL team, only exclude exact 'HCM'
                 query = query.or('team.is.null,team.neq.HCM');
+            }
+
+            if (hanoiTabSqlScope === 'ffm_queue' || hanoiTabSqlScope === 'ffm_queue_admin') {
+                query = query.ilike('check_result', 'ok');
+                query = query.or('shipping_unit.is.null,shipping_unit.eq.');
+            }
+            if (hanoiTabSqlScope === 'ffm_queue') {
+                query = query.or('tracking_code.is.null,tracking_code.eq.');
             }
 
             if (status) {
@@ -1568,6 +1581,39 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
                         .map((row) => (row && row[dbCol] != null ? String(row[dbCol]).trim() : ''))
                         .filter(Boolean)
                         .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v)))];
+
+                    // HCM: bổ sung danh mục thị trường từ bảng mặc định `orders` để không thiếu dropdown
+                    // khi bảng HCM chưa đủ dữ liệu thị trường.
+                    if (sourceTable !== 'orders' && dbCol === 'country') {
+                        try {
+                            const { data: dataOrders, error: errOrders } = await supabase
+                                .rpc('get_orders_distinct_values', { p_column: 'country' });
+                            if (!errOrders) {
+                                const more = (dataOrders || [])
+                                    .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
+                                    .filter(Boolean)
+                                    .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
+                                vals = [...new Set([...(vals || []), ...more])];
+                            } else {
+                                // Fallback: đọc trực tiếp từ orders nếu RPC không khả dụng
+                                const { data: dataOrdersTbl, error: errTbl } = await supabase
+                                    .from('orders')
+                                    .select('country')
+                                    .not('country', 'is', null)
+                                    .neq('country', '')
+                                    .limit(10000);
+                                if (!errTbl) {
+                                    const moreTbl = (dataOrdersTbl || [])
+                                        .map((row) => (row && row.country != null ? String(row.country).trim() : ''))
+                                        .filter(Boolean)
+                                        .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
+                                    vals = [...new Set([...(vals || []), ...moreTbl])];
+                                }
+                            }
+                        } catch (mergeErr) {
+                            console.warn('[fetchVanDonDistinctFilterOptions] merge country from orders failed:', mergeErr);
+                        }
+                    }
                 }
                 const uiKeys = VAN_DON_DISTINCT_DB_TO_UI_KEYS[dbCol] || [];
                 for (const k of uiKeys) {

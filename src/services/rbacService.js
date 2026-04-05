@@ -754,6 +754,7 @@ export const MODULE_PAGES = {
             { code: 'ORDERS_DANH_SACH_VAN_DON_HCM', name: 'Danh sách vận đơn HCM', path: '/danh-sach-van-don-hcm' },
             { code: 'ORDERS_REPORT', name: 'Báo cáo vận đơn', path: '/bao-cao-van-don' },
             { code: 'ORDERS_REPORT_OPERATION', name: 'Báo cáo vận hành', path: '/bao-cao-van-hanh' },
+            { code: 'ORDERS_REPORT_OPERATION_HCM', name: 'Báo cáo vận hành HCM', path: '/bao-cao-van-hanh-hcm' },
             { code: 'ORDERS_REPORT_DAILY_DATA', name: 'Dữ liệu báo cáo hàng ngày', path: '/danh-sach-bao-cao-van-don' },
             { code: 'ORDERS_FFM_RECONCILE', name: 'Bảng đối soát đẩy FFM', path: '/bang-doi-soat-day-ffm' },
             { code: 'ORDERS_FFM_RECONCILE_HCM', name: 'Bảng đối soát đẩy FFM (HCM)', path: '/bang-doi-soat-day-ffm-hcm' },

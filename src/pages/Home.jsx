@@ -35,6 +35,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ChangePasswordModal } from "../components/modals/ChangePasswordModal";
 import FfmMgtHcmIcon from "../components/icons/FfmMgtHcmIcon";
 import FfmReconcileHcmIcon from "../components/icons/FfmReconcileHcmIcon";
+import VanHanhHcmIcon from "../components/icons/VanHanhHcmIcon";
 
 import { usePermissions } from "../hooks/usePermissions";
 import { useUserDepartment } from "../hooks/useUserDepartment";
@@ -364,6 +365,13 @@ function Home() {
           icon: <Activity className="w-4 h-4" />,
           path: "/bao-cao-van-hanh",
           permission: 'ORDERS_REPORT_OPERATION',
+        },
+        {
+          id: "delivery-bc-van-hanh-hcm",
+          label: "Báo cáo vận hành HCM",
+          icon: <VanHanhHcmIcon className="w-4 h-4" />,
+          path: "/bao-cao-van-hanh-hcm",
+          permissionAny: ['ORDERS_REPORT_OPERATION_HCM', 'ORDERS_LIST_HCM'],
         },
         {
           id: "delivery-daily-report",
@@ -1026,6 +1034,14 @@ function Home() {
           path: "/bao-cao-van-hanh",
           status: "Mở ứng dụng",
           permission: 'ORDERS_REPORT_OPERATION',
+        },
+        {
+          title: "Báo cáo vận hành HCM",
+          icon: <VanHanhHcmIcon className="w-8 h-8" />,
+          color: "bg-emerald-700",
+          path: "/bao-cao-van-hanh-hcm",
+          status: "Chi nhánh HCM",
+          permissionAny: ['ORDERS_REPORT_OPERATION_HCM', 'ORDERS_LIST_HCM'],
         },
         {
           title: "Dữ liệu báo cáo hàng ngày",

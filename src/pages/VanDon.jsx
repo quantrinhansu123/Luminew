@@ -27,6 +27,9 @@ import {
   TEAM_COLUMN_NAME
 } from '../types';
 
+/** Giới hạn một response PostgREST/Supabase (thường 1000); dùng cho xuất Excel / lặp trang. */
+const VAN_DON_POSTGREST_MAX_ROWS = 1000;
+
 // Columns to always hide (both in table and column settings)
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 
@@ -927,6 +930,8 @@ function VanDon({ dataSource = 'default' }) {
         limit,
         team: activeFilters.team,
         excludeHcmTeam: dataSource !== 'hcm',
+        hanoiTabSqlScope:
+          activeFilters.tab === 'hanoi' ? (isAdmin ? 'ffm_queue_admin' : 'ffm_queue') : null,
         market: activeFilters.market,
         product: activeFilters.product,
         nv_sale: activeFilters.nv_sale,
@@ -1551,11 +1556,12 @@ function VanDon({ dataSource = 'default' }) {
       if (!useBackendPagination) {
         sourceRows = allData;
       } else {
-        const limit = 1000;
+        const limit = VAN_DON_POSTGREST_MAX_ROWS;
         let page = 1;
         const accumulated = [];
         let total = 0;
-        while (page <= 500) {
+        const maxPages = 50000;
+        while (page <= maxPages) {
           const res = await runVanDonFetch(page, limit);
           total = res.total || 0;
           const batch = res.data || [];
@@ -3990,14 +3996,18 @@ function VanDon({ dataSource = 'default' }) {
             </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0 border-t border-gray-200 pt-1.5 mt-0.5 sm:border-t-0 sm:pt-0 sm:mt-0 sm:border-l sm:border-gray-200 sm:pl-1.5 sm:ml-0.5 bg-white w-full sm:w-auto justify-end sm:justify-start">
-              {dataSource !== 'hcm' && (
               <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded border border-gray-100">
-                <span className={`h-1.5 w-1.5 rounded-full ${allData.length > 0 ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    (useBackendPagination ? totalRecords : getFilteredData.length) > 0 ? 'bg-green-500' : 'bg-red-500'
+                  }`}
+                />
                 <span className="text-[9px] uppercase font-bold text-gray-500 whitespace-nowrap">
-                  {allData.length > 0 ? `${allData.length} ĐƠN` : 'NO DATA'}
+                  {(useBackendPagination ? totalRecords : getFilteredData.length) > 0
+                    ? `${(useBackendPagination ? totalOrdersCount : getFilteredData.length).toLocaleString('vi-VN')} ĐƠN`
+                    : 'NO DATA'}
                 </span>
               </div>
-              )}
               <button
                 onClick={() => refetchVanDonData()}
                 disabled={isQueryLoading}
