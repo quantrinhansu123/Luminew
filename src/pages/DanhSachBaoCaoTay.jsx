@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Calculator, Eye, RefreshCw, X } from 'lucide-react';
+import { Calculator, Database, Eye, RefreshCw, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
@@ -116,6 +116,9 @@ function formatHcmReportTeamCell(row) {
 const CSKH_LY_TEAM_VARIANTS = ['CSKH- Lý', 'CSKH-Lý'];
 const CSKH_HN_TEAM_CANONICAL = 'CSKH-HN';
 
+/** Bảng sao lưu cấu trúc giống sales_reports (migration / manual SQL trong repo). */
+const SALES_REPORTS_BACKUP_TABLE = 'sales_reports_backup';
+
 export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
@@ -209,6 +212,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const [normalizingCskhLyTeam, setNormalizingCskhLyTeam] = useState(false);
     const [fixingUsMarket, setFixingUsMarket] = useState(false);
     const [removingDuplicates, setRemovingDuplicates] = useState(false);
+    const [backingUp, setBackingUp] = useState(false);
 
     // View Orders Modal
     const [showViewOrdersModal, setShowViewOrdersModal] = useState(false);
@@ -1510,6 +1514,47 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         return rows;
     }, [manualReports, filters.personnel, staffTableSearch]);
 
+    /** Ghi các dòng đang hiển thị (sau bộ lọc ngày / SP / TT / nhân sự / ô tìm tên) vào sales_reports_backup. Trùng id → ghi đè bản trong backup. */
+    const handleBackupFilteredToSalesReportsBackup = useCallback(async () => {
+        const rows = reportsAfterPersonnelFilter;
+        if (!rows.length) {
+            toast.warn('Không có dòng nào sau bộ lọc để backup.');
+            return;
+        }
+        const srcLabel = reportTable;
+        if (
+            !window.confirm(
+                `Sao chép ${rows.length} dòng đang hiển thị vào bảng «${SALES_REPORTS_BACKUP_TABLE}»?\n\n` +
+                    `Nguồn: ${srcLabel} (theo bộ lọc trên trang). ` +
+                    `Nếu id đã có trong backup, bản ghi backup sẽ được cập nhật theo dữ liệu hiện tại.\n\n` +
+                    'Tiếp tục?'
+            )
+        ) {
+            return;
+        }
+        setBackingUp(true);
+        const BATCH = 300;
+        try {
+            for (let i = 0; i < rows.length; i += BATCH) {
+                const chunk = rows.slice(i, i + BATCH);
+                const { error } = await supabase
+                    .from(SALES_REPORTS_BACKUP_TABLE)
+                    .upsert(chunk, { onConflict: 'id' });
+                if (error) throw error;
+            }
+            toast.success(`Đã backup ${rows.length} dòng vào ${SALES_REPORTS_BACKUP_TABLE}.`);
+        } catch (e) {
+            console.error('handleBackupFilteredToSalesReportsBackup:', e);
+            toast.error(
+                'Lỗi khi backup: ' +
+                    (e?.message || String(e)) +
+                    ' — Kiểm tra đã tạo bảng backup và quyền RLS trên Supabase.'
+            );
+        } finally {
+            setBackingUp(false);
+        }
+    }, [reportsAfterPersonnelFilter, reportTable]);
+
     const normalizeNameForUserTeamLookup = useCallback(
         (s) =>
             String(s || '')
@@ -2086,6 +2131,30 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                             )}
                         </div>
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                onClick={handleBackupFilteredToSalesReportsBackup}
+                                disabled={
+                                    backingUp ||
+                                    loading ||
+                                    updatingOrders ||
+                                    reportsAfterPersonnelFilter.length === 0
+                                }
+                                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                title={`Ghi các dòng đang hiển thị (theo bộ lọc) vào ${SALES_REPORTS_BACKUP_TABLE}`}
+                            >
+                                {backingUp ? (
+                                    <>
+                                        <RefreshCw className="w-4 h-4 animate-spin" />
+                                        Đang backup…
+                                    </>
+                                ) : (
+                                    <>
+                                        <Database className="w-4 h-4" />
+                                        Backup dữ liệu
+                                    </>
+                                )}
+                            </button>
                             {isAdminOnly && (
                                 <>
                                     <button

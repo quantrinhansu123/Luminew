@@ -572,6 +572,9 @@ function VanDon({ dataSource = 'default' }) {
   // --- Toasts ---
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = useRef(0);
+  // --- Sorting ---
+  const [sortColumn, setSortColumn] = useState('');
+  const [sortDirection, setSortDirection] = useState('asc'); // 'asc' | 'desc'
 
   // --- Initialize ---
   useEffect(() => {
@@ -1483,6 +1486,58 @@ function VanDon({ dataSource = 'default' }) {
   ]);
 
   const getFilteredData = useMemo(() => computeFilteredData(allData), [computeFilteredData, allData]);
+
+  // --- Sorting (client-side) ---
+  const sortedData = useMemo(() => {
+    const rows = getFilteredData || [];
+    if (!sortColumn || rows.length === 0) return rows;
+    const col = sortColumn;
+    const dir = sortDirection === 'desc' ? -1 : 1;
+    const isDateCol = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col);
+    const isMoneyCol = ['Tổng tiền VNĐ', 'Tiền đã thanh toán'].includes(col);
+    const isStt = col === 'STT';
+    if (isStt) return rows;
+
+    const toComparable = (row) => {
+      try {
+        if (isMoneyCol) {
+          const v = getVanDonGridCellValue(row, col);
+          const n = typeof v === 'number' ? v : parseVietnameseMoneyToNumber(v);
+          return Number.isFinite(n) ? n : -Infinity;
+        }
+        if (isDateCol) {
+          const v = getVanDonGridCellValue(row, col);
+          const ymd = extractDateFromDateTime(v);
+          // Use string YYYY-MM-DD compare; fallback to Date if needed
+          return ymd || '';
+        }
+        const v = getVanDonGridCellValue(row, col);
+        if (v == null) return '';
+        if (typeof v === 'number') return v;
+        const s = String(v).trim();
+        // numeric string
+        if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+        return s.toLowerCase();
+      } catch {
+        return '';
+      }
+    };
+
+    const copy = [...rows];
+    copy.sort((a, b) => {
+      const va = toComparable(a);
+      const vb = toComparable(b);
+      if (va == null && vb == null) return 0;
+      if (va == null) return -1 * dir;
+      if (vb == null) return 1 * dir;
+      if (typeof va === 'number' && typeof vb === 'number') {
+        return va === vb ? 0 : va < vb ? -1 * dir : 1 * dir;
+      }
+      // string compare (ymd or text)
+      return String(va).localeCompare(String(vb), 'vi', { sensitivity: 'base' }) * dir;
+    });
+    return copy;
+  }, [getFilteredData, sortColumn, sortDirection]);
 
   const handleExportMaDonExcel = useCallback(async () => {
     if (permissionsLoading) {
@@ -3391,6 +3446,19 @@ function VanDon({ dataSource = 'default' }) {
 
     const filterInputCls = 'w-full text-[11px] px-1.5 py-0.5 border rounded shadow-sm leading-tight';
 
+    const isSortable = col !== 'STT';
+    const isActiveSort = isSortable && sortColumn === col;
+    const sortIcon = isActiveSort ? (sortDirection === 'asc' ? '▲' : '▼') : '';
+    const onTitleClick = () => {
+      if (!isSortable) return;
+      if (sortColumn === col) {
+        setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortColumn(col);
+        setSortDirection('asc');
+      }
+    };
+
     return (
       <th
         data-col-idx={idx}
@@ -3399,9 +3467,13 @@ function VanDon({ dataSource = 'default' }) {
         style={headerCellStyle}
       >
         <div
-          className={`font-semibold mb-0.5 text-gray-700 ${isQtyCol ? 'text-[10px] leading-tight whitespace-normal break-words' : 'text-[11px] whitespace-nowrap'} ${isCheckCol ? 'text-left' : ''}`}
+          className={`font-semibold mb-0.5 text-gray-700 ${isQtyCol ? 'text-[10px] leading-tight whitespace-normal break-words' : 'text-[11px] whitespace-nowrap'} ${isCheckCol ? 'text-left' : ''} ${isSortable ? 'cursor-pointer select-none' : ''} flex items-center gap-1`}
+          onClick={onTitleClick}
         >
-          {col}
+          <span>{col}</span>
+          {isSortable && (
+            <span className="text-gray-500 text-[10px]">{sortIcon}</span>
+          )}
         </div>
         {col === 'STT' ? (
           <div className="text-[10px] text-gray-400">-</div>
@@ -4180,7 +4252,7 @@ function VanDon({ dataSource = 'default' }) {
                 ) : (
                   <div className="flex-1 min-h-0 min-w-0 w-full flex flex-col">
                   <TableVirtuoso
-                    data={getFilteredData}
+                    data={sortedData}
                     style={{ height: '100%', minHeight: 0, width: '100%', flex: '1 1 auto' }}
                     scrollerRef={(el) => {
                       if (el) {
