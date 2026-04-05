@@ -1614,6 +1614,27 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
                             console.warn('[fetchVanDonDistinctFilterOptions] merge country from orders failed:', mergeErr);
                         }
                     }
+
+                    // HCM: bổ sung danh mục sản phẩm từ bảng báo cáo MKT `marketing_report_hcm` (cột 'Sản_phẩm')
+                    if (sourceTable !== 'orders' && dbCol === 'product') {
+                        try {
+                            const { data: mktData, error: mktErr } = await supabase
+                                .from('marketing_report_hcm')
+                                .select('Sản_phẩm')
+                                .not('Sản_phẩm', 'is', null)
+                                .neq('Sản_phẩm', '')
+                                .limit(20000);
+                            if (!mktErr) {
+                                const moreProducts = (mktData || [])
+                                    .map((row) => (row && row['Sản_phẩm'] != null ? String(row['Sản_phẩm']).trim() : ''))
+                                    .filter(Boolean)
+                                    .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
+                                vals = [...new Set([...(vals || []), ...moreProducts])];
+                            }
+                        } catch (mergeErr) {
+                            console.warn('[fetchVanDonDistinctFilterOptions] merge product from marketing_report_hcm failed:', mergeErr);
+                        }
+                    }
                 }
                 const uiKeys = VAN_DON_DISTINCT_DB_TO_UI_KEYS[dbCol] || [];
                 for (const k of uiKeys) {
