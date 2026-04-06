@@ -2,7 +2,9 @@
 .bcvh-wrap {
     font-family: Arial, Helvetica, sans-serif;
     font-size: 14px;
-    overflow: hidden; /* cuộn ngang trong .bcvh-scroll-metric, không để bảng tràn card */
+    /* Không dùng overflow:hidden — dễ làm sticky thead yếu / lạ; cuộn ngang vẫn nằm trong .bcvh-scroll */
+    overflow-x: clip;
+    overflow-y: visible;
     max-width: 100%;
     --bcvh-head-row-1-height: 43px;
 }
@@ -14,8 +16,21 @@
     gap: 8px;
 }
 
+/* Thanh công cụ + tiêu đề: một khối dính trên, z-index cao hơn thead bảng (≤70) */
+.bcvh-sticky-head {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: #fff;
+    padding-bottom: 2px;
+    margin-bottom: 2px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
 .bcvh-split-title {
     width: 100%;
+    /* sticky thuộc .bcvh-sticky-head */
+    box-shadow: 0 1px 0 #000;
 }
 
 .bcvh-fixed-pane {
@@ -29,6 +44,8 @@
     /* overflow:hidden làm sticky thead trái không ổn định — dùng auto + ẩn scrollbar */
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    overscroll-behavior-x: none;
 }
 
 .bcvh-fixed-pane-scroll::-webkit-scrollbar {
@@ -42,6 +59,7 @@
     /* both-edges: thu hẹp viewport ngang → kéo hết scrollLeft vẫn thấy thiếu cột phải */
     scrollbar-gutter: stable;
     scrollbar-width: auto;
+    overscroll-behavior: contain;
 }
 
 .bcvh-scroll-metric::-webkit-scrollbar {
@@ -83,6 +101,8 @@
     background: #e5e7eb;
     scrollbar-width: auto;
     scrollbar-color: #6b7280 #e5e7eb;
+    overscroll-behavior-y: contain;
+    overscroll-behavior-x: none;
 }
 
 .bcvh-right-scrollbar::-webkit-scrollbar {
@@ -111,6 +131,9 @@
     z-index: 60;
     background-clip: padding-box;
     box-shadow: 0 1px 0 #000;
+    /* Tránh “lọt” nền ô phía sau khi cuộn (một số engine) */
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
 }
 
 .bcvh-scroll .bcvh-metric-table thead tr:nth-child(2) th {
@@ -119,6 +142,8 @@
     z-index: 59;
     background-clip: padding-box;
     box-shadow: 0 1px 0 #000;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
 }
 
 /* Bảng cố định bên trái: 1 hàng thead (rowspan 2) — sticky trong cùng trục cuộn dọc với pane phải */
@@ -129,6 +154,8 @@
     background-color: #d18b3f;
     background-clip: padding-box;
     box-shadow: 2px 0 0 #000, 0 1px 0 #000;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
 }
 
 /* Vùng cuộn dành riêng cho tab2 — sticky chỉ hoạt động trong scroll container này. */
@@ -138,6 +165,7 @@
     overflow-x: auto; /* Giữ logic cuộn ngang chuẩn cho bảng */
     overflow-y: auto;
     isolation: isolate;
+    overscroll-behavior: contain;
 }
 
 /* Thêm phạm vi cuộn ngang/dọc: cột cuối + hàng cuối không nằm dưới thanh scrollbar */

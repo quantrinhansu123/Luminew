@@ -908,11 +908,7 @@ export async function recalcMktSoDonThucTeFromOrders({
       }
     }
     if (!rowTeam) {
-      if (resolved.team) patch['Team'] = resolved.team;
-      else {
-        const hrTeam = teamFromNameHr(r['Tên'], hrEmailLookup);
-        if (hrTeam) patch['Team'] = hrTeam;
-      }
+  if (resolved.team) patch['Team'] = resolved.team;
     }
     updateRows.push(patch);
 
@@ -949,8 +945,7 @@ export async function recalcMktSoDonThucTeFromOrders({
 
         const resolved = resolveUserTeamEmail(canonicalName, '', usersLookup);
         const email = resolved.email || emailFromName(canonicalName, hrEmailLookup) || '';
-        const hrTeam = teamFromNameHr(canonicalName, hrEmailLookup);
-        const resolvedTeam = resolved.team || hrTeam || entry.sample.team || 'MKT';
+        const resolvedTeam = resolved.team || null;
 
         const cc = entry.cancelCount ?? 0;
         const crv = entry.cancelRevenueVnd ?? 0;

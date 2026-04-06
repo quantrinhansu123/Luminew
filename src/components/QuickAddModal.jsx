@@ -2,89 +2,12 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { DROPDOWN_OPTIONS } from '../types';
 import { FFM_QUICK_ADD_COLUMNS } from '../types';
 
-// Helper function để format date thành dd/mm/yyyy
-const formatDateToDDMMYYYY = (dateValue) => {
-    if (!dateValue) return '';
-    
-    // Nếu là string dd/mm/yyyy, giữ nguyên
-    if (typeof dateValue === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(dateValue.trim())) {
-        return dateValue.trim();
-    }
-    
-    // Nếu là Date object hoặc string có thể parse
-    try {
-        const date = new Date(dateValue);
-        if (!isNaN(date.getTime())) {
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            return `${day}/${month}/${year}`;
-        }
-    } catch (e) {
-        // Ignore
-    }
-    
-    // Nếu là format khác (yyyy-mm-dd), convert
-    if (typeof dateValue === 'string') {
-        const parts = dateValue.split(/[-\/]/);
-        if (parts.length === 3) {
-            // Nếu là yyyy-mm-dd hoặc yyyy/mm/dd
-            if (parts[0].length === 4) {
-                return `${parts[2]}/${parts[1]}/${parts[0]}`;
-            }
-            // Nếu là dd-mm-yyyy hoặc dd/mm/yyyy
-            return `${parts[0]}/${parts[1]}/${parts[2]}`;
-        }
-    }
-    
-    return dateValue;
-};
-
-// Helper function để parse date từ nhiều format
-const parseDateValue = (value) => {
-    if (!value || value.trim() === '') return '';
-    
-    const trimmed = value.trim();
-    
-    // Nếu đã là dd/mm/yyyy, giữ nguyên
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
-        return trimmed;
-    }
-    
-    // Thử parse các format khác
-    try {
-        // Format yyyy-mm-dd
-        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-            const parts = trimmed.split('-');
-            return `${parts[2]}/${parts[1]}/${parts[0]}`;
-        }
-        
-        // Format dd-mm-yyyy
-        if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
-            return trimmed.replace(/-/g, '/');
-        }
-        
-        // Thử parse như Date object
-        const date = new Date(trimmed);
-        if (!isNaN(date.getTime())) {
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            return `${day}/${month}/${year}`;
-        }
-    } catch (e) {
-        // Ignore
-    }
-    
-    return trimmed;
-};
-
 // Các cột cho bảng Thêm nhanh - đồng bộ với bảng chính
 const COLUMNS = FFM_QUICK_ADD_COLUMNS;
 const TRACKING_COL_INDEX = COLUMNS.indexOf("Mã Tracking");
 const NGAY_DONG_HANG_COL_INDEX = COLUMNS.indexOf("Ngày đóng hàng");
 
-/** Hôm nay theo giờ local, định dạng dd/mm/yyyy (đồng bộ ô Ngày đóng hàng). */
+/** Hôm nay theo giờ local (gợi ý khi sync có tracking, chưa nhập ngày đóng hàng). */
 const getTodayDDMMYYYY = () => {
     const d = new Date();
     const day = String(d.getDate()).padStart(2, "0");
@@ -322,9 +245,9 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                             const colName = COLUMNS[c];
                             let value = flatPastedData[dataIndex] || '';
                             
-                            // Xử lý format date cho các cột ngày
+                            // Ngày đóng hàng: giữ nguyên text dán (không ép dd/mm).
                             if (colName === 'Ngày đóng hàng') {
-                                value = parseDateValue(value);
+                                value = String(value ?? '').trim();
                             }
                             
                             newRows[r][c] = value;
@@ -365,9 +288,8 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                         const colName = COLUMNS[targetCol];
                         let value = pastedRows[i][j] || '';
                         
-                        // Xử lý format date cho các cột ngày
                         if (colName === 'Ngày đóng hàng') {
-                            value = parseDateValue(value);
+                            value = String(value ?? '').trim();
                         }
                         
                         newRows[targetRow][targetCol] = value;
@@ -572,26 +494,21 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
 
     // Render cell content - giống bảng chính (dropdown/input trực tiếp)
     const renderCell = (col, rowIdx, colIdx, value) => {
-        // Cột ngày đóng hàng — format dd/mm/yyyy khi dán / blur
+        // Cột ngày đóng hàng — text tự do (khớp DB / lưới FFM), không placeholder kiểu date picker.
         if (col === 'Ngày đóng hàng') {
             const rawValue = value || '';
             return (
                     <input
                         type="text"
+                        inputMode="text"
+                        autoComplete="off"
+                        spellCheck={false}
                         value={rawValue}
                         onChange={(e) => {
                             handleCellChange(rowIdx, colIdx, e.target.value);
                         }}
                         onPaste={(e) => {
                             handlePaste(e, rowIdx, colIdx);
-                        }}
-                        onBlur={(e) => {
-                            if (e.target.value.trim()) {
-                                const formatted = parseDateValue(e.target.value);
-                                if (formatted !== e.target.value) {
-                                    handleCellChange(rowIdx, colIdx, formatted);
-                                }
-                            }
                         }}
                         onClick={(e) => {
                             e.stopPropagation();
@@ -603,9 +520,8 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                             e.stopPropagation();
                             setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
                         }}
-                        className="w-full h-full outline-none bg-transparent border-none p-0 text-sm font-medium text-gray-700 placeholder:text-gray-400"
-                        placeholder="dd/mm/yyyy"
-                        maxLength={10}
+                        className="w-full h-full outline-none bg-transparent border-none p-0 text-sm font-medium text-gray-700"
+                        placeholder=""
                     />
             );
         }
@@ -683,6 +599,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-gray-600">
                             <span>Ctrl+V: paste Excel</span>
                             <span>Ctrl+C: copy vùng chọn</span>
+                            <span>Delete / Backspace: xóa vùng đã bôi đen</span>
                             <span className="text-blue-600">Kéo góc ô để sao chép xuống</span>
                         </div>
                     </div>

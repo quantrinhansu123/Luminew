@@ -1459,9 +1459,13 @@ export default function BaoCaoVanHanhHtml() {
                     ref={bcvhWrapRef}
                     className={`bcvh-wrap rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'}`}
                 >
+                    <div className="bcvh-sticky-head">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-                        {/* Bộ lọc khoảng ngày cho link & query */}
+                        {/* Bộ lọc + nhãn cố định cột — cùng một hàng phía trái */}
                         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
+                            <div className="fixed-col-control shrink-0 rounded border border-gray-300 bg-gray-50 px-2 py-1 text-xs">
+                                Cố định 4 cột đầu
+                            </div>
                             <label className="flex items-center gap-1">
                                 Từ ngày
                                 <input
@@ -1495,9 +1499,6 @@ export default function BaoCaoVanHanhHtml() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                            <div className="fixed-col-control rounded border border-gray-300 bg-gray-50 px-2 py-1 text-xs">
-                                Cố định 4 cột đầu
-                            </div>
                             <button
                                 type="button"
                                 disabled={loading}
@@ -1518,6 +1519,7 @@ export default function BaoCaoVanHanhHtml() {
                     </div>
                     <div className="bcvh-split-title">
                         <div className="bcvh-title-row text-center uppercase tracking-wide">BÁO CÁO VẬN HÀNH</div>
+                    </div>
                     </div>
                     <div className="bcvh-split flex items-stretch">
                         <div

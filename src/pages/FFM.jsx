@@ -665,11 +665,13 @@ function FFM({ variant = 'MGT' }) {
       if (pendingInfo) val = pendingInfo.newValue;
       const dateCols = [
         'Ngày lên đơn',
-        'Ngày đóng hàng',
         'Ngày đẩy đơn',
         'Ngày có mã tracking',
         'Ngày Kế toán đối soát với FFM lần 2',
       ];
+      if (col === 'Ngày đóng hàng') {
+        return val === null || val === undefined ? '' : String(val);
+      }
       if (dateCols.includes(col)) {
         return formatDate(val);
       }
@@ -1763,7 +1765,9 @@ function FFM({ variant = 'MGT' }) {
           .map((col) => {
             const key = COLUMN_MAPPING[col] || col;
             let val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
-            if (['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(col)) {
+            if (col === 'Ngày đóng hàng') {
+              val = val === null || val === undefined ? '' : String(val);
+            } else if (['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(col)) {
               val = formatDate(val);
             }
             return sanitize(val);
@@ -2149,7 +2153,9 @@ function FFM({ variant = 'MGT' }) {
         const col = currentColumns[c];
         const key = COLUMN_MAPPING[col] || col;
         let val = viewData[r][key] ?? viewData[r][col] ?? '';
-        if (['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(col)) {
+        if (col === 'Ngày đóng hàng') {
+          val = val === null || val === undefined ? '' : String(val);
+        } else if (['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(col)) {
           val = formatDate(val);
         }
         rowData.push(String(val));
@@ -2953,16 +2959,16 @@ function FFM({ variant = 'MGT' }) {
         />
       );
     }
-    if (['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)) {
-      return (
-        <input
-          type="date"
-          className="w-full text-xs px-1 py-1 border rounded shadow-sm"
-          value={localFilterValues[filterKey] || ''}
-          onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
-        />
-      );
-    }
+    if (['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)) {
+          return (
+            <input
+              type="date"
+              className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+              value={localFilterValues[filterKey] || ''}
+              onChange={(e) => setLocalFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
+            />
+          );
+        }
     return (
       <FfmFilterTextCommitOnEnter
         className="w-full text-xs px-1 py-1 border rounded shadow-sm"
@@ -2999,9 +3005,14 @@ function FFM({ variant = 'MGT' }) {
     if (col === 'Ngày đối soát kế toán') {
       val = API.normalizeNgayDoiSoatKeToanText(val);
     }
-    const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)
-      ? formatDate(val)
-      : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
+    const displayVal =
+      col === 'Ngày đóng hàng'
+        ? val === null || val === undefined
+          ? ''
+          : String(val)
+        : ['Ngày lên đơn', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'].includes(col)
+          ? formatDate(val)
+          : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
         ? val !== '' && val !== null
           ? Number(String(val).replace(/[^\d.-]/g, '')).toLocaleString('vi-VN')
           : ''
@@ -3069,8 +3080,12 @@ function FFM({ variant = 'MGT' }) {
         ) : isEditableColFFM(col) ? (
           <input
             type="text"
+            inputMode="text"
+            autoComplete={col === 'Ngày đóng hàng' ? 'off' : undefined}
+            spellCheck={col === 'Ngày đóng hàng' ? false : undefined}
             key={`${orderId}-${col}-${String(displayVal)}`}
             defaultValue={String(displayVal)}
+            placeholder={col === 'Ngày đóng hàng' ? '' : undefined}
             onBlur={(e) => {
               const newValue = e.target.value;
               if (newValue !== String(displayVal)) handleCellChange(orderId, key, newValue);
@@ -3322,6 +3337,15 @@ function FFM({ variant = 'MGT' }) {
             </button>
             <button onClick={() => setQuickAddModalOpen(true)} className="bg-indigo-500 hover:bg-indigo-600 text-white px-2.5 py-1 rounded text-xs font-medium">
               ⚡ Thêm nhanh
+            </button>
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              disabled={selection.startRow === null}
+              title="Xóa nội dung các ô đã bôi đen (cùng Delete/Backspace). Chỉ ô được phép sửa; bấm «Xác nhận lưu» để ghi DB."
+              className="bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:pointer-events-none text-white px-2.5 py-1 rounded text-xs font-medium transition"
+            >
+              🧹 Xóa ô đã chọn
             </button>
             <button
               type="button"

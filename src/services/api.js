@@ -49,8 +49,9 @@ export const DB_TO_APP_MAPPING = {
     "payment_currency": "Loại tiền thanh toán",
     // Thời gian giao dự kiến → cột FFM (estimated_delivery_date chỉ fallback đọc dữ liệu cũ trong mapSupabaseOrderToApp)
     "thoigiangiaohangffm": "Thời gian giao dự kiến",
-    "warehouse_fee": "Ngày đối soát kế toán",
-    "luu_kho_usd": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
+    /* Khớp migration ngay_doi_soat_luu_kho_usd: luu_kho_usd = ngày (text), warehouse_fee = phí USD (numeric). */
+    "warehouse_fee": "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
+    "luu_kho_usd": "Ngày đối soát kế toán",
     "note_caps": "GHI CHÚ",
     "accounting_check_date": "Ngày Kế toán đối soát với FFM lần 2",
     "tracking_check_date": "Ngày có mã tracking",
@@ -70,7 +71,7 @@ export const DB_TO_APP_MAPPING = {
  * Trước đây chỉ khớp nhãn Việt → các cột dùng colKey kiểu sale_staff bị bỏ qua khi batch save (dữ liệu không ghi / refetch lệch).
  */
 /**
- * Chuẩn hoá text hiển thị «Ngày đối soát kế toán» (đọc từ warehouse_fee; fallback cột cũ trong mapSupabaseOrderToApp).
+ * Chuẩn hoá text hiển thị «Ngày đối soát kế toán» (đọc từ luu_kho_usd; fallback warehouse_fee/shipping_fee nếu dữ liệu cũ).
  * Số 0 / rỗng → trống.
  */
 export const normalizeNgayDoiSoatKeToanText = (v) => {
@@ -203,18 +204,19 @@ export const mapSupabaseOrderToApp = (sOrder) => {
         appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
         appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd;
     }
-    // Ngày đối soát kế toán: ưu tiên warehouse_fee; fallback luu_kho_usd / shipping_fee (dữ liệu cũ nhầm cột).
-    const nsFromWh = normalizeNgayDoiSoatKeToanText(sOrder.warehouse_fee);
-    const nsFromLuu = nsFromWh
-        ? ''
-        : normalizeNgayDoiSoatKeToanText(sOrder.luu_kho_usd);
-    const nsFromShip = nsFromWh || nsFromLuu
-        ? ''
-        : normalizeNgayDoiSoatKeToanText(sOrder.shipping_fee);
-    const ns = nsFromWh || nsFromLuu || nsFromShip || normalizeNgayDoiSoatKeToanText(appOrder['Ngày đối soát kế toán']);
+    // Ngày đối soát kế toán: ưu tiên luu_kho_usd (text); fallback warehouse_fee/shipping_fee (schema cũ hoặc nhầm cột).
+    const nsFromLuu = normalizeNgayDoiSoatKeToanText(sOrder.luu_kho_usd);
+    const nsFromWh = nsFromLuu ? '' : normalizeNgayDoiSoatKeToanText(sOrder.warehouse_fee);
+    const nsFromShip =
+        nsFromLuu || nsFromWh ? '' : normalizeNgayDoiSoatKeToanText(sOrder.shipping_fee);
+    const ns =
+        nsFromLuu ||
+        nsFromWh ||
+        nsFromShip ||
+        normalizeNgayDoiSoatKeToanText(appOrder['Ngày đối soát kế toán']);
 
     appOrder['Ngày đối soát kế toán'] = ns;
-    appOrder.warehouse_fee = ns;
+    appOrder.luu_kho_usd = ns;
     for (const k of ['shipping_unit', 'tracking_code', 'Đơn vị vận chuyển', 'Mã Tracking']) {
         const v = appOrder[k];
         if (typeof v === 'string') appOrder[k] = v.trim();
@@ -441,7 +443,7 @@ const ORDERS_NUMERIC_DB_KEYS = new Set([
     'sale_price',
     'goods_amount',
     'shipping_fee',
-    'luu_kho_usd',
+    'warehouse_fee',
     'reconciled_amount',
     'reconciled_vnd',
     'quantity_1',
@@ -471,15 +473,15 @@ const parseDateForDB = (val) => {
 /**
  * Prepares a value for database storage.
  * - Converts empty strings to null (to allow clearing numeric/date fields).
- * - Formats date fields using parseDateForDB (trừ thoigiangiaohangffm: giữ nguyên text như người dùng nhập).
+ * - Formats date fields using parseDateForDB (trừ thoigiangiaohangffm, ngaydonghang: giữ text như nhập).
  */
 const prepareValueForDB = (dbKey, value) => {
     // If value is explicitly an empty string, we want to save it as NULL in DB
     // to support clearing numeric/date/text fields correctly in PostgreSQL.
     if (value === '' || value === undefined) return null;
 
-    if (dbKey === 'warehouse_fee') {
-        // Lưu dạng text (vd. 02/04/2026), không lưu số YYYYMMDD (20260402).
+    if (dbKey === 'luu_kho_usd') {
+        // Cột ngày đối soát (text), vd. 02/04/2026 — không ghi vào warehouse_fee (numeric).
         const normalized = normalizeNgayDoiSoatKeToanText(value);
         return normalized === '' ? null : normalized;
     }
@@ -491,7 +493,14 @@ const prepareValueForDB = (dbKey, value) => {
         return s.trim() === '' ? null : s;
     }
 
-    if (['order_date', 'created_at', 'accounting_check_date', 'ngayupbill', 'ngaydonghang', 'tracking_check_date'].includes(dbKey)) {
+    // Ngày đóng hàng: lưu text như người dùng nhập (dd/mm/yyyy, có giờ…); DB cột text — không ép ISO.
+    if (dbKey === 'ngaydonghang') {
+        if (value === undefined || value === null) return null;
+        const s = typeof value === 'string' ? value : String(value);
+        return s.trim() === '' ? null : s;
+    }
+
+    if (['order_date', 'created_at', 'accounting_check_date', 'ngayupbill', 'tracking_check_date'].includes(dbKey)) {
         return parseDateForDB(value);
     }
     if (ORDERS_NUMERIC_DB_KEYS.has(dbKey)) {

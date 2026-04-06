@@ -222,9 +222,9 @@ async function fetchHumanResourceEmailLookup() {
   return buildEmailByNameLookup(data || []);
 }
 
-/** Map chuẩn hóa tên/username → { team, branch } (khớp luồng DanhSachBaoCaoTay «Đồng bộ team từ users»). */
+/** Map chuẩn hóa theo TÊN SALE → { team } (lấy đúng cột team từ bảng users). */
 async function fetchUsersTeamBranchProfileMap() {
-  const { data, error } = await supabase.from('users').select('name, username, team, branch');
+  const { data, error } = await supabase.from('users').select('name, team');
 
   if (error) {
     console.warn('[Sale recalc order_count] users team/branch:', error.message);
@@ -234,13 +234,10 @@ async function fetchUsersTeamBranchProfileMap() {
   const map = new Map();
   for (const u of data || []) {
     const team = String(u.team ?? '').trim();
-    const branch = String(u.branch ?? '').trim();
-    if (!team && !branch) continue;
-    const payload = { team, branch };
+    if (!team) continue;
+    const payload = { team };
     const nk = normalizePersonKey(u.name);
-    const uk = normalizePersonKey(u.username);
     if (nk && !map.has(nk)) map.set(nk, payload);
-    if (uk && !map.has(uk)) map.set(uk, payload);
   }
   return map;
 }
@@ -413,7 +410,6 @@ export async function recalcSaleOrderCountFromOrders({
     }
     const userProf = userTeamBranchFromSaleName(r.name, usersTeamBranchMap);
     if (userProf?.team) patch.team = userProf.team;
-    if (userProf?.branch) patch.branch = userProf.branch;
     updateRows.push(patch);
 
     if (previewRows.length < PREVIEW_LIMIT) {
@@ -445,7 +441,6 @@ export async function recalcSaleOrderCountFromOrders({
 
       const userProf = userTeamBranchFromSaleName(entry.sample.name, usersTeamBranchMap);
       const userTeam = String(userProf?.team || '').trim();
-      const userBranch = String(userProf?.branch || '').trim();
       const orderTeam = String(entry.sample.team || '').trim();
       let teamForRow = userTeam || orderTeam || 'Sale';
       if (teamScope?.length) {
@@ -461,7 +456,6 @@ export async function recalcSaleOrderCountFromOrders({
         name: entry.sample.name,
         email: email || null,
         team: teamForRow,
-        branch: userBranch || null,
         date: entry.sample.date,
         shift: group,
         product: entry.sample.product || null,
