@@ -1,5 +1,5 @@
 import { supabase } from '../supabase/config';
-import { buildEmailByNameLookup, emailFromName } from '../utils/emailFromName';
+import { buildEmailByNameLookup, emailFromName, normalizePersonKey } from '../utils/emailFromName';
 import { getCheckResult, isCheckResultHuy, orderAmountVnd } from '../utils/orderCheckAndVnd';
 
 function normalizeStr(str) {
@@ -222,6 +222,35 @@ async function fetchHumanResourceEmailLookup() {
   return buildEmailByNameLookup(data || []);
 }
 
+/** Map chuẩn hóa tên/username → { team, branch } (khớp luồng DanhSachBaoCaoTay «Đồng bộ team từ users»). */
+async function fetchUsersTeamBranchProfileMap() {
+  const { data, error } = await supabase.from('users').select('name, username, team, branch');
+
+  if (error) {
+    console.warn('[Sale recalc order_count] users team/branch:', error.message);
+    return new Map();
+  }
+
+  const map = new Map();
+  for (const u of data || []) {
+    const team = String(u.team ?? '').trim();
+    const branch = String(u.branch ?? '').trim();
+    if (!team && !branch) continue;
+    const payload = { team, branch };
+    const nk = normalizePersonKey(u.name);
+    const uk = normalizePersonKey(u.username);
+    if (nk && !map.has(nk)) map.set(nk, payload);
+    if (uk && !map.has(uk)) map.set(uk, payload);
+  }
+  return map;
+}
+
+function userTeamBranchFromSaleName(name, profileMap) {
+  const k = normalizePersonKey(name);
+  if (!k || !profileMap?.size) return null;
+  return profileMap.get(k) || null;
+}
+
 /** Lỗi fetch/Supabase kiểu mạng — dùng fallback chạy từng request (giống mktRecalc). */
 function isNetworkError(e) {
   const raw = e?.message || String(e);
@@ -283,7 +312,10 @@ export async function recalcSaleOrderCountFromOrders({
   const orders = normalizedExactKeys.length > 0
     ? await fetchOrdersForExactKeysForSale(normalizedExactKeys, ordersTable)
     : await fetchAllOrdersInRangeForSale(normalizedStart, normalizedEnd, ordersTable);
-  const hrEmailLookup = await fetchHumanResourceEmailLookup();
+  const [hrEmailLookup, usersTeamBranchMap] = await Promise.all([
+    fetchHumanResourceEmailLookup(),
+    fetchUsersTeamBranchProfileMap(),
+  ]);
 
   // Bỏ điều kiện ca: cùng một key thì Hết ca/Giữa ca dùng cùng tổng.
   // Key -> { count, revenueVnd, cancelCount, cancelRevenueVnd, sample }
@@ -379,6 +411,9 @@ export async function recalcSaleOrderCountFromOrders({
     if (resolvedEmail && !String(r.email ?? '').trim()) {
       patch.email = resolvedEmail;
     }
+    const userProf = userTeamBranchFromSaleName(r.name, usersTeamBranchMap);
+    if (userProf?.team) patch.team = userProf.team;
+    if (userProf?.branch) patch.branch = userProf.branch;
     updateRows.push(patch);
 
     if (previewRows.length < PREVIEW_LIMIT) {
@@ -408,10 +443,14 @@ export async function recalcSaleOrderCountFromOrders({
 
       const email = emailFromName(entry.sample.name, hrEmailLookup) || '';
 
+      const userProf = userTeamBranchFromSaleName(entry.sample.name, usersTeamBranchMap);
+      const userTeam = String(userProf?.team || '').trim();
+      const userBranch = String(userProf?.branch || '').trim();
       const orderTeam = String(entry.sample.team || '').trim();
-      let teamForRow = orderTeam || 'Sale';
+      let teamForRow = userTeam || orderTeam || 'Sale';
       if (teamScope?.length) {
-        if (orderTeam && teamScope.includes(orderTeam)) teamForRow = orderTeam;
+        if (userTeam && teamScope.includes(userTeam)) teamForRow = userTeam;
+        else if (orderTeam && teamScope.includes(orderTeam)) teamForRow = orderTeam;
         else if (defaultTeamForNewRows && teamScope.includes(String(defaultTeamForNewRows).trim()))
           teamForRow = String(defaultTeamForNewRows).trim();
         else teamForRow = teamScope[0];
@@ -422,6 +461,7 @@ export async function recalcSaleOrderCountFromOrders({
         name: entry.sample.name,
         email: email || null,
         team: teamForRow,
+        branch: userBranch || null,
         date: entry.sample.date,
         shift: group,
         product: entry.sample.product || null,
@@ -528,6 +568,8 @@ export async function recalcSaleOrderCountAfterOrderSave({
   newOrderKey,
   previousOrderKey,
   createMissingForHetCa = SALES_REPORTS_AUTO_CREATE_MISSING_ROWS,
+  reportsTable = 'sales_reports',
+  ordersTable = 'orders',
 } = {}) {
   const exactKeys = [newOrderKey, previousOrderKey]
     .filter(Boolean)
@@ -553,6 +595,8 @@ export async function recalcSaleOrderCountAfterOrderSave({
       dryRun: false,
       createMissingForHetCa,
       exactKeys: deduped,
+      reportsTable,
+      ordersTable,
     });
   }
 
@@ -565,5 +609,7 @@ export async function recalcSaleOrderCountAfterOrderSave({
     endDate: dates[dates.length - 1],
     dryRun: false,
     createMissingForHetCa,
+    reportsTable,
+    ordersTable,
   });
 }

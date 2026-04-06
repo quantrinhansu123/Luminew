@@ -1776,6 +1776,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                     newOrderKey: newSaleKey,
                     previousOrderKey: oldSaleKey,
                     createMissingForHetCa: true,
+                    reportsTable: isHcmView ? 'sale_report_hcm' : 'sales_reports',
+                    ordersTable: isHcmView ? 'order_code_hcm' : 'orders',
                 })
                     .then((r) => {
                         if (r?.skipped) return;
