@@ -40,10 +40,13 @@ const normalizePersonName = (s) =>
         .replace(/\s+/g, ' ')
         .toLowerCase();
 
-/** HCM: cột «Số đơn» = nhập tay trên DB; map chỉ bổ sung Số đơn hủy + Doanh số từ đơn. */
+/** HCM: map từ đơn (Số đơn đếm, hủy, doanh); «Số đơn tay» luôn lấy cột `Số đơn` trên dòng. */
 function defaultHcmRealValuesFromRow(item) {
+    const ttFb = Number(item['Số đơn thực tế'] || 0);
+    const huyFb = Number(item['Số đơn hoàn hủy'] || 0);
     return {
-        so_don_huy: Number(item['Số đơn hoàn hủy'] || 0),
+        so_don_thuc_te: ttFb + huyFb,
+        so_don_huy: huyFb,
         doanh_so_thuc_te: Number(item['Doanh số'] || 0),
     };
 }
@@ -307,7 +310,7 @@ export default function DanhSachBaoCaoTayMKT({
                 if (error) {
                     console.error('Error calculating real values:', error);
                     return isHcmMarketingReport
-                        ? { so_don_huy: 0, doanh_so_thuc_te: 0 }
+                        ? { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0 }
                         : { so_don_thuc_te: 0, doanh_so_thuc_te: 0 };
                 }
 
@@ -347,7 +350,7 @@ export default function DanhSachBaoCaoTayMKT({
         } catch (error) {
             console.error('Error calculating real values:', error);
             return isHcmMarketingReport
-                ? { so_don_huy: 0, doanh_so_thuc_te: 0 }
+                ? { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0 }
                 : { so_don_thuc_te: 0, doanh_so_thuc_te: 0 };
         }
     };
@@ -964,9 +967,19 @@ export default function DanhSachBaoCaoTayMKT({
             }
 
             if (sortColumn === 'Số đơn') {
-                if (isHcmMarketingReport) return Number(item?.['Số đơn'] || 0);
                 const id = item?.id;
+                if (isHcmMarketingReport) {
+                    if (id && realValuesMap?.[id]?.so_don_thuc_te != null) {
+                        return Number(realValuesMap[id].so_don_thuc_te || 0);
+                    }
+                    const fb = defaultHcmRealValuesFromRow(item);
+                    return Number(fb.so_don_thuc_te || 0);
+                }
                 if (id && realValuesMap?.[id]) return Number(realValuesMap[id]?.so_don_thuc_te || 0);
+                return Number(item?.['Số đơn'] || 0);
+            }
+
+            if (sortColumn === 'Số đơn tay') {
                 return Number(item?.['Số đơn'] || 0);
             }
 
@@ -1028,14 +1041,18 @@ export default function DanhSachBaoCaoTayMKT({
             const k = buildMktDetailReportRowKey(r);
             const id = r?.id;
             const fromMap = id != null && realValuesMap[id] !== undefined ? realValuesMap[id] : null;
-            // Chưa có TT trong map (đang tính): dùng số tay trên dòng để tổng không bị 0; khi map cập nhật, useMemo tự chạy lại.
+            // Chưa có map: HCM dùng TT+hủy trên dòng làm fallback cho «Số đơn» đếm; «Số đơn tay» luôn từ cột Số đơn.
             let sd;
             let sh = 0;
+            let st = 0;
             if (isHcmMarketingReport) {
-                sd = Number(r?.['Số đơn'] ?? 0);
+                sd = fromMap
+                    ? Number(fromMap.so_don_thuc_te ?? 0)
+                    : Number(r?.['Số đơn thực tế'] ?? 0) + Number(r?.['Số đơn hoàn hủy'] ?? 0);
                 sh = fromMap
                     ? Number(fromMap.so_don_huy ?? 0)
                     : Number(r?.['Số đơn hoàn hủy'] ?? 0);
+                st = Number(r?.['Số đơn'] ?? 0);
             } else if (fromMap) {
                 sd = Number(fromMap.so_don_thuc_te ?? 0);
             } else {
@@ -1046,25 +1063,28 @@ export default function DanhSachBaoCaoTayMKT({
             );
             const prev = byDetailKey.get(k);
             if (!prev) {
-                byDetailKey.set(k, { sd, ds, sh });
+                byDetailKey.set(k, { sd, ds, sh, st });
             } else {
                 byDetailKey.set(k, {
                     sd: Math.max(prev.sd, sd),
                     ds: Math.max(prev.ds, ds),
                     sh: Math.max(prev.sh, sh),
+                    st: Math.max(prev.st, st),
                 });
             }
         }
         let soDon = 0;
         let doanhSo = 0;
         let soDonHuy = 0;
-        for (const { sd, ds, sh } of byDetailKey.values()) {
+        let soDonTay = 0;
+        for (const { sd, ds, sh, st } of byDetailKey.values()) {
             soDon += sd;
             doanhSo += ds;
             soDonHuy += sh;
+            soDonTay += st;
         }
 
-        return { cpqc, mess, soDon, doanhSo, soDonHuy };
+        return { cpqc, mess, soDon, doanhSo, soDonHuy, soDonTay };
     }, [reportsAfterFilters, realValuesMap, isHcmMarketingReport]);
 
     // Tính Số đơn TT / Doanh số TT cho toàn bộ dòng đã lọc (phục vụ TỔNG CỘNG đúng dù bảng phân trang).
@@ -1150,7 +1170,7 @@ export default function DanhSachBaoCaoTayMKT({
             ? 'Báo cáo: Supabase `marketing_report_hcm`. Nguồn đơn: Supabase `order_code_hcm` (không gọi API ngoài).\n\n'
             : 'Nguồn đơn: bảng Supabase `orders`.\n\n';
         const ok = window.confirm(
-            'Tính lại cho Báo cáo MKT: Số đơn thực tế (TT), Doanh số TT (đã trừ đơn/VND hủy), Số đơn hoàn hủy (đơn Check = Hủy), đơn/DS hoàn hủy thực tế — Key match đơn ↔ báo cáo. Cột «Số đơn» nhập tay không bị ghi đè.\n\n' +
+            'Tính lại cho Báo cáo MKT: Số đơn thực tế (TT), Doanh số TT (đã trừ đơn/VND hủy), Số đơn hoàn hủy (đơn Check = Hủy), đơn/DS hoàn hủy thực tế — Key match đơn ↔ báo cáo. Cột «Số đơn tay» (Số đơn nhập) không bị ghi đè.\n\n' +
                 orderSourceHint +
                 'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
                 'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
@@ -1931,6 +1951,15 @@ export default function DanhSachBaoCaoTayMKT({
                                     >
                                         Số đơn {sortColumn === 'Số đơn' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                                     </th>
+                                    {isHcmMarketingReport && (
+                                        <th
+                                            onClick={() => handleSort('Số đơn tay')}
+                                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                                        >
+                                            Số đơn tay{' '}
+                                            {sortColumn === 'Số đơn tay' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                        </th>
+                                    )}
                                     <th
                                         onClick={() => handleSort('Doanh số')}
                                         style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -1944,7 +1973,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 {reportsAfterFilters.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={isHcmMarketingReport ? 13 : 12}
+                                            colSpan={isHcmMarketingReport ? 14 : 12}
                                             className="text-center"
                                         >
                                             {loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}
@@ -1962,6 +1991,11 @@ export default function DanhSachBaoCaoTayMKT({
                                                 </td>
                                             )}
                                             <td className="total-value">{formatNumber(totalsByFiltered.soDon)}</td>
+                                            {isHcmMarketingReport && (
+                                                <td className="total-value">
+                                                    {formatNumber(totalsByFiltered.soDonTay)}
+                                                </td>
+                                            )}
                                             <td className="total-value">{formatCurrency(totalsByFiltered.doanhSo)}</td>
                                             <td />
                                         </tr>
@@ -1974,9 +2008,8 @@ export default function DanhSachBaoCaoTayMKT({
                                                           so_don_thuc_te: item['Số đơn'] || 0,
                                                           doanh_so_thuc_te: item['Doanh số'] || 0,
                                                       });
-                                            const soDonDisplay = isHcmMarketingReport
-                                                ? Number(item['Số đơn'] || 0)
-                                                : Number(realValues.so_don_thuc_te ?? 0);
+                                            const soDonDisplay = Number(realValues.so_don_thuc_te ?? 0);
+                                            const soDonTayDisplay = Number(item['Số đơn'] || 0);
                                             return (
                                                 <tr key={item.id || index}>
                                                     <td className="text-center">{startIndex + index + 1}</td>
@@ -1992,6 +2025,9 @@ export default function DanhSachBaoCaoTayMKT({
                                                         <td>{formatNumber(realValues.so_don_huy ?? 0)}</td>
                                                     )}
                                                     <td>{formatNumber(soDonDisplay)}</td>
+                                                    {isHcmMarketingReport && (
+                                                        <td>{formatNumber(soDonTayDisplay)}</td>
+                                                    )}
                                                     <td>{formatCurrency(realValues.doanh_so_thuc_te)}</td>
                                                     <td className="text-center">
                                                         <button

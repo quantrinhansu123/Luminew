@@ -1478,14 +1478,14 @@
             };
           });
 
-        // Gộp trùng id/detailRowKey: cộng dồn CPQC + Số Mess (Số_Mess_Cmt), các cột khác giữ dòng đầu (HCM).
+        // Gộp trùng id/detailRowKey: cộng dồn CPQC, Số Mess, Số Đơn, DS Chốt (+ TT tương ứng).
         masterData = dedupeMktDetailRowsForAggregation(masterDataMKT);
 
         const dupRemoved = masterDataMKT.length - masterData.length;
         const nFromApi = rowsDeduped.length;
         console.log(
           `✅ Đã tải từ Supabase (${MKT_REPORTS_TABLE}): ${nFromApi} dòng (API+phân trang) → ${masterData.length} bản ghi sau gộp trùng` +
-            (dupRemoved > 0 ? ` (gộp ${dupRemoved} dòng trùng id/detailRowKey; CPQC & Số Mess cộng dồn)` : '') +
+            (dupRemoved > 0 ? ` (gộp ${dupRemoved} dòng trùng id/detailRowKey; CPQC, Số Mess, Số Đơn, DS Chốt cộng dồn)` : '') +
             `, ${employeeData.length} nhân viên. Nếu số dòng < Supabase: kiểm tra bộ lọc Team (mặc định «MKT - Đức Anh»), khoảng ngày, hoặc thêm ?allowedTeams=...`
         );
 
@@ -1978,8 +1978,8 @@
     }
 
     /**
-     * HCM: trùng id hoặc detailRowKey → một dòng; cộng dồn CPQC và Số Mess (soMessCmt),
-     * các trường khác giữ theo bản ghi đầu.
+     * HCM: trùng id hoặc detailRowKey → một dòng; cộng dồn CPQC, Số Mess, Số Đơn, DS Chốt
+     * (và Số đơn TT / DS Chốt TT) — không «lọc trùng» bằng cách giữ max/dòng đầu cho các cột này.
      */
     function dedupeMktDetailRowsForAggregation(rows) {
       if (!Array.isArray(rows) || rows.length === 0) return rows || [];
@@ -1991,6 +1991,10 @@
         const key = dk || idRaw || `__idx_${i}`;
         const addCpqc = Number(row.cpqc) || 0;
         const addMess = Number(row.soMessCmt) || 0;
+        const addSoDon = Number(row.soDon) || 0;
+        const addDsChot = Number(row.dsChot) || 0;
+        const addSoDonTT = Number(row.soDonThucTe) || 0;
+        const addDsChotTT = Number(row.dsChotThucTe) || 0;
         if (!byKey.has(key)) {
           byKey.set(key, row);
           return;
@@ -1998,6 +2002,10 @@
         const keep = byKey.get(key);
         keep.cpqc = (Number(keep.cpqc) || 0) + addCpqc;
         keep.soMessCmt = (Number(keep.soMessCmt) || 0) + addMess;
+        keep.soDon = (Number(keep.soDon) || 0) + addSoDon;
+        keep.dsChot = (Number(keep.dsChot) || 0) + addDsChot;
+        keep.soDonThucTe = (Number(keep.soDonThucTe) || 0) + addSoDonTT;
+        keep.dsChotThucTe = (Number(keep.dsChotThucTe) || 0) + addDsChotTT;
       });
       return Array.from(byKey.values());
     }
@@ -2028,7 +2036,6 @@
           summary[key] = {
             team: teamDisp,
             name: nameDisp,
-            seenDetailKeysSoDonTT: new Set(),
             mess: 0,
             don: 0,
             chot: 0,
@@ -2043,17 +2050,11 @@
         S.cpqc += Number(r.cpqc) || 0;
         S.don += Number(r.soDon) || 0;
         S.chot += Number(r.dsChot) || 0;
-
-        // TT: tránh cộng trùng nếu dữ liệu có thể xuất hiện lặp theo key detail.
-        const detailKey = String(r?.detailRowKey || '');
-        if (!S.seenDetailKeysSoDonTT.has(detailKey)) {
-          S.seenDetailKeysSoDonTT.add(detailKey);
-          S.donThucTe += Number(r.soDonThucTe) || 0;
-          S.chotThucTe += Number(r.dsChotThucTe) || 0;
-        }
+        S.donThucTe += Number(r.soDonThucTe) || 0;
+        S.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
 
-      return Object.values(summary).map(({ seenDetailKeysSoDonTT, ...rest }) => rest);
+      return Object.values(summary);
     }
 
     function generateKpiTableData(data) {

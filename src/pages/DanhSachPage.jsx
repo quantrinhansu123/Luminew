@@ -145,6 +145,19 @@ export default function DanhSachPage() {
         };
     }, [showAddModal, showEditModal]);
 
+    /** Select «Tên MKT» khi sửa: nhân sự MKT (HR) + giữ đúng chuỗi đang lưu nếu không khớp danh sách. */
+    const editMktStaffSelectOptions = useMemo(() => {
+        if (!editingPage) return mktDepartmentNames;
+        const cur = String(editingPage.mkt_staff ?? '');
+        const trimmed = cur.trim();
+        const names = [...mktDepartmentNames];
+        const inList = names.some((n) => n === cur || (trimmed && String(n).trim() === trimmed));
+        if (trimmed && !inList) {
+            return [cur, ...names];
+        }
+        return names;
+    }, [editingPage, mktDepartmentNames]);
+
     useEffect(() => {
         console.log('🚀 [DanhSachPage] Component mounted, loading data...');
         loadData();
@@ -1146,22 +1159,23 @@ export default function DanhSachPage() {
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
                                         Tên MKT
                                     </label>
-                                    <input
-                                        type="text"
-                                        list="danh-sach-page-mkt-edit"
-                                        autoComplete="off"
-                                        value={editingPage.mkt_staff || ''}
-                                        onChange={(e) => setEditingPage({ ...editingPage, mkt_staff: e.target.value })}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        placeholder="Gõ để tìm hoặc chọn từ danh sách nhân sự MKT"
-                                    />
-                                    <datalist id="danh-sach-page-mkt-edit">
-                                        {mktDepartmentNames.map((n) => (
-                                            <option key={n} value={n} />
+                                    <select
+                                        value={editingPage.mkt_staff ?? ''}
+                                        onChange={(e) =>
+                                            setEditingPage({ ...editingPage, mkt_staff: e.target.value })
+                                        }
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                                    >
+                                        <option value="">— Chọn nhân sự MKT —</option>
+                                        {editMktStaffSelectOptions.map((n) => (
+                                            <option key={`mkt-${n}`} value={n}>
+                                                {n}
+                                            </option>
                                         ))}
-                                    </datalist>
+                                    </select>
                                     <p className="text-xs text-gray-500 mt-1">
-                                        Danh sách từ nhân sự bộ phận MKT (human_resources). Có thể gõ tên khác nếu cần.
+                                        Danh sách tên từ bộ phận MKT (human_resources). Giá trị đang lưu không có
+                                        trong danh sách vẫn hiển thị để bạn giữ hoặc đổi sang tên chuẩn.
                                     </p>
                                 </div>
 
