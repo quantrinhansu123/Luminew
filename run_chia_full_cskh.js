@@ -52,19 +52,79 @@ const getMonthKey = (orderDate) => {
   return `${year}-${month}`;
 };
 
-// Load CSKH staff
-async function loadCSKHStaff() {
+function normalizeDeptBranchCompare(str) {
+  return String(str ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function userDepartmentIsCSKH(dept) {
+  const d = normalizeDeptBranchCompare(dept);
+  if (!d) return false;
+  return d === 'cskh' || d.includes('cskh');
+}
+
+function userBranchMatchesOrderTeam(branchOrTeam, orderTeamFilter) {
+  const b = normalizeDeptBranchCompare(branchOrTeam);
+  const t = normalizeDeptBranchCompare(orderTeamFilter);
+  if (!t || !b) return false;
+
+  const isOrderHcm =
+    t === 'hcm' ||
+    t.includes('hcm') ||
+    t.includes('hồ chí minh') ||
+    t.includes('ho chi minh') ||
+    t.includes('tp.hcm') ||
+    t.includes('tp hcm');
+  const isOrderHanoi =
+    t.includes('hà nội') ||
+    t.includes('ha noi') ||
+    t === 'hn' ||
+    t.includes('hanoi');
+
+  if (isOrderHcm) {
+    return (
+      b === 'hcm' ||
+      b.includes('hcm') ||
+      b.includes('hồ chí minh') ||
+      b.includes('ho chi minh') ||
+      b.includes('tp.hcm') ||
+      b.includes('tp hcm') ||
+      b.includes('sài gòn') ||
+      b.includes('sai gon')
+    );
+  }
+  if (isOrderHanoi) {
+    return b.includes('hà nội') || b.includes('ha noi') || b === 'hn' || b.includes('hanoi');
+  }
+  return b === t || b.includes(t) || t.includes(b);
+}
+
+/** CSKH từ users: department chứa CSKH + branch/team khớp team đơn (vd. Sale, Hà Nội, HCM). */
+async function loadCSKHStaffForBranch(orderTeamBranch) {
+  const branchKey = String(orderTeamBranch ?? '').trim();
+  if (!branchKey) {
+    throw new Error('Thiếu team/chi nhánh để tải danh sách CSKH');
+  }
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('name, email, department, position')
-      .eq('department', 'CSKH')
+      .select('name, email, department, position, branch, team')
       .order('name', { ascending: true });
 
     if (error) throw error;
-    
-    const staffNames = data?.map(u => u.name).filter(Boolean) || [];
-    console.log(`✅ Đã tải ${staffNames.length} nhân sự CSKH`);
+
+    const staffNames = (data || [])
+      .filter((u) => {
+        if (!userDepartmentIsCSKH(u.department)) return false;
+        const br = u.branch ?? u.team ?? '';
+        return userBranchMatchesOrderTeam(br, branchKey);
+      })
+      .map((u) => u.name)
+      .filter(Boolean);
+
+    console.log(`✅ Đã tải ${staffNames.length} nhân sự CSKH (chi nhánh / team khớp "${branchKey}")`);
     return staffNames;
   } catch (error) {
     console.error('❌ Lỗi khi tải danh sách nhân sự CSKH:', error.message);
@@ -224,10 +284,12 @@ async function handlePhanBoDonHang(staffList) {
 // Main function
 async function main() {
   try {
-    // 1. Load CSKH staff
-    const staffList = await loadCSKHStaff();
+    // 1. Load CSKH staff (theo team đơn — cùng logic AdminTools)
+    const staffList = await loadCSKHStaffForBranch(selectedTeam);
     if (staffList.length === 0) {
-      throw new Error('Không tìm thấy nhân sự CSKH');
+      throw new Error(
+        `Không có nhân sự CSKH cho team/chi nhánh "${selectedTeam}". Kiểm tra users.department (CSKH) và branch/team.`
+      );
     }
 
     // 2. Phân bổ đơn hàng

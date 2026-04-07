@@ -74,6 +74,60 @@ function orderTrangThaiThanhToanIsCoBill(order) {
     );
 }
 
+/** So sánh chuỗi branch/team (giữ dấu — khớp "Hà Nội", "HCM"). */
+function normalizeDeptBranchCompare(str) {
+    return String(str ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+/** Bộ phận được coi là CSKH (không phân biệt hoa thường). */
+function userDepartmentIsCSKH(dept) {
+    const d = normalizeDeptBranchCompare(dept);
+    if (!d) return false;
+    return d === 'cskh' || d.includes('cskh');
+}
+
+/**
+ * Khớp users.branch hoặc users.team với team đơn hàng (vd. 'Hà Nội', 'HCM').
+ */
+function userBranchMatchesOrderTeam(branchOrTeam, orderTeamFilter) {
+    const b = normalizeDeptBranchCompare(branchOrTeam);
+    const t = normalizeDeptBranchCompare(orderTeamFilter);
+    if (!t || !b) return false;
+
+    const isOrderHcm =
+        t === 'hcm' ||
+        t.includes('hcm') ||
+        t.includes('hồ chí minh') ||
+        t.includes('ho chi minh') ||
+        t.includes('tp.hcm') ||
+        t.includes('tp hcm');
+    const isOrderHanoi =
+        t.includes('hà nội') ||
+        t.includes('ha noi') ||
+        t === 'hn' ||
+        t.includes('hanoi');
+
+    if (isOrderHcm) {
+        return (
+            b === 'hcm' ||
+            b.includes('hcm') ||
+            b.includes('hồ chí minh') ||
+            b.includes('ho chi minh') ||
+            b.includes('tp.hcm') ||
+            b.includes('tp hcm') ||
+            b.includes('sài gòn') ||
+            b.includes('sai gon')
+        );
+    }
+    if (isOrderHanoi) {
+        return b.includes('hà nội') || b.includes('ha noi') || b === 'hn' || b.includes('hanoi');
+    }
+    return b === t || b.includes(t) || t.includes(b);
+}
+
 const AdminTools = () => {
     const { canView } = usePermissions();
 
@@ -1724,37 +1778,61 @@ const AdminTools = () => {
     };
 
     // --- AUTO ASSIGN FUNCTIONS ---
-    const loadCSKHStaff = async () => {
+    /** Danh sách CSKH: bảng users, bộ phận CSKH + cùng chi nhánh với team đơn (branch hoặc team). */
+    const loadCSKHStaffForBranch = async (orderTeamBranch) => {
+        const branchKey = String(orderTeamBranch ?? '').trim();
+        if (!branchKey) {
+            toast.error('Thiếu chi nhánh để tải danh sách CSKH');
+            return [];
+        }
         try {
-            // Lấy danh sách nhân sự CSKH từ bảng users
-            // Filter theo department = 'CSKH'
             const { data, error } = await supabase
                 .from('users')
-                .select('name, email, department, position')
-                .eq('department', 'CSKH')
+                .select('name, email, department, position, branch, team')
                 .order('name', { ascending: true });
 
             if (error) throw error;
 
-            const staffNames = data?.map(u => u.name).filter(Boolean) || [];
+            const staffNames = (data || [])
+                .filter((u) => {
+                    if (!userDepartmentIsCSKH(u.department)) return false;
+                    const br = u.branch ?? u.team ?? '';
+                    return userBranchMatchesOrderTeam(br, branchKey);
+                })
+                .map((u) => u.name)
+                .filter(Boolean);
+
             setCskhStaff(staffNames);
             return staffNames;
         } catch (error) {
             console.error('Error loading CSKH staff:', error);
-            toast.error('Lỗi khi tải danh sách nhân sự CSKH');
+            toast.error('Lỗi khi tải danh sách nhân sự CSKH theo chi nhánh');
             return [];
         }
     };
 
-    async function runPhanBoCskhOrders(ordersTable, { requireCoBillPayment = false } = {}) {
-        setAutoAssignLoading(true);
-        setAutoAssignResult(null);
-        setNotDividedOrders([]);
+    async function runPhanBoCskhOrders(
+        ordersTable,
+        { requireCoBillPayment = false, team, manageGlobalLoading = true } = {}
+    ) {
+        if (manageGlobalLoading) {
+            setAutoAssignLoading(true);
+            setAutoAssignResult(null);
+            setNotDividedOrders([]);
+        }
+
+        const teamFilter = String(team ?? '').trim();
+        if (!teamFilter) {
+            if (manageGlobalLoading) setAutoAssignLoading(false);
+            throw new Error('Thiếu chi nhánh (team) để lọc đơn');
+        }
 
         try {
-            const staffList = await loadCSKHStaff();
+            const staffList = await loadCSKHStaffForBranch(teamFilter);
             if (staffList.length === 0) {
-                throw new Error('Không tìm thấy nhân sự CSKH');
+                throw new Error(
+                    `Không có nhân sự CSKH cho chi nhánh "${teamFilter}". Kiểm tra users: department (CSKH) và branch/team khớp chi nhánh.`
+                );
             }
 
             // Parse selectedMonth để filter đơn hàng
@@ -1765,7 +1843,7 @@ const AdminTools = () => {
             const { data: ordersRaw, error: ordersError } = await supabase
                 .from(ordersTable)
                 .select('*')
-                .eq('team', selectedTeam)
+                .eq('team', teamFilter)
                 .gte('order_date', startDate.toISOString().split('T')[0])
                 .lte('order_date', endDate.toISOString().split('T')[0]);
 
@@ -1922,15 +2000,15 @@ const AdminTools = () => {
 
             const tableHint =
                 ordersTable === CSKH_ORDER_TABLE_HCM
-                    ? '\n- Nguồn: bảng order_code_hcm; chỉ đơn có Trạng thái thanh toán = \"Có Bill\" (ưu tiên payment_status_detail).'
-                    : '';
+                    ? '\n- Nguồn: bảng order_code_hcm; chỉ đơn có Trạng thái thu tiền = \"Có Bill\" (ưu tiên payment_status_detail).'
+                    : '\n- Nguồn: bảng orders; chỉ đơn có Trạng thái thu tiền = \"Có Bill\" (ưu tiên payment_status_detail).';
 
             const message =
-                `✅ Phân bổ đơn hàng thành công!${tableHint}\n\n` +
+                `✅ Phân bổ đơn hàng thành công! (${teamFilter})${tableHint}\n\n` +
                 `- Tổng đơn đã xử lý: ${updates.length}\n` +
                 `- Đơn Sale tự chăm: ${updates.filter(u => orders?.find(o => o.order_code === u.order_code)?.sale_staff === u.cskh).length}\n` +
                 `- Đơn được chia mới: ${updates.length - updates.filter(u => orders?.find(o => o.order_code === u.order_code)?.sale_staff === u.cskh).length}\n` +
-                `- Nhân sự CSKH: ${staffList.length} người`;
+                `- Nhân sự CSKH (${teamFilter}): ${staffList.length} người`;
 
             setAutoAssignResult({ success: true, message });
             toast.success(`Đã phân bổ ${updates.length} đơn hàng!`);
@@ -1939,23 +2017,24 @@ const AdminTools = () => {
             setAutoAssignResult({ success: false, message: `Lỗi: ${error.message}` });
             toast.error('Lỗi phân bổ đơn hàng: ' + error.message);
         } finally {
-            setAutoAssignLoading(false);
+            if (manageGlobalLoading) setAutoAssignLoading(false);
         }
     }
 
-    const handlePhanBoDonHang = async () => {
-        // Rule mới: luôn yêu cầu "Trạng thái thanh toán = Có Bill"
-        // Chọn bảng theo chi nhánh đang chọn
-        const table =
-            selectedTeam === 'Hà Nội'
-                ? CSKH_ORDER_TABLE_HN
-                : CSKH_ORDER_TABLE_HCM;
-        await runPhanBoCskhOrders(table, { requireCoBillPayment: true });
+    /** Phân bổ CSKH — bảng `orders`, team Hà Nội (độc lập với HCM). */
+    const handlePhanBoDonHangHaNoi = async () => {
+        await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HN, {
+            requireCoBillPayment: true,
+            team: 'Hà Nội',
+        });
     };
 
-    const handlePhanBoDonHangCskhHcm = async () => {
-        // Giữ nút HCM riêng nếu cần chạy cưỡng bức cho HCM
-        await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, { requireCoBillPayment: true });
+    /** Phân bổ CSKH — bảng `order_code_hcm`, team HCM. */
+    const handlePhanBoDonHangHcm = async () => {
+        await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, {
+            requireCoBillPayment: true,
+            team: 'HCM',
+        });
     };
 
     const handleHachToanBaoCao = async () => {
@@ -1964,9 +2043,11 @@ const AdminTools = () => {
         setNotDividedOrders([]);
 
         try {
-            const staffList = await loadCSKHStaff();
+            const staffList = await loadCSKHStaffForBranch(selectedTeam);
             if (staffList.length === 0) {
-                throw new Error('Không tìm thấy nhân sự CSKH');
+                throw new Error(
+                    `Không có nhân sự CSKH cho chi nhánh "${selectedTeam}". Kiểm tra users: department (CSKH) và branch/team.`
+                );
             }
 
             // Lấy tất cả đơn hàng thỏa điều kiện (không filter theo tháng)
@@ -2026,20 +2107,30 @@ const AdminTools = () => {
     };
 
     const handleRunAll = async () => {
-        if (!window.confirm('Bạn có chắc muốn chạy toàn bộ quy trình (Phân bổ + Hạch toán)?')) return;
+        if (
+            !window.confirm(
+                'Chạy toàn bộ: Phân bổ Hà Nội (orders) → Phân bổ HCM (order_code_hcm) → Hạch toán (chi nhánh đã chọn trong cấu hình)?'
+            )
+        )
+            return;
 
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
         setNotDividedOrders([]);
 
         try {
-            // 1. Phân bổ đơn hàng
-            await handlePhanBoDonHang();
-
-            // Đợi một chút
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // 2. Hạch toán báo cáo
+            await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HN, {
+                requireCoBillPayment: true,
+                team: 'Hà Nội',
+                manageGlobalLoading: false,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, {
+                requireCoBillPayment: true,
+                team: 'HCM',
+                manageGlobalLoading: false,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             await handleHachToanBaoCao();
 
             toast.success('Đã hoàn tất toàn bộ quy trình!');
@@ -3924,7 +4015,9 @@ const AdminTools = () => {
                             <h3 className="font-semibold text-gray-800 mb-3">Cấu hình</h3>
                             <div className="space-y-3">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Chi nhánh</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Chi nhánh (Hạch toán báo cáo &amp; Chạy toàn bộ)
+                                    </label>
                                     <select
                                         value={selectedTeam}
                                         onChange={(e) => setSelectedTeam(e.target.value)}
@@ -3944,15 +4037,25 @@ const AdminTools = () => {
                                     />
                                 </div>
                                 <div className="text-xs text-gray-600 space-y-1">
-                                    <p><strong>Điều kiện:</strong></p>
-                                    <ul className="list-disc list-inside space-y-0.5 ml-2">
-                                        <li>Chi nhánh = "{selectedTeam}"</li>
-                                        <li>Kế toán xác nhận = "Đã thu tiền"</li>
-                                        <li>Tháng của Ngày lên đơn = {selectedMonth}</li>
-                                        <li>Cột CSKH trống</li>
+                                    <p><strong>Điều kiện phân bổ (theo từng nút):</strong></p>
+                                    <ul className="list-disc list-inside space-y-1 ml-2">
+                                        <li>
+                                            <strong className="text-gray-800">Hà Nội — bảng orders:</strong> Chi nhánh = &quot;Hà Nội&quot; · Trạng thái thu
+                                            tiền = &quot;Có bill&quot; (cột payment_status_detail hoặc payment_status) · Tháng Ngày lên đơn ={' '}
+                                            {selectedMonth} · Cột CSKH trống
+                                        </li>
+                                        <li>
+                                            <strong className="text-gray-800">HCM — bảng order_code_hcm:</strong> Chi nhánh = &quot;HCM&quot; ·
+                                            Trạng thái thu tiền = &quot;Có bill&quot; (payment_status_detail / payment_status) · Tháng Ngày lên đơn ={' '}
+                                            {selectedMonth} · Cột CSKH trống
+                                        </li>
                                     </ul>
                                     <div className="mt-3 pt-3 border-t border-gray-200">
-                                        <p><strong className="text-gray-800">Logic chia đơn CSKH:</strong></p>
+                                        <p><strong className="text-gray-800">Danh sách CSKH:</strong> Lấy từ bảng <code className="bg-gray-100 px-1 rounded">users</code> —{' '}
+                                            <strong>bộ phận</strong> có chứa &quot;CSKH&quot; (cột <code className="bg-gray-100 px-1 rounded">department</code>) và{' '}
+                                            <strong>chi nhánh</strong> khớp lần phân bổ: Hà Nội dùng <code className="bg-gray-100 px-1 rounded">branch</code> hoặc{' '}
+                                            <code className="bg-gray-100 px-1 rounded">team</code> (HN / Hà Nội…); HCM dùng HCM / TP.HCM / Hồ Chí Minh…</p>
+                                        <p className="mt-2"><strong className="text-gray-800">Logic chia đơn CSKH:</strong></p>
                                         <ol className="list-decimal list-inside space-y-1 ml-2 mt-1 text-xs">
                                             <li><strong>Đếm số đơn hiện tại</strong> của mỗi nhân viên CSKH <strong>theo từng tháng</strong> (dựa trên tháng của "Ngày lên đơn")</li>
                                             <li><strong>Đơn Sale tự chăm:</strong> Nếu nhân viên Sale cũng là CSKH → tự động gán cho họ</li>
@@ -3972,58 +4075,83 @@ const AdminTools = () => {
                             {/* Cột trái: Chia đơn CSKH */}
                             <div className="space-y-4">
                                 <h3 className="font-semibold text-gray-700">Chia đơn CSKH</h3>
-                                <div className="flex gap-4">
-                                    <button
-                                        onClick={handlePhanBoDonHang}
-                                        disabled={autoAssignLoading}
-                                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                    >
-                                        {autoAssignLoading ? (
-                                            <>
-                                                <RefreshCw className="w-5 h-5 animate-spin" />
-                                                Đang xử lý...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Users className="w-5 h-5" />
-                                                Phân bổ đơn hàng
-                                            </>
-                                        )}
-                                    </button>
-                                    <button
-                                        onClick={handleHachToanBaoCao}
-                                        disabled={autoAssignLoading}
-                                        className="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                    >
-                                        {autoAssignLoading ? (
-                                            <>
-                                                <RefreshCw className="w-5 h-5 animate-spin" />
-                                                Đang xử lý...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Activity className="w-5 h-5" />
-                                                Hạch toán báo cáo
-                                            </>
-                                        )}
-                                    </button>
-                                    <button
-                                        onClick={handleRunAll}
-                                        disabled={autoAssignLoading}
-                                        className="flex-1 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                    >
-                                        {autoAssignLoading ? (
-                                            <>
-                                                <RefreshCw className="w-5 h-5 animate-spin" />
-                                                Đang xử lý...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <CheckCircle className="w-5 h-5" />
-                                                Chạy toàn bộ
-                                            </>
-                                        )}
-                                    </button>
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex flex-col sm:flex-row gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={handlePhanBoDonHangHaNoi}
+                                            disabled={autoAssignLoading}
+                                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                        >
+                                            {autoAssignLoading ? (
+                                                <>
+                                                    <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
+                                                    Đang xử lý...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Users className="w-5 h-5 shrink-0" />
+                                                    Phân bổ — Hà Nội (orders)
+                                                </>
+                                            )}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handlePhanBoDonHangHcm}
+                                            disabled={autoAssignLoading}
+                                            className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                        >
+                                            {autoAssignLoading ? (
+                                                <>
+                                                    <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
+                                                    Đang xử lý...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Users className="w-5 h-5 shrink-0" />
+                                                    Phân bổ — HCM (order_code_hcm)
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-col sm:flex-row gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={handleHachToanBaoCao}
+                                            disabled={autoAssignLoading}
+                                            className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                        >
+                                            {autoAssignLoading ? (
+                                                <>
+                                                    <RefreshCw className="w-5 h-5 animate-spin" />
+                                                    Đang xử lý...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Activity className="w-5 h-5" />
+                                                    Hạch toán báo cáo
+                                                </>
+                                            )}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleRunAll}
+                                            disabled={autoAssignLoading}
+                                            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                        >
+                                            {autoAssignLoading ? (
+                                                <>
+                                                    <RefreshCw className="w-5 h-5 animate-spin" />
+                                                    Đang xử lý...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <CheckCircle className="w-5 h-5" />
+                                                    Chạy toàn bộ
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Tìm kiếm đơn hàng */}

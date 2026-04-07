@@ -79,6 +79,8 @@ export const LONG_TEXT_COLS = [
 ];
 
 export const COLUMN_MAPPING = {
+    /** Hiển thị & lưu theo cột NB (vận đơn); trùng khóa dữ liệu với «Trạng thái giao hàng NB» khi cả hai có trên lưới. */
+    "Trạng thái giao hàng": "Trạng thái giao hàng NB",
     "Ghi chú vận đơn": "Ghi chú của VĐ",
     "Kết quả check": "Kết quả Check",
     "khu vực": "Khu vực",

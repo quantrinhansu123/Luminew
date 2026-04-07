@@ -201,6 +201,22 @@ function AppShell() {
             />
             <Route path="/don-chia-cskh" element={<ProtectedRoute><DonChiaCSKH /></ProtectedRoute>} />
             <Route
+              path="/don-chia-cskh-hcm"
+              element={
+                <ProtectedRoute>
+                  <DonChiaCSKH
+                    key="don-chia-cskh-hcm"
+                    ordersTableName="order_code_hcm"
+                    pageTitle="ĐƠN CHIA CSKH (HCM)"
+                    pageSubtitle="Dữ liệu từ order_code_hcm"
+                    accessPermissionCodes={['CSKH_PAID_HCM']}
+                    unlimitedDataFetch
+                    defaultRowsPerPage={0}
+                  />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/xem-bao-cao-cskh"
               element={
                 <ProtectedRoute>

@@ -48,11 +48,17 @@ const parseMoney = (moneyString) => {
 
 const DON_CHIA_CSKH_PAGE_SIZE = 1000;
 
+/** Mặc định khớp menu Home + rbac (`/don-chia-cskh`). */
+const DEFAULT_DON_CHIA_ACCESS_CODES = ['CSKH_PAID'];
+
+/** Gỡ gán CSKH khỏi đơn — chỉ dùng cho nút admin trên trang này */
+const CSKH_BULK_CLEAR_TARGET_NAME = 'Lê Ngọc Đài Trang';
+
 function mapDonChiaOrderToFriendly(item) {
   const tracking = resolveTrackingFromOrder(item);
   return {
     id: item.id,
-    /** Khớp cột Supabase `orders` — dùng cho xuất Excel */
+    /** Khớp cột Supabase đơn (orders / order_code_hcm) — dùng cho xuất Excel */
     order_code: item.order_code ?? '',
     cskh_status: item.cskh_status != null && item.cskh_status !== '' ? String(item.cskh_status) : '',
     "Mã đơn hàng": item.order_code,
@@ -188,10 +194,28 @@ function applyDonChiaClientTableFilters(data, ctx) {
 }
 
 
-function DonChiaCSKH() {
+function DonChiaCSKH({
+  ordersTableName = 'orders',
+  pageTitle = 'ĐƠN CHIA CSKH',
+  pageSubtitle = 'Dữ liệu từ Supabase',
+  accessPermissionCodes = DEFAULT_DON_CHIA_ACCESS_CODES,
+  /** HCM: tải hết đơn từ server (lặp range), không giới hạn 10k dòng */
+  unlimitedDataFetch = false,
+  /** Số dòng/trang mặc định; 0 = Tất cả */
+  defaultRowsPerPage,
+} = {}) {
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   const navigate = useNavigate();
   const { canView, canEdit, canDelete, role } = usePermissions();
+
+  const canAccessPage = useMemo(
+    () => accessPermissionCodes.some((code) => canView(code)),
+    [accessPermissionCodes, canView]
+  );
+
+  const columnPrefsKey = `donChiaCSKH_visibleColumns_${ordersTableName}`;
+  const excelExportBaseName =
+    ordersTableName === 'order_code_hcm' ? 'DonChiaCSKH_HCM' : 'DonChiaCSKH';
 
   const [allData, setAllData] = useState([]);
   const [allMappedData, setAllMappedData] = useState([]); // Lưu tất cả dữ liệu đã map (trước khi filter CSKH) để lấy unique CSKH
@@ -230,7 +254,9 @@ function DonChiaCSKH() {
 
   const [quickFilter, setQuickFilter] = useState('today');
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(1000);
+  const [rowsPerPage, setRowsPerPage] = useState(() =>
+    defaultRowsPerPage !== undefined ? defaultRowsPerPage : 1000
+  );
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -241,6 +267,7 @@ function DonChiaCSKH() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewing, setIsViewing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [clearingCskhBulk, setClearingCskhBulk] = useState(false);
 
   // --- Permission State ---
   const [currentUserEmail, setCurrentUserEmail] = useState('');
@@ -356,6 +383,24 @@ function DonChiaCSKH() {
   const isAdmin = () => {
     const roleLower = (role || '').toLowerCase();
     return roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
+  };
+
+  /** Chỉ admin (không tính finance) + tài khoản admin@marketing.com / Bộ phận admin — cho nút gỡ gán CSKH */
+  const isStrictAdminForCskhClear = () => {
+    const roleLower = (role || '').toLowerCase();
+    if (roleLower === 'admin' || roleLower === 'super_admin') return true;
+    try {
+      const userJson = localStorage.getItem('user');
+      const user = userJson ? JSON.parse(userJson) : null;
+      const userEmail = (localStorage.getItem('userEmail') || user?.Email || user?.email || '')
+        .toString()
+        .toLowerCase()
+        .trim();
+      const boPhan = (user?.['Bộ_phận'] || user?.['Bộ phận'] || '').toString().trim().toLowerCase();
+      return userEmail === 'admin@marketing.com' || boPhan === 'admin';
+    } catch {
+      return false;
+    }
   };
 
   const normalizePersonnelList = (value) => {
@@ -477,7 +522,7 @@ function DonChiaCSKH() {
 
   // Load column visibility from localStorage or use defaults
   const [visibleColumns, setVisibleColumns] = useState(() => {
-    const saved = localStorage.getItem('donChiaCSKH_visibleColumns');
+    const saved = localStorage.getItem(columnPrefsKey);
     let initial = {};
     
     if (saved) {
@@ -586,9 +631,9 @@ function DonChiaCSKH() {
           cleaned[col] = visibleColumns[col];
         }
       });
-      localStorage.setItem('donChiaCSKH_visibleColumns', JSON.stringify(cleaned));
+      localStorage.setItem(columnPrefsKey, JSON.stringify(cleaned));
     }
-  }, [visibleColumns]);
+  }, [visibleColumns, columnPrefsKey]);
 
   const getDonChiaOrdersQuery = async (options = {}) => {
     const dateMode = options.dateMode === 'created_at' ? 'created_at' : 'order_date';
@@ -607,7 +652,7 @@ function DonChiaCSKH() {
     const roleLower = (role || '').toLowerCase();
     const isManager = isAdmin || isLeader || roleLower === 'admin' || roleLower === 'super_admin' || roleLower === 'finance';
 
-    let query = supabase.from('orders').select('*');
+    let query = supabase.from(ordersTableName).select('*');
 
     if (!isManager) {
       query = query.not('cskh', 'is', null);
@@ -705,6 +750,24 @@ function DonChiaCSKH() {
     return { query, isManager };
   };
 
+  /** Lấy toàn bộ dòng khớp query (lặp range), tránh .limit cố định. */
+  const fetchAllRowsForDonChiaQuery = async (dateMode) => {
+    const acc = [];
+    let from = 0;
+    let isManagerFlag = false;
+    for (;;) {
+      const { query, isManager } = await getDonChiaOrdersQuery({ dateMode });
+      isManagerFlag = isManager;
+      const { data, error } = await query.range(from, from + DON_CHIA_CSKH_PAGE_SIZE - 1);
+      if (error) throw error;
+      if (!data?.length) break;
+      acc.push(...data);
+      if (data.length < DON_CHIA_CSKH_PAGE_SIZE) break;
+      from += DON_CHIA_CSKH_PAGE_SIZE;
+    }
+    return { data: acc, isManager: isManagerFlag };
+  };
+
   // Load data from Supabase with date filter
   const loadData = async () => {
     setLoading(true);
@@ -713,26 +776,45 @@ function DonChiaCSKH() {
       console.log(`📅 [DonChiaCSKH] Date range: ${startDate || 'ALL'} to ${endDate || 'ALL'}`);
 
       const FETCH_LIMIT = 10000;
-      const { query: query1, isManager } = await getDonChiaOrdersQuery({ dateMode: 'order_date' });
-      let { data, error } = await query1.limit(FETCH_LIMIT);
+      let data;
+      let isManager;
 
-      if (error) throw error;
+      if (unlimitedDataFetch) {
+        const r1 = await fetchAllRowsForDonChiaQuery('order_date');
+        data = r1.data;
+        isManager = r1.isManager;
+        if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '') {
+          const r2 = await fetchAllRowsForDonChiaQuery('created_at');
+          if (r2.data?.length) {
+            data = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(data, r2.data));
+            console.log(
+              `📅 [DonChiaCSKH] Gộp đơn order_date trống theo created_at: +${r2.data.length} dòng`
+            );
+          }
+        }
+      } else {
+        const { query: query1, isManager: im } = await getDonChiaOrdersQuery({ dateMode: 'order_date' });
+        isManager = im;
+        const res1 = await query1.limit(FETCH_LIMIT);
+        if (res1.error) throw res1.error;
+        data = res1.data;
 
-      if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '') {
-        const { query: query2 } = await getDonChiaOrdersQuery({ dateMode: 'created_at' });
-        const r2 = await query2.limit(FETCH_LIMIT);
-        if (r2.error) throw r2.error;
-        data = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(data, r2.data));
-        console.log(
-          `📅 [DonChiaCSKH] Gộp đơn order_date trống theo created_at: +${(r2.data || []).length} dòng`
-        );
+        if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '') {
+          const { query: query2 } = await getDonChiaOrdersQuery({ dateMode: 'created_at' });
+          const r2 = await query2.limit(FETCH_LIMIT);
+          if (r2.error) throw r2.error;
+          data = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(data, r2.data));
+          console.log(
+            `📅 [DonChiaCSKH] Gộp đơn order_date trống theo created_at: +${(r2.data || []).length} dòng`
+          );
+        }
       }
 
       // Fallback: if query returns 0 results and user is non-manager, fetch ALL to verify and debug
       if (!isManager && (!data || data.length === 0)) {
         console.warn('⚠️ [DonChiaCSKH] Non-manager query returned 0 results. Fetching ALL orders to debug...');
         const { data: allOrders, error: allError } = await supabase
-          .from('orders')
+          .from(ordersTableName)
           .select('order_code, cskh, order_date')
           .not('cskh', 'is', null)
           .neq('cskh', '')
@@ -750,7 +832,7 @@ function DonChiaCSKH() {
       // Debug: get ALL CSKH values from unfiltered query to see what's in DB
       if (data?.length === 0 && !isManager) {
         console.log('⚠️ [DonChiaCSKH] No data found with CSKH filter. Fetching ALL orders to see available CSKH values...');
-        const { data: allOrders } = await supabase.from('orders').select('order_code, cskh').not('cskh', 'is', null).neq('cskh', '').neq('cskh', ' ');
+        const { data: allOrders } = await supabase.from(ordersTableName).select('order_code, cskh').not('cskh', 'is', null).neq('cskh', '').neq('cskh', ' ');
         const cskhValues = allOrders?.map(o => ({ order_code: o.order_code, cskh: o.cskh, cskh_trimmed: String(o.cskh).trim() })) || [];
         console.log('📊 [DonChiaCSKH] All CSKH values in DB (total ' + cskhValues.length + ' orders):', cskhValues);
         console.log('🔍 [DonChiaCSKH] Unique CSKH values:', [...new Set(cskhValues.map(v => v.cskh_trimmed))]);
@@ -850,7 +932,7 @@ function DonChiaCSKH() {
 
   useEffect(() => {
     loadData();
-  }, [startDate, endDate, role]);
+  }, [startDate, endDate, role, ordersTableName, unlimitedDataFetch]);
 
   // Get unique values for filters
   const uniqueMarkets = useMemo(() => {
@@ -1089,9 +1171,11 @@ function DonChiaCSKH() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedRowId, filteredData, displayColumns]);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+  // Pagination (rowsPerPage === 0: hiển thị toàn bộ kết quả sau lọc)
+  const totalPages =
+    rowsPerPage > 0 ? Math.max(1, Math.ceil(filteredData.length / rowsPerPage)) : 1;
   const paginatedData = useMemo(() => {
+    if (!rowsPerPage || rowsPerPage <= 0) return filteredData;
     const start = (currentPage - 1) * rowsPerPage;
     return filteredData.slice(start, start + rowsPerPage);
   }, [filteredData, currentPage, rowsPerPage]);
@@ -1168,7 +1252,7 @@ function DonChiaCSKH() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'CSKH');
       const stamp = `${startDate || 'all'}_${endDate || 'all'}`;
-      XLSX.writeFile(wb, `DonChiaCSKH_${stamp}.xlsx`);
+      XLSX.writeFile(wb, `${excelExportBaseName}_${stamp}.xlsx`);
       toast.dismiss(toastId);
       toast.success(`Đã tải ${rows.length} dòng Excel (đã gộp mọi trang từ server).`);
     } catch (err) {
@@ -1206,7 +1290,7 @@ function DonChiaCSKH() {
       const dbColumn = dbColumnMap[columnName] || columnName.toLowerCase().replace(/\s+/g, '_');
       
       const { error } = await supabase
-        .from('orders')
+        .from(ordersTableName)
         .update({ [dbColumn]: newValue })
         .eq('id', orderId);
 
@@ -1412,7 +1496,7 @@ function DonChiaCSKH() {
     setIsUpdating(true);
     try {
       const { error } = await supabase
-        .from('orders')
+        .from(ordersTableName)
         .update({
           customer_name: editingOrder.customer_name,
           customer_phone: editingOrder.customer_phone,
@@ -1447,6 +1531,63 @@ function DonChiaCSKH() {
     }
   };
 
+  const normCskh = (s) => String(s ?? '').trim().toLowerCase();
+
+  /** Admin: gỡ cskh chỉ cho đơn đang hiển thị sau bộ lọc + đúng tên CSKH_BULK_CLEAR_TARGET_NAME. */
+  const handleClearCskhBulkForTarget = async () => {
+    if (!isStrictAdminForCskhClear()) {
+      toast.error('Chỉ Admin mới được thao tác này.');
+      return;
+    }
+    if (clearingCskhBulk) return;
+
+    const targetNorm = normCskh(CSKH_BULK_CLEAR_TARGET_NAME);
+    if (!targetNorm) return;
+
+    setClearingCskhBulk(true);
+    try {
+      const ids = [
+        ...new Set(
+          filteredData
+            .filter((row) => row.id && normCskh(row['CSKH']) === targetNorm)
+            .map((row) => row.id)
+        ),
+      ];
+
+      if (ids.length === 0) {
+        toast.info(
+          `Không có đơn nào trong bộ lọc hiện tại đang gán CSKH "${CSKH_BULK_CLEAR_TARGET_NAME}".`
+        );
+        return;
+      }
+
+      if (
+        !window.confirm(
+          `Gỡ gán CSKH "${CSKH_BULK_CLEAR_TARGET_NAME}" khỏi ${ids.length} đơn trong bộ lọc hiện tại?\nTrường CSKH sẽ để trống. Thao tác không hoàn tác tự động.`
+        )
+      ) {
+        return;
+      }
+
+      const chunkSize = 500;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        const { error: upErr } = await supabase.from(ordersTableName).update({ cskh: null }).in('id', chunk);
+        if (upErr) throw upErr;
+      }
+
+      toast.success(
+        `Đã gỡ CSKH "${CSKH_BULK_CLEAR_TARGET_NAME}" khỏi ${ids.length} đơn (theo bộ lọc).`
+      );
+      await loadData();
+    } catch (err) {
+      console.error('Clear CSKH bulk:', err);
+      toast.error(err?.message || 'Lỗi khi gỡ gán CSKH');
+    } finally {
+      setClearingCskhBulk(false);
+    }
+  };
+
   // Handle Delete - Chỉ Admin hoặc người trong selected_personnel của CSKH mới được phép
   const handleDelete = async (id) => {
     // Find the order to get CSKH name
@@ -1467,7 +1608,7 @@ function DonChiaCSKH() {
     if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác!")) return;
 
     try {
-      const { error } = await supabase.from('orders').delete().eq('id', id);
+      const { error } = await supabase.from(ordersTableName).delete().eq('id', id);
       if (error) throw error;
 
       alert("✅ Đã xóa đơn hàng thành công!");
@@ -1479,8 +1620,12 @@ function DonChiaCSKH() {
     }
   };
 
-  if (!canView('CSKH_PAID')) {
-    return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (CSKH_PAID).</div>;
+  if (!canAccessPage) {
+    return (
+      <div className="p-8 text-center text-red-600 font-bold">
+        Bạn không có quyền truy cập trang này ({accessPermissionCodes.join(', ')}).
+      </div>
+    );
   }
 
   return (
@@ -1492,8 +1637,8 @@ function DonChiaCSKH() {
             <div className="flex items-center gap-4">
 
               <div>
-                <h1 className="text-xl font-bold text-gray-800">ĐƠN CHIA CSKH</h1>
-                <p className="text-xs text-gray-500">Dữ liệu từ Supabase</p>
+                <h1 className="text-xl font-bold text-gray-800">{pageTitle}</h1>
+                <p className="text-xs text-gray-500">{pageSubtitle}</p>
               </div>
             </div>
 
@@ -1509,7 +1654,7 @@ function DonChiaCSKH() {
                 onClick={handleExportDonChiaExcel}
                 disabled={loading || exportingExcel || filteredData.length === 0}
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                title="Excel: orders.order_code → Mã đơn hàng; orders.cskh_status → Trạng thái CSKH. Tải đủ trang từ server, áp dụng bộ lọc trên trang."
+                title={`Excel: ${ordersTableName}.order_code → Mã đơn hàng; ${ordersTableName}.cskh_status → Trạng thái CSKH. Tải đủ trang từ server, áp dụng bộ lọc trên trang.`}
               >
                 {exportingExcel ? (
                   <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
@@ -1530,6 +1675,22 @@ function DonChiaCSKH() {
                 )}
                 {loading ? 'Đang tải...' : 'Tải lại'}
               </button>
+              {isStrictAdminForCskhClear() && (
+                <button
+                  type="button"
+                  onClick={handleClearCskhBulkForTarget}
+                  disabled={loading || clearingCskhBulk}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                  title={`Chỉ Admin: gỡ CSKH "${CSKH_BULK_CLEAR_TARGET_NAME}" chỉ trên các đơn đang khớp bộ lọc trang`}
+                >
+                  {clearingCskhBulk ? (
+                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  {clearingCskhBulk ? 'Đang xử lý...' : `Gỡ CSKH: ${CSKH_BULK_CLEAR_TARGET_NAME}`}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1977,7 +2138,7 @@ function DonChiaCSKH() {
                   onClick={handleExportDonChiaExcel}
                   disabled={loading || exportingExcel || filteredData.length === 0}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                  title="Excel: orders.order_code → Mã đơn hàng; orders.cskh_status → Trạng thái CSKH. Tải đủ trang từ server, áp dụng bộ lọc trên trang."
+                  title={`Excel: ${ordersTableName}.order_code → Mã đơn hàng; ${ordersTableName}.cskh_status → Trạng thái CSKH. Tải đủ trang từ server, áp dụng bộ lọc trên trang.`}
                 >
                   {exportingExcel ? (
                     <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
@@ -2197,12 +2358,14 @@ function DonChiaCSKH() {
                   setCurrentPage(1);
                 }}
               >
+                <option value="0">Tất cả</option>
                 <option value="25">25</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
                 <option value="200">200</option>
                 <option value="500">500</option>
                 <option value="1000">1000</option>
+                <option value="5000">5000</option>
               </select>
             </div>
 

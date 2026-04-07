@@ -2558,7 +2558,7 @@ function VanDon({ dataSource = 'default' }) {
   const getFilterMultiSelectOptions = useCallback(
     (col) => {
       const keyMapped = COLUMN_MAPPING[col] || col;
-      const preset = DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[keyMapped] || [];
+      const preset = DROPDOWN_OPTIONS[keyMapped] || DROPDOWN_OPTIONS[col] || [];
 
       /** Gộp bản ghi trùng không phân biệt hoa thường; ưu tiên đúng chuỗi trong DROPDOWN_OPTIONS. */
       const pickBetterCase = (a, b) => {
@@ -2638,7 +2638,7 @@ function VanDon({ dataSource = 'default' }) {
   /** Ô chỉnh sửa trong bảng: vẫn gộp preset DROPDOWN + giá trị đã có trong data (cho phép chọn trạng thái chuẩn). */
   const getCellEditSelectOptions = (col) => {
     const key = COLUMN_MAPPING[col] || col;
-    const preset = DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key];
+    const preset = DROPDOWN_OPTIONS[key] || DROPDOWN_OPTIONS[col];
     const fromData = getUniqueValues(col);
     if (preset) {
       const merged = new Set();

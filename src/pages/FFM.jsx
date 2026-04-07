@@ -1156,7 +1156,13 @@ function FFM({ variant = 'MGT' }) {
       const search = fv.delivery_status_search ? String(fv.delivery_status_search).trim().toLowerCase() : '';
 
       data = data.filter(row => {
-        const val = String(row['Trạng thái giao hàng'] || '').trim();
+        const val = String(
+          row['Trạng thái giao hàng NB'] ??
+            row.delivery_status_nb ??
+            row['Trạng thái giao hàng'] ??
+            row.delivery_status ??
+            ''
+        ).trim();
         if (status === 'Trống') return val === '' || val === 'null';
         if (status === 'Tìm kiếm...') {
           return search ? val.toLowerCase().includes(search) : true;
@@ -1366,8 +1372,8 @@ function FFM({ variant = 'MGT' }) {
 
   const getMultiSelectOptions = (col) => {
     const key = COLUMN_MAPPING[col] || col;
-    if (DROPDOWN_OPTIONS[col]) return ['__EMPTY__', ...DROPDOWN_OPTIONS[col]];
     if (DROPDOWN_OPTIONS[key]) return ['__EMPTY__', ...DROPDOWN_OPTIONS[key]];
+    if (DROPDOWN_OPTIONS[col]) return ['__EMPTY__', ...DROPDOWN_OPTIONS[col]];
     return ['__EMPTY__', ...getUniqueValues(col)];
   };
 
@@ -2895,7 +2901,7 @@ function FFM({ variant = 'MGT' }) {
             onChange={(e) => setLocalFilterValues((p) => ({ ...p, delivery_status_filter: e.target.value }))}
           >
             <option value="Tất cả">Tất cả</option>
-            {DROPDOWN_OPTIONS['Trạng thái giao hàng']?.filter((o) => o).map((o) => (
+            {DROPDOWN_OPTIONS['Trạng thái giao hàng NB']?.filter((o) => o).map((o) => (
               <option key={o} value={o}>{o}</option>
             ))}
             <option value="Trống">Trống</option>
@@ -2993,6 +2999,8 @@ function FFM({ variant = 'MGT' }) {
       val = row['Payment Image'] ?? row.payment_image ?? row[key] ?? '';
     } else if (col === 'Trạng thái giao hàng') {
       val =
+        row['Trạng thái giao hàng NB'] ??
+        row.delivery_status_nb ??
         row['Trạng thái giao hàng'] ??
         row.delivery_status ??
         row[key] ??

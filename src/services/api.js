@@ -98,6 +98,10 @@ export const normalizeNgayDoiSoatKeToanText = (v) => {
 const resolveAppKeyToDbKey = (appKey) => {
     if (appKey == null || appKey === '') return null;
     const nfc = String(appKey).normalize('NFC');
+    /** Cột tiêu đề «Trạng thái giao hàng» lấy/ghi NB (không dùng delivery_status FFM). */
+    if (nfc === 'Trạng thái giao hàng'.normalize('NFC')) {
+        return 'delivery_status_nb';
+    }
     const byLabel = Object.keys(DB_TO_APP_MAPPING).find(
         (k) => String(DB_TO_APP_MAPPING[k]).normalize('NFC') === nfc
     );
@@ -176,8 +180,19 @@ export const mapSupabaseOrderToApp = (sOrder) => {
 
     if (!appOrder["Ngày lên đơn"] && sOrder.order_date) appOrder["Ngày lên đơn"] = sOrder.order_date;
     if (!appOrder["Mã đơn hàng"]) appOrder["Mã đơn hàng"] = sOrder.order_code;
-    // Hai cột tách biệt: delivery_status ↔ Trạng thái giao hàng, delivery_status_nb ↔ Trạng thái giao hàng NB
+    // NB: nguồn chuẩn vận đơn; «Trạng thái giao hàng» hiển thị NB trước, fallback delivery_status (FFM) khi NB trống
     appOrder["Trạng thái giao hàng NB"] = sOrder.delivery_status_nb ?? '';
+    {
+        const nbTrim =
+            appOrder["Trạng thái giao hàng NB"] != null && String(appOrder["Trạng thái giao hàng NB"]).trim() !== ''
+                ? String(appOrder["Trạng thái giao hàng NB"]).trim()
+                : '';
+        const ffmTrim =
+            sOrder.delivery_status != null && String(sOrder.delivery_status).trim() !== ''
+                ? String(sOrder.delivery_status).trim()
+                : '';
+        appOrder["Trạng thái giao hàng"] = nbTrim || ffmTrim || '';
+    }
 
     if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;
     if (sOrder.payment_image) appOrder["Payment Image"] = sOrder.payment_image;
@@ -1674,9 +1689,8 @@ const VAN_DON_DISTINCT_DB_TO_UI_KEYS = {
     delivery_staff: ['NV Vận đơn'],
     shipping_unit: ['Đơn vị vận chuyển'],
     check_result: ['Kết quả Check', 'Kết quả check'],
-    delivery_status_nb: ['Trạng thái giao hàng NB'],
+    delivery_status_nb: ['Trạng thái giao hàng NB', 'Trạng thái giao hàng'],
     payment_status: ['Trạng thái thu tiền'],
-    delivery_status: ['Trạng thái giao hàng'],
     note_caps: ['GHI CHÚ'],
     vandon_note: ['Ghi chú của VĐ'],
     payment_bill: ['Payment Bill'],

@@ -169,6 +169,13 @@ function Home() {
           permission: 'CSKH_PAID',
         },
         {
+          id: "crm-paid-hcm",
+          label: "Đơn đã thu tiền/cần CS (HCM)",
+          icon: <MapPin className="w-4 h-4" />,
+          path: "/don-chia-cskh-hcm",
+          permission: 'CSKH_PAID_HCM',
+        },
+        {
           id: "crm-new-order",
           label: "Nhập đơn mới",
           icon: <PlusCircle className="w-4 h-4" />,
@@ -816,6 +823,14 @@ function Home() {
           path: "/don-chia-cskh",
           status: "Mở ứng dụng",
           permission: 'CSKH_PAID',
+        },
+        {
+          title: "Đơn đã thu tiền/cần CS (HCM)",
+          icon: <MapPin className="w-8 h-8" />,
+          color: "bg-teal-600",
+          path: "/don-chia-cskh-hcm",
+          status: "order_code_hcm",
+          permission: 'CSKH_PAID_HCM',
         },
         {
           title: "Nhập đơn mới",
