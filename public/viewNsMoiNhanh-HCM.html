@@ -974,6 +974,28 @@
     /** Chuẩn hóa tên cột giống XemBaoCaoMKT (Supabase / snake_case / tiếng Anh). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
+      const donTT = parseIntegerVi(
+        item['Số đơn thực tế'] ??
+          item['Số_đơn_thực_tế'] ??
+          item.so_don_thuc_te ??
+          item.order_count_actual ??
+          0
+      );
+      const donHuy = parseIntegerVi(
+        item['Số đơn hoàn hủy'] ??
+          item['Số đơn hoàn huỷ'] ??
+          item['Số đơn hoàn hủy thực tế'] ??
+          item['Số đơn hoàn huỷ thực tế'] ??
+          item.so_don_hoan_huy ??
+          item.so_don_hoan_huy_thuc_te ??
+          item.order_cancel_count ??
+          item.order_cancel_count_actual ??
+          0
+      );
+      let soDonGross = Math.max(0, donTT) + Math.max(0, donHuy);
+      if (soDonGross === 0) {
+        soDonGross = parseIntegerVi(item['Số đơn'] ?? item.so_don ?? item.order_count ?? 0);
+      }
       return {
         ...item,
         'Ngày': item['Ngày'] || item.ngay || item.date || '',
@@ -994,21 +1016,9 @@
             item.mess_count ??
             0
         ),
-        // «Số đơn» hiển thị: chỉ từ «Số đơn thực tế» (cùng nguồn với cột Số đơn (TT)).
-        'Số đơn': parseIntegerVi(
-          item['Số đơn thực tế'] ??
-            item['Số_đơn_thực_tế'] ??
-            item.so_don_thuc_te ??
-            item.order_count_actual ??
-            0
-        ),
-        'Số đơn thực tế': parseIntegerVi(
-          item['Số đơn thực tế'] ??
-            item['Số_đơn_thực_tế'] ??
-            item.so_don_thuc_te ??
-            item.order_count_actual ??
-            0
-        ),
+        // «Số đơn» = «Số đơn (TT)» + đơn hủy (hoàn hủy); không tách được thì dùng cột Số đơn trên DB.
+        'Số đơn': soDonGross,
+        'Số đơn thực tế': donTT,
         'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
         'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
         'Doanh thu chốt thực tế': item['Doanh thu chốt thực tế'] || item.doanh_thu_chot_thuc_te || item.revenue_actual || 0,
@@ -1238,7 +1248,11 @@
       10: { prop: 'dsSauShip', type: 'number' },
       11: { prop: 'dsThanhCongThucTe', type: 'number' }, // Updated from dsSauHoanHuyThucTe
       12: { prop: 'dsThanhCong', type: 'number' },
-      13: { prop: (s) => s.dsSauShip ? s.cpqc / s.dsSauShip : 0, type: 'number' }, // %CP/DS
+      13: {
+        prop: (s) =>
+          s.dsChot > 0 ? s.cpqc / s.dsChot : s.dsSauShip ? s.cpqc / s.dsSauShip : 0,
+        type: 'number',
+      }, // %CP/DS (ưu tiên DS Chốt tổng)
       14: { prop: (s) => s.kpiValue ? s.dsSauShip / s.kpiValue : 0, type: 'number' } // % KPI
     };
 
@@ -1414,17 +1428,26 @@
         const masterDataMKT = rowsDeduped
           .filter(r => r["Tên"] && String(r["Tên"]).trim() !== '')
           .map(r => {
-            const dsChotTT = parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0);
-            const dsChotThucTeVal = dsChotTT || parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
-            /** «Số đơn» và «Số đơn (TT)»: chỉ từ «Số đơn thực tế» (và alias); trống → 0. */
-            const donTT = parseIntegerVi(
-              r['Số đơn thực tế'] ??
-                r['Số_đơn_thực_tế'] ??
-                r.so_don_thuc_te ??
-                r.order_count_actual ??
-                0
+            const dsNetTt =
+              parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0) ||
+              parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
+            const dsHuyVnd = parseMoneyNumber(r["Doanh số hoàn hủy thực tế"] ?? 0);
+            /** DS Chốt (tổng tiền VNĐ) = DS Chốt (TT) + DS hoàn hủy — cùng «rule» với Số đơn tổng = TT + hủy. */
+            let dsChotGross = Math.max(0, dsNetTt) + Math.max(0, dsHuyVnd);
+            if (dsChotGross === 0) {
+              dsChotGross = parseMoneyNumber(r["Doanh số"] ?? r.doanh_so ?? r.revenue ?? 0);
+            }
+            /** «Số đơn (TT)» từ «Số đơn thực tế»; «Số đơn» (tổng) đã chuẩn hoá = TT + đơn hủy trong normalizeDetailReportRow. */
+            const soDonThucTeEffective = Math.max(
+              0,
+              parseIntegerVi(
+                r['Số đơn thực tế'] ??
+                  r['Số_đơn_thực_tế'] ??
+                  r.so_don_thuc_te ??
+                  r.order_count_actual ??
+                  0
+              )
             );
-            const soDonThucTeEffective = Math.max(0, donTT);
             const dsSauHoanHuy = parseMoneyNumber(r["DS sau hoàn hủy"] ?? 0);
             const ngayParsed = parseNgayToDate(r["Ngày"]);
             const detailRowKey = buildMktDetailReportRowKey(r);
@@ -1448,16 +1471,17 @@
                   r.so_mess ??
                   r.so_mess_cmt
               ),
-              soDon: soDonThucTeEffective,
-              dsChot: dsChotThucTeVal,
+              soDon: parseIntegerVi(r['Số đơn']),
+              dsChot: dsChotGross,
               soDonHuy: parseIntegerVi(r["Số đơn hoàn hủy"]),
-              doanhSoHuy: dsChotThucTeVal - dsSauHoanHuy,
+              doanhSoHuy:
+                dsHuyVnd > 0 ? dsHuyVnd : Math.max(0, dsNetTt - dsSauHoanHuy),
               dsSauHoanHuy: dsSauHoanHuy,
               dsSauShip: parseMoneyNumber(r["Doanh số sau ship"] ?? 0),
               dsThanhCong: parseMoneyNumber(r["Doanh số TC"] ?? 0),
               kpiValue: parseMoneyNumber(r["KPIs"] ?? 0),
               soDonThucTe: soDonThucTeEffective,
-              dsChotThucTe: dsChotThucTeVal,
+              dsChotThucTe: dsNetTt,
               dsHoanHuyThucTe: parseMoneyNumber(r["Doanh số hoàn hủy thực tế"] ?? 0),
               soDonHuyThucTe: parseIntegerVi(r["Số đơn hoàn hủy thực tế"]),
               dsSauHoanHuyThucTe: parseMoneyNumber(r["Doanh số sau hoàn hủy thực tế"] ?? 0),
@@ -1874,6 +1898,21 @@
       );
     }
 
+    function parseSoDonHoanHuyFromRow(row) {
+      if (!row) return 0;
+      return parseIntegerVi(
+        row['Số đơn hoàn hủy'] ??
+          row['Số đơn hoàn huỷ'] ??
+          row['Số đơn hoàn hủy thực tế'] ??
+          row['Số đơn hoàn huỷ thực tế'] ??
+          row.so_don_hoan_huy ??
+          row.so_don_hoan_huy_thuc_te ??
+          row.order_cancel_count ??
+          row.order_cancel_count_actual ??
+          0
+      );
+    }
+
     function parseDoanhSoChotTTFromRow(row) {
       if (!row) return 0;
       return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
@@ -1904,28 +1943,33 @@
       for (const row of merged) {
         const k = buildMktDetailReportRowKey(row);
         const sd = parseSoDonThucTeFromRow(row);
+        const sh = parseSoDonHoanHuyFromRow(row);
         const ds = parseDoanhSoChotTTFromRow(row);
         const cpqc = parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0);
         const mess = parseSoMessCmtFromRow(row);
 
         const prev = byKey.get(k);
         if (!prev) {
-          byKey.set(k, { row, sd, ds, cpqc, mess });
+          byKey.set(k, { row, sd, sh, ds, cpqc, mess });
           continue;
         }
 
         const mergedSd = Math.max(prev.sd, sd);
+        const mergedSh = Math.max(prev.sh, sh);
         const mergedDs = Math.max(prev.ds, ds);
         const mergedCpqc = prev.cpqc + cpqc;
         const mergedMess = prev.mess + mess;
 
         prev.sd = mergedSd;
+        prev.sh = mergedSh;
         prev.ds = mergedDs;
         prev.cpqc = mergedCpqc;
         prev.mess = mergedMess;
 
         prev.row['Số đơn thực tế'] = mergedSd;
-        prev.row['Số đơn'] = mergedSd;
+        prev.row['Số đơn hoàn hủy'] = mergedSh;
+        prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
+        prev.row['Số đơn'] = mergedSd + mergedSh;
         prev.row['Doanh số TT'] = mergedDs;
         prev.row['CPQC'] = mergedCpqc;
         prev.row['Số_Mess_Cmt'] = mergedMess;
@@ -1969,8 +2013,8 @@
         acc.mess += Number(r.soMessCmt) || 0;
         acc.cpqc += Number(r.cpqc) || 0;
         acc.don += Number(r.soDon) || 0;
+        /* dsChot = tổng VNĐ (TT+hủy); dsChotThucTe = TT net */
         acc.chot += Number(r.dsChot) || 0;
-        /* Số đơn thực tế trên DB (sau recalc MKT) đã là ròng — không trừ thêm hoàn hủy TT */
         acc.donThucTe += Number(r.soDonThucTe) || 0;
         acc.chotThucTe += Number(r.dsChotThucTe) || 0;
       });
@@ -2078,7 +2122,10 @@
       let total = { cpqc: 0, dsChot: 0, soDonHuy: 0, doanhSoHuy: 0, dsSauShip: 0, dsThanhCong: 0, kpis: 0, dsChotThucTe: 0, soDonHuyThucTe: 0, dsHoanHuyThucTe: 0, dsSauHoanHuyThucTe: 0, dsThanhCongThucTe: 0 };
       const bodyRowsHtml = dataList.map((s, i) => {
         Object.keys(total).forEach(key => total[key] += s[key] || 0);
-        const cpds = s.dsSauShip ? s.cpqc / s.dsSauShip : 0, kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0, cpdsClass = cpds > 0.33 ? 'bg-yellow' : '';
+        const cpds =
+            s.dsChot > 0 ? s.cpqc / s.dsChot : s.dsSauShip ? s.cpqc / s.dsSauShip : 0;
+        const kpiP = s.kpiValue ? s.dsSauShip / s.kpiValue : 0;
+        const cpdsClass = cpds > 0.33 ? 'bg-yellow' : '';
         return `<tr>
                 <td class="text-center">${i + 1}</td>
                 <td class="text-left">${s.team}</td>
@@ -2093,7 +2140,9 @@
                 <td>${formatPercent(kpiP)}</td>
             </tr>`;
       }).join('');
-      const totalCpds = total.dsSauShip ? total.cpqc / total.dsSauShip : 0, totalKpiP = total.kpis ? total.dsSauShip / total.kpis : 0;
+      const totalCpds =
+          total.dsChot > 0 ? total.cpqc / total.dsChot : total.dsSauShip ? total.cpqc / total.dsSauShip : 0;
+      const totalKpiP = total.kpis ? total.dsSauShip / total.kpis : 0;
       const totalRowHtml = `<tr class="total-row">
             <td class="total-label" colspan="3">TỔNG CỘNG</td>
             <td class="total-value">${formatCurrency(total.cpqc)}</td>
@@ -2157,10 +2206,13 @@
     }
 
     function createMktRow(productName, marketName, data, showMarket, className = '') {
-      const dsSauHoanHuyThucTe = data.dsChotThucTe - data.dsHoanHuyThucTe;
-      const costPercent = dsSauHoanHuyThucTe > 0 ? data.cpqc / dsSauHoanHuyThucTe : 0;
+      /* dsChot = tổng VNĐ (TT+hủy); dsChotThucTe = TT net. DS Sau HH (TT) = doanh TT sau trừ hủy (không trừ thêm lần 2). */
+      const dsChotTong = Number(data.dsChot) || 0;
+      const dsNetTt = Number(data.dsChotThucTe) || 0;
+      const dsSauHoanHuyThucTe = dsNetTt;
+      const costPercent = dsChotTong > 0 ? data.cpqc / dsChotTong : 0;
       const cps = data.soDon ? data.cpqc / data.soDon : 0;
-      const avgOrderValue = data.soDon ? dsSauHoanHuyThucTe / data.soDon : 0;
+      const avgOrderValue = data.soDon > 0 ? dsChotTong / data.soDon : 0;
       const closingRate = data.soMessCmt ? data.soDon / data.soMessCmt : 0;
       const closingRateThucTe = data.soMessCmt ? data.soDonThucTe / data.soMessCmt : 0;
 
@@ -2502,7 +2554,8 @@
 
       const sortedProducts = Object.entries(productMetrics)
         .map(([name, metrics]) => {
-          const dsSauHhTt = metrics.dsChotThucTe - metrics.dsHoanHuyThucTe;
+          /* Biểu đồ «sau HH (TT)»: doanh TT (net) đã phản ánh sau hủy — không trừ dsHoanHuyThucTe thêm lần. */
+          const dsSauHhTt = metrics.dsChotThucTe;
           return [name, { ...metrics, dsSauHhTt }];
         })
         .sort(([, a], [, b]) => b.dsSauHhTt - a.dsSauHhTt);
