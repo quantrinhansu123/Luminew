@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
+import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { buildMktReportDedupeKey, normalizeMktReportDate } from '../utils/mktDetailReportKey';
 
 /** Độ rộng cột nút — lưới nhập báo cáo MKT */
@@ -81,6 +82,39 @@ function getDisplayNameFromStoredUser() {
   const t = String(fromObj || '').trim();
   if (t) return t;
   return String(localStorage.getItem('username') || '').trim();
+}
+
+/**
+ * Sau khi insert báo cáo MKT: tham số recalc — chỉ quét ngày / key vừa gửi.
+ * `reportsTableName` + `ordersSupabaseTable` phải là một trong hai stack cố định (gán ở handleSubmit theo route).
+ */
+function buildMktRecalcOptsFromSubmittedRows(toInsert, { reportsTableName, ordersSupabaseTable }) {
+  const dates = [];
+  const exactKeyMap = new Map();
+  for (const row of toInsert) {
+    const d = normalizeMktReportDate(row['Ngày']);
+    if (d) dates.push(d);
+    const name = String(row['Tên'] || '').trim();
+    const product = String(row['Sản_phẩm'] || '').trim();
+    const market = String(row['Thị_trường'] || '').trim();
+    if (d && name && product && market) {
+      const id = `${d}\0${name}\0${product}\0${market}`;
+      if (!exactKeyMap.has(id)) exactKeyMap.set(id, { date: d, name, product, market });
+    }
+  }
+  if (dates.length === 0) return null;
+  dates.sort();
+  const exactKeys = Array.from(exactKeyMap.values());
+  return {
+    startDate: dates[0],
+    endDate: dates[dates.length - 1],
+    exactKeys: exactKeys.length > 0 ? exactKeys : null,
+    dryRun: false,
+    createMissingRows: false,
+    reportsTableName,
+    ordersSupabaseTable,
+    ordersApiPath: null,
+  };
 }
 
 export default function BaoCaoMarketing({
@@ -1203,13 +1237,33 @@ export default function BaoCaoMarketing({
       const { error: insErr } = await supabase.from(reportTableName).insert(toInsert).select();
       if (insErr) throw insErr;
 
+      let recalcWarning = '';
+      // Hai stack độc lập theo route — không trộn bảng HN/HCM dù props lệch nhầm.
+      const mktRecalcStack = isHcmReport
+        ? { reportsTableName: 'marketing_report_hcm', ordersSupabaseTable: 'order_code_hcm' }
+        : { reportsTableName: 'detail_reports', ordersSupabaseTable: 'orders' };
+      const recalcOpts = buildMktRecalcOptsFromSubmittedRows(toInsert, mktRecalcStack);
+      if (recalcOpts) {
+        updateStatus(
+          `Đang tính lại Số đơn / Doanh số thực tế (${recalcOpts.reportsTableName} ← ${recalcOpts.ordersSupabaseTable})...`
+        );
+        try {
+          await recalcMktSoDonThucTeFromOrders(recalcOpts);
+        } catch (recalcErr) {
+          console.error('Recalc MKT sau gửi báo cáo:', recalcErr);
+          const msg = recalcErr?.message || String(recalcErr);
+          recalcWarning = ` Đã lưu báo cáo nhưng chưa cập nhật số liệu thực tế từ đơn: ${msg}`;
+        }
+      }
+
       const insN = toInsert.length;
       setResponseMsg({
-        text: insN > 0 ? `Thành công! Đã thêm ${insN} dòng vào hệ thống.` : 'Thành công.',
+        text:
+          (insN > 0 ? `Thành công! Đã thêm ${insN} dòng vào hệ thống.` : 'Thành công.') + recalcWarning,
         isSuccess: true,
         visible: true,
       });
-      updateStatus('Gửi báo cáo thành công.');
+      updateStatus(recalcWarning ? 'Gửi báo cáo xong — recalc có lỗi (xem thông báo).' : 'Gửi báo cáo thành công.');
 
       // Reset form
       setTableRows([createRowData({ Tên: employeeNameFromUrl, Email: userEmail }, appData.employeeDetails, hrEmailLookup)]);

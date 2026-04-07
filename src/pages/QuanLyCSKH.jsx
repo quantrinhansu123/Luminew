@@ -151,6 +151,7 @@ function applyCSKHClientFilters(data, ctx) {
     filterCheckResult,
     filterSale,
     filterMKT,
+    filterCSKH,
     sortColumn,
     sortDirection,
   } = ctx;
@@ -239,6 +240,17 @@ function applyCSKHClientFilters(data, ctx) {
     });
   }
 
+  if (filterCSKH.length > 0) {
+    rows = rows.filter((row) => {
+      const cskh = row['CSKH'];
+      const cskhStr = cskh != null && cskh !== '' ? String(cskh).trim() : '';
+      if (filterCSKH.includes('(Trống)')) {
+        if (!cskhStr) return true;
+      }
+      return filterCSKH.includes(cskhStr);
+    });
+  }
+
   if (sortColumn) {
     rows.sort((a, b) => {
       const aVal = a[sortColumn] || '';
@@ -287,6 +299,9 @@ function QuanLyCSKH({
   const [filterCheckResult, setFilterCheckResult] = useState([]);
   const [filterSale, setFilterSale] = useState([]); // Filter by NV Sale (multi-select checkbox)
   const [filterMKT, setFilterMKT] = useState([]); // Filter by MKT (multi-select checkbox)
+  /** `null` = quản lý/full: tùy chọn lọc Sale/MKT/CSKH lấy từ dữ liệu; mảng = chỉ danh sách nhân sự user (getSelectedPersonnel + fallback). */
+  const [personnelScopeForFilters, setPersonnelScopeForFilters] = useState(null);
+  const [filterCSKH, setFilterCSKH] = useState([]);
   const [showMarketFilter, setShowMarketFilter] = useState(false);
   const [showProductFilter, setShowProductFilter] = useState(false);
   const [showStatusFilter, setShowStatusFilter] = useState(false);
@@ -295,6 +310,7 @@ function QuanLyCSKH({
   const [showQuickFilter, setShowQuickFilter] = useState(false);
   const [showSaleFilter, setShowSaleFilter] = useState(false);
   const [showMKTFilter, setShowMKTFilter] = useState(false);
+  const [showCSKHFilter, setShowCSKHFilter] = useState(false);
 
   const closeAllFilterDropdowns = () => {
     setShowMarketFilter(false);
@@ -305,6 +321,7 @@ function QuanLyCSKH({
     setShowQuickFilter(false);
     setShowSaleFilter(false);
     setShowMKTFilter(false);
+    setShowCSKHFilter(false);
   };
 
   // Date state - default to last 3 days
@@ -704,11 +721,18 @@ function QuanLyCSKH({
       } else {
         bypassStaffFilter = isManager;
         if (!bypassStaffFilter) {
-          variants = await resolveNameVariantsForOrderFilter(userEmail);
+          const personnelMap = await getSelectedPersonnel([userEmail]);
+          let personnelNames = personnelMap[userEmail] || [];
+          if (!personnelNames.length) {
+            personnelNames = await resolveNameVariantsForOrderFilter(userEmail);
+          }
+          variants = personnelNames;
           if (!variants.length) {
-            console.warn('⚠️ [CSKH] Không có tên nào để lọc (username + users.name). Trả về rỗng.');
+            console.warn(
+              '⚠️ [CSKH] Không có danh sách nhân sự (selected_personnel / leader_teams) và không có tên tài khoản để lọc. Trả về rỗng.'
+            );
           } else {
-            console.log('🔍 [CSKH] Lọc theo các biến thể tên:', variants);
+            console.log('🔍 [CSKH] Lọc đơn theo phạm vi nhân sự user (giống cấu hình Admin):', variants.length, 'tên');
           }
         } else {
           console.log('✅ [CSKH] Admin/Manager: viewing all orders (filters applied client-side)');
@@ -749,6 +773,11 @@ function QuanLyCSKH({
       const merged = sortOrdersByDisplayDateDesc(mergeUniqueRowsById(d1, d2));
       const mappedData = merged.map((item) => mapOrderRowToFriendlyCSKH(item));
 
+      const scopeForUi = bypassStaffFilter
+        ? null
+        : [...new Set(variants.map((v) => String(v).trim()).filter(Boolean))];
+      setPersonnelScopeForFilters(scopeForUi);
+
       setAllData(mappedData);
       console.log(
         `✅ [CSKH] Loaded ${mappedData.length} orders (order_date: ${(d1 || []).length}, fallback created_at: ${d2.length})`
@@ -776,6 +805,7 @@ function QuanLyCSKH({
         alert(`❌ Lỗi tải dữ liệu CSKH:\n\n${errorMessage}\n\nVui lòng thử lại hoặc liên hệ IT nếu lỗi tiếp tục xảy ra.`);
       }
 
+      setPersonnelScopeForFilters(null);
       setAllData([]);
     } finally {
       setLoading(false);
@@ -843,43 +873,88 @@ function QuanLyCSKH({
     return sorted;
   }, [allData]);
 
-  // Get unique Sale staff names from data
+  // NV Sale / MKT / CSKH: quản lý → mọi giá trị có trong dữ liệu; nhân viên → chỉ danh sách nhân sự trong user (selected_personnel…)
   const uniqueSale = useMemo(() => {
-    const sales = new Set();
     let hasEmpty = false;
-    allData.forEach(row => {
-      const sale = row["Nhân viên Sale"];
+    allData.forEach((row) => {
+      const sale = row['Nhân viên Sale'];
       if (sale && String(sale).trim()) {
-        sales.add(String(sale).trim());
+        /* noop */
       } else {
         hasEmpty = true;
       }
     });
-    const sortedSales = Array.from(sales).sort();
-    if (hasEmpty) {
-      return ['(Trống)', ...sortedSales];
+    const trang = hasEmpty ? ['(Trống)'] : [];
+    if (personnelScopeForFilters === null) {
+      const sales = new Set();
+      allData.forEach((row) => {
+        const sale = row['Nhân viên Sale'];
+        if (sale && String(sale).trim()) sales.add(String(sale).trim());
+      });
+      return [...trang, ...Array.from(sales).sort()];
     }
-    return sortedSales;
-  }, [allData]);
+    const sorted = [...new Set(personnelScopeForFilters.map((s) => String(s).trim()).filter(Boolean))].sort();
+    return [...trang, ...sorted];
+  }, [allData, personnelScopeForFilters]);
 
-  // Get unique Marketing staff names from data
   const uniqueMKT = useMemo(() => {
-    const mkts = new Set();
     let hasEmpty = false;
-    allData.forEach(row => {
-      const mkt = row["Nhân viên Marketing"];
+    allData.forEach((row) => {
+      const mkt = row['Nhân viên Marketing'];
       if (mkt && String(mkt).trim()) {
-        mkts.add(String(mkt).trim());
+        /* noop */
       } else {
         hasEmpty = true;
       }
     });
-    const sortedMKTs = Array.from(mkts).sort();
-    if (hasEmpty) {
-      return ['(Trống)', ...sortedMKTs];
+    const trang = hasEmpty ? ['(Trống)'] : [];
+    if (personnelScopeForFilters === null) {
+      const mkts = new Set();
+      allData.forEach((row) => {
+        const mkt = row['Nhân viên Marketing'];
+        if (mkt && String(mkt).trim()) mkts.add(String(mkt).trim());
+      });
+      return [...trang, ...Array.from(mkts).sort()];
     }
-    return sortedMKTs;
-  }, [allData]);
+    const sorted = [...new Set(personnelScopeForFilters.map((s) => String(s).trim()).filter(Boolean))].sort();
+    return [...trang, ...sorted];
+  }, [allData, personnelScopeForFilters]);
+
+  const uniqueCSKHForFilter = useMemo(() => {
+    let hasEmpty = false;
+    allData.forEach((row) => {
+      const c = row['CSKH'];
+      if (c != null && String(c).trim()) {
+        /* noop */
+      } else {
+        hasEmpty = true;
+      }
+    });
+    const trang = hasEmpty ? ['(Trống)'] : [];
+    if (personnelScopeForFilters === null) {
+      const set = new Set();
+      allData.forEach((row) => {
+        const c = row['CSKH'];
+        if (c != null && String(c).trim()) set.add(String(c).trim());
+      });
+      return [...trang, ...Array.from(set).sort()];
+    }
+    const scopeList = personnelScopeForFilters.map((s) => String(s).trim()).filter(Boolean);
+    const fromOrders = new Set();
+    allData.forEach((row) => {
+      const raw = row['CSKH'];
+      const t = raw != null ? String(raw).trim() : '';
+      if (!t) return;
+      const tl = t.toLowerCase();
+      const hit = scopeList.some((sc) => {
+        const s = sc.toLowerCase();
+        if (!s) return false;
+        return tl === s || tl.includes(s) || s.includes(tl);
+      });
+      if (hit) fromOrders.add(t);
+    });
+    return [...trang, ...Array.from(fromOrders).sort()];
+  }, [allData, personnelScopeForFilters]);
 
   // Handle quick filter
   const handleQuickFilter = (value) => {
@@ -948,10 +1023,11 @@ function QuanLyCSKH({
       filterCheckResult,
       filterSale,
       filterMKT,
+      filterCSKH,
       sortColumn,
       sortDirection,
     });
-  }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterPaymentThuTien, filterCheckResult, filterSale, filterMKT, sortColumn, sortDirection]);
+  }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterPaymentThuTien, filterCheckResult, filterSale, filterMKT, filterCSKH, sortColumn, sortDirection]);
 
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
@@ -1321,6 +1397,7 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
+                      setShowCSKHFilter(false);
                       setShowMarketFilter(true);
                     }
                   }}
@@ -1402,6 +1479,7 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
+                      setShowCSKHFilter(false);
                       setShowProductFilter(true);
                     }
                   }}
@@ -1483,6 +1561,7 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
+                      setShowCSKHFilter(false);
                       setShowStatusFilter(true);
                     }
                   }}
@@ -1564,6 +1643,7 @@ function QuanLyCSKH({
                       setShowCheckResultFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
+                      setShowCSKHFilter(false);
                       setShowPaymentThuTienFilter(true);
                     }
                   }}
@@ -1645,6 +1725,7 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
+                      setShowCSKHFilter(false);
                       setShowCheckResultFilter(true);
                     }
                   }}
@@ -1726,6 +1807,7 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowQuickFilter(false);
                       setShowMKTFilter(false);
+                      setShowCSKHFilter(false);
                       setShowSaleFilter(true);
                     }
                   }}
@@ -1812,6 +1894,7 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowQuickFilter(false);
                       setShowSaleFilter(false);
+                      setShowCSKHFilter(false);
                       setShowMKTFilter(true);
                     }
                   }}
@@ -1878,6 +1961,89 @@ function QuanLyCSKH({
               </div>
             </div>
 
+            {/* CSKH (cột đơn) — tùy chọn theo danh sách nhân sự user khi không phải quản lý */}
+            <div className="min-w-[200px] relative z-50">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc theo CSKH</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showCSKHFilter) setShowCSKHFilter(false);
+                    else {
+                      setShowMarketFilter(false);
+                      setShowProductFilter(false);
+                      setShowStatusFilter(false);
+                      setShowCheckResultFilter(false);
+                      setShowPaymentThuTienFilter(false);
+                      setShowQuickFilter(false);
+                      setShowSaleFilter(false);
+                      setShowMKTFilter(false);
+                      setShowCSKHFilter(true);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterCSKH.length === 0
+                      ? 'Tất cả'
+                      : filterCSKH.length === 1
+                        ? filterCSKH[0]
+                        : `Đã chọn ${filterCSKH.length}`}
+                  </span>
+                  <span className="ml-2">{showCSKHFilter ? '▲' : '▼'}</span>
+                </button>
+
+                {showCSKHFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn CSKH:</span>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setFilterCSKH([...uniqueCSKHForFilter])}
+                            className="text-xs text-green-600 hover:text-green-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFilterCSKH([])}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
+                      </div>
+                      {uniqueCSKHForFilter.map((name) => {
+                        const isChecked = filterCSKH.includes(name);
+                        return (
+                          <label
+                            key={name}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterCSKH([...filterCSKH, name]);
+                                } else {
+                                  setFilterCSKH(filterCSKH.filter((n) => n !== name));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Quick Filter - checkbox (một mốc thời gian tại một thời điểm) */}
             <div className="min-w-[200px] relative z-50">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Lọc nhanh</label>
@@ -1894,6 +2060,7 @@ function QuanLyCSKH({
                       setShowPaymentThuTienFilter(false);
                       setShowSaleFilter(false);
                       setShowMKTFilter(false);
+                      setShowCSKHFilter(false);
                       setShowQuickFilter(true);
                     }
                   }}
@@ -1973,7 +2140,8 @@ function QuanLyCSKH({
             showCheckResultFilter ||
             showQuickFilter ||
             showSaleFilter ||
-            showMKTFilter) && (
+            showMKTFilter ||
+            showCSKHFilter) && (
             <div
               className="fixed inset-0 z-40"
               aria-hidden
