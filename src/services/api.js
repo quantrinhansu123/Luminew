@@ -849,7 +849,14 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
             }
 
             const { error } = await supabase.from(sourceTable).update(payload).eq('order_code', oc);
-            if (error) throw error;
+            if (error) {
+                const enriched = new Error(`[${sourceTable}] Cập nhật thất bại cho order_code=${oc}: ${error.message || 'Unknown error'}`);
+                enriched.code = error.code;
+                enriched.details = error.details;
+                enriched.hint = error.hint;
+                enriched.context = { order_code: oc, payloadKeys: Object.keys(payload) };
+                throw enriched;
+            }
             total += 1;
         }
 
@@ -862,8 +869,17 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
         return { success: true, count: total };
 
     } catch (error) {
-        console.error('updateBatch Supabase error:', error);
-        throw error;
+        // Log chi tiết, tránh "Object" khó đọc
+        console.error('updateBatch Supabase error:', {
+            message: error?.message,
+            code: error?.code,
+            details: error?.details,
+            hint: error?.hint,
+            context: error?.context,
+            stack: error?.stack,
+        });
+        // Ném lại để UI hiển thị message cụ thể
+        throw error instanceof Error ? error : new Error(String(error));
     }
 };
 

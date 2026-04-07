@@ -337,6 +337,8 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const [backingUp, setBackingUp] = useState(false);
     const [updatingOrders, setUpdatingOrders] = useState(false);
     const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
+    const [renamingByEmail, setRenamingByEmail] = useState(false);
+    const [selectedIds, setSelectedIds] = useState(() => new Set());
 
     // View Orders Modal
     const [showViewOrdersModal, setShowViewOrdersModal] = useState(false);
@@ -1017,6 +1019,41 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         }
     };
 
+    // Đổi "Người báo cáo" theo email cố định
+    async function handleRenameReporterByEmail() {
+        const TARGET_EMAIL = 'dangnam96979@gmail.com';
+        const TARGET_NAME = 'Đặng Phương Nam';
+        const scopeText =
+            filters.startDate && filters.endDate
+                ? `trong khoảng ngày ${filters.startDate} → ${filters.endDate}`
+                : 'trên toàn bảng đang xem';
+        if (
+            !window.confirm(
+                `Đổi cột "Người báo cáo" thành "${TARGET_NAME}" cho các dòng có Email = ${TARGET_EMAIL} ${scopeText}?`
+            )
+        ) {
+            return;
+        }
+        setRenamingByEmail(true);
+        try {
+            let query = supabase.from(reportTable).update({ name: TARGET_NAME }).ilike('email', TARGET_EMAIL);
+            if (filters.startDate) query = query.gte('date', filters.startDate);
+            if (filters.endDate) query = query.lte('date', filters.endDate);
+            const { data, error } = await query.select('id');
+            if (error) throw error;
+            const n = Array.isArray(data) ? data.length : 0;
+            toast.success(`Đã đổi "Người báo cáo" → "${TARGET_NAME}" cho ${n} dòng (${scopeText}).`);
+            await fetchData();
+        } catch (e) {
+            console.error('handleRenameReporterByEmail:', e);
+            toast.error(`Lỗi đổi tên theo email: ${e?.message || String(e)}`);
+        } finally {
+            setRenamingByEmail(false);
+        }
+    }
+
+    // Bulk select helpers (defined after data derives to avoid TDZ on sortedReports)
+
     // Handle sort
     const handleSort = (column) => {
         if (sortColumn === column) {
@@ -1484,6 +1521,36 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         return sortDirection === 'asc' ? comparison : -comparison;
     });
 
+    // Bulk select helpers (now that sortedReports exists)
+    const areAllVisibleSelected = useMemo(() => {
+        const visible = sortedReports || [];
+        if (visible.length === 0) return false;
+        for (const r of visible) {
+            if (!selectedIds.has(r.id)) return false;
+        }
+        return true;
+    }, [sortedReports, selectedIds]);
+
+    const toggleSelectOne = (id, checked) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (checked) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    };
+
+    const toggleSelectAllVisible = (checked) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            (sortedReports || []).forEach(r => {
+                if (checked) next.add(r.id);
+                else next.delete(r.id);
+            });
+            return next;
+        });
+    };
+
     if (!hasManualListAccess) {
         return (
             <div className="p-8 text-center text-red-600 font-bold">
@@ -1740,22 +1807,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             'Chỉnh team & chi nhánh (theo users)'
                                         )}
                                     </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleNormalizeCskhLyTeamToHn}
-                                        disabled={normalizingCskhLyTeam || loading}
-                                        className="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:bg-gray-400 text-white rounded-md text-sm font-semibold transition shadow-sm"
-                                        title={`Tìm team CSKH-Lý / CSKH- Lý → đổi thành ${CSKH_HN_TEAM_CANONICAL} (sales_reports, users${isHcm ? ', sale_report_hcm' : ''})`}
-                                    >
-                                        {normalizingCskhLyTeam ? (
-                                            <>
-                                                <span className="inline-block animate-spin mr-1">⏳</span>
-                                                Đang chuẩn hoá team…
-                                            </>
-                                        ) : (
-                                            `Tìm CSKH-Lý → ${CSKH_HN_TEAM_CANONICAL}`
-                                        )}
-                                    </button>
+                                    {/* Nút chuẩn hoá CSKH-Lý → CSKH-HN đã được yêu cầu gỡ bỏ */}
                                     {isHcm && (
                                         <button
                                             type="button"
@@ -1842,6 +1894,13 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                         <table>
                             <thead>
                                 <tr>
+                                    <th className="text-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={areAllVisibleSelected}
+                                            onChange={(e) => toggleSelectAllVisible(e.target.checked)}
+                                        />
+                                    </th>
                                     <th>STT</th>
                                     <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
@@ -1885,6 +1944,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             )}
                                         </div>
                                     </th>
+                                    <th>Email</th>
                                     <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Team')}
@@ -2069,15 +2129,23 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                 )}
                                 {sortedReports.length === 0 ? (
                                     <tr>
-                                        <td colSpan={isHcm ? 14 : 16} className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td colSpan={isHcm ? 16 : 18} className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
                                     sortedReports.map((item, index) => (
                                         <tr key={item.id || index}>
+                                            <td className="text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedIds.has(item.id)}
+                                                    onChange={(e) => toggleSelectOne(item.id, e.target.checked)}
+                                                />
+                                            </td>
                                             <td className="text-center">{index + 1}</td>
                                             <td>{formatDate(item.date)}</td>
                                             <td>{item.shift}</td>
                                             <td>{item.name}</td>
+                                            <td>{item.email || '—'}</td>
                                             <td>{isHcm ? formatHcmReportTeamCell(item) || '—' : item.team}</td>
                                             <td>{item.product}</td>
                                             <td>{item.market}</td>

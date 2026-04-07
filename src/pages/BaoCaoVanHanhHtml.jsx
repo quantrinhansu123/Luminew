@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
@@ -321,12 +321,14 @@ export default function BaoCaoVanHanhHtml() {
     const staffButtonRef = useRef(null);
     const [staffDropdownPosition, setStaffDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const bcvhWrapRef = useRef(null);
+    const bcvhLeftColumnRef = useRef(null);
     const bcvhFixedPaneRef = useRef(null);
+    const bcvhFixedHeadTableRef = useRef(null);
     const bcvhFixedTableRef = useRef(null);
+    const bcvhMetricHeadScrollRef = useRef(null);
+    const bcvhScrollHeadTableRef = useRef(null);
     const bcvhScrollTableRef = useRef(null);
     const bcvhScrollRef = useRef(null);
-    const bcvhRightScrollbarRef = useRef(null);
-    const bcvhRightScrollbarInnerRef = useRef(null);
 
     useEffect(() => {
         if (showStaffDropdown && staffButtonRef.current) {
@@ -707,6 +709,94 @@ export default function BaoCaoVanHanhHtml() {
         </>
     );
 
+    const renderBcvhMetricThead = () => (
+        <thead>
+            <tr>
+                <th colSpan={2} className="bcvh-h-cyan">
+                    Đã Thanh Toán
+                    <br />
+                    (có bill)
+                </th>
+                <th rowSpan={2} className="bcvh-h-cyan leading-tight">
+                    TỔNG ĐƠN
+                    <br />
+                    SALE LÊN FILE
+                    <br />
+                    NỘI BỘ
+                </th>
+                <th rowSpan={2} className="bcvh-h-cyan leading-tight">
+                    TỔNG ĐƠN
+                    <br />
+                    LÊN VẬN HÀNH
+                </th>
+                <th rowSpan={2} className="bcvh-h-cyan leading-tight">
+                    TỔNG ĐƠN
+                    <br />
+                    CHƯA CÓ MÃ
+                    <br />
+                    <span className="font-normal">(đã lên VH, trống mã)</span>
+                </th>
+                <th colSpan={3} className="bcvh-h-yellow">
+                    TỶ LỆ
+                </th>
+                <th colSpan={7} className="bcvh-h-green leading-tight">
+                    TỔNG ĐƠN LÊN VẬN HÀNH
+                </th>
+                <th colSpan={6} className="bcvh-h-red leading-tight">
+                    TỔNG ĐƠN CHƯA LÊN VẬN HÀNH
+                </th>
+                <th colSpan={8} className="bcvh-h-grey leading-tight">
+                    TRẠNG THÁI THU TIỀN
+                </th>
+            </tr>
+            <tr>
+                <th className="bcvh-h-cyan">Số đơn</th>
+                <th className="bcvh-h-cyan">Thành tiền</th>
+                <th className="bcvh-h-yellow leading-tight">
+                    TỈ LỆ ĐƠN LÊN VH
+                    <br />
+                    / ĐƠN NỘI BỘ
+                </th>
+                <th className="bcvh-h-yellow leading-tight">
+                    Tỉ lệ TT thành công
+                    <br />
+                    / đơn tính phí
+                </th>
+                <th className="bcvh-h-yellow leading-tight">
+                    Tỉ lệ TT thành công
+                    <br />
+                    / đơn giao TC
+                </th>
+                <th className="bcvh-h-green">Giao Thành Công</th>
+                <th className="bcvh-h-green">Đang Giao</th>
+                <th className="bcvh-h-green">Chưa Giao</th>
+                <th className="bcvh-h-green">Hoàn</th>
+                <th className="bcvh-h-green leading-tight">Hủy vận hành</th>
+                <th className="bcvh-h-green">Chờ check</th>
+                <th className="bcvh-h-green leading-tight">
+                    Tổng thanh toán
+                    <br />
+                    giao hàng NB
+                </th>
+                <th className="bcvh-h-red">Huỷ nội bộ</th>
+                <th className="bcvh-h-red">Đợi hàng</th>
+                <th className="bcvh-h-red">Khách hẹn</th>
+                <th className="bcvh-h-red">Treo</th>
+                <th className="bcvh-h-red">Vận đơn XL</th>
+                <th className="bcvh-h-red leading-tight">
+                    Đơn Ok nhưng
+                    <br />
+                    chưa có mã
+                </th>
+                {BC_VH_PAYMENT_COLUMNS.map((col) => (
+                    <th key={col.id} className="bcvh-h-grey leading-tight">
+                        {col.label}
+                    </th>
+                ))}
+            </tr>
+        </thead>
+    );
+
     const fetchData = async () => {
         const PAGE_SIZE = 1000; // phân trang để lấy full dữ liệu theo khoảng ngày
         if (!reportFilters.startDate || !reportFilters.endDate) {
@@ -964,20 +1054,20 @@ export default function BaoCaoVanHanhHtml() {
         </>
     );
 
-    /** 4 cột đầu nằm ngoài bcvh-scroll — đo bề ngang pane trái cho spacer thanh kéo */
+    /** 4 cột đầu nằm ngoài bcvh-scroll — đo bề ngang cột trái (header + body) cho spacer thanh kéo */
     const syncBcvhFixedPaneWidth = useCallback(() => {
-        const pane = bcvhFixedPaneRef.current;
+        const col = bcvhLeftColumnRef.current;
         const wrap = bcvhWrapRef.current;
-        if (pane && wrap) {
-            wrap.style.setProperty('--bcvh-fixed-measured-width', `${pane.offsetWidth}px`);
+        if (col && wrap) {
+            wrap.style.setProperty('--bcvh-fixed-measured-width', `${col.offsetWidth}px`);
         }
     }, []);
 
-    /** Hai bảng tách — đồng bộ chiều cao từng dòng tbody + header */
+    /** Hai bảng tách — đồng bộ chiều cao từng dòng tbody + khối thead (thead nằm ngoài vùng cuộn dọc) */
     const syncBcvhSplitTableHeights = useCallback(() => {
         if (activeTab !== 'tab2') return;
-        const leftHead = bcvhFixedTableRef.current?.querySelector('thead');
-        const rightHead = bcvhScrollTableRef.current?.querySelector('thead');
+        const leftHead = bcvhFixedHeadTableRef.current?.querySelector('thead');
+        const rightHead = bcvhScrollHeadTableRef.current?.querySelector('thead');
         const leftBody = bcvhFixedTableRef.current?.querySelector('tbody');
         const rightBody = bcvhScrollTableRef.current?.querySelector('tbody');
         if (!leftHead || !rightHead || !leftBody || !rightBody) return;
@@ -989,6 +1079,11 @@ export default function BaoCaoVanHanhHtml() {
             const hRow1 = rtr[0].offsetHeight;
             const hBlock = hRow1 + rtr[1].offsetHeight;
             ltr[0].style.height = `${hBlock}px`;
+            for (let i = 1; i < ltr.length; i += 1) {
+                ltr[i].style.height = '0';
+                ltr[i].style.minHeight = '0';
+                ltr[i].style.overflow = 'hidden';
+            }
             const wrap = bcvhWrapRef.current;
             if (wrap) {
                 wrap.style.setProperty('--bcvh-head-row-1-height', `${hRow1}px`);
@@ -1003,28 +1098,246 @@ export default function BaoCaoVanHanhHtml() {
             const rr = rightRows[i];
             lr.style.height = '';
             rr.style.height = '';
-            const h = Math.max(lr.getBoundingClientRect().height, rr.getBoundingClientRect().height);
+            const h = Math.ceil(
+                Math.max(lr.getBoundingClientRect().height, rr.getBoundingClientRect().height)
+            );
             lr.style.height = `${h}px`;
             rr.style.height = `${h}px`;
         }
     }, [activeTab]);
 
-    useEffect(() => {
+    /** Hai bảng metric tách nhau — đo cột từ body ở chế độ auto, rồi gán cùng colgroup + fixed cho cả hai */
+    const syncBcvhMetricColumnWidths = useCallback(() => {
+        if (activeTab !== 'tab2') return;
+        const bodyTable = bcvhScrollTableRef.current;
+        const headTable = bcvhScrollHeadTableRef.current;
+        if (!bodyTable || !headTable) return;
+        const tbody = bodyTable.querySelector('tbody');
+        if (!tbody) return;
+        const rows = tbody.querySelectorAll('tr');
+        if (rows.length === 0) return;
+        if (!headTable.querySelector('thead tr:nth-child(2)')) return;
+
+        headTable.querySelectorAll('colgroup.bcvh-metric-colgroup').forEach((el) => el.remove());
+        bodyTable.querySelectorAll('colgroup.bcvh-metric-colgroup').forEach((el) => el.remove());
+        headTable.style.width = '';
+        bodyTable.style.width = '';
+        void bodyTable.offsetWidth;
+
+        const n = rows[0].cells.length;
+        const maxW = new Array(n).fill(0);
+        const cellPx = (td) =>
+            Math.max(
+                td.offsetWidth,
+                td.scrollWidth,
+                td.getBoundingClientRect().width
+            );
+        rows.forEach((tr) => {
+            const { cells } = tr;
+            const len = Math.min(cells.length, n);
+            for (let i = 0; i < len; i += 1) {
+                maxW[i] = Math.max(maxW[i], cellPx(cells[i]));
+            }
+        });
+
+        const theadEl = headTable.querySelector('thead');
+        if (theadEl) {
+            const hRows = theadEl.querySelectorAll('tr');
+            const numHeadRows = hRows.length;
+            if (numHeadRows >= 1) {
+                const grid = Array.from({ length: numHeadRows }, () => Array(n).fill(null));
+                for (let ri = 0; ri < numHeadRows; ri += 1) {
+                    const tr = hRows[ri];
+                    let col = 0;
+                    for (const cell of tr.cells) {
+                        while (col < n && grid[ri][col] != null) col += 1;
+                        if (col >= n) break;
+                        const cs = cell.colSpan || 1;
+                        const rs = cell.rowSpan || 1;
+                        for (let r = 0; r < rs; r += 1) {
+                            for (let k = 0; k < cs; k += 1) {
+                                const rr = ri + r;
+                                const cc = col + k;
+                                if (rr < numHeadRows && cc < n) grid[rr][cc] = cell;
+                            }
+                        }
+                        col += cs;
+                    }
+                }
+                for (let c = 0; c < n; c += 1) {
+                    const seen = new Set();
+                    for (let r = 0; r < numHeadRows; r += 1) {
+                        const cell = grid[r][c];
+                        if (!cell || cell.tagName !== 'TH' || seen.has(cell)) continue;
+                        seen.add(cell);
+                        const cs = cell.colSpan || 1;
+                        const raw = Math.max(
+                            cell.scrollWidth,
+                            cell.offsetWidth,
+                            cell.getBoundingClientRect().width
+                        );
+                        const share = Math.ceil(raw / cs);
+                        maxW[c] = Math.max(maxW[c], share);
+                    }
+                }
+            }
+        }
+
+        const MIN_COL = 88;
+        const buildColgroup = () => {
+            const cg = document.createElement('colgroup');
+            cg.className = 'bcvh-metric-colgroup';
+            maxW.forEach((w) => {
+                const col = document.createElement('col');
+                const px = Math.max(MIN_COL, Math.ceil(w));
+                col.style.width = `${px}px`;
+                col.style.minWidth = `${px}px`;
+                cg.appendChild(col);
+            });
+            return cg;
+        };
+
+        const cgHead = buildColgroup();
+        const cgBody = buildColgroup();
+        headTable.insertBefore(cgHead, headTable.firstChild);
+        bodyTable.insertBefore(cgBody, bodyTable.firstChild);
+        void bodyTable.offsetWidth;
+        void headTable.offsetWidth;
+
+        /* border-separate + làm tròn: tổng bề ngang head/body hoặc scrollWidth vùng cuộn lệch → kéo hết ngang bị trôi */
+        const bumpLastCols = (deltaPx) => {
+            const lastH = cgHead.querySelector('col:last-child');
+            const lastB = cgBody.querySelector('col:last-child');
+            if (!lastH || !lastB) return;
+            const cur = parseFloat(lastH.style.width) || MIN_COL;
+            const next = Math.max(MIN_COL, Math.round(cur + deltaPx));
+            lastH.style.width = `${next}px`;
+            lastH.style.minWidth = `${next}px`;
+            lastB.style.width = `${next}px`;
+            lastB.style.minWidth = `${next}px`;
+        };
+
+        const tableGapPx = () =>
+            bodyTable.getBoundingClientRect().width - headTable.getBoundingClientRect().width;
+
+        for (let pass = 0; pass < 8; pass += 1) {
+            void bodyTable.offsetWidth;
+            void headTable.offsetWidth;
+            const gap = tableGapPx();
+            if (Math.abs(gap) < 0.75) break;
+            bumpLastCols(gap);
+        }
+
+        const headScroll = bcvhMetricHeadScrollRef.current;
+        const bodyScroll = bcvhScrollRef.current;
+        if (headScroll && bodyScroll) {
+            void bodyScroll.offsetWidth;
+            void headScroll.offsetWidth;
+            const swGap = bodyScroll.scrollWidth - headScroll.scrollWidth;
+            if (Math.abs(swGap) > 1) {
+                bumpLastCols(swGap);
+                void bodyScroll.offsetWidth;
+                void headScroll.offsetWidth;
+            }
+        }
+    }, [activeTab]);
+
+    /** Pane phải có scrollbar ngang → chiếm chiều cao viewport; bù padding-bottom pane trái cho khớp clientHeight khi đồng bộ scrollTop */
+    const syncBcvhPaneScrollbarAlign = useCallback(() => {
+        if (activeTab !== 'tab2') {
+            bcvhFixedPaneRef.current?.style.removeProperty('padding-bottom');
+            return;
+        }
+        const mainScroll = bcvhScrollRef.current;
+        const leftPane = bcvhFixedPaneRef.current;
+        if (!mainScroll || !leftPane) return;
+        const needsHorizontal = mainScroll.scrollWidth > mainScroll.clientWidth + 0.5;
+        let hBar = 0;
+        if (needsHorizontal) {
+            hBar = mainScroll.offsetHeight - mainScroll.clientHeight;
+            if (hBar < 8 || hBar > 48) hBar = 17;
+        }
+        if (hBar > 0) leftPane.style.paddingBottom = `${hBar}px`;
+        else leftPane.style.removeProperty('padding-bottom');
+    }, [activeTab]);
+
+    /** Header metric không có thanh dọc nhưng body có → clientWidth khác → max scrollLeft khác, kéo ngang cuối thead lệch body */
+    const syncBcvhMetricScrollViewportMatch = useCallback(() => {
+        if (activeTab !== 'tab2') {
+            bcvhMetricHeadScrollRef.current?.style.removeProperty('padding-right');
+            return;
+        }
+        const head = bcvhMetricHeadScrollRef.current;
+        const body = bcvhScrollRef.current;
+        if (!head || !body) return;
+        void head.offsetWidth;
+        void body.offsetWidth;
+        const pad = head.clientWidth - body.clientWidth;
+        if (pad > 0.5) head.style.paddingRight = `${pad}px`;
+        else head.style.removeProperty('padding-right');
+    }, [activeTab]);
+
+    useLayoutEffect(() => {
+        if (activeTab !== 'tab2') return;
         syncBcvhFixedPaneWidth();
+        syncBcvhSplitTableHeights();
+        syncBcvhMetricColumnWidths();
+        syncBcvhPaneScrollbarAlign();
+        syncBcvhMetricScrollViewportMatch();
+        syncBcvhSplitTableHeights();
         requestAnimationFrame(() => {
             syncBcvhFixedPaneWidth();
             syncBcvhSplitTableHeights();
+            syncBcvhMetricColumnWidths();
+            syncBcvhPaneScrollbarAlign();
+            syncBcvhMetricScrollViewportMatch();
+            syncBcvhSplitTableHeights();
+            const head = bcvhMetricHeadScrollRef.current;
+            const main = bcvhScrollRef.current;
+            if (head && main) head.scrollLeft = main.scrollLeft;
         });
-    }, [syncBcvhFixedPaneWidth, syncBcvhSplitTableHeights, bcvhLines.length, rawData.length]);
+    }, [
+        activeTab,
+        syncBcvhFixedPaneWidth,
+        syncBcvhSplitTableHeights,
+        syncBcvhMetricColumnWidths,
+        syncBcvhPaneScrollbarAlign,
+        syncBcvhMetricScrollViewportMatch,
+        bcvhLines.length,
+        rawData.length
+    ]);
+
+    useEffect(() => {
+        syncBcvhFixedPaneWidth();
+        requestAnimationFrame(() => syncBcvhFixedPaneWidth());
+    }, [syncBcvhFixedPaneWidth, bcvhLines.length, rawData.length]);
 
     useEffect(() => {
         const onResize = () => {
             syncBcvhFixedPaneWidth();
-            requestAnimationFrame(() => syncBcvhSplitTableHeights());
+            requestAnimationFrame(() => {
+                syncBcvhSplitTableHeights();
+                syncBcvhMetricColumnWidths();
+                syncBcvhPaneScrollbarAlign();
+                syncBcvhMetricScrollViewportMatch();
+                syncBcvhSplitTableHeights();
+                requestAnimationFrame(() => {
+                    syncBcvhMetricColumnWidths();
+                    syncBcvhPaneScrollbarAlign();
+                    syncBcvhMetricScrollViewportMatch();
+                    syncBcvhSplitTableHeights();
+                });
+            });
         };
         window.addEventListener('resize', onResize);
         return () => window.removeEventListener('resize', onResize);
-    }, [syncBcvhFixedPaneWidth, syncBcvhSplitTableHeights]);
+    }, [
+        syncBcvhFixedPaneWidth,
+        syncBcvhSplitTableHeights,
+        syncBcvhMetricColumnWidths,
+        syncBcvhPaneScrollbarAlign,
+        syncBcvhMetricScrollViewportMatch
+    ]);
 
     useEffect(() => {
         if (activeTab !== 'tab2') return;
@@ -1035,6 +1348,18 @@ export default function BaoCaoVanHanhHtml() {
             requestAnimationFrame(() => {
                 syncBcvhFixedPaneWidth();
                 syncBcvhSplitTableHeights();
+                syncBcvhMetricColumnWidths();
+                syncBcvhPaneScrollbarAlign();
+                syncBcvhMetricScrollViewportMatch();
+                syncBcvhSplitTableHeights();
+                requestAnimationFrame(() => {
+                    syncBcvhMetricColumnWidths();
+                    syncBcvhPaneScrollbarAlign();
+                    syncBcvhMetricScrollViewportMatch();
+                    syncBcvhSplitTableHeights();
+                    const head = bcvhMetricHeadScrollRef.current;
+                    if (head) head.scrollLeft = main.scrollLeft;
+                });
             });
         };
         scheduleSync();
@@ -1048,7 +1373,16 @@ export default function BaoCaoVanHanhHtml() {
             if (ro) ro.disconnect();
             window.removeEventListener('resize', scheduleSync);
         };
-    }, [activeTab, syncBcvhFixedPaneWidth, syncBcvhSplitTableHeights, bcvhLines.length, rawData.length]);
+    }, [
+        activeTab,
+        syncBcvhFixedPaneWidth,
+        syncBcvhSplitTableHeights,
+        syncBcvhMetricColumnWidths,
+        syncBcvhPaneScrollbarAlign,
+        syncBcvhMetricScrollViewportMatch,
+        bcvhLines.length,
+        rawData.length
+    ]);
 
     useEffect(() => {
         if (activeTab !== 'tab2') return;
@@ -1060,70 +1394,31 @@ export default function BaoCaoVanHanhHtml() {
             leftPane.scrollTop = rightPane.scrollTop;
         };
 
-        rightPane.addEventListener('scroll', syncFromRight);
-        syncFromRight();
+        const syncHeadH = () => {
+            const head = bcvhMetricHeadScrollRef.current;
+            if (head) head.scrollLeft = rightPane.scrollLeft;
+        };
+        const onScroll = () => {
+            syncFromRight();
+            syncHeadH();
+            syncBcvhPaneScrollbarAlign();
+        };
+        rightPane.addEventListener('scroll', onScroll);
+        onScroll();
         return () => {
-            rightPane.removeEventListener('scroll', syncFromRight);
+            rightPane.removeEventListener('scroll', onScroll);
         };
-    }, [activeTab, bcvhLines.length]);
-
-    useEffect(() => {
-        if (activeTab !== 'tab2') return;
-        const main = bcvhScrollRef.current;
-        const rightBar = bcvhRightScrollbarRef.current;
-        const rightInner = bcvhRightScrollbarInnerRef.current;
-        if (!main || !rightBar || !rightInner) return;
-
-        let syncing = false;
-        const syncHeight = () => {
-            /* Inner phải cao = scrollHeight của bảng để thanh dọc có phạm vi kéo; viewport là chính cột (flex, height cố định). */
-            rightInner.style.height = `${main.scrollHeight}px`;
-        };
-        const onMainScroll = () => {
-            if (syncing) return;
-            syncing = true;
-            rightBar.scrollTop = main.scrollTop;
-            syncing = false;
-        };
-        const onBarScroll = () => {
-            if (syncing) return;
-            syncing = true;
-            main.scrollTop = rightBar.scrollTop;
-            syncing = false;
-        };
-
-        const schedule = () => {
-            syncHeight();
-            requestAnimationFrame(() => {
-                syncHeight();
-                rightBar.scrollTop = main.scrollTop;
-            });
-        };
-
-        schedule();
-        let ro;
-        if (typeof ResizeObserver !== 'undefined') {
-            ro = new ResizeObserver(schedule);
-            ro.observe(main);
-        }
-        window.addEventListener('resize', schedule);
-        main.addEventListener('scroll', onMainScroll);
-        rightBar.addEventListener('scroll', onBarScroll);
-
-        return () => {
-            if (ro) ro.disconnect();
-            window.removeEventListener('resize', schedule);
-            main.removeEventListener('scroll', onMainScroll);
-            rightBar.removeEventListener('scroll', onBarScroll);
-        };
-    }, [activeTab, bcvhLines.length, rawData.length]);
+    }, [activeTab, bcvhLines.length, syncBcvhPaneScrollbarAlign]);
 
     const { markets, byMarket, total } = matrix;
     const colSpanMain = 1 + markets.length * 2 + 2;
 
     /** Nhúng dashboard: padding & khối điều khiển mỏng để ưu tiên bảng */
     const c = inIframe;
-    const paneMaxH = c ? 'max-h-[calc(100vh-6.5rem)]' : 'max-h-[calc(100vh-160px)]';
+    /** Tab2: chiều cao cố định để cuộn nằm trong pane — sticky thead chỉ bám theo scroll nội bộ */
+    const bcvhCardLayout = c
+        ? 'flex flex-col min-h-0 h-[calc(100vh-6.5rem)] max-h-[calc(100vh-6.5rem)] overflow-hidden'
+        : 'flex flex-col min-h-0 h-[calc(100vh-160px)] max-h-[calc(100vh-160px)] overflow-hidden';
 
     return (
         <div
@@ -1457,9 +1752,9 @@ export default function BaoCaoVanHanhHtml() {
             {activeTab === 'tab2' && (
                 <div
                     ref={bcvhWrapRef}
-                    className={`bcvh-wrap rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'}`}
+                    className={`bcvh-wrap rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'} ${bcvhCardLayout}`}
                 >
-                    <div className="bcvh-sticky-head">
+                    <div className="bcvh-sticky-head shrink-0">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                         {/* Bộ lọc + nhãn cố định cột — cùng một hàng phía trái */}
                         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
@@ -1521,250 +1816,195 @@ export default function BaoCaoVanHanhHtml() {
                         <div className="bcvh-title-row text-center uppercase tracking-wide">BÁO CÁO VẬN HÀNH</div>
                     </div>
                     </div>
-                    <div className="bcvh-split flex items-stretch">
+                    <div className="bcvh-split bcvh-split-stack flex min-h-0 flex-1 flex-row items-stretch gap-2">
                         <div
-                            ref={bcvhFixedPaneRef}
-                            className={`bcvh-fixed-pane bcvh-fixed-pane-scroll shrink-0 self-start ${paneMaxH}`}
+                            ref={bcvhLeftColumnRef}
+                            className="flex min-h-0 shrink-0 flex-col"
                         >
-                            <table
-                                ref={bcvhFixedTableRef}
-                                className="bcvh-fixed-table bcvh-fixed-header-sticky min-w-max border-separate border-spacing-0"
+                            <div className="bcvh-fixed-pane bcvh-fixed-pane-head shrink-0">
+                                <table
+                                    ref={bcvhFixedHeadTableRef}
+                                    className="bcvh-fixed-table min-w-max border-separate border-spacing-0"
+                                >
+                                    <thead>
+                                        <tr>
+                                            <th
+                                                rowSpan={2}
+                                                className="bcvh-h-info whitespace-nowrap bcvh-col-1"
+                                            >
+                                                Ngày đầu
+                                            </th>
+                                            <th
+                                                rowSpan={2}
+                                                className="bcvh-h-info whitespace-nowrap bcvh-col-2"
+                                            >
+                                                Ngày cuối
+                                            </th>
+                                            <th rowSpan={2} className="bcvh-h-info bcvh-col-3">
+                                                Sản phẩm
+                                            </th>
+                                            <th rowSpan={2} className="bcvh-h-info bcvh-col-4">
+                                                Thị Trường
+                                            </th>
+                                        </tr>
+                                        {/* Hàng thứ hai để rowspan=2 hợp lệ khi thead tách khỏi tbody */}
+                                        <tr aria-hidden="true" />
+                                    </thead>
+                                </table>
+                            </div>
+                            <div
+                                ref={bcvhFixedPaneRef}
+                                className="bcvh-fixed-pane bcvh-fixed-pane-scroll min-h-0 flex-1"
                             >
-                                <thead>
-                                    <tr>
-                                        <th
-                                            rowSpan={2}
-                                            className="bcvh-h-info whitespace-nowrap bcvh-col-1"
-                                        >
-                                            Ngày đầu
-                                        </th>
-                                        <th
-                                            rowSpan={2}
-                                            className="bcvh-h-info whitespace-nowrap bcvh-col-2"
-                                        >
-                                            Ngày cuối
-                                        </th>
-                                        <th rowSpan={2} className="bcvh-h-info bcvh-col-3">
-                                            Sản phẩm
-                                        </th>
-                                        <th rowSpan={2} className="bcvh-h-info bcvh-col-4">
-                                            Thị Trường
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {bcvhLines.map((line) => (
-                                        <tr key={line.id}>
-                                            <td
-                                                className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-1"
-                                            >
-                                                <input
-                                                    type="date"
-                                                    className="bcvh-cell-input"
-                                                    value={line.startDate || ''}
-                                                    onChange={(e) =>
-                                                        patchBcvhRow(line.id, { startDate: e.target.value })
-                                                    }
-                                                />
-                                            </td>
-                                            <td
-                                                className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-2"
-                                            >
-                                                <input
-                                                    type="date"
-                                                    className="bcvh-cell-input"
-                                                    value={line.endDate || ''}
-                                                    onChange={(e) =>
-                                                        patchBcvhRow(line.id, { endDate: e.target.value })
-                                                    }
-                                                />
-                                            </td>
-                                            <td
-                                                className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-3"
-                                            >
-                                                <select
-                                                    className="bcvh-cell-select"
-                                                    value={line.product}
-                                                    onChange={(e) =>
-                                                        patchBcvhRow(line.id, { product: e.target.value })
-                                                    }
+                                <table
+                                    ref={bcvhFixedTableRef}
+                                    className="bcvh-fixed-table bcvh-fixed-body-table relative z-[1] -mt-px min-w-max border-separate border-spacing-0"
+                                >
+                                    <tbody>
+                                        {bcvhLines.map((line) => (
+                                            <tr key={line.id}>
+                                                <td
+                                                    className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-1"
                                                 >
-                                                    <option value="">Tất cả</option>
-                                                    {uniqueProducts.map((p) => (
-                                                        <option key={p} value={p}>
-                                                            {p}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </td>
-                                            <td
-                                                className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-4"
-                                            >
-                                                <div className="flex items-center gap-1">
-                                                    <select
-                                                        className="bcvh-cell-select min-w-[100px] flex-1"
-                                                        value={line.market}
+                                                    <input
+                                                        type="date"
+                                                        className="bcvh-cell-input"
+                                                        value={line.startDate || ''}
                                                         onChange={(e) =>
-                                                            patchBcvhRow(line.id, { market: e.target.value })
+                                                            patchBcvhRow(line.id, {
+                                                                startDate: e.target.value
+                                                            })
+                                                        }
+                                                    />
+                                                </td>
+                                                <td
+                                                    className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-2"
+                                                >
+                                                    <input
+                                                        type="date"
+                                                        className="bcvh-cell-input"
+                                                        value={line.endDate || ''}
+                                                        onChange={(e) =>
+                                                            patchBcvhRow(line.id, {
+                                                                endDate: e.target.value
+                                                            })
+                                                        }
+                                                    />
+                                                </td>
+                                                <td
+                                                    className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-3"
+                                                >
+                                                    <select
+                                                        className="bcvh-cell-select"
+                                                        value={line.product}
+                                                        onChange={(e) =>
+                                                            patchBcvhRow(line.id, {
+                                                                product: e.target.value
+                                                            })
                                                         }
                                                     >
                                                         <option value="">Tất cả</option>
-                                                        {uniqueMarkets.map((m) => (
-                                                            <option key={m} value={m}>
-                                                                {m}
+                                                        {uniqueProducts.map((p) => (
+                                                            <option key={p} value={p}>
+                                                                {p}
                                                             </option>
                                                         ))}
                                                     </select>
-                                                    {bcvhCriteriaRows.length > 1 && (
-                                                        <button
-                                                            type="button"
-                                                            className="shrink-0 rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50"
-                                                            title="Xóa dòng"
-                                                            onClick={() => removeBcvhRow(line.id)}
+                                                </td>
+                                                <td
+                                                    className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-4"
+                                                >
+                                                    <div className="flex items-center gap-1">
+                                                        <select
+                                                            className="bcvh-cell-select min-w-[100px] flex-1"
+                                                            value={line.market}
+                                                            onChange={(e) =>
+                                                                patchBcvhRow(line.id, {
+                                                                    market: e.target.value
+                                                                })
+                                                            }
                                                         >
-                                                            ×
-                                                        </button>
+                                                            <option value="">Tất cả</option>
+                                                            {uniqueMarkets.map((m) => (
+                                                                <option key={m} value={m}>
+                                                                    {m}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        {bcvhCriteriaRows.length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                className="shrink-0 rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50"
+                                                                title="Xóa dòng"
+                                                                onClick={() => removeBcvhRow(line.id)}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {rawData.length > 0 && (
+                                            <tr className="bcvh-total-row">
+                                                <td
+                                                    colSpan={4}
+                                                    className="bcvh-cell bcvh-cell-left font-bold uppercase"
+                                                >
+                                                    TỔNG
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                            <div className="bcvh-metric-head-band flex shrink-0 items-stretch">
+                                <div
+                                    ref={bcvhMetricHeadScrollRef}
+                                    className="bcvh-scroll-main bcvh-metric-head-scroll min-h-0 min-w-0 flex-1"
+                                >
+                                    <table
+                                        ref={bcvhScrollHeadTableRef}
+                                        className="bcvh-metric-table bcvh-metric-colsync border-separate border-spacing-0"
+                                    >
+                                        {renderBcvhMetricThead()}
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="bcvh-metric-scroll-wrap flex min-h-0 min-w-0 flex-1 flex-col">
+                                <div
+                                    ref={bcvhScrollRef}
+                                    className="bcvh-scroll bcvh-scroll-metric bcvh-scroll-main bcvh-metric-body-scroll min-h-0 min-w-0 flex-1 overflow-auto"
+                                >
+                                    <table
+                                        ref={bcvhScrollTableRef}
+                                        className="bcvh-metric-table bcvh-metric-colsync relative z-[1] -mt-px border-separate border-spacing-0"
+                                    >
+                                        <tbody>
+                                            {bcvhLines.map((line, idx) => (
+                                                <tr key={line.id}>
+                                                    {renderBcvhMetricCells(
+                                                        line.metrics,
+                                                        bcvhSlicesByRow[idx],
+                                                        bcvhRowContextLabel(line)
                                                     )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {rawData.length > 0 && (
-                                        <tr className="bcvh-total-row">
-                                            <td
-                                                colSpan={4}
-                                                className="bcvh-cell bcvh-cell-left font-bold uppercase"
-                                            >
-                                                TỔNG
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                        <div className={`bcvh-metric-scroll-wrap flex min-h-0 min-w-0 flex-1 items-stretch ${paneMaxH}`}>
-                        <div
-                            ref={bcvhScrollRef}
-                            className="bcvh-scroll bcvh-scroll-metric bcvh-scroll-main min-h-0 flex-1 overflow-auto"
-                        >
-                            <table
-                                ref={bcvhScrollTableRef}
-                                className="bcvh-metric-table min-w-max border-separate border-spacing-0"
-                            >
-                                <thead>
-                                    <tr>
-                                    <th colSpan={2} className="bcvh-h-cyan">
-                                        Đã Thanh Toán
-                                        <br />
-                                        (có bill)
-                                    </th>
-                                    <th rowSpan={2} className="bcvh-h-cyan leading-tight">
-                                        TỔNG ĐƠN
-                                        <br />
-                                        SALE LÊN FILE
-                                        <br />
-                                        NỘI BỘ
-                                    </th>
-                                    <th rowSpan={2} className="bcvh-h-cyan leading-tight">
-                                        TỔNG ĐƠN
-                                        <br />
-                                        LÊN VẬN HÀNH
-                                    </th>
-                                    <th rowSpan={2} className="bcvh-h-cyan leading-tight">
-                                        TỔNG ĐƠN
-                                        <br />
-                                        CHƯA CÓ MÃ
-                                        <br />
-                                        <span className="font-normal">(đã lên VH, trống mã)</span>
-                                    </th>
-                                    <th colSpan={3} className="bcvh-h-yellow">
-                                        TỶ LỆ
-                                    </th>
-                                    <th colSpan={7} className="bcvh-h-green leading-tight">
-                                        TỔNG ĐƠN LÊN VẬN HÀNH
-                                    </th>
-                                    <th colSpan={6} className="bcvh-h-red leading-tight">
-                                        TỔNG ĐƠN CHƯA LÊN VẬN HÀNH
-                                    </th>
-                                    <th colSpan={8} className="bcvh-h-grey leading-tight">
-                                        TRẠNG THÁI THU TIỀN
-                                    </th>
-                                </tr>
-                                <tr>
-                                    <th className="bcvh-h-cyan">Số đơn</th>
-                                    <th className="bcvh-h-cyan">Thành tiền</th>
-                                    <th className="bcvh-h-yellow leading-tight">
-                                        TỈ LỆ ĐƠN LÊN VH
-                                        <br />
-                                        / ĐƠN NỘI BỘ
-                                    </th>
-                                    <th className="bcvh-h-yellow leading-tight">
-                                        Tỉ lệ TT thành công
-                                        <br />
-                                        / đơn tính phí
-                                    </th>
-                                    <th className="bcvh-h-yellow leading-tight">
-                                        Tỉ lệ TT thành công
-                                        <br />
-                                        / đơn giao TC
-                                    </th>
-                                    <th className="bcvh-h-green">Giao Thành Công</th>
-                                    <th className="bcvh-h-green">Đang Giao</th>
-                                    <th className="bcvh-h-green">Chưa Giao</th>
-                                    <th className="bcvh-h-green">Hoàn</th>
-                                    <th className="bcvh-h-green leading-tight">Hủy vận hành</th>
-                                    <th className="bcvh-h-green">Chờ check</th>
-                                    <th className="bcvh-h-green leading-tight">
-                                        Tổng thanh toán
-                                        <br />
-                                        giao hàng NB
-                                    </th>
-                                    <th className="bcvh-h-red">Huỷ nội bộ</th>
-                                    <th className="bcvh-h-red">Đợi hàng</th>
-                                    <th className="bcvh-h-red">Khách hẹn</th>
-                                    <th className="bcvh-h-red">Treo</th>
-                                    <th className="bcvh-h-red">Vận đơn XL</th>
-                                    <th className="bcvh-h-red leading-tight">
-                                        Đơn Ok nhưng
-                                        <br />
-                                        chưa có mã
-                                    </th>
-                                    {BC_VH_PAYMENT_COLUMNS.map((c) => (
-                                        <th key={c.id} className="bcvh-h-grey leading-tight">
-                                            {c.label}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {bcvhLines.map((line, idx) => (
-                                    <tr key={line.id}>
-                                        {renderBcvhMetricCells(
-                                            line.metrics,
-                                            bcvhSlicesByRow[idx],
-                                            bcvhRowContextLabel(line)
-                                        )}
-                                    </tr>
-                                ))}
-                                {rawData.length > 0 && (
-                                    <tr className="bcvh-total-row">
-                                        {renderBcvhMetricCells(
-                                            bcvhTotal,
-                                            bcvhSlicesByRow.flat(),
-                                            'TỔNG'
-                                        )}
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                        <div
-                            ref={bcvhRightScrollbarRef}
-                            className="bcvh-right-scrollbar min-h-0 w-[14px] shrink-0 self-stretch"
-                            aria-label="Thanh kéo dọc bảng"
-                        >
-                            <div ref={bcvhRightScrollbarInnerRef} className="bcvh-right-scrollbar-inner" />
-                        </div>
+                                                </tr>
+                                            ))}
+                                            {rawData.length > 0 && (
+                                                <tr className="bcvh-total-row">
+                                                    {renderBcvhMetricCells(
+                                                        bcvhTotal,
+                                                        bcvhSlicesByRow.flat(),
+                                                        'TỔNG'
+                                                    )}
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

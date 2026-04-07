@@ -1943,10 +1943,17 @@ const AdminTools = () => {
     }
 
     const handlePhanBoDonHang = async () => {
-        await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HN, { requireCoBillPayment: false });
+        // Rule mới: luôn yêu cầu "Trạng thái thanh toán = Có Bill"
+        // Chọn bảng theo chi nhánh đang chọn
+        const table =
+            selectedTeam === 'Hà Nội'
+                ? CSKH_ORDER_TABLE_HN
+                : CSKH_ORDER_TABLE_HCM;
+        await runPhanBoCskhOrders(table, { requireCoBillPayment: true });
     };
 
     const handlePhanBoDonHangCskhHcm = async () => {
+        // Giữ nút HCM riêng nếu cần chạy cưỡng bức cho HCM
         await runPhanBoCskhOrders(CSKH_ORDER_TABLE_HCM, { requireCoBillPayment: true });
     };
 
