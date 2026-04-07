@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
@@ -1351,6 +1351,7 @@ const AdminTools = () => {
 
             toast.success("✅ Đã lưu danh sách sản phẩm lên Server thành công!");
             window.dispatchEvent(new Event('storage'));
+            window.dispatchEvent(new Event('settingsUpdated'));
 
             // Reload để cập nhật lại danh sách
             await fetchProductsFromDatabase();
@@ -1402,7 +1403,7 @@ const AdminTools = () => {
         if (mktRecalcLoading) return;
 
         const ok = window.confirm(
-            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
+            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), cột Số đơn hủy (tổng đơn hủy), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
             'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
             'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
             'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu hẳn dòng (key + ca) sẽ tạo mới từ đơn.\n\n' +
@@ -2698,6 +2699,32 @@ const AdminTools = () => {
         .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
         .sort((a, b) => a.name.localeCompare(b.name));
 
+    /** Sổ xuống «Thêm sản phẩm»: đủ mục từ Quản lý Danh sách + gợi ý từ đơn (chưa có trong danh mục). */
+    const productDatalistOptions = useMemo(() => {
+        const seen = new Set();
+        const out = [];
+        const add = (raw) => {
+            const s = String(raw ?? '').trim();
+            if (!s) return;
+            const k = s.toLowerCase();
+            if (seen.has(k)) return;
+            seen.add(k);
+            out.push(s);
+        };
+        dbProducts.forEach((p) => add(p.name));
+        productSuggestions.forEach(add);
+        return out.sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base', numeric: true }));
+    }, [dbProducts, productSuggestions]);
+
+    /** Sổ xuống «Thêm thị trường»: theo Quản lý Thị trường Trọng điểm (keyMarkets). */
+    const marketDatalistOptions = useMemo(() => {
+        const arr = Array.isArray(settings.keyMarkets) ? settings.keyMarkets : [];
+        return arr
+            .map((m) => String(m ?? '').trim())
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base', numeric: true }));
+    }, [settings.keyMarkets]);
+
     if (!canView('ADMIN_TOOLS')) {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (ADMIN_TOOLS).</div>;
     }
@@ -2939,7 +2966,7 @@ const AdminTools = () => {
                             </h3>
                             <p className="text-sm text-gray-600 mb-4">
                                 Tính lại theo Key: <span className="font-medium">Ngày + Tên (MKT) + Sản phẩm + Thị trường</span> khớp <span className="font-medium">orders</span> (marketing_staff, country), tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
-                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key, <span className="font-medium">đã trừ</span> số đơn và VND có Kết quả Check Hủy (ghi riêng ở <span className="font-medium">Số đơn hoàn hủy thực tế</span> / <span className="font-medium">Doanh số hoàn hủy thực tế</span>). Hủy: theo                                 <span className="font-medium">check_result</span>; VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Khi bấm <span className="font-medium">Tính lại</span>: nếu chưa có dòng cho key có đơn thì <span className="font-medium">tạo mới</span> trong <span className="font-medium">detail_reports</span> (tên MKT ưu tiên trùng chính tả với dòng đã có, không thì theo <span className="font-medium">marketing_staff</span> trên đơn).
+                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key, <span className="font-medium">đã trừ</span> số đơn và VND có Kết quả Check Hủy (ghi <span className="font-medium">Số đơn hoàn hủy</span> = tổng đơn hủy, và <span className="font-medium">Số đơn hoàn hủy thực tế</span> / <span className="font-medium">Doanh số hoàn hủy thực tế</span>). Hủy: theo <span className="font-medium">check_result</span>; VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Khi bấm <span className="font-medium">Tính lại</span>: nếu chưa có dòng cho key có đơn thì <span className="font-medium">tạo mới</span> trong <span className="font-medium">detail_reports</span> (tên MKT ưu tiên trùng chính tả với dòng đã có, không thì theo <span className="font-medium">marketing_staff</span> trên đơn).
                                 {' '}
                                 <span className="font-medium text-gray-800">Tự điền khi trống:</span> cột <span className="font-medium">Email</span> và <span className="font-medium">Team</span> — lấy từ bảng <span className="font-medium">users</span> (khớp tên và email khi có đủ hai), không có thì từ <span className="font-medium">human_resources</span>.
                             </p>
@@ -3494,7 +3521,9 @@ const AdminTools = () => {
                                             id="new-product-input"
                                         />
                                         <datalist id="product-suggestions">
-                                            {productSuggestions.map(p => <option key={p} value={p} />)}
+                                            {productDatalistOptions.map((p) => (
+                                                <option key={p} value={p} />
+                                            ))}
                                         </datalist>
                                         <button
                                             onClick={async () => {
@@ -3601,7 +3630,9 @@ const AdminTools = () => {
                                             id="new-market-input"
                                         />
                                         <datalist id="market-suggestions">
-                                            {availableMarkets.map(m => <option key={m} value={m} />)}
+                                            {marketDatalistOptions.map((m) => (
+                                                <option key={m} value={m} />
+                                            ))}
                                         </datalist>
                                         <button
                                             onClick={() => {

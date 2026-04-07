@@ -937,7 +937,7 @@
         MKT_ALLOWED_TEAMS && MKT_ALLOWED_TEAMS.length
           ? MKT_ALLOWED_TEAMS.join('|')
           : 'ALL';
-      return `MKT_SUPABASE:v11:hcm:${teamKey}:${startYmd || ''}:${endYmd || ''}`;
+      return `MKT_SUPABASE:v14:hcm:${teamKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -971,38 +971,11 @@
       return Number.isFinite(n2) ? n2 : 0;
     }
 
-    /** Có giá trị «Số đơn thực tế» gốc trên DB/recalc (kể cả 0) — phân biệt với dòng chưa từng có cột TT. */
-    function rowHasExplicitSoDonThucTe(item) {
-      if (!item || typeof item !== 'object') return false;
-      return ['Số đơn thực tế', 'Số_đơn_thực_tế', 'so_don_thuc_te', 'order_count_actual'].some((k) => {
-        const v = item[k];
-        return v != null && String(v).trim() !== '';
-      });
-    }
-
-    /**
-     * Cột «Số đơn» (xanh): đơn thực tế, không tính Hủy — khớp recalc MKT (Số đơn thực tế = gross − hủy).
-     * Nếu chưa có TT trên dòng: fallback max(0, Số đơn − Số đơn hoàn hủy).
-     */
-    function soDonNetForDisplayRow(r) {
-      if (!r) return 0;
-      const supplied = r._soDonThucTeSupplied === true || rowHasExplicitSoDonThucTe(r);
-      const donTT = parseIntegerVi(r['Số đơn thực tế'] ?? r.so_don_thuc_te ?? r.order_count_actual ?? 0);
-      const donNhap = parseIntegerVi(r['Số đơn'] ?? r['Số_đơn'] ?? r.so_don ?? r.order_count ?? 0);
-      const donHuy = parseIntegerVi(
-        r['Số đơn hoàn hủy'] ?? r['Số đơn hoàn huỷ'] ?? r.so_don_hoan_huy ?? r.order_cancel_count ?? 0
-      );
-      if (supplied) return Math.max(0, donTT);
-      return Math.max(0, donNhap - donHuy);
-    }
-
     /** Chuẩn hóa tên cột giống XemBaoCaoMKT (Supabase / snake_case / tiếng Anh). */
     function normalizeDetailReportRow(item) {
       if (!item || typeof item !== 'object') return {};
-      const _soDonThucTeSupplied = rowHasExplicitSoDonThucTe(item);
       return {
         ...item,
-        _soDonThucTeSupplied,
         'Ngày': item['Ngày'] || item.ngay || item.date || '',
         'Team': item['Team'] || item.team || '',
         'Tên': item['Tên'] || item.ten || item.name || '',
@@ -1021,8 +994,13 @@
             item.mess_count ??
             0
         ),
+        // «Số đơn» hiển thị: chỉ từ «Số đơn thực tế» (cùng nguồn với cột Số đơn (TT)).
         'Số đơn': parseIntegerVi(
-          item['Số đơn'] ?? item['Số_đơn'] ?? item.so_don ?? item.order_count ?? 0
+          item['Số đơn thực tế'] ??
+            item['Số_đơn_thực_tế'] ??
+            item.so_don_thuc_te ??
+            item.order_count_actual ??
+            0
         ),
         'Số đơn thực tế': parseIntegerVi(
           item['Số đơn thực tế'] ??
@@ -1092,10 +1070,12 @@
     }
 
     /**
-     * Mỗi request PostgREST/Supabase thường tối đa ~1000 dòng — lặp range() cho đến hết.
-     * Chỉ dùng range + order Ngày, id (ổn định với id số hoặc UUID; tránh keyset gt(id) thiếu dòng).
+     * PostgREST giới hạn ~1000 dòng/response — dùng range() với PAGE nhỏ (500).
+     * Chỉ dừng khi chunk rỗng; luôn from += chunk.length (không dừng vì chunk < PAGE)
+     * để tránh cắt sớm khi một response trả ít hơn PAGE nhưng vẫn còn dòng phía sau.
+     * order('Ngày','id') ổn định cho offset (khác keyset chỉ theo id dễ lệch với UUID/kiểu cột).
      */
-    const MKT_SUPABASE_PAGE_SIZE = 1000;
+    const MKT_SUPABASE_PAGE_SIZE = 500;
     const MKT_SUPABASE_MAX_PAGES = 20000;
 
     let _supabaseClient = null;
@@ -1131,6 +1111,7 @@
         if (chunk.length === 0) break;
 
         allRows.push(...chunk);
+        from += chunk.length;
 
         const lo = document.getElementById('loading-overlay');
         if (lo) {
@@ -1139,9 +1120,6 @@
               ? `Đang tải dữ liệu… (${allRows.length} dòng, trang ${page + 1})`
               : 'Đang tải dữ liệu…';
         }
-
-        if (chunk.length < MKT_SUPABASE_PAGE_SIZE) break;
-        from += chunk.length;
       }
 
       if (allRows.length >= MKT_SUPABASE_PAGE_SIZE * MKT_SUPABASE_MAX_PAGES) {
@@ -1149,7 +1127,8 @@
           `⚠️ ${MKT_REPORTS_TABLE} có thể chưa tải hết: đã chạm giới hạn ${MKT_SUPABASE_MAX_PAGES} trang × ${MKT_SUPABASE_PAGE_SIZE} dòng. Tăng MKT_SUPABASE_MAX_PAGES hoặc thu hẹp bộ lọc ngày.`
         );
       }
-      console.log(`📄 ${MKT_REPORTS_TABLE} (Supabase, range đầy đủ): ${allRows.length} dòng.`);
+
+      console.log(`📄 ${MKT_REPORTS_TABLE} (Supabase, range+Ngày/id): ${allRows.length} dòng gốc trước dedupe.`);
       return allRows;
     }
 
@@ -1437,10 +1416,15 @@
           .map(r => {
             const dsChotTT = parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0);
             const dsChotThucTeVal = dsChotTT || parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
-            const donTT = parseIntegerVi(r["Số đơn thực tế"]);
-            const soDonNet = soDonNetForDisplayRow(r);
-            /** TT: giữ số từ DB khi đã recalc; nếu chưa có cột TT thì dùng cùng logic ròng với cột Số đơn. */
-            const soDonThucTeEffective = r._soDonThucTeSupplied ? donTT : soDonNet;
+            /** «Số đơn» và «Số đơn (TT)»: chỉ từ «Số đơn thực tế» (và alias); trống → 0. */
+            const donTT = parseIntegerVi(
+              r['Số đơn thực tế'] ??
+                r['Số_đơn_thực_tế'] ??
+                r.so_don_thuc_te ??
+                r.order_count_actual ??
+                0
+            );
+            const soDonThucTeEffective = Math.max(0, donTT);
             const dsSauHoanHuy = parseMoneyNumber(r["DS sau hoàn hủy"] ?? 0);
             const ngayParsed = parseNgayToDate(r["Ngày"]);
             const detailRowKey = buildMktDetailReportRowKey(r);
@@ -1464,7 +1448,7 @@
                   r.so_mess ??
                   r.so_mess_cmt
               ),
-              soDon: soDonNet,
+              soDon: soDonThucTeEffective,
               dsChot: dsChotThucTeVal,
               soDonHuy: parseIntegerVi(r["Số đơn hoàn hủy"]),
               doanhSoHuy: dsChotThucTeVal - dsSauHoanHuy,
@@ -1486,10 +1470,11 @@
         masterData = dedupeMktDetailRowsForAggregation(masterDataMKT);
 
         const dupRemoved = masterDataMKT.length - masterData.length;
+        const nFromApi = rowsDeduped.length;
         console.log(
-          `✅ Đã tải dữ liệu từ Supabase (${MKT_REPORTS_TABLE}): ${masterData.length} bản ghi` +
-            (dupRemoved > 0 ? ` (đã gộp ${dupRemoved} dòng trùng id/detailRowKey — CPQC & Số Mess cộng dồn)` : '') +
-            `, ${employeeData.length} nhân viên`
+          `✅ Đã tải từ Supabase (${MKT_REPORTS_TABLE}): ${nFromApi} dòng (API+phân trang) → ${masterData.length} bản ghi sau gộp trùng` +
+            (dupRemoved > 0 ? ` (gộp ${dupRemoved} dòng trùng id/detailRowKey; CPQC & Số Mess cộng dồn)` : '') +
+            `, ${employeeData.length} nhân viên. Nếu số dòng < Supabase: kiểm tra bộ lọc Team (mặc định «MKT - Đức Anh»), khoảng ngày, hoặc thêm ?allowedTeams=...`
         );
 
         setupInitialReportView();
@@ -1880,7 +1865,13 @@
 
     function parseSoDonThucTeFromRow(row) {
       if (!row) return 0;
-      return parseIntegerVi(row['Số đơn thực tế'] ?? row.so_don_thuc_te ?? 0);
+      return parseIntegerVi(
+        row['Số đơn thực tế'] ??
+          row['Số_đơn_thực_tế'] ??
+          row.so_don_thuc_te ??
+          row.order_count_actual ??
+          0
+      );
     }
 
     function parseDoanhSoChotTTFromRow(row) {
@@ -1934,6 +1925,7 @@
         prev.mess = mergedMess;
 
         prev.row['Số đơn thực tế'] = mergedSd;
+        prev.row['Số đơn'] = mergedSd;
         prev.row['Doanh số TT'] = mergedDs;
         prev.row['CPQC'] = mergedCpqc;
         prev.row['Số_Mess_Cmt'] = mergedMess;

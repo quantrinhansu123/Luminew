@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
@@ -8,6 +8,7 @@ import {
 } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
+import { getCheckResult, isCheckResultHuy } from '../utils/orderCheckAndVnd';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
 // Helpers
@@ -23,11 +24,34 @@ const formatDate = (dateValue) => {
     return `${day}/${month}/${year}`;
 };
 
+/** YYYY-MM-DD theo lịch local (input type="date"), tránh lệch ngày so với toISOString UTC. */
+const formatDateYmdLocal = (d) => {
+    const date = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(date.getTime())) return '';
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+};
+
 const normalizePersonName = (s) =>
     String(s || '')
         .trim()
         .replace(/\s+/g, ' ')
         .toLowerCase();
+
+/** HCM: fallback hiển thị trước khi map tính từ đơn — Số đơn (tổng) = Số đơn thực tế + Số đơn hoàn hủy khi có TT trên dòng. */
+function defaultHcmRealValuesFromRow(item) {
+    const huyFb = Number(item['Số đơn hoàn hủy'] || 0);
+    const ttRaw = item['Số đơn thực tế'];
+    const hasTt = ttRaw !== undefined && ttRaw !== null && String(ttRaw).trim() !== '';
+    const grossFb = hasTt ? Number(ttRaw || 0) + huyFb : Number(item['Số đơn'] || 0);
+    return {
+        so_don_thuc_te: grossFb,
+        so_don_huy: huyFb,
+        doanh_so_thuc_te: Number(item['Doanh số'] || 0),
+    };
+}
 
 /** Phạm vi `detail_reports` (HN): MKT/null/non-RD + team Test. Không dùng cho `marketing_report_hcm` — bảng HCM không cùng schema department / trang xem legacy chỉ lọc Team. */
 const MKT_DETAIL_REPORTS_SCOPE_OR =
@@ -209,19 +233,22 @@ export default function DanhSachBaoCaoTayMKT({
         loadSelectedPersonnel();
     }, [userEmail]);
 
-    // Initialize Dates
+    // Initialize Dates — HCM: 3 ngày lịch gần nhất (giống DanhSachBaoCaoTay); HN: 30 ngày
     useEffect(() => {
         const today = new Date();
-        const d = new Date();
-        d.setDate(d.getDate() - 30); // Last 30 days instead of 3
-        const formatDateForInput = (date) => date.toISOString().split('T')[0];
+        const start = new Date();
+        if (reportTableName === 'marketing_report_hcm') {
+            start.setDate(today.getDate() - 2);
+        } else {
+            start.setDate(today.getDate() - 30);
+        }
 
         setFilters(prev => ({
             ...prev,
-            startDate: formatDateForInput(d),
-            endDate: formatDateForInput(today)
+            startDate: formatDateYmdLocal(start),
+            endDate: formatDateYmdLocal(today)
         }));
-    }, []);
+    }, [reportTableName]);
 
     // Calculate real values from orders table for a single report
     const calculateRealValues = async (report) => {
@@ -233,95 +260,118 @@ export default function DanhSachBaoCaoTayMKT({
             const reportMarket = report['Thị_trường'];
 
             if (!reportDate || !reportName) {
+                return isHcmMarketingReport
+                    ? { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0 }
+                    : { so_don_thuc_te: 0, doanh_so_thuc_te: 0 };
+            }
+
+            const orderSelectCols = isHcmMarketingReport
+                ? 'id, total_amount_vnd, total_vnd, check_result'
+                : 'id, total_amount_vnd, total_vnd';
+
+            // Build base query (mỗi lần gọi = builder mới) — phải phân trang vì PostgREST giới hạn ~1000 dòng/request.
+            const buildOrdersMatchQuery = () => {
+                let q = supabase
+                    .from(ordersTableForMktTotals)
+                    .select(orderSelectCols)
+                    .eq('order_date', reportDate)
+                    .ilike('marketing_staff', `%${reportName}%`);
+
+                const caValue = String(reportCa || '').trim();
+
+                if (caValue === 'Hết ca' || caValue.toLowerCase() === 'hết ca') {
+                    q = q.ilike('shift', '%Hết ca%');
+                } else if (caValue === 'Giữa ca' || caValue.toLowerCase() === 'giữa ca') {
+                    q = q.or('shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
+                } else if (caValue) {
+                    q = q.ilike('shift', `%${caValue}%`);
+                }
+
+                if (reportProduct) {
+                    q = q.eq('product', reportProduct);
+                }
+
+                if (reportMarket) {
+                    q = q.ilike('country', `%${reportMarket}%`);
+                }
+
+                return q;
+            };
+
+            const ORDERS_PAGE = 500;
+            let from = 0;
+            let totalOrders = 0;
+            let huyOrders = 0;
+            let doanhSoThucTe = 0;
+
+            while (true) {
+                const { data: chunk, error } = await buildOrdersMatchQuery()
+                    .order('id', { ascending: true })
+                    .range(from, from + ORDERS_PAGE - 1);
+
+                if (error) {
+                    console.error('Error calculating real values:', error);
+                    return isHcmMarketingReport
+                        ? { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0 }
+                        : { so_don_thuc_te: 0, doanh_so_thuc_te: 0 };
+                }
+
+                const rows = chunk || [];
+                if (rows.length === 0) break;
+
+                totalOrders += rows.length;
+                for (const o of rows) {
+                    if (isHcmMarketingReport && isCheckResultHuy(getCheckResult(o))) {
+                        huyOrders += 1;
+                    }
+                    const amount = o.total_amount_vnd || o.total_vnd || 0;
+                    doanhSoThucTe += Number(amount) || 0;
+                }
+
+                if (rows.length < ORDERS_PAGE) break;
+                from += ORDERS_PAGE;
+            }
+
+            if (totalOrders === 0) {
+                return isHcmMarketingReport
+                    ? { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0 }
+                    : { so_don_thuc_te: 0, doanh_so_thuc_te: 0 };
+            }
+
+            if (isHcmMarketingReport) {
+                const soDonTt = Math.max(0, totalOrders - huyOrders);
                 return {
-                    so_don_thuc_te: 0,
-                    doanh_so_thuc_te: 0
+                    // Cột «Số đơn» = TT + Hủy (tổng đơn khớp báo cáo)
+                    so_don_thuc_te: soDonTt + huyOrders,
+                    so_don_huy: huyOrders,
+                    doanh_so_thuc_te: doanhSoThucTe,
                 };
             }
-
-            // Build query - chỉ select các cột cần thiết để tăng tốc
-            let query = supabase
-                .from(ordersTableForMktTotals)
-                .select('total_amount_vnd, total_vnd') // Chỉ select cột cần thiết
-                .eq('order_date', reportDate)
-                .ilike('marketing_staff', `%${reportName}%`);
-
-            // Filter by shift/ca
-            const caValue = String(reportCa || '').trim();
-            
-            if (caValue === 'Hết ca' || caValue.toLowerCase() === 'hết ca') {
-                query = query.ilike('shift', '%Hết ca%');
-            } else if (caValue === 'Giữa ca' || caValue.toLowerCase() === 'giữa ca') {
-                query = query.or('shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
-            } else if (caValue) {
-                query = query.ilike('shift', `%${caValue}%`);
-            }
-
-            // Filter by product
-            if (reportProduct) {
-                query = query.eq('product', reportProduct);
-            }
-
-            // Filter by market (country)
-            if (reportMarket) {
-                query = query.ilike('country', `%${reportMarket}%`);
-            }
-
-            const { data: orders, error } = await query;
-
-            if (error) {
-                console.error('Error calculating real values:', error);
-                return {
-                    so_don_thuc_te: 0,
-                    doanh_so_thuc_te: 0
-                };
-            }
-
-            if (!orders || orders.length === 0) {
-                return {
-                    so_don_thuc_te: 0,
-                    doanh_so_thuc_te: 0
-                };
-            }
-
-            // Calculate values
-            const totalOrders = orders.length;
-            
-            // Doanh số thực tế: tổng total_amount_vnd của tất cả đơn khớp điều kiện
-            const doanhSoThucTe = orders.reduce((sum, o) => {
-                const amount = o.total_amount_vnd || o.total_vnd || 0;
-                return sum + (Number(amount) || 0);
-            }, 0);
 
             return {
                 so_don_thuc_te: totalOrders,
-                doanh_so_thuc_te: doanhSoThucTe
+                doanh_so_thuc_te: doanhSoThucTe,
             };
         } catch (error) {
             console.error('Error calculating real values:', error);
-            return {
-                so_don_thuc_te: 0,
-                doanh_so_thuc_te: 0
-            };
+            return isHcmMarketingReport
+                ? { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0 }
+                : { so_don_thuc_te: 0, doanh_so_thuc_te: 0 };
         }
     };
 
-    // Calculate real values for all reports (PARALLEL - tối ưu tốc độ)
+    // Calculate real values for all reports (PARALLEL theo batch). Merge sau mỗi batch để dòng TỔNG CỘNG cập nhật dần trên toàn bộ bộ lọc (không chỉ trang hiện tại).
     const calculateRealValuesForReports = async (reports) => {
         if (!reports || reports.length === 0) return;
         
         setCalculatingRealValues(true);
         
         try {
-            // Chạy song song tất cả queries thay vì tuần tự
-            // Giới hạn batch size để tránh quá tải
-            const BATCH_SIZE = 10; // Chạy 10 queries cùng lúc
-            const valuesMap = {};
+            const BATCH_SIZE = 10;
             
             for (let i = 0; i < reports.length; i += BATCH_SIZE) {
                 const batch = reports.slice(i, i + BATCH_SIZE);
                 
-                // Chạy song song trong batch này
                 const batchPromises = batch.map(report => 
                     calculateRealValues(report).then(result => ({
                         id: report.id,
@@ -331,17 +381,26 @@ export default function DanhSachBaoCaoTayMKT({
                 
                 const batchResults = await Promise.all(batchPromises);
                 
-                // Merge kết quả
+                const valuesMap = {};
                 batchResults.forEach(({ id, values }) => {
                     valuesMap[id] = values;
                 });
+
+                const allowedIds = new Set(
+                    (reportsAfterFiltersRef.current || [])
+                        .map((r) => r?.id)
+                        .filter(Boolean)
+                );
+                const filtered = {};
+                for (const [rowId, v] of Object.entries(valuesMap)) {
+                    if (allowedIds.has(rowId)) filtered[rowId] = v;
+                }
+
+                setRealValuesMap((prev) => ({ ...prev, ...filtered }));
                 
                 console.log(`⚡ Calculated batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(reports.length / BATCH_SIZE)}: ${batch.length} reports`);
             }
             
-            // Merge để cho phép tính "giá trị thực tế" theo từng trang (lazy)
-            // thay vì reset toàn bộ mỗi lần tính.
-            setRealValuesMap(prev => ({ ...prev, ...valuesMap }));
             console.log(`✅ Calculated real values for ${reports.length} reports (parallel)`);
         } catch (error) {
             console.error('Error calculating real values for reports:', error);
@@ -693,6 +752,9 @@ export default function DanhSachBaoCaoTayMKT({
         });
     }, [allReports, filters.personnelNames, filters.shifts, filters.teams, filters.products, filters.markets]);
 
+    const reportsAfterFiltersRef = useRef(reportsAfterFilters);
+    reportsAfterFiltersRef.current = reportsAfterFilters;
+
     /** HCM marketing: khớp cột `Tên` với users.name / username → ghi users.team vào `Team` (theo bộ lọc danh sách). */
     const handleSyncTeamFromUsersForMarketing = async () => {
         if (!isAdminOnly || !isHcmMarketingReport) return;
@@ -912,7 +974,16 @@ export default function DanhSachBaoCaoTayMKT({
             if (sortColumn === 'Số đơn') {
                 const id = item?.id;
                 if (id && realValuesMap?.[id]) return Number(realValuesMap[id]?.so_don_thuc_te || 0);
+                if (isHcmMarketingReport) return defaultHcmRealValuesFromRow(item).so_don_thuc_te;
                 return Number(item?.['Số đơn'] || 0);
+            }
+
+            if (sortColumn === 'Số đơn hủy') {
+                const id = item?.id;
+                if (id && realValuesMap?.[id] != null && realValuesMap[id].so_don_huy != null) {
+                    return Number(realValuesMap[id].so_don_huy || 0);
+                }
+                return Number(item?.['Số đơn hoàn hủy'] || 0);
             }
 
             if (sortColumn === 'Doanh số') {
@@ -950,7 +1021,7 @@ export default function DanhSachBaoCaoTayMKT({
         });
 
         return rows;
-    }, [reportsAfterFilters, sortColumn, sortDirection, realValuesMap]);
+    }, [reportsAfterFilters, sortColumn, sortDirection, realValuesMap, isHcmMarketingReport]);
 
     // Tổng kết theo toàn bộ dữ liệu đã lọc (không phụ thuộc phân trang)
     const totalsByFiltered = useMemo(() => {
@@ -963,46 +1034,61 @@ export default function DanhSachBaoCaoTayMKT({
         const byDetailKey = new Map();
         for (const r of rows) {
             const k = buildMktDetailReportRowKey(r);
-            const realValues = r && r.id && realValuesMap[r.id] ? realValuesMap[r.id] : null;
-            const sd = Number(realValues?.so_don_thuc_te || 0);
-            const ds = Number(realValues?.doanh_so_thuc_te || 0);
+            const id = r?.id;
+            const fromMap = id != null && realValuesMap[id] !== undefined ? realValuesMap[id] : null;
+            // Chưa có TT trong map (đang tính): dùng số tay trên dòng để tổng không bị 0; khi map cập nhật, useMemo tự chạy lại.
+            let sd;
+            let sh = 0;
+            if (fromMap) {
+                sd = Number(fromMap.so_don_thuc_te ?? 0);
+                if (isHcmMarketingReport) sh = Number(fromMap.so_don_huy ?? 0);
+            } else if (isHcmMarketingReport) {
+                const fb = defaultHcmRealValuesFromRow(r);
+                sd = fb.so_don_thuc_te;
+                sh = fb.so_don_huy;
+            } else {
+                sd = Number(r?.['Số đơn'] ?? 0);
+            }
+            const ds = Number(
+                fromMap ? (fromMap.doanh_so_thuc_te ?? 0) : (r?.['Doanh số'] ?? 0)
+            );
             const prev = byDetailKey.get(k);
             if (!prev) {
-                byDetailKey.set(k, { sd, ds });
+                byDetailKey.set(k, { sd, ds, sh });
             } else {
                 byDetailKey.set(k, {
                     sd: Math.max(prev.sd, sd),
                     ds: Math.max(prev.ds, ds),
+                    sh: Math.max(prev.sh, sh),
                 });
             }
         }
         let soDon = 0;
         let doanhSo = 0;
-        for (const { sd, ds } of byDetailKey.values()) {
+        let soDonHuy = 0;
+        for (const { sd, ds, sh } of byDetailKey.values()) {
             soDon += sd;
             doanhSo += ds;
+            soDonHuy += sh;
         }
 
-        return { cpqc, mess, soDon, doanhSo };
-    }, [reportsAfterFilters, realValuesMap]);
+        return { cpqc, mess, soDon, doanhSo, soDonHuy };
+    }, [reportsAfterFilters, realValuesMap, isHcmMarketingReport]);
 
-    // If user sorts by derived real values, try to calculate missing realValues for all filtered rows.
+    // Tính Số đơn TT / Doanh số TT cho toàn bộ dòng đã lọc (phục vụ TỔNG CỘNG đúng dù bảng phân trang).
     useEffect(() => {
-        const shouldSortByReal = sortColumn === 'Số đơn' || sortColumn === 'Doanh số';
-        if (!shouldSortByReal) return;
         if (!reportsAfterFilters || reportsAfterFilters.length === 0) return;
+        if (calculatingRealValues) return;
 
-        const missingReports = reportsAfterFilters.filter(r => {
+        const missingReports = reportsAfterFilters.filter((r) => {
             const id = r?.id;
             if (!id) return false;
-            return realValuesMap?.[id] == null;
+            return realValuesMap[id] === undefined;
         });
 
         if (missingReports.length === 0) return;
-        if (calculatingRealValues) return;
-
         calculateRealValuesForReports(missingReports);
-    }, [sortColumn, reportsAfterFilters, realValuesMap, calculatingRealValues]);
+    }, [reportsAfterFilters, realValuesMap, calculatingRealValues]);
 
     // Calculate pagination
     const totalPages = Math.ceil(sortedReports.length / itemsPerPage);
@@ -1014,21 +1100,6 @@ export default function DanhSachBaoCaoTayMKT({
     useEffect(() => {
         setManualReports(paginatedReports);
     }, [currentPage, itemsPerPage, sortedReports]);
-
-    // Lazy tính giá trị thực tế cho các dòng đang hiển thị (tránh tính cho toàn bộ khi dữ liệu lớn).
-    useEffect(() => {
-        if (!paginatedReports || paginatedReports.length === 0) return;
-        if (calculatingRealValues) return;
-
-        const missingReports = paginatedReports.filter(r => {
-            const id = r?.id;
-            if (!id) return false;
-            return realValuesMap[id] == null;
-        });
-
-        if (missingReports.length === 0) return;
-        calculateRealValuesForReports(missingReports);
-    }, [paginatedReports, realValuesMap, calculatingRealValues]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -1087,7 +1158,7 @@ export default function DanhSachBaoCaoTayMKT({
             ? 'Báo cáo: Supabase `marketing_report_hcm`. Nguồn đơn: Supabase `order_code_hcm` (không gọi API ngoài).\n\n'
             : 'Nguồn đơn: bảng Supabase `orders`.\n\n';
         const ok = window.confirm(
-            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế — Key match đơn ↔ báo cáo.\n\n' +
+            'Tính lại cho Báo cáo MKT: Số đơn thực tế (TT), cột «Số đơn» = TT + hoàn hủy, Doanh số TT (đã trừ đơn/VND hủy), Số đơn hoàn hủy (đơn Check = Hủy), đơn/DS hoàn hủy thực tế — Key match đơn ↔ báo cáo.\n\n' +
                 orderSourceHint +
                 'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
                 'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
@@ -1853,6 +1924,15 @@ export default function DanhSachBaoCaoTayMKT({
                                     >
                                         Số mess {sortColumn === 'Số_Mess_Cmt' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                                     </th>
+                                    {isHcmMarketingReport && (
+                                        <th
+                                            onClick={() => handleSort('Số đơn hủy')}
+                                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                                        >
+                                            Số đơn Hủy{' '}
+                                            {sortColumn === 'Số đơn hủy' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                        </th>
+                                    )}
                                     <th
                                         onClick={() => handleSort('Số đơn')}
                                         style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -1871,7 +1951,12 @@ export default function DanhSachBaoCaoTayMKT({
                             <tbody>
                                 {reportsAfterFilters.length === 0 ? (
                                     <tr>
-                                        <td colSpan="12" className="text-center">{loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td
+                                            colSpan={isHcmMarketingReport ? 13 : 12}
+                                            className="text-center"
+                                        >
+                                            {loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}
+                                        </td>
                                     </tr>
                                 ) : (
                                     <>
@@ -1879,15 +1964,24 @@ export default function DanhSachBaoCaoTayMKT({
                                             <td className="total-label" colSpan="7">TỔNG CỘNG</td>
                                             <td className="total-value">{formatNumber(totalsByFiltered.cpqc)}</td>
                                             <td className="total-value">{formatNumber(totalsByFiltered.mess)}</td>
+                                            {isHcmMarketingReport && (
+                                                <td className="total-value">
+                                                    {formatNumber(totalsByFiltered.soDonHuy)}
+                                                </td>
+                                            )}
                                             <td className="total-value">{formatNumber(totalsByFiltered.soDon)}</td>
                                             <td className="total-value">{formatCurrency(totalsByFiltered.doanhSo)}</td>
                                             <td />
                                         </tr>
                                         {manualReports.map((item, index) => {
-                                            const realValues = realValuesMap[item.id] || {
-                                                so_don_thuc_te: item['Số đơn'] || 0,
-                                                doanh_so_thuc_te: item['Doanh số'] || 0
-                                            };
+                                            const realValues =
+                                                realValuesMap[item.id] ||
+                                                (isHcmMarketingReport
+                                                    ? defaultHcmRealValuesFromRow(item)
+                                                    : {
+                                                          so_don_thuc_te: item['Số đơn'] || 0,
+                                                          doanh_so_thuc_te: item['Doanh số'] || 0,
+                                                      });
                                             return (
                                                 <tr key={item.id || index}>
                                                     <td className="text-center">{startIndex + index + 1}</td>
@@ -1899,6 +1993,9 @@ export default function DanhSachBaoCaoTayMKT({
                                                     <td>{item['Thị_trường']}</td>
                                                     <td>{formatNumber(item['CPQC'])}</td>
                                                     <td>{formatNumber(item['Số_Mess_Cmt'])}</td>
+                                                    {isHcmMarketingReport && (
+                                                        <td>{formatNumber(realValues.so_don_huy ?? 0)}</td>
+                                                    )}
                                                     <td>{formatNumber(realValues.so_don_thuc_te)}</td>
                                                     <td>{formatCurrency(realValues.doanh_so_thuc_te)}</td>
                                                     <td className="text-center">

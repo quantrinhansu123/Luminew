@@ -176,10 +176,12 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         e.stopPropagation();
 
         const clipboardData = e.clipboardData.getData('text');
-        if (!clipboardData || !clipboardData.trim()) return;
+        if (clipboardData == null) return;
 
-        // Parse dữ liệu paste
-        const pastedRows = clipboardData.trim().split(/\r\n|\n/).filter(row => row.trim()).map(row => row.split('\t'));
+        // Parse dữ liệu paste — giữ nguyên dòng trống (không filter) để không dồn dòng phía dưới lên.
+        const normalized = String(clipboardData).replace(/\r\n/g, '\n');
+        if (normalized.length === 0) return;
+        const pastedRows = normalized.split('\n').map((line) => line.split('\t'));
         if (pastedRows.length === 0) return;
         
         // Lấy selection hiện tại từ ref (luôn có giá trị mới nhất)
@@ -309,6 +311,32 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
     const handleKeyDown = (e) => {
         if (!selection) return;
 
+        // Delete / Backspace: xóa cả vùng chọn trên mọi cột — kể cả khi focus đang trong input (trước đây chỉ xóa được khi focus ở vùng bảng).
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            const minR = Math.min(selection.startRow, selection.endRow);
+            const maxR = Math.max(selection.startRow, selection.endRow);
+            const minC = Math.min(selection.startCol, selection.endCol);
+            const maxC = Math.max(selection.startCol, selection.endCol);
+            const isMultiCell = minR !== maxR || minC !== maxC;
+
+            const target = e.target;
+            if (!isMultiCell && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) {
+                return;
+            }
+
+            e.preventDefault();
+            setRows(prev => {
+                const newRows = prev.map(r => [...r]);
+                for (let r = minR; r <= maxR; r++) {
+                    for (let c = minC; c <= maxC; c++) {
+                        if (newRows[r]) newRows[r][c] = '';
+                    }
+                }
+                return newRows;
+            });
+            return;
+        }
+
         const { endRow, endCol } = selection;
         let newRow = endRow;
         let newCol = endCol;
@@ -325,28 +353,6 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             } else {
                 setSelection({ startRow: newRow, startCol: newCol, endRow: newRow, endCol: newCol });
             }
-        }
-
-        // Delete to clear
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-            const target = e.target;
-            if (target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
-
-            e.preventDefault();
-            const minR = Math.min(selection.startRow, selection.endRow);
-            const maxR = Math.max(selection.startRow, selection.endRow);
-            const minC = Math.min(selection.startCol, selection.endCol);
-            const maxC = Math.max(selection.startCol, selection.endCol);
-
-            setRows(prev => {
-                const newRows = prev.map(r => [...r]);
-                for (let r = minR; r <= maxR; r++) {
-                    for (let c = minC; c <= maxC; c++) {
-                        if (newRows[r]) newRows[r][c] = '';
-                    }
-                }
-                return newRows;
-            });
         }
     };
 
@@ -383,9 +389,9 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         };
     }, [selection, rows]);
 
-    const duplicateTrackingState = useMemo(() => {
+    /** Ô tracking tô đỏ khi trùng (cùng bảng hoặc đã thuộc đơn khác) — không chặn Đồng bộ. */
+    const duplicateTrackingCells = useMemo(() => {
         const duplicateCells = new Set();
-        const duplicatedCodes = new Set();
         const localTrackingRows = new Map();
         const orderCodeIndex = 0;
 
@@ -398,7 +404,6 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             const ownerFromData = String(existingTrackingOwnerMap[normalizedTracking] || '').trim();
             if (ownerFromData && ownerFromData !== orderCode) {
                 duplicateCells.add(`${rowIdx}-${TRACKING_COL_INDEX}`);
-                duplicatedCodes.add(trackingCode);
             }
 
             if (!localTrackingRows.has(normalizedTracking)) {
@@ -412,20 +417,13 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             const uniqueOrderIds = new Set(items.map((it) => it.orderCode));
             if (uniqueOrderIds.size > 1) {
                 items.forEach((it) => duplicateCells.add(`${it.rowIdx}-${TRACKING_COL_INDEX}`));
-                duplicatedCodes.add(items[0].trackingCode);
             }
         });
 
-        return {
-            duplicateCells,
-            hasDuplicate: duplicateCells.size > 0,
-            duplicatedCodes: Array.from(duplicatedCodes),
-        };
+        return duplicateCells;
     }, [rows, existingTrackingOwnerMap]);
 
     const handleSyncClick = () => {
-        if (duplicateTrackingState.hasDuplicate) return;
-
         const todayStr = getTodayDDMMYYYY();
         const working = rows.map((r) => {
             const copy = [...r];
@@ -476,7 +474,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             if (cIdx === minC) classes += 'selection-border-left ';
             if (cIdx === maxC) classes += 'selection-border-right ';
         }
-        if (cIdx === TRACKING_COL_INDEX && duplicateTrackingState.duplicateCells.has(`${rIdx}-${cIdx}`)) {
+        if (cIdx === TRACKING_COL_INDEX && duplicateTrackingCells.has(`${rIdx}-${cIdx}`)) {
             classes += "!bg-red-50 !border-red-400 ";
         }
 
@@ -693,13 +691,6 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                         </tbody>
                     </table>
 
-                    {/* Thông báo lỗi trùng mã tracking */}
-                    {duplicateTrackingState.hasDuplicate && (
-                        <div className="mx-4 mt-3 mb-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-                            Trùng mã Tracking: {duplicateTrackingState.duplicatedCodes.join(', ')}. Vui lòng sửa trước khi đồng bộ.
-                        </div>
-                    )}
-
                     {/* Bộ đếm số lượng ô được chọn */}
                     {calculatedSummary && calculatedSummary.count > 1 && (
                         <div className="absolute bottom-4 right-4 z-50 bg-[#1a73e8] text-white px-4 py-2 rounded-lg shadow-xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -742,12 +733,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                         </button>
                         <button
                             onClick={handleSyncClick}
-                            disabled={duplicateTrackingState.hasDuplicate}
-                            className={`px-6 py-2.5 text-white font-bold rounded-lg transition-all duration-200 shadow-md flex items-center gap-2 ${
-                                duplicateTrackingState.hasDuplicate
-                                    ? 'bg-gray-400 cursor-not-allowed opacity-80'
-                                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg'
-                            }`}
+                            className="px-6 py-2.5 text-white font-bold rounded-lg transition-all duration-200 shadow-md flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg"
                         >
                             <span>🔄</span>
                             <span>Đồng bộ</span>

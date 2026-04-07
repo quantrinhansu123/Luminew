@@ -24,8 +24,25 @@ import {
   LONG_TEXT_COLS,
   ORDER_MGMT_COLUMNS,
   PRIMARY_KEY_COLUMN,
+  SETTINGS_KEY,
   TEAM_COLUMN_NAME
 } from '../types';
+
+/** Thị trường trọng điểm (AdminTools → localStorage). */
+function readKeyMarketsFromLocalSettings() {
+  try {
+    const s = localStorage.getItem(SETTINGS_KEY);
+    if (!s) return [];
+    const parsed = JSON.parse(s);
+    const km = parsed?.keyMarkets;
+    if (!Array.isArray(km)) return [];
+    return km
+      .map((x) => String(x ?? '').trim())
+      .filter((x) => x && !isVanDonSemanticEmpty(x));
+  } catch {
+    return [];
+  }
+}
 
 /** Giới hạn một response PostgREST/Supabase (thường 1000); dùng cho xuất Excel / lặp trang. */
 const VAN_DON_POSTGREST_MAX_ROWS = 1000;
@@ -1007,6 +1024,43 @@ function VanDon({ dataSource = 'default' }) {
     retry: 1,
     enabled: !permissionsLoading
   });
+
+  /** Danh sách sản phẩm master (Quản lý Danh sách Sản phẩm — bảng system_settings). */
+  const { data: vanDonAdminCatalogProductNames = [] } = useQuery({
+    queryKey: ['vanDonAdminCatalogProductNames'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('name')
+        .order('name', { ascending: true });
+      if (error) {
+        console.warn('[VanDon] system_settings (catalog SP lọc):', error.message);
+        return [];
+      }
+      return (data || [])
+        .map((r) => String(r.name ?? '').trim())
+        .filter((n) => n && !isVanDonSemanticEmpty(n));
+    },
+    staleTime: 2 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: 1,
+    enabled: !permissionsLoading
+  });
+
+  const [keyMarketsCatalog, setKeyMarketsCatalog] = useState(() => readKeyMarketsFromLocalSettings());
+
+  useEffect(() => {
+    const syncAdminCatalogs = () => {
+      setKeyMarketsCatalog(readKeyMarketsFromLocalSettings());
+      queryClient.invalidateQueries({ queryKey: ['vanDonAdminCatalogProductNames'] });
+    };
+    window.addEventListener('storage', syncAdminCatalogs);
+    window.addEventListener('settingsUpdated', syncAdminCatalogs);
+    return () => {
+      window.removeEventListener('storage', syncAdminCatalogs);
+      window.removeEventListener('settingsUpdated', syncAdminCatalogs);
+    };
+  }, [queryClient]);
 
   const allData = useMemo(() => {
     let rows = queryResult?.data || [];
@@ -2155,14 +2209,7 @@ function VanDon({ dataSource = 'default' }) {
     const filtered = allColumns.filter(col => visibleColumns[col] === true);
     let cols = filtered;
 
-    if (allColumns.includes(VAN_DON_CANH_BAO_COLUMN) && !cols.includes(VAN_DON_CANH_BAO_COLUMN)) {
-      const ngayIdx = cols.findIndex((c) => normalizeColHeader(c) === normalizeColHeader('Ngày lên đơn'));
-      if (ngayIdx >= 0) {
-        cols = [...cols.slice(0, ngayIdx + 1), VAN_DON_CANH_BAO_COLUMN, ...cols.slice(ngayIdx + 1)];
-      } else {
-        cols = [VAN_DON_CANH_BAO_COLUMN, ...cols];
-      }
-    }
+    // Không ép hiện «Cảnh báo trùng» khi user tắt trong Cài đặt cột (trước đây luôn chèn lại sau «Ngày lên đơn»).
 
     // Trong tab "Hà Nội", đẩy cột "Đơn vị vận chuyển" lên đầu
     if (bolActiveTab === 'hanoi') {
@@ -2480,17 +2527,33 @@ function VanDon({ dataSource = 'default' }) {
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
     const keyMapped = COLUMN_MAPPING[key] || key;
-    allData.forEach(row => {
-      // Thử nhiều cách lấy giá trị
-      const val = String(row[key] || row[keyMapped] || row[key.replace(/ /g, '_')] || '').trim();
+    const dbAliasKeys = [];
+    for (const [dbK, appK] of Object.entries(API.DB_TO_APP_MAPPING)) {
+      if (appK === key || appK === keyMapped) dbAliasKeys.push(dbK);
+    }
+    allData.forEach((row) => {
+      let raw = row[key] ?? row[keyMapped] ?? row[String(key).replace(/ /g, '_')];
+      if (
+        (raw === undefined || raw === null || String(raw).trim() === '') &&
+        dbAliasKeys.length > 0
+      ) {
+        for (let i = 0; i < dbAliasKeys.length; i++) {
+          const v = row[dbAliasKeys[i]];
+          if (v !== undefined && v !== null && String(v).trim() !== '') {
+            raw = v;
+            break;
+          }
+        }
+      }
+      const val = String(raw ?? '').trim();
       if (val && !isVanDonSemanticEmpty(val)) values.add(val);
     });
     return Array.from(values).sort();
   }, [allData]);
 
   /**
-   * Bộ lọc MultiSelect: ưu tiên distinct từ Supabase (RPC `get_orders_distinct_values` trên `orders`);
-   * nếu chưa có / lỗi RPC thì fallback unique trên trang hiện tại (phân trang backend).
+   * Bộ lọc MultiSelect: gộp distinct từ Supabase (RPC/view) với giá trị unique trên dữ liệu đang hiển thị
+   * (trang hiện tại + pending) — tránh thiếu mục khi RPC/HCM lệch hoặc dòng chỉ có khóa snake_case.
    */
   const getFilterMultiSelectOptions = useCallback(
     (col) => {
@@ -2515,7 +2578,15 @@ function VanDon({ dataSource = 'default' }) {
 
       const fromDb = vanDonDistinctFilterOptions[col];
       const fromPage = getUniqueValues(col);
-      const base = Array.isArray(fromDb) && fromDb.length > 0 ? fromDb : fromPage;
+      const dbArr = Array.isArray(fromDb) ? fromDb : [];
+      const pageArr = Array.isArray(fromPage) ? fromPage : [];
+      let adminCatalogArr = [];
+      if (col === 'Mặt hàng') {
+        adminCatalogArr = vanDonAdminCatalogProductNames;
+      } else if (col === 'Khu vực') {
+        adminCatalogArr = keyMarketsCatalog;
+      }
+      const base = [...adminCatalogArr, ...dbArr, ...pageArr];
 
       const byLower = new Map();
       for (const raw of base) {
@@ -2561,7 +2632,7 @@ function VanDon({ dataSource = 'default' }) {
       // Một mục "Trống" cho ô trống; không thêm __EMPTY__ (vẫn tương thích khi selected còn __EMPTY__ từ bản cũ)
       return ['Trống', ...merged];
     },
-    [getUniqueValues, vanDonDistinctFilterOptions]
+    [getUniqueValues, vanDonDistinctFilterOptions, vanDonAdminCatalogProductNames, keyMarketsCatalog]
   );
 
   /** Ô chỉnh sửa trong bảng: vẫn gộp preset DROPDOWN + giá trị đã có trong data (cho phép chọn trạng thái chuẩn). */

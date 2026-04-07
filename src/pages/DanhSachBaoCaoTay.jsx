@@ -455,15 +455,15 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         loadSelectedPersonnel();
     }, [userEmail]);
 
-    // Initialize Dates
+    // Initialize Dates — 3 ngày lịch gần nhất (hôm nay, hôm qua, hôm kia), cùng logic DanhSachBaoCaoTayCSKH
     useEffect(() => {
         const today = new Date();
-        const d = new Date();
-        d.setDate(d.getDate() - 3);
+        const start = new Date();
+        start.setDate(today.getDate() - 2);
 
         setFilters(prev => ({
             ...prev,
-            startDate: formatDateYmdLocal(d),
+            startDate: formatDateYmdLocal(start),
             endDate: formatDateYmdLocal(today)
         }));
     }, []);

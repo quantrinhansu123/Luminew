@@ -371,7 +371,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [isClearingShippingInfo, setIsClearingShippingInfo] = useState(false); // Xóa NV vận đơn theo bộ lọc
   const [isRecalculatingZeroTotalVnd, setIsRecalculatingZeroTotalVnd] = useState(false); // Tính lại Tổng tiền VNĐ (chỉ ô = 0)
   const [isApplyingCanhBaoTrung, setIsApplyingCanhBaoTrung] = useState(false); // Ghi canh_bao theo trùng khách (Ngày lên đơn + created_at)
-  const [isRenamingManhCuong, setIsRenamingManhCuong] = useState(false); // Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường"
+  const [isRenamingNguyenTrongDai, setIsRenamingNguyenTrongDai] = useState(false); // NGUYỄN TRỌNG ĐẠI → Nguyễn Trọng Đại
   /** Chỉ HCM: tra cứu `orders` (team chứa HCM), theo Từ/Đến ngày trên trang — modal xem, không ghi DB. */
   const [isFetchingOrdersHcmLookaside, setIsFetchingOrdersHcmLookaside] = useState(false);
   const [isFillingHcmFromOrdersLookaside, setIsFillingHcmFromOrdersLookaside] = useState(false);
@@ -1789,15 +1789,13 @@ function DanhSachDon({ dataSource = 'default' }) {
   };
 
   /**
-   * Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường" trên database (theo đúng bộ lọc hiện tại).
-   * Áp dụng đồng thời cho 3 cột nhân sự: sale_staff, marketing_staff, delivery_staff.
+   * Chuẩn hóa "NGUYỄN TRỌNG ĐẠI" (mọi biến thể) → "Nguyễn Trọng Đại" theo bộ lọc hiện tại.
+   * Áp dụng cho 3 cột: sale_staff, marketing_staff, delivery_staff.
    */
-  const handleRenameManhCuong = async () => {
-    if (isRenamingManhCuong) return;
+  const handleNormalizeNguyenTrongDaiStaff = async () => {
+    if (isRenamingNguyenTrongDai) return;
 
-    const OLD_NAME = 'Mạnh Cường';
-    const NEW_NAME = 'Đỗ Mạnh Cường';
-
+    const CANON = 'Nguyễn Trọng Đại';
     const normalize = (s) =>
       String(s ?? '')
         .trim()
@@ -1805,8 +1803,17 @@ function DanhSachDon({ dataSource = 'default' }) {
         .toLowerCase()
         .normalize('NFD')
         .replace(/\p{M}/gu, '');
+    const wrongKey = normalize('NGUYỄN TRỌNG ĐẠI');
 
-    const oldN = normalize(OLD_NAME);
+    const canonicalizeStaffCell = (raw) => {
+      const s = String(raw ?? '').trim();
+      if (!s) return null;
+      let next = s.replace(/nguyễn\s+trọng\s+đại/giu, CANON);
+      if (next !== s) return next;
+      if (normalize(s) === wrongKey && s !== CANON) return CANON;
+      return null;
+    };
+
     const rows = filteredData || [];
     const updates = [];
 
@@ -1816,14 +1823,14 @@ function DanhSachDon({ dataSource = 'default' }) {
 
       const patch = {};
 
-      const saleVal = normalize(r?.['Nhân viên Sale']);
-      if (saleVal && saleVal === oldN) patch.sale_staff = NEW_NAME;
+      const saleNext = canonicalizeStaffCell(r?.['Nhân viên Sale']);
+      if (saleNext !== null) patch.sale_staff = saleNext;
 
-      const mktVal = normalize(r?.['Nhân viên Marketing']);
-      if (mktVal && mktVal === oldN) patch.marketing_staff = NEW_NAME;
+      const mktNext = canonicalizeStaffCell(r?.['Nhân viên Marketing']);
+      if (mktNext !== null) patch.marketing_staff = mktNext;
 
-      const deliveryVal = normalize(r?.['NV Vận đơn']);
-      if (deliveryVal && deliveryVal === oldN) patch.delivery_staff = NEW_NAME;
+      const deliveryNext = canonicalizeStaffCell(r?.['NV Vận đơn']);
+      if (deliveryNext !== null) patch.delivery_staff = deliveryNext;
 
       if (Object.keys(patch).length > 0) {
         updates.push({ id, patch });
@@ -1832,19 +1839,19 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     const uniqueUpdatedIds = [...new Set(updates.map((u) => u.id))];
     if (uniqueUpdatedIds.length === 0) {
-      toast.info('Không có đơn nào chứa "Mạnh Cường" trong bộ lọc hiện tại.');
+      toast.info('Không có đơn nào cần chuẩn hóa "NGUYỄN TRỌNG ĐẠI" trong bộ lọc hiện tại.');
       return;
     }
 
     if (
       !window.confirm(
-        `Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường" cho ${uniqueUpdatedIds.length} đơn trong bộ lọc hiện tại.\n\nÁp dụng cho các cột: Nhân viên Sale, Nhân viên Marketing, NV Vận đơn.\n\nTiếp tục?`
+        `Chuẩn hóa "NGUYỄN TRỌNG ĐẠI" → "Nguyễn Trọng Đại" cho ${uniqueUpdatedIds.length} đơn trong bộ lọc hiện tại.\n\nÁp dụng cho: Nhân viên Sale, Nhân viên Marketing, NV Vận đơn.\n\nTiếp tục?`
       )
     ) {
       return;
     }
 
-    setIsRenamingManhCuong(true);
+    setIsRenamingNguyenTrongDai(true);
     try {
       let success = 0;
       const chunkSize = 10;
@@ -1861,7 +1868,6 @@ function DanhSachDon({ dataSource = 'default' }) {
         );
       }
 
-      // Sync local UI state
       const patchById = new Map(updates.map((u) => [u.id, u.patch]));
       setAllData((prev) =>
         (prev || []).map((r) => {
@@ -1877,15 +1883,18 @@ function DanhSachDon({ dataSource = 'default' }) {
         })
       );
 
-      toast.success(`Đã đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường" cho ${success}/${uniqueUpdatedIds.length} đơn.`, {
-        autoClose: 2500,
-        hideProgressBar: true,
-      });
+      toast.success(
+        `Đã chuẩn hóa "NGUYỄN TRỌNG ĐẠI" → "Nguyễn Trọng Đại" cho ${success}/${uniqueUpdatedIds.length} đơn.`,
+        {
+          autoClose: 2500,
+          hideProgressBar: true,
+        }
+      );
     } catch (err) {
-      console.error('Rename Manh Cuong error:', err);
+      console.error('Normalize Nguyễn Trọng Đại error:', err);
       toast.error(`Lỗi đổi tên: ${err?.message || String(err)}`);
     } finally {
-      setIsRenamingManhCuong(false);
+      setIsRenamingNguyenTrongDai(false);
       loadData();
     }
   };
@@ -3085,7 +3094,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                     isFillingPaymentCurrency ||
                     isRecalculatingZeroTotalVnd ||
                     isApplyingCanhBaoTrung ||
-                    isRenamingManhCuong
+                    isRenamingNguyenTrongDai
                   }
                   className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   title="Xóa NV vận đơn (delivery_staff) và ngày/thứ tự chia VĐ cho các đơn đang hiển thị theo bộ lọc"
@@ -3203,7 +3212,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       isFillingPaymentCurrency ||
                       isRecalculatingZeroTotalVnd ||
                       isApplyingCanhBaoTrung ||
-                      isRenamingManhCuong
+                      isRenamingNguyenTrongDai
                     }
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
@@ -3220,7 +3229,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                     )}
                   </button>
                   <button
-                    onClick={handleRenameManhCuong}
+                    onClick={handleNormalizeNguyenTrongDaiStaff}
                     disabled={
                       syncing ||
                       loading ||
@@ -3231,20 +3240,23 @@ function DanhSachDon({ dataSource = 'default' }) {
                       isFillingPaymentCurrency ||
                       isRecalculatingZeroTotalVnd ||
                       isApplyingCanhBaoTrung ||
-                      isRenamingManhCuong
+                      isRenamingNguyenTrongDai
                     }
                     className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                    title='Đổi tên "Mạnh Cường" -> "Đỗ Mạnh Cường" theo bộ lọc hiện tại'
+                    title='Chuẩn hóa "NGUYỄN TRỌNG ĐẠI" thành "Nguyễn Trọng Đại" (Sale / MKT / NV Vận đơn) theo bộ lọc hiện tại'
                   >
-                    {isRenamingManhCuong ? (
+                    {isRenamingNguyenTrongDai ? (
                       <>
                         <span className="animate-spin">⏳</span>
                         Đang đổi...
                       </>
                     ) : (
                       <>
-                        <Pencil className="w-4 h-4" />
-                        Đổi Mạnh Cường
+                        <Pencil className="w-4 h-4 shrink-0" />
+                        <span className="flex flex-col items-start leading-tight text-left text-xs">
+                          <span className="whitespace-nowrap">NGUYỄN TRỌNG ĐẠI</span>
+                          <span className="whitespace-nowrap font-medium">→ Nguyễn Trọng Đại</span>
+                        </span>
                       </>
                     )}
                   </button>
@@ -3260,7 +3272,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       isFillingPaymentCurrency ||
                       isRecalculatingZeroTotalVnd ||
                       isApplyingCanhBaoTrung ||
-                      isRenamingManhCuong
+                      isRenamingNguyenTrongDai
                     }
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
@@ -3292,7 +3304,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                     isFillingPaymentCurrency ||
                     isRecalculatingZeroTotalVnd ||
                     isApplyingCanhBaoTrung ||
-                    isRenamingManhCuong ||
+                    isRenamingNguyenTrongDai ||
                     isFetchingOrdersHcmLookaside
                   }
                   className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"

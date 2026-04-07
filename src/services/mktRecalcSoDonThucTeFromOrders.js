@@ -268,6 +268,16 @@ function parseSoDonThucTeFromRow(row) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function parseSoDonHoanHuyFromRow(row) {
+  if (!row) return 0;
+  const v = row['Số đơn hoàn hủy'] ?? row['Số đơn hoàn hủy thực tế'];
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  const s = String(v).trim().replace(/\./g, '').replace(/,/g, '');
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function parseDoanhSoChotTTFromRow(row) {
   if (!row) return 0;
   return Number(row['Doanh số TT'] ?? row.doanh_so_tt ?? 0) || 0;
@@ -295,7 +305,7 @@ function parseSoMessCmtFromRow(row) {
 
 /**
  * Trùng `id` (API lặp) hoặc trùng key logic → gộp một dòng:
- * chỉ CPQC và Số_Mess_Cmt: tổng; Số đơn TT / DS Chốt TT: max; các cột khác giữ theo dòng đầu (không cộng).
+ * chỉ CPQC và Số_Mess_Cmt: tổng; Số đơn TT / hoàn hủy / DS Chốt TT: max; «Số đơn» (tổng) = TT + hoàn hủy sau gộp.
  */
 export function dedupeMktDetailReportRows(rows) {
   const merged = mergeUniqueRowsById(rows || []);
@@ -303,26 +313,32 @@ export function dedupeMktDetailReportRows(rows) {
   for (const row of merged) {
     const k = buildMktDetailReportRowKey(row);
     const sd = parseSoDonThucTeFromRow(row);
+    const sh = parseSoDonHoanHuyFromRow(row);
     const ds = parseDoanhSoChotTTFromRow(row);
     const cpqc = parseCpqcFromRow(row);
     const mess = parseSoMessCmtFromRow(row);
 
     const prev = byKey.get(k);
     if (!prev) {
-      byKey.set(k, { row, sd, ds, cpqc, mess });
+      byKey.set(k, { row, sd, sh, ds, cpqc, mess });
       continue;
     }
 
     const mergedSd = Math.max(prev.sd, sd);
+    const mergedSh = Math.max(prev.sh, sh);
     const mergedDs = Math.max(prev.ds, ds);
     const mergedCpqc = prev.cpqc + cpqc;
     const mergedMess = prev.mess + mess;
 
     prev.sd = mergedSd;
+    prev.sh = mergedSh;
     prev.ds = mergedDs;
     prev.cpqc = mergedCpqc;
     prev.mess = mergedMess;
     prev.row['Số đơn thực tế'] = mergedSd;
+    prev.row['Số đơn hoàn hủy'] = mergedSh;
+    prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
+    prev.row['Số đơn'] = mergedSd + mergedSh;
     prev.row['Doanh số TT'] = mergedDs;
     prev.row['CPQC'] = mergedCpqc;
     prev.row['Số_Mess_Cmt'] = mergedMess;
@@ -791,7 +807,7 @@ export async function recalcMktSoDonThucTeFromOrders({
     'Giữa ca': new Map(),
   };
 
-  // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy). Ghi Số đơn thực tế & Doanh số TT = tổng − phần hủy.
+  // B2: Gom mọi đơn khớp key + đơn/DS hủy (Check = Hủy). Ghi Số đơn thực tế (TT) & Doanh số TT = tổng − phần hủy; «Số đơn» = tổng đơn (TT + hoàn hủy).
   for (const order of orders || []) {
     const groups = orderShiftGroupsForRecalc(order.shift);
 
@@ -886,7 +902,11 @@ export async function recalcMktSoDonThucTeFromOrders({
     const patch = {
       id: r.id,
       'Số đơn thực tế': count,
+      // Cột «Số đơn» trên DB (marketing_report_hcm / detail_reports): tổng đơn khớp key = TT + đơn hủy.
+      'Số đơn': grossCount,
       'Doanh số TT': doanhSoTT,
+      // «Số đơn hoàn hủy»: tổng đơn Check = Hủy (cùng số với Số đơn hoàn hủy thực tế).
+      'Số đơn hoàn hủy': soDonHoanHuyTT,
       'Số đơn hoàn hủy thực tế': soDonHoanHuyTT,
       'Doanh số hoàn hủy thực tế': dsHoanHuyTT,
     };
@@ -920,7 +940,9 @@ export async function recalcMktSoDonThucTeFromOrders({
         'Sản_phẩm': ek.product,
         'Thị_trường': ek.market,
         'Số đơn thực tế': count,
+        'Số đơn': grossCount,
         'Doanh số TT': doanhSoTT,
+        'Số đơn hoàn hủy': soDonHoanHuyTT,
         'Số đơn hoàn hủy thực tế': soDonHoanHuyTT,
         'Doanh số hoàn hủy thực tế': dsHoanHuyTT,
         action: 'update',
@@ -951,6 +973,7 @@ export async function recalcMktSoDonThucTeFromOrders({
         const crv = entry.cancelRevenueVnd ?? 0;
         const netSoDon = Math.max(0, (entry.count ?? 0) - cc);
         const netDoanhSoTT = Math.max(0, (entry.totalRevenueVnd ?? 0) - crv);
+        const grossSoDon = entry.count ?? 0;
         const row = {
           id: makeId(),
           'Tên': canonicalName,
@@ -961,7 +984,9 @@ export async function recalcMktSoDonThucTeFromOrders({
           'Thị_trường': entry.sample.market,
           'Team': resolvedTeam,
           'Số đơn thực tế': netSoDon,
+          'Số đơn': grossSoDon,
           'Doanh số TT': netDoanhSoTT,
+          'Số đơn hoàn hủy': cc,
           'Số đơn hoàn hủy thực tế': cc,
           'Doanh số hoàn hủy thực tế': crv,
         };
@@ -975,7 +1000,9 @@ export async function recalcMktSoDonThucTeFromOrders({
             'Sản_phẩm': row['Sản_phẩm'],
             'Thị_trường': row['Thị_trường'],
             'Số đơn thực tế': row['Số đơn thực tế'],
+            'Số đơn': row['Số đơn'],
             'Doanh số TT': row['Doanh số TT'],
+            'Số đơn hoàn hủy': row['Số đơn hoàn hủy'],
             'Số đơn hoàn hủy thực tế': row['Số đơn hoàn hủy thực tế'],
             'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
             action: 'create',
@@ -1047,7 +1074,7 @@ export async function recalcMktSoDonThucTeFromOrders({
 }
 
 /**
- * Sau khi Lưu / Cập nhật đơn (nhap-don): tính lại Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), đơn/DS hoàn hủy thực tế (chỉ đơn Check = Hủy).
+ * Sau khi Lưu / Cập nhật đơn (nhap-don): tính lại Số đơn thực tế (TT), «Số đơn» = TT + hoàn hủy, Doanh số TT (đã trừ đơn/VND hủy), cột Số đơn hoàn hủy + đơn/DS hoàn hủy thực tế (chỉ đơn Check = Hủy).
  *
  * @param {string} newOrderDate - Ngày đơn sau lưu (YYYY-MM-DD hoặc string DB)
  * @param {string} [previousOrderDate] - Khi sửa đơn: ngày đơn trước khi đổi (fallback khi không có key cũ/mới)

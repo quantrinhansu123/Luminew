@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
+import { fetchMktEmployees } from '../services/mkt-service';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 
@@ -39,7 +40,9 @@ export default function DanhSachPage() {
         page_link: ''
     });
     const [addingPage, setAddingPage] = useState(false);
-    const [renamingStaff, setRenamingStaff] = useState(false);
+    const [renamingMktCanonical, setRenamingMktCanonical] = useState(false);
+    /** Tên nhân sự bộ phận MKT (human_resources) — gợi ý ô Tên MKT khi thêm/sửa page */
+    const [mktDepartmentNames, setMktDepartmentNames] = useState([]);
 
     // Edit Page Modal
     const [showEditModal, setShowEditModal] = useState(false);
@@ -116,6 +119,31 @@ export default function DanhSachPage() {
 
         loadSelectedPersonnel();
     }, []);
+
+    useEffect(() => {
+        if (!showAddModal && !showEditModal) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const emps = await fetchMktEmployees();
+                if (cancelled) return;
+                const names = [
+                    ...new Set(
+                        (emps || [])
+                            .map((e) => String(e?.name ?? '').trim())
+                            .filter(Boolean)
+                    ),
+                ].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base', numeric: true }));
+                setMktDepartmentNames(names);
+            } catch (err) {
+                console.error('[DanhSachPage] fetchMktEmployees:', err);
+                if (!cancelled) setMktDepartmentNames([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [showAddModal, showEditModal]);
 
     useEffect(() => {
         console.log('🚀 [DanhSachPage] Component mounted, loading data...');
@@ -406,28 +434,33 @@ export default function DanhSachPage() {
         setShowViewModal(true);
     };
 
-    const handleRenameManhCuongToDoManhCuong = async () => {
-        if (renamingStaff) return;
+    /** Chuẩn hóa mọi biến thể «NGUYỄN TRỌNG ĐẠI» → «Nguyễn Trọng Đại» trong chuỗi Tên MKT. */
+    const toCanonicalNguyenTrongDai = (s) => {
+        const str = String(s ?? '');
+        return str.replace(/nguyễn\s+trọng\s+đại/giu, 'Nguyễn Trọng Đại');
+    };
+
+    const handleNormalizeNguyenTrongDaiMkt = async () => {
+        if (renamingMktCanonical) return;
         const ok = window.confirm(
-            'Đổi toàn bộ "Mạnh Cường" thành "Đỗ Mạnh Cường" trong cột Tên MKT (mkt_staff)?'
+            'Đổi mọi biến thể "NGUYỄN TRỌNG ĐẠI" thành "Nguyễn Trọng Đại" trong cột Tên MKT (mkt_staff) của toàn bộ page đang tải?'
         );
         if (!ok) return;
 
-        setRenamingStaff(true);
+        setRenamingMktCanonical(true);
         try {
             const candidates = (data || []).filter((row) => {
-                const name = String(row?.mkt_staff || '').trim();
-                return name.includes('Mạnh Cường') && !name.includes('Đỗ Mạnh Cường');
+                const current = String(row?.mkt_staff || '');
+                return toCanonicalNguyenTrongDai(current) !== current;
             });
 
             if (candidates.length === 0) {
-                toast.info('Không có dòng nào cần đổi tên.');
+                toast.info('Không có dòng nào cần chuẩn hóa tên.');
                 return;
             }
 
             for (const row of candidates) {
-                const currentName = String(row?.mkt_staff || '');
-                const nextName = currentName.replaceAll('Mạnh Cường', 'Đỗ Mạnh Cường');
+                const nextName = toCanonicalNguyenTrongDai(row.mkt_staff);
                 const { error } = await supabase
                     .from('marketing_pages')
                     .update({ mkt_staff: nextName })
@@ -438,10 +471,10 @@ export default function DanhSachPage() {
             toast.success(`Đã cập nhật ${candidates.length} dòng.`);
             await loadData();
         } catch (error) {
-            console.error('Error renaming Mạnh Cường -> Đỗ Mạnh Cường:', error);
+            console.error('Error normalizing Nguyễn Trọng Đại:', error);
             toast.error('Lỗi khi đổi tên: ' + (error?.message || String(error)));
         } finally {
-            setRenamingStaff(false);
+            setRenamingMktCanonical(false);
         }
     };
 
@@ -545,18 +578,19 @@ export default function DanhSachPage() {
                         </button>
 
                         <button
-                            onClick={handleRenameManhCuongToDoManhCuong}
-                            disabled={renamingStaff || loading}
+                            type="button"
+                            onClick={handleNormalizeNguyenTrongDaiMkt}
+                            disabled={renamingMktCanonical || loading}
                             className="px-3 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center gap-2 text-sm font-medium"
-                            title='Đổi "Mạnh Cường" thành "Đỗ Mạnh Cường"'
+                            title='Đổi mọi biến thể NGUYỄN TRỌNG ĐẠI thành "Nguyễn Trọng Đại" trong Tên MKT'
                         >
-                            {renamingStaff ? (
+                            {renamingMktCanonical ? (
                                 <>
                                     <RefreshCw className="w-4 h-4 animate-spin" />
-                                    Đang đổi tên...
+                                    Đang đổi...
                                 </>
                             ) : (
-                                <>Đổi Mạnh Cường</>
+                                <>Đổi NGUYỄN TRỌNG ĐẠI</>
                             )}
                         </button>
                     </div>
@@ -860,11 +894,21 @@ export default function DanhSachPage() {
                                     </label>
                                     <input
                                         type="text"
+                                        list="danh-sach-page-mkt-add"
+                                        autoComplete="off"
                                         value={newPage.mkt_staff}
                                         onChange={(e) => setNewPage({ ...newPage, mkt_staff: e.target.value })}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        placeholder="Nhập tên nhân viên MKT"
+                                        placeholder="Gõ để tìm hoặc chọn từ danh sách nhân sự MKT"
                                     />
+                                    <datalist id="danh-sach-page-mkt-add">
+                                        {mktDepartmentNames.map((n) => (
+                                            <option key={n} value={n} />
+                                        ))}
+                                    </datalist>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Danh sách từ nhân sự bộ phận MKT (human_resources). Có thể gõ tên khác nếu cần.
+                                    </p>
                                 </div>
 
                                 <div>
@@ -1104,11 +1148,21 @@ export default function DanhSachPage() {
                                     </label>
                                     <input
                                         type="text"
+                                        list="danh-sach-page-mkt-edit"
+                                        autoComplete="off"
                                         value={editingPage.mkt_staff || ''}
                                         onChange={(e) => setEditingPage({ ...editingPage, mkt_staff: e.target.value })}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        placeholder="Nhập tên nhân viên MKT"
+                                        placeholder="Gõ để tìm hoặc chọn từ danh sách nhân sự MKT"
                                     />
+                                    <datalist id="danh-sach-page-mkt-edit">
+                                        {mktDepartmentNames.map((n) => (
+                                            <option key={n} value={n} />
+                                        ))}
+                                    </datalist>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Danh sách từ nhân sự bộ phận MKT (human_resources). Có thể gõ tên khác nếu cần.
+                                    </p>
                                 </div>
 
                                 <div>

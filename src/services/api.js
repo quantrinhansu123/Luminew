@@ -1549,6 +1549,122 @@ export const fetchVanDon = async (options = {}) => {
     }
 };
 
+/** Khớp `DanhSachVanDon.jsx` — chi nhánh HCM (users.branch / HR «chi nhánh»). */
+function normalizeBranchForHcmVanDon(value) {
+    return String(value ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[.\-_/]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function isHcmBranchForVanDonFilter(value) {
+    const branch = normalizeBranchForHcmVanDon(value);
+    return (
+        branch === 'hcm' ||
+        branch === 'tp hcm' ||
+        branch === 'tphcm' ||
+        branch === 'ho chi minh' ||
+        branch.includes('hcm') ||
+        branch.includes('ho chi minh')
+    );
+}
+
+/** Khớp `DanhSachVanDon.jsx` — `users.department` hoặc HR «Bộ phận». */
+function isBoPhanVanDonDepartment(dept) {
+    const raw = (dept ?? '').toString().trim();
+    if (!raw) return false;
+    const compact = raw.toLowerCase().replace(/\s+/g, ' ');
+    if (compact.includes('vận đơn') || compact.includes('van đơn')) return true;
+    const ascii = raw
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+    if (ascii.includes('van don')) return true;
+    if (ascii === 'logistics' || ascii.startsWith('logistics ')) return true;
+    return false;
+}
+
+/**
+ * Danh sách tên hiển thị cho bộ lọc «NV Vận đơn» trên /van-don-hcm: đủ nhân sự bộ phận vận đơn + chi nhánh HCM.
+ * Nguồn: `human_resources` + `users` (không chỉ distinct trên `order_code_hcm`).
+ */
+async function fetchVanDonHcmNvVanDonFromDirectory() {
+    const names = new Set();
+
+    try {
+        const { data: hrRows, error: hrError } = await supabase
+            .from('human_resources')
+            .select('"Họ Và Tên", "Bộ phận", "chi nhánh"');
+        if (!hrError && hrRows) {
+            for (const row of hrRows) {
+                if (!isBoPhanVanDonDepartment(row?.['Bộ phận'])) continue;
+                const chi = String(row?.['chi nhánh'] || '').trim();
+                if (!isHcmBranchForVanDonFilter(chi)) continue;
+                const n = String(row?.['Họ Và Tên'] || '').trim();
+                if (n) names.add(n);
+            }
+        }
+    } catch (e) {
+        console.warn('[fetchVanDonHcmNvVanDonFromDirectory] human_resources:', e);
+    }
+
+    let usersRows = [];
+    try {
+        const { data: uData, error: uError } = await supabase
+            .from('users')
+            .select('name, department, branch, chi_nhanh')
+            .not('name', 'is', null)
+            .order('name', { ascending: true });
+        if (uError) throw uError;
+        usersRows = uData || [];
+    } catch (e) {
+        const message = String(e?.message || '').toLowerCase();
+        const missingChiNhanh = message.includes('chi_nhanh') && message.includes('does not exist');
+        const missingBranch = message.includes('branch') && message.includes('does not exist');
+        try {
+            if (!missingBranch) {
+                const { data: uData, error: uError } = await supabase
+                    .from('users')
+                    .select('name, department, branch')
+                    .not('name', 'is', null)
+                    .order('name', { ascending: true });
+                if (!uError) usersRows = uData || [];
+            } else if (!missingChiNhanh) {
+                const { data: uData, error: uError } = await supabase
+                    .from('users')
+                    .select('name, department, chi_nhanh')
+                    .not('name', 'is', null)
+                    .order('name', { ascending: true });
+                if (!uError) usersRows = uData || [];
+            } else {
+                const { data: uData, error: uError } = await supabase
+                    .from('users')
+                    .select('name, department')
+                    .not('name', 'is', null)
+                    .order('name', { ascending: true });
+                if (!uError) usersRows = uData || [];
+            }
+        } catch (e2) {
+            console.warn('[fetchVanDonHcmNvVanDonFromDirectory] users fallback:', e2);
+        }
+    }
+
+    for (const member of usersRows) {
+        if (!isBoPhanVanDonDepartment(member?.department)) continue;
+        const br = String(member?.branch || member?.chi_nhanh || '').trim();
+        if (!isHcmBranchForVanDonFilter(br)) continue;
+        const n = String(member?.name || '').trim();
+        if (n) names.add(n);
+    }
+
+    return Array.from(names);
+}
+
 /** Một cột DB → các tiêu đề cột UI Van Đơn dùng chung danh sách distinct (một RPC / cột DB). */
 const VAN_DON_DISTINCT_DB_TO_UI_KEYS = {
     country: ['Khu vực'],
@@ -1568,8 +1684,9 @@ const VAN_DON_DISTINCT_DB_TO_UI_KEYS = {
 };
 
 /**
- * Giá trị distinct trên view `van_don_page` (RPC `get_orders_distinct_values`) — cùng tập cột trang /van-don.
- * Chưa chạy migration SQL → RPC lỗi → trả {} (VanDon fallback unique trên trang hiện tại).
+ * Giá trị distinct: `/van-don` → RPC `get_orders_distinct_values` (view `van_don_page`);
+ * `/van-don-hcm` → RPC `get_order_code_hcm_distinct_values` (bảng `order_code_hcm`), fallback quét tối đa 10k dòng nếu RPC lỗi.
+ * VanDon vẫn gộp thêm unique trên dữ liệu đang hiển thị.
  */
 export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' } = {}) => {
     if (getDataSourceMode() === 'test') {
@@ -1592,20 +1709,59 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
                         .filter(Boolean)
                         .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
                 } else {
-                    const { data, error } = await supabase
-                        .from(sourceTable)
-                        .select(dbCol)
-                        .not(dbCol, 'is', null)
-                        .neq(dbCol, '')
-                        .limit(10000);
-                    if (error) {
-                        console.warn('[fetchVanDonDistinctFilterOptions] table', sourceTable, dbCol, error.message);
-                        return;
+                    let usedHcmDistinctRpc = false;
+                    if (sourceTable === 'order_code_hcm') {
+                        const { data: rpcHcm, error: errHcm } = await supabase.rpc(
+                            'get_order_code_hcm_distinct_values',
+                            { p_column: dbCol }
+                        );
+                        if (!errHcm && rpcHcm != null) {
+                            usedHcmDistinctRpc = true;
+                            vals = (rpcHcm || [])
+                                .map((row) => (row && row.val != null ? String(row.val).trim() : ''))
+                                .filter(Boolean)
+                                .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
+                        } else if (errHcm) {
+                            console.warn(
+                                '[fetchVanDonDistinctFilterOptions] get_order_code_hcm_distinct_values',
+                                dbCol,
+                                errHcm.message
+                            );
+                        }
                     }
-                    vals = [...new Set((data || [])
-                        .map((row) => (row && row[dbCol] != null ? String(row[dbCol]).trim() : ''))
-                        .filter(Boolean)
-                        .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v)))];
+                    if (!usedHcmDistinctRpc) {
+                        const { data, error } = await supabase
+                            .from(sourceTable)
+                            .select(dbCol)
+                            .not(dbCol, 'is', null)
+                            .neq(dbCol, '')
+                            .limit(10000);
+                        if (error) {
+                            console.warn(
+                                '[fetchVanDonDistinctFilterOptions] table',
+                                sourceTable,
+                                dbCol,
+                                error.message
+                            );
+                            return;
+                        }
+                        vals = [...new Set((data || [])
+                            .map((row) => (row && row[dbCol] != null ? String(row[dbCol]).trim() : ''))
+                            .filter(Boolean)
+                            .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v)))];
+                    }
+
+                    if (sourceTable === 'order_code_hcm' && dbCol === 'delivery_staff') {
+                        try {
+                            const fromDirectory = await fetchVanDonHcmNvVanDonFromDirectory();
+                            vals = [...new Set([...(vals || []), ...fromDirectory])];
+                        } catch (mergeErr) {
+                            console.warn(
+                                '[fetchVanDonDistinctFilterOptions] merge NV Vận đơn HCM from users/hr:',
+                                mergeErr
+                            );
+                        }
+                    }
 
                     // HCM: bổ sung danh mục thị trường từ bảng mặc định `orders` để không thiếu dropdown
                     // khi bảng HCM chưa đủ dữ liệu thị trường.
