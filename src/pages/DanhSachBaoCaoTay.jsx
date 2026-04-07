@@ -237,6 +237,14 @@ function formatHcmReportTeamCell(row) {
     return '';
 }
 
+/** Trang `/danh-sach-bao-cao-tay` (sales_reports, không HCM): chỉ hiển thị đúng hai team này. */
+const SALE_MANUAL_ALLOWED_TEAMS = new Set(['HN-Sale-Đ', 'HN-Sale-N']);
+
+function passesSaleManualAllowedTeam(row) {
+    const t = String(row?.team ?? '').trim();
+    return SALE_MANUAL_ALLOWED_TEAMS.has(t);
+}
+
 /** Các giá trị team cũ cần gộp về CSKH-HN (đồng bộ với supabase/manual/update_sales_reports_team_cskh_ly_to_cskh_hn.sql). */
 const CSKH_LY_TEAM_VARIANTS = ['CSKH- Lý', 'CSKH-Lý'];
 const CSKH_HN_TEAM_CANONICAL = 'CSKH-HN';
@@ -645,7 +653,11 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                         );
                     });
 
-            setManualReports(filteredByPermission);
+            const saleTeamFiltered =
+                !isHcm && Array.isArray(filteredByPermission)
+                    ? filteredByPermission.filter((row) => passesSaleManualAllowedTeam(row))
+                    : filteredByPermission;
+            setManualReports(saleTeamFiltered);
         } catch (error) {
             console.error('Error fetching manual reports:', error);
         } finally {
@@ -658,6 +670,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         marketFilterValues,
         selectedPersonnelNames,
         isAdmin,
+        isHcm,
         reportTable,
     ]);
 
@@ -1001,14 +1014,28 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     };
 
     const saveMessCountInline = async (reportId, nextCount) => {
-        if (reportId == null) return;
+        if (reportId == null || reportId === '') return;
+        const id = String(reportId).trim();
+        if (!id) return;
         setSavingMessId(reportId);
         try {
-            const { error } = await supabase
+            // .select() bắt buộc PostgREST trả về dòng đã sửa — không có dòng = 0 row updated (Supabase vẫn coi là "thành công" nếu không check).
+            const { data, error } = await supabase
                 .from(reportTable)
                 .update({ mess_count: nextCount })
-                .eq('id', reportId);
+                .eq('id', id)
+                .select('id');
             if (error) throw error;
+            if (!data || data.length === 0) {
+                toast.error(
+                    'Không cập nhật được Số mess (0 dòng trong DB). Thường do: sai id, hoặc Supabase RLS/GRANT không cho UPDATE bảng ' +
+                        reportTable +
+                        ' — kiểm tra policy và GRANT UPDATE cho anon/authenticated.'
+                );
+                await fetchData();
+                return;
+            }
+            toast.success('Đã lưu Số mess.');
             await fetchData();
         } catch (error) {
             console.error('Error updating mess_count:', error);
@@ -1944,7 +1971,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             )}
                                         </div>
                                     </th>
-                                    <th>Email</th>
                                     <th
                                         className="cursor-pointer hover:bg-gray-100 select-none"
                                         onClick={() => handleSort('Team')}
@@ -2109,7 +2135,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                             <tbody>
                                 {sortedReports.length > 0 && (
                                     <tr className="total-row">
-                                        <td colSpan={7} className="total-label">
+                                        <td colSpan={8} className="total-label">
                                             TỔNG CỘNG ({sortedReports.length} dòng)
                                         </td>
                                         <td className="total-value">{formatNumber(reportTableTotals.mess_count)}</td>
@@ -2129,7 +2155,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                 )}
                                 {sortedReports.length === 0 ? (
                                     <tr>
-                                        <td colSpan={isHcm ? 16 : 18} className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
+                                        <td colSpan={isHcm ? 15 : 17} className="text-center">{loading ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}</td>
                                     </tr>
                                 ) : (
                                     sortedReports.map((item, index) => (
@@ -2145,7 +2171,6 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             <td>{formatDate(item.date)}</td>
                                             <td>{item.shift}</td>
                                             <td>{item.name}</td>
-                                            <td>{item.email || '—'}</td>
                                             <td>{isHcm ? formatHcmReportTeamCell(item) || '—' : item.team}</td>
                                             <td>{item.product}</td>
                                             <td>{item.market}</td>

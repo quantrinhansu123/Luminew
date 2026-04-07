@@ -783,7 +783,8 @@ function mergeDuplicateSalesReportRows(prev, next) {
 
 /**
  * Gộp các dòng trùng khóa (Ngày + Tên + Sản phẩm + Thị trường) — không gồm ca.
- * Dùng max trên từng chỉ số để không nhân đôi "Số đơn TT" khi có 2+ dòng cùng key (vd. nhập trùng hoặc 2 ca).
+ * Dùng max trên từng chỉ số (tránh nhân đôi đơn / doanh số). Cột Số mess: tính tổng từ dòng gốc
+ * qua `summarizeAndSortSalesData(..., { rawRowsForMess })`, không phụ thuộc gộp trùng.
  */
 export function dedupeSalesReportRowsByTTKey(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
@@ -799,7 +800,15 @@ export function dedupeSalesReportRowsByTTKey(rows) {
   return Array.from(map.values());
 }
 
-export function summarizeAndSortSalesData(data) {
+/**
+ * @param {object[]} data — thường là dòng đã dedupe (Ngày+Tên+SP+TT).
+ * @param {{ rawRowsForMess?: object[] }} [options] — nếu có: cột mess = cộng mọi `soMessCmt` theo tên
+ *   trên dữ liệu gốc (không gộp trùng key). Các cột khác vẫn từ `data`.
+ */
+export function summarizeAndSortSalesData(data, options = {}) {
+  const rawList = options.rawRowsForMess;
+  const useRawMessSum =
+    Array.isArray(rawList) && rawList.length > 0;
   const summaryData = {};
   const tmpl = initialSummary();
 
@@ -812,7 +821,9 @@ export function summarizeAndSortSalesData(data) {
         ...initialSummary(),
       };
     }
-    summaryData[name].mess += r.soMessCmt;
+    if (!useRawMessSum) {
+      summaryData[name].mess += r.soMessCmt;
+    }
     summaryData[name].don += r.soDon;
     // DS Chốt (tab Dữ liệu báo cáo tay): cộng revenue_actual (doanhThuChotThucTe), không dùng revenue_mess (dsChot).
     summaryData[name].chot += r.doanhThuChotThucTe;
@@ -827,6 +838,18 @@ export function summarizeAndSortSalesData(data) {
     summaryData[name].soDonThanhCong += r.soDonThanhCong;
     summaryData[name].doanhSoThanhCong += r.doanhSoThanhCong;
   });
+
+  if (useRawMessSum) {
+    const messByName = {};
+    for (const r of rawList) {
+      const name = r.ten;
+      if (!name) continue;
+      messByName[name] = (messByName[name] || 0) + (Number(r.soMessCmt) || 0);
+    }
+    Object.keys(summaryData).forEach((name) => {
+      summaryData[name].mess = messByName[name] ?? 0;
+    });
+  }
 
   const flatList = Object.keys(summaryData)
     .map((name) => ({ name, ...summaryData[name] }))

@@ -963,7 +963,7 @@ export default function NhanSuSaleLumiMoiView({
   /** Tính lại bảng sau khi React rảnh — bớt lag khi đổi checkbox / ngày (dữ liệu lớn). */
   const deferredFiltered = useDeferredValue(filteredData);
 
-  /** Trùng key Ngày+Tên+SP+TT → gộp trước khi cộng Số đơn TT (tránh nhân đôi). */
+  /** Trùng key Ngày+Tên+SP+TT → gộp max (đơn, doanh số…). Số mess: tổng từ dòng gốc (rawRowsForMess). */
   const deferredFilteredDeduped = useMemo(
     () => (shouldComputeMainFormulas ? dedupeSalesReportRowsByTTKey(deferredFiltered) : []),
     [deferredFiltered, shouldComputeMainFormulas]
@@ -992,7 +992,9 @@ export default function NhanSuSaleLumiMoiView({
       };
     }
 
-    const { flatList } = summarizeAndSortSalesData(deferredFilteredDeduped);
+    const { flatList } = summarizeAndSortSalesData(deferredFilteredDeduped, {
+      rawRowsForMess: deferredFiltered,
+    });
     const flatListFiltered = keepTeamNghiRowsForHcmReport ? flatList : flatListFilteredNoTeamNghi(flatList);
     const total = aggregateTotalFromFlatList(flatListFiltered);
     const doanhSoMap = {};
@@ -1561,6 +1563,7 @@ restrictedForPopulate,
             {activeTab === 'sau-huy' && (
               <DailyBreakdownSauHuy
                 filteredData={deferredFilteredDeduped}
+                rawRowsForMess={deferredFiltered}
                 formatSaleName={formatSaleDisplayName}
                 keepTeamNghiRows={keepTeamNghiRowsForHcmReport}
               />
@@ -1632,6 +1635,7 @@ restrictedForPopulate,
             {activeTab === 'chot' && (
               <DailyBreakdownChot
                 filteredData={deferredFilteredDeduped}
+                rawRowsForMess={deferredFiltered}
                 formatSaleName={formatSaleDisplayName}
                 keepTeamNghiRows={keepTeamNghiRowsForHcmReport}
               />
@@ -1659,7 +1663,12 @@ restrictedForPopulate,
   );
 }
 
-function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t, keepTeamNghiRows = false }) {
+function DailyBreakdownSauHuy({
+  filteredData,
+  rawRowsForMess = [],
+  formatSaleName = (t) => t,
+  keepTeamNghiRows = false,
+}) {
   if (!filteredData.length) {
     return (
       <div className="daily-breakdown">
@@ -1682,7 +1691,11 @@ function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t, keepTea
     <div className="daily-breakdown">
       {sortedDates.map((date) => {
         const dailyData = groupedByDate[date];
-        const { flatList } = summarizeAndSortSalesData(dailyData);
+        const rawMessSlice = (rawRowsForMess || []).filter((r) => formatDateDisplay(r.ngay) === date);
+        const { flatList } = summarizeAndSortSalesData(
+          dailyData,
+          rawMessSlice.length > 0 ? { rawRowsForMess: rawMessSlice } : {}
+        );
         const flatListFiltered = keepTeamNghiRows ? flatList : flatListFilteredNoTeamNghi(flatList);
         const total = aggregateTotalFromFlatList(flatListFiltered);
         const soDonSauHuyTotal = total.soDonThucTe - total.soDonHoanHuyThucTe;
@@ -1755,7 +1768,12 @@ function DailyBreakdownSauHuy({ filteredData, formatSaleName = (t) => t, keepTea
   );
 }
 
-function DailyBreakdownChot({ filteredData, formatSaleName = (t) => t, keepTeamNghiRows = false }) {
+function DailyBreakdownChot({
+  filteredData,
+  rawRowsForMess = [],
+  formatSaleName = (t) => t,
+  keepTeamNghiRows = false,
+}) {
   if (!filteredData.length) {
     return (
       <div className="daily-breakdown">
@@ -1778,7 +1796,11 @@ function DailyBreakdownChot({ filteredData, formatSaleName = (t) => t, keepTeamN
     <div className="daily-breakdown">
       {sortedDates.map((date) => {
         const dailyData = groupedByDate[date];
-        const { flatList } = summarizeAndSortSalesData(dailyData);
+        const rawMessSlice = (rawRowsForMess || []).filter((r) => formatDateDisplay(r.ngay) === date);
+        const { flatList } = summarizeAndSortSalesData(
+          dailyData,
+          rawMessSlice.length > 0 ? { rawRowsForMess: rawMessSlice } : {}
+        );
         const flatListFiltered = keepTeamNghiRows ? flatList : flatListFilteredNoTeamNghi(flatList);
         const total = aggregateTotalFromFlatList(flatListFiltered);
         const totalRateChot = total.mess ? total.soDonThucTe / total.mess : 0;
