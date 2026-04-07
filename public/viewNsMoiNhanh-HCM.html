@@ -981,21 +981,9 @@
           item.order_count_actual ??
           0
       );
-      const donHuy = parseIntegerVi(
-        item['Số đơn hoàn hủy'] ??
-          item['Số đơn hoàn huỷ'] ??
-          item['Số đơn hoàn hủy thực tế'] ??
-          item['Số đơn hoàn huỷ thực tế'] ??
-          item.so_don_hoan_huy ??
-          item.so_don_hoan_huy_thuc_te ??
-          item.order_cancel_count ??
-          item.order_cancel_count_actual ??
-          0
+      const soDonNhapTay = parseIntegerVi(
+        item['Số đơn'] ?? item.so_don ?? item.order_count ?? 0
       );
-      let soDonGross = Math.max(0, donTT) + Math.max(0, donHuy);
-      if (soDonGross === 0) {
-        soDonGross = parseIntegerVi(item['Số đơn'] ?? item.so_don ?? item.order_count ?? 0);
-      }
       return {
         ...item,
         'Ngày': item['Ngày'] || item.ngay || item.date || '',
@@ -1016,8 +1004,8 @@
             item.mess_count ??
             0
         ),
-        // «Số đơn» = «Số đơn (TT)» + đơn hủy (hoàn hủy); không tách được thì dùng cột Số đơn trên DB.
-        'Số đơn': soDonGross,
+        // «Số đơn» = cột nhập báo cáo tay trên DB.
+        'Số đơn': soDonNhapTay,
         'Số đơn thực tế': donTT,
         'Doanh số': item['Doanh số'] || item.doanh_so || item.revenue || 0,
         'Doanh số TT': item.doanh_so_tt ?? item['Doanh số TT'] ?? 0,
@@ -1937,6 +1925,10 @@
       return [...map.values(), ...noId];
     }
 
+    function parseSoDonNhapTayFromRow(row) {
+      return parseIntegerVi(row['Số đơn'] ?? row.so_don ?? row.order_count ?? 0);
+    }
+
     function dedupeMktDetailReportRows(rows) {
       const merged = mergeUniqueRowsByIdKeepNoId(rows || []);
       const byKey = new Map();
@@ -1944,24 +1936,27 @@
         const k = buildMktDetailReportRowKey(row);
         const sd = parseSoDonThucTeFromRow(row);
         const sh = parseSoDonHoanHuyFromRow(row);
+        const sm = parseSoDonNhapTayFromRow(row);
         const ds = parseDoanhSoChotTTFromRow(row);
         const cpqc = parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0);
         const mess = parseSoMessCmtFromRow(row);
 
         const prev = byKey.get(k);
         if (!prev) {
-          byKey.set(k, { row, sd, sh, ds, cpqc, mess });
+          byKey.set(k, { row, sd, sh, sm, ds, cpqc, mess });
           continue;
         }
 
         const mergedSd = Math.max(prev.sd, sd);
         const mergedSh = Math.max(prev.sh, sh);
+        const mergedSm = Math.max(prev.sm, sm);
         const mergedDs = Math.max(prev.ds, ds);
         const mergedCpqc = prev.cpqc + cpqc;
         const mergedMess = prev.mess + mess;
 
         prev.sd = mergedSd;
         prev.sh = mergedSh;
+        prev.sm = mergedSm;
         prev.ds = mergedDs;
         prev.cpqc = mergedCpqc;
         prev.mess = mergedMess;
@@ -1969,7 +1964,7 @@
         prev.row['Số đơn thực tế'] = mergedSd;
         prev.row['Số đơn hoàn hủy'] = mergedSh;
         prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
-        prev.row['Số đơn'] = mergedSd + mergedSh;
+        prev.row['Số đơn'] = mergedSm;
         prev.row['Doanh số TT'] = mergedDs;
         prev.row['CPQC'] = mergedCpqc;
         prev.row['Số_Mess_Cmt'] = mergedMess;
