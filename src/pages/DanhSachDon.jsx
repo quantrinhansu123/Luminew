@@ -368,7 +368,6 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [isFixingTeams, setIsFixingTeams] = useState(false); // State for fixing missing teams
   const [isFixingShift, setIsFixingShift] = useState(false); // Chỉnh ca: Giữa ca → Giữa ca,Hết ca
   const [isFillingPaymentCurrency, setIsFillingPaymentCurrency] = useState(false); // Tự điền Loại tiền theo Khu vực
-  const [isClearingShippingInfo, setIsClearingShippingInfo] = useState(false); // Xóa NV vận đơn theo bộ lọc
   const [isRecalculatingZeroTotalVnd, setIsRecalculatingZeroTotalVnd] = useState(false); // Tính lại Tổng tiền VNĐ (chỉ ô = 0)
   const [isApplyingCanhBaoTrung, setIsApplyingCanhBaoTrung] = useState(false); // Ghi canh_bao theo trùng khách (Ngày lên đơn + created_at)
   const [isRenamingNguyenTrongDai, setIsRenamingNguyenTrongDai] = useState(false); // NGUYỄN TRỌNG ĐẠI → Nguyễn Trọng Đại
@@ -384,8 +383,6 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   /** Modal: số đơn theo từng Sale / MKT trong phạm vi filteredData */
   const [showStaffOrderStatsModal, setShowStaffOrderStatsModal] = useState(false);
-  /** Modal: đơn trùng cùng khóa Ngày + Name + Phone + Nhân viên Sale + Sản phẩm (theo bộ lọc) */
-  const [showDupFiveKeyModal, setShowDupFiveKeyModal] = useState(false);
   const [historyOrderCode, setHistoryOrderCode] = useState(null);
   const [historyTableRows, setHistoryTableRows] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -1002,94 +999,6 @@ function DanhSachDon({ dataSource = 'default' }) {
       toast.error(`Lỗi ghi cảnh báo trùng: ${err?.message || String(err)}`);
     } finally {
       setIsApplyingCanhBaoTrung(false);
-    }
-  };
-
-  const handleClearShippingInfoByFilters = async () => {
-    const rows = filteredData || [];
-    if (rows.length === 0) {
-      toast.info('Không có đơn nào trong bộ lọc để xóa cột delivery_staff.', { autoClose: 1800, hideProgressBar: true });
-      return;
-    }
-
-    const rowsToUpdate = rows
-      .map((r) => {
-        const orderCode = String(r?.['Mã đơn hàng'] ?? '').trim();
-        const rowId = r?.id;
-        const deliveryStaff = String(r?.delivery_staff ?? r?.['NV Vận đơn'] ?? '').trim();
-        if (!deliveryStaff) return null;
-        return { orderCode, rowId };
-      })
-      .filter(Boolean);
-
-    if (rowsToUpdate.length === 0) {
-      toast.info('Các đơn trong bộ lọc hiện tại không có dữ liệu delivery_staff để xóa.', {
-        autoClose: 2000,
-        hideProgressBar: true,
-      });
-      return;
-    }
-
-    if (
-      !window.confirm(
-        `Xóa NV vận đơn (delivery_staff) cho ${rowsToUpdate.length} đơn đang nằm trong bộ lọc hiện tại?\n\n` +
-          `Đồng thời xóa ngày/thứ tự chia vận đơn (nếu có).`
-      )
-    ) {
-      return;
-    }
-
-    setIsClearingShippingInfo(true);
-    try {
-      let success = 0;
-      const chunkSize = 10;
-      for (let i = 0; i < rowsToUpdate.length; i += chunkSize) {
-        const chunk = rowsToUpdate.slice(i, i + chunkSize);
-        await Promise.all(
-          chunk.map(async (u) => {
-            const payload = {
-              delivery_staff: null,
-              ngay_chia_van_don: null,
-              thu_tu_chia: null,
-            };
-            let error = null;
-            if (u.orderCode) {
-              ({ error } = await supabase.from(ordersTableName).update(payload).eq('order_code', u.orderCode));
-            } else if (u.rowId) {
-              ({ error } = await supabase.from(ordersTableName).update(payload).eq('id', u.rowId));
-            } else {
-              error = new Error('Thiếu order_code/id');
-            }
-            if (!error) success++;
-          })
-        );
-      }
-
-      const byCode = new Set(rowsToUpdate.map((u) => String(u.orderCode || '').trim()).filter(Boolean));
-      const byId = new Set(rowsToUpdate.map((u) => u.rowId).filter(Boolean));
-      setAllData((prev) =>
-        (prev || []).map((r) => {
-          const code = String(r?.['Mã đơn hàng'] ?? '').trim();
-          const id = r?.id;
-          if (!byCode.has(code) && !byId.has(id)) return r;
-          return {
-            ...r,
-            'NV Vận đơn': '',
-            delivery_staff: '',
-          };
-        })
-      );
-
-      toast.success(`✅ Đã xóa vận đơn: ${success}/${rowsToUpdate.length} đơn`, {
-        autoClose: 2500,
-        hideProgressBar: true,
-      });
-      await loadData();
-    } catch (err) {
-      console.error('Clear delivery staff error:', err);
-      toast.error(`❌ Lỗi xóa delivery_staff: ${err?.message || String(err)}`);
-    } finally {
-      setIsClearingShippingInfo(false);
     }
   };
 
@@ -2824,60 +2733,6 @@ function DanhSachDon({ dataSource = 'default' }) {
     return `${day}/${month}/${year}`;
   };
 
-  /** Nhóm đơn có cùng (ngày YMD + SĐT + tên + sale + SP) — mỗi nhóm ≥ 2 dòng */
-  const duplicateOrderGroupsFiveKey = useMemo(() => {
-    const KEY_SEP = '\x1F';
-    const byKey = new Map();
-    for (const row of filteredData) {
-      const rawDate = row['Ngày lên đơn'] ?? row.order_date ?? row.created_at;
-      let ymd = '';
-      if (rawDate != null && String(rawDate).trim() !== '') {
-        const s = String(rawDate).trim();
-        if (s.includes('T')) ymd = s.split('T')[0];
-        else {
-          const mm = s.match(/^(\d{4}-\d{2}-\d{2})/);
-          if (mm) ymd = mm[1];
-          else {
-            const d = parseSmartDate(s);
-            if (d && !isNaN(d.getTime())) {
-              ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            }
-          }
-        }
-      }
-      const name = normalizeCustomerTextForDup(row['Name*'] ?? row.customer_name ?? '');
-      const phone = normalizePhoneDigits(row['Phone*'] ?? row.customer_phone ?? '');
-      const sale = normalizeCustomerTextForDup(row['Nhân viên Sale'] ?? row.sale_staff ?? '');
-      const product = normalizeCustomerTextForDup(row['Mặt hàng'] ?? row.product ?? '');
-      const key = [ymd, phone, name, sale, product].join(KEY_SEP);
-      if (!byKey.has(key)) byKey.set(key, []);
-      byKey.get(key).push(row);
-    }
-    const groups = [];
-    for (const [key, rows] of byKey) {
-      if (rows.length >= 2) {
-        const sorted = [...rows].sort((a, b) => {
-          const ca = String(a['Mã đơn hàng'] ?? a.order_code ?? '').trim();
-          const cb = String(b['Mã đơn hàng'] ?? b.order_code ?? '').trim();
-          return ca.localeCompare(cb, 'vi', { sensitivity: 'base' });
-        });
-        const [ymdPart] = key.split(KEY_SEP);
-        groups.push({
-          key,
-          ymd: ymdPart,
-          rows: sorted,
-        });
-      }
-    }
-    groups.sort((a, b) => a.key.localeCompare(b.key, 'vi', { sensitivity: 'base' }));
-    return groups;
-  }, [filteredData]);
-
-  const duplicateFiveKeyRowCount = useMemo(
-    () => duplicateOrderGroupsFiveKey.reduce((s, g) => s + g.rows.length, 0),
-    [duplicateOrderGroupsFiveKey]
-  );
-
   // Handle sort
   const handleSort = (column) => {
     if (sortColumn === column) {
@@ -3062,56 +2917,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                 <BarChart3 className="w-4 h-4 shrink-0" />
                 Thống kê Sale / MKT
               </button>
-              <button
-                type="button"
-                onClick={() => setShowDupFiveKeyModal(true)}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 shadow-sm border ${
-                  duplicateOrderGroupsFiveKey.length > 0
-                    ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600'
-                    : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'
-                }`}
-                title="Đơn trùng: cùng Ngày lên đơn + Name + Phone + Nhân viên Sale + Mặt hàng (theo bộ lọc hiện tại)"
-              >
-                <Layers className="w-4 h-4 shrink-0" />
-                Trùng (ngày+KH+Sale+SP)
-                {duplicateOrderGroupsFiveKey.length > 0 ? (
-                  <span className="ml-0.5 rounded-full bg-white/25 px-2 py-0.5 text-xs font-bold">
-                    {duplicateOrderGroupsFiveKey.length}
-                  </span>
-                ) : null}
-              </button>
-              {isAdmin && canEditOnThisOrderList && (
-                <button
-                  type="button"
-                  onClick={handleClearShippingInfoByFilters}
-                  disabled={
-                    loading ||
-                    syncing ||
-                    deleting ||
-                    isClearingShippingInfo ||
-                    isFixingTeams ||
-                    isFixingShift ||
-                    isFillingPaymentCurrency ||
-                    isRecalculatingZeroTotalVnd ||
-                    isApplyingCanhBaoTrung ||
-                    isRenamingNguyenTrongDai
-                  }
-                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                  title="Xóa NV vận đơn (delivery_staff) và ngày/thứ tự chia VĐ cho các đơn đang hiển thị theo bộ lọc"
-                >
-                  {isClearingShippingInfo ? (
-                    <>
-                      <span className="animate-spin">⏳</span>
-                      Đang xóa...
-                    </>
-                  ) : (
-                    <>
-                      <Truck className="w-4 h-4" />
-                      Xóa vận đơn (bộ lọc)
-                    </>
-                  )}
-                </button>
-              )}
               {isAdminOnly && (
                 <>
                   <button
@@ -3120,7 +2925,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
-                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -3148,7 +2952,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
-                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -3176,7 +2979,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
-                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -3206,7 +3008,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
-                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -3234,7 +3035,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
-                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -3266,7 +3066,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                       syncing ||
                       loading ||
                       deleting ||
-                      isClearingShippingInfo ||
                       isFixingTeams ||
                       isFixingShift ||
                       isFillingPaymentCurrency ||
@@ -3298,7 +3097,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                     loading ||
                     syncing ||
                     deleting ||
-                    isClearingShippingInfo ||
                     isFixingTeams ||
                     isFixingShift ||
                     isFillingPaymentCurrency ||
@@ -3325,7 +3123,7 @@ function DanhSachDon({ dataSource = 'default' }) {
               )}
               <button
                 onClick={loadData}
-                disabled={loading || isClearingShippingInfo}
+                disabled={loading}
                 className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
               >
                 {loading ? (
@@ -4478,180 +4276,6 @@ function DanhSachDon({ dataSource = 'default' }) {
               <button
                 onClick={() => setShowHistoryModal(false)}
                 className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition-colors"
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDupFiveKeyModal && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="dup-five-key-title"
-          onClick={() => setShowDupFiveKeyModal(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] flex flex-col border border-gray-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-amber-50 rounded-t-xl shrink-0">
-              <div>
-                <h2 id="dup-five-key-title" className="text-lg font-bold text-gray-900">
-                  Đơn trùng theo khóa: Ngày · Name · Phone · Nhân viên Sale · Sản phẩm
-                </h2>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  Theo bộ lọc hiện tại:{' '}
-                  <strong>{duplicateOrderGroupsFiveKey.length}</strong> nhóm trùng ·{' '}
-                  <strong>{duplicateFiveKeyRowCount}</strong> dòng (chỉ hiện nhóm có từ 2 đơn trở lên). So khớp ngày
-                  (YYYY-MM-DD), SĐT (9 số cuối), tên/Sale/SP (chuẩn hóa không dấu, thường).
-                </p>
-              </div>
-              <button
-                type="button"
-                className="p-2 rounded-lg hover:bg-amber-100 text-gray-700"
-                aria-label="Đóng"
-                onClick={() => setShowDupFiveKeyModal(false)}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="overflow-auto flex-1 p-4 min-h-0">
-              {duplicateOrderGroupsFiveKey.length === 0 ? (
-                <p className="text-sm text-gray-600 text-center py-8">
-                  Không có nhóm trùng nào trong dữ liệu đang lọc.
-                </p>
-              ) : (
-                <div className="space-y-6">
-                  {duplicateOrderGroupsFiveKey.map((g) => {
-                    const r0 = g.rows[0];
-                    const dName = String(r0['Name*'] ?? r0.customer_name ?? '').trim() || '—';
-                    const dPhone = String(r0['Phone*'] ?? r0.customer_phone ?? '').trim() || '—';
-                    const dSale = String(r0['Nhân viên Sale'] ?? r0.sale_staff ?? '').trim() || '—';
-                    const dProduct = String(r0['Mặt hàng'] ?? r0.product ?? '').trim() || '—';
-                    const dNgay = formatDate(r0['Ngày lên đơn'] ?? r0.order_date ?? r0.created_at);
-                    return (
-                      <div
-                        key={g.key}
-                        className="border border-amber-200 rounded-lg overflow-hidden bg-white shadow-sm"
-                      >
-                        <div className="bg-amber-100/80 px-3 py-2 text-xs text-gray-800 border-b border-amber-200">
-                          <span className="font-semibold">{g.rows.length} đơn</span>
-                          <span className="text-gray-500 mx-2">·</span>
-                          <span>
-                            Ngày: <strong>{dNgay || g.ymd || '—'}</strong>
-                          </span>
-                          <span className="text-gray-500 mx-2">|</span>
-                          Name: <strong>{dName}</strong>
-                          <span className="text-gray-500 mx-2">|</span>
-                          Phone: <strong>{dPhone}</strong>
-                          <span className="text-gray-500 mx-2">|</span>
-                          Sale: <strong>{dSale}</strong>
-                          <span className="text-gray-500 mx-2">|</span>
-                          SP: <strong>{dProduct}</strong>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full text-sm border-collapse">
-                            <thead className="bg-gray-100 text-left text-xs text-gray-600">
-                              <tr>
-                                <th className="p-2 border-b border-gray-200 font-semibold whitespace-nowrap">
-                                  Mã đơn hàng
-                                </th>
-                                <th className="p-2 border-b border-gray-200 font-semibold whitespace-nowrap">Ngày</th>
-                                <th className="p-2 border-b border-gray-200 font-semibold">Name*</th>
-                                <th className="p-2 border-b border-gray-200 font-semibold whitespace-nowrap">Phone*</th>
-                                <th className="p-2 border-b border-gray-200 font-semibold">Nhân viên Sale</th>
-                                <th className="p-2 border-b border-gray-200 font-semibold">Sản phẩm</th>
-                                <th className="p-2 border-b border-gray-200 font-semibold whitespace-nowrap">
-                                  Kết quả Check
-                                </th>
-                                <th className="p-2 border-b border-gray-200 font-semibold whitespace-nowrap">
-                                  NV vận đơn
-                                </th>
-                                {isAdmin && canDeleteOnThisOrderList && (
-                                  <th className="p-2 border-b border-gray-200 font-semibold whitespace-nowrap w-14 text-center">
-                                    Xóa
-                                  </th>
-                                )}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {g.rows.map((row, ri) => {
-                                const ma =
-                                  row['Mã đơn hàng'] ?? row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? '';
-                                const ngay = formatDate(
-                                  row['Ngày lên đơn'] ?? row.order_date ?? row.created_at
-                                );
-                                const nm = String(row['Name*'] ?? row.customer_name ?? '').trim();
-                                const ph = String(row['Phone*'] ?? row.customer_phone ?? '').trim();
-                                const sl = String(row['Nhân viên Sale'] ?? row.sale_staff ?? '').trim();
-                                const pr = String(row['Mặt hàng'] ?? row.product ?? '').trim();
-                                const kqCheck = String(
-                                  row['Kết quả Check'] ??
-                                    row['Kết_quả_Check'] ??
-                                    (row.check_result || row.payment_status) ??
-                                    ''
-                                ).trim();
-                                const nvVd = String(
-                                  row['NV Vận đơn'] ??
-                                    row['Nhân viên Vận đơn'] ??
-                                    row.delivery_staff ??
-                                    ''
-                                ).trim();
-                                return (
-                                  <tr
-                                    key={`${g.key}-${ri}-${String(row._id ?? ma ?? '')}`}
-                                    className="hover:bg-amber-50/50"
-                                  >
-                                    <td className="p-2 border-b border-gray-100 font-mono text-xs whitespace-nowrap">
-                                      {ma || '—'}
-                                    </td>
-                                    <td className="p-2 border-b border-gray-100 whitespace-nowrap">{ngay || '—'}</td>
-                                    <td className="p-2 border-b border-gray-100 break-words max-w-[180px]">{nm || '—'}</td>
-                                    <td className="p-2 border-b border-gray-100 whitespace-nowrap">{ph || '—'}</td>
-                                    <td className="p-2 border-b border-gray-100 break-words max-w-[140px]">{sl || '—'}</td>
-                                    <td className="p-2 border-b border-gray-100 break-words max-w-[200px]">{pr || '—'}</td>
-                                    <td className="p-2 border-b border-gray-100 break-words max-w-[120px]">
-                                      {kqCheck || '—'}
-                                    </td>
-                                    <td className="p-2 border-b border-gray-100 break-words max-w-[140px]">
-                                      {nvVd || '—'}
-                                    </td>
-                                    {isAdmin && canDeleteOnThisOrderList && (
-                                      <td className="p-2 border-b border-gray-100 text-center align-middle">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDelete(ma, row._id);
-                                          }}
-                                          className="inline-flex items-center justify-center text-red-500 hover:text-red-700 p-1.5 rounded-md hover:bg-red-50 transition-colors"
-                                          title="Xóa đơn hàng"
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                        </button>
-                                      </td>
-                                    )}
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowDupFiveKeyModal(false)}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium transition-colors"
               >
                 Đóng
               </button>
