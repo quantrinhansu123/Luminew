@@ -1598,6 +1598,9 @@ function VanDon({ dataSource = 'default' }) {
     return copy;
   }, [getFilteredData, sortColumn, sortDirection]);
 
+  /** Cùng thứ tự hàng với `TableVirtuoso` (`data={sortedData}`). Chỉ số selection / copy / paste phải dùng mảng này — không dùng `paginatedData` (có thể khác thứ tự khi đang sort). */
+  const virtuosoRowData = sortedData;
+
   const handleExportMaDonExcel = useCallback(async () => {
     if (permissionsLoading) {
       addToast('Đang tải quyền, thử lại sau.', 'warning');
@@ -3130,14 +3133,17 @@ function VanDon({ dataSource = 'default' }) {
 
         e.preventDefault();
 
-        // Prepare data for clipboard
+        // Prepare data for clipboard (row index = Virtuoso / sortedData)
         const rows = [];
         for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
+          const rData = virtuosoRowData[r];
+          if (!rData) {
+            rows.push('');
+            continue;
+          }
           const rowData = [];
           for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
             const colName = currentColumns[c];
-            const rData = paginatedData[r];
-            if (!rData) continue;
             const val = rData[COLUMN_MAPPING[colName] || colName] ?? rData[colName] ?? '';
             rowData.push(val);
           }
@@ -3166,7 +3172,7 @@ function VanDon({ dataSource = 'default' }) {
         let newCol = endCol;
 
         if (e.key === 'ArrowUp') newRow = Math.max(0, endRow - 1);
-        if (e.key === 'ArrowDown') newRow = Math.min(paginatedData.length - 1, endRow + 1);
+        if (e.key === 'ArrowDown') newRow = Math.min(virtuosoRowData.length - 1, endRow + 1);
         if (e.key === 'ArrowLeft') newCol = Math.max(0, endCol - 1);
         if (e.key === 'ArrowRight') newCol = Math.min(currentColumns.length - 1, endCol + 1);
 
@@ -3187,7 +3193,7 @@ function VanDon({ dataSource = 'default' }) {
         setSelection({
           startRow: 0,
           startCol: 0,
-          endRow: paginatedData.length - 1,
+          endRow: virtuosoRowData.length - 1,
           endCol: currentColumns.length - 1
         });
         return;
@@ -3216,7 +3222,7 @@ function VanDon({ dataSource = 'default' }) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selection, paginatedData.length, currentColumns.length, getSelectionBounds, paginatedData, currentColumns, handleUndo, handleRedo]);
+  }, [selection, virtuosoRowData.length, currentColumns.length, getSelectionBounds, virtuosoRowData, currentColumns, handleUndo, handleRedo]);
 
   // --- Paste Logic ---
   useEffect(() => {
@@ -3261,8 +3267,8 @@ function VanDon({ dataSource = 'default' }) {
         const val = rows[0][0];
         if (val === '') return;
         for (let r = bounds.minRow; r <= bounds.maxRow; r++) {
-          if (r >= paginatedData.length) continue;
-          const rowData = paginatedData[r];
+          if (r >= virtuosoRowData.length) continue;
+          const rowData = virtuosoRowData[r];
           const orderId = getVanDonRowOrderId(rowData);
           if (!orderId) continue;
 
@@ -3289,9 +3295,9 @@ function VanDon({ dataSource = 'default' }) {
         // Normal Paste (Top-Left aligned)
         rows.forEach((rowVals, rIdx) => {
           const targetRowIdx = bounds.minRow + rIdx;
-          if (targetRowIdx >= paginatedData.length) return;
+          if (targetRowIdx >= virtuosoRowData.length) return;
 
-          const rowData = paginatedData[targetRowIdx];
+          const rowData = virtuosoRowData[targetRowIdx];
           const orderId = getVanDonRowOrderId(rowData);
           if (!orderId) return;
 
@@ -3326,13 +3332,13 @@ function VanDon({ dataSource = 'default' }) {
 
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [selection, pendingChanges, paginatedData, currentColumns, getSelectionBounds, pushChange, addToast]);
+  }, [selection, pendingChanges, virtuosoRowData, currentColumns, getSelectionBounds, pushChange, addToast]);
 
 
   // Calculated helpers for render
   const calculatedSummary = useMemo(() => {
     if (!selectionBounds) return null;
-    const viewData = paginatedData;
+    const viewData = virtuosoRowData;
     let count = 0;
     let sum = 0;
     let numericCount = 0;
@@ -3351,7 +3357,7 @@ function VanDon({ dataSource = 'default' }) {
       }
     }
     return { count, sum: numericCount > 0 ? sum : 0, avg: numericCount > 0 ? sum / numericCount : 0 };
-  }, [selectionBounds, paginatedData, currentColumns]);
+  }, [selectionBounds, virtuosoRowData, currentColumns]);
 
   const totalMoney = useMemo(() => {
     if (!useBackendPagination) {
