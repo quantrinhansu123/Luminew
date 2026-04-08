@@ -24,6 +24,8 @@ function mktReportGridColWidth(header) {
       return 'minmax(14rem, 18rem)';
     case 'Thị_trường':
       return '8.5rem';
+    case 'Team':
+      return 'minmax(8rem, 12rem)';
     case 'TKQC':
     case 'CPQC':
       return '7rem';
@@ -61,6 +63,77 @@ function isUsersTableHanoiBranch(branch) {
   const n = normalizeKeyVi(branch);
   if (!n) return false;
   return n.includes('ha noi') || n.includes('hanoi') || n === 'hn';
+}
+
+/** Chuẩn hóa tên để khớp `users.name` với cột `Tên` báo cáo. */
+function normMktPersonNameForTeamLookup(s) {
+  return normalizeKeyVi(String(s ?? '').trim().replace(/\s+/g, ' '));
+}
+
+function escapeIlikePatternFragment(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/**
+ * Lấy `team` từ bảng `users` (Supabase) — chỉ theo khớp `name` với `Tên`, không dùng email / localStorage / MKT.
+ */
+async function fetchUserTeamByNameFromSupabase(displayName) {
+  const raw = String(displayName || '').trim();
+  if (!raw) return '';
+  const target = normMktPersonNameForTeamLookup(raw);
+  if (!target) return '';
+
+  const esc = escapeIlikePatternFragment(raw);
+
+  const run = async (pattern) => {
+    const { data, error } = await supabase
+      .from('users')
+      .select('name, team')
+      .ilike('name', pattern)
+      .limit(40);
+    if (error) {
+      console.warn('fetchUserTeamByNameFromSupabase:', error);
+      return [];
+    }
+    return data || [];
+  };
+
+  let rows = await run(esc);
+  if (!rows.length) rows = await run(`%${esc}%`);
+
+  for (const row of rows) {
+    if (normMktPersonNameForTeamLookup(row?.name) === target) {
+      const t = String(row?.team || '').trim();
+      if (t) return t;
+    }
+  }
+  return '';
+}
+
+/**
+ * Lấy `team` từ bảng `users` theo email đăng nhập (khớp không phân biệt hoa thường).
+ */
+async function fetchUserTeamByEmailFromSupabase(email) {
+  const raw = String(email || '').trim();
+  if (!raw) return '';
+  const esc = escapeIlikePatternFragment(raw);
+  const { data, error } = await supabase
+    .from('users')
+    .select('email, team')
+    .ilike('email', esc)
+    .limit(15);
+  if (error) {
+    console.warn('fetchUserTeamByEmailFromSupabase:', error);
+    return '';
+  }
+  const want = raw.toLowerCase();
+  for (const row of data || []) {
+    if (String(row?.email || '').trim().toLowerCase() === want) {
+      const t = String(row?.team || '').trim();
+      if (t) return t;
+    }
+  }
+  return '';
 }
 
 function getDisplayNameFromStoredUser() {
@@ -200,6 +273,8 @@ export default function BaoCaoMarketing({
   const [tableHeaders, setTableHeaders] = useState([]);
   const [tableRows, setTableRows] = useState([]);
   const [userEmail, setUserEmail] = useState('');
+  /** Team của user đăng nhập — lấy từ bảng `users` (theo email), bổ sung localStorage `userTeam`. */
+  const [loginUserTeam, setLoginUserTeam] = useState('');
   const [currentTableName, setCurrentTableName] = useState(pageTitle);
   const [employeeNameFromUrl, setEmployeeNameFromUrl] = useState('');
   const [status, setStatus] = useState('Đang khởi tạo ứng dụng...');
@@ -265,6 +340,18 @@ export default function BaoCaoMarketing({
 
     initializeApp(email, hoten);
   }, []);
+
+  /** Khi đã biết team từ DB, đồng bộ cột Team mọi dòng (các dòng tạo trước khi fetch xong). */
+  useEffect(() => {
+    const t = String(loginUserTeam || '').trim();
+    if (!t) return;
+    setTableRows((prev) =>
+      (prev || []).map((r) => ({
+        ...r,
+        data: { ...r.data, Team: t },
+      }))
+    );
+  }, [loginUserTeam]);
 
   // Auto-calculate real values when rows change or when relevant fields are filled
   // Note: Real values calculation removed - Số đơn thực tế và Doanh số thực tế không còn được tính/hiển thị
@@ -455,6 +542,20 @@ export default function BaoCaoMarketing({
       }));
       setTableHeaders(headerMkt);
 
+      let fetchedTeam = '';
+      const emTrim = String(email || '').trim();
+      if (emTrim) {
+        fetchedTeam = (await fetchUserTeamByEmailFromSupabase(emTrim)) || '';
+      }
+      if (!fetchedTeam) {
+        try {
+          fetchedTeam = String(localStorage.getItem('userTeam') || '').trim();
+        } catch {
+          /* ignore */
+        }
+      }
+      setLoginUserTeam(fetchedTeam);
+
       const lookupByName = sheetLookup.length > 0 ? sheetLookup : employees;
       let employee = null;
       if (hoten) {
@@ -465,15 +566,33 @@ export default function BaoCaoMarketing({
       }
 
       const employeeName = employee?.name || hoten || '';
-      const emailFromHr = employeeName ? emailFromName(employeeName, hrLookup) : '';
-      const initialEmail = email || emailFromHr || '';
-
-      setTableRows([createRowData({ Tên: employeeName, Email: initialEmail }, employees, hrLookup, sheetLookup)]);
+      const firstRow = createRowData({ Tên: employeeName }, employees, hrLookup, sheetLookup);
+      const login = String(email || '').trim();
+      if (login) firstRow.data['Email'] = login;
+      if (fetchedTeam) firstRow.data['Team'] = fetchedTeam;
+      setTableRows([firstRow]);
       updateStatus('Ứng dụng đã sẵn sàng.');
     } catch (err) {
       console.error('BaoCaoMarketing initializeApp:', err);
       updateStatus('Lỗi khởi tạo — vẫn mở form nhập (kiểm tra console).', true);
-      setTableRows([{ id: newRowId(), data: { Ngày: getToday() } }]);
+      const login = String(email || '').trim();
+      let fbTeam = '';
+      try {
+        fbTeam = String(localStorage.getItem('userTeam') || '').trim();
+      } catch {
+        /* ignore */
+      }
+      if (fbTeam) setLoginUserTeam(fbTeam);
+      setTableRows([
+        {
+          id: newRowId(),
+          data: {
+            Ngày: getToday(),
+            ...(login ? { Email: login } : {}),
+            ...(fbTeam ? { Team: fbTeam } : {}),
+          },
+        },
+      ]);
     }
   };
 
@@ -522,8 +641,6 @@ export default function BaoCaoMarketing({
 
     if (employeeToUse) {
       data['Tên'] = data['Tên'] || employeeToUse.name;
-      data['Email'] = data['Email'] || employeeToUse.email;
-      data['Team'] = data['Team'] || employeeToUse.team;
       data['id_NS'] = data['id_NS'] || employeeToUse.id_ns;
       data['Chi nhánh'] = data['Chi nhánh'] || employeeToUse.branch;
     } else {
@@ -537,24 +654,17 @@ export default function BaoCaoMarketing({
       data['Tên'] = sessionUserName;
     }
 
-    // Email tự động theo Tên (human_resources → sheet theo name), chưa có mới dùng fallback
-    if (data['Tên'] && !String(data['Email'] || '').trim()) {
-      data['Email'] = resolveEmailFromPersonName(data['Tên'], byNameList, lookup, userEmail);
-    }
-
     const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
 
-    // User thường: Tên theo profile đăng nhập; Email suy ra từ Tên (HR / sheet lookup theo name)
+    // User thường: Tên theo profile đăng nhập; Email luôn email đăng nhập (xử lý cuối hàm)
     if (!isManager) {
       if (sessionUserName) data['Tên'] = sessionUserName || data['Tên'];
-      data['Email'] = resolveEmailFromPersonName(data['Tên'], byNameList, lookup, userEmail);
       if (!employeeToUse) {
         const forcedEmp =
           findEmployeeByName(byNameList, data['Tên']) ||
-          byNameList.find((emp) => emp.email?.toLowerCase() === String(data['Email'] || '').toLowerCase());
+          byNameList.find((emp) => emp.email?.toLowerCase() === String(userEmail || '').toLowerCase());
         if (forcedEmp) {
           data['Tên'] = forcedEmp.name;
-          data['Team'] = data['Team'] || forcedEmp.team;
           data['id_NS'] = data['id_NS'] || forcedEmp.id_ns;
           data['Chi nhánh'] = data['Chi nhánh'] || forcedEmp.branch;
         }
@@ -563,6 +673,25 @@ export default function BaoCaoMarketing({
 
     if (!data['Ngày']) {
       data['Ngày'] = getToday();
+    }
+
+    const loginEm = String(userEmail || '').trim();
+    if (loginEm) {
+      data['Email'] = loginEm;
+    } else if (data['Tên'] && !String(data['Email'] || '').trim()) {
+      data['Email'] = resolveEmailFromPersonName(data['Tên'], byNameList, lookup, '');
+    }
+
+    const stTeam = String(loginUserTeam || '').trim();
+    if (stTeam) {
+      data['Team'] = stTeam;
+    } else {
+      try {
+        const lsT = String(localStorage.getItem('userTeam') || '').trim();
+        if (lsT) data['Team'] = lsT;
+      } catch {
+        /* ignore */
+      }
     }
 
     return {
@@ -892,22 +1021,29 @@ export default function BaoCaoMarketing({
       const v = String(value || '').trim();
       const employee = findEmployeeByName(nameLookup, v);
       if (employee) {
-        newRows[index].data['Email'] = employee.email || '';
-        newRows[index].data['Team'] = employee.team || '';
         newRows[index].data['id_NS'] = employee.id_ns || '';
         newRows[index].data['Chi nhánh'] = employee.branch || '';
       } else {
         const em = resolveEmailFromPersonName(v, nameLookup, hrEmailLookup, '');
-        if (em) newRows[index].data['Email'] = em;
         const byEmail =
           em &&
           nameLookup.find((emp) => emp.email?.toLowerCase() === String(em).toLowerCase());
         if (byEmail) {
-          newRows[index].data['Team'] = byEmail.team || '';
           newRows[index].data['id_NS'] = byEmail.id_ns || '';
           newRows[index].data['Chi nhánh'] = byEmail.branch || '';
         }
       }
+      const le = String(userEmail || '').trim();
+      if (le) newRows[index].data['Email'] = le;
+      let stampT = String(loginUserTeam || '').trim();
+      if (!stampT) {
+        try {
+          stampT = String(localStorage.getItem('userTeam') || '').trim();
+        } catch {
+          /* ignore */
+        }
+      }
+      if (stampT) newRows[index].data['Team'] = stampT;
       return newRows;
     });
   };
@@ -919,6 +1055,18 @@ export default function BaoCaoMarketing({
       return;
     }
 
+    let lsTeam = '';
+    try {
+      lsTeam = String(localStorage.getItem('userTeam') || '').trim();
+    } catch {
+      /* ignore */
+    }
+    const stampTeam = String(loginUserTeam || '').trim() || lsTeam;
+    const loginEm = String(userEmail || '').trim();
+    if (stampTeam && loginEm && field === 'Team') {
+      return;
+    }
+
     const newRows = [...tableRows];
     newRows[index].data[field] = value;
 
@@ -927,18 +1075,14 @@ export default function BaoCaoMarketing({
     if (field === 'Tên') {
       const employee = findEmployeeByName(nameLookup, value);
       if (employee) {
-        newRows[index].data['Email'] = employee.email || '';
-        newRows[index].data['Team'] = employee.team || '';
         newRows[index].data['id_NS'] = employee.id_ns || '';
         newRows[index].data['Chi nhánh'] = employee.branch || '';
       } else {
         const em = resolveEmailFromPersonName(value, nameLookup, hrEmailLookup, '');
-        if (em) newRows[index].data['Email'] = em;
         const byEmail =
           em &&
           nameLookup.find((emp) => emp.email?.toLowerCase() === String(em).toLowerCase());
         if (byEmail) {
-          newRows[index].data['Team'] = byEmail.team || '';
           newRows[index].data['id_NS'] = byEmail.id_ns || '';
           newRows[index].data['Chi nhánh'] = byEmail.branch || '';
         }
@@ -949,10 +1093,16 @@ export default function BaoCaoMarketing({
       const employee = nameLookup?.find((emp) => emp.email?.toLowerCase() === value.toLowerCase());
       if (employee) {
         newRows[index].data['Tên'] = employee.name || '';
-        newRows[index].data['Team'] = employee.team || '';
         newRows[index].data['id_NS'] = employee.id_ns || '';
         newRows[index].data['Chi nhánh'] = employee.branch || '';
       }
+    }
+
+    if (loginEm) {
+      newRows[index].data['Email'] = loginEm;
+    }
+    if (stampTeam) {
+      newRows[index].data['Team'] = stampTeam;
     }
 
     setTableRows(newRows);
@@ -1125,85 +1275,125 @@ export default function BaoCaoMarketing({
     updateStatus('Bắt đầu gửi dữ liệu lên Supabase...');
 
     try {
-      const rowsData = tableRows.map((row) => {
-        const rowObject = {
-          id: row.id // Include the ID generated at the row level
-        };
+      const teamByNormalizedTen = new Map();
+      const resolveTeamFromUsersByTen = async (ten) => {
+        const key = normMktPersonNameForTeamLookup(ten);
+        if (!key) return '';
+        if (teamByNormalizedTen.has(key)) return teamByNormalizedTen.get(key);
+        const t = await fetchUserTeamByNameFromSupabase(ten);
+        teamByNormalizedTen.set(key, t);
+        return t;
+      };
 
-        // Map fields
-        // Must match Supabase target table columns exactly
-        // List of columns that DO NOT exist in schema and should be excluded
-        const excludedColumns = ['Chi nhánh', 'chi nhánh', 'Chi_nhánh', 'chi_nhánh', 'branch'];
+      const submitLogin = String(userEmail || '').trim();
+      let prefTeam = String(loginUserTeam || '').trim();
+      if (!prefTeam && submitLogin) {
+        prefTeam = (await fetchUserTeamByEmailFromSupabase(submitLogin)) || '';
+      }
+      if (!prefTeam) {
+        try {
+          prefTeam = String(localStorage.getItem('userTeam') || '').trim();
+        } catch {
+          /* ignore */
+        }
+      }
 
-        Object.keys(row.data).forEach((key) => {
-          // Skip excluded columns that don't exist in target table schema
-          if (excludedColumns.includes(key)) {
-            return;
+      const rowsData = await Promise.all(
+        tableRows.map(async (row) => {
+          const rowObject = {
+            id: row.id, // Include the ID generated at the row level
+          };
+
+          // Map fields
+          // Must match Supabase target table columns exactly
+          // List of columns that DO NOT exist in schema and should be excluded
+          const excludedColumns = ['Chi nhánh', 'chi nhánh', 'Chi_nhánh', 'chi_nhánh', 'branch'];
+
+          Object.keys(row.data).forEach((key) => {
+            // Skip excluded columns that don't exist in target table schema
+            if (excludedColumns.includes(key)) {
+              return;
+            }
+            // Không gửi cột id từ ô ẩn/nhầm — luôn dùng row.id (client UUID)
+            if (key === 'id') {
+              return;
+            }
+
+            let value = row.data[key];
+
+            // Process numeric fields
+            const numberFields = [
+              'Số Mess',
+              'Phản hồi',
+              'Đơn Mess',
+              'Doanh số Mess',
+              'CPQC',
+              'Số_Mess_Cmt',
+              'Số đơn',
+              'Doanh số',
+              'Doanh số đi',
+              'Số đơn hoàn hủy',
+              'DS chốt',
+              'DS sau hoàn hủy',
+              'Doanh số sau ship',
+              'Doanh số TC',
+              'KPIs',
+            ];
+            if (numberFields.includes(key)) {
+              value = parseVietnameseNumberInput(value);
+            }
+            rowObject[key] = value;
+          });
+
+          rowObject.id = row.id;
+
+          // Email theo Tên (user / dòng nhập) → HR → sheet → userEmail
+          const nameLookup =
+            appData.mktHnUserEmployees?.length > 0
+              ? appData.mktHnUserEmployees
+              : appData.sheetLookupEmployees?.length > 0
+                ? appData.sheetLookupEmployees
+                : appData.employeeDetails;
+
+          if (submitLogin) {
+            rowObject['Email'] = submitLogin;
+          } else if (!String(rowObject['Email'] || '').trim()) {
+            rowObject['Email'] = resolveEmailFromPersonName(
+              rowObject['Tên'],
+              nameLookup,
+              hrEmailLookup,
+              ''
+            );
           }
-          // Không gửi cột id từ ô ẩn/nhầm — luôn dùng row.id (client UUID)
-          if (key === 'id') {
-            return;
+          if (!rowObject['Tên']) rowObject['Tên'] = employeeNameFromUrl || userEmail;
+
+          if (prefTeam) {
+            rowObject['Team'] = prefTeam;
+          } else if (!String(rowObject['Team'] || '').trim()) {
+            rowObject['Team'] = await resolveTeamFromUsersByTen(rowObject['Tên']);
           }
 
-          let value = row.data[key];
-
-          // Process numeric fields
-          const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số', 'Doanh số đi', 'Số đơn hoàn hủy', 'DS chốt', 'DS sau hoàn hủy', 'Doanh số sau ship', 'Doanh số TC', 'KPIs'];
-          if (numberFields.includes(key)) {
-            value = parseVietnameseNumberInput(value);
+          // Ensure id_NS
+          if (!rowObject['id_NS']) {
+            const emp =
+              findEmployeeByName(nameLookup, rowObject['Tên']) ||
+              nameLookup?.find((e) => e.email?.toLowerCase() === rowObject['Email']?.toLowerCase());
+            rowObject['id_NS'] = emp?.id_ns || '';
           }
-          rowObject[key] = value;
-        });
 
-        rowObject.id = row.id;
+          // Auto-fields if missing
+          if (!rowObject['Ngày']) rowObject['Ngày'] = getToday();
+          // Ca trống → Giữa ca (giống nhập đơn / recalc chỉ xử lý Hết ca | Giữa ca)
+          if (!String(rowObject['ca'] ?? '').trim()) {
+            rowObject['ca'] = 'Giữa ca';
+          }
 
-        // Email theo Tên (user / dòng nhập) → HR → sheet → userEmail
-        const nameLookup =
-          appData.mktHnUserEmployees?.length > 0
-            ? appData.mktHnUserEmployees
-            : appData.sheetLookupEmployees?.length > 0
-              ? appData.sheetLookupEmployees
-              : appData.employeeDetails;
+          // Note: Số đơn thực tế và Doanh số thực tế được tính tự động từ orders table sau khi insert
+          // Không truyền vào payload khi submit
 
-        if (!String(rowObject['Email'] || '').trim()) {
-          rowObject['Email'] = resolveEmailFromPersonName(
-            rowObject['Tên'],
-            nameLookup,
-            hrEmailLookup,
-            userEmail
-          );
-        }
-        if (!rowObject['Tên']) rowObject['Tên'] = employeeNameFromUrl || userEmail;
-
-        // Ensure Team - CRITICAL for 400 error fix
-        // If not in row data, try to get from appData or fallback to 'MKT'
-        if (!rowObject['Team']) {
-          const emp =
-            findEmployeeByName(nameLookup, rowObject['Tên']) ||
-            nameLookup?.find((e) => e.email?.toLowerCase() === rowObject['Email']?.toLowerCase());
-          rowObject['Team'] = emp?.team || localStorage.getItem('userTeam') || 'MKT';
-        }
-
-        // Ensure id_NS
-        if (!rowObject['id_NS']) {
-          const emp =
-            findEmployeeByName(nameLookup, rowObject['Tên']) ||
-            nameLookup?.find((e) => e.email?.toLowerCase() === rowObject['Email']?.toLowerCase());
-          rowObject['id_NS'] = emp?.id_ns || '';
-        }
-
-        // Auto-fields if missing
-        if (!rowObject['Ngày']) rowObject['Ngày'] = getToday();
-        // Ca trống → Giữa ca (giống nhập đơn / recalc chỉ xử lý Hết ca | Giữa ca)
-        if (!String(rowObject['ca'] ?? '').trim()) {
-          rowObject['ca'] = 'Giữa ca';
-        }
-
-        // Note: Số đơn thực tế và Doanh số thực tế được tính tự động từ orders table sau khi insert
-        // Không truyền vào payload khi submit
-
-        return rowObject;
-      });
+          return rowObject;
+        })
+      );
 
       // --- TESTING MODE CHECK ---
       try {
@@ -1222,7 +1412,7 @@ export default function BaoCaoMarketing({
               visible: true,
             });
             updateStatus('Gửi báo cáo thành công (Giả lập).');
-            setTableRows([createRowData({ Tên: employeeNameFromUrl, Email: userEmail }, appData.employeeDetails, hrEmailLookup)]);
+            setTableRows([createRowData({ Tên: employeeNameFromUrl }, appData.employeeDetails, hrEmailLookup)]);
             setLoading(false);
             return; // EXIT EARLY
           }
@@ -1266,7 +1456,7 @@ export default function BaoCaoMarketing({
       updateStatus(recalcWarning ? 'Gửi báo cáo xong — recalc có lỗi (xem thông báo).' : 'Gửi báo cáo thành công.');
 
       // Reset form
-      setTableRows([createRowData({ Tên: employeeNameFromUrl, Email: userEmail }, appData.employeeDetails, hrEmailLookup)]);
+      setTableRows([createRowData({ Tên: employeeNameFromUrl }, appData.employeeDetails, hrEmailLookup)]);
 
     } catch (error) {
       console.error('Lỗi khi gửi dữ liệu:', error);
@@ -1286,7 +1476,7 @@ export default function BaoCaoMarketing({
   };
 
   const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số'];
-  const hiddenFields = ['id', 'id phản hồi', 'id số mess', 'team', 'id_ns', 'trạng thái', 'chi nhánh', 'doanh số đi', 'số đơn hoàn huỷ', 'số đơn hoàn hủy', 'doanh số hoàn huỷ', 'số đơn thành công', 'doanh số thành công', 'khách mới', 'khách cũ', 'bán chéo', 'bán chéo team', 'ds chốt', 'ds sau hoàn hủy', 'số đơn sau hoàn hủy', 'doanh số sau ship', 'doanh số tc', 'kpis', 'cpqc theo tkqc', 'báo cáo theo page', 'cảnh báo', 'số đơn thực tế', 'doanh số thực tế'];
+  const hiddenFields = ['id', 'id phản hồi', 'id số mess', 'id_ns', 'trạng thái', 'chi nhánh', 'doanh số đi', 'số đơn hoàn huỷ', 'số đơn hoàn hủy', 'doanh số hoàn huỷ', 'số đơn thành công', 'doanh số thành công', 'khách mới', 'khách cũ', 'bán chéo', 'bán chéo team', 'ds chốt', 'ds sau hoàn hủy', 'số đơn sau hoàn hủy', 'doanh số sau ship', 'doanh số tc', 'kpis', 'cpqc theo tkqc', 'báo cáo theo page', 'cảnh báo', 'số đơn thực tế', 'doanh số thực tế'];
 
   const isManagerRole = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
 
@@ -1341,6 +1531,21 @@ export default function BaoCaoMarketing({
     return out;
   }, [appData.employeeDetails, hrEmailLookup]);
 
+  /** Team: <select> thay datalist — click vẫn mở full list khi ô đã có giá trị. */
+  const mktTeamSelectOptions = useMemo(() => {
+    const set = new Set();
+    const push = (raw) => {
+      const t = String(raw || '').trim();
+      if (t) set.add(t);
+    };
+    (appData.mktHnUserEmployees || []).forEach((e) => push(e?.team));
+    (appData.sheetLookupEmployees || []).forEach((e) => push(e?.team));
+    (appData.employeeDetails || []).forEach((e) => push(e?.team));
+    push(loginUserTeam);
+    (tableRows || []).forEach((r) => push(r?.data?.Team));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+  }, [appData.mktHnUserEmployees, appData.sheetLookupEmployees, appData.employeeDetails, tableRows, loginUserTeam]);
+
   const visibleMktHeaders = headerMkt.filter((h) => !hiddenFields.includes(h.toLowerCase()));
   const mktReportGridTemplate = [MKT_REPORT_ACTION_COL, ...visibleMktHeaders.map(mktReportGridColWidth)].join(' ');
 
@@ -1359,15 +1564,23 @@ export default function BaoCaoMarketing({
       );
     }
     if (header === 'ca') {
+      const list = appData.shiftList || [];
+      const cur = String(row.data[header] || '').trim();
+      const head = cur && !list.includes(cur) ? [cur] : [];
       return (
-        <input
-          type="text"
-          list={`ca-datalist-${row.id}`}
-          placeholder="--"
-          value={row.data[header] || ''}
+        <select
+          value={cur}
           onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-          className={mktInputCls}
-        />
+          className={`${mktInputCls} bg-white`}
+          title="Chọn ca — luôn mở được toàn bộ danh sách (khác datalist trình duyệt)"
+        >
+          <option value="">-- Ca --</option>
+          {[...head, ...list].map((shift) => (
+            <option key={shift} value={shift}>
+              {shift}
+            </option>
+          ))}
+        </select>
       );
     }
     if (header === 'Sản_phẩm') {
@@ -1393,26 +1606,38 @@ export default function BaoCaoMarketing({
       );
     }
     if (header === 'Thị_trường') {
+      const list = appData.marketList || [];
+      const cur = String(row.data[header] || '').trim();
+      const head = cur && !list.includes(cur) ? [cur] : [];
       return (
-        <input
-          type="text"
-          list={`market-datalist-${row.id}`}
-          placeholder="--"
-          value={row.data[header] || ''}
+        <select
+          value={cur}
           onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-          className={mktInputCls}
-        />
+          className={`${mktInputCls} bg-white`}
+          title="Chọn thị trường — luôn mở được toàn bộ danh sách"
+        >
+          <option value="">-- Thị trường --</option>
+          {[...head, ...list].map((market) => (
+            <option key={market} value={market}>
+              {market}
+            </option>
+          ))}
+        </select>
       );
     }
     if (header === 'Email') {
+      const loginEm = String(userEmail || '').trim();
+      const display = loginEm || String(row.data[header] || '').trim();
       return (
         <input
           type="email"
-          list="email-datalist"
-          placeholder="--"
-          value={row.data[header] || ''}
-          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-          className={mktInputCls}
+          list={loginEm ? undefined : 'email-datalist'}
+          placeholder={loginEm ? '' : '--'}
+          value={display}
+          readOnly={!!loginEm}
+          onChange={loginEm ? undefined : (e) => handleRowChange(rowIndex, header, e.target.value)}
+          className={loginEm ? `${mktInputCls} cursor-default bg-gray-100 text-gray-700` : mktInputCls}
+          title={loginEm ? 'Email theo tài khoản đăng nhập' : 'Chọn hoặc nhập email'}
         />
       );
     }
@@ -1453,6 +1678,46 @@ export default function BaoCaoMarketing({
           onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
           className={`${mktInputCls} text-right tabular-nums`}
         />
+      );
+    }
+    if (header === 'Team') {
+      let lsT = '';
+      try {
+        lsT = String(localStorage.getItem('userTeam') || '').trim();
+      } catch {
+        /* ignore */
+      }
+      const stamp = String(loginUserTeam || '').trim() || lsT;
+      const loginEm = String(userEmail || '').trim();
+      const locked = !!loginEm && !!stamp;
+      const cur = locked ? stamp : String(row.data[header] || '').trim();
+      if (locked) {
+        return (
+          <input
+            type="text"
+            readOnly
+            value={cur}
+            className={`${mktInputCls} cursor-default bg-gray-100 text-gray-700`}
+            title="Team theo tài khoản đăng nhập (bảng users / userTeam)"
+          />
+        );
+      }
+      const list = mktTeamSelectOptions || [];
+      const head = cur && !list.includes(cur) ? [cur] : [];
+      return (
+        <select
+          value={cur}
+          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
+          className={`${mktInputCls} bg-white`}
+          title="Chọn Team — khi đã đăng nhập và có team trên hệ thống, Team tự điền và khóa"
+        >
+          <option value="">-- Team --</option>
+          {[...head, ...list].map((team) => (
+            <option key={team} value={team}>
+              {team}
+            </option>
+          ))}
+        </select>
       );
     }
     return (
@@ -1599,23 +1864,6 @@ export default function BaoCaoMarketing({
           ))}
         </datalist>
 
-        {/* Ca Datalist - Dynamic for each row */}
-        {tableRows.map((row) => (
-          <datalist key={`ca-${row.id}`} id={`ca-datalist-${row.id}`}>
-            {appData.shiftList?.map((shift) => (
-              <option key={shift} value={shift} />
-            ))}
-          </datalist>
-        ))}
-
-        {/* Market Datalist - Dynamic for each row */}
-        {tableRows.map((row) => (
-          <datalist key={`market-${row.id}`} id={`market-datalist-${row.id}`}>
-            {appData.marketList?.map((market) => (
-              <option key={market} value={market} />
-            ))}
-          </datalist>
-        ))}
       </div>
     </div>
   );
