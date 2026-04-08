@@ -647,7 +647,7 @@ function teamFromNameHr(name, hrLookup) {
  * Lấy email + team từ bảng users (ưu tiên khớp cả tên lẫn email khi có đủ hai giá trị).
  */
 async function fetchUsersIdentityLookup() {
-  const { data, error } = await supabase.from('users').select('name, email, team');
+  const { data, error } = await supabase.from('users').select('name, email, team, department');
 
   if (error) {
     console.warn('[MKT recalc] users identity:', error.message);
@@ -661,14 +661,15 @@ async function fetchUsersIdentityLookup() {
     const name = String(row?.name || '').trim();
     const email = String(row?.email || '').trim();
     const team = String(row?.team || '').trim();
+    const department = String(row?.department || '').trim();
     const nameKey = normalizeStr(name);
     const emailKey = normalizeEmail(email);
 
     if (nameKey && !byName.has(nameKey)) {
-      byName.set(nameKey, { email, team });
+      byName.set(nameKey, { email, team, department });
     }
     if (emailKey && !byEmail.has(emailKey)) {
-      byEmail.set(emailKey, { name, nameKey, email, team });
+      byEmail.set(emailKey, { name, nameKey, email, team, department });
     }
   }
 
@@ -688,25 +689,25 @@ function resolveUserTeamEmail(name, emailFromRow, lookup) {
   if (nameKey && emailKey) {
     const byN = byName.get(nameKey);
     if (byN && normalizeEmail(byN.email) === emailKey) {
-      return { email: byN.email, team: byN.team };
+      return { email: byN.email, team: byN.team, department: byN.department };
     }
     const byE = byEmail.get(emailKey);
     if (byE && normalizeStr(byE.name) === nameKey) {
-      return { email: byE.email, team: byE.team };
+      return { email: byE.email, team: byE.team, department: byE.department };
     }
   }
 
   if (emailKey) {
     const byE = byEmail.get(emailKey);
-    if (byE) return { email: byE.email, team: byE.team };
+    if (byE) return { email: byE.email, team: byE.team, department: byE.department };
   }
 
   if (nameKey) {
     const byN = byName.get(nameKey);
-    if (byN) return { email: byN.email, team: byN.team };
+    if (byN) return { email: byN.email, team: byN.team, department: byN.department };
   }
 
-  return { email: '', team: '' };
+  return { email: '', team: '', department: '' };
 }
 
 export async function recalcMktSoDonThucTeFromOrders({
@@ -942,7 +943,11 @@ export async function recalcMktSoDonThucTeFromOrders({
       }
     }
     if (!rowTeam) {
-  if (resolved.team) patch['Team'] = resolved.team;
+      if (resolved.team) patch['Team'] = resolved.team;
+    }
+    const rowDepartment = String(r['department'] ?? '').trim();
+    if (!rowDepartment && resolved.department && reportsTableName !== 'marketing_report_hcm') {
+      patch['department'] = resolved.department;
     }
     updateRows.push(patch);
 
@@ -1001,6 +1006,9 @@ export async function recalcMktSoDonThucTeFromOrders({
           'Số đơn hoàn hủy thực tế': cc,
           'Doanh số hoàn hủy thực tế': crv,
         };
+        if (reportsTableName !== 'marketing_report_hcm' && resolved.department) {
+          row['department'] = resolved.department;
+        }
         createRows.push(row);
 
         if (previewRows.length < PREVIEW_LIMIT) {

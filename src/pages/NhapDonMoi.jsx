@@ -2,7 +2,8 @@ import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { AlertCircle, Check, ChevronDown, RefreshCcw, Save, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import usePermissions from '../hooks/usePermissions'; // Added missing import
+import { toast } from 'react-toastify';
+import usePermissions from '../hooks/usePermissions';
 import { recalcMktSoDonAfterOrderSave } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { recalcSaleOrderCountAfterOrderSave } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
@@ -16,6 +17,31 @@ import {
 } from '../utils/orderLogJsonb';
 
 const ADMIN_MAIL = import.meta.env.VITE_ADMIN_MAIL || "admin@marketing.com";
+
+/**
+ * Retry async function with exponential backoff.
+ * Dùng cho recalc calls — tránh mất dữ liệu báo cáo khi mạng yếu / Supabase timeout.
+ */
+async function retryAsync(fn, { maxRetries = 3, baseDelayMs = 800, label = 'operation' } = {}) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastError = err;
+            const isTransient =
+                err?.name === 'TypeError' ||
+                String(err?.message || '').toLowerCase().includes('failed to fetch') ||
+                String(err?.message || '').toLowerCase().includes('networkerror') ||
+                String(err?.message || '').toLowerCase().includes('timeout');
+            if (!isTransient || attempt === maxRetries) break;
+            const delay = baseDelayMs * Math.pow(2, attempt - 1);
+            console.warn(`⏳ [${label}] Attempt ${attempt}/${maxRetries} failed, retrying in ${delay}ms...`, err?.message);
+            await new Promise((r) => setTimeout(r, delay));
+        }
+    }
+    throw lastError;
+}
 
 /** Chuẩn hóa SĐT để so trùng (chỉ chữ số, 9 số cuối). */
 function normalizePhoneDigits(raw) {
@@ -1727,6 +1753,9 @@ export default function NhapDonMoi({ isEdit = false }) {
             if (saveOkForMktSync) {
                 logDbArrayRef.current = parseOrderLogJsonb(orderPayload.log);
                 logBaselineTrackedRef.current = pickTrackedFieldsFromPayload(orderPayload);
+
+                // --- Tự động tính toán báo cáo theo key (Ngày + NV + SP + TT) ---
+                // Chạy song song MKT + Sale, await kết quả, retry nếu lỗi mạng, toast thông báo.
                 const newMktKey = {
                     date: orderDateValue,
                     name: selectedMkt,
@@ -1741,21 +1770,6 @@ export default function NhapDonMoi({ isEdit = false }) {
                         market: existingOrderSnapshot.country,
                     }
                     : null;
-                void recalcMktSoDonAfterOrderSave({
-                    newOrderDate: orderDateValue,
-                    previousOrderDate,
-                    newOrderKey: newMktKey,
-                    previousOrderKey: oldMktKey,
-                    reportsTableName: isHcmView ? 'marketing_report_hcm' : 'detail_reports',
-                    ordersSupabaseTable: isHcmView ? 'order_code_hcm' : null,
-                    ordersApiPath: null,
-                })
-                    .then((r) => {
-                        if (r?.skipped) return;
-                        console.log('✅ Đã đồng bộ Số đơn TT (Báo cáo MKT):', r?.upserted ?? r);
-                    })
-                    .catch((err) => console.error('⚠️ Đồng bộ Số đơn TT (MKT) sau lưu đơn:', err));
-
                 const newSaleKey = {
                     date: orderDateValue,
                     name: selectedSale,
@@ -1770,20 +1784,64 @@ export default function NhapDonMoi({ isEdit = false }) {
                         market: existingOrderSnapshot.country,
                     }
                     : null;
-                void recalcSaleOrderCountAfterOrderSave({
-                    newOrderDate: orderDateValue,
-                    previousOrderDate,
-                    newOrderKey: newSaleKey,
-                    previousOrderKey: oldSaleKey,
-                    createMissingForHetCa: true,
-                    reportsTable: isHcmView ? 'sale_report_hcm' : 'sales_reports',
-                    ordersTable: isHcmView ? 'order_code_hcm' : 'orders',
-                })
-                    .then((r) => {
-                        if (r?.skipped) return;
-                        console.log('✅ Đã đồng bộ sales_reports (key-scoped):', r?.upserted ?? r);
-                    })
-                    .catch((err) => console.error('⚠️ Đồng bộ sales_reports sau lưu đơn:', err));
+
+                // Song song: MKT + Sale recalc (cả hai đều có retry 3 lần)
+                const [mktResult, saleResult] = await Promise.allSettled([
+                    retryAsync(
+                        () => recalcMktSoDonAfterOrderSave({
+                            newOrderDate: orderDateValue,
+                            previousOrderDate,
+                            newOrderKey: newMktKey,
+                            previousOrderKey: oldMktKey,
+                            reportsTableName: isHcmView ? 'marketing_report_hcm' : 'detail_reports',
+                            ordersSupabaseTable: isHcmView ? 'order_code_hcm' : null,
+                            ordersApiPath: null,
+                        }),
+                        { maxRetries: 3, label: 'MKT recalc' }
+                    ),
+                    retryAsync(
+                        () => recalcSaleOrderCountAfterOrderSave({
+                            newOrderDate: orderDateValue,
+                            previousOrderDate,
+                            newOrderKey: newSaleKey,
+                            previousOrderKey: oldSaleKey,
+                            createMissingForHetCa: true,
+                            reportsTable: isHcmView ? 'sale_report_hcm' : 'sales_reports',
+                            ordersTable: isHcmView ? 'order_code_hcm' : 'orders',
+                        }),
+                        { maxRetries: 3, label: 'Sale recalc' }
+                    ),
+                ]);
+
+                // Thông báo kết quả cho user
+                const mktOk = mktResult.status === 'fulfilled' && !mktResult.value?.skipped;
+                const saleOk = saleResult.status === 'fulfilled' && !saleResult.value?.skipped;
+                const mktFail = mktResult.status === 'rejected';
+                const saleFail = saleResult.status === 'rejected';
+
+                if (mktOk) console.log('✅ Đã đồng bộ Số đơn TT (MKT):', mktResult.value?.upserted ?? mktResult.value);
+                if (saleOk) console.log('✅ Đã đồng bộ sales_reports:', saleResult.value?.upserted ?? saleResult.value);
+
+                if (mktOk && saleOk) {
+                    const mktCount = mktResult.value?.upserted ?? 0;
+                    const saleCount = saleResult.value?.upserted ?? 0;
+                    toast.success(`📊 Đã cập nhật báo cáo: MKT (${mktCount} dòng), Sale (${saleCount} dòng)`, { autoClose: 4000 });
+                } else if (mktFail || saleFail) {
+                    const failParts = [];
+                    if (mktFail) {
+                        console.error('⚠️ Đồng bộ MKT thất bại sau 3 lần thử:', mktResult.reason);
+                        failParts.push('MKT');
+                    }
+                    if (saleFail) {
+                        console.error('⚠️ Đồng bộ Sale thất bại sau 3 lần thử:', saleResult.reason);
+                        failParts.push('Sale');
+                    }
+                    toast.warn(
+                        `⚠️ Đơn đã lưu nhưng cập nhật báo cáo ${failParts.join(' & ')} thất bại. ` +
+                        `Vào Danh sách báo cáo tay → nhấn "Tính dữ liệu" để đồng bộ lại.`,
+                        { autoClose: 8000 }
+                    );
+                }
             }
 
             // Optional: Reset form or Redirect
