@@ -935,6 +935,12 @@ const VAN_DON_PER_COL_DATE_UI_KEYS = new Set([
 const VAN_DON_UI_COL_DB_OVERRIDE = {
     'Ngày đẩy đơn': 'accounting_check_date',
     'Ngày có mã tracking': 'tracking_check_date',
+    'market': 'country',
+    'product': 'product',
+    'nv_sale': 'sale_staff',
+    'nv_mkt': 'marketing_staff',
+    'nv_van_don': 'delivery_staff',
+    'shipping_unit': 'shipping_unit'
 };
 
 function normalizeVanDonFilterDateToYmd(input) {
@@ -1263,6 +1269,7 @@ export const fetchVanDon = async (options = {}) => {
                 if (typeof val === 'string') {
                     const t = normalizeVanDonFilterWhitespace(val);
                     if (!t) continue;
+
                     if (VAN_DON_PER_COL_DATE_UI_KEYS.has(uiKey)) {
                         const day = normalizeVanDonFilterDateToYmd(t);
                         if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
@@ -1275,8 +1282,18 @@ export const fetchVanDon = async (options = {}) => {
                             query = query.eq(dbCol, t);
                         }
                     } else {
-                        const flex = buildVanDonFlexibleIlikePattern(t);
-                        if (flex) query = query.filter(`${dbCol}::text`, 'ilike', flex);
+                        /** Hỗ trợ lọc nhiều giá trị (OR) cho ô text nếu phân tách bằng dấu phẩy hoặc xuống dòng. */
+                        const tokens = t.split(/[,\n]/).map(s => normalizeVanDonFilterWhitespace(s)).filter(Boolean);
+                        if (tokens.length > 1) {
+                            const segments = tokens.map(tk => {
+                                const pat = buildVanDonFlexibleIlikePattern(tk);
+                                return `${dbCol}::text.ilike."${String(pat).replace(/"/g, '\\"')}"`;
+                            });
+                            query = query.or(segments.join(','));
+                        } else {
+                            const flex = buildVanDonFlexibleIlikePattern(t);
+                            if (flex) query = query.filter(`${dbCol}::text`, 'ilike', flex);
+                        }
                     }
                 }
             }

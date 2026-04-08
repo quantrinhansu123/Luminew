@@ -3490,7 +3490,16 @@ function VanDon({ dataSource = 'default' }) {
 
   const renderVanDonFilterTh = (col, idx, positionStyle, showFreezeShadow, isFixedCol) => {
     const key = COLUMN_MAPPING[col] || col;
-    const filterKey = col === 'Đơn vị vận chuyển' ? 'shipping_unit' : col;
+    // Đồng bộ key với thanh toolbar để lọc song song không bị xung đột logic
+    const filterKeyMap = {
+      'Khu vực': 'market',
+      'Mặt hàng': 'product',
+      'Nhân viên Sale': 'nv_sale',
+      'Nhân viên MKT': 'nv_mkt',
+      'NV Vận đơn': 'nv_van_don',
+      'Đơn vị vận chuyển': 'shipping_unit'
+    };
+    const filterKey = filterKeyMap[col] || col;
     const isCheckCol = col === 'Kết quả Check' || col === 'Kết quả check';
     const isNameCol = col === 'Name*';
     const isAddCol = col === 'Add';
@@ -3598,7 +3607,10 @@ function VanDon({ dataSource = 'default' }) {
             <option value="co_trung">Có trùng</option>
             <option value="khong_trung">Không trùng</option>
           </select>
-        ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển'].includes(col) ? (
+        ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || [
+          'Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển', 
+          'Nhân viên Sale', 'Nhân viên MKT', 'NV Vận đơn', 'Mặt hàng', 'Khu vực'
+        ].includes(col) ? (
           <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
             <MultiSelect
               compact
@@ -3621,7 +3633,7 @@ function VanDon({ dataSource = 'default' }) {
             type="text"
             className={filterInputCls}
             style={{ zIndex: 1002 }}
-            placeholder="..."
+            placeholder="Nhập... (Dùng dấu phẩy , để lọc nhiều)"
             value={filterValues[filterKey] || ''}
             onChange={(e) => setFilterValues((p) => ({ ...p, [filterKey]: e.target.value }))}
           />
