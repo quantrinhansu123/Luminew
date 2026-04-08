@@ -8,6 +8,7 @@ import {
 } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
+import { XEM_BAO_CAO_MKT_HCM_TEAM } from './XemBaoCaoMKTLegacy';
 import { getCheckResult, isCheckResultHuy } from '../utils/orderCheckAndVnd';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
@@ -165,6 +166,8 @@ export default function DanhSachBaoCaoTayMKT({
     
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
+    /** Team từ `users.team` (có chữ MKT) — bổ sung cho bộ lọc vì `detail_reports` có thể không còn dòng HCM sau khi chuyển sang `marketing_report_hcm`. */
+    const [mktTeamOptionsFromUsers, setMktTeamOptionsFromUsers] = useState([]);
 
     /** HCM: đơn từ Supabase `order_code_hcm` (khớp recalc Số đơn TT). */
     const ordersTableForMktTotals = isHcmMarketingReport ? 'order_code_hcm' : 'orders';
@@ -230,6 +233,28 @@ export default function DanhSachBaoCaoTayMKT({
 
         loadSelectedPersonnel();
     }, [userEmail]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const { data, error } = await supabase.from('users').select('team');
+                if (error || cancelled) return;
+                const set = new Set();
+                (data || []).forEach((row) => {
+                    const t = String(row?.team ?? '').trim();
+                    if (!t) return;
+                    if (t.toUpperCase().includes('MKT')) set.add(t);
+                });
+                if (!cancelled) setMktTeamOptionsFromUsers([...set]);
+            } catch {
+                if (!cancelled) setMktTeamOptionsFromUsers([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     // Initialize Dates — HCM: 3 ngày lịch gần nhất (giống DanhSachBaoCaoTay); HN: 30 ngày
     useEffect(() => {
@@ -707,11 +732,17 @@ export default function DanhSachBaoCaoTayMKT({
         [allReports]
     );
 
-    const availableTeamOptions = useMemo(
-        () => [...new Set((allReports || []).map((item) => String(item?.['Team'] || '').trim()).filter(Boolean))]
-            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
-        [allReports]
-    );
+    const availableTeamOptions = useMemo(() => {
+        const fromRows = (allReports || [])
+            .map((item) => String(item?.['Team'] || '').trim())
+            .filter(Boolean);
+        const merged = new Set([
+            ...fromRows,
+            XEM_BAO_CAO_MKT_HCM_TEAM,
+            ...mktTeamOptionsFromUsers,
+        ]);
+        return [...merged].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+    }, [allReports, mktTeamOptionsFromUsers]);
 
     const availableProductOptions = useMemo(
         () => [...new Set((allReports || []).map((item) => String(item?.['Sản_phẩm'] || '').trim()).filter(Boolean))]
