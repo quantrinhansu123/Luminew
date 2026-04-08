@@ -286,12 +286,58 @@ export const getLeaderTeams = async (emails) => {
     }
 };
 
+/** Tách nhiều tên trong một mục: phẩy/semicolon (Anh + fullwidth) hoặc | */
+const PERSONNEL_NAME_SPLIT_RE = /[,，;；|]+/u;
+
+/**
+ * Tách từng mục (vd. một ô "An, Bình" / "An; Bình" → hai tên), gộp phẳng, bỏ trùng.
+ * Chuỗi dạng JSON array (copy từ DB) cũng được parse.
+ */
+export function normalizeSelectedPersonnelNamesInput(input) {
+    const arr = Array.isArray(input)
+        ? input
+        : input != null && String(input).trim() !== ''
+          ? [input]
+          : [];
+    const out = [];
+    for (let item of arr) {
+        let s = String(item ?? '').trim();
+        if (!s) continue;
+        if (s.startsWith('[') && s.endsWith(']')) {
+            try {
+                const parsed = JSON.parse(s);
+                if (Array.isArray(parsed)) {
+                    for (const p of parsed) {
+                        const inner = String(p ?? '').trim();
+                        if (!inner) continue;
+                        inner
+                            .split(PERSONNEL_NAME_SPLIT_RE)
+                            .map((x) => x.trim().replace(/\s+/g, ' '))
+                            .filter(Boolean)
+                            .forEach((x) => out.push(x));
+                    }
+                    continue;
+                }
+            } catch {
+                /* giữ nguyên chuỗi */
+            }
+        }
+        s.split(PERSONNEL_NAME_SPLIT_RE)
+            .map((x) => x.trim().replace(/\s+/g, ' '))
+            .filter(Boolean)
+            .forEach((x) => out.push(x));
+    }
+    return [...new Set(out)];
+}
+
 // Update selected personnel (array of employee names)
 export const updateSelectedPersonnel = async (email, personnelNames) => {
     console.log('📤 rbacService.updateSelectedPersonnel called:', { email, personnelNames });
     
     try {
-        const updateData = Array.isArray(personnelNames) ? personnelNames : [];
+        const updateData = normalizeSelectedPersonnelNamesInput(
+            Array.isArray(personnelNames) ? personnelNames : []
+        );
         console.log('💾 Updating with data:', updateData);
         
         const { data, error } = await supabase
@@ -315,12 +361,18 @@ export const updateSelectedPersonnel = async (email, personnelNames) => {
 
 function parseSelectedPersonnelRaw(raw) {
     if (raw == null) return [];
-    if (Array.isArray(raw)) return raw.map((e) => String(e).trim()).filter(Boolean);
+    if (Array.isArray(raw)) return normalizeSelectedPersonnelNamesInput(raw);
     if (typeof raw === 'string') {
-        return raw
-            .split(',')
-            .map((e) => e.trim())
-            .filter(Boolean);
+        const t = raw.trim();
+        if (t.startsWith('[') && t.endsWith(']')) {
+            try {
+                const parsed = JSON.parse(t);
+                if (Array.isArray(parsed)) return normalizeSelectedPersonnelNamesInput(parsed);
+            } catch {
+                /* fall through */
+            }
+        }
+        return normalizeSelectedPersonnelNamesInput([raw]);
     }
     return [];
 }
@@ -349,6 +401,83 @@ function isLeaderPositionForPersonnelScope(position) {
     );
 }
 
+/** Chuẩn khoảng trắng hiển thị / khớp cột Tên (marketing_report_hcm, …). */
+export function normalizeMktPersonWhitespace(s) {
+    return String(s ?? '')
+        .trim()
+        .replace(/\s+/g, ' ');
+}
+
+/**
+ * Một dòng users: selected_personnel (đã tách phẩy/… qua parse) + tên tài khoản + leader_teams.
+ */
+async function buildPersonnelListFromUserRow(u) {
+    if (!u) return [];
+    const names = new Set(parseSelectedPersonnelRaw(u.selected_personnel));
+
+    const selfName = normalizeMktPersonWhitespace(u.name || u.username || '');
+    if (selfName && !selfName.includes('@')) {
+        names.add(selfName);
+    }
+
+    if (isLeaderPositionForPersonnelScope(u.position)) {
+        const teams = normalizeLeaderTeamsRaw(u.leader_teams);
+        if (teams.length > 0) {
+            const emps = await getEmployeesByTeams(teams);
+            for (const e of emps || []) {
+                const hn = normalizeMktPersonWhitespace(e['Họ Và Tên'] || '');
+                if (hn) names.add(hn);
+            }
+        }
+    }
+
+    return [...names]
+        .map((n) => normalizeMktPersonWhitespace(n))
+        .filter(Boolean);
+}
+
+/**
+ * Tìm user theo email đăng nhập hoặc username (`users.username`), trả về danh sách tên phạm vi (selected_personnel tách dấu phẩy + …).
+ */
+export async function getSelectedPersonnelForLogin({ email, username } = {}) {
+    const emailNorm = String(email || '').toLowerCase().trim();
+    const userNorm = String(username || '').trim();
+
+    let row = null;
+    try {
+        if (emailNorm) {
+            const { data, error } = await supabase
+                .from('users')
+                .select('email, selected_personnel, leader_teams, position, name, username')
+                .ilike('email', emailNorm)
+                .maybeSingle();
+            if (!error && data) row = data;
+        }
+        if (!row && userNorm) {
+            const { data, error } = await supabase
+                .from('users')
+                .select('email, selected_personnel, leader_teams, position, name, username')
+                .ilike('username', userNorm)
+                .maybeSingle();
+            if (!error && data) row = data;
+        }
+        if (!row && userNorm) {
+            const { data, error } = await supabase
+                .from('users')
+                .select('email, selected_personnel, leader_teams, position, name, username')
+                .eq('username', userNorm)
+                .maybeSingle();
+            if (!error && data) row = data;
+        }
+    } catch (e) {
+        console.error('getSelectedPersonnelForLogin:', e);
+        return [];
+    }
+
+    if (!row) return [];
+    return buildPersonnelListFromUserRow(row);
+}
+
 /**
  * Danh sách tên dùng lọc báo cáo / đơn: selected_personnel + tên chính user + (nếu Leader) mọi tên trong team `leader_teams`.
  * Key map: email chữ thường — khớp caller thường truyền userEmail.toLowerCase().
@@ -372,25 +501,7 @@ export const getSelectedPersonnel = async (emails) => {
 
         for (const u of data) {
             const emailKey = String(u.email || '').toLowerCase().trim();
-            const names = new Set(parseSelectedPersonnelRaw(u.selected_personnel));
-
-            const selfName = String(u.name || u.username || '').trim();
-            if (selfName && !selfName.includes('@')) {
-                names.add(selfName);
-            }
-
-            if (isLeaderPositionForPersonnelScope(u.position)) {
-                const teams = normalizeLeaderTeamsRaw(u.leader_teams);
-                if (teams.length > 0) {
-                    const emps = await getEmployeesByTeams(teams);
-                    for (const e of emps || []) {
-                        const hn = String(e['Họ Và Tên'] || '').trim();
-                        if (hn) names.add(hn);
-                    }
-                }
-            }
-
-            const list = [...names];
+            const list = await buildPersonnelListFromUserRow(u);
             personnelMap[emailKey] = list;
             const rawEmail = String(u.email || '').trim();
             if (rawEmail) {

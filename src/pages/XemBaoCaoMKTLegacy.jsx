@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 
-/** Khớp iframe `viewNsMoiNhanh-HCM.html` — phạm vi nhân sự (selected_personnel + leader/self qua getSelectedPersonnel). */
+/** Khớp iframe `viewNsMoiNhanh-HCM.html` — phạm vi nhân sự (email/username → users.selected_personnel qua getSelectedPersonnelForLogin). */
 export const MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
+
+/** postMessage từ host → iframe HCM (sessionStorage iframe thường không chia sẻ với parent). */
+export const MKT_HCM_PERSONNEL_MSG_TYPE = 'MKT_HCM_PERSONNEL_SCOPE';
 
 /** Team HCM — Đức Anh (khớp cột `Team` trên detail_reports). */
 export const XEM_BAO_CAO_MKT_HCM_TEAM = 'MKT - Đức Anh';
@@ -32,6 +35,7 @@ export default function XemBaoCaoMKTLegacy({
   const hasAccess = usesIframeTeamFilter ? canView('MKT_VIEW_HCM') : canView('MKT_VIEW');
 
   const [hcmPersonnelGate, setHcmPersonnelGate] = useState(() => !usesIframeTeamFilter);
+  const hcmScopePayloadRef = useRef(null);
 
   useEffect(() => {
     if (!usesIframeTeamFilter) {
@@ -69,17 +73,19 @@ export default function XemBaoCaoMKTLegacy({
       let allowedNames = [];
 
       if (!skipPersonnelFilter) {
-        const userEmail = (localStorage.getItem('userEmail') || '').toLowerCase().trim();
-        if (userEmail) {
+        const userEmail = (localStorage.getItem('userEmail') || '').trim();
+        const loginUsername = (localStorage.getItem('username') || '').trim();
+        if (userEmail || loginUsername) {
           try {
-            const personnelMap = await rbacService.getSelectedPersonnel([userEmail]);
-            const personnelNames = personnelMap[userEmail] || [];
-            allowedNames = personnelNames.filter((name) => {
-              const nameStr = String(name).trim();
-              return nameStr.length > 0 && !nameStr.includes('@');
+            const list = await rbacService.getSelectedPersonnelForLogin({
+              email: userEmail,
+              username: loginUsername,
             });
+            allowedNames = list
+              .map((n) => rbacService.normalizeMktPersonWhitespace(n))
+              .filter((nameStr) => nameStr.length > 0 && !nameStr.includes('@'));
           } catch (e) {
-            console.error('[XemBaoCaoMKTLegacy] getSelectedPersonnel:', e);
+            console.error('[XemBaoCaoMKTLegacy] getSelectedPersonnelForLogin:', e);
             allowedNames = [];
           }
         }
@@ -87,18 +93,24 @@ export default function XemBaoCaoMKTLegacy({
 
       if (cancelled) return;
 
+      const payload = {
+        v: 1,
+        skipPersonnelFilter,
+        allowedNames,
+        ts: Date.now(),
+      };
+      hcmScopePayloadRef.current = payload;
+
+      const raw = JSON.stringify(payload);
       try {
-        sessionStorage.setItem(
-          MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY,
-          JSON.stringify({
-            v: 1,
-            skipPersonnelFilter,
-            allowedNames,
-            ts: Date.now(),
-          })
-        );
+        sessionStorage.setItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY, raw);
       } catch (e) {
         console.error('[XemBaoCaoMKTLegacy] sessionStorage scope:', e);
+      }
+      try {
+        localStorage.setItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY, raw);
+      } catch (e) {
+        console.error('[XemBaoCaoMKTLegacy] localStorage scope:', e);
       }
       setHcmPersonnelGate(true);
     };
@@ -150,6 +162,32 @@ export default function XemBaoCaoMKTLegacy({
         src={iframeSrc}
         className="w-full h-full border-none"
         title={iframeTitle}
+        onLoad={(e) => {
+          if (!usesIframeTeamFilter) return;
+          const send = () => {
+            try {
+              const w = e.currentTarget.contentWindow;
+              const p = hcmScopePayloadRef.current;
+              if (!w || !p) return;
+              const msg = {
+                source: 'luminew-host',
+                type: MKT_HCM_PERSONNEL_MSG_TYPE,
+                v: 1,
+                skipPersonnelFilter: p.skipPersonnelFilter,
+                allowedNames: p.allowedNames,
+                ts: p.ts,
+              };
+              const o = window.location.origin;
+              w.postMessage(msg, o);
+              w.postMessage(msg, '*');
+            } catch (err) {
+              console.error('[XemBaoCaoMKTLegacy] postMessage to HCM iframe:', err);
+            }
+          };
+          send();
+          setTimeout(send, 50);
+          setTimeout(send, 300);
+        }}
       />
     </div>
   );

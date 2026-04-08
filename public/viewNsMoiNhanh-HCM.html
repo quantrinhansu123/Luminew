@@ -836,36 +836,61 @@
     }
     const MKT_ALLOWED_TEAMS = getMktAllowedTeamsFromPage();
 
-    /** Phạm vi nhân sự do React (`XemBaoCaoMKTLegacy`) ghi trước khi load iframe — khớp `selected_personnel` / leader (getSelectedPersonnel). */
+    /** Phạm vi nhân sự: React ghi localStorage + sessionStorage; iframe còn nhận qua postMessage (sessionStorage iframe ≠ parent). */
     const MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
     const MKT_EMPTY_ROW_ID = '00000000-0000-0000-0000-000000000000';
 
-    function readMktHcmPersonnelScope() {
-      try {
-        const raw = sessionStorage.getItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY);
-        if (!raw) {
-          console.warn(
-            '[MKT HCM] Không có phạm vi nhân sự trong sessionStorage — mở báo cáo từ app (/xem-bao-cao-mkt-hcm). Không hiển thị dòng nào.'
-          );
-          return { skipPersonnelFilter: false, allowedNames: [] };
-        }
-        const o = JSON.parse(raw);
-        if (o.v !== 1) return { skipPersonnelFilter: false, allowedNames: [] };
-        if (o.skipPersonnelFilter) return { skipPersonnelFilter: true, allowedNames: [] };
-        const names = Array.isArray(o.allowedNames) ? o.allowedNames : [];
-        return {
-          skipPersonnelFilter: false,
-          allowedNames: names
-            .map((x) => String(x || '').trim().replace(/\s+/g, ' '))
-            .filter(Boolean),
-        };
-      } catch (e) {
-        console.warn('readMktHcmPersonnelScope:', e);
-        return { skipPersonnelFilter: false, allowedNames: [] };
-      }
+    function parseMktHcmScopePayload(o) {
+      if (!o || o.v !== 1) return { skipPersonnelFilter: false, allowedNames: [] };
+      if (o.skipPersonnelFilter) return { skipPersonnelFilter: true, allowedNames: [] };
+      const names = Array.isArray(o.allowedNames) ? o.allowedNames : [];
+      const flat = [];
+      const splitRe = /[,，;；|]+/u;
+      names.forEach((x) => {
+        String(x || '')
+          .split(splitRe)
+          .map((s) => s.trim().replace(/\s+/g, ' '))
+          .filter(Boolean)
+          .forEach((s) => flat.push(s));
+      });
+      return {
+        skipPersonnelFilter: false,
+        allowedNames: [...new Set(flat)],
+      };
     }
 
-    const MKT_PERSONNEL_SCOPE = readMktHcmPersonnelScope();
+    function readMktHcmPersonnelScope() {
+      const tryRead = (store) => {
+        if (!store || typeof store.getItem !== 'function') return null;
+        try {
+          const raw = store.getItem(MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY);
+          if (!raw) return null;
+          return parseMktHcmScopePayload(JSON.parse(raw));
+        } catch (e) {
+          return null;
+        }
+      };
+      let parsed = null;
+      try {
+        parsed = tryRead(localStorage);
+      } catch (e) {
+        parsed = null;
+      }
+      if (!parsed) {
+        try {
+          parsed = tryRead(sessionStorage);
+        } catch (e) {
+          parsed = null;
+        }
+      }
+      if (parsed) return parsed;
+      console.warn(
+        '[MKT HCM] Chưa có phạm vi nhân sự (localStorage/sessionStorage). Trong iframe, đợi postMessage từ app hoặc mở /xem-bao-cao-mkt-hcm.'
+      );
+      return { skipPersonnelFilter: false, allowedNames: [] };
+    }
+
+    let MKT_PERSONNEL_SCOPE = readMktHcmPersonnelScope();
 
     /** Báo cáo MKT chi nhánh HCM — không dùng detail_reports (HN). */
     const MKT_REPORTS_TABLE = 'marketing_report_hcm';
@@ -1006,7 +1031,7 @@
       const personnelKey = MKT_PERSONNEL_SCOPE.skipPersonnelFilter
         ? 'ALL'
         : (MKT_PERSONNEL_SCOPE.allowedNames || []).slice().sort().join('|');
-      return `MKT_SUPABASE:v18:hcm:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
+      return `MKT_SUPABASE:v21:hcm:${teamKey}:p:${personnelKey}:${startYmd || ''}:${endYmd || ''}`;
     }
 
     /** Đếm đơn/mess: chuỗi "1.500" (VN) → 1500; tránh Number("1.500") = 1.5. */
@@ -1254,6 +1279,52 @@
     /** Giới hạn render bảng “theo ngày” (tránh treo trình duyệt); dữ liệu gốc vẫn tải đủ. */
     const MAX_DAILY_BREAKDOWN_ROWS = 50000;
     const mktApiCache = new Map();
+    let mktHcmBootFallbackTimer = null;
+
+    function isMktHcmEmbeddedIframe() {
+      try {
+        return window.self !== window.top;
+      } catch (e) {
+        return true;
+      }
+    }
+
+    window.addEventListener('message', (ev) => {
+      if (!ev || ev.origin !== window.location.origin) return;
+      const d = ev.data;
+      if (
+        !d ||
+        d.source !== 'luminew-host' ||
+        d.type !== 'MKT_HCM_PERSONNEL_SCOPE' ||
+        d.v !== 1
+      ) {
+        return;
+      }
+      const prevKey = JSON.stringify({
+        s: MKT_PERSONNEL_SCOPE.skipPersonnelFilter,
+        n: MKT_PERSONNEL_SCOPE.allowedNames || [],
+      });
+      const next = parseMktHcmScopePayload(d);
+      const nextKey = JSON.stringify({
+        s: next.skipPersonnelFilter,
+        n: next.allowedNames || [],
+      });
+      MKT_PERSONNEL_SCOPE = next;
+      if (mktHcmBootFallbackTimer) {
+        clearTimeout(mktHcmBootFallbackTimer);
+        mktHcmBootFallbackTimer = null;
+      }
+      if (prevKey === nextKey) return;
+      try {
+        mktApiCache.clear();
+      } catch (e) {
+        /* ignore */
+      }
+      if (typeof fetchAndProcessData === 'function') {
+        fetchAndProcessData();
+      }
+    });
+
     const charts = {};
     let dailyRenderJobId = 0;
     const sortStates = {
@@ -1332,8 +1403,24 @@
 
       setupEventListeners();
       setDefaultDates();
-      fetchAndProcessData();
       initMarketReportCharts(); // KHỞI TẠO BIỂU ĐỒ MKT
+
+      MKT_PERSONNEL_SCOPE = readMktHcmPersonnelScope();
+      const embedded = isMktHcmEmbeddedIframe();
+      const hasPersonnelScope =
+        MKT_PERSONNEL_SCOPE.skipPersonnelFilter ||
+        (MKT_PERSONNEL_SCOPE.allowedNames && MKT_PERSONNEL_SCOPE.allowedNames.length > 0);
+
+      if (!embedded || hasPersonnelScope) {
+        fetchAndProcessData();
+      } else {
+        mktHcmBootFallbackTimer = setTimeout(() => {
+          mktHcmBootFallbackTimer = null;
+          MKT_PERSONNEL_SCOPE = readMktHcmPersonnelScope();
+          fetchAndProcessData();
+        }, 7000);
+      }
+
       document.getElementById("defaultOpen").click();
     });
 

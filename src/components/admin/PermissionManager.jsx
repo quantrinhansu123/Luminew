@@ -270,6 +270,12 @@ const EmployeesList = ({
             .map((s) => String(s).trim())
             .filter(Boolean);
     }, [teamEmployees]);
+
+    /** Tách phẩy/semicolon trong DB — khớp checkbox & lưu. */
+    const personnelNamesNorm = useMemo(
+        () => rbacService.normalizeSelectedPersonnelNamesInput(selectedPersonnel || []),
+        [selectedPersonnel]
+    );
     
     // Xác định position có phải là Nhân viên không
     const isNhanVien = position && position.toLowerCase().includes('nhân viên') && 
@@ -308,8 +314,8 @@ const EmployeesList = ({
     useEffect(() => {
         if (isNhanVien && currentUserEmail) {
             // Nếu là Nhân viên: dùng selectedPersonnel nếu có, không tự động load từ teams
-            if (selectedPersonnel && selectedPersonnel.length > 0) {
-                setSelectedEmployees(selectedPersonnel);
+            if (personnelNamesNorm.length > 0) {
+                setSelectedEmployees(personnelNamesNorm);
             } else {
                 // Không tự động load, để user tự chọn
                 setSelectedEmployees([]);
@@ -324,9 +330,9 @@ const EmployeesList = ({
                 console.log('📝 Team employee names:', teamEmployeeNames);
                 
                 // Nếu có selectedPersonnel đã lưu (đã là tên), merge với nhân sự từ teams
-                if (selectedPersonnel && selectedPersonnel.length > 0) {
+                if (personnelNamesNorm.length > 0) {
                     // Merge: bao gồm tất cả nhân sự từ teams + thêm các nhân sự đã chọn thủ công
-                    const merged = [...new Set([...teamEmployeeNames, ...selectedPersonnel])];
+                    const merged = [...new Set([...teamEmployeeNames, ...personnelNamesNorm])];
                     setSelectedEmployees(merged);
                 } else {
                     // Chỉ dùng nhân sự từ teams (đã chuyển sang tên)
@@ -334,11 +340,11 @@ const EmployeesList = ({
                 }
             } else {
                 // Nếu chưa load xong, dùng selectedPersonnel hoặc rỗng
-                setSelectedEmployees(selectedPersonnel || []);
+                setSelectedEmployees(personnelNamesNorm);
             }
-        } else if (selectedPersonnel && selectedPersonnel.length > 0) {
+        } else if (personnelNamesNorm.length > 0) {
             // Nếu có selectedPersonnel: dùng danh sách đó (đã là tên)
-            setSelectedEmployees(selectedPersonnel);
+            setSelectedEmployees(personnelNamesNorm);
         } else if (teams && teams.length > 0) {
             // Nếu không có selectedPersonnel: lọc theo teams từ allEmployees
             const filtered = allEmployees.filter(emp => {
@@ -350,16 +356,16 @@ const EmployeesList = ({
         } else {
             setSelectedEmployees([]);
         }
-    }, [teams, employees, allEmployees, isNhanVien, isLeader, currentUserEmail, selectedPersonnel, teamEmployees]);
+    }, [teams, employees, allEmployees, isNhanVien, isLeader, currentUserEmail, personnelNamesNorm, teamEmployees]);
 
     // Nếu là Nhân viên: hiển thị danh sách nhân sự đã chọn (nếu có) hoặc cho phép thêm
     // Không tự động load từ teams, nhưng vẫn có thể edit và thêm nhân sự thủ công
         if (isNhanVien && currentUserEmail) {
             // Nếu có selectedPersonnel, hiển thị danh sách đó (selectedPersonnel là tên)
-            if (selectedPersonnel && selectedPersonnel.length > 0) {
+            if (personnelNamesNorm.length > 0) {
                 const selectedEmps = allEmployees.filter(emp => {
                     const empName = emp['Họ Và Tên'] || emp.name || emp.email;
-                    return selectedPersonnel.includes(empName);
+                    return personnelNamesNorm.includes(empName);
                 });
                 if (selectedEmps.length > 0) {
                 return (
@@ -481,11 +487,7 @@ const EmployeesList = ({
             return;
         }
         
-        // Lưu tên nhân viên (không phải email)
-        const validNames = selectedEmployees.filter(name => {
-            const nameStr = String(name).trim();
-            return nameStr.length > 0;
-        });
+        const validNames = rbacService.normalizeSelectedPersonnelNamesInput(selectedEmployees);
         
         console.log('📝 Valid names to save:', validNames);
         console.log('📞 Calling onUpdateEmployees with:', validNames);
@@ -504,20 +506,20 @@ const EmployeesList = ({
     const handleCancel = () => {
         if (isNhanVien && currentUserEmail) {
             // Nhân viên: reset về selectedPersonnel nếu có (đã là tên)
-            setSelectedEmployees(selectedPersonnel || []);
+            setSelectedEmployees(personnelNamesNorm);
         } else if (isLeader && teams && teams.length > 0 && teamEmployees.length > 0) {
             // Nếu là Leader: lấy toàn bộ nhân sự từ teams (chuyển sang tên)
             const teamEmployeeNames = teamEmployees.map(e => e['Họ Và Tên'] || e.name || e.email);
             
             // Merge với selectedPersonnel nếu có (đã là tên)
-            if (selectedPersonnel && selectedPersonnel.length > 0) {
-                const merged = [...new Set([...teamEmployeeNames, ...selectedPersonnel])];
+            if (personnelNamesNorm.length > 0) {
+                const merged = [...new Set([...teamEmployeeNames, ...personnelNamesNorm])];
                 setSelectedEmployees(merged);
             } else {
                 setSelectedEmployees(teamEmployeeNames);
             }
-        } else if (selectedPersonnel && selectedPersonnel.length > 0) {
-            setSelectedEmployees(selectedPersonnel);
+        } else if (personnelNamesNorm.length > 0) {
+            setSelectedEmployees(personnelNamesNorm);
         } else if (teams && teams.length > 0) {
             const filtered = allEmployees.filter(emp => {
                 const empTeam = emp.team || emp.Team || '';
@@ -892,8 +894,14 @@ const PermissionManager = ({ searchQuery = "" }) => {
             if (uData && uData.length > 0) {
                 try {
                     const personnelMap = await rbacService.getSelectedPersonnel(uData.map(u => u.email));
-                    console.log('📥 Loaded selected_personnel map:', personnelMap);
-                    setSelectedPersonnelMap(personnelMap);
+                    const normalizedMap = {};
+                    Object.keys(personnelMap || {}).forEach((key) => {
+                        normalizedMap[key] = rbacService.normalizeSelectedPersonnelNamesInput(
+                            personnelMap[key] || []
+                        );
+                    });
+                    console.log('📥 Loaded selected_personnel map:', normalizedMap);
+                    setSelectedPersonnelMap(normalizedMap);
                 } catch (err) {
                     console.error("❌ Could not load selected_personnel:", err);
                 }
@@ -1053,19 +1061,14 @@ const PermissionManager = ({ searchQuery = "" }) => {
         try {
             console.log('💾 handleSaveSelectedPersonnel called:', { email, personnelNames, type: typeof personnelNames, isArray: Array.isArray(personnelNames) });
             
-            // Đảm bảo là array
+            // Đảm bảo là array; tách theo dấu phẩy trong từng ô (không gộp cả chuỗi vào một phần tử).
             let namesArray = [];
             if (Array.isArray(personnelNames)) {
                 namesArray = personnelNames;
             } else if (personnelNames) {
                 namesArray = [personnelNames];
             }
-            
-            // Lưu tên nhân viên (không phải email)
-            const validNames = namesArray.filter(name => {
-                const nameStr = String(name).trim();
-                return nameStr.length > 0;
-            });
+            const validNames = rbacService.normalizeSelectedPersonnelNamesInput(namesArray);
             
             console.log('✅ Valid names to save:', validNames);
             
@@ -1700,7 +1703,9 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                                         ? leaderTeamsMap[ur.email]
                                                                         : (emp?.team ? [emp.team] : []),
                                                                     role_code: ur.role_code,
-                                                                    selectedPersonnel: selectedPersonnelMap[ur.email] || []
+                                                                    selectedPersonnel: rbacService.normalizeSelectedPersonnelNamesInput(
+                                                                        selectedPersonnelMap[ur.email] || []
+                                                                    ),
                                                                 });
                                                             }}
                                                             className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2.5 rounded-md transition-all cursor-pointer border border-blue-200 hover:border-blue-400 shadow-sm"

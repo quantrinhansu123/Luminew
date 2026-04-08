@@ -41,6 +41,19 @@ const normalizePersonName = (s) =>
         .replace(/\s+/g, ' ')
         .toLowerCase();
 
+/** Khớp tên nhân sự (substring, giống filter Tên báo cáo). */
+function namesLooseMatchPersonnel(a, b) {
+    const na = normalizePersonName(a);
+    const nb = normalizePersonName(b);
+    if (!na || !nb) return false;
+    return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+function humanResourcesRowIsMktDept(row) {
+    const bp = String(row?.['Bộ phận'] ?? '').toLowerCase();
+    return bp.includes('mkt') || bp.includes('marketing');
+}
+
 /** HCM: map từ đơn (Số đơn đếm, hủy, doanh); «Số đơn tay» luôn lấy cột `Số đơn` trên dòng. */
 function defaultHcmRealValuesFromRow(item) {
     const ttFb = Number(item['Số đơn thực tế'] || 0);
@@ -55,6 +68,9 @@ function defaultHcmRealValuesFromRow(item) {
 /** Phạm vi `detail_reports` (HN): MKT/null/non-RD + team Test. Không dùng cho `marketing_report_hcm` — bảng HCM không cùng schema department / trang xem legacy chỉ lọc Team. */
 const MKT_DETAIL_REPORTS_SCOPE_OR =
     'department.is.null,department.eq.MKT,department.neq.RD,Team.ilike.test';
+
+/** Cột tên người báo cáo MKT trên Supabase (`marketing_report_hcm`, `detail_reports`). */
+const MKT_REPORT_TEN_COLUMN = 'Tên';
 
 export default function DanhSachBaoCaoTayMKT({
     reportTableName = 'detail_reports',
@@ -97,8 +113,8 @@ export default function DanhSachBaoCaoTayMKT({
                         roleFromUserObj === 'super_admin';
     
     // Get user email and name for filtering
-    const userEmail = localStorage.getItem('userEmail') || '';
-    const userName = localStorage.getItem('username') || '';
+    const userEmail = (localStorage.getItem('userEmail') || '').trim();
+    const userName = (localStorage.getItem('username') || '').trim();
     
     // Debug: Log permissions
     useEffect(() => {
@@ -166,28 +182,47 @@ export default function DanhSachBaoCaoTayMKT({
     
     // Selected personnel names (từ cột selected_personnel trong users table)
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
+    const hcmDefaultPersonnelAppliedRef = useRef(false);
     /** Team từ `users.team` (có chữ MKT) — bổ sung cho bộ lọc vì `detail_reports` có thể không còn dòng HCM sau khi chuyển sang `marketing_report_hcm`. */
     const [mktTeamOptionsFromUsers, setMktTeamOptionsFromUsers] = useState([]);
+    /** Dòng human_resources (HN): Bộ phận MKT + cột `Tên` (HR) — chỉ dùng cho `detail_reports`, không dùng cho HCM. */
+    const [hrMktRows, setHrMktRows] = useState([]);
 
     /** HCM: tổng đơn TT lấy từ Supabase (cùng stack recalc báo cáo HCM). */
     const ordersTableForMktTotals = isHcmMarketingReport ? 'order_code_hcm' : 'orders';
 
-    // Load human_resources to map tên -> email
+    // Load human_resources: map tên -> email + Bộ phận + cột `Tên` (DB) cho bộ lọc nhân sự
     useEffect(() => {
         const loadHrEmails = async () => {
             try {
-                console.log('👥 Loading human_resources for email mapping...');
-                const { data, error } = await supabase
+                console.log('👥 Loading human_resources for email mapping + Bộ phận / Tên...');
+                let data = null;
+                let error = null;
+                const withTenCol = await supabase
                     .from('human_resources')
-                    .select('"Họ Và Tên", email');
+                    .select('"Họ Và Tên", email, "Bộ phận", "Tên"');
+                if (withTenCol.error) {
+                    console.warn('⚠️ human_resources (không có cột "Tên"?), thử bỏ Tên:', withTenCol.error.message);
+                    const fallback = await supabase
+                        .from('human_resources')
+                        .select('"Họ Và Tên", email, "Bộ phận"');
+                    data = fallback.data;
+                    error = fallback.error;
+                } else {
+                    data = withTenCol.data;
+                    error = withTenCol.error;
+                }
 
                 if (error) {
                     console.error('❌ Error loading human_resources:', error);
                     return;
                 }
 
+                const rows = data || [];
+                setHrMktRows(rows);
+
                 const map = {};
-                (data || []).forEach(row => {
+                rows.forEach((row) => {
                     const nameKey = (row['Họ Và Tên'] || '').toLowerCase().trim();
                     const emailVal = (row.email || '').toLowerCase().trim();
                     if (nameKey && emailVal && !map[nameKey]) {
@@ -195,7 +230,7 @@ export default function DanhSachBaoCaoTayMKT({
                     }
                 });
 
-                console.log(`✅ Loaded ${Object.keys(map).length} HR email mappings`);
+                console.log(`✅ Loaded ${Object.keys(map).length} HR email mappings, ${rows.length} HR rows`);
                 setHrEmailMap(map);
             } catch (err) {
                 console.error('❌ Unexpected error loading HR emails:', err);
@@ -205,25 +240,25 @@ export default function DanhSachBaoCaoTayMKT({
         loadHrEmails();
     }, []);
 
-    // Load selected personnel names for current user
+    // Load selected_personnel: tìm user theo email đăng nhập hoặc username → tách phẩy (rbac) → chuẩn khoảng trắng
     useEffect(() => {
         const loadSelectedPersonnel = async () => {
             try {
-                if (!userEmail) {
+                if (!userEmail && !userName) {
                     setSelectedPersonnelNames([]);
                     return;
                 }
 
-                const userEmailLower = userEmail.toLowerCase().trim();
-                const personnelMap = await rbacService.getSelectedPersonnel([userEmailLower]);
-                const personnelNames = personnelMap[userEmailLower] || [];
-
-                const validNames = personnelNames.filter(name => {
-                    const nameStr = String(name).trim();
-                    return nameStr.length > 0 && !nameStr.includes('@');
+                const list = await rbacService.getSelectedPersonnelForLogin({
+                    email: userEmail,
+                    username: userName,
                 });
-                
-                console.log('📝 [DanhSachBaoCaoTayMKT] Valid personnel names:', validNames);
+
+                const validNames = list
+                    .map((n) => rbacService.normalizeMktPersonWhitespace(n))
+                    .filter((nameStr) => nameStr.length > 0 && !nameStr.includes('@'));
+
+                console.log('📝 [DanhSachBaoCaoTayMKT] Valid personnel (login → users.selected_personnel):', validNames);
                 setSelectedPersonnelNames(validNames);
             } catch (error) {
                 console.error('❌ [DanhSachBaoCaoTayMKT] Error loading selected personnel:', error);
@@ -232,7 +267,7 @@ export default function DanhSachBaoCaoTayMKT({
         };
 
         loadSelectedPersonnel();
-    }, [userEmail]);
+    }, [userEmail, userName]);
 
     useEffect(() => {
         let cancelled = false;
@@ -461,15 +496,10 @@ export default function DanhSachBaoCaoTayMKT({
             // Personnel filter (non-admin chỉ xem theo selected_personnel)
             if (!isAdmin) {
                 if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                    const normalizeNameForQuery = (str) => {
-                        if (!str) return '';
-                        return String(str).trim().replace(/\s+/g, ' ');
-                    };
-
                     const orConditions = selectedPersonnelNames
                         .filter(name => name && name.trim().length > 0)
                         .map(name => {
-                            const normalizedName = normalizeNameForQuery(name);
+                            const normalizedName = rbacService.normalizeMktPersonWhitespace(name);
                             return `Tên.ilike.%${normalizedName}%`;
                         });
 
@@ -533,18 +563,11 @@ export default function DanhSachBaoCaoTayMKT({
                 // Filter theo selected_personnel nếu có
                 if (selectedPersonnelNames && selectedPersonnelNames.length > 0) {
                     console.log('📋 Filter: Tên trong selected_personnel:', selectedPersonnelNames);
-                    
-                    // Helper function to normalize name (remove extra spaces)
-                    const normalizeNameForQuery = (str) => {
-                        if (!str) return '';
-                        return String(str).trim().replace(/\s+/g, ' ');
-                    };
 
-                    // Tạo OR conditions cho mỗi tên trong selectedPersonnelNames
                     const orConditions = selectedPersonnelNames
                         .filter(name => name && name.trim().length > 0)
                         .map(name => {
-                            const normalizedName = normalizeNameForQuery(name);
+                            const normalizedName = rbacService.normalizeMktPersonWhitespace(name);
                             return `Tên.ilike.%${normalizedName}%`;
                         });
                     
@@ -714,17 +737,102 @@ export default function DanhSachBaoCaoTayMKT({
         testAccess();
     }, []);
 
-    const availablePersonnelOptions = useMemo(
-        () => [...new Set((allReports || []).map((item) => String(item?.['Tên'] || '').trim()).filter(Boolean))]
-            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
-        [allReports]
-    );
+    /**
+     * HN (`detail_reports`): nhân sự từ HR — Bộ phận MKT/Marketing, Họ Và Tên trong selected_personnel;
+     * nếu HR có cột `Tên` thì giá trị phải khớp một tên trong list.
+     */
+    const personnelFromHrSelectedMkt = useMemo(() => {
+        const sel = selectedPersonnelNames || [];
+        if (sel.length === 0) return [];
+        const out = new Set();
+        for (const row of hrMktRows || []) {
+            if (!humanResourcesRowIsMktDept(row)) continue;
+            const ten = String(row['Họ Và Tên'] ?? '').trim().replace(/\s+/g, ' ');
+            if (!ten) continue;
+            const inSel = sel.some((s) => namesLooseMatchPersonnel(ten, s));
+            if (!inSel) continue;
+            const tenCol = String(row['Tên'] ?? '').trim();
+            if (tenCol) {
+                const colOk = sel.some((s) => namesLooseMatchPersonnel(tenCol, s));
+                if (!colOk) continue;
+            }
+            out.add(ten);
+        }
+        return [...out];
+    }, [hrMktRows, selectedPersonnelNames]);
+
+    /** Admin: toàn bộ tên HR thuộc bộ phận MKT/Marketing (không siết selected_personnel). */
+    const personnelFromHrAdminMkt = useMemo(() => {
+        if (!isAdmin) return [];
+        const out = new Set();
+        for (const row of hrMktRows || []) {
+            if (!humanResourcesRowIsMktDept(row)) continue;
+            const ten = String(row['Họ Và Tên'] ?? '').trim().replace(/\s+/g, ' ');
+            if (ten) out.add(ten);
+        }
+        return [...out];
+    }, [hrMktRows, isAdmin]);
+
+    const availablePersonnelOptions = useMemo(() => {
+        const fromReports = [
+            ...new Set(
+                (allReports || [])
+                    .map((item) =>
+                        rbacService.normalizeMktPersonWhitespace(String(item?.[MKT_REPORT_TEN_COLUMN] || ''))
+                    )
+                    .filter(Boolean)
+            ),
+        ];
+
+        /* HCM: chỉ cột `Tên` trên marketing_report_hcm (+ full selected_personnel để chọn cả người chưa có dòng trong khoảng ngày). */
+        if (isHcmMarketingReport) {
+            const merged = new Set(fromReports);
+            if (!isAdmin && (selectedPersonnelNames || []).length > 0) {
+                (selectedPersonnelNames || []).forEach((n) => {
+                    const t = rbacService.normalizeMktPersonWhitespace(n);
+                    if (t) merged.add(t);
+                });
+            }
+            return [...merged].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+        }
+
+        const merged = new Set(fromReports);
+        if (isAdmin) {
+            personnelFromHrAdminMkt.forEach((n) => merged.add(n));
+        } else {
+            personnelFromHrSelectedMkt.forEach((n) => merged.add(n));
+        }
+        return [...merged].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
+    }, [
+        allReports,
+        isAdmin,
+        isHcmMarketingReport,
+        personnelFromHrAdminMkt,
+        personnelFromHrSelectedMkt,
+        selectedPersonnelNames,
+    ]);
 
     const filteredPersonnelOptions = useMemo(() => {
         const keyword = personnelSearch.trim().toLowerCase();
         if (!keyword) return availablePersonnelOptions;
         return availablePersonnelOptions.filter((name) => name.toLowerCase().includes(keyword));
     }, [availablePersonnelOptions, personnelSearch]);
+
+    /** HCM: mặc định chọn hết nhân sự trong phạm vi → hiện toàn bộ dòng khớp cột Tên (marketing_report_hcm). */
+    useEffect(() => {
+        if (!isHcmMarketingReport || isAdmin) return;
+        if (hcmDefaultPersonnelAppliedRef.current) return;
+        if (availablePersonnelOptions.length === 0) return;
+        hcmDefaultPersonnelAppliedRef.current = true;
+        setFilters((prev) => ({
+            ...prev,
+            personnelNames: [...availablePersonnelOptions],
+        }));
+    }, [isHcmMarketingReport, isAdmin, availablePersonnelOptions]);
+
+    useEffect(() => {
+        hcmDefaultPersonnelAppliedRef.current = false;
+    }, [userEmail, userName, reportTableName, selectedPersonnelNames]);
 
     const availableShiftOptions = useMemo(
         () => [...new Set((allReports || []).map((item) => String(item?.['ca'] || '').trim()).filter(Boolean))]
@@ -757,20 +865,22 @@ export default function DanhSachBaoCaoTayMKT({
     );
 
     const reportsAfterFilters = useMemo(() => {
-        const selectedPersonnel = new Set(filters.personnelNames || []);
+        const personKey = (n) =>
+            normalizePersonName(rbacService.normalizeMktPersonWhitespace(String(n ?? '')));
+        const selectedPersonnel = new Set((filters.personnelNames || []).map(personKey));
         const selectedShifts = new Set(filters.shifts || []);
         const selectedTeams = new Set(filters.teams || []);
         const selectedProducts = new Set(filters.products || []);
         const selectedMarkets = new Set(filters.markets || []);
 
         return (allReports || []).filter((item) => {
-            const name = String(item?.['Tên'] || '').trim();
+            const nameKey = personKey(item?.[MKT_REPORT_TEN_COLUMN]);
             const shift = String(item?.['ca'] || '').trim();
             const team = String(item?.['Team'] || '').trim();
             const product = String(item?.['Sản_phẩm'] || '').trim();
             const market = String(item?.['Thị_trường'] || '').trim();
 
-            if (selectedPersonnel.size > 0 && !selectedPersonnel.has(name)) return false;
+            if (selectedPersonnel.size > 0 && !selectedPersonnel.has(nameKey)) return false;
             if (selectedShifts.size > 0 && !selectedShifts.has(shift)) return false;
             if (selectedTeams.size > 0 && !selectedTeams.has(team)) return false;
             if (selectedProducts.size > 0 && !selectedProducts.has(product)) return false;
@@ -1544,6 +1654,31 @@ export default function DanhSachBaoCaoTayMKT({
                     <label>
                         Nhân sự:
                     </label>
+                    {isHcmMarketingReport && !isAdmin && selectedPersonnelNames.length > 0 && (
+                        <div style={{ fontSize: '11px', color: '#555', marginBottom: '6px', lineHeight: 1.35 }}>
+                            Danh sách theo cột <code style={{ fontSize: '10px' }}>Tên</code> trên{' '}
+                            <code style={{ fontSize: '10px' }}>marketing_report_hcm</code> (đã tải) và đủ tên trong{' '}
+                            <code style={{ fontSize: '10px' }}>selected_personnel</code>.
+                        </div>
+                    )}
+                    {!isHcmMarketingReport && !isAdmin && selectedPersonnelNames.length > 0 && (
+                        <div style={{ fontSize: '11px', color: '#555', marginBottom: '6px', lineHeight: 1.35 }}>
+                            Theo <code style={{ fontSize: '10px' }}>users.selected_personnel</code> + nhân sự HR{' '}
+                            <code style={{ fontSize: '10px' }}>Bộ phận</code> MKT/Marketing; nếu HR có cột{' '}
+                            <code style={{ fontSize: '10px' }}>Tên</code> thì giá trị phải khớp một tên trong phạm vi.
+                        </div>
+                    )}
+                    {isAdmin && !isHcmMarketingReport && (
+                        <div style={{ fontSize: '11px', color: '#555', marginBottom: '6px', lineHeight: 1.35 }}>
+                            Gồm tên trên báo cáo và toàn bộ nhân sự HR có <code style={{ fontSize: '10px' }}>Bộ phận</code> MKT/Marketing.
+                        </div>
+                    )}
+                    {isAdmin && isHcmMarketingReport && (
+                        <div style={{ fontSize: '11px', color: '#555', marginBottom: '6px', lineHeight: 1.35 }}>
+                            Theo cột <code style={{ fontSize: '10px' }}>Tên</code> trên{' '}
+                            <code style={{ fontSize: '10px' }}>marketing_report_hcm</code> trong khoảng ngày đã tải.
+                        </div>
+                    )}
                     <details>
                         <summary style={{ cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
                             Chọn nhân sự ({(filters.personnelNames || []).length}/{availablePersonnelOptions.length})
