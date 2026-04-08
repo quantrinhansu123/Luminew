@@ -1570,8 +1570,8 @@
           rowTenMatchesPersonnelScope(r['Tên'] || r.ten || r.name)
         );
 
-        // Cùng pipeline với xem-bao-cao-mkt (viewNsMoiNhanh.html): gộp trùng key trên dòng đã chuẩn hoá,
-        // rồi map → masterData; tổng footer cộng đúng từng dòng đang hiển thị (không gộp lại theo key).
+        // Gộp trùng key (HCM): CPQC, Số Mess, Số đơn, Doanh số (nhập tay) cộng dồn; TT/hủy/DS TT lấy max.
+        // Map → masterData; footer cộng theo từng dòng sau gộp.
         const rowsDeduped = dedupeMktDetailReportRows(rowsPersonnelFiltered);
 
         const employeeDataMKT = Array.isArray(resultMKT.employeeData) && resultMKT.employeeData.length
@@ -2130,6 +2130,15 @@
       return parseMktCountInt(row['Số đơn'] ?? row.so_don ?? row.order_count ?? 0);
     }
 
+    /** Cột «Doanh số» nhập tay trên báo cáo (khác «Doanh số TT»). */
+    function parseDoanhSoManualFromRow(row) {
+      return parseMoneyNumber(row['Doanh số'] ?? row.doanh_so ?? row.revenue ?? 0);
+    }
+
+    /**
+     * Gộp dòng trùng key: chỉ CPQC, Số Mess, Số đơn (nhập tay), Doanh số (nhập tay) là CỘNG DỒN;
+     * các chỉ số TT / hủy / Doanh số TT vẫn lấy max (tránh nhân đôi số liệu đối chiếu đơn).
+     */
     function dedupeMktDetailReportRows(rows) {
       const merged = mergeUniqueRowsByIdKeepNoId(rows || []);
       const byKey = new Map();
@@ -2141,19 +2150,21 @@
         const ds = parseDoanhSoChotTTFromRow(row);
         const cpqc = parseMoneyNumber(row['CPQC'] ?? row.cpqc ?? 0);
         const mess = parseSoMessCmtFromRow(row);
+        const dso = parseDoanhSoManualFromRow(row);
 
         const prev = byKey.get(k);
         if (!prev) {
-          byKey.set(k, { row, sd, sh, sm, ds, cpqc, mess });
+          byKey.set(k, { row, sd, sh, sm, ds, cpqc, mess, dso });
           continue;
         }
 
         const mergedSd = Math.max(prev.sd, sd);
         const mergedSh = Math.max(prev.sh, sh);
-        const mergedSm = Math.max(prev.sm, sm);
+        const mergedSm = prev.sm + sm;
         const mergedDs = Math.max(prev.ds, ds);
         const mergedCpqc = prev.cpqc + cpqc;
         const mergedMess = prev.mess + mess;
+        const mergedDso = prev.dso + dso;
 
         prev.sd = mergedSd;
         prev.sh = mergedSh;
@@ -2161,18 +2172,24 @@
         prev.ds = mergedDs;
         prev.cpqc = mergedCpqc;
         prev.mess = mergedMess;
+        prev.dso = mergedDso;
 
         prev.row['Số đơn thực tế'] = mergedSd;
         prev.row['Số đơn hoàn hủy'] = mergedSh;
         prev.row['Số đơn hoàn hủy thực tế'] = mergedSh;
         prev.row['Số đơn'] = mergedSm;
         prev.row['Doanh số TT'] = mergedDs;
+        prev.row['Doanh số'] = mergedDso;
         prev.row['CPQC'] = mergedCpqc;
         prev.row['Số_Mess_Cmt'] = mergedMess;
+        prev.row['Số Mess'] = mergedMess;
         if (prev.row.so_don_thuc_te != null) prev.row.so_don_thuc_te = mergedSd;
         if (prev.row.doanh_so_tt != null) prev.row.doanh_so_tt = mergedDs;
+        if (prev.row.doanh_so != null) prev.row.doanh_so = mergedDso;
         if (prev.row.cpqc != null) prev.row.cpqc = mergedCpqc;
         if (prev.row.so_mess_cmt != null) prev.row.so_mess_cmt = mergedMess;
+        if (prev.row.so_mess != null) prev.row.so_mess = mergedMess;
+        if (prev.row.so_don != null) prev.row.so_don = mergedSm;
       }
 
       return [...byKey.values()].map((m) => m.row);

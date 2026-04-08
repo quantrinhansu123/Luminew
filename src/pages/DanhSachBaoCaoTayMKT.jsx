@@ -35,6 +35,31 @@ const formatDateYmdLocal = (d) => {
     return `${y}-${m}-${day}`;
 };
 
+/** Tối đa số ngày lịch (cả Từ và Đến) trong bộ lọc ngày trang danh sách báo cáo tay MKT. */
+const MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS = 3;
+
+function addDaysYmdLocal(ymd, deltaDays) {
+    const parts = String(ymd || '').split('-').map(Number);
+    const y = parts[0];
+    const m = parts[1];
+    const day = parts[2];
+    if (!y || !m || !day) return '';
+    const dt = new Date(y, m - 1, day);
+    if (Number.isNaN(dt.getTime())) return '';
+    dt.setDate(dt.getDate() + deltaDays);
+    return formatDateYmdLocal(dt);
+}
+
+/** Số ngày lịch từ start đến end (cả hai đầu). */
+function daysInclusiveYmd(startYmd, endYmd) {
+    const ps = String(startYmd || '').split('-').map(Number);
+    const pe = String(endYmd || '').split('-').map(Number);
+    const A = new Date(ps[0], ps[1] - 1, ps[2]);
+    const B = new Date(pe[0], pe[1] - 1, pe[2]);
+    if (Number.isNaN(A.getTime()) || Number.isNaN(B.getTime())) return 0;
+    return Math.floor((B - A) / 86400000) + 1;
+}
+
 const normalizePersonName = (s) =>
     String(s || '')
         .trim()
@@ -172,6 +197,36 @@ export default function DanhSachBaoCaoTayMKT({
         setCurrentPage(1);
     };
 
+    const maxSpan = MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS - 1;
+
+    const handleFilterStartDateChange = (value) => {
+        setFilters((prev) => {
+            const s = value;
+            let e = prev.endDate;
+            if (!s) return { ...prev, startDate: s };
+            if (!e) return { ...prev, startDate: s };
+            if (s > e) e = s;
+            if (daysInclusiveYmd(s, e) > MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS) {
+                e = addDaysYmdLocal(s, maxSpan);
+            }
+            return { ...prev, startDate: s, endDate: e };
+        });
+    };
+
+    const handleFilterEndDateChange = (value) => {
+        setFilters((prev) => {
+            let s = prev.startDate;
+            const e = value;
+            if (!e) return { ...prev, endDate: e };
+            if (!s) return { ...prev, endDate: e };
+            if (e < s) s = e;
+            if (daysInclusiveYmd(s, e) > MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS) {
+                s = addDaysYmdLocal(e, -maxSpan);
+            }
+            return { ...prev, startDate: s, endDate: e };
+        });
+    };
+
     // Edit State
     const [editingReport, setEditingReport] = useState(null);
     const [editForm, setEditForm] = useState({});
@@ -291,20 +346,16 @@ export default function DanhSachBaoCaoTayMKT({
         };
     }, []);
 
-    // Initialize Dates — HCM: 3 ngày lịch gần nhất (giống DanhSachBaoCaoTay); HN: 30 ngày
+    // Initialize Dates — tối đa 3 ngày lịch (HN + HCM), khớp giới hạn bộ lọc
     useEffect(() => {
         const today = new Date();
         const start = new Date();
-        if (reportTableName === 'marketing_report_hcm') {
-            start.setDate(today.getDate() - 2);
-        } else {
-            start.setDate(today.getDate() - 30);
-        }
+        start.setDate(today.getDate() - (MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS - 1));
 
-        setFilters(prev => ({
+        setFilters((prev) => ({
             ...prev,
             startDate: formatDateYmdLocal(start),
-            endDate: formatDateYmdLocal(today)
+            endDate: formatDateYmdLocal(today),
         }));
     }, [reportTableName]);
 
@@ -1332,6 +1383,10 @@ export default function DanhSachBaoCaoTayMKT({
             alert('Từ ngày phải ≤ Đến ngày.');
             return;
         }
+        if (daysInclusiveYmd(normStart, normEnd) > MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS) {
+            alert(`Bộ lọc chỉ cho phép tối đa ${MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS} ngày lịch (Từ ngày → Đến ngày).`);
+            return;
+        }
 
         try {
             setMktRecalcLoading(true);
@@ -1645,12 +1700,23 @@ export default function DanhSachBaoCaoTayMKT({
                     <h3>Bộ lọc</h3>
                     <label>
                         Từ ngày:
-                        <input type="date" value={filters.startDate} onChange={e => setFilters(prev => ({ ...prev, startDate: e.target.value }))} />
+                        <input
+                            type="date"
+                            value={filters.startDate}
+                            onChange={(e) => handleFilterStartDateChange(e.target.value)}
+                        />
                     </label>
                     <label>
                         Đến ngày:
-                        <input type="date" value={filters.endDate} onChange={e => setFilters(prev => ({ ...prev, endDate: e.target.value }))} />
+                        <input
+                            type="date"
+                            value={filters.endDate}
+                            onChange={(e) => handleFilterEndDateChange(e.target.value)}
+                        />
                     </label>
+                    <div style={{ fontSize: '11px', color: '#666', marginBottom: '10px', lineHeight: 1.35 }}>
+                        Khoảng lọc tối đa <strong>{MKT_MANUAL_FILTER_MAX_INCLUSIVE_DAYS} ngày</strong> lịch; nếu kéo dài hơn, ngày còn lại tự co lại.
+                    </div>
                     <label>
                         Nhân sự:
                     </label>
