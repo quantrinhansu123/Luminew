@@ -1727,6 +1727,27 @@ export default function NhapDonMoi({ isEdit = false }) {
             if (saveOkForMktSync) {
                 logDbArrayRef.current = parseOrderLogJsonb(orderPayload.log);
                 logBaselineTrackedRef.current = pickTrackedFieldsFromPayload(orderPayload);
+                
+                // Helper: Tự động chạy lại 3 lần nếu mạng bị lỗi (chống Miss dòng)
+                const retrySync = async (syncFn, name, retries = 3) => {
+                    for (let i = 0; i < retries; i++) {
+                        try {
+                            const r = await syncFn();
+                            if (!r?.skipped) {
+                                console.log(`✅ Đã đồng bộ ${name} (key-scoped):`, r?.upserted ?? r);
+                            }
+                            return; // Thành công thì thoát loop
+                        } catch (err) {
+                            console.error(`⚠️ Lần ${i + 1}/${retries} - Lỗi đồng bộ ${name}:`, err);
+                            if (i === retries - 1) {
+                                console.error(`❌ Vẫn lỗi đồng bộ ${name} sau ${retries} lần thử. Cần ấn nút tính tay!`);
+                            } else {
+                                await new Promise(res => setTimeout(res, 1000)); // Đợi 1 giây rồi thử lại
+                            }
+                        }
+                    }
+                };
+
                 const newMktKey = {
                     date: orderDateValue,
                     name: selectedMkt,
@@ -1741,7 +1762,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                         market: existingOrderSnapshot.country,
                     }
                     : null;
-                void recalcMktSoDonAfterOrderSave({
+                void retrySync(() => recalcMktSoDonAfterOrderSave({
                     newOrderDate: orderDateValue,
                     previousOrderDate,
                     newOrderKey: newMktKey,
@@ -1749,12 +1770,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                     reportsTableName: isHcmView ? 'marketing_report_hcm' : 'detail_reports',
                     ordersSupabaseTable: isHcmView ? 'order_code_hcm' : null,
                     ordersApiPath: null,
-                })
-                    .then((r) => {
-                        if (r?.skipped) return;
-                        console.log('✅ Đã đồng bộ Số đơn TT (Báo cáo MKT):', r?.upserted ?? r);
-                    })
-                    .catch((err) => console.error('⚠️ Đồng bộ Số đơn TT (MKT) sau lưu đơn:', err));
+                }), 'Số đơn TT (Báo cáo MKT)');
 
                 const newSaleKey = {
                     date: orderDateValue,
@@ -1770,7 +1786,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                         market: existingOrderSnapshot.country,
                     }
                     : null;
-                void recalcSaleOrderCountAfterOrderSave({
+                void retrySync(() => recalcSaleOrderCountAfterOrderSave({
                     newOrderDate: orderDateValue,
                     previousOrderDate,
                     newOrderKey: newSaleKey,
@@ -1778,12 +1794,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                     createMissingForHetCa: true,
                     reportsTable: isHcmView ? 'sale_report_hcm' : 'sales_reports',
                     ordersTable: isHcmView ? 'order_code_hcm' : 'orders',
-                })
-                    .then((r) => {
-                        if (r?.skipped) return;
-                        console.log('✅ Đã đồng bộ sales_reports (key-scoped):', r?.upserted ?? r);
-                    })
-                    .catch((err) => console.error('⚠️ Đồng bộ sales_reports sau lưu đơn:', err));
+                }), 'sales_reports (Báo cáo Sale)');
             }
 
             // Optional: Reset form or Redirect
