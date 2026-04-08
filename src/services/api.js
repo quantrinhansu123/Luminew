@@ -940,7 +940,9 @@ const VAN_DON_UI_COL_DB_OVERRIDE = {
     'nv_sale': 'sale_staff',
     'nv_mkt': 'marketing_staff',
     'nv_van_don': 'delivery_staff',
-    'shipping_unit': 'shipping_unit'
+    'shipping_unit': 'shipping_unit',
+    'Trạng thái thu tiền': 'payment_status',
+    'payment_status': 'payment_status'
 };
 
 function normalizeVanDonFilterDateToYmd(input) {

@@ -89,7 +89,8 @@ export const COLUMN_MAPPING = {
     "Ngày up bill": "ngayupbill",
     "Nhân viên Sale": "sale_staff",
     "Nhân viên MKT": "marketing_staff",
-    "Tiền đã thanh toán": "reconciled_vnd"
+    "Tiền đã thanh toán": "reconciled_vnd",
+    "Trạng thái thu tiền": "payment_status"
 };
 
 // Columns used by Quick Add modal in FFM (single source of truth).
