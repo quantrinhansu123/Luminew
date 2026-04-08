@@ -1190,6 +1190,10 @@ export default function DanhSachBaoCaoTayMKT({
                 return Number(item?.['Doanh số'] || 0);
             }
 
+            if (sortColumn === 'Doanh số tay') {
+                return Number(item?.['Doanh số'] || 0);
+            }
+
             // Numeric columns
             if (sortColumn === 'CPQC' || sortColumn === 'Số_Mess_Cmt') {
                 return Number(item?.[sortColumn] || 0);
@@ -1254,15 +1258,17 @@ export default function DanhSachBaoCaoTayMKT({
             const ds = Number(
                 fromMap ? (fromMap.doanh_so_thuc_te ?? 0) : (r?.['Doanh số'] ?? 0)
             );
+            const dst = Number(r?.['Doanh số'] ?? 0);
             const prev = byDetailKey.get(k);
             if (!prev) {
-                byDetailKey.set(k, { sd, ds, sh, st });
+                byDetailKey.set(k, { sd, ds, sh, st, dst });
             } else {
                 byDetailKey.set(k, {
                     sd: Math.max(prev.sd, sd),
                     ds: Math.max(prev.ds, ds),
                     sh: Math.max(prev.sh, sh),
                     st: Math.max(prev.st, st),
+                    dst: Math.max(prev.dst, dst),
                 });
             }
         }
@@ -1270,14 +1276,16 @@ export default function DanhSachBaoCaoTayMKT({
         let doanhSo = 0;
         let soDonHuy = 0;
         let soDonTay = 0;
-        for (const { sd, ds, sh, st } of byDetailKey.values()) {
+        let doanhSoTay = 0;
+        for (const { sd, ds, sh, st, dst } of byDetailKey.values()) {
             soDon += sd;
             doanhSo += ds;
             soDonHuy += sh;
             soDonTay += st;
+            doanhSoTay += dst;
         }
 
-        return { cpqc, mess, soDon, doanhSo, soDonHuy, soDonTay };
+        return { cpqc, mess, soDon, doanhSo, soDonHuy, soDonTay, doanhSoTay };
     }, [reportsAfterFilters, realValuesMap, isHcmMarketingReport]);
 
     // Tính Số đơn TT / Doanh số TT cho toàn bộ dòng đã lọc (phục vụ TỔNG CỘNG đúng dù bảng phân trang).
@@ -2199,6 +2207,15 @@ export default function DanhSachBaoCaoTayMKT({
                                     >
                                         Doanh số {sortColumn === 'Doanh số' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                                     </th>
+                                    {isHcmMarketingReport && (
+                                        <th
+                                            onClick={() => handleSort('Doanh số tay')}
+                                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                                        >
+                                            Doanh số tay{' '}
+                                            {sortColumn === 'Doanh số tay' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                        </th>
+                                    )}
                                     <th>Thao tác</th>
                                 </tr>
                             </thead>
@@ -2206,7 +2223,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 {reportsAfterFilters.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={isHcmMarketingReport ? 14 : 12}
+                                            colSpan={isHcmMarketingReport ? 15 : 12}
                                             className="text-center"
                                         >
                                             {loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}
@@ -2230,6 +2247,11 @@ export default function DanhSachBaoCaoTayMKT({
                                                 </td>
                                             )}
                                             <td className="total-value">{formatCurrency(totalsByFiltered.doanhSo)}</td>
+                                            {isHcmMarketingReport && (
+                                                <td className="total-value">
+                                                    {formatCurrency(totalsByFiltered.doanhSoTay)}
+                                                </td>
+                                            )}
                                             <td />
                                         </tr>
                                         {manualReports.map((item, index) => {
@@ -2243,6 +2265,7 @@ export default function DanhSachBaoCaoTayMKT({
                                                       });
                                             const soDonDisplay = Number(realValues.so_don_thuc_te ?? 0);
                                             const soDonTayDisplay = Number(item['Số đơn'] || 0);
+                                            const doanhSoTayDisplay = Number(item['Doanh số'] || 0);
                                             return (
                                                 <tr key={item.id || index}>
                                                     <td className="text-center">{startIndex + index + 1}</td>
@@ -2262,6 +2285,9 @@ export default function DanhSachBaoCaoTayMKT({
                                                         <td>{formatNumber(soDonTayDisplay)}</td>
                                                     )}
                                                     <td>{formatCurrency(realValues.doanh_so_thuc_te)}</td>
+                                                    {isHcmMarketingReport && (
+                                                        <td>{formatCurrency(doanhSoTayDisplay)}</td>
+                                                    )}
                                                     <td className="text-center">
                                                         <button
                                                             className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition mr-2"

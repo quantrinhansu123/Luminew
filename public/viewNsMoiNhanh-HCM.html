@@ -1587,11 +1587,8 @@
               parseMoneyNumber(r["Doanh số TT"] ?? r.doanh_so_tt ?? 0) ||
               parseMoneyNumber(r["Doanh thu chốt thực tế"] ?? 0);
             const dsHuyVnd = parseMoneyNumber(r["Doanh số hoàn hủy thực tế"] ?? 0);
-            /** DS Chốt (tổng tiền VNĐ) = DS Chốt (TT) + DS hoàn hủy — cùng «rule» với Số đơn tổng = TT + hủy. */
-            let dsChotGross = Math.max(0, dsNetTt) + Math.max(0, dsHuyVnd);
-            if (dsChotGross === 0) {
-              dsChotGross = parseMoneyNumber(r["Doanh số"] ?? r.doanh_so ?? r.revenue ?? 0);
-            }
+            /** DS Chốt = cột «Doanh số» nhập tay (báo cáo tay); DS Chốt (TT) vẫn từ TT/Doanh thu chốt thực tế. */
+            const dsChotGross = parseMoneyNumber(r["Doanh số"] ?? r.doanh_so ?? r.revenue ?? 0);
             /** «Số đơn (TT)» từ «Số đơn thực tế»; «Số đơn» (tổng) đã chuẩn hoá = TT + đơn hủy trong normalizeDetailReportRow. */
             const soDonThucTeEffective = Math.max(
               0,
@@ -2390,7 +2387,7 @@
     }
 
     function createMktRow(productName, marketName, data, showMarket, className = '') {
-      /* dsChot = tổng VNĐ (TT+hủy); dsChotThucTe = TT net. DS Sau HH (TT) = doanh TT sau trừ hủy (không trừ thêm lần 2). */
+      /* dsChot = Doanh số báo cáo tay; dsChotThucTe = TT net. DS Sau HH (TT) = doanh TT sau trừ hủy (không trừ thêm lần 2). */
       const dsChotTong = Number(data.dsChot) || 0;
       const dsNetTt = Number(data.dsChotThucTe) || 0;
       const dsSauHoanHuyThucTe = dsNetTt;
