@@ -170,13 +170,17 @@ async function fetchSalesReportsForExactKeys(exactKeys, reportsTable = 'sales_re
       .from(reportsTable)
       .select('*')
       .eq('date', k.date)
-      .eq('name', k.name)
-      .eq('product', k.product)
-      .eq('market', k.market);
+      .ilike('name', k.name);
     if (teamIn?.length) q = q.in('team', teamIn);
     const { data, error } = await q;
     if (error) throw error;
     for (const r of data || []) {
+      const rp = normalizeStr(r.product);
+      const rc = normalizeStr(r.market);
+      const kp = normalizeStr(k.product);
+      const kc = normalizeStr(k.market);
+      if (rp !== kp || rc !== kc) continue;
+
       const id = r?.id ? String(r.id) : `${r?.date || ''}|${r?.name || ''}|${r?.product || ''}|${r?.market || ''}|${r?.shift || ''}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -198,11 +202,15 @@ async function fetchOrdersForExactKeysForSale(exactKeys, ordersTable = 'orders')
       )
       .gte('order_date', k.date)
       .lt('order_date', next)
-      .eq('sale_staff', k.name)
-      .eq('product', k.product)
-      .eq('country', k.market);
+      .ilike('sale_staff', k.name);
     if (error) throw error;
     for (const r of data || []) {
+      const rp = normalizeStr(r.product);
+      const rc = normalizeStr(r.country);
+      const kp = normalizeStr(k.product);
+      const kc = normalizeStr(k.market);
+      if (rp !== kp || rc !== kc) continue;
+
       const id = String(r?.order_code || '');
       if (id && seen.has(id)) continue;
       if (id) seen.add(id);
@@ -573,7 +581,7 @@ export async function recalcSaleOrderCountAfterOrderSave({
       product: String(k.product || '').trim(),
       market: String(k.market || '').trim(),
     }))
-    .filter((k) => k.date && k.name && k.product && k.market);
+    .filter((k) => k.date && k.name);
 
   if (exactKeys.length > 0) {
     const dedupMap = new Map();

@@ -563,11 +563,15 @@ async function fetchReportsForExactKeys(exactKeys, reportsTableName) {
       .from(table)
       .select('*')
       .eq('Ngày', k.date)
-      .eq('Tên', k.name)
-      .eq('Sản_phẩm', k.product)
-      .eq('Thị_trường', k.market);
+      .ilike('Tên', k.name);
     if (error) throw error;
     for (const r of data || []) {
+      const rp = normalizeFieldForKey(r['Sản_phẩm'] || '');
+      const rc = normalizeFieldForKey(r['Thị_trường'] || '');
+      const kp = normalizeFieldForKey(k.product);
+      const kc = normalizeFieldForKey(k.market);
+      if (rp !== kp || rc !== kc) continue;
+
       const id = r?.id ? String(r.id) : `${r?.['Ngày'] || ''}|${r?.['Tên'] || ''}|${r?.['Sản_phẩm'] || ''}|${r?.['Thị_trường'] || ''}|${r?.ca || ''}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -590,11 +594,15 @@ async function fetchOrdersForExactKeysFromSupabaseTable(exactKeys, tableName = '
       )
       .gte('order_date', k.date)
       .lt('order_date', next)
-      .eq('marketing_staff', k.name)
-      .eq('product', k.product)
-      .eq('country', k.market);
+      .ilike('marketing_staff', k.name);
     if (error) throw error;
     for (const r of data || []) {
+      const rp = normalizeFieldForKey(r.product || '');
+      const rc = normalizeFieldForKey(r.country || '');
+      const kp = normalizeFieldForKey(k.product);
+      const kc = normalizeFieldForKey(k.market);
+      if (rp !== kp || rc !== kc) continue;
+
       const id = String(r?.order_code || '');
       if (id && seen.has(id)) continue;
       if (id) seen.add(id);
@@ -1117,7 +1125,7 @@ export async function recalcMktSoDonAfterOrderSave({
       product: String(k.product || '').trim(),
       market: String(k.market || '').trim(),
     }))
-    .filter((k) => k.date && k.name && k.product && k.market);
+    .filter((k) => k.date && k.name);
 
   if (exactKeys.length > 0) {
     const keyMap = new Map();
