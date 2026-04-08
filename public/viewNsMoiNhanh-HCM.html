@@ -1404,7 +1404,7 @@
         );
 
         // Với marketing_report_hcm, dữ liệu thường đã ở mức tổng hợp.
-        // Chỉ cần dedupe "giữ 1 dòng" khi có trùng id/detailRowKey (không cộng dồn mess).
+        // Gộp trùng key sau map: dedupeMktDetailRowsForAggregation (cộng dồn trừ TT/DS Chốt TT = bản sau).
         const rowsDeduped = rowsTeamFiltered;
 
         const employeeDataMKT = Array.isArray(resultMKT.employeeData) && resultMKT.employeeData.length
@@ -1478,14 +1478,14 @@
             };
           });
 
-        // Gộp trùng id/detailRowKey: cộng dồn CPQC, Số Mess, Số Đơn, DS Chốt (+ TT tương ứng).
+        // Trùng id/detailRowKey: cộng dồn CPQC/Mess/Số đơn/DS Chốt; Số đơn TT & DS Chốt TT lấy bản sau.
         masterData = dedupeMktDetailRowsForAggregation(masterDataMKT);
 
         const dupRemoved = masterDataMKT.length - masterData.length;
         const nFromApi = rowsDeduped.length;
         console.log(
           `✅ Đã tải từ Supabase (${MKT_REPORTS_TABLE}): ${nFromApi} dòng (API+phân trang) → ${masterData.length} bản ghi sau gộp trùng` +
-            (dupRemoved > 0 ? ` (gộp ${dupRemoved} dòng trùng id/detailRowKey; CPQC, Số Mess, Số Đơn, DS Chốt cộng dồn)` : '') +
+            (dupRemoved > 0 ? ` (gộp ${dupRemoved} dòng trùng; cộng dồn CPQC/Mess/Đơn/DS Chốt; TT & DS Chốt TT = bản sau)` : '') +
             `, ${employeeData.length} nhân viên. Nếu số dòng < Supabase: kiểm tra bộ lọc Team (mặc định «MKT - Đức Anh»), khoảng ngày, hoặc thêm ?allowedTeams=...`
         );
 
@@ -1978,8 +1978,9 @@
     }
 
     /**
-     * HCM: trùng id hoặc detailRowKey → một dòng; cộng dồn CPQC, Số Mess, Số Đơn, DS Chốt
-     * (và Số đơn TT / DS Chốt TT) — không «lọc trùng» bằng cách giữ max/dòng đầu cho các cột này.
+     * HCM: trùng id hoặc detailRowKey → một dòng.
+     * Cộng dồn: CPQC, Số Mess, Số đơn (nhập), DS Chốt (gross).
+     * Không cộng — lấy giá trị bản ghi **sau** (ghi đè): Số đơn TT (soDonThucTe), DS Chốt TT (dsChotThucTe).
      */
     function dedupeMktDetailRowsForAggregation(rows) {
       if (!Array.isArray(rows) || rows.length === 0) return rows || [];
@@ -2004,8 +2005,8 @@
         keep.soMessCmt = (Number(keep.soMessCmt) || 0) + addMess;
         keep.soDon = (Number(keep.soDon) || 0) + addSoDon;
         keep.dsChot = (Number(keep.dsChot) || 0) + addDsChot;
-        keep.soDonThucTe = (Number(keep.soDonThucTe) || 0) + addSoDonTT;
-        keep.dsChotThucTe = (Number(keep.dsChotThucTe) || 0) + addDsChotTT;
+        keep.soDonThucTe = addSoDonTT;
+        keep.dsChotThucTe = addDsChotTT;
       });
       return Array.from(byKey.values());
     }
