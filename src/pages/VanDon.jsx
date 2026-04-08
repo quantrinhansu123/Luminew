@@ -1388,8 +1388,9 @@ function VanDon({ dataSource = 'default' }) {
         ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
         : new Set([activeDateType]);
 
-    // Column Filters (Text & Dropdown) — phân trang backend: đã lọc ở API (toàn CSDL).
-    if (!useBackendPagination) {
+    // Column Filters (Text & Dropdown)
+    // Luôn áp dụng ở client để nhiều cột kết hợp ổn định (kể cả khi backend pagination đang bật).
+    {
       Object.entries(appliedFilterValues).forEach(([key, val]) => {
         if (
           [
@@ -1482,9 +1483,9 @@ function VanDon({ dataSource = 'default' }) {
       });
     }
 
-    if (!useBackendPagination) {
-      try {
-        if (appliedFilterValues.tracking_status || appliedFilterValues.tracking_include || appliedFilterValues.tracking_exclude) {
+    // Tracking filter cũng chạy ở client để ghép chính xác cùng các cột header khác.
+    try {
+      if (appliedFilterValues.tracking_status || appliedFilterValues.tracking_include || appliedFilterValues.tracking_exclude) {
           const inc = appliedFilterValues.tracking_include ? String(appliedFilterValues.tracking_include).toLowerCase() : '';
           const exc = appliedFilterValues.tracking_exclude ? String(appliedFilterValues.tracking_exclude).toLowerCase() : '';
           const status = appliedFilterValues.tracking_status || 'Tình trạng mã';
@@ -1517,10 +1518,9 @@ function VanDon({ dataSource = 'default' }) {
               return true;
             }
           });
-        }
-      } catch (err) {
-        console.warn('⚠️ [Filter Error] Lỗi khi xử lý tracking filter:', err);
       }
+    } catch (err) {
+      console.warn('⚠️ [Filter Error] Lỗi khi xử lý tracking filter:', err);
     }
 
     return data;

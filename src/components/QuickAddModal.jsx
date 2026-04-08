@@ -19,8 +19,12 @@ const getTodayDDMMYYYY = () => {
 /** Cùng quy tắc với FFM handleQuickSync — khớp đúng dòng theo Mã đơn hàng trong bảng chính. */
 const normOrderId = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
 
-const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} }) => {
+const buildEmptyRow = () => Array(COLUMNS.length).fill("");
+
+const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {}, visibleColumns = {} }) => {
     const [rows, setRows] = useState([]);
+    const [columnVisibility, setColumnVisibility] = useState({});
+    const [showColumnSettings, setShowColumnSettings] = useState(false);
     const [selection, setSelection] = useState(null);
     const isSelecting = useRef(false);
     const containerRef = useRef(null);
@@ -33,14 +37,42 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         value: ''
     });
 
+    const visibleColIndices = useMemo(() => {
+        const indices = [];
+        COLUMNS.forEach((col, idx) => {
+            if (idx === 0 || columnVisibility[col] !== false) indices.push(idx);
+        });
+        return indices;
+    }, [columnVisibility]);
+
+    const visibleColumnsList = useMemo(
+        () => visibleColIndices.map((idx) => COLUMNS[idx]),
+        [visibleColIndices]
+    );
+
+    const getActualColIdx = useCallback(
+        (visibleColIdx) => visibleColIndices[visibleColIdx],
+        [visibleColIndices]
+    );
+
     useEffect(() => {
         if (isOpen) {
-            setRows(Array(15).fill(null).map(() => Array(COLUMNS.length).fill("")));
+            const nextVisibility = {};
+            COLUMNS.forEach((col, idx) => {
+                if (idx === 0) {
+                    nextVisibility[col] = true;
+                } else {
+                    nextVisibility[col] = visibleColumns[col] !== false;
+                }
+            });
+            setColumnVisibility(nextVisibility);
+            setRows(Array(15).fill(null).map(() => buildEmptyRow()));
             setSelection(null);
+            setShowColumnSettings(false);
             selectionRef.current = null;
             setTimeout(() => containerRef.current?.focus(), 100);
         }
-    }, [isOpen]);
+    }, [isOpen, visibleColumns]);
 
     // Keep selectionRef in sync with selection state
     useEffect(() => {
@@ -65,10 +97,12 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             setRows((prev) => {
                 const next = prev.map((r) => [...r]);
                 while (next.length <= to) {
-                    next.push(Array(COLUMNS.length).fill(""));
+                    next.push(buildEmptyRow());
                 }
+                const actualColIdx = getActualColIdx(drag.colIdx);
+                if (actualColIdx == null) return next;
                 for (let r = from + 1; r <= to; r++) {
-                    next[r][drag.colIdx] = drag.value;
+                    next[r][actualColIdx] = drag.value;
                 }
                 return next;
             });
@@ -83,7 +117,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         };
         document.addEventListener('mouseup', handleMouseUp);
         return () => document.removeEventListener('mouseup', handleMouseUp);
-    }, []);
+    }, [getActualColIdx]);
 
     // Check if a cell is selected
     const isSelected = (rIdx, cIdx) => {
@@ -107,7 +141,8 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         for (let r = minR; r <= maxR; r++) {
             const rowData = [];
             for (let c = minC; c <= maxC; c++) {
-                rowData.push(rows[r]?.[c] || '');
+                const actualColIdx = getActualColIdx(c);
+                rowData.push(actualColIdx == null ? '' : (rows[r]?.[actualColIdx] || ''));
             }
             selectedRows.push(rowData.join('\t'));
         }
@@ -151,13 +186,13 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         }
     };
 
-    const handleCellChange = (rowIdx, colIdx, value) => {
+    const handleCellChange = (rowIdx, actualColIdx, value) => {
         setRows(prev => {
             const newRows = prev.map(r => [...r]);
             while (newRows.length <= rowIdx) {
-                newRows.push(Array(COLUMNS.length).fill(""));
+                newRows.push(buildEmptyRow());
             }
-            newRows[rowIdx][colIdx] = value;
+            if (actualColIdx != null) newRows[rowIdx][actualColIdx] = value;
             return newRows;
         });
     };
@@ -198,7 +233,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             startRow = rowIdx;
             startCol = colIdx;
             endRow = rowIdx + pastedRows.length - 1;
-            endCol = Math.min(colIdx + (pastedRows[0]?.length || 1) - 1, COLUMNS.length - 1);
+            endCol = Math.min(colIdx + (pastedRows[0]?.length || 1) - 1, visibleColIndices.length - 1);
         } else if (currentSelection && currentSelection.startRow !== undefined && currentSelection.startCol !== undefined) {
             // Paste từ container - dùng selection hiện tại
             startRow = Math.min(currentSelection.startRow, currentSelection.endRow);
@@ -243,8 +278,9 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                 let dataIndex = 0;
                 for (let r = startRow; r <= endRow && dataIndex < valuesToFill; r++) {
                     for (let c = startCol; c <= endCol && dataIndex < valuesToFill; c++) {
-                        if (c < COLUMNS.length) {
-                            const colName = COLUMNS[c];
+                        const actualColIdx = getActualColIdx(c);
+                        if (actualColIdx != null) {
+                            const colName = COLUMNS[actualColIdx];
                             let value = flatPastedData[dataIndex] || '';
                             
                             // Ngày đóng hàng: giữ nguyên text dán (không ép dd/mm).
@@ -252,7 +288,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                                 value = String(value ?? '').trim();
                             }
                             
-                            newRows[r][c] = value;
+                            newRows[r][actualColIdx] = value;
                             dataIndex++;
                         }
                     }
@@ -269,7 +305,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             startRow = 0;
             startCol = 0;
             endRow = startRow + pastedRows.length - 1;
-            endCol = Math.min(startCol + (pastedRows[0]?.length || 1) - 1, COLUMNS.length - 1);
+            endCol = Math.min(startCol + (pastedRows[0]?.length || 1) - 1, visibleColIndices.length - 1);
         }
 
         console.log('📋 Paste:', { startRow, startCol, pastedRows: pastedRows.length });
@@ -279,22 +315,23 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             const newRows = prev.map(r => [...r]);
             const neededRows = startRow + pastedRows.length;
             while (newRows.length < neededRows) {
-                newRows.push(Array(COLUMNS.length).fill(""));
+                    newRows.push(buildEmptyRow());
             }
 
             for (let i = 0; i < pastedRows.length; i++) {
                 const targetRow = startRow + i;
                 for (let j = 0; j < pastedRows[i].length; j++) {
                     const targetCol = startCol + j;
-                    if (targetCol < COLUMNS.length) {
-                        const colName = COLUMNS[targetCol];
+                    const actualColIdx = getActualColIdx(targetCol);
+                    if (actualColIdx != null) {
+                        const colName = COLUMNS[actualColIdx];
                         let value = pastedRows[i][j] || '';
                         
                         if (colName === 'Ngày đóng hàng') {
                             value = String(value ?? '').trim();
                         }
                         
-                        newRows[targetRow][targetCol] = value;
+                        newRows[targetRow][actualColIdx] = value;
                     }
                 }
             }
@@ -305,7 +342,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         const newSelection = { startRow, startCol, endRow, endCol };
         setSelection(newSelection);
         selectionRef.current = newSelection;
-    }, []);
+    }, [getActualColIdx, visibleColIndices.length]);
 
     // Handle keyboard
     const handleKeyDown = (e) => {
@@ -329,7 +366,8 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                 const newRows = prev.map(r => [...r]);
                 for (let r = minR; r <= maxR; r++) {
                     for (let c = minC; c <= maxC; c++) {
-                        if (newRows[r]) newRows[r][c] = '';
+                        const actualColIdx = getActualColIdx(c);
+                        if (newRows[r] && actualColIdx != null) newRows[r][actualColIdx] = '';
                     }
                 }
                 return newRows;
@@ -344,7 +382,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         if (e.key === 'ArrowUp' && endRow > 0) newRow = endRow - 1;
         if (e.key === 'ArrowDown' && endRow < rows.length - 1) newRow = endRow + 1;
         if (e.key === 'ArrowLeft' && endCol > 0) newCol = endCol - 1;
-        if (e.key === 'ArrowRight' && endCol < COLUMNS.length - 1) newCol = endCol + 1;
+        if (e.key === 'ArrowRight' && endCol < visibleColIndices.length - 1) newCol = endCol + 1;
 
         if (newRow !== endRow || newCol !== endCol) {
             e.preventDefault();
@@ -369,9 +407,11 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         let numericCount = 0;
 
         for (let r = minR; r <= maxR && r < rows.length; r++) {
-            for (let c = minC; c <= maxC && c < COLUMNS.length; c++) {
+            for (let c = minC; c <= maxC && c < visibleColIndices.length; c++) {
+                const actualColIdx = getActualColIdx(c);
+                if (actualColIdx == null) continue;
                 count++;
-                const val = rows[r][c];
+                const val = rows[r][actualColIdx];
                 if (val && val.trim() !== "") {
                     const numVal = parseFloat(String(val).replace(/[^\d.-]/g, ''));
                     if (!isNaN(numVal)) {
@@ -387,7 +427,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             sum: numericCount > 0 ? sum : 0,
             avg: numericCount > 0 ? sum / numericCount : 0
         };
-    }, [selection, rows]);
+    }, [selection, rows, getActualColIdx, visibleColIndices.length]);
 
     /** Ô tracking tô đỏ khi trùng (cùng bảng hoặc đã thuộc đơn khác) — không chặn Đồng bộ. */
     const duplicateTrackingCells = useMemo(() => {
@@ -395,6 +435,8 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         const localTrackingRows = new Map();
         const orderCodeIndex = 0;
 
+        const trackingVisibleIdx = visibleColIndices.indexOf(TRACKING_COL_INDEX);
+        if (trackingVisibleIdx < 0) return duplicateCells;
         rows.forEach((row, rowIdx) => {
             const orderCode = String(row?.[orderCodeIndex] || '').trim();
             const trackingCode = String(row?.[TRACKING_COL_INDEX] || '').trim();
@@ -403,7 +445,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             const normalizedTracking = trackingCode.toLowerCase();
             const ownerFromData = String(existingTrackingOwnerMap[normalizedTracking] || '').trim();
             if (ownerFromData && ownerFromData !== orderCode) {
-                duplicateCells.add(`${rowIdx}-${TRACKING_COL_INDEX}`);
+                duplicateCells.add(`${rowIdx}-${trackingVisibleIdx}`);
             }
 
             if (!localTrackingRows.has(normalizedTracking)) {
@@ -416,12 +458,12 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         localTrackingRows.forEach((items) => {
             const uniqueOrderIds = new Set(items.map((it) => it.orderCode));
             if (uniqueOrderIds.size > 1) {
-                items.forEach((it) => duplicateCells.add(`${it.rowIdx}-${TRACKING_COL_INDEX}`));
+                items.forEach((it) => duplicateCells.add(`${it.rowIdx}-${trackingVisibleIdx}`));
             }
         });
 
         return duplicateCells;
-    }, [rows, existingTrackingOwnerMap]);
+    }, [rows, existingTrackingOwnerMap, visibleColIndices]);
 
     const handleSyncClick = () => {
         const todayStr = getTodayDDMMYYYY();
@@ -474,7 +516,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             if (cIdx === minC) classes += 'selection-border-left ';
             if (cIdx === maxC) classes += 'selection-border-right ';
         }
-        if (cIdx === TRACKING_COL_INDEX && duplicateTrackingCells.has(`${rIdx}-${cIdx}`)) {
+        if (duplicateTrackingCells.has(`${rIdx}-${cIdx}`)) {
             classes += "!bg-red-50 !border-red-400 ";
         }
 
@@ -492,6 +534,8 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
 
     // Render cell content - giống bảng chính (dropdown/input trực tiếp)
     const renderCell = (col, rowIdx, colIdx, value) => {
+        const actualColIdx = getActualColIdx(colIdx);
+        if (actualColIdx == null) return null;
         // Cột ngày đóng hàng — text tự do (khớp DB / lưới FFM), không placeholder kiểu date picker.
         if (col === 'Ngày đóng hàng') {
             const rawValue = value || '';
@@ -503,7 +547,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                         spellCheck={false}
                         value={rawValue}
                         onChange={(e) => {
-                            handleCellChange(rowIdx, colIdx, e.target.value);
+                            handleCellChange(rowIdx, actualColIdx, e.target.value);
                         }}
                         onPaste={(e) => {
                             handlePaste(e, rowIdx, colIdx);
@@ -528,7 +572,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
         if (DROPDOWN_OPTIONS[col]) {
             // Sử dụng input với datalist để cho phép paste và tự do nhập
             const options = DROPDOWN_OPTIONS[col] || [];
-            const listId = `datalist-${colIdx}-${rowIdx}`;
+            const listId = `datalist-${actualColIdx}-${rowIdx}`;
             
             return (
                 <>
@@ -536,7 +580,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                         type="text"
                         list={listId}
                         value={value}
-                        onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
+                        onChange={(e) => handleCellChange(rowIdx, actualColIdx, e.target.value)}
                         onPaste={(e) => handlePaste(e, rowIdx, colIdx)}
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
@@ -560,7 +604,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
             <input
                 type="text"
                 value={value}
-                onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
+                onChange={(e) => handleCellChange(rowIdx, actualColIdx, e.target.value)}
                 onPaste={(e) => handlePaste(e, rowIdx, colIdx)}
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
@@ -600,6 +644,15 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                             <span>Delete / Backspace: xóa vùng đã bôi đen</span>
                             <span className="text-blue-600">Kéo góc ô để sao chép xuống</span>
                         </div>
+                        <div className="mt-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowColumnSettings((p) => !p)}
+                                className="px-2.5 py-1 rounded border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 text-xs font-semibold"
+                            >
+                                ⚙️ Cài đặt cột hiển thị
+                            </button>
+                        </div>
                     </div>
                     <button 
                         onClick={onClose} 
@@ -630,6 +683,32 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                     }}
                     style={{ outline: 'none' }}
                 >
+                    {showColumnSettings && (
+                        <div className="sticky top-0 z-40 bg-white/95 border-b border-indigo-100 px-3 py-2">
+                            <div className="flex flex-wrap gap-2">
+                                {COLUMNS.map((col, idx) => {
+                                    const checked = idx === 0 ? true : columnVisibility[col] !== false;
+                                    return (
+                                        <label key={col} className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-gray-200 bg-white">
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                disabled={idx === 0}
+                                                onChange={(e) => {
+                                                    if (idx === 0) return;
+                                                    const isChecked = e.target.checked;
+                                                    setColumnVisibility((prev) => ({ ...prev, [col]: isChecked }));
+                                                    setSelection(null);
+                                                    selectionRef.current = null;
+                                                }}
+                                            />
+                                            <span>{col}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                     <table className="w-full border-collapse min-w-[1800px] text-sm">
                         <thead className="sticky top-0 z-30 shadow-sm">
                             <tr className="bg-gradient-to-r from-gray-800 to-gray-700 h-12">
@@ -638,14 +717,16 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                                         <span className="text-xs">#</span>
                                     </div>
                                 </th>
-                                {COLUMNS.map((col, idx) => (
-                                    <th key={idx} className={`p-3 border-b-2 border-r border-gray-600 text-left ${idx === TRACKING_COL_INDEX ? 'min-w-[260px]' : 'min-w-[140px]'}`}>
+                                {visibleColumnsList.map((col, idx) => {
+                                    const actualColIdx = visibleColIndices[idx];
+                                    return (
+                                    <th key={col} className={`p-3 border-b-2 border-r border-gray-600 text-left ${actualColIdx === TRACKING_COL_INDEX ? 'min-w-[260px]' : 'min-w-[140px]'}`}>
                                         <div className="font-bold text-white flex items-center gap-1.5">
                                             <span>{col}</span>
-                                            {idx === 0 && <span className="text-red-400 text-xs">*</span>}
+                                            {actualColIdx === 0 && <span className="text-red-400 text-xs">*</span>}
                                         </div>
                                     </th>
-                                ))}
+                                )})}
                             </tr>
                         </thead>
                         <tbody>
@@ -658,15 +739,17 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                                             </span>
                                         </div>
                                     </td>
-                                    {COLUMNS.map((col, cIdx) => (
+                                    {visibleColumnsList.map((col, cIdx) => {
+                                        const actualColIdx = visibleColIndices[cIdx];
+                                        return (
                                         <td
-                                            key={cIdx}
+                                            key={`${rIdx}-${col}`}
                                             className={getCellClass(col, rIdx, cIdx)}
-                                            style={cIdx === TRACKING_COL_INDEX ? { minWidth: '260px', width: '260px' } : undefined}
+                                            style={actualColIdx === TRACKING_COL_INDEX ? { minWidth: '260px', width: '260px' } : undefined}
                                             onMouseDown={(e) => handleMouseDown(rIdx, cIdx, e)}
                                             onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
                                         >
-                                            {renderCell(col, rIdx, cIdx, row[cIdx] || "")}
+                                            {renderCell(col, rIdx, cIdx, row[actualColIdx] || "")}
                                             {isFillHandleCell(rIdx, cIdx) && (
                                                 <div
                                                     title="Kéo để sao chép xuống"
@@ -679,13 +762,13 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                                                             startRow: rIdx,
                                                             endRow: rIdx,
                                                             colIdx: cIdx,
-                                                            value: row[cIdx] || ''
+                                                            value: row[actualColIdx] || ''
                                                         };
                                                     }}
                                                 />
                                             )}
                                         </td>
-                                    ))}
+                                    )})}
                                 </tr>
                             ))}
                         </tbody>
@@ -726,7 +809,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {} 
                     </button>
                     <div className="flex gap-3">
                         <button
-                            onClick={() => setRows(Array(15).fill(null).map(() => Array(COLUMNS.length).fill("")))}
+                            onClick={() => setRows(Array(15).fill(null).map(() => buildEmptyRow()))}
                             className="px-5 py-2.5 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-100 hover:border-gray-400 transition-all duration-200 shadow-sm hover:shadow"
                         >
                             Xóa bảng

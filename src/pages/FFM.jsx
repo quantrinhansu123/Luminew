@@ -16,9 +16,19 @@ import {
 import { rafThrottle } from '../utils/throttle';
 import * as XLSX from 'xlsx';
 
+const FFM_HCM_SUPABASE_TABLE = 'order_code_hcm';
+const FFM_ROW_SOURCE_TABLE_KEY = '__ffmSourceTable';
+const FFM_MGT_MERGED_FIRST_BATCH_TOTAL = 1000;
+const FFM_MGT_MERGED_NEXT_BATCH_TOTAL = 2000;
+
 /** Giá trị Team / chi nhánh từ row (FFM) */
 function getTeamStringFFM(row) {
-  return String(row[TEAM_COLUMN_NAME] ?? row.team ?? '').trim();
+  const rawTeam = String(row[TEAM_COLUMN_NAME] ?? row.team ?? '').trim();
+  if (rawTeam) return rawTeam;
+  const sourceTable = String(row?.[FFM_ROW_SOURCE_TABLE_KEY] ?? '').trim().toLowerCase();
+  if (sourceTable === FFM_HCM_SUPABASE_TABLE) return 'HCM';
+  if (sourceTable === 'orders') return 'Hà Nội';
+  return '';
 }
 
 /** Chuỗi đơn vị vận chuyển sau khi map (FFM). */
@@ -63,6 +73,16 @@ function getTrackingCodeFFM(row) {
   return String(row.tracking_code ?? row['Mã Tracking'] ?? row['tracking_code'] ?? '').trim();
 }
 
+function normalizeBulkTrackingCode(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/^["']+|["']+$/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/^[,;\s]+|[,;\s]+$/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toLowerCase();
+}
+
 /** Sắp theo Ngày lên đơn giảm dần + gán rowIndex (khớp sort trong getFilteredData). */
 function assignRowIndexByOrderDate(rows) {
   const sorted = [...rows].sort((a, b) => {
@@ -75,6 +95,11 @@ function assignRowIndexByOrderDate(rows) {
   return sorted.map((r, i) => ({ ...r, rowIndex: i + 1 }));
 }
 
+function withFfmSourceTable(rows, sourceTable) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  return rows.map((row) => ({ ...row, [FFM_ROW_SOURCE_TABLE_KEY]: sourceTable }));
+}
+
 /** Lô đầu nhỏ để lên UI nhanh; các lô sau rộng hơn. */
 const FFM_FIRST_BATCH_SIZE = 400;
 const FFM_NEXT_BATCH_SIZE = 1000;
@@ -83,6 +108,7 @@ const DRAG_FOCUS_THRESHOLD_PX = 5;
 /** Các key trong filterValues không xử lý trong vòng Object.entries (đã lọc riêng). */
 const FFM_FILTER_SKIP_KEYS = new Set([
   'market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status',
+  'tracking_bulk_codes',
   'packing_date_status', 'delivery_status_filter', 'delivery_status_search',
   'us_shipping_fee_search',
   'ngay_doi_soat_kt_filter',
@@ -363,6 +389,7 @@ function FFM({ variant = 'MGT' }) {
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã',
+    tracking_bulk_codes: '',
     ['Kết quả Check']: [],
     packing_date_status: 'Tất cả',
     delivery_status_filter: 'Tất cả',
@@ -405,6 +432,10 @@ function FFM({ variant = 'MGT' }) {
     trackedFrom: 0,
     mgtExhausted: false,
     trackedExhausted: false
+  });
+  const ffmMgtMergedCursorRef = useRef({
+    orders: { mgtFrom: 0, trackedFrom: 0, mgtExhausted: false, trackedExhausted: false },
+    hcm: { mgtFrom: 0, trackedFrom: 0, mgtExhausted: false, trackedExhausted: false },
   });
   const [ffmHasMore, setFfmHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -530,7 +561,10 @@ function FFM({ variant = 'MGT' }) {
           .in('order_code', orderCodes);
 
         if (error) throw error;
-        const appRows = (data || []).map((r) => API.mapSupabaseOrderToApp(r));
+        const appRows = withFfmSourceTable(
+          (data || []).map((r) => API.mapSupabaseOrderToApp(r)),
+          'orders'
+        );
 
         setAllData((prev) => {
           const mapById = new Map();
@@ -696,6 +730,145 @@ function FFM({ variant = 'MGT' }) {
     setFfmHasMore(false);
     setFfmBackgroundLoading(false);
     try {
+      if (variant === 'MGT') {
+        const perTableFirstBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_FIRST_BATCH_TOTAL / 2));
+        const perTableNextBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_NEXT_BATCH_TOTAL / 2));
+        ffmMergeRef.current = new Map();
+        ffmMgtMergedCursorRef.current = {
+          orders: { mgtFrom: 0, trackedFrom: 0, mgtExhausted: false, trackedExhausted: false },
+          hcm: { mgtFrom: 0, trackedFrom: 0, mgtExhausted: false, trackedExhausted: false },
+        };
+
+        const [ordersBatch, hcmBatch] = await Promise.all([
+          API.fetchFFMOrdersBatch({
+            mgtFrom: 0,
+            trackedFrom: 0,
+            pageSize: perTableFirstBatch,
+            mgtExhausted: false,
+            trackedExhausted: false,
+            ordersTable: 'orders'
+          }),
+          API.fetchFFMOrdersBatch({
+            mgtFrom: 0,
+            trackedFrom: 0,
+            pageSize: perTableFirstBatch,
+            mgtExhausted: false,
+            trackedExhausted: false,
+            ordersTable: FFM_HCM_SUPABASE_TABLE
+          }),
+        ]);
+
+        if (loadGen !== ffmLoadGenRef.current) return;
+
+        ffmMgtMergedCursorRef.current = {
+          orders: {
+            mgtFrom: ordersBatch.nextMgtFrom,
+            trackedFrom: ordersBatch.nextTrackedFrom,
+            mgtExhausted: ordersBatch.mgtExhausted,
+            trackedExhausted: ordersBatch.trackedExhausted,
+          },
+          hcm: {
+            mgtFrom: hcmBatch.nextMgtFrom,
+            trackedFrom: hcmBatch.nextTrackedFrom,
+            mgtExhausted: hcmBatch.mgtExhausted,
+            trackedExhausted: hcmBatch.trackedExhausted,
+          },
+        };
+
+        const seedRows = [
+          ...withFfmSourceTable(ordersBatch.rows || [], 'orders'),
+          ...withFfmSourceTable(hcmBatch.rows || [], FFM_HCM_SUPABASE_TABLE),
+        ];
+        for (const r of seedRows) {
+          const id = r?.[PRIMARY_KEY_COLUMN];
+          if (id) ffmMergeRef.current.set(id, r);
+        }
+
+        const firstList = assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values()));
+        setAllData(firstList);
+
+        const hasMoreOrders = !ordersBatch.mgtExhausted || !ordersBatch.trackedExhausted;
+        const hasMoreHcm = !hcmBatch.mgtExhausted || !hcmBatch.trackedExhausted;
+        const hasMore = hasMoreOrders || hasMoreHcm;
+        setFfmHasMore(hasMore);
+
+        if (hasMore) {
+          addToast(`✅ Đã hiển thị ${firstList.length} đơn đầu tiên, đang tải nền...`, 'success', 2500);
+          setFfmBackgroundLoading(true);
+          void (async () => {
+            try {
+              while (loadGen === ffmLoadGenRef.current) {
+                const c = ffmMgtMergedCursorRef.current;
+                const ordersDone = c.orders.mgtExhausted && c.orders.trackedExhausted;
+                const hcmDone = c.hcm.mgtExhausted && c.hcm.trackedExhausted;
+                if (ordersDone && hcmDone) break;
+
+                const [nextOrders, nextHcm] = await Promise.all([
+                  ordersDone
+                    ? Promise.resolve(null)
+                    : API.fetchFFMOrdersBatch({
+                        ...c.orders,
+                        pageSize: perTableNextBatch,
+                        ordersTable: 'orders'
+                      }),
+                  hcmDone
+                    ? Promise.resolve(null)
+                    : API.fetchFFMOrdersBatch({
+                        ...c.hcm,
+                        pageSize: perTableNextBatch,
+                        ordersTable: FFM_HCM_SUPABASE_TABLE
+                      }),
+                ]);
+
+                if (loadGen !== ffmLoadGenRef.current) return;
+
+                if (nextOrders) {
+                  c.orders = {
+                    mgtFrom: nextOrders.nextMgtFrom,
+                    trackedFrom: nextOrders.nextTrackedFrom,
+                    mgtExhausted: nextOrders.mgtExhausted,
+                    trackedExhausted: nextOrders.trackedExhausted,
+                  };
+                  for (const r of withFfmSourceTable(nextOrders.rows || [], 'orders')) {
+                    const id = r?.[PRIMARY_KEY_COLUMN];
+                    if (id) ffmMergeRef.current.set(id, r);
+                  }
+                }
+                if (nextHcm) {
+                  c.hcm = {
+                    mgtFrom: nextHcm.nextMgtFrom,
+                    trackedFrom: nextHcm.nextTrackedFrom,
+                    mgtExhausted: nextHcm.mgtExhausted,
+                    trackedExhausted: nextHcm.trackedExhausted,
+                  };
+                  for (const r of withFfmSourceTable(nextHcm.rows || [], FFM_HCM_SUPABASE_TABLE)) {
+                    const id = r?.[PRIMARY_KEY_COLUMN];
+                    if (id) ffmMergeRef.current.set(id, r);
+                  }
+                }
+                setAllData(assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values())));
+              }
+
+              if (loadGen === ffmLoadGenRef.current) {
+                setFfmHasMore(false);
+                addToast(`✅ Đã tải đủ ${ffmMergeRef.current.size} đơn`, 'success', 2200);
+              }
+            } catch (bgErr) {
+              console.error('[FFM MGT] Tải nền lỗi:', bgErr);
+              if (loadGen === ffmLoadGenRef.current) {
+                setFfmHasMore(true);
+                addToast(`⚠️ Tải nền lỗi: ${bgErr.message || bgErr}`, 'error', 5000);
+              }
+            } finally {
+              if (loadGen === ffmLoadGenRef.current) setFfmBackgroundLoading(false);
+            }
+          })();
+        } else {
+          addToast(`✅ Đã tải ${firstList.length} đơn`, 'success', 2000);
+        }
+        return;
+      }
+
       if (typeof API.fetchFFMOrdersBatch === 'function') {
         ffmMergeRef.current = new Map();
         ffmCursorRef.current = {
@@ -824,6 +997,21 @@ function FFM({ variant = 'MGT' }) {
       console.error('Load data error:', error);
       addToast(`❌ Lỗi tải dữ liệu: ${error.message}. Thử fallback...`, 'error', 4000);
       try {
+        if (variant === 'MGT') {
+          const [hnRows, hcmRows] = await Promise.all([
+            API.fetchFFMOrders?.({ ordersTable: 'orders' }),
+            API.fetchFFMOrders?.({ ordersTable: FFM_HCM_SUPABASE_TABLE })
+          ]);
+          const fallbackRows = assignRowIndexByOrderDate([
+            ...withFfmSourceTable(Array.isArray(hnRows) ? hnRows : [], 'orders'),
+            ...withFfmSourceTable(Array.isArray(hcmRows) ? hcmRows : [], FFM_HCM_SUPABASE_TABLE),
+          ]);
+          setAllData(fallbackRows);
+          setFfmHasMore(false);
+          addToast(`✅ Fallback gộp: ${fallbackRows.length} đơn`, 'success', 2000);
+          return;
+        }
+
         const data = await API.fetchOrders();
         const list = Array.isArray(data) ? assignRowIndexByOrderDate(data) : [];
         setAllData(list);
@@ -843,6 +1031,63 @@ function FFM({ variant = 'MGT' }) {
 
     setLoadingMore(true);
     try {
+      if (variant === 'MGT') {
+        const c = ffmMgtMergedCursorRef.current;
+        const perTableNextBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_NEXT_BATCH_TOTAL / 2));
+        const ordersDone = c.orders.mgtExhausted && c.orders.trackedExhausted;
+        const hcmDone = c.hcm.mgtExhausted && c.hcm.trackedExhausted;
+        if (ordersDone && hcmDone) {
+          setFfmHasMore(false);
+          return;
+        }
+        const [nextOrders, nextHcm] = await Promise.all([
+          ordersDone
+            ? Promise.resolve(null)
+            : API.fetchFFMOrdersBatch({
+                ...c.orders,
+                pageSize: perTableNextBatch,
+                ordersTable: 'orders'
+              }),
+          hcmDone
+            ? Promise.resolve(null)
+            : API.fetchFFMOrdersBatch({
+                ...c.hcm,
+                pageSize: perTableNextBatch,
+                ordersTable: FFM_HCM_SUPABASE_TABLE
+              }),
+        ]);
+        if (nextOrders) {
+          c.orders = {
+            mgtFrom: nextOrders.nextMgtFrom,
+            trackedFrom: nextOrders.nextTrackedFrom,
+            mgtExhausted: nextOrders.mgtExhausted,
+            trackedExhausted: nextOrders.trackedExhausted,
+          };
+          for (const r of withFfmSourceTable(nextOrders.rows || [], 'orders')) {
+            const id = r?.[PRIMARY_KEY_COLUMN];
+            if (id) ffmMergeRef.current.set(id, r);
+          }
+        }
+        if (nextHcm) {
+          c.hcm = {
+            mgtFrom: nextHcm.nextMgtFrom,
+            trackedFrom: nextHcm.nextTrackedFrom,
+            mgtExhausted: nextHcm.mgtExhausted,
+            trackedExhausted: nextHcm.trackedExhausted,
+          };
+          for (const r of withFfmSourceTable(nextHcm.rows || [], FFM_HCM_SUPABASE_TABLE)) {
+            const id = r?.[PRIMARY_KEY_COLUMN];
+            if (id) ffmMergeRef.current.set(id, r);
+          }
+        }
+        const mergedList = assignRowIndexByOrderDate(Array.from(ffmMergeRef.current.values()));
+        setAllData(mergedList);
+        const hasMore = !(c.orders.mgtExhausted && c.orders.trackedExhausted && c.hcm.mgtExhausted && c.hcm.trackedExhausted);
+        setFfmHasMore(hasMore);
+        addToast(hasMore ? `Đã tải thêm — hiện ${mergedList.length} đơn.` : `Đã tải xong — ${mergedList.length} đơn.`, 'success', 2200);
+        return;
+      }
+
       const c = ffmCursorRef.current;
       const b = await API.fetchFFMOrdersBatch({
         mgtFrom: c.mgtFrom,
@@ -894,6 +1139,7 @@ function FFM({ variant = 'MGT' }) {
       tracking_include: '',
       tracking_exclude: '',
       tracking_status: 'Tình trạng mã',
+      tracking_bulk_codes: '',
       ['Kết quả Check']: [],
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
@@ -1198,7 +1444,24 @@ function FFM({ variant = 'MGT' }) {
       });
     }
 
-    if (fv.tracking_status || fv.tracking_include || fv.tracking_exclude) {
+    const bulkTrackingRaw = String(fv.tracking_bulk_codes || '').trim();
+    const bulkCodesSet = bulkTrackingRaw
+      ? new Set(
+          bulkTrackingRaw
+            .split(/\r?\n+/g)
+            .map((line) => line.trim())
+            .map((code) => normalizeBulkTrackingCode(code))
+            .filter(Boolean)
+        )
+      : null;
+    const hasBulkTrackingFilter = !!bulkCodesSet && bulkCodesSet.size > 0;
+
+    if (hasBulkTrackingFilter) {
+      data = data.filter((row) => {
+        const orderNorm = normalizeBulkTrackingCode(row?.[PRIMARY_KEY_COLUMN] ?? row?.order_code ?? '');
+        return bulkCodesSet.has(orderNorm);
+      });
+    } else if (fv.tracking_status || fv.tracking_include || fv.tracking_exclude) {
       const inc = fv.tracking_include ? String(fv.tracking_include).trim().toLowerCase() : '';
       const exc = fv.tracking_exclude ? String(fv.tracking_exclude).trim().toLowerCase() : '';
       const status = fv.tracking_status || 'Tình trạng mã';
@@ -1286,6 +1549,7 @@ function FFM({ variant = 'MGT' }) {
       tracking_include: '',
       tracking_exclude: '',
       tracking_status: 'Tình trạng mã',
+      tracking_bulk_codes: '',
       ['Kết quả Check']: [],
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
@@ -1377,6 +1641,14 @@ function FFM({ variant = 'MGT' }) {
     return ['__EMPTY__', ...getUniqueValues(col)];
   };
 
+  const getSourceTableByOrderId = useCallback((orderId) => {
+    const targetOrderId = String(orderId ?? '').trim();
+    if (!targetOrderId) return 'orders';
+    const matched = allData.find((row) => String(row?.[PRIMARY_KEY_COLUMN] ?? '').trim() === targetOrderId);
+    const source = String(matched?.[FFM_ROW_SOURCE_TABLE_KEY] ?? '').trim();
+    return source || 'orders';
+  }, [allData]);
+
 
   const processDbQueue = useCallback(async () => {
     if (!manualSaveRequestedRef.current) return;
@@ -1391,8 +1663,15 @@ function FFM({ variant = 'MGT' }) {
 
         const rowsObjMap = new Map();
         batchToProcess.forEach(({ orderId, colKey, newValue }) => {
-          if (!rowsObjMap.has(orderId)) rowsObjMap.set(orderId, { [PRIMARY_KEY_COLUMN]: orderId });
-          rowsObjMap.get(orderId)[colKey] = newValue;
+          const sourceTable = getSourceTableByOrderId(orderId);
+          const rowMapKey = `${sourceTable}::${orderId}`;
+          if (!rowsObjMap.has(rowMapKey)) {
+            rowsObjMap.set(rowMapKey, {
+              [PRIMARY_KEY_COLUMN]: orderId,
+              [FFM_ROW_SOURCE_TABLE_KEY]: sourceTable,
+            });
+          }
+          rowsObjMap.get(rowMapKey)[colKey] = newValue;
         });
 
         const rowsToUpdate = Array.from(rowsObjMap.values());
@@ -1401,12 +1680,15 @@ function FFM({ variant = 'MGT' }) {
         const currentUsername = localStorage.getItem('username') || 'Unknown';
         let success = false;
 
-        if (rowsToUpdate.length === 1 && Object.keys(rowsToUpdate[0]).length === 2) {
+        if (rowsToUpdate.length === 1 && Object.keys(rowsToUpdate[0]).length === 3) {
           const row = rowsToUpdate[0];
-          const col = Object.keys(row).find(k => k !== PRIMARY_KEY_COLUMN);
+          const col = Object.keys(row).find(
+            (k) => k !== PRIMARY_KEY_COLUMN && k !== FFM_ROW_SOURCE_TABLE_KEY
+          );
+          const sourceTable = row[FFM_ROW_SOURCE_TABLE_KEY] || 'orders';
           const toastId = addToast('Đang cập nhật...', 'loading', 0);
           try {
-            await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername);
+            await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername, { sourceTable });
             success = true;
           } catch (e) {
             addToast(e.message, 'error');
@@ -1416,8 +1698,21 @@ function FFM({ variant = 'MGT' }) {
         } else {
           const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
           try {
-            const res = await API.updateBatch(rowsToUpdate, currentUsername);
-            if (res.success) success = true;
+            const groupedRows = rowsToUpdate.reduce((acc, row) => {
+              const sourceTable = row[FFM_ROW_SOURCE_TABLE_KEY] || 'orders';
+              if (!acc[sourceTable]) acc[sourceTable] = [];
+              const { [FFM_ROW_SOURCE_TABLE_KEY]: _source, ...payloadRow } = row;
+              acc[sourceTable].push(payloadRow);
+              return acc;
+            }, {});
+            success = true;
+            for (const [sourceTable, rows] of Object.entries(groupedRows)) {
+              const res = await API.updateBatch(rows, currentUsername, null, { sourceTable });
+              if (!res?.success) {
+                success = false;
+                break;
+              }
+            }
           } catch (e) {
             addToast(e.message, 'error');
           } finally {
@@ -1430,7 +1725,10 @@ function FFM({ variant = 'MGT' }) {
             const latestData = [...prevData];
             rowsToUpdate.forEach(updatedRow => {
               const idx = latestData.findIndex(r => r[PRIMARY_KEY_COLUMN] === updatedRow[PRIMARY_KEY_COLUMN]);
-              if (idx > -1) latestData[idx] = { ...latestData[idx], ...updatedRow };
+              if (idx > -1) {
+                const { [FFM_ROW_SOURCE_TABLE_KEY]: _source, ...displayRow } = updatedRow;
+                latestData[idx] = { ...latestData[idx], ...displayRow };
+              }
             });
             return latestData;
           });
@@ -1452,7 +1750,7 @@ function FFM({ variant = 'MGT' }) {
       isProcessingQueue.current = false;
       manualSaveRequestedRef.current = false;
     }
-  }, [addToast, removeToast, deepCloneMapOfMaps]);
+  }, [addToast, removeToast, deepCloneMapOfMaps, getSourceTableByOrderId]);
 
   /**
    * @param {Array} changesArray
@@ -3199,6 +3497,19 @@ function FFM({ variant = 'MGT' }) {
         {showFilters && (
           <div className="px-3 pb-2 border-t border-gray-200">
             <div className="flex flex-wrap items-end gap-2 pt-2">
+              <div className="flex-[2] flex flex-col gap-1 min-w-[260px]">
+                <label className="text-xs font-semibold text-gray-500">
+                  Dán nhiều Mã đơn hàng
+                </label>
+                <textarea
+                  className="px-2 py-1 border rounded text-xs bg-white min-h-[62px]"
+                  placeholder="Mỗi dòng 1 Mã đơn hàng:&#10;Fit87d8a7454&#10;Fit3f482a4d&#10;FitllbLrI7K"
+                  value={localFilterValues.tracking_bulk_codes || ''}
+                  onChange={(e) =>
+                    setLocalFilterValues((prev) => ({ ...prev, tracking_bulk_codes: e.target.value }))
+                  }
+                />
+              </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Chi nhánh</label>
                 <select
@@ -3735,6 +4046,7 @@ function FFM({ variant = 'MGT' }) {
           onClose={() => setQuickAddModalOpen(false)}
           onSync={handleQuickSync}
           existingTrackingOwnerMap={existingTrackingOwnerMap}
+          visibleColumns={visibleColumns}
         />
       </Suspense>
 
