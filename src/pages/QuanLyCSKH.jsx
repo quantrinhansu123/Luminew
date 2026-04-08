@@ -1,4 +1,4 @@
-import { Edit, Eye, RefreshCw, Search, Settings, Trash2, X } from 'lucide-react';
+import { Edit, Eraser, Eye, RefreshCw, Search, Settings, Trash2, UserCog, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -121,6 +121,45 @@ function parseSelectedPersonnelRawLocal(raw) {
       .filter(Boolean);
   }
   return [];
+}
+
+/** Chuẩn hóa tên để so khớp Sale / CSKH / users (bỏ dấu, thường, gộp khoảng trắng). */
+function normNameKey(s) {
+  return String(s ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function userDepartmentIsCSKHDept(dept) {
+  const d = String(dept ?? '').trim().toLowerCase();
+  if (!d) return false;
+  return d === 'cskh' || d.includes('cskh');
+}
+
+/**
+ * users (chỉ bộ phận CSKH): mỗi name/username chuẩn hóa → tên hiển thị chuẩn (ưu tiên users.name).
+ */
+function buildCskhUserAliasToCanonicalName(usersRows) {
+  const map = new Map();
+  for (const u of usersRows || []) {
+    const canonical = String(u.name || u.username || '').trim();
+    if (!canonical) continue;
+    for (const raw of [u.name, u.username]) {
+      const k = normNameKey(raw);
+      if (!k) continue;
+      if (!map.has(k)) map.set(k, canonical);
+    }
+  }
+  return map;
+}
+
+function canonicalCskhNameForSaleStaff(saleStaff, aliasToCanonical) {
+  const k = normNameKey(saleStaff);
+  if (!k) return null;
+  return aliasToCanonical.get(k) ?? null;
 }
 
 function applyCSKHStaffOrFilter(query, variants, bypassStaffFilter) {
@@ -353,6 +392,8 @@ function QuanLyCSKH({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewing, setIsViewing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [resyncingCskhFromUsers, setResyncingCskhFromUsers] = useState(false);
+  const [clearingCskhByFilter, setClearingCskhByFilter] = useState(false);
 
   // List of columns that should be hidden/removed (no longer needed)
   const REMOVED_COLUMNS = [
@@ -1029,6 +1070,142 @@ function QuanLyCSKH({
     });
   }, [allData, debouncedSearchText, debouncedSearchOrderCode, filterMarket, filterProduct, filterStatus, filterPaymentThuTien, filterCheckResult, filterSale, filterMKT, filterCSKH, sortColumn, sortDirection]);
 
+  const filteredRowsWithCskhCount = useMemo(
+    () => filteredData.filter((row) => String(row['CSKH'] ?? '').trim() !== '').length,
+    [filteredData]
+  );
+
+  /**
+   * Chỉ các dòng đang hiển thị sau bộ lọc: Nếu Nhân viên Sale khớp user bộ phận CSKH
+   * nhưng cột CSKH khác tên chuẩn (users.name) → cập nhật cskh = tên chuẩn.
+   */
+  const handleResyncCskhToSaleCanonical = async () => {
+    if (!isAdmin() && !canEditFromThisList) {
+      toast.error('Bạn không có quyền sửa đơn — không thể đồng bộ CSKH.');
+      return;
+    }
+    if (resyncingCskhFromUsers) return;
+    if (!filteredData.length) {
+      toast.info('Không có đơn nào trong bộ lọc hiện tại.');
+      return;
+    }
+
+    setResyncingCskhFromUsers(true);
+    try {
+      const { data: usersRows, error: usersErr } = await supabase
+        .from('users')
+        .select('name, username, department')
+        .not('email', 'is', null);
+      if (usersErr) throw usersErr;
+
+      const cskhUsers = (usersRows || []).filter((u) => userDepartmentIsCSKHDept(u.department));
+      const aliasToCanonical = buildCskhUserAliasToCanonicalName(cskhUsers);
+
+      const updates = [];
+      for (const row of filteredData) {
+        const id = row.id;
+        if (!id) continue;
+        const sale = String(row['Nhân viên Sale'] ?? '').trim();
+        const cskhCur = String(row['CSKH'] ?? '').trim();
+        const canonical = canonicalCskhNameForSaleStaff(sale, aliasToCanonical);
+        if (!canonical) continue;
+        if (normNameKey(cskhCur) === normNameKey(canonical)) continue;
+        updates.push({ id, cskh: canonical });
+      }
+
+      if (!updates.length) {
+        toast.info(
+          'Không có đơn cần sửa: không có Sale thuộc user bộ phận CSKH trong bộ lọc, hoặc cột CSKH đã khớp tên chuẩn (users.name).'
+        );
+        return;
+      }
+
+      if (
+        !window.confirm(
+          `Trong bộ lọc hiện tại có ${updates.length} đơn: Nhân viên Sale là nhân sự bộ phận CSKH nhưng cột CSKH khác tên chuẩn trong bảng users.\n\nCập nhật cột CSKH = tên đầy đủ (users.name) cho các đơn này?`
+        )
+      ) {
+        return;
+      }
+
+      const CHUNK = 40;
+      for (let i = 0; i < updates.length; i += CHUNK) {
+        const chunk = updates.slice(i, i + CHUNK);
+        const results = await Promise.all(
+          chunk.map((u) =>
+            supabase.from(ordersTableName).update({ cskh: u.cskh }).eq('id', u.id)
+          )
+        );
+        const failed = results.find((r) => r.error);
+        if (failed?.error) throw failed.error;
+      }
+
+      const idToCskh = new Map(updates.map((u) => [u.id, u.cskh]));
+      setAllData((prev) =>
+        prev.map((item) => {
+          const next = idToCskh.get(item.id);
+          return next !== undefined ? { ...item, CSKH: next } : item;
+        })
+      );
+
+      toast.success(`Đã đồng bộ CSKH (theo users.name) cho ${updates.length} đơn.`);
+    } catch (e) {
+      console.error('[QuanLyCSKH] resync CSKH:', e);
+      toast.error(e?.message || 'Lỗi khi đồng bộ CSKH');
+    } finally {
+      setResyncingCskhFromUsers(false);
+    }
+  };
+
+  /** Xóa gán CSKH (cskh → null) cho mọi đơn đang có CSKH trong bộ lọc hiện tại. */
+  const handleClearCskhByFilter = async () => {
+    if (!isAdmin() && !canEditFromThisList) {
+      toast.error('Bạn không có quyền sửa đơn — không thể xóa gán CSKH.');
+      return;
+    }
+    if (clearingCskhByFilter || resyncingCskhFromUsers) return;
+    if (!filteredData.length) {
+      toast.info('Không có đơn nào trong bộ lọc hiện tại.');
+      return;
+    }
+    const targets = filteredData.filter((row) => {
+      const v = String(row['CSKH'] ?? '').trim();
+      return v !== '' && row.id;
+    });
+    if (!targets.length) {
+      toast.info('Trong bộ lọc không có đơn nào đang có CSKH để xóa.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Xóa gán CSKH (để trống) cho ${targets.length} đơn trong bộ lọc hiện tại?\n\nChỉ các đơn đang có tên CSKH mới bị cập nhật. Thao tác không hoàn tác tự động.`
+      )
+    ) {
+      return;
+    }
+
+    setClearingCskhByFilter(true);
+    try {
+      const ids = targets.map((r) => r.id);
+      const CHUNK = 500;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        const { error } = await supabase.from(ordersTableName).update({ cskh: null }).in('id', chunk);
+        if (error) throw error;
+      }
+      const idSet = new Set(ids);
+      setAllData((prev) =>
+        prev.map((item) => (idSet.has(item.id) ? { ...item, CSKH: '' } : item))
+      );
+      toast.success(`Đã xóa gán CSKH cho ${ids.length} đơn (theo bộ lọc).`);
+    } catch (e) {
+      console.error('[QuanLyCSKH] clear CSKH by filter:', e);
+      toast.error(e?.message || 'Lỗi khi xóa gán CSKH');
+    } finally {
+      setClearingCskhByFilter(false);
+    }
+  };
+
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
     const handleKeyDown = async (e) => {
@@ -1328,6 +1505,49 @@ function QuanLyCSKH({
                 )}
                 {loading ? 'Đang tải...' : 'Tải lại'}
               </button>
+              {(isAdmin() || canEditFromThisList) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleResyncCskhToSaleCanonical}
+                    disabled={
+                      loading ||
+                      resyncingCskhFromUsers ||
+                      clearingCskhByFilter ||
+                      !filteredData.length
+                    }
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                    title="Chỉ các đơn sau bộ lọc: Sale thuộc user bộ phận CSKH nhưng CSKH sai tên → ghi lại theo users.name"
+                  >
+                    {resyncingCskhFromUsers ? (
+                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                    ) : (
+                      <UserCog className="w-4 h-4" />
+                    )}
+                    {resyncingCskhFromUsers ? 'Đang xử lý...' : 'Phát hiện & sửa CSKH'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearCskhByFilter}
+                    disabled={
+                      loading ||
+                      resyncingCskhFromUsers ||
+                      clearingCskhByFilter ||
+                      !filteredData.length ||
+                      filteredRowsWithCskhCount === 0
+                    }
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                    title={`Xóa gán CSKH (để trống) cho các đơn sau mọi bộ lọc hiện tại. Hiện có ${filteredRowsWithCskhCount} đơn đang có CSKH trong tập lọc.`}
+                  >
+                    {clearingCskhByFilter ? (
+                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                    ) : (
+                      <Eraser className="w-4 h-4" />
+                    )}
+                    {clearingCskhByFilter ? 'Đang xóa...' : 'Xóa gán CSKH (lọc)'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

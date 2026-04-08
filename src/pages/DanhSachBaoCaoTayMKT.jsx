@@ -259,7 +259,7 @@ export default function DanhSachBaoCaoTayMKT({
 
             if (!reportDate || !reportName) {
                 return isHcmMarketingReport
-                    ? { so_don_huy: 0, doanh_so_thuc_te: 0 }
+                    ? { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0 }
                     : { so_don_thuc_te: 0, doanh_so_thuc_te: 0 };
             }
 
@@ -332,12 +332,13 @@ export default function DanhSachBaoCaoTayMKT({
 
             if (totalOrders === 0) {
                 return isHcmMarketingReport
-                    ? { so_don_huy: 0, doanh_so_thuc_te: 0 }
+                    ? { so_don_thuc_te: 0, so_don_huy: 0, doanh_so_thuc_te: 0 }
                     : { so_don_thuc_te: 0, doanh_so_thuc_te: 0 };
             }
 
             if (isHcmMarketingReport) {
                 return {
+                    so_don_thuc_te: totalOrders,
                     so_don_huy: huyOrders,
                     doanh_so_thuc_te: doanhSoThucTe,
                 };

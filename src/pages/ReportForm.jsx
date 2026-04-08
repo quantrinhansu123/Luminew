@@ -482,7 +482,7 @@ function ReportForm({
               startDate,
               endDate,
               createMissingForHetCa: true,
-              reportsTable,
+              reportsTable: reportTable,
               ordersTable,
             });
             console.log(`✅ Đã tự động cập nhật ${reportTable} (TT):`, result);
