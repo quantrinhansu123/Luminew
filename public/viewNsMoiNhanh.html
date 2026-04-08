@@ -1016,7 +1016,6 @@
       if (!s) return 'het';
       const hasHet = s.includes('hết ca') || s.includes('het ca');
       const hasGua = s.includes('giữa ca') || s.includes('giua ca');
-      if (hasHet && hasGua) return 'het+gua';
       if (hasHet) return 'het';
       if (hasGua) return 'gua';
       return s;

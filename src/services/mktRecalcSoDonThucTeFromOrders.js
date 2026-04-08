@@ -230,14 +230,16 @@ function buildKey(dateStr, name, product, market) {
   ].join('|');
 }
 
-/** Chuẩn ca về nhãn cố định — cùng logic tách phẩy với orderShiftToGroups. */
+/**
+ * Chuẩn ca về segment key (Ngày|Tên|SP|TT|ca) — cùng logic tách phẩy với orderShiftToGroups.
+ * Có «Hết ca» (kể cả chuỗi «Giữa ca, Hết ca») → luôn `het` — khớp cách recalc lấy primaryGroup = Hết ca cho dòng gộp 2 ca.
+ */
 function normalizeCaForRowKey(caVal) {
   const s = normalizeFieldForKey(caVal);
   if (!s) return 'het';
   const g = orderShiftToGroups(caVal);
   const hasHet = g.includes('Hết ca');
   const hasGua = g.includes('Giữa ca');
-  if (hasHet && hasGua) return 'het+gua';
   if (hasHet) return 'het';
   if (hasGua) return 'gua';
   return s;

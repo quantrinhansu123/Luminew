@@ -169,7 +169,7 @@ export default function DanhSachBaoCaoTayMKT({
     /** Team từ `users.team` (có chữ MKT) — bổ sung cho bộ lọc vì `detail_reports` có thể không còn dòng HCM sau khi chuyển sang `marketing_report_hcm`. */
     const [mktTeamOptionsFromUsers, setMktTeamOptionsFromUsers] = useState([]);
 
-    /** HCM: đơn từ Supabase `order_code_hcm` (khớp recalc Số đơn TT). */
+    /** HCM: tổng đơn TT lấy từ Supabase (cùng stack recalc báo cáo HCM). */
     const ordersTableForMktTotals = isHcmMarketingReport ? 'order_code_hcm' : 'orders';
 
     // Load human_resources to map tên -> email
@@ -1199,7 +1199,7 @@ export default function DanhSachBaoCaoTayMKT({
         if (teamFilter === 'RD') return;
 
         const orderSourceHint = isHcmMarketingReport
-            ? 'Báo cáo: Supabase `marketing_report_hcm`. Nguồn đơn: Supabase `order_code_hcm` (không gọi API ngoài).\n\n'
+            ? 'Báo cáo: Supabase `marketing_report_hcm`.\n\n'
             : 'Nguồn đơn: bảng Supabase `orders`.\n\n';
         const ok = window.confirm(
             'Tính lại cho Báo cáo MKT: Số đơn thực tế (TT), Doanh số TT (đã trừ đơn/VND hủy), Số đơn hoàn hủy (đơn Check = Hủy), đơn/DS hoàn hủy thực tế — Key match đơn ↔ báo cáo. Cột «Số đơn tay» (Số đơn nhập) không bị ghi đè.\n\n' +
