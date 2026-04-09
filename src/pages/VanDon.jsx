@@ -762,11 +762,13 @@ function VanDon({ dataSource = 'default' }) {
             innerMap.set(key, parsed[id][key]);
 
             // Push into DB Queue directly from localStorage
+            const cell = parsed[id][key];
             startupQueue.push({
               orderId: oid,
               colKey: key,
-              originalValue: parsed[id][key].originalValue,
-              newValue: parsed[id][key].newValue
+              originalValue: cell.originalValue,
+              newValue: cell.newValue,
+              ...(cell.baseValue !== undefined ? { baseValue: cell.baseValue } : {}),
             });
           }
           map.set(oid, innerMap);
@@ -3335,7 +3337,8 @@ function VanDon({ dataSource = 'default' }) {
             orderId,
             colKey,
             newValue: info.newValue,
-            originalValue: info.originalValue
+            originalValue: info.originalValue,
+            ...(info.baseValue !== undefined ? { baseValue: info.baseValue } : {}),
           });
         });
       });
