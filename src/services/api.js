@@ -311,6 +311,24 @@ function extractPostgrestAggregateNumeric(data) {
     return null;
 }
 
+/** Một response PostgREST với nhiều `.sum()` — ví dụ `total_amount_vnd.sum`, `van_don_line_total_vnd.sum`. */
+function extractVanDonMoneyAggregateSums(data) {
+    const row = unwrapPostgrestAggregateRow(data);
+    if (row == null || typeof row !== 'object') {
+        return { totalRaw: null, lineRaw: null, tongRaw: null };
+    }
+    const num = (v) => {
+        if (v === null || v === undefined || v === '') return null;
+        const n = typeof v === 'number' ? v : Number(v);
+        return Number.isFinite(n) ? n : null;
+    };
+    return {
+        totalRaw: num(row['total_amount_vnd.sum']),
+        lineRaw: num(row['van_don_line_total_vnd.sum']),
+        tongRaw: num(row['tong_tien_vnd.sum']),
+    };
+}
+
 const PROD_HOST = 'https://n-api-gamma.vercel.app';
 // const LOCAL_HOST = 'http://localhost:8081'; 
 const MAIN_HOST = PROD_HOST; // Defaulting to prod as per script
@@ -817,19 +835,51 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                 continue;
             }
 
-            if (useActivityLog) {
-                const trail = changeLog.filter((c) => String(c.orderId ?? '').trim() === oc);
-                if (trail.length > 0) {
+            const trail = Array.isArray(changeLog) ? changeLog.filter((c) => String(c.orderId ?? '').trim() === oc) : [];
+            let dbRow = null;
+
+            if (trail.length > 0) {
+                const dbKeysToCheck = [...new Set(trail.map(ch => resolveAppKeyToDbKey(ch.colKey)).filter(Boolean))];
+                if (useActivityLog) dbKeysToCheck.push('log'); // Fetch log column if appending trail
+                
+                if (dbKeysToCheck.length > 0) {
                     const { data: logRow, error: logErr } = await supabase
                         .from(sourceTable)
-                        .select('log')
+                        .select(dbKeysToCheck.join(','))
                         .eq('order_code', oc)
                         .maybeSingle();
+                        
                     if (logErr) throw logErr;
-                    const prev = parseOrderLogJsonb(logRow?.log);
-                    const ts = new Date().toISOString();
-                    const nv = String(modifiedBy || '').trim() || 'hệ thống';
-                    const entries = trail
+                    if (!logRow) throw new Error(`Đơn hàng ${oc} không tồn tại trên hệ thống!`);
+                    dbRow = logRow;
+
+                    // 1. Phân giải Xung Đột (OCC - Xử lý ghi đè chéo)
+                    for (const ch of trail) {
+                        const dbK = resolveAppKeyToDbKey(ch.colKey);
+                        if (!dbK || ch.baseValue === undefined) continue;
+                        
+                        // Định dạng lại giá trị baseValue hệt như chuẩn DB
+                        const expectedDbValueRaw = prepareValueForDB(dbK, ch.baseValue);
+                        const expectedDbValueStr = expectedDbValueRaw != null ? String(expectedDbValueRaw).trim() : '';
+                        const currentDbValueStr = dbRow[dbK] != null ? String(dbRow[dbK]).trim() : '';
+                        
+                        if (expectedDbValueStr !== currentDbValueStr) {
+                            throw new Error(
+                                `XUNG ĐỘT DỮ LIỆU ĐƠN [${oc}]:\n` +
+                                `Trong lúc bạn chỉnh sửa, hệ thống quá hạn hoặc nhân viên khác đã đổi cột "${ch.colKey}" thành "${currentDbValueStr || '(rỗng)'}".\n\n` +
+                                `Vui lòng Bấm F5 Tải lại trang để đồng bộ dữ liệu mới nhất trước khi lưu đè!`
+                            );
+                        }
+                    }
+                }
+            }
+
+            // 2. Cập nhật Log nếu có hỗ trợ
+            if (useActivityLog && trail.length > 0 && dbRow) {
+                const prev = parseOrderLogJsonb(dbRow?.log);
+                const ts = new Date().toISOString();
+                const nv = String(modifiedBy || '').trim() || 'hệ thống';
+                const entries = trail
                         .map((ch) => {
                             const dbK = resolveAppKeyToDbKey(ch.colKey);
                             if (!dbK) return null;
@@ -848,9 +898,8 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                             };
                         })
                         .filter(Boolean);
-                    if (entries.length > 0) {
-                        payload.log = sanitizeLogJsonbForSupabase(mergeOrderLogJsonb(prev, entries));
-                    }
+                if (entries.length > 0) {
+                    payload.log = sanitizeLogJsonbForSupabase(mergeOrderLogJsonb(prev, entries));
                 }
             } else if (Object.prototype.hasOwnProperty.call(payload, 'log')) {
                 const rawLog = payload.log;
@@ -1082,7 +1131,16 @@ export const fetchVanDon = async (options = {}) => {
          * Không đẩy xuống SQL → phân trang + tổng tiền + count PostgREST lệch hoàn toàn với dữ liệu hiển thị (/van-don-hcm gồm).
          */
         hanoiTabSqlScope = null,
+        /**
+         * `rows` — chỉ trang + đếm ước lượng (nhanh, không chờ SUM toàn bộ bộ lọc).
+         * `money` — chỉ tổng tiền (SUM + fallback); dùng song song với `rows` từ UI.
+         * `null` / không truyền — một lần gọi đầy đủ (đếm chính xác + SUM), ví dụ xuất Excel.
+         */
+        vanDonFetchMode = null,
     } = options;
+
+    const vanDonRowsOnly = vanDonFetchMode === 'rows';
+    const vanDonMoneyOnly = vanDonFetchMode === 'money';
 
     const mode = getDataSourceMode();
     if (mode === 'test') {
@@ -1131,8 +1189,6 @@ export const fetchVanDon = async (options = {}) => {
     }
 
     try {
-        console.log('Fetching Van Don properties from Supabase...');
-
         const pageFrom = (page - 1) * limit;
         const pageTo = pageFrom + limit - 1;
 
@@ -1383,118 +1439,173 @@ export const fetchVanDon = async (options = {}) => {
         const loadVanDonFromTable = async (tableName) => {
             const selectCols =
                 tableName === 'order_code_hcm' ? VAN_DON_SELECT_QUERY_ORDER_CODE_HCM : VAN_DON_SELECT_QUERY;
-            const baseData = applyVanDonFilters(supabase.from(tableName).select(selectCols, { count: 'exact' }));
             /** SUM trên bảng vật lý: ưu tiên total_amount_vnd — khớp cột «Tổng tiền VNĐ» trên lưới (không dùng line total trước). */
             const sumFromTable = tableName === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
-            const sumTotalAmountQ = applyVanDonFilters(
-                supabase.from(sumFromTable).select('total_amount_vnd.sum()')
-            );
-            const sumLineQ = applyVanDonFilters(
-                supabase.from(sumFromTable).select('van_don_line_total_vnd.sum()')
-            );
-            const sumTongTienQ = applyVanDonFilters(
-                supabase.from(sumFromTable).select('tong_tien_vnd.sum()')
+            const sumMoneyCombinedQ = applyVanDonFilters(
+                supabase
+                    .from(sumFromTable)
+                    .select('total_amount_vnd.sum(),van_don_line_total_vnd.sum(),tong_tien_vnd.sum()')
             );
 
-            const [listRes, sumTotalRes, sumLineRes, sumTongTienRes] = await Promise.all([
-                baseData.range(pageFrom, pageTo).order('order_date', { ascending: false }),
-                sumTotalAmountQ,
-                sumLineQ,
-                sumTongTienQ,
-            ]);
+            /**
+             * @param {{ count?: number|null, data?: unknown[] }} listRes
+             * @param {{ data: unknown, error: unknown }} sumCombinedRes
+             */
+            const computeMoneyTotals = async (listRes, sumCombinedRes) => {
+                let totalMissing = false;
+                let lineMissing = false;
+                let tongMissing = false;
+                let totalRaw = null;
+                let lineRaw = null;
+                let tongRaw = null;
+                let sumError = null;
 
-            const totalErr = sumTotalRes.error;
-            const totalMissing =
-                totalErr &&
-                (String(totalErr.message || '').toLowerCase().includes('total_amount_vnd') ||
-                    String(totalErr.code || '') === '42703');
+                if (sumCombinedRes.error) {
+                    const [sumTotalRes, sumLineRes, sumTongTienRes] = await Promise.all([
+                        applyVanDonFilters(supabase.from(sumFromTable).select('total_amount_vnd.sum()')),
+                        applyVanDonFilters(supabase.from(sumFromTable).select('van_don_line_total_vnd.sum()')),
+                        applyVanDonFilters(supabase.from(sumFromTable).select('tong_tien_vnd.sum()')),
+                    ]);
+                    const totalErr = sumTotalRes.error;
+                    totalMissing = Boolean(
+                        totalErr &&
+                            (String(totalErr.message || '').toLowerCase().includes('total_amount_vnd') ||
+                                String(totalErr.code || '') === '42703')
+                    );
+                    const lineErr = sumLineRes.error;
+                    lineMissing = Boolean(
+                        lineErr &&
+                            (String(lineErr.message || '').toLowerCase().includes('van_don_line_total_vnd') ||
+                                String(lineErr.code || '') === '42703')
+                    );
+                    const tongErr = sumTongTienRes.error;
+                    tongMissing = Boolean(
+                        tongErr &&
+                            (String(tongErr.message || '').toLowerCase().includes('tong_tien_vnd') ||
+                                String(tongErr.code || '') === '42703')
+                    );
+                    if (!totalMissing) totalRaw = extractPostgrestAggregateNumeric(sumTotalRes.data);
+                    if (!lineMissing) lineRaw = extractPostgrestAggregateNumeric(sumLineRes.data);
+                    if (!tongMissing) tongRaw = extractPostgrestAggregateNumeric(sumTongTienRes.data);
+                    sumError = totalMissing ? lineErr : totalErr || lineErr || (tongMissing ? null : tongErr);
+                } else {
+                    const sums = extractVanDonMoneyAggregateSums(sumCombinedRes.data);
+                    totalRaw = sums.totalRaw;
+                    lineRaw = sums.lineRaw;
+                    tongRaw = sums.tongRaw;
+                }
 
-            const lineErr = sumLineRes.error;
-            const lineMissing =
-                lineErr &&
-                (String(lineErr.message || '').toLowerCase().includes('van_don_line_total_vnd') ||
-                    String(lineErr.code || '') === '42703');
-
-            let totalAmountVndSum = null;
-            const totalRaw = extractPostgrestAggregateNumeric(sumTotalRes.data);
-            if (!totalMissing && totalRaw != null) {
-                totalAmountVndSum = totalRaw;
-            }
-            if (totalAmountVndSum == null) {
-                const lineRaw = extractPostgrestAggregateNumeric(sumLineRes.data);
-                if (!lineMissing && lineRaw != null) {
+                let totalAmountVndSum = null;
+                if (!totalMissing && totalRaw != null) {
+                    totalAmountVndSum = totalRaw;
+                }
+                if (totalAmountVndSum == null && !lineMissing && lineRaw != null) {
                     totalAmountVndSum = lineRaw;
                 }
-            }
-            const tongErr = sumTongTienRes.error;
-            const tongMissing =
-                tongErr &&
-                (String(tongErr.message || '').toLowerCase().includes('tong_tien_vnd') ||
-                    String(tongErr.code || '') === '42703');
-            if (totalAmountVndSum == null) {
-                const tongRaw = extractPostgrestAggregateNumeric(sumTongTienRes.data);
-                if (!tongMissing && tongRaw != null) {
+                if (totalAmountVndSum == null && !tongMissing && tongRaw != null) {
                     totalAmountVndSum = tongRaw;
                 }
-            }
-            if (totalAmountVndSum == null) totalAmountVndSum = 0;
+                if (totalAmountVndSum == null) totalAmountVndSum = 0;
 
-            const sumError =
-                totalMissing ? lineErr : totalErr || lineErr || (tongMissing ? null : tongErr);
-
-            const rowCount = listRes.count ?? 0;
-            const pageRows = listRes.data || [];
-            const pageHasPositiveMoney = pageRows.some((r) => pickVanDonMoneyFromDbRow(r) > 0);
-            const needMoneyFallback = totalAmountVndSum === 0 && rowCount > 0;
-            if (needMoneyFallback) {
-                const moneyCols = 'van_don_line_total_vnd,tong_tien_vnd,total_amount_vnd,sale_price,goods_amount';
-                const PROBE = 800;
-                const { data: probeRows, error: probeErr } = await applyVanDonFilters(
-                    supabase.from(sumFromTable).select(moneyCols)
-                )
-                    .order('order_date', { ascending: false })
-                    .range(0, PROBE - 1);
-                if (probeErr) {
-                    console.warn('[fetchVanDon] money probe:', probeErr.message);
-                } else {
-                    const probeSum = (probeRows || []).reduce((s, r) => s + pickVanDonMoneyFromDbRow(r), 0);
-                    const runFullScan = pageHasPositiveMoney || probeSum > 0;
-                    if (runFullScan) {
-                        /** PostgREST thường giới hạn ~1000 dòng/response; không được thoát sớm khi chunk < MONEY_BATCH. */
-                        const MONEY_BATCH = 1000;
-                        const maxBatches = Math.min(200000, Math.ceil(rowCount / MONEY_BATCH) + 50);
-                        let scanned = 0;
-                        let fallbackSum = 0;
-                        for (let b = 0; b < maxBatches && scanned < rowCount; b++) {
-                            const { data: chunk, error: chunkErr } = await applyVanDonFilters(
-                                supabase.from(sumFromTable).select(moneyCols)
-                            )
-                                .order('order_date', { ascending: false })
-                                .range(scanned, scanned + MONEY_BATCH - 1);
-                            if (chunkErr) {
-                                console.warn('[fetchVanDon] money scan batch:', chunkErr.message);
-                                break;
+                const rowCount = listRes.count ?? 0;
+                const pageRows = listRes.data || [];
+                const pageHasPositiveMoney = pageRows.some((r) => pickVanDonMoneyFromDbRow(r) > 0);
+                const needMoneyFallback = totalAmountVndSum === 0 && rowCount > 0;
+                if (needMoneyFallback) {
+                    const moneyCols = 'van_don_line_total_vnd,tong_tien_vnd,total_amount_vnd,sale_price,goods_amount';
+                    const PROBE = 800;
+                    const { data: probeRows, error: probeErr } = await applyVanDonFilters(
+                        supabase.from(sumFromTable).select(moneyCols)
+                    )
+                        .order('order_date', { ascending: false })
+                        .range(0, PROBE - 1);
+                    if (probeErr) {
+                        console.warn('[fetchVanDon] money probe:', probeErr.message);
+                    } else {
+                        const probeSum = (probeRows || []).reduce((s, r) => s + pickVanDonMoneyFromDbRow(r), 0);
+                        const runFullScan = pageHasPositiveMoney || probeSum > 0;
+                        if (runFullScan) {
+                            /** PostgREST thường giới hạn ~1000 dòng/response; không được thoát sớm khi chunk < MONEY_BATCH. */
+                            const MONEY_BATCH = 1000;
+                            const maxBatches = Math.min(200000, Math.ceil(rowCount / MONEY_BATCH) + 50);
+                            let scanned = 0;
+                            let fallbackSum = 0;
+                            for (let b = 0; b < maxBatches && scanned < rowCount; b++) {
+                                const { data: chunk, error: chunkErr } = await applyVanDonFilters(
+                                    supabase.from(sumFromTable).select(moneyCols)
+                                )
+                                    .order('order_date', { ascending: false })
+                                    .range(scanned, scanned + MONEY_BATCH - 1);
+                                if (chunkErr) {
+                                    console.warn('[fetchVanDon] money scan batch:', chunkErr.message);
+                                    break;
+                                }
+                                if (!chunk?.length) break;
+                                for (let i = 0; i < chunk.length; i++) {
+                                    fallbackSum += pickVanDonMoneyFromDbRow(chunk[i]);
+                                }
+                                scanned += chunk.length;
+                                if (scanned >= rowCount) break;
                             }
-                            if (!chunk?.length) break;
-                            for (let i = 0; i < chunk.length; i++) {
-                                fallbackSum += pickVanDonMoneyFromDbRow(chunk[i]);
+                            if (fallbackSum > 0) {
+                                totalAmountVndSum = fallbackSum;
                             }
-                            scanned += chunk.length;
-                            if (scanned >= rowCount) break;
-                        }
-                        if (fallbackSum > 0) {
-                            totalAmountVndSum = fallbackSum;
                         }
                     }
                 }
+
+                return { sumError, totalAmountVndSum };
+            };
+
+            /** Chỉ lưới + đếm ước lượng — không chạy SUM (trả về nhanh hơn nhiều khi bảng lớn). */
+            if (vanDonRowsOnly) {
+                const baseData = applyVanDonFilters(
+                    supabase.from(tableName).select(selectCols, { count: 'estimated' })
+                );
+                const listRes = await baseData.range(pageFrom, pageTo).order('order_date', { ascending: false });
+                return {
+                    data: listRes.data,
+                    error: listRes.error,
+                    count: listRes.count,
+                    sumError: null,
+                    totalAmountVndSum: undefined,
+                    rowsOnly: true,
+                };
             }
 
+            /** Chỉ tổng tiền — song song với request `rows` từ UI. */
+            if (vanDonMoneyOnly) {
+                const headQ = applyVanDonFilters(
+                    supabase.from(tableName).select('order_code', { count: 'estimated', head: true })
+                );
+                const [headRes, sumCombinedRes] = await Promise.all([headQ, sumMoneyCombinedQ]);
+                const syntheticList = { count: headRes.count ?? 0, data: [] };
+                const { sumError, totalAmountVndSum } = await computeMoneyTotals(syntheticList, sumCombinedRes);
+                return {
+                    data: [],
+                    error: null,
+                    count: 0,
+                    sumError,
+                    totalAmountVndSum,
+                    rowsOnly: false,
+                };
+            }
+
+            const baseData = applyVanDonFilters(
+                supabase.from(tableName).select(selectCols, { count: 'exact' })
+            );
+            const [listRes, sumCombinedRes] = await Promise.all([
+                baseData.range(pageFrom, pageTo).order('order_date', { ascending: false }),
+                sumMoneyCombinedQ,
+            ]);
+            const { sumError, totalAmountVndSum } = await computeMoneyTotals(listRes, sumCombinedRes);
             return {
                 data: listRes.data,
                 error: listRes.error,
                 count: listRes.count,
                 sumError,
                 totalAmountVndSum,
+                rowsOnly: false,
             };
         };
 
@@ -1510,42 +1621,6 @@ export const fetchVanDon = async (options = {}) => {
             );
         };
 
-        try {
-            const debugOrderCode = 'Kemb5a90cf6';
-            const { data: debugCheck, error: debugError } = await supabase
-                .from(sourceTable)
-                .select('order_code, order_date, team, country, sale_staff, marketing_staff, delivery_staff')
-                .eq('order_code', debugOrderCode)
-                .maybeSingle();
-
-            if (debugCheck && !debugError) {
-                console.log('🔍 [API DEBUG] Tìm thấy đơn hàng', debugOrderCode, 'trong database:');
-                console.log('  - Order date:', debugCheck.order_date);
-                console.log('  - Team:', debugCheck.team);
-                console.log('  - Country:', debugCheck.country);
-                console.log('  - Sale staff:', debugCheck.sale_staff);
-                console.log('  - Marketing staff:', debugCheck.marketing_staff);
-                console.log('  - Delivery staff:', debugCheck.delivery_staff);
-
-                if (team && team !== 'all' && debugCheck.team !== team) {
-                    console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi team filter:', team);
-                }
-                if (Array.isArray(market) && market.length > 0 && !market.includes(debugCheck.country)) {
-                    console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi market filter:', market);
-                }
-                if (dateFrom && debugCheck.order_date < dateFrom) {
-                    console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi dateFrom filter:', dateFrom);
-                }
-                if (dateTo && debugCheck.order_date > dateTo) {
-                    console.log('⚠️ [API DEBUG] Đơn hàng bị loại bỏ bởi dateTo filter:', dateTo);
-                }
-            } else if (debugError && debugError.code !== 'PGRST116') {
-                console.log('⚠️ [API DEBUG] Lỗi khi tìm đơn hàng:', debugError);
-            }
-        } catch (debugErr) {
-            console.warn('⚠️ [API DEBUG] Lỗi trong debug code (không ảnh hưởng query chính):', debugErr);
-        }
-
         let pack = sourceView
             ? await loadVanDonFromTable(sourceView)
             : await loadVanDonFromTable(sourceTable);
@@ -1555,7 +1630,7 @@ export const fetchVanDon = async (options = {}) => {
             pack = await loadVanDonFromTable(sourceTable);
         }
 
-        const { data, error, count, sumError, totalAmountVndSum } = pack;
+        const { data, error, count, sumError, totalAmountVndSum, rowsOnly } = pack;
         if (sumError) {
             console.warn('[fetchVanDon] total_amount_vnd.sum:', sumError.message);
         }
@@ -1570,7 +1645,8 @@ export const fetchVanDon = async (options = {}) => {
         return {
             data: mappedData,
             total: count || 0,
-            totalAmountVndSum: Number.isFinite(totalAmountVndSum) ? totalAmountVndSum : 0,
+            totalAmountVndSum:
+                rowsOnly ? undefined : Number.isFinite(totalAmountVndSum) ? totalAmountVndSum : 0,
             page: page,
             limit: limit,
             totalPages: Math.ceil((count || 0) / limit)

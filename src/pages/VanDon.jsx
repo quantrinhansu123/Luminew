@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { TableVirtuoso } from 'react-virtuoso';
 import * as XLSX from 'xlsx';
 
@@ -213,6 +213,120 @@ const VanDonVirtuosoScroller = React.forwardRef(({ style, ...props }, ref) => (
   />
 ));
 VanDonVirtuosoScroller.displayName = 'VanDonVirtuosoScroller';
+
+/**
+ * VanDonRow — component hàng được bọc React.memo để tránh re-render không cần thiết.
+ * Virtuoso chỉ gọi lại khi row, selection, pending, selectedRows thay đổi thuộc về hàng này.
+ * Khi cuộn, các hàng đang visible không thay đổi → React skip hoàn toàn (zero re-render).
+ */
+const VanDonRow = React.memo(function VanDonRow({
+  row,
+  rIdx,
+  currentColumns,
+  effectiveFixedColumns,
+  bolActiveTab,
+  selectedRows,
+  pendingChanges,
+  selectionBounds,
+  getStickyLeftPx,
+  getColumnWidthStyles,
+  renderVanDonDataCell,
+  toggleRowSelection,
+  isLongTextExpanded,
+  currentPage,
+  effectiveRowsPerPage,
+}) {
+  const orderId = getVanDonRowOrderId(row);
+  const isSelected = Boolean(orderId && selectedRows.has(orderId));
+  const hasCanhBao = rowHasVanDonCanhBao(row);
+
+  return (
+    <>
+      {bolActiveTab === 'hanoi' && (
+        <td
+          className={`py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300] ${hasCanhBao && !isSelected ? 'van-don-canh-bao-blink' : ''}`}
+          style={{
+            width: VAN_DON_CHECKBOX_COL_PX,
+            minWidth: VAN_DON_CHECKBOX_COL_PX,
+            ...(isSelected
+              ? { backgroundColor: '#dbeafe' }
+              : hasCanhBao
+                ? {}
+                : { backgroundColor: '#f9fafb' })
+          }}
+        >
+          <div className="flex items-center justify-center">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              disabled={!orderId}
+              onChange={() => orderId && toggleRowSelection(orderId)}
+              onClick={(e) => e.stopPropagation()}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            />
+          </div>
+        </td>
+      )}
+      {currentColumns.map((col, cIdx) => {
+        const cellStickyLeft = getStickyLeftPx(cIdx);
+        const isFixed = cIdx < effectiveFixedColumns;
+        const colWidthStyles = getColumnWidthStyles(col);
+        const cellStyle = isFixed
+          ? {
+            position: 'sticky',
+            left: cellStickyLeft,
+            zIndex: 3100,
+            ...colWidthStyles,
+            overflow: 'visible',
+            textOverflow: 'clip',
+            boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
+          }
+          : { position: 'relative', zIndex: 10, ...colWidthStyles };
+        return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
+      })}
+    </>
+  );
+}, (prevProps, nextProps) => {
+  // Custom equality: chỉ re-render khi các giá trị thực sự ảnh hưởng đến hàng này thay đổi
+  if (prevProps.row !== nextProps.row) return false;
+  if (prevProps.rIdx !== nextProps.rIdx) return false;
+  if (prevProps.isLongTextExpanded !== nextProps.isLongTextExpanded) return false;
+  if (prevProps.currentColumns !== nextProps.currentColumns) return false;
+  if (prevProps.effectiveFixedColumns !== nextProps.effectiveFixedColumns) return false;
+  if (prevProps.bolActiveTab !== nextProps.bolActiveTab) return false;
+  if (prevProps.getStickyLeftPx !== nextProps.getStickyLeftPx) return false;
+  if (prevProps.getColumnWidthStyles !== nextProps.getColumnWidthStyles) return false;
+  if (prevProps.renderVanDonDataCell !== nextProps.renderVanDonDataCell) return false;
+
+  // selectedRows: chỉ so sánh entry cho orderId của hàng này
+  const orderId = getVanDonRowOrderId(nextProps.row);
+  const prevSelected = orderId ? prevProps.selectedRows.has(orderId) : false;
+  const nextSelected = orderId ? nextProps.selectedRows.has(orderId) : false;
+  if (prevSelected !== nextSelected) return false;
+
+  // pendingChanges: chỉ so sánh inner Map của hàng này
+  const prevPending = orderId ? prevProps.pendingChanges.get(orderId) : undefined;
+  const nextPending = orderId ? nextProps.pendingChanges.get(orderId) : undefined;
+  if (prevPending !== nextPending) return false;
+
+  // selectionBounds: re-render nếu hàng này vừa vào/ ra khỏi vùng select
+  const rowIsInPrev = prevProps.selectionBounds &&
+    prevProps.rIdx >= prevProps.selectionBounds.minRow &&
+    prevProps.rIdx <= prevProps.selectionBounds.maxRow;
+  const rowIsInNext = nextProps.selectionBounds &&
+    nextProps.rIdx >= nextProps.selectionBounds.minRow &&
+    nextProps.rIdx <= nextProps.selectionBounds.maxRow;
+  if (rowIsInPrev !== rowIsInNext) return false;
+  if (rowIsInPrev && rowIsInNext) {
+    // Trong cả 2: kiểm tra bounds chi tiết ảnh hưởng border
+    if (prevProps.selectionBounds?.minRow !== nextProps.selectionBounds?.minRow) return false;
+    if (prevProps.selectionBounds?.maxRow !== nextProps.selectionBounds?.maxRow) return false;
+    if (prevProps.selectionBounds?.minCol !== nextProps.selectionBounds?.minCol) return false;
+    if (prevProps.selectionBounds?.maxCol !== nextProps.selectionBounds?.maxCol) return false;
+  }
+
+  return true; // Props không thay đổi → skip re-render hoàn toàn
+});
 
 /** Tên hiển thị phiên đăng nhập — khớp với cột NV Vận đơn / delivery_staff (tab Đơn cá nhân). */
 function getVanDonSessionDisplayName() {
@@ -865,9 +979,15 @@ function VanDon({ dataSource = 'default' }) {
     dataSource
   ]);
 
-  /** Cùng logic quyền + filter API với useQuery; `page`/`limit` truyền vào (xuất Excel tải nhiều trang). */
+  /** Bộ lọc gửi kèm SUM tiền — không phụ thuộc trang (tránh refetch tổng tiền mỗi lần đổi trang). */
+  const vanDonMoneyFilters = useMemo(() => {
+    const { page: _p, limit: _l, ...rest } = activeFilters;
+    return rest;
+  }, [activeFilters]);
+
+  /** Cùng logic quyền + filter API với useQuery; `page`/`limit` truyền vào (xuất Excel tải nhiều trang). `vanDonFetchMode`: `'rows'`|`'money'`|null — null = đầy đủ (Excel). */
   const runVanDonFetch = useCallback(
-    async (page, limit) => {
+    async (page, limit, vanDonFetchMode = null) => {
       const userJson = localStorage.getItem("user");
       const user = userJson ? JSON.parse(userJson) : null;
       const userName = [
@@ -964,7 +1084,8 @@ function VanDon({ dataSource = 'default' }) {
         columnFilters: activeFilters.columnFilters || {},
         trackingFilter: activeFilters.trackingFilter || null,
         customerQuickSearch: activeFilters.customerQuickSearch,
-        canh_bao_filter: activeFilters.canh_bao_filter
+        canh_bao_filter: activeFilters.canh_bao_filter,
+        vanDonFetchMode
       });
 
       console.log('✅ [VanDon] fetchVanDon Result:', {
@@ -988,31 +1109,75 @@ function VanDon({ dataSource = 'default' }) {
     [activeFilters, dataSource, isAdmin, role, selectedPersonnelNames]
   );
 
+  const personnelScopeKey =
+    activeFilters.tab === 'japan' || activeFilters.tab === 'hanoi'
+      ? 'no-personnel-scope'
+      : selectedPersonnelNames.slice().sort().join('|');
+
   const {
-    data: queryResult,
-    isLoading: isQueryLoading,
-    isFetching,
-    refetch: refetchVanDonData
+    data: vanDonRowsResult,
+    isLoading: vanDonRowsLoading,
+    refetch: refetchVanDonRows
   } = useQuery({
-    // Bắt buộc tách cache theo nguồn: /van-don (orders + van_don_page) vs /van-don-hcm (order_code_hcm).
-    // Nếu thiếu `dataSource`, hai trang có cùng filter sẽ dùng nhầm cache → dữ liệu thiếu/sai.
-    queryKey: [
-      'vanDon',
-      dataSource,
-      activeFilters,
-      activeFilters.tab === 'japan' || activeFilters.tab === 'hanoi'
-        ? 'no-personnel-scope'
-        : selectedPersonnelNames.slice().sort().join('|'),
-      isAdmin
-    ],
+    queryKey: ['vanDon', 'rows', dataSource, activeFilters, personnelScopeKey, isAdmin],
     queryFn: async () => {
-      console.log('🚀 [VanDon] Query Function Started. useBackendPagination:', useBackendPagination, 'permissionsLoading:', permissionsLoading);
       if (!useBackendPagination || permissionsLoading) return null;
-      return runVanDonFetch(currentPage, rowsPerPage);
+      return runVanDonFetch(currentPage, rowsPerPage, 'rows');
     },
     enabled: useBackendPagination && !permissionsLoading,
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
+
+  const { data: vanDonMoneyResult, refetch: refetchVanDonMoney } = useQuery({
+    queryKey: ['vanDon', 'money', dataSource, vanDonMoneyFilters, personnelScopeKey, isAdmin],
+    queryFn: async () => {
+      if (!useBackendPagination || permissionsLoading) return null;
+      return runVanDonFetch(1, 1, 'money');
+    },
+    enabled: useBackendPagination && !permissionsLoading,
+    staleTime: 30 * 1000,
+  });
+
+  const queryResult = useMemo(() => {
+    if (!vanDonRowsResult) return null;
+    const moneySum = vanDonMoneyResult?.totalAmountVndSum;
+    return {
+      ...vanDonRowsResult,
+      totalAmountVndSum:
+        moneySum !== undefined && moneySum !== null ? moneySum : vanDonRowsResult.totalAmountVndSum
+    };
+  }, [vanDonRowsResult, vanDonMoneyResult]);
+
+  const isQueryLoading = vanDonRowsLoading;
+
+  const refetchVanDonData = useCallback(() => {
+    refetchVanDonRows();
+    refetchVanDonMoney();
+  }, [refetchVanDonRows, refetchVanDonMoney]);
+
+  const [enableVanDonDistinctQuery, setEnableVanDonDistinctQuery] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (typeof requestIdleCallback !== 'undefined') {
+      const id = requestIdleCallback(
+        () => {
+          if (!cancelled) setEnableVanDonDistinctQuery(true);
+        },
+        { timeout: 2000 }
+      );
+      return () => {
+        cancelled = true;
+        cancelIdleCallback(id);
+      };
+    }
+    const t = setTimeout(() => {
+      if (!cancelled) setEnableVanDonDistinctQuery(true);
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, []);
 
   const { data: vanDonDistinctFilterOptions = {} } = useQuery({
     queryKey: ['vanDonDistinctFilterOptions', dataSource],
@@ -1023,7 +1188,7 @@ function VanDon({ dataSource = 'default' }) {
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,
-    enabled: !permissionsLoading
+    enabled: !permissionsLoading && enableVanDonDistinctQuery
   });
 
   /** Danh sách sản phẩm master (Quản lý Danh sách Sản phẩm — bảng system_settings). */
@@ -1790,7 +1955,7 @@ function VanDon({ dataSource = 'default' }) {
     setAppliedEnableDateFilter(false);
     setAppliedBolDateType(bolDateType);
     setCurrentPage(1);
-    await queryClient.invalidateQueries(['vanDon']);
+    await queryClient.invalidateQueries({ queryKey: ['vanDon'] });
     queryClient.invalidateQueries({ queryKey: ['vanDonDistinctFilterOptions'] });
   };
 
@@ -2710,7 +2875,7 @@ function VanDon({ dataSource = 'default' }) {
           });
 
           // Refresh data from server
-          queryClient.invalidateQueries(['vanDon']);
+          queryClient.invalidateQueries({ queryKey: ['vanDon'] });
 
           setPendingChanges(prev => {
             const next = deepCloneMapOfMaps(prev);
@@ -3699,7 +3864,7 @@ function VanDon({ dataSource = 'default' }) {
     );
   };
 
-  const renderVanDonDataCell = (row, rIdx, col, cIdx, cellStyle) => {
+  const renderVanDonDataCell = useCallback((row, rIdx, col, cIdx, cellStyle) => {
     const orderId = getVanDonRowOrderId(row);
     const key = COLUMN_MAPPING[col] || col;
     let val = getVanDonGridCellValue(row, col);
@@ -3876,7 +4041,13 @@ function VanDon({ dataSource = 'default' }) {
         )}
       </td>
     );
-  };
+  }, [
+    pendingChanges, selectionBounds, isReadonlyEditTab, isLongTextExpanded,
+    currentPage, effectiveRowsPerPage, viewMode,
+    handleCellChange, handleMouseDown, handleMouseEnter, setSelection,
+    getCellClass, formatDate, getCellEditSelectOptions,
+    vanDonLongTextDraftRef, effectiveFixedColumns
+  ]);
 
   // Không cho double click chọn/kéo text để "mang data đi" trong bảng (trừ input/select đang chỉnh sửa).
   const blockTableDoubleClickCopy = (e) => {
@@ -4413,64 +4584,32 @@ function VanDon({ dataSource = 'default' }) {
                         tableRef.current = el;
                         horizontalScrollHostRef.current = el;
                         el.addEventListener('scroll', onTableScroll);
-                        // Duy trì vị trí scroll khi chuyển giữa các state
                         if (vanDonHeaderContainerRef.current) {
                           el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
                         }
                       }
                     }}
                     components={vanDonVirtuosoComponents}
-                    itemContent={(rIdx, row) => {
-                      const orderId = getVanDonRowOrderId(row);
-                      const isSelected = Boolean(orderId && selectedRows.has(orderId));
-                      const hasCanhBao = rowHasVanDonCanhBao(row);
-                      return (
-                        <>
-                          {bolActiveTab === 'hanoi' && (
-                            <td
-                              className={`py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300] ${hasCanhBao && !isSelected ? 'van-don-canh-bao-blink' : ''}`}
-                              style={{
-                                width: VAN_DON_CHECKBOX_COL_PX,
-                                minWidth: VAN_DON_CHECKBOX_COL_PX,
-                                ...(isSelected
-                                  ? { backgroundColor: '#dbeafe' }
-                                  : hasCanhBao
-                                    ? {}
-                                    : { backgroundColor: '#f9fafb' })
-                              }}
-                            >
-                              <div className="flex items-center justify-center">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  disabled={!orderId}
-                                  onChange={() => orderId && toggleRowSelection(orderId)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                />
-                              </div>
-                            </td>
-                          )}
-                          {currentColumns.map((col, cIdx) => {
-                            const cellStickyLeft = getStickyLeftPx(cIdx);
-                            const isFixed = cIdx < effectiveFixedColumns;
-                            const colWidthStyles = getColumnWidthStyles(col);
-                            const cellStyle = isFixed
-                              ? {
-                                position: 'sticky',
-                                left: cellStickyLeft,
-                                zIndex: 3100,
-                                ...colWidthStyles,
-                                overflow: 'visible',
-                                textOverflow: 'clip',
-                                boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
-                              }
-                              : { position: 'relative', zIndex: 10, ...colWidthStyles };
-                            return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
-                          })}
-                        </>
-                      );
-                    }}
+                    overscan={150}
+                    itemContent={(rIdx, row) => (
+                      <VanDonRow
+                        row={row}
+                        rIdx={rIdx}
+                        currentColumns={currentColumns}
+                        effectiveFixedColumns={effectiveFixedColumns}
+                        bolActiveTab={bolActiveTab}
+                        selectedRows={selectedRows}
+                        pendingChanges={pendingChanges}
+                        selectionBounds={selectionBounds}
+                        getStickyLeftPx={getStickyLeftPx}
+                        getColumnWidthStyles={getColumnWidthStyles}
+                        renderVanDonDataCell={renderVanDonDataCell}
+                        toggleRowSelection={toggleRowSelection}
+                        isLongTextExpanded={isLongTextExpanded}
+                        currentPage={currentPage}
+                        effectiveRowsPerPage={effectiveRowsPerPage}
+                      />
+                    )}
                   />
                   </div>
                 )}
