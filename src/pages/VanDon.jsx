@@ -165,7 +165,7 @@ function normalizeVanDonOrderIdKey(id) {
 function isVanDonUserEditableColumn(col) {
   if (isVanDonGridReadOnlyColumnKey(col)) return false;
   if (!colInList(col, EDITABLE_COLS)) return false;
-  return normalizeColHeader(col) !== normalizeColHeader('Mã Tracking');
+  return true;
 }
 
 /** Cột tiền/số trên lưới — so sánh theo giá trị số (4.725.000 ≡ 4725000), tránh ghi DB khi chỉ khác format. */
@@ -414,12 +414,12 @@ function VanDon({ dataSource = 'default' }) {
   };
 
   // Admin xem tất cả dữ liệu, User thường chỉ xem 3 ngày gần nhất
-  const [dateFrom, setDateFrom] = useState(isAdmin ? '' : getThreeDaysAgo());
-  const [dateTo, setDateTo] = useState(isAdmin ? '' : getToday());
-  const [enableDateFilter, setEnableDateFilter] = useState(!isAdmin);
-  const [appliedDateFrom, setAppliedDateFrom] = useState(isAdmin ? '' : getThreeDaysAgo());
-  const [appliedDateTo, setAppliedDateTo] = useState(isAdmin ? '' : getToday());
-  const [appliedEnableDateFilter, setAppliedEnableDateFilter] = useState(!isAdmin);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [enableDateFilter, setEnableDateFilter] = useState(false);
+  const [appliedDateFrom, setAppliedDateFrom] = useState('');
+  const [appliedDateTo, setAppliedDateTo] = useState('');
+  const [appliedEnableDateFilter, setAppliedEnableDateFilter] = useState(false);
   const [quickFilter, setQuickFilter] = useState('');
   const [fixedColumns, setFixedColumns] = useState(2);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -948,7 +948,7 @@ function VanDon({ dataSource = 'default' }) {
         team: activeFilters.team,
         excludeHcmTeam: dataSource !== 'hcm',
         hanoiTabSqlScope:
-          activeFilters.tab === 'hanoi' ? (isAdmin ? 'ffm_queue_admin' : 'ffm_queue') : null,
+          activeFilters.tab === 'hanoi' ? 'ffm_queue_admin' : null,
         market: activeFilters.market,
         product: activeFilters.product,
         nv_sale: activeFilters.nv_sale,
@@ -1201,15 +1201,14 @@ function VanDon({ dataSource = 'default' }) {
           data = data.filter(row => {
             const team = String(row['Team'] || row.team || '').trim();
             const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-            const tracking = String(row['Mã Tracking'] || row['Mã tracking'] || '').trim();
             const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
 
             const isTeamMatch = team === wantTeam;
             const isCheckOk = checkResult.toLowerCase() === 'ok';
-            const isTrackingEmpty = isVanDonSemanticEmpty(tracking);
             const isDeliveryUnitEmpty = isVanDonSemanticEmpty(deliveryUnit);
 
-            return isTeamMatch && isCheckOk && isTrackingEmpty && isDeliveryUnitEmpty;
+            // Xóa rào cản isTrackingEmpty để giống như Admin: vẫn hiện đơn đã có mã Tracking
+            return isTeamMatch && isCheckOk && isDeliveryUnitEmpty;
           });
           console.log(
             `🏛️ [VanDon Fallback] Tab đẩy FFM — Team="${wantTeam}", Check=Ok, empty Tracking & ĐVVC:`,
@@ -1782,12 +1781,12 @@ function VanDon({ dataSource = 'default' }) {
     setAppliedFilterValues(defaultFilters);
     setCustomerQuickSearch('');
     setAppliedCustomerQuickSearch('');
-    setDateFrom(isAdmin ? '' : getThreeDaysAgo());
-    setDateTo(isAdmin ? '' : getToday());
-    setEnableDateFilter(!isAdmin);
-    setAppliedDateFrom(isAdmin ? '' : getThreeDaysAgo());
-    setAppliedDateTo(isAdmin ? '' : getToday());
-    setAppliedEnableDateFilter(!isAdmin);
+    setDateFrom('');
+    setDateTo('');
+    setEnableDateFilter(false);
+    setAppliedDateFrom('');
+    setAppliedDateTo('');
+    setAppliedEnableDateFilter(false);
     setAppliedBolDateType(bolDateType);
     setCurrentPage(1);
     await queryClient.invalidateQueries(['vanDon']);
@@ -1946,12 +1945,12 @@ function VanDon({ dataSource = 'default' }) {
       setAppliedDateFrom('');
       setAppliedDateTo('');
     } else {
-      setEnableDateFilter(true);
-      setDateFrom(getThreeDaysAgo());
-      setDateTo(getToday());
-      setAppliedEnableDateFilter(true);
-      setAppliedDateFrom(getThreeDaysAgo());
-      setAppliedDateTo(getToday());
+      setEnableDateFilter(false);
+      setDateFrom('');
+      setDateTo('');
+      setAppliedEnableDateFilter(false);
+      setAppliedDateFrom('');
+      setAppliedDateTo('');
     }
   }, [permissionsLoading, isAdmin]);
 
@@ -3390,8 +3389,7 @@ function VanDon({ dataSource = 'default' }) {
     const isLongTextEditable =
       viewMode === 'BILL_OF_LADING' &&
       colInList(col, LONG_TEXT_COLS) &&
-      isVanDonUserEditableColumn(col) &&
-      bolActiveTab !== 'readonly_all';
+      isVanDonUserEditableColumn(col);
 
     // Default cell sizing
     // NOTE: For select-based columns, avoid vertical padding so the select can fill the cell height cleanly.
@@ -3876,7 +3874,7 @@ function VanDon({ dataSource = 'default' }) {
               {[
                 { id: 'all', label: 'Đơn nhắc hộ', icon: '📋' },
                 { id: 'ca_nhan', label: 'Đơn cá nhân', icon: '👤' },
-                { id: 'readonly_all', label: 'Xem tất cả (khóa sửa)', icon: '👁️' },
+                { id: 'readonly_all', label: 'Xem tất cả', icon: '👁️' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
                 { id: 'hanoi', label: 'Đẩy Đơn HCM', icon: '🏛️' }
               ]
