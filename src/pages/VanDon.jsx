@@ -362,6 +362,7 @@ function VanDon({ dataSource = 'default' }) {
   }, []);
 
   const [confirmPushData, setConfirmPushData] = useState(null); // { batchId, carrier, count, orderIds, logsTable }
+  const [saveConfirmData, setSaveConfirmData] = useState(null); // { summaries, onConfirm, onCancel }
 
   const hasUnsavedDraft = () =>
     pendingChangesRef.current.size > 0 || dbQueueRef.current.length > 0;
@@ -2760,13 +2761,43 @@ function VanDon({ dataSource = 'default' }) {
     historyIndexRef.current = finalHistory.length - 1;
 
     // 2. Add to DB Queue & UI state
-    dbQueueRef.current.push(...normalized);
+    // Lọc lại các thay đổi: nếu quay về đúng giá trị gốc (baseValue) thì xoá khỏi queue chờ lưu DB
+    const queueChanges = normalized.filter((c) => {
+      if (c.baseValue !== undefined) {
+        if (isVanDonMoneyGridAppKey(c.colKey)) {
+          return !vanDonMoneyCellValuesEqual(c.newValue, c.baseValue);
+        }
+        return String(c.newValue) !== String(c.baseValue);
+      }
+      return true;
+    });
+
+    dbQueueRef.current.push(...queueChanges);
 
     setPendingChanges(prev => {
       const next = deepCloneMapOfMaps(prev);
-      normalized.forEach(({ orderId, colKey, newValue, originalValue }) => {
+      normalized.forEach(({ orderId, colKey, newValue, originalValue, baseValue }) => {
         if (!next.has(orderId)) next.set(orderId, new Map());
-        next.get(orderId).set(colKey, { newValue, originalValue });
+        
+        let isReverted = false;
+        if (baseValue !== undefined) {
+          if (isVanDonMoneyGridAppKey(colKey)) {
+            isReverted = vanDonMoneyCellValuesEqual(newValue, baseValue);
+          } else {
+            isReverted = String(newValue) === String(baseValue);
+          }
+        }
+
+        if (isReverted) {
+          next.get(orderId).delete(colKey);
+          if (next.get(orderId).size === 0) {
+            next.delete(orderId);
+          }
+          // Xoá cả những queue cũ bị thừa của ô này
+          dbQueueRef.current = dbQueueRef.current.filter(q => !(q.orderId === orderId && q.colKey === colKey));
+        } else {
+          next.get(orderId).set(colKey, { newValue, originalValue, baseValue });
+        }
       });
       normalized.forEach(({ orderId }) => {
         upsertPendingRowSnapshot(orderId, next, allData);
@@ -2775,7 +2806,6 @@ function VanDon({ dataSource = 'default' }) {
       return next;
     });
 
-    // Không gọi processDbQueue ở đây — chỉ lưu DB khi user nhấn "Xác nhận lưu".
   }, [deepCloneMapOfMaps, upsertPendingRowSnapshot, allData]);
 
   // Undo last change
@@ -2860,7 +2890,6 @@ function VanDon({ dataSource = 'default' }) {
     const oid = normalizeVanDonOrderIdKey(orderId);
     if (!oid) return;
     const keyLc = String(colKey || '').trim().toLowerCase();
-    if (keyLc === 'tracking_code' || normalizeColHeader(colKey) === normalizeColHeader('Mã Tracking')) return;
     if (keyLc === 'canh_bao' || normalizeColHeader(colKey) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN)) return;
     if (isVanDonGridReadOnlyColumnKey(colKey)) return;
     const originalRow = allData.find((r) => getVanDonRowOrderId(r) === oid);
@@ -2874,7 +2903,13 @@ function VanDon({ dataSource = 'default' }) {
       if (vanDonMoneyCellValuesEqual(newValue, stepOriginalValue)) return;
     } else if (String(newValue) === String(stepOriginalValue)) return;
 
-    pushChange([{ orderId: oid, colKey, originalValue: String(stepOriginalValue), newValue: String(newValue) }]);
+    pushChange([{ 
+      orderId: oid, 
+      colKey, 
+      originalValue: String(stepOriginalValue), 
+      newValue: String(newValue),
+      baseValue: String(baseValue) 
+    }]);
   }, [allData, pendingChanges, pushChange, isReadonlyEditTab]);
 
   const handleUpdateAll = async () => {
@@ -2930,7 +2965,25 @@ function VanDon({ dataSource = 'default' }) {
       addToast('Không có thay đổi cần lưu', 'info');
       return;
     }
-    await processDbQueue();
+
+    // --- Hiện bảng tổng kết trước khi lưu bằng Modal tuỳ chỉnh ---
+    const summaries = dbQueueRef.current.map(c => ({
+        orderId: c.orderId,
+        colKey: c.colKey,
+        originalValue: c.originalValue,
+        newValue: c.newValue
+    }));
+    
+    setSaveConfirmData({
+      summaries,
+      onConfirm: async () => {
+        setSaveConfirmData(null);
+        await processDbQueue();
+      },
+      onCancel: () => {
+        setSaveConfirmData(null);
+      }
+    });
   };
 
 
@@ -4148,19 +4201,23 @@ function VanDon({ dataSource = 'default' }) {
                 className="p-0.5 px-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-bold transition-all flex items-center gap-1 relative border border-blue-100"
               >
                 🔄 Trạng thái
-                {pendingChanges.size > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] px-1 rounded-full shadow-sm">
-                    {pendingChanges.size}
-                  </span>
-                )}
               </button>
               <button
                 onClick={handleUpdateAll}
                 disabled={isReadonlyEditTab}
-                className="p-0.5 px-1.5 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded text-[11px] font-bold transition-all flex items-center gap-0.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                className={`p-0.5 px-1.5 rounded text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
+                  pendingChanges.size > 0
+                    ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse ring-2 ring-red-300 ring-offset-1'
+                    : 'bg-[#F37021] hover:bg-[#e55f1a] text-white'
+                }`}
                 title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Ghi các thay đổi đang chờ xuống CSDL'}
               >
                 ✅ Xác nhận lưu
+                {pendingChanges.size > 0 && (
+                  <span className="bg-white text-red-600 font-black px-1.5 py-0.25 rounded-sm shadow-inner text-[10px]">
+                    {pendingChanges.size} Chưa lưu!
+                  </span>
+                )}
               </button>
 
               <button onClick={() => setShowColumnSettings(true)} className="p-0.5 px-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded text-[11px] font-bold transition-all flex items-center gap-0.5">
@@ -4589,6 +4646,67 @@ function VanDon({ dataSource = 'default' }) {
                     Xác nhận đẩy
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Save Confirmation Modal */}
+        {saveConfirmData && (
+          <div className="fixed inset-0 z-[20000] flex items-center justify-center pointer-events-auto">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300"
+              onClick={saveConfirmData.onCancel}
+            ></div>
+            <div className="relative bg-white/95 dark:bg-slate-800/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/20 px-8 py-6 max-w-2xl w-full mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl flex items-center gap-2 font-bold text-slate-900 dark:text-white">
+                  <span className="text-2xl">📝</span> Xác nhận lưu {saveConfirmData.summaries.length} thay đổi
+                </h3>
+              </div>
+              <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 max-h-[50vh] overflow-y-auto mb-6">
+                <table className="w-full text-sm text-left">
+                  <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 sticky border-b border-slate-200 dark:border-slate-700">
+                    <tr>
+                      <th className="py-2 px-3 text-slate-600 dark:text-slate-400 font-semibold w-24">Mã Đơn</th>
+                      <th className="py-2 px-3 text-slate-600 dark:text-slate-400 font-semibold">Cột Dữ Liệu</th>
+                      <th className="py-2 px-3 text-rose-600 dark:text-rose-400 font-semibold">Giá trị cũ ❌</th>
+                      <th className="py-2 px-3 text-emerald-600 dark:text-emerald-400 font-semibold">Giá trị mới ✅</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {saveConfirmData.summaries.slice(0, 50).map((c, i) => (
+                      <tr key={i} className="border-b last:border-b-0 border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-3 font-medium text-slate-800 dark:text-slate-200">{c.orderId}</td>
+                        <td className="py-2 px-3 text-slate-600 dark:text-slate-400">[{c.colKey}]</td>
+                        <td className="py-2 px-3 text-slate-500 line-through truncate max-w-[150px]" title={c.originalValue}>{c.originalValue || '(trống)'}</td>
+                        <td className="py-2 px-3 text-emerald-600 font-medium truncate max-w-[150px]" title={c.newValue}>{c.newValue || '(trống)'}</td>
+                      </tr>
+                    ))}
+                    {saveConfirmData.summaries.length > 50 && (
+                      <tr>
+                        <td colSpan="4" className="py-3 text-center text-slate-500 font-semibold bg-slate-100/50">
+                          ... và {saveConfirmData.summaries.length - 50} thay đổi khác.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 w-full">
+                <button
+                  onClick={saveConfirmData.onCancel}
+                  className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all duration-200 active:scale-[0.98]"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  onClick={saveConfirmData.onConfirm}
+                  className="flex-1 px-6 py-2.5 rounded-xl bg-[#F37021] hover:bg-[#e55f1a] text-white font-semibold shadow-lg shadow-[#F37021]/25 transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2"
+                >
+                  ✅ Ghi Lịch Sử & Lưu Xuống Máy Chủ
+                </button>
               </div>
             </div>
           </div>
