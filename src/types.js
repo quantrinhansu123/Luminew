@@ -40,7 +40,7 @@ export const DEFAULT_BILL_LADING_COLUMNS = [
 // Specific dropdown options for columns defined in the HTML
 export const DROPDOWN_OPTIONS = {
     "Kết quả Check": ["", "OK", "Huỷ", "Treo", "Vận đơn XL", "Đợi hàng", "Khách hẹn", "Chờ check lại", "Sai SĐT", "Sai địa chỉ", "Khác"],
-    "Trạng thái giao hàng NB": ["", "Giao Thành Công", "Đang Giao", "Chưa Giao", "Hủy", "Hoàn", "chờ check", "Giao không thành công", "Bom_Thất Lạc"],
+    "Trạng thái giao hàng NB": ["", "Giao Thành Công", "Đang Giao", "Chưa Giao", "Hủy", "Hoàn", "chờ check", "Giao không thành công", "Bom_Thất Lạc", "NHÃN"],
     "Trạng thái thu tiền": ["", "Có bill", "Có bill 1 phần", "Bom_bùng_chặn", "Hẹn Thanh Toán", "Hoàn Hàng", "Khó Đòi", "Không nhận được hàng", "Không PH dưới 3N", "Thanh toán phí hoàn", "KPH nhiều ngày"],
     "Trạng thái giao hàng": ["", "NHÃN", "ĐANG GIAO", "ĐÃ GIAO", "HOÀN"],
     "Payment Bill": ["", "Có bill", "Bill một phần"],
