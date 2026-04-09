@@ -1666,6 +1666,26 @@ export const fetchVanDon = async (options = {}) => {
     }
 };
 
+/**
+ * Lịch sử thay đổi bất biến theo đơn (audit table từ DB trigger).
+ * Trả về danh sách mới nhất trước.
+ */
+export const fetchOrderChangeHistory = async ({ orderCode, sourceTable = 'orders', limit = 200 } = {}) => {
+    const oc = String(orderCode || '').trim();
+    if (!oc) return [];
+    const st = String(sourceTable || 'orders').trim() || 'orders';
+    const safeLimit = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(1000, Number(limit))) : 200;
+    const { data, error } = await supabase
+        .from('order_change_audit')
+        .select('id, order_code, source_table, changed_at, changed_by, changed_fields, op')
+        .eq('order_code', oc)
+        .eq('source_table', st)
+        .order('changed_at', { ascending: false })
+        .limit(safeLimit);
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+};
+
 /** Khớp `DanhSachVanDon.jsx` — chi nhánh HCM (users.branch / HR «chi nhánh»). */
 function normalizeBranchForHcmVanDon(value) {
     return String(value ?? '')

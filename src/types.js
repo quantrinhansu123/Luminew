@@ -12,7 +12,7 @@ export const ORDER_MGMT_COLUMNS = [
     "Trạng thái giao hàng", "GHI CHÚ", "Thời gian giao dự kiến",
     "Ngày Kế toán đối soát với FFM lần 2", "Ngày đẩy đơn", "Ngày có mã tracking",
     "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
-    "Payment Bill", "Payment Image"
+    "Payment Bill", "Payment Image", "Lịch sử thay đổi"
 ];
 
 // --- VIEW 2: BILL OF LADING COLUMNS (New) ---
@@ -27,14 +27,14 @@ export const BILL_LADING_COLUMNS = [
     "Nhân viên Sale", "Nhân viên MKT", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
     "Ngày up bill", "Tiền đã thanh toán",
-    "Nhật ký"
+    "Nhật ký", "Lịch sử thay đổi"
 ];
 
 // --- DEFAULT COLUMNS (Bill of Lading) ---
 export const DEFAULT_BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add", "City", "State",
     "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
-    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT"
+    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT", "Lịch sử thay đổi"
 ];
 
 // Specific dropdown options for columns defined in the HTML

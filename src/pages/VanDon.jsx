@@ -492,6 +492,10 @@ function VanDon({ dataSource = 'default' }) {
 
   const [confirmPushData, setConfirmPushData] = useState(null); // { batchId, carrier, count, orderIds, logsTable }
   const [saveConfirmData, setSaveConfirmData] = useState(null); // { summaries, onConfirm, onCancel }
+  const [historyModalData, setHistoryModalData] = useState(null); // { orderId, rows }
+  const [historyLoadingOrderId, setHistoryLoadingOrderId] = useState('');
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
 
   const hasUnsavedDraft = () =>
     pendingChangesRef.current.size > 0 || dbQueueRef.current.length > 0;
@@ -873,6 +877,41 @@ function VanDon({ dataSource = 'default' }) {
     } catch (e) {
       return dateString;
     }
+  };
+
+  const formatDateTime = (dateString) => {
+    if (!dateString) return '';
+    const d = new Date(String(dateString));
+    if (Number.isNaN(d.getTime())) return String(dateString);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${dd}/${mm}/${yy} ${hh}:${mi}:${ss}`;
+  };
+
+  const formatAuditValueForUi = (v) => {
+    if (v === null || v === undefined || v === '') return '(rỗng)';
+    if (typeof v === 'object') {
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return String(v);
+      }
+    }
+    return String(v);
+  };
+
+  const getYmdFromAuditTs = (v) => {
+    if (!v) return '';
+    const d = new Date(String(v));
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
   };
 
   /** Ghép các đơn có thay đổi chưa lưu nhưng không còn trong trang API (do đổi bộ lọc / trang). */
@@ -1976,6 +2015,27 @@ function VanDon({ dataSource = 'default' }) {
   }, [queryResult?.data, savePendingToLocalStorage]);
 
   const loadData = () => refetchVanDonData();
+  const openOrderHistoryModal = useCallback(async (orderId) => {
+    const oid = normalizeVanDonOrderIdKey(orderId);
+    if (!oid) return;
+    try {
+      setHistoryLoadingOrderId(oid);
+      const rows = await API.fetchOrderChangeHistory({
+        orderCode: oid,
+        sourceTable: dataSource === 'hcm' ? 'order_code_hcm' : 'orders',
+        limit: 200,
+      });
+      setHistoryDateFrom('');
+      setHistoryDateTo('');
+      setHistoryModalData({ orderId: oid, rows: Array.isArray(rows) ? rows : [] });
+    } catch (e) {
+      console.error(e);
+      addToast(e?.message || 'Không tải được lịch sử thay đổi', 'error');
+    } finally {
+      setHistoryLoadingOrderId('');
+    }
+  }, [addToast, dataSource]);
+
   const refreshData = async (opts = {}) => {
     const skipUnsavedCheck = opts.skipUnsavedCheck === true;
     const hasUnsaved =
@@ -3991,6 +4051,19 @@ function VanDon({ dataSource = 'default' }) {
       >
         {col === 'STT' ? (
           row.rowIndex || (currentPage - 1) * effectiveRowsPerPage + rIdx + 1
+        ) : col === 'Lịch sử thay đổi' ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openOrderHistoryModal(orderId);
+            }}
+            disabled={!orderId || historyLoadingOrderId === orderId}
+            className="text-xs px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            title="Xem lịch sử thay đổi của đơn"
+          >
+            {historyLoadingOrderId === orderId ? 'Đang tải...' : 'Xem'}
+          </button>
         ) : isReadonlyEditTab || isTrackingCol || isCanhBaoCol || (isReadonlyOrderDataTab && isCarrierCol) || !orderId ? (
           isCanhBaoCol ? (
             <span className="whitespace-pre-wrap break-words align-top text-left inline-block max-w-full">
@@ -4122,7 +4195,7 @@ function VanDon({ dataSource = 'default' }) {
     currentPage, effectiveRowsPerPage, viewMode,
     handleCellChange, handleMouseDown, handleMouseEnter, setSelection,
     getCellClass, formatDate, getCellEditSelectOptions,
-    vanDonLongTextDraftRef, effectiveFixedColumns
+    vanDonLongTextDraftRef, effectiveFixedColumns, openOrderHistoryModal, historyLoadingOrderId
   ]);
 
   // Không cho double click chọn/kéo text để "mang data đi" trong bảng (trừ input/select đang chỉnh sửa).
@@ -4925,6 +4998,136 @@ function VanDon({ dataSource = 'default' }) {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Order Change History Modal */}
+        {historyModalData && (
+          (() => {
+            const filteredHistoryRows = (historyModalData.rows || []).filter((row) => {
+              const ymd = getYmdFromAuditTs(row?.changed_at);
+              if (!ymd) return false;
+              if (historyDateFrom && ymd < historyDateFrom) return false;
+              if (historyDateTo && ymd > historyDateTo) return false;
+              return true;
+            });
+            return (
+          <div className="fixed inset-0 z-[21000] flex items-center justify-center pointer-events-auto">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setHistoryModalData(null)}
+            ></div>
+            <div className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 px-6 py-5 max-w-5xl w-full mx-4 max-h-[85vh] overflow-hidden">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-bold text-slate-900">
+                  Lịch sử thay đổi - {historyModalData.orderId}
+                </h3>
+                <button
+                  onClick={() => setHistoryModalData(null)}
+                  className="text-gray-500 hover:text-gray-900 font-bold text-xl"
+                  aria-label="Đóng"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="text-xs text-gray-500 mb-3">
+                Dữ liệu audit bất biến từ DB trigger (thời gian, người sửa, giá trị trước/sau).
+              </div>
+              <div className="flex flex-wrap items-end gap-3 mb-3">
+                <div>
+                  <label className="block text-[11px] text-gray-600 mb-1">Từ ngày thao tác</label>
+                  <input
+                    type="date"
+                    value={historyDateFrom}
+                    onChange={(e) => setHistoryDateFrom(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-gray-600 mb-1">Đến ngày thao tác</label>
+                  <input
+                    type="date"
+                    value={historyDateTo}
+                    onChange={(e) => setHistoryDateTo(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryDateFrom('');
+                    setHistoryDateTo('');
+                  }}
+                  className="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Xóa lọc ngày
+                </button>
+                <div className="text-xs text-gray-500">
+                  Hiển thị {filteredHistoryRows.length}/{historyModalData.rows.length} lần thao tác
+                </div>
+              </div>
+              <div className="border rounded-xl overflow-auto max-h-[65vh]">
+                <table className="w-full text-sm border-collapse">
+                  <thead className="sticky top-0 bg-slate-50 border-b">
+                    <tr>
+                      <th className="text-left px-3 py-2 w-48">Thời gian</th>
+                      <th className="text-left px-3 py-2 w-40">Người sửa</th>
+                      <th className="text-left px-3 py-2 w-44">Cột</th>
+                      <th className="text-left px-3 py-2">Giá trị cũ</th>
+                      <th className="text-left px-3 py-2">Giá trị mới</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredHistoryRows.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-6 text-center text-gray-500" colSpan={5}>
+                          Không có lịch sử thay đổi theo bộ lọc ngày thao tác.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredHistoryRows.map((row) => {
+                        const fields = row?.changed_fields && typeof row.changed_fields === 'object' ? row.changed_fields : {};
+                        const entries = Object.entries(fields);
+                        if (entries.length === 0) {
+                          return (
+                            <tr key={row.id} className="border-b last:border-b-0">
+                              <td className="px-3 py-2 align-top">{formatDateTime(row.changed_at)}</td>
+                              <td className="px-3 py-2 align-top">{String(row.changed_by || 'hệ thống')}</td>
+                              <td className="px-3 py-2 align-top text-gray-400" colSpan={3}>
+                                Không có chi tiết cột đổi
+                              </td>
+                            </tr>
+                          );
+                        }
+                        return entries.map(([colName, diff], idx) => (
+                          <tr key={`${row.id}-${colName}`} className="border-b last:border-b-0">
+                            {idx === 0 ? (
+                              <>
+                                <td className="px-3 py-2 align-top" rowSpan={entries.length}>
+                                  {formatDateTime(row.changed_at)}
+                                </td>
+                                <td className="px-3 py-2 align-top" rowSpan={entries.length}>
+                                  {String(row.changed_by || 'hệ thống')}
+                                </td>
+                              </>
+                            ) : null}
+                            <td className="px-3 py-2 align-top font-medium">{colName}</td>
+                            <td className="px-3 py-2 align-top text-rose-700 whitespace-pre-wrap break-words">
+                              {formatAuditValueForUi(diff?.old)}
+                            </td>
+                            <td className="px-3 py-2 align-top text-emerald-700 whitespace-pre-wrap break-words">
+                              {formatAuditValueForUi(diff?.new)}
+                            </td>
+                          </tr>
+                        ));
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+            );
+          })()
         )}
 
         {/* Column Settings Modal */}
