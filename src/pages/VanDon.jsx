@@ -904,6 +904,15 @@ function VanDon({ dataSource = 'default' }) {
     return String(v);
   };
 
+  const formatAuditColumnName = (col) => {
+    const k = String(col || '').trim();
+    if (k === 'check_result') return 'Kết quả Check';
+    if (k === 'delivery_status_nb') return 'Trạng thái giao hàng NB';
+    if (k === 'tracking_code') return 'Mã Tracking';
+    if (k === 'payment_status') return 'Trạng thái thu tiền';
+    return k || '(không rõ)';
+  };
+
   const getYmdFromAuditTs = (v) => {
     if (!v) return '';
     const d = new Date(String(v));
@@ -5110,7 +5119,7 @@ function VanDon({ dataSource = 'default' }) {
                                 </td>
                               </>
                             ) : null}
-                            <td className="px-3 py-2 align-top font-medium">{colName}</td>
+                            <td className="px-3 py-2 align-top font-medium">{formatAuditColumnName(colName)}</td>
                             <td className="px-3 py-2 align-top text-rose-700 whitespace-pre-wrap break-words">
                               {formatAuditValueForUi(diff?.old)}
                             </td>
