@@ -1944,7 +1944,7 @@ function VanDon({ dataSource = 'default' }) {
     removeToast
   ]);
 
-  const handleExportFilteredExcel = useCallback(async () => {
+  const handleExportFilteredExcel = async () => {
     if (permissionsLoading) {
       addToast('Đang tải quyền, thử lại sau.', 'warning');
       return;
@@ -2016,19 +2016,7 @@ function VanDon({ dataSource = 'default' }) {
     } finally {
       setExportingFilteredExcel(false);
     }
-  }, [
-    permissionsLoading,
-    useBackendPagination,
-    allData,
-    bolActiveTab,
-    mergePendingRowsIntoFetchedData,
-    computeFilteredData,
-    runVanDonFetch,
-    currentColumns,
-    getVanDonGridCellValue,
-    addToast,
-    removeToast
-  ]);
+  };
 
   // --- Render Prep (moved up for dependencies) ---
   // Use fewer rows for Bill of Lading due to long text columns
