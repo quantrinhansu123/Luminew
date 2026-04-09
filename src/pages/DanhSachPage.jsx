@@ -1,4 +1,4 @@
-import { ChevronLeft, Eye, Pencil, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { ChevronLeft, Download, Eye, Pencil, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -41,7 +41,8 @@ export default function DanhSachPage() {
     });
     const [addingPage, setAddingPage] = useState(false);
     const [renamingMktCanonical, setRenamingMktCanonical] = useState(false);
-    /** Tên nhân sự bộ phận MKT (human_resources) — gợi ý ô Tên MKT khi thêm/sửa page */
+    const [exportingExcel, setExportingExcel] = useState(false);
+    /** Tên nhân sự bộ phận MKT (users.department) — gợi ý ô Tên MKT khi thêm/sửa page */
     const [mktDepartmentNames, setMktDepartmentNames] = useState([]);
 
     // Edit Page Modal
@@ -121,7 +122,6 @@ export default function DanhSachPage() {
     }, []);
 
     useEffect(() => {
-        if (!showAddModal && !showEditModal) return;
         let cancelled = false;
         (async () => {
             try {
@@ -143,7 +143,7 @@ export default function DanhSachPage() {
         return () => {
             cancelled = true;
         };
-    }, [showAddModal, showEditModal]);
+    }, []);
 
     /** Select «Tên MKT» khi sửa: nhân sự MKT (HR) + giữ đúng chuỗi đang lưu nếu không khớp danh sách. */
     const editMktStaffSelectOptions = useMemo(() => {
@@ -342,6 +342,40 @@ export default function DanhSachPage() {
         reader.readAsBinaryString(file);
     };
 
+    const handleExportFilteredExcel = async () => {
+        if (exportingExcel) return;
+        try {
+            setExportingExcel(true);
+            const rows = Array.isArray(filteredData) ? filteredData : [];
+            if (rows.length === 0) {
+                toast.warning('Không có dữ liệu theo bộ lọc để xuất Excel.');
+                return;
+            }
+            const XLSX = await import('xlsx');
+            const header = ['ID', 'Tên Page', 'Tên MKT', 'Sản phẩm', 'Thị trường', 'ID Pancake', 'Link Page'];
+            const body = rows.map((r) => ([
+                String(r?.id ?? '').trim(),
+                String(r?.page_name ?? '').trim(),
+                String(r?.mkt_staff ?? '').trim(),
+                String(r?.product ?? '').trim(),
+                String(r?.market ?? '').trim(),
+                String(r?.pancake_id ?? '').trim(),
+                String(r?.page_link ?? '').trim(),
+            ]));
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
+            XLSX.utils.book_append_sheet(wb, ws, 'Danh_sach_page');
+            const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+            XLSX.writeFile(wb, `DanhSachPage_filtered_${stamp}.xlsx`);
+            toast.success(`Đã xuất ${rows.length} dòng theo bộ lọc.`);
+        } catch (error) {
+            console.error('Export Excel error:', error);
+            toast.error(`Lỗi xuất Excel: ${error?.message || 'Unknown error'}`);
+        } finally {
+            setExportingExcel(false);
+        }
+    };
+
     const handleAddPage = async () => {
         // ID đã được tự động tạo, không cần validation
         setAddingPage(true);
@@ -503,9 +537,12 @@ export default function DanhSachPage() {
     }, [data]);
     
     const staffOptions = useMemo(() => {
-        if (!Array.isArray(data)) return [];
-        return [...new Set(data.map(i => i.mkt_staff).filter(Boolean))].sort();
-    }, [data]);
+        const fromData = Array.isArray(data) ? data.map((i) => i.mkt_staff).filter(Boolean) : [];
+        const fromUsers = Array.isArray(mktDepartmentNames) ? mktDepartmentNames : [];
+        return [...new Set([...fromUsers, ...fromData])].sort((a, b) =>
+            String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
+        );
+    }, [data, mktDepartmentNames]);
     
     const productOptions = useMemo(() => {
         if (!Array.isArray(data)) return [];
@@ -580,6 +617,19 @@ export default function DanhSachPage() {
                         >
                             <Upload className="w-4 h-4" />
                             Import Excel
+                        </button>
+                        <button
+                            onClick={handleExportFilteredExcel}
+                            disabled={exportingExcel || loading}
+                            className="px-3 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center gap-2 text-sm font-medium"
+                            title="Tải Excel theo bộ lọc hiện tại"
+                        >
+                            {exportingExcel ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <Download className="w-4 h-4" />
+                            )}
+                            {exportingExcel ? 'Đang xuất...' : 'Tải Excel theo lọc'}
                         </button>
 
                         <button
@@ -920,7 +970,7 @@ export default function DanhSachPage() {
                                         ))}
                                     </datalist>
                                     <p className="text-xs text-gray-500 mt-1">
-                                        Danh sách từ nhân sự bộ phận MKT (human_resources). Có thể gõ tên khác nếu cần.
+                                        Danh sách từ bảng users (department MKT/Marketing). Có thể gõ tên khác nếu cần.
                                     </p>
                                 </div>
 
@@ -1159,23 +1209,24 @@ export default function DanhSachPage() {
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
                                         Tên MKT
                                     </label>
-                                    <select
+                                    <input
+                                        type="text"
+                                        list="danh-sach-page-mkt-edit"
+                                        autoComplete="off"
                                         value={editingPage.mkt_staff ?? ''}
                                         onChange={(e) =>
                                             setEditingPage({ ...editingPage, mkt_staff: e.target.value })
                                         }
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                                    >
-                                        <option value="">— Chọn nhân sự MKT —</option>
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="Gõ để tìm hoặc chọn từ danh sách nhân sự MKT"
+                                    />
+                                    <datalist id="danh-sach-page-mkt-edit">
                                         {editMktStaffSelectOptions.map((n) => (
-                                            <option key={`mkt-${n}`} value={n}>
-                                                {n}
-                                            </option>
+                                            <option key={`mkt-${n}`} value={n} />
                                         ))}
-                                    </select>
+                                    </datalist>
                                     <p className="text-xs text-gray-500 mt-1">
-                                        Danh sách tên từ bộ phận MKT (human_resources). Giá trị đang lưu không có
-                                        trong danh sách vẫn hiển thị để bạn giữ hoặc đổi sang tên chuẩn.
+                                        Danh sách tên từ bảng users (department MKT/Marketing). Có thể gõ tay tên khác nếu cần.
                                     </p>
                                 </div>
 

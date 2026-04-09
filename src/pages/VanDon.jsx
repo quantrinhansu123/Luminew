@@ -451,6 +451,7 @@ function VanDon({ dataSource = 'default' }) {
   const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]); // Danh sách tên nhân sự đã chọn
   const [useBackendPagination, setUseBackendPagination] = useState(true); // Enable backend pagination
   const [exportingMaDon, setExportingMaDon] = useState(false);
+  const [exportingFilteredExcel, setExportingFilteredExcel] = useState(false);
   // Always use BILL_OF_LADING view - ORDER_MANAGEMENT is hidden
   const [viewMode] = useState('BILL_OF_LADING');
   const isLoadingDataRef = useRef(false);
@@ -1939,6 +1940,92 @@ function VanDon({ dataSource = 'default' }) {
     mergePendingRowsIntoFetchedData,
     computeFilteredData,
     runVanDonFetch,
+    addToast,
+    removeToast
+  ]);
+
+  const handleExportFilteredExcel = useCallback(async () => {
+    if (permissionsLoading) {
+      addToast('Đang tải quyền, thử lại sau.', 'warning');
+      return;
+    }
+    setExportingFilteredExcel(true);
+    const loadingId = addToast('Đang xuất Excel theo bộ lọc…', 'loading', 0);
+    try {
+      let sourceRows;
+      if (!useBackendPagination) {
+        sourceRows = allData;
+      } else {
+        const limit = VAN_DON_POSTGREST_MAX_ROWS;
+        let page = 1;
+        const accumulated = [];
+        let total = 0;
+        const maxPages = 50000;
+        while (page <= maxPages) {
+          const res = await runVanDonFetch(page, limit);
+          total = res.total || 0;
+          const batch = res.data || [];
+          accumulated.push(...batch);
+          if (batch.length < limit || accumulated.length >= total) break;
+          page += 1;
+        }
+        sourceRows = accumulated;
+      }
+
+      let rows = sourceRows;
+      if (bolActiveTab === 'hanoi') {
+        rows = rows.filter((row) => {
+          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+          return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
+        });
+      }
+      rows = mergePendingRowsIntoFetchedData(rows);
+      const filtered = computeFilteredData(rows);
+
+      removeToast(loadingId);
+      if (!filtered.length) {
+        addToast('Không có dữ liệu phù hợp bộ lọc để xuất Excel.', 'warning');
+        return;
+      }
+
+      const exportColumns = currentColumns.includes('Mã đơn hàng')
+        ? currentColumns
+        : ['Mã đơn hàng', ...currentColumns];
+
+      const headerRow = exportColumns;
+      const dataRows = filtered.map((row) =>
+        exportColumns.map((col) => {
+          const raw = getVanDonGridCellValue(row, col);
+          if (raw === null || raw === undefined) return '';
+          if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+          return sanitizeExcelTsvCell(String(raw), { skipLeadingApostrophe: true });
+        })
+      );
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Van_don_loc');
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      XLSX.writeFile(wb, `VanDon_filtered_${stamp}.xlsx`);
+      addToast(`Đã xuất ${filtered.length.toLocaleString('vi-VN')} dòng theo bộ lọc.`, 'success');
+    } catch (e) {
+      removeToast(loadingId);
+      console.error(e);
+      addToast(e?.message || 'Lỗi xuất Excel theo bộ lọc', 'error');
+    } finally {
+      setExportingFilteredExcel(false);
+    }
+  }, [
+    permissionsLoading,
+    useBackendPagination,
+    allData,
+    bolActiveTab,
+    mergePendingRowsIntoFetchedData,
+    computeFilteredData,
+    runVanDonFetch,
+    currentColumns,
+    getVanDonGridCellValue,
     addToast,
     removeToast
   ]);
@@ -4502,6 +4589,20 @@ function VanDon({ dataSource = 'default' }) {
                   <span>📥</span>
                 )}
                 {exportingMaDon ? '…' : 'Excel mã đơn'}
+              </button>
+              <button
+                type="button"
+                onClick={handleExportFilteredExcel}
+                disabled={exportingFilteredExcel || isQueryLoading || permissionsLoading}
+                className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
+                title="Xuất toàn bộ dữ liệu theo bộ lọc đang áp dụng (kể cả nhiều trang khi phân trang backend)"
+              >
+                {exportingFilteredExcel ? (
+                  <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <span>📤</span>
+                )}
+                {exportingFilteredExcel ? '…' : 'Excel theo lọc'}
               </button>
             </div>
           </div>

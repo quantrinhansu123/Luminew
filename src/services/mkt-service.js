@@ -33,26 +33,20 @@ const FIELD_MAPPING = {
 export const fetchMktEmployees = async () => {
     try {
         const { data, error } = await supabase
-            .from('human_resources')
-            .select(`
-                "Họ Và Tên",
-                email,
-                Team,
-                "chi nhánh",
-                id
-            `)
-            .eq('Bộ phận', 'MKT'); // Filter only MKT department
+            .from('users')
+            .select('name, email, team, branch, chi_nhanh, department')
+            .or('department.ilike.%mkt%,department.ilike.%marketing%');
 
         if (error) throw error;
 
         // Transform to format used in component
-        return data.map(emp => ({
-            name: emp['Họ Và Tên'],
+        return (data || []).map(emp => ({
+            name: String(emp.name || '').trim(),
             email: emp.email,
-            team: emp.Team,
-            branch: emp['chi nhánh'],
-            id_ns: emp.id // Keep ID for reference
-        }));
+            team: emp.team,
+            branch: emp.branch || emp.chi_nhanh || '',
+            id_ns: null
+        })).filter((emp) => emp.name);
     } catch (error) {
         console.error('Error fetching MKT employees:', error);
         throw error;
