@@ -3,6 +3,7 @@ import MultiSelect from '../components/MultiSelect';
 import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
 import { supabase } from '../supabase/config';
+import QuickAddModal from '../components/QuickAddModal';
 import '../styles/selection.css';
 import {
   COLUMN_MAPPING,
@@ -266,7 +267,6 @@ function clearFfFillPreview() {
 }
 
 const SyncPopover = lazy(() => import('../components/SyncPopover'));
-const QuickAddModal = lazy(() => import('../components/QuickAddModal'));
 const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal'));
 const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
 
@@ -1591,10 +1591,12 @@ function FFMMgtHcm() {
     manualSaveRequestedRef.current = true;
     processDbQueue();
   }, [pendingChanges, addToast, processDbQueue]);
-  const handleQuickSync = (rows) => {
+  const handleQuickSync = (rows, options = {}) => {
     const changesArray = [];
     const COL_KEYS = FFM_QUICK_ADD_COLUMNS;
     let notFoundCount = 0;
+    const activeColumns = Array.isArray(options?.activeColumns) ? options.activeColumns : null;
+    const activeColumnSet = activeColumns ? new Set(activeColumns) : null;
 
     /** Chuẩn hóa mã đơn để khớp dòng trong bảng chính (đúng dòng / đúng khóa pending). */
     const normOrderId = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -1611,40 +1613,40 @@ function FFMMgtHcm() {
 
       COL_KEYS.forEach((colName, idx) => {
         if (idx === 0) return;
+        // Khi modal bật/ẩn cột: chỉ cột đang hiển thị mới được cập nhật.
+        if (activeColumnSet && !activeColumnSet.has(colName)) return;
         const rawVal = row[idx];
         const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
-        // Chỉ sync khi ô quick-add có giá trị thực sự; ô trống không được phép ghi đè DB.
-        if (val !== undefined && val !== null && val !== '') {
-          const dataKey = COLUMN_MAPPING[colName] || colName;
-          const originalVal = originalRow[dataKey] ?? '';
+        const dataKey = COLUMN_MAPPING[colName] || colName;
+        const originalVal = originalRow[dataKey] ?? '';
 
-          const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
-          const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
+        const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
+        const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
 
-          if (String(currentUiVal) !== String(val)) {
-            changesArray.push({
-              orderId,
-              colKey: dataKey,
-              originalValue: String(currentUiVal),
-              newValue: String(val)
-            });
+        // Khi dùng cơ chế ẩn/hiện cột, cột đang bật được phép cập nhật cả giá trị rỗng (clear dữ liệu).
+        if (String(currentUiVal) !== String(val ?? '')) {
+          changesArray.push({
+            orderId,
+            colKey: dataKey,
+            originalValue: String(currentUiVal),
+            newValue: String(val ?? '')
+          });
 
-            // Tự động nhảy ngày khi cập nhật mã Tracking trong Sync
-            if (dataKey === 'Mã Tracking' && String(val).trim() !== '') {
-              const todayStr = getTodayDateStr();
-              const uiCol = 'Ngày có mã tracking';
+          // Tự động nhảy ngày khi cập nhật mã Tracking trong Sync
+          if (dataKey === 'Mã Tracking' && String(val ?? '').trim() !== '') {
+            const todayStr = getTodayDateStr();
+            const uiCol = 'Ngày có mã tracking';
 
-              const pendingInfo = pendingChanges.get(orderId)?.get(uiCol);
-              const currentUiValTracking = pendingInfo ? pendingInfo.newValue : (originalRow[uiCol] ?? '');
+            const pendingInfo = pendingChanges.get(orderId)?.get(uiCol);
+            const currentUiValTracking = pendingInfo ? pendingInfo.newValue : (originalRow[uiCol] ?? '');
 
-              if (String(currentUiValTracking) !== todayStr) {
-                changesArray.push({
-                  orderId,
-                  colKey: uiCol,
-                  originalValue: String(currentUiValTracking),
-                  newValue: todayStr
-                });
-              }
+            if (String(currentUiValTracking) !== todayStr) {
+              changesArray.push({
+                orderId,
+                colKey: uiCol,
+                originalValue: String(currentUiValTracking),
+                newValue: todayStr
+              });
             }
           }
         }

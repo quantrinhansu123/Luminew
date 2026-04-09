@@ -485,8 +485,12 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
             alert("Chưa có dữ liệu hợp lệ (Cần có Mã đơn hàng)");
             return;
         }
+        // Chỉ các cột đang hiển thị mới được phép tác động dữ liệu khi sync.
+        const activeColumns = visibleColIndices
+            .filter((idx) => idx !== 0)
+            .map((idx) => COLUMNS[idx]);
         setRows(working);
-        onSync(validRows);
+        onSync(validRows, { activeColumns });
         onClose();
     };
 
