@@ -86,6 +86,29 @@ function rowMatchesCustomerDupOr(ctx, row) {
     return false;
 }
 
+/** datetime-local YYYY-MM-DDTHH:mm theo giờ máy (không dùng toISOString — tránh lệch giờ/ca so với UTC). */
+function formatDateTimeLocal(d = new Date()) {
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${mo}-${day}T${h}:${mi}`;
+}
+
+/** Khu vực (country) → loại tiền — khớp AREA_LIST / select «Khu vực». */
+function mapCountryToCurrency(countryRaw) {
+    const country = (countryRaw ?? '').toString().trim();
+    if (!country) return '';
+    if (country === 'US') return 'USD';
+    if (country === 'Nhật Bản' || country === 'CĐ Nhật Bản') return 'JPY';
+    if (country === 'Hàn Quốc') return 'KRW';
+    if (country === 'Canada') return 'CAD';
+    if (country === 'Úc') return 'AUD';
+    if (country === 'Anh') return 'GBP';
+    return 'VND';
+}
+
 /** Trùng đơn nếu cùng SĐT HOẶC cùng tên HOẶC cùng địa chỉ (so với đơn khác). */
 async function fetchDuplicateOrderCodesByCustomerOr(supabaseClient, { phone, name, address }, excludeOrderCode, tableName = "orders") {
     const ctx = customerDupCheckContext(phone, name, address);
@@ -364,7 +387,7 @@ export default function NhapDonMoi({ isEdit = false }) {
     // Form Data - Centralized State
     const [formData, setFormData] = useState({
         "ma-don": "",
-        "created_at": new Date().toISOString().slice(0, 16), // datetime-local format
+        "created_at": formatDateTimeLocal(), // giờ local, không lệch UTC
         "tracking_code": "",
 
         "ten-kh": "",
@@ -796,34 +819,18 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     // ...
 
-    // --- LOGIC: Auto-Currency by Country ---
+    // Khi tải tỷ giá từ DB: cập nhật lại tỷ giá ô đọc-only cho «Loại tiền» hiện tại (tránh race với chọn Khu vực).
     useEffect(() => {
-        let currency = "VND";
-        const country = formData.country;
-        if (country === "US") currency = "USD";
-        if (country === "Nhật Bản" || country === "CĐ Nhật Bản") currency = "JPY";
-        if (country === "Hàn Quốc") currency = "KRW";
-        if (country === "Canada") currency = "CAD";
-        if (country === "Úc") currency = "AUD";
-        if (country === "Anh") currency = "GBP";
-
-        // Auto-set Currency and Exchange Rate
-        if (country) {
-            // Priority: DB Rate > Hardcoded Constant > 1
-            const rate = dbRates[currency] || EXCHANGE_RATES[currency] || 1;
-            setFormData(prev => ({
-                ...prev,
-                paymentType: currency,
-                exchange_rate: rate
-            }));
-        }
-    }, [formData.country, dbRates]); // Add dbRates dependency
-
-    // --- LOGIC: Auto-update Rate when Currency Changes Manually ---
-    useEffect(() => {
-        const rate = dbRates[formData.paymentType] || EXCHANGE_RATES[formData.paymentType] || 1;
-        setFormData(prev => ({ ...prev, exchange_rate: rate }));
-    }, [formData.paymentType, dbRates]);
+        if (!dbRates || Object.keys(dbRates).length === 0) return;
+        setFormData((prev) => {
+            const pt = String(prev.paymentType || '').trim();
+            if (!pt) return prev;
+            const rate = dbRates[pt] || EXCHANGE_RATES[pt] || 1;
+            const cur = parseFloat(prev.exchange_rate);
+            if (Number.isFinite(cur) && cur === rate) return prev;
+            return { ...prev, exchange_rate: rate };
+        });
+    }, [dbRates]);
 
     // --- LOGIC: Check Blacklist (Debounced) ---
     useEffect(() => {
@@ -1188,8 +1195,28 @@ export default function NhapDonMoi({ isEdit = false }) {
     // -------------------------------------------------------------------------
     const handleInputChange = (e) => {
         const { id, value } = e.target;
-        // Cho phép phone nhập text (có thể có ký tự đặc biệt như +, -, dấu cách, dấu ngoặc đơn, v.v.)
-        setFormData(prev => ({ ...prev, [id]: value }));
+        if (id === 'country') {
+            const trimmed = String(value || '').trim();
+            if (!trimmed) {
+                setFormData((prev) => ({ ...prev, country: value }));
+                return;
+            }
+            const currency = mapCountryToCurrency(trimmed);
+            const rate = dbRates[currency] || EXCHANGE_RATES[currency] || 1;
+            setFormData((prev) => ({
+                ...prev,
+                country: value,
+                paymentType: currency,
+                exchange_rate: rate,
+            }));
+            return;
+        }
+        if (id === 'paymentType') {
+            const rate = dbRates[value] || EXCHANGE_RATES[value] || 1;
+            setFormData((prev) => ({ ...prev, paymentType: value, exchange_rate: rate }));
+            return;
+        }
+        setFormData((prev) => ({ ...prev, [id]: value }));
     };
 
     const toggleXacNhan = (key) => {
@@ -1264,7 +1291,7 @@ export default function NhapDonMoi({ isEdit = false }) {
 
             // Map Data to Form
             // Parse order_date properly - handle both DATE and TIMESTAMP formats
-            let orderDateTimeString = new Date().toISOString().slice(0, 16);
+            let orderDateTimeString = formatDateTimeLocal();
             if (data.order_date) {
                 try {
                     const orderDate = new Date(data.order_date);
@@ -1277,7 +1304,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                     orderDateTimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
                 } catch (e) {
                     console.warn("Error parsing order_date:", e);
-                    orderDateTimeString = new Date().toISOString().slice(0, 16);
+                    orderDateTimeString = formatDateTimeLocal();
                 }
             }
 
@@ -1345,27 +1372,37 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     // Hàm tính ca từ thời gian lên đơn
     const calculateShiftFromTime = (dateTimeString) => {
-        if (!dateTimeString) return null;
+        if (dateTimeString == null || String(dateTimeString).trim() === '') return null;
 
         try {
-            const date = new Date(dateTimeString);
-            const hour = date.getHours();
-            const minute = date.getMinutes();
+            let hour;
+            let minute;
+            const s = String(dateTimeString).trim();
+            // Ưu tiên parse YYYY-MM-DDTHH:mm như giờ local trên form (datetime-local), không lệch UTC.
+            const localMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+            if (localMatch) {
+                hour = parseInt(localMatch[4], 10);
+                minute = parseInt(localMatch[5], 10);
+            } else {
+                const date = new Date(s);
+                if (Number.isNaN(date.getTime())) return null;
+                hour = date.getHours();
+                minute = date.getMinutes();
+            }
             const totalMinutes = hour * 60 + minute;
 
             // Logic phân ca:
             // - 07:30 -> 15:30: "Giữa ca"
-            // - 15:31 -> 23:59: "Giữa ca,Hết ca" (để tính được cả 2 nhóm ca)
+            // - Sau 15:30 đến 23:59: "Giữa ca,Hết ca" (cả hai nhóm)
             // - Còn lại (00:00 -> 07:29): "Hết ca"
-            const startGiuaCa = 7 * 60 + 30;   // 07:30
-            const endGiuaCa = 15 * 60 + 30;    // 15:30
-            const startBoth = 15 * 60 + 31;    // 15:31
-            const endDay = 23 * 60 + 59;       // 23:59
+            const startGiuaCa = 7 * 60 + 30; // 07:30
+            const endGiuaCa = 15 * 60 + 30; // 15:30
+            const endDay = 23 * 60 + 59; // 23:59
 
             if (totalMinutes >= startGiuaCa && totalMinutes <= endGiuaCa) {
                 return "Giữa ca";
             }
-            if (totalMinutes >= startBoth && totalMinutes <= endDay) {
+            if (totalMinutes > endGiuaCa && totalMinutes <= endDay) {
                 return "Giữa ca,Hết ca";
             }
             return "Hết ca";
@@ -1391,7 +1428,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             if (cancelled || isSaving) return;
 
             const orderDateValue = computeOrderDateValueForPayload(formData["created_at"]);
-            const orderDateTime = formData["created_at"] || new Date().toISOString();
+            const orderDateTime = formData["created_at"] || formatDateTimeLocal();
             const calculatedShift = calculateShiftFromTime(orderDateTime);
             const current = buildTrackedFieldsPayloadForLog({
                 formData,
@@ -1531,7 +1568,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 }
             }
 
-            const orderDateTime = formData["created_at"] || new Date().toISOString();
+            const orderDateTime = formData["created_at"] || formatDateTimeLocal();
             const calculatedShift = calculateShiftFromTime(orderDateTime);
             const orderDateValue = computeOrderDateValueForPayload(formData["created_at"]);
 
@@ -1860,7 +1897,7 @@ export default function NhapDonMoi({ isEdit = false }) {
     const handleReset = () => {
         setFormData({
             "ma-don": "",
-            "created_at": new Date().toISOString().slice(0, 16),
+            "created_at": formatDateTimeLocal(),
             "tracking_code": "",
             "ten-kh": "",
             "phone": "",
