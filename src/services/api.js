@@ -1177,13 +1177,20 @@ export const fetchVanDon = async (options = {}) => {
                       : [];
 
                 const useIlikeExact = VAN_DON_ILIKE_EXACT_DB_COLS.has(field);
+                
+                // Mở rộng khái niệm 'is.null' cho khớp với isVanDonSemanticEmpty ở Client
+                let emptyFragment = `${field}.is.null,${field}.eq.`;
+                if (hasEmpty) {
+                    const garbage = ['null', 'undefined', 'none', 'n/a', 'N/A', 'na', 'NA', '#n/a', '#N/A', '-', '--', '—', ' ', '  '];
+                    emptyFragment += `,${field}.in.(${orEncodeInList(garbage)})`;
+                }
 
                 if (inValues.length > 0 && hasEmpty) {
                     if (useIlikeExact) {
-                        query = query.or(`${buildVanDonOrIlikeExact(field, inValues)},${field}.is.null,${field}.eq.`);
+                        query = query.or(`${buildVanDonOrIlikeExact(field, inValues)},${emptyFragment}`);
                     } else {
                         const enc = orEncodeInList(inValues);
-                        query = query.or(`${field}.in.(${enc}),${field}.is.null,${field}.eq.`);
+                        query = query.or(`${field}.in.(${enc}),${emptyFragment}`);
                     }
                 } else if (inValues.length > 0) {
                     if (useIlikeExact) {
@@ -1192,7 +1199,7 @@ export const fetchVanDon = async (options = {}) => {
                         query = query.in(field, inValues);
                     }
                 } else if (hasEmpty) {
-                    query = query.or(`${field}.is.null,${field}.eq.`);
+                    query = query.or(emptyFragment);
                 }
             };
 
