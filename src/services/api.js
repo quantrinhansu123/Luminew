@@ -98,7 +98,7 @@ export const normalizeNgayDoiSoatKeToanText = (v) => {
 const resolveAppKeyToDbKey = (appKey) => {
     if (appKey == null || appKey === '') return null;
     const nfc = String(appKey).normalize('NFC');
-    /** Cột tiêu đề «Trạng thái giao hàng» lấy/ghi NB (không dùng delivery_status FFM). */
+    /** Nhãn «Trạng thái giao hàng» từ lưới Vận đơn → `delivery_status_nb`. Trang FFM dùng khóa `delivery_status` (xem resolve dòng `delivery_status`). */
     if (nfc === 'Trạng thái giao hàng'.normalize('NFC')) {
         return 'delivery_status_nb';
     }

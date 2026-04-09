@@ -13,6 +13,10 @@ import * as rbacService from '../services/rbacService';
 import '../styles/selection.css';
 import { supabase } from '../supabase/config';
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
+import {
+  normalizeVanDonNbDeliveryStatusDisplay,
+  resolveVanDonDeliveryStatusForNbColumn
+} from '../utils/vanDonDeliveryStatusDisplay';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { matchesVanDonHeaderSearch, normalizeVanDonFilterWhitespace } from '../utils/vanDonFilterNormalize';
 
@@ -108,6 +112,15 @@ function coalesceVanDonDisplayValue(v) {
 function getVanDonGridCellValue(row, colHeader) {
   if (!row) return '';
   const logical = COLUMN_MAPPING[colHeader] || colHeader;
+  const isNbDeliveryStatusCol =
+    normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng') ||
+    normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng NB') ||
+    normalizeColHeader(logical) === normalizeColHeader('Trạng thái giao hàng NB');
+  if (isNbDeliveryStatusCol) {
+    const raw = resolveVanDonDeliveryStatusForNbColumn(row);
+    const normalized = normalizeVanDonNbDeliveryStatusDisplay(raw);
+    return coalesceVanDonDisplayValue(normalized);
+  }
   const tryKeys = [logical, colHeader, String(logical).replace(/ /g, '_'), String(colHeader).replace(/ /g, '_')];
   for (let i = 0; i < tryKeys.length; i++) {
     const k = tryKeys[i];

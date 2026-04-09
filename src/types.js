@@ -42,7 +42,7 @@ export const DROPDOWN_OPTIONS = {
     "Kết quả Check": ["", "OK", "Huỷ", "Treo", "Vận đơn XL", "Đợi hàng", "Khách hẹn", "Chờ check lại", "Sai SĐT", "Sai địa chỉ", "Khác"],
     "Trạng thái giao hàng NB": ["", "Giao Thành Công", "Đang Giao", "Chưa Giao", "Hủy", "Hoàn", "chờ check", "Giao không thành công", "Bom_Thất Lạc", "NHÃN"],
     "Trạng thái thu tiền": ["", "Có bill", "Có bill 1 phần", "Bom_bùng_chặn", "Hẹn Thanh Toán", "Hoàn Hàng", "Khó Đòi", "Không nhận được hàng", "Không PH dưới 3N", "Thanh toán phí hoàn", "KPH nhiều ngày"],
-    "Trạng thái giao hàng": ["", "NHÃN", "ĐANG GIAO", "ĐÃ GIAO", "HOÀN"],
+    "Trạng thái giao hàng": ["", "NHÃN", "ĐANG GIAO", "HOÀN"],
     "Payment Bill": ["", "Có bill", "Bill một phần"],
     "Trạng thái cskh": ["", "Chặn", "Đã có người xử lý", "Đã lênđơn mới", "Đã xử lý", "Khách chặn", "Không thấy mess"]
 };

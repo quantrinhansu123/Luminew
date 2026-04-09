@@ -145,6 +145,20 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Ngày đối soát kế toán',
 ]);
 
+/**
+ * Quản lý đơn FFM: «Trạng thái giao hàng» = cột vận chuyển (`delivery_status`),
+ * không trộn với «Trạng thái giao hàng NB» (`delivery_status_nb`) dùng ở Vận đơn.
+ */
+const FFM_ORDER_MGMT_DELIVERY_STATUS_KEY = 'delivery_status';
+
+function ffmPendingKeyForCol(col) {
+  return col === 'Trạng thái giao hàng' ? FFM_ORDER_MGMT_DELIVERY_STATUS_KEY : (COLUMN_MAPPING[col] || col);
+}
+
+function ffmFilterRowDataKey(headerKey) {
+  return headerKey === 'Trạng thái giao hàng' ? FFM_ORDER_MGMT_DELIVERY_STATUS_KEY : (COLUMN_MAPPING[headerKey] || headerKey);
+}
+
 /** Lấy ngày hôm nay định dạng YYYY-MM-DD */
 function getTodayDateStr() {
   const d = new Date();
@@ -253,6 +267,12 @@ function getFfmRowColRaw(row, colName, pendingChanges) {
     val = row['Payment Bill'] ?? row.payment_bill ?? row[key] ?? '';
   } else if (colName === 'Payment Image') {
     val = row['Payment Image'] ?? row.payment_image ?? row[key] ?? '';
+  } else if (colName === 'Trạng thái giao hàng') {
+    val = row.delivery_status ?? '';
+    const dsKey = FFM_ORDER_MGMT_DELIVERY_STATUS_KEY;
+    const pendingInfo = pendingChanges.get(orderId)?.get(dsKey);
+    if (pendingInfo) val = pendingInfo.newValue;
+    return { dataKey: dsKey, raw: String(val ?? '') };
   } else {
     val = row[key] ?? row[colName] ?? row[colName.replace(/ /g, '_')] ?? '';
   }
@@ -683,7 +703,7 @@ function FFM({ variant = 'MGT' }) {
   const getFfmExportCellValue = useCallback(
     (row, col) => {
       const orderId = row[PRIMARY_KEY_COLUMN];
-      const key = COLUMN_MAPPING[col] || col;
+      const key = ffmPendingKeyForCol(col);
       let val = '';
       if (col === 'Mã Tracking') {
         val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
@@ -692,6 +712,8 @@ function FFM({ variant = 'MGT' }) {
       } else if (col === 'Ngày có mã tracking') {
         const raw = getTrackingDateRawFFM(row);
         val = row['Ngày có mã tracking'] ?? extractDateFromDateTime(raw) ?? raw ?? '';
+      } else if (col === 'Trạng thái giao hàng') {
+        val = row.delivery_status ?? '';
       } else {
         val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
       }
@@ -1318,7 +1340,7 @@ function FFM({ variant = 'MGT' }) {
       if (Array.isArray(val) && val.length === 0) return;
       if (typeof val === 'string' && val.trim() === '') return;
 
-      const dataKey = COLUMN_MAPPING[key] || key;
+      const dataKey = ffmFilterRowDataKey(key);
       const isDateColFilter = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking'].includes(key);
 
       // MultiSelect (dạng mảng) phải match đúng theo danh sách đã chọn,
@@ -1402,13 +1424,7 @@ function FFM({ variant = 'MGT' }) {
       const search = fv.delivery_status_search ? String(fv.delivery_status_search).trim().toLowerCase() : '';
 
       data = data.filter(row => {
-        const val = String(
-          row['Trạng thái giao hàng NB'] ??
-            row.delivery_status_nb ??
-            row['Trạng thái giao hàng'] ??
-            row.delivery_status ??
-            ''
-        ).trim();
+        const val = String(row.delivery_status ?? '').trim();
         if (status === 'Trống') return val === '' || val === 'null';
         if (status === 'Tìm kiếm...') {
           return search ? val.toLowerCase().includes(search) : true;
@@ -1609,6 +1625,13 @@ function FFM({ variant = 'MGT' }) {
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
+    if (key === 'Trạng thái giao hàng') {
+      allData.forEach((row) => {
+        const val = String(row.delivery_status ?? '').trim();
+        if (val) values.add(val);
+      });
+      return Array.from(values).sort();
+    }
     const keyMapped = COLUMN_MAPPING[key] || key;
     allData.forEach((row) => {
       const val = String(row[key] || row[keyMapped] || row[key.replace(/ /g, '_')] || '').trim();
@@ -1635,6 +1658,10 @@ function FFM({ variant = 'MGT' }) {
   }, [getUniqueValues, canViewHaNoi]);
 
   const getMultiSelectOptions = (col) => {
+    if (col === 'Trạng thái giao hàng') {
+      const preset = DROPDOWN_OPTIONS['Trạng thái giao hàng'];
+      return preset ? ['__EMPTY__', ...preset] : ['__EMPTY__', ...getUniqueValues(col)];
+    }
     const key = COLUMN_MAPPING[col] || col;
     if (DROPDOWN_OPTIONS[key]) return ['__EMPTY__', ...DROPDOWN_OPTIONS[key]];
     if (DROPDOWN_OPTIONS[col]) return ['__EMPTY__', ...DROPDOWN_OPTIONS[col]];
@@ -1953,7 +1980,8 @@ function FFM({ variant = 'MGT' }) {
         const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
         // Chỉ sync khi ô quick-add có giá trị thực sự; ô trống không được phép ghi đè DB.
         if (val !== undefined && val !== null && val !== '') {
-          const dataKey = COLUMN_MAPPING[colName] || colName;
+          const dataKey =
+            colName === 'Trạng thái giao hàng' ? FFM_ORDER_MGMT_DELIVERY_STATUS_KEY : (COLUMN_MAPPING[colName] || colName);
           const originalVal = originalRow[dataKey] ?? '';
 
           const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
@@ -2067,7 +2095,7 @@ function FFM({ variant = 'MGT' }) {
       .map((row) =>
         currentColumns
           .map((col) => {
-            const key = COLUMN_MAPPING[col] || col;
+            const key = ffmPendingKeyForCol(col);
             let val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
             if (col === 'Ngày đóng hàng') {
               val = val === null || val === undefined ? '' : String(val);
@@ -2455,7 +2483,7 @@ function FFM({ variant = 'MGT' }) {
       const rowData = [];
       for (let c = bounds.minCol; c <= bounds.maxCol && c < currentColumns.length; c++) {
         const col = currentColumns[c];
-        const key = COLUMN_MAPPING[col] || col;
+        const key = ffmPendingKeyForCol(col);
         let val = viewData[r][key] ?? viewData[r][col] ?? '';
         if (col === 'Ngày đóng hàng') {
           val = val === null || val === undefined ? '' : String(val);
@@ -2510,7 +2538,7 @@ function FFM({ variant = 'MGT' }) {
         const colName = currentColumns[c];
         if (!isEditableColFFM(colName)) continue;
 
-        const dataKey = COLUMN_MAPPING[colName] || colName;
+        const dataKey = ffmPendingKeyForCol(colName);
         const originalVal = rowData[dataKey] ?? '';
         const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
         const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
@@ -2730,7 +2758,7 @@ function FFM({ variant = 'MGT' }) {
             continue;
           }
 
-          const dataKey = COLUMN_MAPPING[colName] || colName;
+          const dataKey = ffmPendingKeyForCol(colName);
           const sourceCol = dataCols === 1 ? 0 : pasteCol % dataCols;
           const pasteValue = rows[sourceRow]?.[sourceCol] ?? '';
 
@@ -2798,7 +2826,7 @@ function FFM({ variant = 'MGT' }) {
       for (let c = selectionBounds.minCol; c <= selectionBounds.maxCol && c < currentColumns.length; c++) {
         count++;
         const col = currentColumns[c];
-        const key = COLUMN_MAPPING[col] || col;
+        const key = ffmPendingKeyForCol(col);
         const val = viewData[r][key] ?? viewData[r][col] ?? '';
         const numVal = parseFloat(String(val).replace(/[^\d.-]/g, ''));
         if (!isNaN(numVal)) {
@@ -3082,7 +3110,7 @@ function FFM({ variant = 'MGT' }) {
     const isEditable = isEditableColFFM(col);
     if (isEditable) {
       const orderId = row[PRIMARY_KEY_COLUMN];
-      if (pendingChanges.get(orderId)?.has(COLUMN_MAPPING[col] || col)) {
+      if (pendingChanges.get(orderId)?.has(ffmPendingKeyForCol(col))) {
         classes += '!bg-yellow-300 ';
       } else {
         classes += 'bg-[#e8f5e9] ';
@@ -3199,7 +3227,7 @@ function FFM({ variant = 'MGT' }) {
             onChange={(e) => setLocalFilterValues((p) => ({ ...p, delivery_status_filter: e.target.value }))}
           >
             <option value="Tất cả">Tất cả</option>
-            {DROPDOWN_OPTIONS['Trạng thái giao hàng NB']?.filter((o) => o).map((o) => (
+            {DROPDOWN_OPTIONS['Trạng thái giao hàng']?.filter((o) => o).map((o) => (
               <option key={o} value={o}>{o}</option>
             ))}
             <option value="Trống">Trống</option>
@@ -3285,7 +3313,7 @@ function FFM({ variant = 'MGT' }) {
 
   const renderFfmDataCell = (row, rIdx, col, cIdx, cellStyle) => {
     const orderId = row[PRIMARY_KEY_COLUMN];
-    const key = COLUMN_MAPPING[col] || col;
+    const key = ffmPendingKeyForCol(col);
     let val = '';
     if (col === 'Mã Tracking') {
       val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
@@ -3296,13 +3324,7 @@ function FFM({ variant = 'MGT' }) {
     } else if (col === 'Payment Image') {
       val = row['Payment Image'] ?? row.payment_image ?? row[key] ?? '';
     } else if (col === 'Trạng thái giao hàng') {
-      val =
-        row['Trạng thái giao hàng NB'] ??
-        row.delivery_status_nb ??
-        row['Trạng thái giao hàng'] ??
-        row.delivery_status ??
-        row[key] ??
-        '';
+      val = row.delivery_status ?? row[FFM_ORDER_MGMT_DELIVERY_STATUS_KEY] ?? '';
     } else {
       val = row[key] ?? row[col] ?? row[col.replace(/ /g, '_')] ?? '';
     }
@@ -3354,7 +3376,7 @@ function FFM({ variant = 'MGT' }) {
             value={String(val)}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
-            {getMultiSelectOptions(key)
+            {getMultiSelectOptions(col)
               .filter((o) => o !== '__EMPTY__')
               .map((o) => (
                 <option key={o} value={o}>{o}</option>
