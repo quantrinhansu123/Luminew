@@ -126,6 +126,21 @@ function getVanDonGridCellValue(row, colHeader) {
   return '';
 }
 
+/**
+ * Copy nhiều ô (TSV) rồi dán Excel: ký tự tab / xuống dòng trong một ô tách thành nhiều cột → nhìn như «tên đổi».
+ * Đầu ô là `= + - @` Excel coi là công thức; SĐT `+84…` cũng hay gặp.
+ */
+function sanitizeExcelTsvCell(raw, opts = {}) {
+  const { skipLeadingApostrophe = false } = opts;
+  if (raw == null) return '';
+  let s = String(raw);
+  s = s.replace(/\r\n|\r|\n/g, ' ').replace(/\t/g, ' ');
+  if (!skipLeadingApostrophe && /^[=+\-@]/.test(s)) {
+    s = `'${s}`;
+  }
+  return s;
+}
+
 /** Một dòng tiền cho header «Tổng tiền»: ưu tiên ô «Tổng tiền VNĐ»; sau đó cùng logic DB (line → nullif tong → total → …). */
 function pickVanDonRowMoneyVnd(row) {
   if (!row) return 0;
@@ -1899,6 +1914,50 @@ function VanDon({ dataSource = 'default' }) {
     ? Math.ceil(totalRecords / effectiveRowsPerPage)
     : Math.ceil(getFilteredData.length / effectiveRowsPerPage);
 
+  /** Giá trị copy Ctrl+C khớp những gì lưới hiển thị (cùng logic đọc ô với `getVanDonGridCellValue` + format ngày/tiền). */
+  const getVanDonClipboardCellText = useCallback(
+    (rData, rowIdxInView, colName) => {
+      let out;
+      if (colName === 'STT') {
+        out = String(
+          rData?.rowIndex ?? (currentPage - 1) * effectiveRowsPerPage + rowIdxInView + 1
+        );
+        return sanitizeExcelTsvCell(out, { skipLeadingApostrophe: true });
+      }
+      let val = getVanDonGridCellValue(rData, colName);
+      if (!val && colName === 'Ngày up bill') {
+        val = rData.ngayupbill ?? rData.ngay_up_bill ?? '';
+      }
+      if (!val && colName === 'Tiền đã thanh toán') {
+        val = rData.reconciled_vnd ?? '';
+      }
+      val = coalesceVanDonDisplayValue(val);
+      if (
+        [
+          'Ngày lên đơn',
+          'Ngày đóng hàng',
+          'Ngày đẩy đơn',
+          'Ngày có mã tracking',
+          'Ngày Kế toán đối soát với FFM lần 2',
+          'Ngày up bill',
+        ].includes(colName)
+      ) {
+        out = String(formatDate(val));
+      } else if (colName === 'Tổng tiền VNĐ' || colName === 'Tiền đã thanh toán') {
+        const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
+        out = n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';
+      } else if (val === undefined || val === null) {
+        out = '';
+      } else if (typeof val === 'number' || typeof val === 'boolean') {
+        out = String(val);
+      } else {
+        out = String(val);
+      }
+      return sanitizeExcelTsvCell(out);
+    },
+    [currentPage, effectiveRowsPerPage, formatDate]
+  );
+
   // Rebuild missing snapshots when data arrives
   useEffect(() => {
     if (queryResult?.data) {
@@ -3361,8 +3420,7 @@ function VanDon({ dataSource = 'default' }) {
           const rowData = [];
           for (let c = bounds.minCol; c <= bounds.maxCol; c++) {
             const colName = currentColumns[c];
-            const val = rData[COLUMN_MAPPING[colName] || colName] ?? rData[colName] ?? '';
-            rowData.push(val);
+            rowData.push(getVanDonClipboardCellText(rData, r, colName));
           }
           rows.push(rowData.join('\t'));
         }
@@ -3439,7 +3497,18 @@ function VanDon({ dataSource = 'default' }) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selection, virtuosoRowData.length, currentColumns.length, getSelectionBounds, virtuosoRowData, currentColumns, handleUndo, handleRedo]);
+  }, [
+    selection,
+    virtuosoRowData.length,
+    currentColumns.length,
+    getSelectionBounds,
+    virtuosoRowData,
+    currentColumns,
+    handleUndo,
+    handleRedo,
+    getVanDonClipboardCellText,
+    addToast,
+  ]);
 
   // --- Paste Logic ---
   useEffect(() => {
@@ -3930,19 +3999,14 @@ function VanDon({ dataSource = 'default' }) {
           ) : (
             displayVal
           )
-        ) : DROPDOWN_OPTIONS[col] ? (
-          <select
-            className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
-            value={val === '' || val == null ? '' : String(val)}
-            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
-          >
-            {DROPDOWN_OPTIONS[col].map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        ) : col === 'Kết quả Check' || col === 'Trạng thái giao hàng' ? (
+        ) : col === 'Kết quả Check' ||
+          col === 'Trạng thái giao hàng' ||
+          normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng NB') ? (
+          /**
+           * Phải ưu tiên nhánh này trước `DROPDOWN_OPTIONS[col]`:
+           * «Trạng thái giao hàng» lưu theo «Trạng thái giao hàng NB» (COLUMN_MAPPING) với danh mục NB,
+           * không dùng preset FFM «NHÃN/ĐANG GIAO/…» — nếu không, ô select không khớp giá trị thật và Ctrl+C copy ra chữ khác.
+           */
           <select
             className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
             style={{ padding: 0, margin: 0, lineHeight: '38px' }}
@@ -3956,6 +4020,18 @@ function VanDon({ dataSource = 'default' }) {
                   {o}
                 </option>
               ))}
+          </select>
+        ) : DROPDOWN_OPTIONS[col] ? (
+          <select
+            className="w-full h-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
+            value={val === '' || val == null ? '' : String(val)}
+            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
+          >
+            {DROPDOWN_OPTIONS[col].map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
           </select>
         ) : isVanDonUserEditableColumn(col) && colInList(col, LONG_TEXT_COLS) ? (
           <textarea
