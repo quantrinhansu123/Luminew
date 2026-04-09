@@ -5162,6 +5162,50 @@ function VanDon({ dataSource = 'default' }) {
                 <div className="text-xs text-gray-500">
                   Hiển thị {filteredHistoryRows.length}/{historyModalData.rows.length} lần thao tác
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const exportRows = [];
+                    filteredHistoryRows.forEach((row) => {
+                      const fields = row?.changed_fields && typeof row.changed_fields === 'object' ? row.changed_fields : {};
+                      const entries = Object.entries(fields);
+                      if (entries.length === 0) {
+                        exportRows.push({
+                          'Mã đơn hàng': historyModalData.orderId,
+                          'Thời gian thao tác': formatDateTime(row?.changed_at),
+                          'Người thao tác': String(row?.changed_by || 'hệ thống'),
+                          'Cột thay đổi': '',
+                          'Giá trị cũ': '',
+                          'Giá trị mới': '',
+                        });
+                        return;
+                      }
+                      entries.forEach(([colName, diff]) => {
+                        exportRows.push({
+                          'Mã đơn hàng': historyModalData.orderId,
+                          'Thời gian thao tác': formatDateTime(row?.changed_at),
+                          'Người thao tác': String(row?.changed_by || 'hệ thống'),
+                          'Cột thay đổi': formatAuditColumnName(colName),
+                          'Giá trị cũ': formatAuditValueForUi(diff?.old),
+                          'Giá trị mới': formatAuditValueForUi(diff?.new),
+                        });
+                      });
+                    });
+                    if (exportRows.length === 0) {
+                      addToast('Không có dữ liệu lịch sử theo bộ lọc để xuất Excel.', 'warning');
+                      return;
+                    }
+                    const wb = XLSX.utils.book_new();
+                    const ws = XLSX.utils.json_to_sheet(exportRows);
+                    XLSX.utils.book_append_sheet(wb, ws, 'Lich_su_thay_doi');
+                    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+                    XLSX.writeFile(wb, `LichSuThayDoi_${historyModalData.orderId}_${stamp}.xlsx`);
+                    addToast(`Đã xuất ${exportRows.length} dòng lịch sử.`, 'success');
+                  }}
+                  className="px-3 py-1.5 text-xs rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                >
+                  Xuất Excel theo bộ lọc ngày
+                </button>
               </div>
               <div className="border rounded-xl overflow-auto max-h-[65vh]">
                 <table className="w-full text-sm border-collapse">
