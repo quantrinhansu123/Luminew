@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
 import usePermissions from '../hooks/usePermissions';
+import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { COLUMN_MAPPING, PRIMARY_KEY_COLUMN } from '../types';
 import { isDateInRange, parseSmartDate } from '../utils/dateParsing';
@@ -64,6 +65,8 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
 
     const [filterBranch, setFilterBranch] = useState('');
     const [userBranchMap, setUserBranchMap] = useState({});
+    const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
+    const [selectedPersonnelReady, setSelectedPersonnelReady] = useState(false);
 
     const [currentPage, setCurrentPage] = useState(1);
     const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -71,6 +74,33 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     const [sortDirection, setSortDirection] = useState('asc');
     const [showColumnSettings, setShowColumnSettings] = useState(false);
     const [syncing, setSyncing] = useState(false); // State for sync process
+
+    // Danh sách nhân sự được phép xem theo users.selected_personnel của tài khoản hiện tại.
+    useEffect(() => {
+        const loadSelectedPersonnel = async () => {
+            try {
+                const userEmail = String(localStorage.getItem('userEmail') || user?.email || '').trim().toLowerCase();
+                if (!userEmail) {
+                    setSelectedPersonnelNames([]);
+                    return;
+                }
+                const personnelMap = await rbacService.getSelectedPersonnel([userEmail]);
+                const personnelNames = personnelMap[userEmail] || [];
+                const validNames = [...new Set(
+                    personnelNames
+                        .map((name) => String(name || '').trim())
+                        .filter((name) => name && !name.includes('@'))
+                )];
+                setSelectedPersonnelNames(validNames);
+            } catch (error) {
+                console.error('[BaoCaoChiTiet] load selected personnel:', error);
+                setSelectedPersonnelNames([]);
+            } finally {
+                setSelectedPersonnelReady(true);
+            }
+        };
+        loadSelectedPersonnel();
+    }, [user?.email]);
 
     // List of columns that should be hidden/removed (no longer in mapSupabaseToUI)
     const REMOVED_COLUMNS = [
@@ -255,6 +285,7 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
 
     // Load data from Supabase only
     const loadData = async () => {
+        if (!selectedPersonnelReady) return;
         setLoading(true);
         try {
             console.log(`Loading MKT Detail data from Supabase (${ordersTableName})...`);
@@ -268,7 +299,10 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
             const roleLower = (role || '').toLowerCase();
             const isManager = isManagerRole(role, legacyRole);
 
-            if (!isManager && userName) {
+            // Admin/Manager luôn xem full; user thường lọc theo users.selected_personnel.
+            if (!isManager && selectedPersonnelNames.length > 0) {
+                query = query.in('marketing_staff', selectedPersonnelNames);
+            } else if (!isManager && userName) {
                 query = query.ilike('marketing_staff', `%${String(userName).trim()}%`);
             }
 
@@ -310,10 +344,10 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     };
 
     useEffect(() => {
-        if (permissionsLoading) return;
+        if (permissionsLoading || !selectedPersonnelReady) return;
         loadData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startDate, endDate, role, userName, permissionsLoading, ordersTableName]);
+    }, [startDate, endDate, role, userName, permissionsLoading, ordersTableName, selectedPersonnelReady, selectedPersonnelNames]);
 
     // Fetch user branch mapping
     useEffect(() => {
