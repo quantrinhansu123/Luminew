@@ -1956,10 +1956,12 @@ function FFM({ variant = 'MGT' }) {
     manualSaveRequestedRef.current = true;
     processDbQueue();
   }, [pendingChanges, addToast, processDbQueue]);
-  const handleQuickSync = (rows) => {
+  const handleQuickSync = (rows, options = {}) => {
     const changesArray = [];
     const COL_KEYS = FFM_QUICK_ADD_COLUMNS;
     let notFoundCount = 0;
+    const activeColumns = Array.isArray(options?.activeColumns) ? options.activeColumns : null;
+    const activeColumnSet = activeColumns ? new Set(activeColumns) : null;
 
     /** Chuẩn hóa mã đơn để khớp dòng trong bảng chính (đúng dòng / đúng khóa pending). */
     const normOrderId = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -1976,41 +1978,50 @@ function FFM({ variant = 'MGT' }) {
 
       COL_KEYS.forEach((colName, idx) => {
         if (idx === 0) return;
+        /** Modal «Thêm nhanh»: chỉ cột đang bật mới được ghi; cột ẩn không đụng DB. */
+        if (activeColumnSet && !activeColumnSet.has(colName)) return;
+
         const rawVal = row[idx];
         const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
-        // Chỉ sync khi ô quick-add có giá trị thực sự; ô trống không được phép ghi đè DB.
-        if (val !== undefined && val !== null && val !== '') {
-          const dataKey =
-            colName === 'Trạng thái giao hàng' ? FFM_ORDER_MGMT_DELIVERY_STATUS_KEY : (COLUMN_MAPPING[colName] || colName);
-          const originalVal = originalRow[dataKey] ?? '';
+        const valStr = val === undefined || val === null ? '' : String(val);
 
-          const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
-          const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
+        const dataKey =
+          colName === 'Trạng thái giao hàng' ? FFM_ORDER_MGMT_DELIVERY_STATUS_KEY : (COLUMN_MAPPING[colName] || colName);
+        const originalVal = originalRow[dataKey] ?? '';
 
-          if (String(currentUiVal) !== String(val)) {
-            changesArray.push({
-              orderId,
-              colKey: dataKey,
-              originalValue: String(currentUiVal),
-              newValue: String(val)
-            });
+        const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
+        const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
+        const currentStr = currentUiVal === undefined || currentUiVal === null ? '' : String(currentUiVal);
 
-            // Tự động nhảy ngày khi cập nhật mã Tracking trong Sync
-            if (dataKey === 'Mã Tracking' && String(val).trim() !== '') {
-              const todayStr = getTodayDateStr();
-              const uiCol = 'Ngày có mã tracking';
+        /**
+         * Có `activeColumns`: cho phép ghi cả rỗng (= xóa) trên cột đang bật.
+         * Không có (lời gọi cũ): giữ hành vi an toàn — ô trống không ghi đè.
+         */
+        const shouldApply =
+          activeColumnSet ? currentStr !== valStr : valStr !== '' && currentStr !== valStr;
 
-              const pendingInfo = pendingChanges.get(orderId)?.get(uiCol);
-              const currentUiValTracking = pendingInfo ? pendingInfo.newValue : (originalRow[uiCol] ?? '');
+        if (shouldApply) {
+          changesArray.push({
+            orderId,
+            colKey: dataKey,
+            originalValue: currentStr,
+            newValue: valStr
+          });
 
-              if (String(currentUiValTracking) !== todayStr) {
-                changesArray.push({
-                  orderId,
-                  colKey: uiCol,
-                  originalValue: String(currentUiValTracking),
-                  newValue: todayStr
-                });
-              }
+          if (dataKey === 'Mã Tracking' && valStr.trim() !== '') {
+            const todayStr = getTodayDateStr();
+            const uiCol = 'Ngày có mã tracking';
+
+            const pendingInfo = pendingChanges.get(orderId)?.get(uiCol);
+            const currentUiValTracking = pendingInfo ? pendingInfo.newValue : (originalRow[uiCol] ?? '');
+
+            if (String(currentUiValTracking) !== todayStr) {
+              changesArray.push({
+                orderId,
+                colKey: uiCol,
+                originalValue: String(currentUiValTracking),
+                newValue: todayStr
+              });
             }
           }
         }
@@ -2027,11 +2038,11 @@ function FFM({ variant = 'MGT' }) {
     if (notFoundCount > 0) addToast(`Không tìm thấy ${notFoundCount} mã đơn hàng.`, 'error');
   };
 
-  const handleQuickSyncAndSave = async (rows) => {
+  const handleQuickSyncAndSave = async (rows, options = {}) => {
     // Với hệ thống stack mới, ta chỉ cần gọi handleQuickSync (nó sẽ đưa vào history và queue)
     // Sau đó gọi processDbQueue để bắt đầu lưu ngay lập tức thay vì đợi 10ms
     const prevQueueLen = dbQueueRef.current.length;
-    handleQuickSync(rows);
+    handleQuickSync(rows, options);
     if (dbQueueRef.current.length > prevQueueLen) {
       manualSaveRequestedRef.current = true;
       processDbQueue();

@@ -467,14 +467,19 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
 
     const handleSyncClick = () => {
         const todayStr = getTodayDDMMYYYY();
+        const activeColumns = visibleColIndices
+            .filter((idx) => idx !== 0)
+            .map((idx) => COLUMNS[idx]);
+        const activeColSet = new Set(activeColumns);
+
         const working = rows.map((r) => {
             const copy = [...r];
             while (copy.length < COLUMNS.length) copy.push("");
             const orderCode = normOrderId(copy[0]);
             const tracking = normOrderId(copy[TRACKING_COL_INDEX]);
             const ngay = normOrderId(copy[NGAY_DONG_HANG_COL_INDEX]);
-            // Chỉ điền today trên đúng dòng (mã đơn + tracking + chưa có ngày đóng hàng)
-            if (orderCode && tracking && !ngay) {
+            // Chỉ tự điền ngày khi cột «Ngày đóng hàng» đang bật (tránh gợi ý ngầm lên cột ẩn).
+            if (activeColSet.has('Ngày đóng hàng') && orderCode && tracking && !ngay) {
                 copy[NGAY_DONG_HANG_COL_INDEX] = todayStr;
             }
             return copy;
@@ -486,9 +491,6 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
             return;
         }
         // Chỉ các cột đang hiển thị mới được phép tác động dữ liệu khi sync.
-        const activeColumns = visibleColIndices
-            .filter((idx) => idx !== 0)
-            .map((idx) => COLUMNS[idx]);
         setRows(working);
         onSync(validRows, { activeColumns });
         onClose();
@@ -572,6 +574,31 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
             );
         }
 
+        // Cùng preset «Trạng thái giao hàng» với lưới FFM / types (DELIVERY_STATUS_PRESETS).
+        if (col === 'Trạng thái giao hàng') {
+            const opts = DROPDOWN_OPTIONS['Trạng thái giao hàng'] || [];
+            const v = value == null ? '' : String(value);
+            return (
+                <select
+                    value={opts.includes(v) ? v : ''}
+                    onChange={(e) => handleCellChange(rowIdx, actualColIdx, e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onFocus={(e) => {
+                        e.stopPropagation();
+                        setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
+                    }}
+                    className="w-full h-full outline-none bg-transparent border-none p-0 text-sm cursor-pointer text-gray-700"
+                >
+                    {opts.map((o) => (
+                        <option key={String(o)} value={o}>
+                            {o === '' ? '—' : o}
+                        </option>
+                    ))}
+                </select>
+            );
+        }
+
         // Dropdown columns - cho phép paste nhiều giá trị
         if (DROPDOWN_OPTIONS[col]) {
             // Sử dụng input với datalist để cho phép paste và tự do nhập
@@ -648,6 +675,10 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
                             <span>Delete / Backspace: xóa vùng đã bôi đen</span>
                             <span className="text-blue-600">Kéo góc ô để sao chép xuống</span>
                         </div>
+                        <p className="mt-1.5 text-[11px] text-gray-600 max-w-3xl leading-snug">
+                            Khi <strong>Đồng bộ</strong>: chỉ các cột đang bật (⚙ Cài đặt cột) mới ghi vào lưới; cột ẩn không đổi trên DB.
+                            Ô trống trên cột đang bật = xóa giá trị nếu khác dữ liệu hiện tại — bật đúng các cột cần sửa rồi dán 2 cột (vd. mã đơn + trạng thái) để không đụng các trường khác.
+                        </p>
                         <div className="mt-2">
                             <button
                                 type="button"

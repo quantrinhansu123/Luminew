@@ -37,12 +37,32 @@ export const DEFAULT_BILL_LADING_COLUMNS = [
     "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT", "Lịch sử thay đổi"
 ];
 
+/**
+ * Danh mục trạng thái giao dùng chung cho mọi dropdown «Trạng thái giao hàng» / «Trạng thái giao hàng NB»
+ * (Vận đơn, FFM, Thêm nhanh, v.v.). Gồm bộ vận đơn + biến thể chữ HOA từ FFM / dữ liệu cũ.
+ * Lưu DB: FFM → `delivery_status`, vận đơn → `delivery_status_nb` (logic resolve không đổi).
+ */
+export const DELIVERY_STATUS_PRESETS = Object.freeze([
+    "",
+    "Giao Thành Công",
+    "Đang Giao",
+    "ĐANG GIAO",
+    "Chưa Giao",
+    "Hủy",
+    "Hoàn",
+    "HOÀN",
+    "chờ check",
+    "Giao không thành công",
+    "Bom_Thất Lạc",
+    "NHÃN",
+]);
+
 // Specific dropdown options for columns defined in the HTML
 export const DROPDOWN_OPTIONS = {
     "Kết quả Check": ["", "OK", "Huỷ", "Treo", "Vận đơn XL", "Đợi hàng", "Khách hẹn", "Chờ check lại", "Sai SĐT", "Sai địa chỉ", "Khác"],
-    "Trạng thái giao hàng NB": ["", "Giao Thành Công", "Đang Giao", "Chưa Giao", "Hủy", "Hoàn", "chờ check", "Giao không thành công", "Bom_Thất Lạc", "NHÃN"],
+    "Trạng thái giao hàng NB": DELIVERY_STATUS_PRESETS,
     "Trạng thái thu tiền": ["", "Có bill", "Có bill 1 phần", "Bom_bùng_chặn", "Hẹn Thanh Toán", "Hoàn Hàng", "Khó Đòi", "Không nhận được hàng", "Không PH dưới 3N", "Thanh toán phí hoàn", "KPH nhiều ngày"],
-    "Trạng thái giao hàng": ["", "NHÃN", "ĐANG GIAO", "HOÀN"],
+    "Trạng thái giao hàng": DELIVERY_STATUS_PRESETS,
     "Payment Bill": ["", "Có bill", "Bill một phần"],
     "Trạng thái cskh": ["", "Chặn", "Đã có người xử lý", "Đã lênđơn mới", "Đã xử lý", "Khách chặn", "Không thấy mess"]
 };

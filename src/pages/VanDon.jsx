@@ -4173,9 +4173,8 @@ function VanDon({ dataSource = 'default' }) {
           col === 'Trạng thái giao hàng' ||
           normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng NB') ? (
           /**
-           * Phải ưu tiên nhánh này trước `DROPDOWN_OPTIONS[col]`:
-           * «Trạng thái giao hàng» lưu theo «Trạng thái giao hàng NB» (COLUMN_MAPPING) với danh mục NB,
-           * không dùng preset FFM «NHÃN/ĐANG GIAO/…» — nếu không, ô select không khớp giá trị thật và Ctrl+C copy ra chữ khác.
+           * Trước `DROPDOWN_OPTIONS[col]`: cả «Trạng thái giao hàng» và NB dùng cùng `DELIVERY_STATUS_PRESETS`;
+           * «Trạng thái giao hàng» vẫn lưu qua COLUMN_MAPPING → khóa NB. Gộp thêm giá trị distinct trên lưới trong getCellEditSelectOptions.
            */
           <select
             className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
