@@ -51,24 +51,19 @@ export const DEFAULT_BILL_LADING_COLUMNS = [
 
 /**
  * Danh mục trạng thái giao dùng chung cho mọi dropdown «Trạng thái giao hàng» / «Trạng thái giao hàng NB»
- * (Vận đơn, FFM, Thêm nhanh, v.v.). Gồm bộ vận đơn + biến thể chữ HOA từ FFM / dữ liệu cũ.
+ * (Vận đơn, FFM, Thêm nhanh, v.v.). Chỉ giữ các nhãn viết thường có dấu, bỏ các biến thể viết HOA.
  * Lưu DB: FFM → `delivery_status`, vận đơn → `delivery_status_nb` (logic resolve không đổi).
  */
 export const DELIVERY_STATUS_PRESETS = Object.freeze([
     "",
     "Giao Thành Công",
-    "ĐÃ GIAO",
     "Đang Giao",
-    "ĐANG GIAO",
     "Chưa Giao",
-    "CHƯA GIAO",
     "Hủy",
     "Hoàn",
-    "HOÀN",
     "chờ check",
     "Giao không thành công",
     "Bom_Thất Lạc",
-    "NHÃN",
 ]);
 
 // Specific dropdown options for columns defined in the HTML

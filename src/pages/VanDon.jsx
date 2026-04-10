@@ -4728,10 +4728,10 @@ function VanDon({ dataSource = 'default' }) {
               </div>
               <div className="flex items-center gap-1 ml-1 border-l border-red-200 pl-1.5 py-0.5">
                 {[
-                  { label: 'Chưa giao', values: ['Chưa Giao', 'chờ check', 'Chưa giao', 'CHƯA GIAO', ''] },
-                  { label: 'ĐANG GIAO', values: ['Đang Giao', 'ĐANG GIAO'] },
-                  { label: 'ĐÃ GIAO', values: ['Giao Thành Công', 'Đã giao', 'ĐÃ GIAO'] },
-                  { label: 'HOÀN', values: ['Hoàn', 'HOÀN'] }
+                  { label: 'Chưa giao', values: ['Chưa Giao', 'chờ check', ''] },
+                  { label: 'Đang giao', values: ['Đang Giao'] },
+                  { label: 'Đã giao', values: ['Giao Thành Công'] },
+                  { label: 'Hoàn', values: ['Hoàn'] }
                 ].map((q) => {
                   const current = filterValues.delivery_status || [];
                   const isActive = q.values.length > 0 && q.values.every(v => current.includes(v));
