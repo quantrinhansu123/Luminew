@@ -1,4 +1,4 @@
-import { lazy, Suspense, startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import MultiSelect from '../components/MultiSelect';
 import usePermissions from '../hooks/usePermissions';
 import * as API from '../services/api';
@@ -85,11 +85,14 @@ const FFM_FIRST_BATCH_SIZE = 400;
 const FFM_NEXT_BATCH_SIZE = 1000;
 /** Kéo chuột ≥ px này thì coi là bôi vùng; nhỏ hơn thì coi là click để focus ô (sau mouseup). */
 const DRAG_FOCUS_THRESHOLD_PX = 5;
+const FFM_ORDER_CODE_FILTER_KEY = 'ffm_filter_order_code';
+
 /** Các key trong filterValues không xử lý trong vòng Object.entries (đã lọc riêng). */
 const FFM_FILTER_SKIP_KEYS = new Set([
   'market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status',
   'packing_date_status', 'delivery_status_filter', 'delivery_status_search',
-  'us_shipping_fee_search'
+  'us_shipping_fee_search',
+  FFM_ORDER_CODE_FILTER_KEY,
 ]);
 const HIDDEN_FFM_COLUMNS = new Set([
   'Payment Bill',
@@ -309,6 +312,30 @@ const SyncPopover = lazy(() => import('../components/SyncPopover'));
 const ColumnSettingsModal = lazy(() => import('../components/ColumnSettingsModal'));
 const BillImageViewer = lazy(() => import('../components/BillImageViewer'));
 
+function FfmFilterTextCommitOnEnter({ committed, onCommit, placeholder, className, title }) {
+  const [draft, setDraft] = useState(committed ?? '');
+  useEffect(() => {
+    setDraft(committed ?? '');
+  }, [committed]);
+  return (
+    <input
+      type="text"
+      className={className}
+      placeholder={placeholder}
+      title={title || 'Nhập xong bấm Enter để áp dụng lọc'}
+      value={draft}
+      onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          onCommit(String(draft));
+        }
+      }}
+    />
+  );
+}
 
 /** Trang FFM MGT HCM — bản sao độc lập của FFM (cùng logic, `variant` cố định MGT_HCM). */
 function FFMMgtHcm() {
@@ -374,6 +401,7 @@ function FFMMgtHcm() {
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã',
+    [FFM_ORDER_CODE_FILTER_KEY]: '',
     ['Kết quả Check']: [],
     packing_date_status: 'Tất cả',
     delivery_status_filter: 'Tất cả',
@@ -381,7 +409,6 @@ function FFMMgtHcm() {
     us_shipping_fee_search: ''
   });
   const [localFilterValues, setLocalFilterValues] = useState(filterValues);
-  const deferredFilterValues = useDeferredValue(filterValues);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -906,6 +933,7 @@ function FFMMgtHcm() {
       tracking_include: '',
       tracking_exclude: '',
       tracking_status: 'Tình trạng mã',
+      [FFM_ORDER_CODE_FILTER_KEY]: '',
       ['Kết quả Check']: [],
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
@@ -1073,6 +1101,14 @@ function FFMMgtHcm() {
         const cellYmd = getOmDateYmdFromRow(row, activeDateType);
         if (!cellYmd) return false;
         return cellYmd <= toYmd;
+      });
+    }
+
+    const orderCodeFilter = String(fv[FFM_ORDER_CODE_FILTER_KEY] ?? '').trim().toLowerCase();
+    if (orderCodeFilter) {
+      data = data.filter((row) => {
+        const id = String(row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? '').trim().toLowerCase();
+        return id.includes(orderCodeFilter);
       });
     }
 
@@ -1268,8 +1304,8 @@ function FFMMgtHcm() {
   }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant]);
 
   const getFilteredData = useMemo(() => {
-    return applyFfmFilters(ffmEnrichedRowsForFilter, deferredFilterValues);
-  }, [applyFfmFilters, ffmEnrichedRowsForFilter, deferredFilterValues]);
+    return applyFfmFilters(ffmEnrichedRowsForFilter, localFilterValues);
+  }, [applyFfmFilters, ffmEnrichedRowsForFilter, localFilterValues]);
 
   /** Xóa mọi lọc hiển thị (ô dưới tiêu đề cột, Từ/Tới ngày, bộ lọc nhanh) — không tải lại DB, không xóa thay đổi chưa lưu. */
   const clearFfmDisplayFilters = useCallback(() => {
@@ -1279,6 +1315,7 @@ function FFMMgtHcm() {
       tracking_include: '',
       tracking_exclude: '',
       tracking_status: 'Tình trạng mã',
+      [FFM_ORDER_CODE_FILTER_KEY]: '',
       ['Kết quả Check']: [],
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
@@ -1287,6 +1324,7 @@ function FFMMgtHcm() {
     };
     ffmColumns.forEach((col) => {
       if (col === 'STT') return;
+      if (col === PRIMARY_KEY_COLUMN) return;
       if (col === 'Khu vực' || col === 'Mặt hàng') return;
       if (Object.prototype.hasOwnProperty.call(next, col)) return;
       const multi =
@@ -2845,6 +2883,19 @@ function FFMMgtHcm() {
     const filterKey = col;
     if (col === 'STT') {
       return <div className="text-xs text-gray-400">-</div>;
+    }
+    if (col === PRIMARY_KEY_COLUMN) {
+      return (
+        <FfmFilterTextCommitOnEnter
+          className="w-full text-xs px-1 py-1 border rounded shadow-sm"
+          placeholder="Lọc mã… (Enter)"
+          title="Lọc chứa mã đơn (không sửa dữ liệu bảng). Enter để áp dụng."
+          committed={localFilterValues[FFM_ORDER_CODE_FILTER_KEY] || ''}
+          onCommit={(v) =>
+            setLocalFilterValues((p) => ({ ...p, [FFM_ORDER_CODE_FILTER_KEY]: String(v ?? '') }))
+          }
+        />
+      );
     }
     if (col === 'Mã Tracking') {
       return (
