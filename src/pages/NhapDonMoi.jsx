@@ -192,6 +192,60 @@ function computeOrderDateValueForPayload(createdAtField) {
     return `${y}-${m}-${d}`;
 }
 
+/**
+ * Chuỗi `datetime-local` (YYYY-MM-DDTHH:mm) khi mở đơn sửa — khớp cột `shift` (Ca) trên DB.
+ * - `order_date` chỉ có ngày → lấy giờ từ `created_at` (local), không thì 12:00.
+ * - Tránh parse `YYYY-MM-DD` qua Date (UTC midnight) làm lệch ca.
+ */
+function buildCreatedAtLocalStringFromOrderRow(row) {
+    const pad = (n) => String(n).padStart(2, "0");
+    if (!row || typeof row !== "object") return formatDateTimeLocal();
+
+    const od = row.order_date;
+    if (od != null && od !== "") {
+        const odStr = typeof od === "string" ? od.trim() : String(od);
+        const timeMatch = odStr.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/);
+        if (timeMatch) {
+            return `${timeMatch[1]}T${timeMatch[2]}:${timeMatch[3]}`;
+        }
+        const dateOnly = odStr.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (dateOnly) {
+            const datePart = dateOnly[1];
+            if (row.created_at) {
+                try {
+                    const c = new Date(row.created_at);
+                    if (!Number.isNaN(c.getTime())) {
+                        return `${datePart}T${pad(c.getHours())}:${pad(c.getMinutes())}`;
+                    }
+                } catch {
+                    /* ignore */
+                }
+            }
+            return `${datePart}T12:00`;
+        }
+    }
+
+    if (row.created_at) {
+        try {
+            const c = new Date(row.created_at);
+            if (!Number.isNaN(c.getTime())) {
+                return `${c.getFullYear()}-${pad(c.getMonth() + 1)}-${pad(c.getDate())}T${pad(c.getHours())}:${pad(c.getMinutes())}`;
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+
+    return formatDateTimeLocal();
+}
+
+/** Đọc «Loại tiền thanh toán» — chuẩn DB: payment_currency (HN/HCM); fallback payment_type (dữ liệu cũ). */
+function readPaymentCurrencyFromOrderRow(row) {
+    if (!row || typeof row !== "object") return "";
+    const v = row.payment_currency ?? row.paymentCurrency ?? row.payment_type ?? "";
+    return String(v).trim();
+}
+
 /** Bộ phận MKT trong bảng users (department) — chuẩn hóa để lọc danh sách nhân sự */
 const isUserDepartmentMkt = (department) => {
     const d = (department ?? "").toString().trim().toLowerCase();
@@ -1289,24 +1343,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                 return;
             }
 
-            // Map Data to Form
-            // Parse order_date properly - handle both DATE and TIMESTAMP formats
-            let orderDateTimeString = formatDateTimeLocal();
-            if (data.order_date) {
-                try {
-                    const orderDate = new Date(data.order_date);
-                    // Format as datetime-local: YYYY-MM-DDTHH:mm
-                    const year = orderDate.getFullYear();
-                    const month = String(orderDate.getMonth() + 1).padStart(2, '0');
-                    const day = String(orderDate.getDate()).padStart(2, '0');
-                    const hours = String(orderDate.getHours()).padStart(2, '0');
-                    const minutes = String(orderDate.getMinutes()).padStart(2, '0');
-                    orderDateTimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
-                } catch (e) {
-                    console.warn("Error parsing order_date:", e);
-                    orderDateTimeString = formatDateTimeLocal();
-                }
-            }
+            // Map Data to Form — thời gian + ca: khớp payment_currency (Loại tiền) trên DB
+            const orderDateTimeString = buildCreatedAtLocalStringFromOrderRow(data);
 
             setFormData({
                 "ma-don": data.order_code,
@@ -1327,7 +1365,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                 "quatang": data.gift || "", "slq": data.gift_quantity || 0,
 
                 "sale_price": data.sale_price || 0,
-                "paymentType": data.payment_type || "VND",
+                "paymentType": readPaymentCurrencyFromOrderRow(data),
                 "exchange_rate": data.exchange_rate || 1,
                 "tong-tien": data.total_amount_vnd || 0,
                 "hinh-thuc": data.payment_method_text || "",
@@ -1341,15 +1379,24 @@ export default function NhapDonMoi({ isEdit = false }) {
                 "creator_name": data.created_by || "",
             });
 
-            // Sync date state with parsed order_date
-            if (data.order_date) {
-                try {
-                    setDate(new Date(data.order_date));
-                } catch (e) {
-                    console.warn("Error parsing order_date for date state:", e);
+            // Sync date state với cùng ngày local như form (tránh lệch timezone)
+            try {
+                const m = orderDateTimeString.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+                if (m) {
+                    setDate(
+                        new Date(
+                            parseInt(m[1], 10),
+                            parseInt(m[2], 10) - 1,
+                            parseInt(m[3], 10),
+                            parseInt(m[4], 10),
+                            parseInt(m[5], 10)
+                        )
+                    );
+                } else {
                     setDate(new Date());
                 }
-            } else {
+            } catch (e) {
+                console.warn("Error parsing order datetime for date state:", e);
                 setDate(new Date());
             }
             setSelectedPage(data.page_name || "");
@@ -1571,6 +1618,12 @@ export default function NhapDonMoi({ isEdit = false }) {
             const orderDateTime = formData["created_at"] || formatDateTimeLocal();
             const calculatedShift = calculateShiftFromTime(orderDateTime);
             const orderDateValue = computeOrderDateValueForPayload(formData["created_at"]);
+            const resolvedShift =
+                calculatedShift != null && calculatedShift !== ""
+                    ? calculatedShift
+                    : isEdit
+                      ? (existingOrderSnapshot?.shift ?? undefined)
+                      : "Giữa ca";
 
             const dupCodes = await fetchDuplicateOrderCodesByCustomerOr(
                 supabase,
@@ -1608,8 +1661,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                 gift: formData.quatang,
                 gift_quantity: parseFloat(formData.slq) || 0,
 
-                // Payment
+                // Payment — payment_currency: cột chuẩn trên DB (Danh sách đơn / van_don); payment_type đồng bộ cho dữ liệu cũ
                 sale_price: parseFloat(formData.sale_price) || 0,
+                payment_currency: formData.paymentType,
                 payment_type: formData.paymentType,
                 exchange_rate: parseFloat(formData.exchange_rate) || 1,
                 total_amount_vnd: (() => {
@@ -1627,8 +1681,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                 marketing_staff: selectedMkt,
                 sale_staff: selectedSale,
 
-                // Tự động điền ca từ thời gian lên đơn
-                shift: calculatedShift || (isEdit ? undefined : "Giữa ca"), // Chỉ điền khi tạo mới hoặc có thể tính được
+                // Ca: từ giờ lên đơn; sửa đơn nếu không tính được thì giữ shift DB (trước đây bị bỏ qua → miss/sai)
+                shift: resolvedShift,
 
                 // Defaults / System
                 delivery_status: isEdit ? undefined : "Chờ xử lý", // Don't overwrite status on edit

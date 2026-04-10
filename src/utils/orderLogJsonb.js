@@ -21,7 +21,7 @@ export const ORDER_LOG_TRACKED_DB_KEYS = [
     "gift",
     "gift_quantity",
     "sale_price",
-    "payment_type",
+    "payment_currency",
     "exchange_rate",
     "total_amount_vnd",
     "payment_method_text",
@@ -55,7 +55,7 @@ const ORDER_LOG_LABELS = {
     gift: "Quà tặng",
     gift_quantity: "SL quà",
     sale_price: "Giá bán",
-    payment_type: "Loại tiền thanh toán",
+    payment_currency: "Loại tiền thanh toán",
     exchange_rate: "Tỷ giá",
     total_amount_vnd: "Tổng tiền VNĐ",
     payment_method_text: "Hình thức thanh toán",
@@ -98,6 +98,11 @@ export function pickTrackedFieldsFromOrderRow(row) {
     if (!row || typeof row !== "object") return {};
     const o = {};
     for (const k of ORDER_LOG_TRACKED_DB_KEYS) {
+        if (k === "payment_currency") {
+            const v = row.payment_currency ?? row.paymentCurrency ?? row.payment_type;
+            if (v !== undefined) o[k] = v;
+            continue;
+        }
         if (Object.prototype.hasOwnProperty.call(row, k)) o[k] = row[k];
     }
     return o;
@@ -146,7 +151,7 @@ export function buildTrackedFieldsPayloadForLog({
         gift: formData.quatang,
         gift_quantity: parseFloat(formData.slq) || 0,
         sale_price: parseFloat(formData.sale_price) || 0,
-        payment_type: formData.paymentType,
+        payment_currency: formData.paymentType,
         exchange_rate: parseFloat(formData.exchange_rate) || 1,
         total_amount_vnd: (() => {
             const n = parseFloat(formData["tong-tien"]);
