@@ -51,6 +51,10 @@ function readKeyMarketsFromLocalSettings() {
 /** Giới hạn một response PostgREST/Supabase (thường 1000); dùng cho xuất Excel / lặp trang. */
 const VAN_DON_POSTGREST_MAX_ROWS = 1000;
 
+/** Không dùng chung `speegoPendingChanges` với FFM — tránh nạp hàng đợi / OCC sai trang. */
+const VAN_DON_PENDING_LS_KEY = 'speegoPendingChanges_van_don';
+const VAN_DON_PENDING_SNAPSHOTS_LS_KEY = 'speegoPendingRowSnapshots_van_don';
+
 // Columns to always hide (both in table and column settings)
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 
@@ -106,6 +110,20 @@ function coalesceVanDonDisplayValue(v) {
   if (typeof v === 'number' || typeof v === 'boolean') return v;
   if (typeof v === 'string') return isVanDonSemanticEmpty(v) ? '' : v;
   return v;
+}
+
+/** Khớp giá trị với một mục trong `<select>` (trim / hoa-thường) — tránh ô trắng khi DB hơi lệch chuỗi so preset. */
+function matchVanDonSelectToOptionList(raw, optionList) {
+  if (raw === '' || raw == null) return '';
+  const s = String(raw);
+  const opts = Array.isArray(optionList) ? optionList : [];
+  if (opts.includes(s)) return s;
+  const t = s.trim();
+  if (opts.includes(t)) return t;
+  const lower = t.toLowerCase();
+  const hit = opts.find((o) => o !== '' && String(o).trim().toLowerCase() === lower);
+  if (hit !== undefined) return hit;
+  return s;
 }
 
 /** Giá trị ô lưới vận đơn: ưu tiên khóa đã map + fallback so khớp NFC mọi key trên row (tránh lệch Unicode / tên cột). */
@@ -492,15 +510,15 @@ function VanDon({ dataSource = 'default' }) {
         changesToSave[id] = Object.fromEntries(val);
       });
     }
-    localStorage.setItem('speegoPendingChanges', JSON.stringify(changesToSave));
+    localStorage.setItem(VAN_DON_PENDING_LS_KEY, JSON.stringify(changesToSave));
     const snaps = {};
     pendingRowSnapshotsRef.current.forEach((row, id) => {
       snaps[id] = row;
     });
     if (Object.keys(snaps).length > 0) {
-      localStorage.setItem('speegoPendingRowSnapshots', JSON.stringify(snaps));
+      localStorage.setItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY, JSON.stringify(snaps));
     } else {
-      localStorage.removeItem('speegoPendingRowSnapshots');
+      localStorage.removeItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY);
     }
   }, []);
 
@@ -747,7 +765,15 @@ function VanDon({ dataSource = 'default' }) {
   // --- Initialize ---
   useEffect(() => {
     // Only load data on mount, subsequent loads handled by filter/pagination useEffect
-    const storedChanges = localStorage.getItem('speegoPendingChanges');
+    let storedChanges = localStorage.getItem(VAN_DON_PENDING_LS_KEY);
+    if (!storedChanges) {
+      const legacy = localStorage.getItem('speegoPendingChanges');
+      if (legacy) {
+        storedChanges = legacy;
+        localStorage.setItem(VAN_DON_PENDING_LS_KEY, legacy);
+        localStorage.removeItem('speegoPendingChanges');
+      }
+    }
     if (storedChanges) {
       try {
         const parsed = JSON.parse(storedChanges);
@@ -786,7 +812,15 @@ function VanDon({ dataSource = 'default' }) {
         console.error("Error loading pending changes", e);
       }
     }
-    const storedSnaps = localStorage.getItem('speegoPendingRowSnapshots');
+    let storedSnaps = localStorage.getItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY);
+    if (!storedSnaps) {
+      const legacySnaps = localStorage.getItem('speegoPendingRowSnapshots');
+      if (legacySnaps) {
+        storedSnaps = legacySnaps;
+        localStorage.setItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY, legacySnaps);
+        localStorage.removeItem('speegoPendingRowSnapshots');
+      }
+    }
     if (storedSnaps) {
       try {
         const parsed = JSON.parse(storedSnaps);
@@ -2152,6 +2186,8 @@ function VanDon({ dataSource = 'default' }) {
     historyIndexRef.current = -1;
     pendingRowSnapshotsRef.current.clear();
     setPendingChanges(new Map());
+    localStorage.removeItem(VAN_DON_PENDING_LS_KEY);
+    localStorage.removeItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY);
     localStorage.removeItem('speegoPendingChanges');
     localStorage.removeItem('speegoPendingRowSnapshots');
     // Reset filters
@@ -3090,6 +3126,28 @@ function VanDon({ dataSource = 'default' }) {
             const uid = normalizeVanDonOrderIdKey(updatedRow[PRIMARY_KEY_COLUMN]);
             const idx = latestData.findIndex((r) => getVanDonRowOrderId(r) === uid);
             if (idx > -1) latestData[idx] = { ...latestData[idx], ...updatedRow };
+          });
+
+          /** Gộp ngay vào cache React Query — tránh khoảng trễ refetch khiến `<select>` lệch option (ô trắng / «chưa lưu» nhầm). */
+          queryClient.setQueriesData({ queryKey: ['vanDon', 'rows'], exact: false }, (old) => {
+            if (!old || !Array.isArray(old.data)) return old;
+            const nextRows = old.data.map((row) => {
+              const oid = getVanDonRowOrderId(row);
+              if (!oid) return row;
+              const upd = rowsToUpdate.find(
+                (u) => normalizeVanDonOrderIdKey(u[PRIMARY_KEY_COLUMN]) === oid
+              );
+              if (!upd) return row;
+              const merged = { ...row, ...upd };
+              const nbKey = 'Trạng thái giao hàng NB';
+              if (Object.prototype.hasOwnProperty.call(upd, nbKey)) {
+                const nbTrim = String(merged[nbKey] ?? '').trim();
+                const ffmTrim = String(merged.delivery_status ?? row.delivery_status ?? '').trim();
+                merged['Trạng thái giao hàng'] = nbTrim || ffmTrim || '';
+              }
+              return merged;
+            });
+            return { ...old, data: nextRows };
           });
 
           // Refresh data from server
@@ -4117,6 +4175,15 @@ function VanDon({ dataSource = 'default' }) {
           })()
         : val;
 
+    const usePresetSelectMatch =
+      col === 'Kết quả Check' ||
+      col === 'Trạng thái giao hàng' ||
+      normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng NB');
+    let selectControlValue = val === '' || val == null ? '' : String(val);
+    if (usePresetSelectMatch) {
+      selectControlValue = matchVanDonSelectToOptionList(selectControlValue, getCellEditSelectOptions(col));
+    }
+
     const colLower = String(col || '').trim().toLowerCase();
     const isCarrierCol = colLower === 'đơn vị vận chuyển';
     const isTrackingCol = colLower === 'mã tracking';
@@ -4182,7 +4249,7 @@ function VanDon({ dataSource = 'default' }) {
           <select
             className="w-full h-full bg-transparent border-none outline-none text-sm flex items-center"
             style={{ padding: 0, margin: 0, lineHeight: '38px' }}
-            value={val === '' || val == null ? '' : String(val)}
+            value={selectControlValue === '' || selectControlValue == null ? '' : String(selectControlValue)}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
             {getCellEditSelectOptions(col)
@@ -4996,6 +5063,8 @@ function VanDon({ dataSource = 'default' }) {
             historyIndexRef.current = -1;
             pendingRowSnapshotsRef.current.clear();
             setPendingChanges(new Map());
+            localStorage.removeItem(VAN_DON_PENDING_LS_KEY);
+            localStorage.removeItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY);
             localStorage.removeItem('speegoPendingChanges');
             localStorage.removeItem('speegoPendingRowSnapshots');
             setSyncPopoverOpen(false);

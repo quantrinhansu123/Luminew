@@ -1649,8 +1649,8 @@ function FFMMgtHcm() {
         const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
         const currentStr = currentUiVal === undefined || currentUiVal === null ? '' : String(currentUiVal);
 
-        const shouldApply =
-          activeColumnSet ? currentStr !== valStr : valStr !== '' && currentStr !== valStr;
+        /** Ô trống = bỏ qua (không xóa DB). */
+        const shouldApply = valStr !== '' && currentStr !== valStr;
 
         if (shouldApply) {
           changesArray.push({

@@ -677,7 +677,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
                         </div>
                         <p className="mt-1.5 text-[11px] text-gray-600 max-w-3xl leading-snug">
                             Khi <strong>Đồng bộ</strong>: chỉ các cột đang bật (⚙ Cài đặt cột) mới ghi vào lưới; cột ẩn không đổi trên DB.
-                            Ô trống trên cột đang bật = xóa giá trị nếu khác dữ liệu hiện tại — bật đúng các cột cần sửa rồi dán 2 cột (vd. mã đơn + trạng thái) để không đụng các trường khác.
+                            Ô trống = bỏ qua (không ghi đè / không xóa). Cột «Trạng thái giao hàng» ở đây cập nhật <strong>delivery_status</strong> (FFM), không sửa <strong>delivery_status_nb</strong> (Vận đơn).
                         </p>
                         <div className="mt-2">
                             <button

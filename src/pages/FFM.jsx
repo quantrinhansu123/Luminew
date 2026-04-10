@@ -20,6 +20,8 @@ const FFM_HCM_SUPABASE_TABLE = 'order_code_hcm';
 const FFM_ROW_SOURCE_TABLE_KEY = '__ffmSourceTable';
 const FFM_MGT_MERGED_FIRST_BATCH_TOTAL = 1000;
 const FFM_MGT_MERGED_NEXT_BATCH_TOTAL = 2000;
+/** Tách khỏi Vận đơn — trước đây chung `speegoPendingChanges` gây trộn hàng đợi. */
+const FFM_PENDING_LS_KEY = 'speegoPendingChanges_ffm';
 
 /** Giá trị Team / chi nhánh từ row (FFM) */
 function getTeamStringFFM(row) {
@@ -539,7 +541,15 @@ function FFM({ variant = 'MGT' }) {
   useEffect(() => {
     loadData();
     loadCanDayFFMPermission();
-    const storedChanges = localStorage.getItem('speegoPendingChanges');
+    let storedChanges = localStorage.getItem(FFM_PENDING_LS_KEY);
+    if (!storedChanges) {
+      const legacy = localStorage.getItem('speegoPendingChanges');
+      if (legacy) {
+        storedChanges = legacy;
+        localStorage.setItem(FFM_PENDING_LS_KEY, legacy);
+        localStorage.removeItem('speegoPendingChanges');
+      }
+    }
     if (storedChanges) {
       try {
         const parsed = JSON.parse(storedChanges);
@@ -1189,7 +1199,7 @@ function FFM({ variant = 'MGT' }) {
         changesToSave[id] = Object.fromEntries(val);
       });
     }
-    localStorage.setItem('speegoPendingChanges', JSON.stringify(changesToSave));
+    localStorage.setItem(FFM_PENDING_LS_KEY, JSON.stringify(changesToSave));
   };
 
   const deepCloneMapOfMaps = useCallback((sourceMap) => {
@@ -1993,12 +2003,8 @@ function FFM({ variant = 'MGT' }) {
         const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
         const currentStr = currentUiVal === undefined || currentUiVal === null ? '' : String(currentUiVal);
 
-        /**
-         * Có `activeColumns`: cho phép ghi cả rỗng (= xóa) trên cột đang bật.
-         * Không có (lời gọi cũ): giữ hành vi an toàn — ô trống không ghi đè.
-         */
-        const shouldApply =
-          activeColumnSet ? currentStr !== valStr : valStr !== '' && currentStr !== valStr;
+        /** Ô trống = bỏ qua (không xóa DB); chỉ ghi khi có nội dung và khác giá trị hiện tại. */
+        const shouldApply = valStr !== '' && currentStr !== valStr;
 
         if (shouldApply) {
           changesArray.push({
@@ -4066,6 +4072,7 @@ function FFM({ variant = 'MGT' }) {
 
               setPendingChanges(new Map());
               savePendingToLocalStorage(new Map());
+              localStorage.removeItem(FFM_PENDING_LS_KEY);
               localStorage.removeItem('speegoPendingChanges');
               setSyncPopoverOpen(false);
             }
