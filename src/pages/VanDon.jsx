@@ -504,22 +504,10 @@ function VanDon({ dataSource = 'default' }) {
   const pendingRowSnapshotsRef = useRef(new Map());
 
   const savePendingToLocalStorage = useCallback((newPending) => {
-    const changesToSave = {};
-    if (newPending && newPending.size > 0) {
-      newPending.forEach((val, id) => {
-        changesToSave[id] = Object.fromEntries(val);
-      });
-    }
-    localStorage.setItem(VAN_DON_PENDING_LS_KEY, JSON.stringify(changesToSave));
-    const snaps = {};
-    pendingRowSnapshotsRef.current.forEach((row, id) => {
-      snaps[id] = row;
-    });
-    if (Object.keys(snaps).length > 0) {
-      localStorage.setItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY, JSON.stringify(snaps));
-    } else {
-      localStorage.removeItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY);
-    }
+    // BỎ localStorage - Không lưu pending changes nữa
+    // Lý do: localStorage không đồng bộ giữa nhiều người, gây xung đột
+    // Người dùng phải lưu ngay, không để qua đêm
+    return;
   }, []);
 
   const [confirmPushData, setConfirmPushData] = useState(null); // { batchId, carrier, count, orderIds, logsTable }
@@ -531,6 +519,49 @@ function VanDon({ dataSource = 'default' }) {
 
   const hasUnsavedDraft = () =>
     pendingChangesRef.current.size > 0 || dbQueueRef.current.length > 0;
+
+  // Tự động đồng bộ queue từ pendingChanges khi có thay đổi
+  useEffect(() => {
+    if (pendingChanges.size === 0) return;
+    
+    // Kiểm tra xem có thay đổi nào trong pendingChanges mà không có trong queue không
+    const queueKeys = new Set(
+      dbQueueRef.current.map(q => `${q.orderId}::${q.colKey}`)
+    );
+    
+    let needsSync = false;
+    pendingChanges.forEach((innerMap, orderId) => {
+      innerMap.forEach((info, colKey) => {
+        const key = `${orderId}::${colKey}`;
+        if (!queueKeys.has(key)) {
+          needsSync = true;
+        }
+      });
+    });
+    
+    if (needsSync) {
+      console.log('🔄 [VanDon] Tự động đồng bộ queue từ pendingChanges');
+      const recovered = [];
+      pendingChanges.forEach((innerMap, orderId) => {
+        innerMap.forEach((info, colKey) => {
+          const key = `${orderId}::${colKey}`;
+          if (!queueKeys.has(key)) {
+            recovered.push({
+              orderId,
+              colKey,
+              newValue: info.newValue,
+              originalValue: info.originalValue,
+              ...(info.baseValue !== undefined ? { baseValue: info.baseValue } : {}),
+            });
+          }
+        });
+      });
+      
+      if (recovered.length > 0) {
+        dbQueueRef.current.push(...recovered);
+      }
+    }
+  }, [pendingChanges]);
 
   // --- Common Filter State ---
   const [filterValues, setFilterValues] = useState({
@@ -768,74 +799,9 @@ function VanDon({ dataSource = 'default' }) {
 
   // --- Initialize ---
   useEffect(() => {
-    // Only load data on mount, subsequent loads handled by filter/pagination useEffect
-    let storedChanges = localStorage.getItem(VAN_DON_PENDING_LS_KEY);
-    if (!storedChanges) {
-      const legacy = localStorage.getItem('speegoPendingChanges');
-      if (legacy) {
-        storedChanges = legacy;
-        localStorage.setItem(VAN_DON_PENDING_LS_KEY, legacy);
-        localStorage.removeItem('speegoPendingChanges');
-      }
-    }
-    if (storedChanges) {
-      try {
-        const parsed = JSON.parse(storedChanges);
-        const map = new Map();
-        const startupQueue = [];
-
-        for (const id in parsed) {
-          const oid = normalizeVanDonOrderIdKey(id);
-          if (!oid) continue;
-          const innerMap = new Map();
-          for (const key in parsed[id]) {
-            innerMap.set(key, parsed[id][key]);
-
-            // Push into DB Queue directly from localStorage
-            const cell = parsed[id][key];
-            startupQueue.push({
-              orderId: oid,
-              colKey: key,
-              originalValue: cell.originalValue,
-              newValue: cell.newValue,
-              ...(cell.baseValue !== undefined ? { baseValue: cell.baseValue } : {}),
-            });
-          }
-          map.set(oid, innerMap);
-        }
-
-        // Populate UI Map
-        setPendingChanges(map);
-        // Pre-fill backend queue
-        if (startupQueue.length > 0) {
-          dbQueueRef.current.push(...startupQueue);
-          // Don't auto-start here to avoid double-loading clash, wait for interaction 
-          // (or export processDbQueue to this scope if desired)
-        }
-      } catch (e) {
-        console.error("Error loading pending changes", e);
-      }
-    }
-    let storedSnaps = localStorage.getItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY);
-    if (!storedSnaps) {
-      const legacySnaps = localStorage.getItem('speegoPendingRowSnapshots');
-      if (legacySnaps) {
-        storedSnaps = legacySnaps;
-        localStorage.setItem(VAN_DON_PENDING_SNAPSHOTS_LS_KEY, legacySnaps);
-        localStorage.removeItem('speegoPendingRowSnapshots');
-      }
-    }
-    if (storedSnaps) {
-      try {
-        const parsed = JSON.parse(storedSnaps);
-        Object.entries(parsed).forEach(([id, row]) => {
-          const oid = normalizeVanDonOrderIdKey(id);
-          if (oid && row && typeof row === 'object') pendingRowSnapshotsRef.current.set(oid, row);
-        });
-      } catch (e) {
-        console.error('Error loading pending row snapshots', e);
-      }
-    }
+    // BỎ localStorage load - Không load pending changes cũ nữa
+    // Mỗi phiên làm việc bắt đầu từ đầu, không có dữ liệu cũ
+    console.log('🚀 [VanDon] Khởi tạo - Không load localStorage (đã bỏ)');
   }, []);
 
   // --- Global Keyboard Shortcuts (Ctrl+Enter) for Bill of Lading ---
@@ -2429,17 +2395,17 @@ function VanDon({ dataSource = 'default' }) {
   ]);
 
 
-  // Đóng tab / F5: cảnh báo + ghi nháp localStorage ngay (tránh mất dữ liệu).
+  // Đóng tab / F5: cảnh báo nếu có dữ liệu chưa lưu (KHÔNG lưu localStorage nữa)
   useEffect(() => {
     const onBeforeUnload = (e) => {
       if (!hasUnsavedDraft()) return;
-      savePendingToLocalStorage(pendingChangesRef.current);
+      // Chỉ cảnh báo, KHÔNG lưu localStorage
       e.preventDefault();
-      e.returnValue = '';
+      e.returnValue = 'Bạn có thay đổi chưa lưu. Đóng trang sẽ mất dữ liệu!';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [savePendingToLocalStorage]);
+  }, []);
 
   // Chặn điều hướng SPA trong app cần `createBrowserRouter` (data router). App dùng BrowserRouter
   // nên không dùng useBlocker; nháp vẫn lưu localStorage + cảnh báo khi đóng tab/F5 (beforeunload).
@@ -3184,11 +3150,15 @@ function VanDon({ dataSource = 'default' }) {
     isProcessingQueue.current = true;
     try {
       while (dbQueueRef.current.length > 0) {
-        // Take everything currently in queue as a single batch
+        // Copy queue để xử lý - KHÔNG xóa ngay (chỉ xóa khi thành công)
         const batchToProcess = dbQueueRef.current
-          .splice(0, dbQueueRef.current.length)
           .map((b) => ({ ...b, orderId: normalizeVanDonOrderIdKey(b.orderId) }))
           .filter((b) => b.orderId);
+
+        if (batchToProcess.length === 0) {
+          dbQueueRef.current = [];
+          break;
+        }
 
         const rowsObjMap = new Map();
         batchToProcess.forEach(({ orderId, colKey, newValue }) => {
@@ -3197,7 +3167,10 @@ function VanDon({ dataSource = 'default' }) {
         });
 
         const rowsToUpdate = Array.from(rowsObjMap.values());
-        if (rowsToUpdate.length === 0) continue;
+        if (rowsToUpdate.length === 0) {
+          dbQueueRef.current = [];
+          break;
+        }
 
         const currentUsername = localStorage.getItem('username') || 'Unknown';
         let success = false;
@@ -3214,11 +3187,16 @@ function VanDon({ dataSource = 'default' }) {
           if (res.success) success = true;
         } catch (e) {
           addToast(e.message, 'error');
+          // Lỗi xung đột hoặc lỗi khác - KHÔNG xóa queue, giữ nguyên để user có thể F5 và thử lại
+          break;
         } finally {
           removeToast(toastId);
         }
 
         if (success) {
+          // CHỈ xóa queue khi lưu thành công
+          dbQueueRef.current = [];
+          
           // Kích hoạt công thức tính toán báo cáo nếu có thay đổi "Kết quả check"
           await triggerReportRecalculation(batchToProcess);
 
@@ -3302,44 +3280,21 @@ function VanDon({ dataSource = 'default' }) {
     changeHistoryRef.current = finalHistory;
     historyIndexRef.current = finalHistory.length - 1;
 
-    // 2. Add to DB Queue & UI state
-    // Lọc lại các thay đổi: nếu quay về đúng giá trị gốc (baseValue) thì xoá khỏi queue chờ lưu DB
-    const queueChanges = normalized.filter((c) => {
-      if (c.baseValue !== undefined) {
-        if (isVanDonMoneyGridAppKey(c.colKey)) {
-          return !vanDonMoneyCellValuesEqual(c.newValue, c.baseValue);
-        }
-        return String(c.newValue) !== String(c.baseValue);
-      }
-      return true;
+    // 2. Add to DB Queue & UI state (BỎ logic kiểm tra baseValue)
+    // Xóa các queue cũ của cùng orderId + colKey trước khi thêm mới (tránh trùng lặp)
+    const newKeys = new Set(normalized.map(c => `${c.orderId}::${c.colKey}`));
+    dbQueueRef.current = dbQueueRef.current.filter(q => {
+      const key = `${q.orderId}::${q.colKey}`;
+      return !newKeys.has(key);
     });
 
-    dbQueueRef.current.push(...queueChanges);
+    dbQueueRef.current.push(...normalized);
 
     setPendingChanges(prev => {
       const next = deepCloneMapOfMaps(prev);
-      normalized.forEach(({ orderId, colKey, newValue, originalValue, baseValue }) => {
+      normalized.forEach(({ orderId, colKey, newValue, originalValue }) => {
         if (!next.has(orderId)) next.set(orderId, new Map());
-        
-        let isReverted = false;
-        if (baseValue !== undefined) {
-          if (isVanDonMoneyGridAppKey(colKey)) {
-            isReverted = vanDonMoneyCellValuesEqual(newValue, baseValue);
-          } else {
-            isReverted = String(newValue) === String(baseValue);
-          }
-        }
-
-        if (isReverted) {
-          next.get(orderId).delete(colKey);
-          if (next.get(orderId).size === 0) {
-            next.delete(orderId);
-          }
-          // Xoá cả những queue cũ bị thừa của ô này
-          dbQueueRef.current = dbQueueRef.current.filter(q => !(q.orderId === orderId && q.colKey === colKey));
-        } else {
-          next.get(orderId).set(colKey, { newValue, originalValue, baseValue });
-        }
+        next.get(orderId).set(colKey, { newValue, originalValue });
       });
       normalized.forEach(({ orderId }) => {
         upsertPendingRowSnapshot(orderId, next, allData);
@@ -3348,7 +3303,7 @@ function VanDon({ dataSource = 'default' }) {
       return next;
     });
 
-  }, [deepCloneMapOfMaps, upsertPendingRowSnapshot, allData]);
+  }, [deepCloneMapOfMaps, upsertPendingRowSnapshot, allData, savePendingToLocalStorage]);
 
   // Undo last change
   const handleUndo = useCallback(() => {
@@ -3434,10 +3389,11 @@ function VanDon({ dataSource = 'default' }) {
     const keyLc = String(colKey || '').trim().toLowerCase();
     if (keyLc === 'canh_bao' || normalizeColHeader(colKey) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN)) return;
     if (isVanDonGridReadOnlyColumnKey(colKey)) return;
+    
     const originalRow = allData.find((r) => getVanDonRowOrderId(r) === oid);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
-    // Đảm bảo history ghi nhận đúng thao tác trung gian ngay cả khi chưa lưu server
+    // Lấy giá trị hiện tại (có thể đã sửa trước đó)
     const pendingVal = pendingChanges.get(oid)?.get(colKey);
     const stepOriginalValue = pendingVal ? pendingVal.newValue : baseValue;
 
@@ -3445,14 +3401,45 @@ function VanDon({ dataSource = 'default' }) {
       if (vanDonMoneyCellValuesEqual(newValue, stepOriginalValue)) return;
     } else if (String(newValue) === String(stepOriginalValue)) return;
 
+    // BỎ baseValue - Không cần kiểm tra xung đột nữa
     pushChange([{ 
       orderId: oid, 
       colKey, 
       originalValue: String(stepOriginalValue), 
-      newValue: String(newValue),
-      baseValue: String(baseValue) 
+      newValue: String(newValue)
     }]);
   }, [allData, pendingChanges, pushChange, isReadonlyEditTab]);
+
+  // Hàm đồng bộ queue từ pendingChanges (tự động phục hồi)
+  const syncQueueFromPending = useCallback(() => {
+    if (pendingChangesRef.current.size === 0) return;
+    
+    // Xóa queue cũ để tránh trùng lặp
+    const existingKeys = new Set(
+      dbQueueRef.current.map(q => `${q.orderId}::${q.colKey}`)
+    );
+    
+    const recovered = [];
+    pendingChangesRef.current.forEach((innerMap, orderId) => {
+      innerMap.forEach((info, colKey) => {
+        const key = `${orderId}::${colKey}`;
+        if (!existingKeys.has(key)) {
+          recovered.push({
+            orderId,
+            colKey,
+            newValue: info.newValue,
+            originalValue: info.originalValue,
+            ...(info.baseValue !== undefined ? { baseValue: info.baseValue } : {}),
+          });
+        }
+      });
+    });
+    
+    if (recovered.length > 0) {
+      console.log('🔄 [VanDon] Đồng bộ', recovered.length, 'thay đổi vào queue');
+      dbQueueRef.current.push(...recovered);
+    }
+  }, []);
 
   const handleUpdateAll = async () => {
     setSyncPopoverOpen(false);
@@ -3486,23 +3473,8 @@ function VanDon({ dataSource = 'default' }) {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     }
 
-    // --- Cơ chế Tự phục hồi: Đồng bộ lại Queue nếu Ref bị trống nhưng State vẫn còn dữ liệu ---
-    if (dbQueueRef.current.length === 0 && pendingChanges.size > 0) {
-      console.warn('🔄 [VanDon] Phát hiện hàng chờ bị trống trong khi State còn dữ liệu. Đang phục hồi...');
-      const recovered = [];
-      pendingChanges.forEach((innerMap, orderId) => {
-        innerMap.forEach((info, colKey) => {
-          recovered.push({
-            orderId,
-            colKey,
-            newValue: info.newValue,
-            originalValue: info.originalValue,
-            ...(info.baseValue !== undefined ? { baseValue: info.baseValue } : {}),
-          });
-        });
-      });
-      dbQueueRef.current.push(...recovered);
-    }
+    // Đồng bộ queue từ pendingChanges
+    syncQueueFromPending();
 
     if (dbQueueRef.current.length === 0) {
       addToast('Không có thay đổi cần lưu', 'info');
@@ -4868,7 +4840,7 @@ function VanDon({ dataSource = 'default' }) {
                 title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Ghi các thay đổi đang chờ xuống CSDL'}
               >
                 ✅ Xác nhận lưu
-                {pendingChanges.size > 0 && (
+                {(pendingChanges.size > 0 || dbQueueRef.current.length > 0) && (
                   <span className="bg-white text-red-600 font-black px-1.5 py-0.25 rounded-sm shadow-inner text-[10px]">
                     {pendingChanges.size} Chưa lưu!
                   </span>

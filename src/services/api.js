@@ -838,64 +838,20 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
             const trail = Array.isArray(changeLog) ? changeLog.filter((c) => String(c.orderId ?? '').trim() === oc) : [];
             let dbRow = null;
 
-            if (trail.length > 0) {
-                const dbKeysToCheck = [...new Set(trail.map(ch => resolveAppKeyToDbKey(ch.colKey)).filter(Boolean))];
-                if (useActivityLog) dbKeysToCheck.push('log'); // Fetch log column if appending trail
-                
-                if (dbKeysToCheck.length > 0) {
-                    const { data: logRow, error: logErr } = await supabase
-                        .from(sourceTable)
-                        .select(dbKeysToCheck.join(','))
-                        .eq('order_code', oc)
-                        .maybeSingle();
-                        
-                    if (logErr) throw logErr;
-                    if (!logRow) throw new Error(`Đơn hàng ${oc} không tồn tại trên hệ thống!`);
-                    dbRow = logRow;
-
-                    // 1. Phân giải Xung Đột (OCC - Xử lý ghi đè chéo)
-                    for (const ch of trail) {
-                        const dbK = resolveAppKeyToDbKey(ch.colKey);
-                        if (!dbK || ch.baseValue === undefined) continue;
-                        
-                        // Định dạng lại giá trị baseValue hệt như chuẩn DB
-                        const expectedDbValueRaw = prepareValueForDB(dbK, ch.baseValue);
-                        const currentDbValueRaw = dbRow[dbK];
-                        
-                        // Chuẩn hóa giá trị để so sánh chính xác
-                        const normalizeForComparison = (val) => {
-                            if (val === null || val === undefined) return '';
-                            const str = String(val).trim();
-                            // Loại bỏ các giá trị semantic empty
-                            if (str === '' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') return '';
-                            return str;
-                        };
-                        
-                        const expectedDbValueStr = normalizeForComparison(expectedDbValueRaw);
-                        const currentDbValueStr = normalizeForComparison(currentDbValueRaw);
-                        
-                        // Chỉ báo xung đột nếu giá trị thực sự khác nhau (không phải chỉ khác format)
-                        if (expectedDbValueStr !== currentDbValueStr) {
-                            // Kiểm tra thêm: có phải chỉ khác về format số không?
-                            const expectedNum = parseFloat(expectedDbValueStr.replace(/[^\d.-]/g, ''));
-                            const currentNum = parseFloat(currentDbValueStr.replace(/[^\d.-]/g, ''));
-                            
-                            // Nếu cả hai đều là số hợp lệ và bằng nhau → không phải xung đột
-                            if (!isNaN(expectedNum) && !isNaN(currentNum) && expectedNum === currentNum) {
-                                continue;
-                            }
-                            
-                            throw new Error(
-                                `XUNG ĐỘT DỮ LIỆU ĐƠN [${oc}]:\n` +
-                                `Trong lúc bạn chỉnh sửa, hệ thống quá hạn hoặc nhân viên khác đã đổi cột "${ch.colKey}" thành "${currentDbValueStr || '(rỗng)'}".\n\n` +
-                                `Vui lòng Bấm F5 Tải lại trang để đồng bộ dữ liệu mới nhất trước khi lưu đè!`
-                            );
-                        }
-                    }
-                }
+            // Chỉ fetch DB nếu cần ghi log, KHÔNG kiểm tra xung đột
+            if (useActivityLog && trail.length > 0) {
+                const { data: logRow, error: logErr } = await supabase
+                    .from(sourceTable)
+                    .select('log')
+                    .eq('order_code', oc)
+                    .maybeSingle();
+                    
+                if (logErr) throw logErr;
+                if (!logRow) throw new Error(`Đơn hàng ${oc} không tồn tại trên hệ thống!`);
+                dbRow = logRow;
             }
 
-            // 2. Cập nhật Log nếu có hỗ trợ
+            // Cập nhật Log nếu có hỗ trợ
             if (useActivityLog && trail.length > 0 && dbRow) {
                 const prev = parseOrderLogJsonb(dbRow?.log);
                 const ts = new Date().toISOString();
