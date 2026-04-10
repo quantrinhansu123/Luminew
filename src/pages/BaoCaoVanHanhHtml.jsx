@@ -41,6 +41,21 @@ const formatDateForInput = (date) => {
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** SP/TT trên dòng BC VH: luôn dùng mảng (tương thích localStorage chuỗi cũ). */
+function normalizeBcvhPmArrays(product, market) {
+    const pa = Array.isArray(product)
+        ? product.map((x) => String(x).trim()).filter(Boolean)
+        : product != null && String(product).trim() !== ''
+          ? [String(product).trim()]
+          : [];
+    const ma = Array.isArray(market)
+        ? market.map((x) => String(x).trim()).filter(Boolean)
+        : market != null && String(market).trim() !== ''
+          ? [String(market).trim()]
+          : [];
+    return { product: pa, market: ma };
+}
+
 /** Lùi / tiến theo lịch dương (trưa UTC cố định, tránh lệch DST). */
 const addCalendarDaysYmd = (ymd, deltaDays) => {
     const s = String(ymd || '').slice(0, 10);
@@ -138,8 +153,8 @@ function buildDailyBcvhRowsFromDays(dayList, idFactory) {
         id: idFactory(),
         startDate: d,
         endDate: d,
-        product: '',
-        market: '',
+        product: [],
+        market: [],
         isManual: false
     }));
 }
@@ -152,16 +167,14 @@ function reconcileDailyBcvhRowsFromPrevious(prevAutoRows, dayList, idFactory) {
         const ds = String(r.startDate || '').slice(0, 10);
         const de = String(r.endDate || '').slice(0, 10);
         if (YMD_RE.test(ds) && ds === de) {
-            byDay.set(ds, {
-                product: String(r.product || ''),
-                market: String(r.market || '')
-            });
+            const pm = normalizeBcvhPmArrays(r.product, r.market);
+            byDay.set(ds, pm);
         }
     }
     return buildDailyBcvhRowsFromDays(dayList, idFactory).map((row) => {
         const m = byDay.get(row.startDate);
         if (!m) return row;
-        return { ...row, product: m.product, market: m.market };
+        return { ...row, product: [...m.product], market: [...m.market] };
     });
 }
 
@@ -178,17 +191,14 @@ function applyStoredBcvhFiltersByDay(rows) {
             const ds = String(item?.startDate || '').slice(0, 10);
             const de = String(item?.endDate || '').slice(0, 10);
             if (YMD_RE.test(ds) && ds === de) {
-                byDay.set(ds, {
-                    product: String(item?.product || ''),
-                    market: String(item?.market || '')
-                });
+                byDay.set(ds, normalizeBcvhPmArrays(item?.product, item?.market));
             }
         }
         return rows.map((r) => {
             const d = String(r.startDate || '').slice(0, 10);
             const m = byDay.get(d);
             if (!m) return r;
-            return { ...r, product: m.product, market: m.market };
+            return { ...r, product: [...m.product], market: [...m.market] };
         });
     } catch {
         return rows;
@@ -228,14 +238,17 @@ function createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframeFlag) {
         if (!Array.isArray(parsed)) return rows;
         const manual = parsed
             .filter((item) => item?.isManual)
-            .map((item) => ({
-                id: newBcvhRowId(),
-                startDate: String(item?.startDate || '').slice(0, 10),
-                endDate: String(item?.endDate || '').slice(0, 10),
-                product: String(item?.product || ''),
-                market: String(item?.market || ''),
-                isManual: true
-            }))
+            .map((item) => {
+                const pm = normalizeBcvhPmArrays(item?.product, item?.market);
+                return {
+                    id: newBcvhRowId(),
+                    startDate: String(item?.startDate || '').slice(0, 10),
+                    endDate: String(item?.endDate || '').slice(0, 10),
+                    product: pm.product,
+                    market: pm.market,
+                    isManual: true
+                };
+            })
             .filter((r) => YMD_RE.test(r.startDate) && YMD_RE.test(r.endDate));
         const cap = Math.max(0, MAX_BCVH_ROWS_TOTAL - rows.length);
         return [...rows, ...manual.slice(0, cap)];
@@ -448,8 +461,11 @@ export default function BaoCaoVanHanhHtml() {
     );
     /** Khoảng Từ–Đến dài hơn MAX_BCVH_DAILY_ROWS — chỉ tạo dòng cho N ngày đầu trong khoảng. */
     const [bcvhDailyRangeTruncated, setBcvhDailyRangeTruncated] = useState(false);
-    const [bcvhBulkProduct, setBcvhBulkProduct] = useState('');
-    const [bcvhBulkMarket, setBcvhBulkMarket] = useState('');
+    const [bcvhBulkProduct, setBcvhBulkProduct] = useState([]);
+    const [bcvhBulkMarket, setBcvhBulkMarket] = useState([]);
+    /** SP/TT lấy sẵn từ DB khi chưa bấm Tìm (rawData rỗng) — MultiSelect không trống. */
+    const [bcvhPrefetchProducts, setBcvhPrefetchProducts] = useState([]);
+    const [bcvhPrefetchMarkets, setBcvhPrefetchMarkets] = useState([]);
     /** Tab 2: drill-down danh sách đơn theo ô số đã bấm */
     const [bcvhDrill, setBcvhDrill] = useState(null);
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
@@ -526,13 +542,16 @@ export default function BaoCaoVanHanhHtml() {
 
     useEffect(() => {
         try {
-            const payload = bcvhCriteriaRows.map((row) => ({
-                startDate: row.startDate || '',
-                endDate: row.endDate || '',
-                product: row.product || '',
-                market: row.market || '',
-                isManual: Boolean(row.isManual)
-            }));
+            const payload = bcvhCriteriaRows.map((row) => {
+                const pm = normalizeBcvhPmArrays(row.product, row.market);
+                return {
+                    startDate: row.startDate || '',
+                    endDate: row.endDate || '',
+                    product: pm.product,
+                    market: pm.market,
+                    isManual: Boolean(row.isManual)
+                };
+            });
             localStorage.setItem(BCVH_CRITERIA_STORAGE_KEY, JSON.stringify(payload));
         } catch {
             // Ignore localStorage write errors (private mode/quota).
@@ -626,14 +645,71 @@ export default function BaoCaoVanHanhHtml() {
         return () => { cancelled = true; };
     }, [isHcmVariant]);
 
+    useEffect(() => {
+        if (rawData.length > 0) return undefined;
+        let cancelled = false;
+        const load = async () => {
+            const ordersTable = isHcmVariant ? 'order_code_hcm' : 'orders';
+            const PAGE = 2500;
+            const productSet = new Set();
+            const marketSet = new Set();
+            try {
+                for (let page = 0; page < 6; page += 1) {
+                    const from = page * PAGE;
+                    const to = from + PAGE - 1;
+                    const { data, error } = await supabase
+                        .from(ordersTable)
+                        .select(isHcmVariant ? 'product, country' : 'product, country, team')
+                        .not('order_date', 'is', null)
+                        .order('order_date', { ascending: false })
+                        .range(from, to);
+                    if (error) throw error;
+                    const batch = data || [];
+                    for (const row of batch) {
+                        if (!isHcmVariant && isOrdersRowTeamHcm(row)) continue;
+                        const p = String(row?.product ?? '').trim();
+                        const c = String(row?.country ?? '').trim();
+                        if (p) productSet.add(p);
+                        if (c) marketSet.add(c);
+                    }
+                    if (batch.length < PAGE) break;
+                }
+                if (!cancelled) {
+                    setBcvhPrefetchProducts([...productSet].sort((a, b) => a.localeCompare(b, 'vi')));
+                    setBcvhPrefetchMarkets([...marketSet].sort((a, b) => a.localeCompare(b, 'vi')));
+                }
+            } catch (e) {
+                console.warn('⚠️ bcvhPrefetchDistinctProductsMarkets:', e?.message || e);
+                if (!cancelled) {
+                    setBcvhPrefetchProducts([]);
+                    setBcvhPrefetchMarkets([]);
+                }
+            }
+        };
+        load();
+        return () => {
+            cancelled = true;
+        };
+    }, [rawData.length, isHcmVariant]);
+
     const uniqueProducts = useMemo(() => {
         const fromOrders = [...new Set(rawData.map((r) => r['Mặt hàng']).filter(Boolean))];
-        const merged = isHcmVariant ? new Set([...fromOrders, ...hcmProductOptions]) : new Set(fromOrders);
-        return [...merged].sort();
-    }, [rawData, isHcmVariant, hcmProductOptions]);
+        const merged = new Set([
+            ...fromOrders,
+            ...(isHcmVariant ? hcmProductOptions : []),
+            ...bcvhPrefetchProducts
+        ]);
+        return [...merged].sort((a, b) => a.localeCompare(b, 'vi'));
+    }, [rawData, isHcmVariant, hcmProductOptions, bcvhPrefetchProducts]);
     const uniqueMarkets = useMemo(
-        () => [...new Set(rawData.map((r) => r['khu vực']).filter(Boolean))].sort(),
-        [rawData]
+        () =>
+            [
+                ...new Set([
+                    ...rawData.map((r) => r['khu vực']).filter(Boolean),
+                    ...bcvhPrefetchMarkets
+                ])
+            ].sort((a, b) => a.localeCompare(b, 'vi')),
+        [rawData, bcvhPrefetchMarkets]
     );
     const uniqueStaff = useMemo(() => {
         // Admin cần “tất cả NV” nên danh sách NV cho dropdown lấy từ dữ liệu (rawData),
@@ -750,8 +826,8 @@ export default function BaoCaoVanHanhHtml() {
                     id: newBcvhRowId(),
                     startDate: day,
                     endDate: day,
-                    product: '',
-                    market: '',
+                    product: [],
+                    market: [],
                     isManual: true
                 }
             ];
@@ -763,18 +839,27 @@ export default function BaoCaoVanHanhHtml() {
     };
 
     const applyBcvhBulkProductMarket = () => {
+        const p = [...bcvhBulkProduct];
+        const m = [...bcvhBulkMarket];
         setBcvhCriteriaRows((prev) =>
             prev.map((r) => ({
                 ...r,
-                product: bcvhBulkProduct,
-                market: bcvhBulkMarket
+                product: [...p],
+                market: [...m]
             }))
         );
     };
 
+    const clearAllBcvhProductMarketFilters = () => {
+        setBcvhBulkProduct([]);
+        setBcvhBulkMarket([]);
+        setBcvhCriteriaRows((prev) => prev.map((r) => ({ ...r, product: [], market: [] })));
+    };
+
     const bcvhRowContextLabel = (line) => {
-        const p = String(line?.product ?? '').trim() || 'Tất cả';
-        const m = String(line?.market ?? '').trim() || 'Tất cả';
+        const pm = normalizeBcvhPmArrays(line?.product, line?.market);
+        const p = pm.product.length ? pm.product.join(', ') : 'Tất cả';
+        const m = pm.market.length ? pm.market.join(', ') : 'Tất cả';
         return `${p} / ${m}`;
     };
 
@@ -1967,42 +2052,39 @@ export default function BaoCaoVanHanhHtml() {
                     )}
                     <div className="mb-2 flex flex-wrap items-end gap-2 rounded border border-gray-200 bg-gray-50 px-2 py-2 text-xs text-gray-700">
                         <span className="self-center font-medium text-gray-600">Áp dụng hàng loạt:</span>
-                        <label className="flex flex-col gap-0.5">
-                            <span className="text-[10px] uppercase tracking-wide text-gray-500">Sản phẩm</span>
-                            <select
-                                className="min-w-[9rem] rounded border border-gray-300 px-2 py-1 text-xs"
-                                value={bcvhBulkProduct}
-                                onChange={(e) => setBcvhBulkProduct(e.target.value)}
-                            >
-                                <option value="">Tất cả</option>
-                                {uniqueProducts.map((p) => (
-                                    <option key={p} value={p}>
-                                        {p}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <label className="flex flex-col gap-0.5">
-                            <span className="text-[10px] uppercase tracking-wide text-gray-500">Thị trường</span>
-                            <select
-                                className="min-w-[9rem] rounded border border-gray-300 px-2 py-1 text-xs"
-                                value={bcvhBulkMarket}
-                                onChange={(e) => setBcvhBulkMarket(e.target.value)}
-                            >
-                                <option value="">Tất cả</option>
-                                {uniqueMarkets.map((m) => (
-                                    <option key={m} value={m}>
-                                        {m}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
+                        <div className="min-w-[9.5rem] max-w-[14rem] flex-1">
+                            <MultiSelect
+                                label="Sản phẩm"
+                                placeholder="Sản phẩm"
+                                options={uniqueProducts}
+                                selected={bcvhBulkProduct}
+                                onChange={setBcvhBulkProduct}
+                                compact
+                            />
+                        </div>
+                        <div className="min-w-[9.5rem] max-w-[14rem] flex-1">
+                            <MultiSelect
+                                label="Thị trường"
+                                placeholder="Thị trường"
+                                options={uniqueMarkets}
+                                selected={bcvhBulkMarket}
+                                onChange={setBcvhBulkMarket}
+                                compact
+                            />
+                        </div>
                         <button
                             type="button"
                             className="rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
                             onClick={applyBcvhBulkProductMarket}
                         >
                             Áp dụng cho tất cả dòng
+                        </button>
+                        <button
+                            type="button"
+                            className="rounded border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-50"
+                            onClick={clearAllBcvhProductMarketFilters}
+                        >
+                            Xóa tất cả
                         </button>
                     </div>
                     <div className="bcvh-split-title">
@@ -2102,42 +2184,40 @@ export default function BaoCaoVanHanhHtml() {
                                                         }
                                                     />
                                                 </td>
-                                                <td
-                                                    className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-3"
-                                                >
-                                                    <select
-                                                        className="bcvh-cell-select"
-                                                        value={line.product}
-                                                        onChange={(e) =>
-                                                            patchBcvhRow(line.id, { product: e.target.value })
-                                                        }
-                                                    >
-                                                        <option value="">Tất cả</option>
-                                                        {uniqueProducts.map((p) => (
-                                                            <option key={p} value={p}>
-                                                                {p}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </td>
-                                                <td
-                                                    className="bcvh-cell bcvh-cell-left whitespace-nowrap bcvh-col-4"
-                                                >
-                                                    <div className="flex items-center gap-1">
-                                                        <select
-                                                            className="bcvh-cell-select min-w-[100px] flex-1"
-                                                            value={line.market}
-                                                            onChange={(e) =>
-                                                                patchBcvhRow(line.id, { market: e.target.value })
+                                                <td className="bcvh-cell bcvh-cell-left bcvh-col-3 align-middle">
+                                                    <div className="min-w-[7rem] max-w-[11rem]">
+                                                        <MultiSelect
+                                                            label="SP"
+                                                            placeholder="SP"
+                                                            options={uniqueProducts}
+                                                            selected={
+                                                                normalizeBcvhPmArrays(line.product, line.market)
+                                                                    .product
                                                             }
-                                                        >
-                                                            <option value="">Tất cả</option>
-                                                            {uniqueMarkets.map((m) => (
-                                                                <option key={m} value={m}>
-                                                                    {m}
-                                                                </option>
-                                                            ))}
-                                                        </select>
+                                                            onChange={(sel) =>
+                                                                patchBcvhRow(line.id, { product: sel })
+                                                            }
+                                                            compact
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td className="bcvh-cell bcvh-cell-left bcvh-col-4 align-middle">
+                                                    <div className="flex min-w-[7rem] max-w-[11rem] items-center gap-1">
+                                                        <div className="min-w-0 flex-1">
+                                                            <MultiSelect
+                                                                label="TT"
+                                                                placeholder="TT"
+                                                                options={uniqueMarkets}
+                                                                selected={
+                                                                    normalizeBcvhPmArrays(line.product, line.market)
+                                                                        .market
+                                                                }
+                                                                onChange={(sel) =>
+                                                                    patchBcvhRow(line.id, { market: sel })
+                                                                }
+                                                                compact
+                                                            />
+                                                        </div>
                                                         {line.isManual && (
                                                             <button
                                                                 type="button"

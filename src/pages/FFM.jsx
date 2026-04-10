@@ -43,7 +43,10 @@ function getFfmShippingUnitString(row) {
   ).trim();
 }
 
-/** Chỉ đơn T&T (khớp lọc Supabase shipping_unit ilike %T&T%). */
+/**
+ * FFM T&T: chỉ dòng có Đơn vị vận chuyển là T&T (chuỗi gốc sau trim; so khớp không phân biệt hoa thường,
+ * cho phép biến thể như «T&T Express» — đồng bộ với lọc API `shipping_unit ilike %T&T%`).
+ */
 function isFfmTtCarrierRow(row) {
   const u = getFfmShippingUnitString(row).toLowerCase();
   if (!u) return false;
@@ -1060,7 +1063,7 @@ function FFM({ variant = 'MGT' }) {
       console.error('Load data error:', error);
       addToast(`❌ Lỗi tải dữ liệu: ${error.message}. Thử fallback...`, 'error', 4000);
       try {
-        if (variant === 'MGT') {
+        if (variant === 'MGT' || variant === 'TT') {
           const [hnRows, hcmRows] = await Promise.all([
             API.fetchFFMOrders?.({ ordersTable: 'orders' }),
             API.fetchFFMOrders?.({ ordersTable: FFM_HCM_SUPABASE_TABLE })

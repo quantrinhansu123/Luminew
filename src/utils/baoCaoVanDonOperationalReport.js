@@ -312,23 +312,39 @@ export function filterSliceByProductMarket(rawData, product, market) {
     });
 }
 
+/** Chuẩn hóa SP/TT: chuỗi (legacy) hoặc mảng — rỗng = không lọc. */
+function criteriaProductMarketSets(product, market) {
+    const toSet = (v) => {
+        if (Array.isArray(v)) {
+            return new Set(v.map((x) => String(x).trim()).filter(Boolean));
+        }
+        if (v != null && v !== '') {
+            const s = String(v).trim();
+            return s ? new Set([s]) : new Set();
+        }
+        return new Set();
+    };
+    return { pSet: toSet(product), mSet: toSet(market) };
+}
+
 /**
- * Lọc theo khoảng ngày (Ngày lên đơn) + tùy chọn sản phẩm / thị trường (chuỗi rỗng = tất cả).
- * @param {{ startDate: string; endDate: string; product: string; market: string }} criteria
+ * Lọc theo khoảng ngày (Ngày lên đơn) + tùy chọn sản phẩm / thị trường (mảng hoặc chuỗi; rỗng = tất cả).
+ * @param {{ startDate: string; endDate: string; product?: string|string[]; market?: string|string[] }} criteria
  */
 export function filterSliceForCriteriaRow(rawData, criteria) {
     const { startDate, endDate, product, market } = criteria;
+    const { pSet, mSet } = criteriaProductMarketSets(product, market);
     return rawData.filter((r) => {
         const d = (r['Ngày lên đơn'] || '').slice(0, 10);
         if (startDate && d && d < startDate) return false;
         if (endDate && d && d > endDate) return false;
-        if (product) {
+        if (pSet.size > 0) {
             const p = (r['Mặt hàng'] || '').trim();
-            if (p !== product) return false;
+            if (!pSet.has(p)) return false;
         }
-        if (market) {
+        if (mSet.size > 0) {
             const m = (r['khu vực'] || '').trim();
-            if (m !== market) return false;
+            if (!mSet.has(m)) return false;
         }
         return true;
     });
