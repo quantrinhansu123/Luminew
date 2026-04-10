@@ -860,10 +860,31 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                         
                         // Định dạng lại giá trị baseValue hệt như chuẩn DB
                         const expectedDbValueRaw = prepareValueForDB(dbK, ch.baseValue);
-                        const expectedDbValueStr = expectedDbValueRaw != null ? String(expectedDbValueRaw).trim() : '';
-                        const currentDbValueStr = dbRow[dbK] != null ? String(dbRow[dbK]).trim() : '';
+                        const currentDbValueRaw = dbRow[dbK];
                         
+                        // Chuẩn hóa giá trị để so sánh chính xác
+                        const normalizeForComparison = (val) => {
+                            if (val === null || val === undefined) return '';
+                            const str = String(val).trim();
+                            // Loại bỏ các giá trị semantic empty
+                            if (str === '' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') return '';
+                            return str;
+                        };
+                        
+                        const expectedDbValueStr = normalizeForComparison(expectedDbValueRaw);
+                        const currentDbValueStr = normalizeForComparison(currentDbValueRaw);
+                        
+                        // Chỉ báo xung đột nếu giá trị thực sự khác nhau (không phải chỉ khác format)
                         if (expectedDbValueStr !== currentDbValueStr) {
+                            // Kiểm tra thêm: có phải chỉ khác về format số không?
+                            const expectedNum = parseFloat(expectedDbValueStr.replace(/[^\d.-]/g, ''));
+                            const currentNum = parseFloat(currentDbValueStr.replace(/[^\d.-]/g, ''));
+                            
+                            // Nếu cả hai đều là số hợp lệ và bằng nhau → không phải xung đột
+                            if (!isNaN(expectedNum) && !isNaN(currentNum) && expectedNum === currentNum) {
+                                continue;
+                            }
+                            
                             throw new Error(
                                 `XUNG ĐỘT DỮ LIỆU ĐƠN [${oc}]:\n` +
                                 `Trong lúc bạn chỉnh sửa, hệ thống quá hạn hoặc nhân viên khác đã đổi cột "${ch.colKey}" thành "${currentDbValueStr || '(rỗng)'}".\n\n` +

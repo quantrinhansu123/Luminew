@@ -3048,7 +3048,18 @@ function VanDon({ dataSource = 'default' }) {
         String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
       );
 
-      // Với các cột có danh sách trạng thái cố định, chỉ hiển thị trong dropdown
+      // Cột "Trạng thái giao hàng NB": chỉ hiển thị giá trị có trong data, không hiển thị preset không có data
+      const isDeliveryStatusNbCol = 
+        normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng NB') ||
+        normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng');
+      
+      if (isDeliveryStatusNbCol) {
+        // Chỉ lấy giá trị từ data, không thêm preset
+        // Một mục "Trống" cho ô trống
+        return ['Trống', ...merged];
+      }
+
+      // Với các cột có danh sách trạng thái cố định khác, chỉ hiển thị trong dropdown
       // các giá trị có trong preset để tránh lộ giá trị rác (ví dụ mã số, text sai).
       if (preset && preset.length > 0) {
         const presetLower = new Set(
