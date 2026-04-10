@@ -73,7 +73,7 @@ export const DROPDOWN_OPTIONS = {
     "Trạng thái thu tiền": ["", "Có bill", "Có bill 1 phần", "Bom_bùng_chặn", "Hẹn Thanh Toán", "Hoàn Hàng", "Khó Đòi", "Không nhận được hàng", "Không PH dưới 3N", "Thanh toán phí hoàn", "KPH nhiều ngày"],
     "Trạng thái giao hàng": DELIVERY_STATUS_PRESETS,
     "Payment Bill": ["", "Có bill", "Bill một phần"],
-    "Trạng thái cskh": ["", "Chặn", "Đã có người xử lý", "Đã lênđơn mới", "Đã xử lý", "Khách chặn", "Không thấy mess"]
+    "Trạng thái cskh": ["", "Chặn", "Đã có người xử lý", "Đã lênđơn mới", "Đã xử lý", "Khách chặn", "Không thấy mess", "Nhận hàng chưa tt"]
 };
 
 // Columns that are editable directly
