@@ -3085,6 +3085,68 @@ function VanDon({ dataSource = 'default' }) {
   };
 
 
+  // --- Trigger Report Recalculation ---
+  const triggerReportRecalculation = useCallback(async (batchChanges) => {
+    // Kiểm tra xem có thay đổi cột "Kết quả check" không
+    const hasCheckResultChange = batchChanges.some(change => {
+      const colKey = normalizeColHeader(change.colKey);
+      return colKey === normalizeColHeader('Kết quả Check') || 
+             colKey === normalizeColHeader('Kết quả check') ||
+             colKey === normalizeColHeader('check_result');
+    });
+
+    if (!hasCheckResultChange) return;
+
+    try {
+      console.log('🔄 Kích hoạt công thức tính toán báo cáo do thay đổi "Kết quả check"...');
+      
+      // Lấy danh sách các đơn hàng bị ảnh hưởng
+      const affectedOrderIds = [...new Set(batchChanges.map(c => normalizeVanDonOrderIdKey(c.orderId)).filter(Boolean))];
+      
+      // Lấy thông tin ngày, nhân viên, sản phẩm, thị trường từ các đơn bị ảnh hưởng
+      const affectedOrders = allData.filter(row => 
+        affectedOrderIds.includes(getVanDonRowOrderId(row))
+      );
+
+      if (affectedOrders.length === 0) return;
+
+      // Gom nhóm theo ngày + nhân viên để trigger recalc báo cáo
+      const recalcGroups = new Map();
+      affectedOrders.forEach(order => {
+        const ngay = order['Ngày lên đơn'] || order.order_date || '';
+        const nhanVien = order['NV Vận đơn'] || order.delivery_staff || '';
+        const sanPham = order['Mặt hàng'] || order.product || '';
+        const thiTruong = order['Khu vực'] || order.country || '';
+        
+        if (!ngay || !nhanVien) return;
+        
+        const key = `${ngay}|${nhanVien}|${sanPham}|${thiTruong}`;
+        if (!recalcGroups.has(key)) {
+          recalcGroups.set(key, { ngay, nhanVien, sanPham, thiTruong, count: 0 });
+        }
+        recalcGroups.get(key).count++;
+      });
+
+      console.log(`📊 Cần cập nhật ${recalcGroups.size} nhóm báo cáo (ngày + nhân viên + sản phẩm + thị trường)`);
+
+      // Gọi API hoặc trigger để cập nhật báo cáo
+      // Ở đây bạn có thể:
+      // 1. Gọi stored procedure trong database
+      // 2. Gọi API endpoint để recalc
+      // 3. Hoặc invalidate cache của báo cáo để force reload
+
+      // Ví dụ: Invalidate cache báo cáo
+      queryClient.invalidateQueries({ queryKey: ['baoCaoVanDon'] });
+      queryClient.invalidateQueries({ queryKey: ['baoCaoTayMKT'] });
+      
+      addToast(`✅ Đã kích hoạt cập nhật báo cáo cho ${affectedOrderIds.length} đơn hàng`, 'success', 3000);
+      
+    } catch (error) {
+      console.error('❌ Lỗi khi kích hoạt công thức báo cáo:', error);
+      addToast('⚠️ Không thể cập nhật báo cáo tự động', 'warning', 3000);
+    }
+  }, [allData, queryClient, addToast]);
+
   // --- Change Management (Shared) ---
   const processDbQueue = useCallback(async () => {
     if (isProcessingQueue.current) return;
@@ -3128,6 +3190,9 @@ function VanDon({ dataSource = 'default' }) {
         }
 
         if (success) {
+          // Kích hoạt công thức tính toán báo cáo nếu có thay đổi "Kết quả check"
+          await triggerReportRecalculation(batchToProcess);
+
           const latestData = [...allData];
           rowsToUpdate.forEach(updatedRow => {
             const uid = normalizeVanDonOrderIdKey(updatedRow[PRIMARY_KEY_COLUMN]);
@@ -3184,7 +3249,7 @@ function VanDon({ dataSource = 'default' }) {
     } finally {
       isProcessingQueue.current = false;
     }
-  }, [addToast, removeToast, deepCloneMapOfMaps, upsertPendingRowSnapshot, allData, queryClient, savePendingToLocalStorage, dataSource]);
+  }, [addToast, removeToast, deepCloneMapOfMaps, upsertPendingRowSnapshot, allData, queryClient, savePendingToLocalStorage, dataSource, triggerReportRecalculation]);
 
   // --- New Stack-Based History ---
   const pushChange = useCallback((changesArray) => {
