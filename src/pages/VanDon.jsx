@@ -541,6 +541,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_van_don: [],
     shipping_unit: [],
     delivery_status: [],
+    payment_status: [],
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã',
@@ -559,6 +560,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_van_don: [],
     shipping_unit: [],
     delivery_status: [],
+    payment_status: [],
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã',
@@ -1004,7 +1006,7 @@ function VanDon({ dataSource = 'default' }) {
         : new Set([activeDateType]);
 
     Object.entries(appliedFilterValues).forEach(([key, val]) => {
-      if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
+      if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'delivery_status', 'delivery_status_nb', 'payment_status', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
       if (appliedEnableDateFilter && DATE_FILTER_KEYS.includes(key) && toolbarDateOverrideKeys.has(key)) return;
       if (val == null) return;
       if (Array.isArray(val) && val.length === 0) return;
@@ -1058,6 +1060,7 @@ function VanDon({ dataSource = 'default' }) {
       nv_van_don: appliedFilterValues.nv_van_don,
       shipping_unit: appliedFilterValues.shipping_unit,
       delivery_status: appliedFilterValues.delivery_status,
+      payment_status: appliedFilterValues.payment_status,
       dateFrom: appliedEnableDateFilter ? appliedDateFrom : undefined,
       dateTo: appliedEnableDateFilter ? appliedDateTo : undefined,
       dateType: appliedBolDateType,
@@ -2197,7 +2200,7 @@ function VanDon({ dataSource = 'default' }) {
     // Reset filters
     const defaultFilters = {
       market: [], product: [], nv_sale: [], nv_mkt: [], nv_van_don: [],
-      shipping_unit: [], tracking_include: '', tracking_exclude: '',
+      shipping_unit: [], delivery_status: [], payment_status: [], tracking_include: '', tracking_exclude: '',
       tracking_status: 'Tình trạng mã',
       canh_bao_filter: '',
     };

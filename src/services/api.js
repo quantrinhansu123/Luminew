@@ -1083,8 +1083,8 @@ function isVanDonDropdownColumnFilter(uiKey) {
     if (
         DROPDOWN_OPTIONS[dataKey] ||
         DROPDOWN_OPTIONS[uiKey] ||
-        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey) ||
-        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển'].includes(uiKey)
+        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Trạng thái thu tiền'].includes(dataKey) ||
+        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển', 'Trạng thái thu tiền'].includes(uiKey)
     ) {
         return true;
     }
@@ -1114,6 +1114,7 @@ export const fetchVanDon = async (options = {}) => {
         /** Multi-select đơn vị vận chuyển (cột shipping_unit) */
         shipping_unit = [],
         delivery_status = [],
+        payment_status = [],
         dateFrom,
         dateTo,
         allowedStaff, // Array of names allowed to view
@@ -1286,6 +1287,9 @@ export const fetchVanDon = async (options = {}) => {
             }
             if (delivery_status !== undefined && delivery_status !== null && Array.isArray(delivery_status) && delivery_status.length > 0) {
                 applyEmptyOrInFilter('delivery_status_nb', delivery_status);
+            }
+            if (payment_status !== undefined && payment_status !== null && Array.isArray(payment_status) && payment_status.length > 0) {
+                applyEmptyOrInFilter('payment_status', payment_status);
             }
 
             if (deliveryStaffSelfFilter !== undefined && deliveryStaffSelfFilter !== null && String(deliveryStaffSelfFilter).trim() !== '') {
