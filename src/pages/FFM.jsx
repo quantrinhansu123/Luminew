@@ -139,6 +139,15 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'Kết quả Check',
   'Kết quả check',
   'Kết quả',
+  'Ngày lên đơn',
+  'Name*',
+  'Phone*',
+  'Add',
+  'City',
+  'State',
+  'Khu vực',
+  'Zipcode',
+  'Mã Tracking',
   'Ngày đóng hàng',
   'Trạng thái giao hàng',
   'GHI CHÚ',
@@ -263,6 +272,8 @@ function getFfmRowColRaw(row, colName, pendingChanges) {
   let val = '';
   if (colName === 'Mã Tracking') {
     val = row['Mã Tracking'] ?? row['tracking_code'] ?? row.tracking_code ?? '';
+  } else if (colName === 'Ngày lên đơn') {
+    val = row['Ngày lên đơn'] ?? row.order_date ?? '';
   } else if (colName === 'Ngày đẩy đơn') {
     val = row['time_dayon'] ?? row.time_dayon ?? row['Ngày đẩy đơn'] ?? row[key] ?? '';
   } else if (colName === 'Payment Bill') {
@@ -281,6 +292,18 @@ function getFfmRowColRaw(row, colName, pendingChanges) {
   const pendingInfo = pendingChanges.get(orderId)?.get(key);
   if (pendingInfo) val = pendingInfo.newValue;
   return { dataKey: key, raw: String(val ?? '') };
+}
+
+/** Preset dropdown + giá trị đang có (dán từ ngoài / dữ liệu cũ) để `value` luôn khớp một `<option>`. */
+function ffmSelectOptionsWithCurrentValue(colName, currentVal) {
+  const presets = DROPDOWN_OPTIONS[colName];
+  if (!presets || !Array.isArray(presets)) return [];
+  const raw = String(currentVal ?? '');
+  const out = [...presets];
+  if (raw !== '' && !out.some((o) => String(o) === raw)) {
+    out.push(raw);
+  }
+  return out;
 }
 
 /** Highlight khi kéo — cập nhật class trực tiếp, không setState mỗi frame (tránh re-render cả bảng). */
@@ -2765,6 +2788,7 @@ function FFM({ variant = 'MGT' }) {
         const orderId = rowData[PRIMARY_KEY_COLUMN];
         const sourceRow = dataRows === 1 ? 0 : pasteRow % dataRows;
 
+        /** Theo vị trí (như Excel): clipboard cột j → lưới (góc trái + j). Ô không sửa được thì bỏ qua nhưng không lệch cột. */
         for (let pasteCol = 0; pasteCol < repeatCols; pasteCol++) {
           const targetColIndex = bounds.minCol + pasteCol;
           if (targetColIndex >= currentColumns.length) break;
@@ -2775,23 +2799,21 @@ function FFM({ variant = 'MGT' }) {
             continue;
           }
 
-          const dataKey = ffmPendingKeyForCol(colName);
+          const { dataKey, raw: currentUiVal } = getFfmRowColRaw(rowData, colName, pendingChanges);
           const sourceCol = dataCols === 1 ? 0 : pasteCol % dataCols;
-          const pasteValue = rows[sourceRow]?.[sourceCol] ?? '';
+          let pasteValue = String(rows[sourceRow]?.[sourceCol] ?? '');
+          if (DROPDOWN_OPTIONS[colName]) {
+            pasteValue = pasteValue.trim();
+          }
 
           if (pasteValue === '') continue;
 
-          const originalVal = rowData[dataKey] ?? '';
-
-          const pendingVal = pendingChanges.get(orderId)?.get(dataKey);
-          const currentUiVal = pendingVal ? pendingVal.newValue : originalVal;
-
-          if (String(pasteValue) !== String(currentUiVal)) {
+          if (pasteValue !== currentUiVal) {
             pasteChanges.push({
               orderId,
               colKey: dataKey,
-              originalValue: String(currentUiVal),
-              newValue: String(pasteValue)
+              originalValue: currentUiVal,
+              newValue: pasteValue
             });
             updatedCount++;
 
@@ -3383,8 +3405,10 @@ function FFM({ variant = 'MGT' }) {
             value={String(val)}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
-            {DROPDOWN_OPTIONS[col].map((o) => (
-              <option key={o} value={o}>{o}</option>
+            {ffmSelectOptionsWithCurrentValue(col, val).map((o) => (
+              <option key={o === '' ? '__empty__' : String(o)} value={o}>
+                {o}
+              </option>
             ))}
           </select>
         ) : col === 'Kết quả Check' || col === 'Trạng thái giao hàng' ? (

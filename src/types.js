@@ -15,6 +15,18 @@ export const ORDER_MGMT_COLUMNS = [
     "Payment Bill", "Payment Image", "Lịch sử thay đổi"
 ];
 
+/**
+ * Cột được sửa / dán / fill trên lưới FFM (MGT, T&T, MGT HCM): toàn bộ cột quản lý đơn có thể map xuống DB,
+ * trừ STT, mã đơn (không đổi khóa dòng), «Lịch sử thay đổi» (chỉ đọc). Thêm alias «Kết quả check».
+ */
+export const FFM_GRID_EDITABLE_COLUMNS = new Set([
+    ...ORDER_MGMT_COLUMNS.filter(
+        (c) => c !== "STT" && c !== PRIMARY_KEY_COLUMN && c !== "Lịch sử thay đổi"
+    ),
+    "Kết quả check",
+    "Kết quả",
+]);
+
 // --- VIEW 2: BILL OF LADING COLUMNS (New) ---
 export const BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Trạng thái giao hàng NB", "Lý do",

@@ -180,7 +180,6 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
             setSelection(prev => {
                 if (!prev) return null;
                 const newSelection = { ...prev, endRow: rowIdx, endCol: colIdx };
-                console.log('🖱️ [MouseEnter] Update selection:', newSelection);
                 return newSelection;
             });
         }
@@ -205,7 +204,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
         e.clipboardData.setData('text/plain', data);
     };
 
-    // Handle paste (Ctrl+V) - xử lý paste từ container hoặc input
+    // Paste: đúng nội dung copy — cột j trong clipboard → cột (ô góc thật + j) trong FFM_QUICK_ADD_COLUMNS; không remap, không trim.
     const handlePaste = useCallback((e, rowIdx = null, colIdx = null) => {
         e.preventDefault();
         e.stopPropagation();
@@ -213,136 +212,64 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
         const clipboardData = e.clipboardData.getData('text');
         if (clipboardData == null) return;
 
-        // Parse dữ liệu paste — giữ nguyên dòng trống (không filter) để không dồn dòng phía dưới lên.
         const normalized = String(clipboardData).replace(/\r\n/g, '\n');
         if (normalized.length === 0) return;
         const pastedRows = normalized.split('\n').map((line) => line.split('\t'));
         if (pastedRows.length === 0) return;
-        
-        // Lấy selection hiện tại từ ref (luôn có giá trị mới nhất)
+
         const currentSelection = selectionRef.current;
-        
-        // Debug: log selection hiện tại
-        console.log('🔍 [Paste] Current Selection:', currentSelection, 'rowIdx:', rowIdx, 'colIdx:', colIdx);
-        
-        // Xác định điểm bắt đầu paste và vùng đã chọn
-        let startRow, startCol, endRow, endCol;
-        
+
+        let startRow;
+        let startCol;
         if (rowIdx !== null && colIdx !== null) {
-            // Paste từ input cụ thể - dùng vị trí input
             startRow = rowIdx;
             startCol = colIdx;
-            endRow = rowIdx + pastedRows.length - 1;
-            endCol = Math.min(colIdx + (pastedRows[0]?.length || 1) - 1, visibleColIndices.length - 1);
         } else if (currentSelection && currentSelection.startRow !== undefined && currentSelection.startCol !== undefined) {
-            // Paste từ container - dùng selection hiện tại
             startRow = Math.min(currentSelection.startRow, currentSelection.endRow);
             startCol = Math.min(currentSelection.startCol, currentSelection.endCol);
-            endRow = Math.max(currentSelection.startRow, currentSelection.endRow);
-            endCol = Math.max(currentSelection.startCol, currentSelection.endCol);
-            
-            // Tính số hàng và cột đã chọn
-            const selectedRowCount = endRow - startRow + 1;
-            const selectedColCount = endCol - startCol + 1;
-            const totalSelectedCells = selectedRowCount * selectedColCount;
-            
-            // Flatten dữ liệu paste thành mảng 1 chiều
-            const flatPastedData = [];
-            for (let i = 0; i < pastedRows.length; i++) {
-                for (let j = 0; j < (pastedRows[i]?.length || 0); j++) {
-                    flatPastedData.push(pastedRows[i][j] || '');
-                }
-            }
-            
-            // Số giá trị sẽ điền = min(số ô đã chọn, số giá trị paste)
-            const valuesToFill = Math.min(totalSelectedCells, flatPastedData.length);
-            
-            console.log('📋 Paste vào selection:', { 
-                startRow, startCol, endRow, endCol,
-                selectedRowCount, selectedColCount, totalSelectedCells,
-                pastedRows: pastedRows.length, 
-                pastedCols: pastedRows[0]?.length,
-                flatPastedData: flatPastedData.length,
-                valuesToFill
-            });
-
-            // Paste dữ liệu vào TẤT CẢ các ô đã chọn (theo thứ tự từ trái sang phải, trên xuống dưới)
-            setRows(prev => {
-                const newRows = prev.map(r => [...r]);
-                const neededRows = endRow + 1;
-                while (newRows.length < neededRows) {
-                    newRows.push(Array(COLUMNS.length).fill(""));
-                }
-
-                // Điền dữ liệu vào các ô đã chọn theo thứ tự
-                let dataIndex = 0;
-                for (let r = startRow; r <= endRow && dataIndex < valuesToFill; r++) {
-                    for (let c = startCol; c <= endCol && dataIndex < valuesToFill; c++) {
-                        const actualColIdx = getActualColIdx(c);
-                        if (actualColIdx != null) {
-                            const colName = COLUMNS[actualColIdx];
-                            let value = flatPastedData[dataIndex] || '';
-                            
-                            // Ngày đóng hàng: giữ nguyên text dán (không ép dd/mm).
-                            if (colName === 'Ngày đóng hàng') {
-                                value = String(value ?? '').trim();
-                            }
-                            
-                            newRows[r][actualColIdx] = value;
-                            dataIndex++;
-                        }
-                    }
-                }
-                return newRows;
-            });
-            
-            // Giữ nguyên selection sau khi paste
-            const finalSelection = { startRow, startCol, endRow, endCol };
-            setSelection(finalSelection);
-            return;
         } else {
-            // Fallback: paste vào ô đầu tiên
             startRow = 0;
             startCol = 0;
-            endRow = startRow + pastedRows.length - 1;
-            endCol = Math.min(startCol + (pastedRows[0]?.length || 1) - 1, visibleColIndices.length - 1);
         }
 
-        console.log('📋 Paste:', { startRow, startCol, pastedRows: pastedRows.length });
+        const startActualColIdx = getActualColIdx(startCol);
+        if (startActualColIdx == null) return;
 
-        // Paste dữ liệu (không có selection)
-        setRows(prev => {
-            const newRows = prev.map(r => [...r]);
-            const neededRows = startRow + pastedRows.length;
+        const pasteH = pastedRows.length;
+        const maxLineLen = Math.max(...pastedRows.map((r) => r.length), 0);
+
+        setRows((prev) => {
+            const newRows = prev.map((r) => [...r]);
+            const neededRows = startRow + pasteH;
             while (newRows.length < neededRows) {
-                    newRows.push(buildEmptyRow());
+                newRows.push(buildEmptyRow());
             }
 
             for (let i = 0; i < pastedRows.length; i++) {
                 const targetRow = startRow + i;
-                for (let j = 0; j < pastedRows[i].length; j++) {
-                    const targetCol = startCol + j;
-                    const actualColIdx = getActualColIdx(targetCol);
-                    if (actualColIdx != null) {
-                        const colName = COLUMNS[actualColIdx];
-                        let value = pastedRows[i][j] || '';
-                        
-                        if (colName === 'Ngày đóng hàng') {
-                            value = String(value ?? '').trim();
-                        }
-                        
-                        newRows[targetRow][actualColIdx] = value;
-                    }
+                const line = pastedRows[i] || [];
+                for (let j = 0; j < line.length; j++) {
+                    const actualColIdx = startActualColIdx + j;
+                    if (actualColIdx < 0 || actualColIdx >= COLUMNS.length) continue;
+                    newRows[targetRow][actualColIdx] = String(line[j] ?? '');
                 }
             }
             return newRows;
         });
-        
-        // Cập nhật selection sau khi paste
+
+        const endRow = startRow + pasteH - 1;
+        let endCol = startCol;
+        for (let j = 0; j < maxLineLen; j++) {
+            const ac = startActualColIdx + j;
+            const v = visibleColIndices.indexOf(ac);
+            if (v >= 0) endCol = Math.max(endCol, v);
+        }
+        endCol = Math.min(endCol, Math.max(0, visibleColIndices.length - 1));
+
         const newSelection = { startRow, startCol, endRow, endCol };
         setSelection(newSelection);
         selectionRef.current = newSelection;
-    }, [getActualColIdx, visibleColIndices.length]);
+    }, [getActualColIdx, visibleColIndices]);
 
     // Handle keyboard
     const handleKeyDown = (e) => {
@@ -574,32 +501,7 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
             );
         }
 
-        // Cùng preset «Trạng thái giao hàng» với lưới FFM / types (DELIVERY_STATUS_PRESETS).
-        if (col === 'Trạng thái giao hàng') {
-            const opts = DROPDOWN_OPTIONS['Trạng thái giao hàng'] || [];
-            const v = value == null ? '' : String(value);
-            return (
-                <select
-                    value={opts.includes(v) ? v : ''}
-                    onChange={(e) => handleCellChange(rowIdx, actualColIdx, e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onFocus={(e) => {
-                        e.stopPropagation();
-                        setSelection({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
-                    }}
-                    className="w-full h-full outline-none bg-transparent border-none p-0 text-sm cursor-pointer text-gray-700"
-                >
-                    {opts.map((o) => (
-                        <option key={String(o)} value={o}>
-                            {o === '' ? '—' : o}
-                        </option>
-                    ))}
-                </select>
-            );
-        }
-
-        // Dropdown columns - cho phép paste nhiều giá trị
+        // Dropdown (kể cả «Trạng thái giao hàng»): input + datalist để dán tự do, không mất nội dung như <select>.
         if (DROPDOWN_OPTIONS[col]) {
             // Sử dụng input với datalist để cho phép paste và tự do nhập
             const options = DROPDOWN_OPTIONS[col] || [];
@@ -704,8 +606,6 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
                     tabIndex={0}
                     data-quick-add-modal="true"
                     onPaste={(e) => {
-                        // Paste vào container - không truyền rowIdx/colIdx để sử dụng selection
-                        console.log('📋 [Container] Paste event, selection:', selection);
                         handlePaste(e);
                     }}
                     onCopy={handleCopy}
