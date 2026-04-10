@@ -264,41 +264,6 @@ function rowDisplayMktStaff(row) {
   return String(row?.['Nhân viên Marketing'] ?? row?.marketing_staff ?? row?.marketingStaff ?? '').trim();
 }
 
-/** Gợi ý mã tiền từ «Khu vực» — dùng khi «Loại tiền thanh toán» trống (cùng logic Điền loại tiền). */
-function inferPaymentCurrencyFromArea(areaRaw) {
-  const s = String(areaRaw ?? '').trim();
-  if (!s) return '';
-  const n = s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-
-  if (n === 'us' || n.includes('u.s') || n.includes('usa') || n.includes('my')) return 'USD';
-  if (n.includes('nhat') || n.includes('cd nhat')) return 'JPY';
-  if (n.includes('han quoc') || n.includes('korea')) return 'KRW';
-  if (n.includes('canada')) return 'CAD';
-  if (n.includes('uc') || n.includes('australia')) return 'AUD';
-  if (n.includes('anh') || n.includes('uk') || n.includes('england')) return 'GBP';
-  return 'VND';
-}
-
-/**
- * Giá bán gốc theo loại tiền thanh toán (USD/CAD/…), không phải quy đổi VNĐ.
- * Nguồn: sale_price + «Loại tiền thanh toán» (fallback suy từ Khu vực). VND → không hiển thị số ngoại tệ.
- */
-function formatGiaTienGocNgoaiTeDisplay(row) {
-  let cur = String(row?.['Loại tiền thanh toán'] ?? '').trim().toUpperCase();
-  if (!cur) cur = inferPaymentCurrencyFromArea(row?.['Khu vực']) || '';
-  if (cur) cur = cur.toUpperCase();
-  const raw = row?._sale_price ?? row?.['Giá tiền gốc (ngoại tệ)'];
-  const num = parseFloat(raw);
-  if (!cur || cur === 'VND') return '—';
-  if (!Number.isFinite(num)) return '—';
-  const zeroFrac = ['JPY', 'KRW'].includes(cur);
-  const formatted = num.toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: zeroFrac ? 0 : 2,
-  });
-  return `${formatted} ${cur}`;
-}
-
 function DanhSachDon({ dataSource = 'default' }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -442,7 +407,6 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Số lượng mặt hàng 1',
     'Số lượng mặt hàng 2',
     'Loại tiền thanh toán',
-    'Giá tiền gốc (ngoại tệ)',
     'Ca',
     'Mã Tracking',
     'Trạng thái giao hàng',
@@ -615,8 +579,6 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Zipcode": item.zipcode,
     "Mặt hàng": item.product,
     "Loại tiền thanh toán": item.payment_currency || item.paymentCurrency || '',
-    /** Cùng DB `sale_price` — hiển thị kèm USD/CAD/… trong cột (không phải VNĐ). */
-    "Giá tiền gốc (ngoại tệ)": item.sale_price,
     "Tên mặt hàng 1": item.product_name_1 || item.product,
     "Số lượng mặt hàng 1": item.quantity_1 ?? item.item_qty_1 ?? '',
     "Tên mặt hàng 2": item.product_name_2 ?? item.item_name_2 ?? '',
@@ -757,6 +719,20 @@ function DanhSachDon({ dataSource = 'default' }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const inferPaymentCurrencyFromArea = (areaRaw) => {
+    const s = String(areaRaw ?? '').trim();
+    if (!s) return '';
+    const n = s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+    if (n === 'us' || n.includes('u.s') || n.includes('usa') || n.includes('my')) return 'USD';
+    if (n.includes('nhat') || n.includes('cd nhat')) return 'JPY';
+    if (n.includes('han quoc') || n.includes('korea')) return 'KRW';
+    if (n.includes('canada')) return 'CAD';
+    if (n.includes('uc') || n.includes('australia')) return 'AUD';
+    if (n.includes('anh') || n.includes('uk') || n.includes('england')) return 'GBP';
+    return 'VND';
   };
 
   const handleAutoFillPaymentCurrencyFromArea = async () => {
@@ -2716,10 +2692,6 @@ function DanhSachDon({ dataSource = 'default' }) {
         value = num.toLocaleString('vi-VN') + ' ₫';
       }
 
-      if (col === 'Giá tiền gốc (ngoại tệ)') {
-        value = formatGiaTienGocNgoaiTeDisplay(row);
-      }
-
       if (col === 'Payment Image') {
         value = row['Payment Image'] ?? row.payment_image ?? value ?? '';
       }
@@ -3888,11 +3860,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                     <th
                       key={col}
                       className={`px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${
-                        col === 'Loại tiền thanh toán'
-                          ? 'whitespace-nowrap w-[150px]'
-                          : col === 'Giá tiền gốc (ngoại tệ)'
-                            ? 'whitespace-nowrap min-w-[175px]'
-                            : ''
+                        col === 'Loại tiền thanh toán' ? 'whitespace-nowrap w-[150px]' : ''
                       }`}
                       onClick={() => handleSort(col)}
                     >
@@ -4007,11 +3975,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                           <td
                             key={col}
                             className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50 transition-colors ${
-                              col === 'Loại tiền thanh toán'
-                                ? 'w-[150px]'
-                                : col === 'Giá tiền gốc (ngoại tệ)'
-                                  ? 'min-w-[175px]'
-                                  : ''
+                              col === 'Loại tiền thanh toán' ? 'w-[150px]' : ''
                             }`}
                             title={`${value || '-'} (Click để copy)`}
                             onClick={(e) => {
