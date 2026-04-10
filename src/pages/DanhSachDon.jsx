@@ -2666,6 +2666,41 @@ function DanhSachDon({ dataSource = 'default' }) {
     };
   }, [filteredData]);
 
+  // Format date — cùng logic lịch với isDateInRange (parseSmartDate), tránh lệch ±1 ngày do UTC của new Date(iso).
+  const formatDate = useCallback((dateString) => {
+    if (!dateString) return '';
+    const d = parseSmartDate(dateString);
+    if (!d || isNaN(d.getTime())) return String(dateString);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  }, []);
+
+  /** Giá trị ô như trên lưới / Ctrl+C — dùng cho xuất Excel để khớp giao diện. */
+  const getCellDisplayValueForRow = useCallback(
+    (row, col) => {
+      const key = COLUMN_MAPPING[col] || col;
+      let value = row[key] ?? row[col] ?? '';
+
+      if (col.includes('Ngày')) {
+        value = formatDate(value);
+      }
+
+      if (col === 'Tổng tiền VNĐ') {
+        const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
+        value = num.toLocaleString('vi-VN') + ' ₫';
+      }
+
+      if (col === 'Payment Image') {
+        value = row['Payment Image'] ?? row.payment_image ?? value ?? '';
+      }
+
+      return String(value ?? '').replace(/\t/g, ' ').trim();
+    },
+    [formatDate]
+  );
+
   // Handle Ctrl+C to copy selected row
   useEffect(() => {
     const handleKeyDown = async (e) => {
@@ -2677,24 +2712,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
         e.preventDefault();
 
-        // Format data based on visible columns
-        const rowValues = displayColumns.map(col => {
-          const key = COLUMN_MAPPING[col] || col;
-          let value = row[key] ?? row[col] ?? '';
-
-          // Format date
-          if (col.includes('Ngày')) {
-            value = formatDate(value);
-          }
-
-          // Format money
-          if (col === 'Tổng tiền VNĐ') {
-            const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
-            value = num.toLocaleString('vi-VN') + ' ₫';
-          }
-
-          return String(value ?? '').replace(/\t/g, ' ').trim();
-        });
+        const rowValues = displayColumns.map((col) => getCellDisplayValueForRow(row, col));
 
         const tsv = rowValues.join('\t');
 
@@ -2713,7 +2731,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedRowId, filteredData, displayColumns]);
+  }, [selectedRowId, filteredData, displayColumns, getCellDisplayValueForRow]);
 
   // Pagination
   const totalPages = Math.ceil(filteredData.length / rowsPerPage);
@@ -2721,17 +2739,6 @@ function DanhSachDon({ dataSource = 'default' }) {
     const start = (currentPage - 1) * rowsPerPage;
     return filteredData.slice(start, start + rowsPerPage);
   }, [filteredData, currentPage, rowsPerPage]);
-
-  // Format date — cùng logic lịch với isDateInRange (parseSmartDate), tránh lệch ±1 ngày do UTC của new Date(iso).
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    const d = parseSmartDate(dateString);
-    if (!d || isNaN(d.getTime())) return String(dateString);
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
 
   // Handle sort
   const handleSort = (column) => {
@@ -2752,39 +2759,34 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
       return;
     }
+    const cols = displayColumns || [];
+    if (cols.length === 0) {
+      toast.info('Không có cột hiển thị để xuất — bật cột trong Cài đặt cột.', {
+        autoClose: 2500,
+        hideProgressBar: true,
+      });
+      return;
+    }
     const exportRows = rows.map((row) => {
-      const maKey = COLUMN_MAPPING[PRIMARY_KEY_COLUMN] || PRIMARY_KEY_COLUMN;
-      const orderCode = row[maKey] ?? row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? '';
-      const nameCol = 'Name*';
-      const phoneCol = 'Phone*';
-      const addCol = 'Add';
-      const nameKey = COLUMN_MAPPING[nameCol] || nameCol;
-      const phoneKey = COLUMN_MAPPING[phoneCol] || phoneCol;
-      const addKey = COLUMN_MAPPING[addCol] || addCol;
-      const mktHeader = 'Nhân viên MKT';
-      const saleHeader = 'Nhân viên Sale';
-      const mktKey = COLUMN_MAPPING[mktHeader] || mktHeader;
-      const saleKey = COLUMN_MAPPING[saleHeader] || saleHeader;
-      return {
-        [PRIMARY_KEY_COLUMN]: orderCode,
-        [nameCol]: row[nameKey] ?? row[nameCol] ?? row['Name'] ?? '',
-        [phoneCol]: row[phoneKey] ?? row[phoneCol] ?? row['Phone'] ?? '',
-        [addCol]: row[addKey] ?? row[addCol] ?? '',
-        [mktHeader]:
-          row[mktKey] ?? row[mktHeader] ?? row['Nhân viên Marketing'] ?? '',
-        [saleHeader]: row[saleKey] ?? row[saleHeader] ?? '',
-      };
+      const obj = {};
+      for (const col of cols) {
+        obj[col] = getCellDisplayValueForRow(row, col);
+      }
+      return obj;
     });
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'TheoBoLoc');
     const stamp = new Date().toISOString().slice(0, 10);
     const suffix = dataSource === 'hcm' ? '_HCM' : '';
-    XLSX.writeFile(wb, `DanhSachDon_ma_name_phone_add${suffix}_${stamp}.xlsx`);
-    toast.success(`Đã tải Excel: ${exportRows.length} dòng (theo bộ lọc).`, {
-      autoClose: 2200,
-      hideProgressBar: true,
-    });
+    XLSX.writeFile(wb, `DanhSachDon_theo_luoi_hien_thi${suffix}_${stamp}.xlsx`);
+    toast.success(
+      `Đã tải Excel: ${exportRows.length} dòng, ${cols.length} cột (theo bộ lọc và cột đang hiển thị).`,
+      {
+        autoClose: 2200,
+        hideProgressBar: true,
+      }
+    );
   };
 
   // Copy single cell content (click)
@@ -3276,10 +3278,10 @@ function DanhSachDon({ dataSource = 'default' }) {
                 onClick={handleExportExcelMaDonNamePhoneAdd}
                 disabled={loading || (filteredData || []).length === 0}
                 className="px-3 py-2 rounded-lg text-sm font-semibold border border-[#F37021] text-[#F37021] bg-white hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 whitespace-nowrap"
-                title="Tải Excel: Mã đơn hàng, Name*, Phone*, Add, Nhân viên MKT, Nhân viên Sale — theo bộ lọc"
+                title="Tải Excel: đủ các cột đang hiển thị trên bảng (Cài đặt cột) — theo bộ lọc hiện tại"
               >
                 <Download className="w-4 h-4 shrink-0" />
-                Tải Excel (mã + KH)
+                Tải Excel (theo lưới)
               </button>
             </div>
 
@@ -3920,19 +3922,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       className={trClass}
                     >
                       {displayColumns.map((col) => {
-                        const key = COLUMN_MAPPING[col] || col;
-                        let value = row[key] ?? row[col] ?? '';
-
-                        // Format date
-                        if (col.includes('Ngày')) {
-                          value = formatDate(value);
-                        }
-
-                        // Format money
-                        if (col === 'Tổng tiền VNĐ') {
-                          const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
-                          value = num.toLocaleString('vi-VN') + ' ₫';
-                        }
+                        let value = getCellDisplayValueForRow(row, col);
 
                         // Special rendering for Payment Bill and Payment Image
                         if (col === 'Payment Bill') {
