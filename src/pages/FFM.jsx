@@ -785,7 +785,8 @@ function FFM({ variant = 'MGT' }) {
     setFfmHasMore(false);
     setFfmBackgroundLoading(false);
     try {
-      if (variant === 'MGT') {
+      // Cả MGT và TT đều fetch từ 2 bảng (orders + order_code_hcm)
+      if (variant === 'MGT' || variant === 'TT') {
         const perTableFirstBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_FIRST_BATCH_TOTAL / 2));
         const perTableNextBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_NEXT_BATCH_TOTAL / 2));
         ffmMergeRef.current = new Map();
@@ -924,6 +925,7 @@ function FFM({ variant = 'MGT' }) {
         return;
       }
 
+      // Fallback cho trường hợp không phải MGT/TT (không nên xảy ra)
       if (typeof API.fetchFFMOrdersBatch === 'function') {
         ffmMergeRef.current = new Map();
         ffmCursorRef.current = {
@@ -1086,7 +1088,8 @@ function FFM({ variant = 'MGT' }) {
 
     setLoadingMore(true);
     try {
-      if (variant === 'MGT') {
+      // Cả MGT và TT đều dùng cùng logic merge 2 bảng
+      if (variant === 'MGT' || variant === 'TT') {
         const c = ffmMgtMergedCursorRef.current;
         const perTableNextBatch = Math.max(1, Math.floor(FFM_MGT_MERGED_NEXT_BATCH_TOTAL / 2));
         const ordersDone = c.orders.mgtExhausted && c.orders.trackedExhausted;
@@ -1143,6 +1146,7 @@ function FFM({ variant = 'MGT' }) {
         return;
       }
 
+      // Fallback cho trường hợp không phải MGT/TT
       const c = ffmCursorRef.current;
       const b = await API.fetchFFMOrdersBatch({
         mgtFrom: c.mgtFrom,
