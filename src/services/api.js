@@ -1113,6 +1113,7 @@ export const fetchVanDon = async (options = {}) => {
         nv_van_don = [],
         /** Multi-select đơn vị vận chuyển (cột shipping_unit) */
         shipping_unit = [],
+        delivery_status = [],
         dateFrom,
         dateTo,
         allowedStaff, // Array of names allowed to view
@@ -1282,6 +1283,9 @@ export const fetchVanDon = async (options = {}) => {
             }
             if (shipping_unit !== undefined && shipping_unit !== null && Array.isArray(shipping_unit) && shipping_unit.length > 0) {
                 applyEmptyOrInFilter('shipping_unit', shipping_unit);
+            }
+            if (delivery_status !== undefined && delivery_status !== null && Array.isArray(delivery_status) && delivery_status.length > 0) {
+                applyEmptyOrInFilter('delivery_status_nb', delivery_status);
             }
 
             if (deliveryStaffSelfFilter !== undefined && deliveryStaffSelfFilter !== null && String(deliveryStaffSelfFilter).trim() !== '') {

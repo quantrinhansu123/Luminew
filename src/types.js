@@ -57,9 +57,11 @@ export const DEFAULT_BILL_LADING_COLUMNS = [
 export const DELIVERY_STATUS_PRESETS = Object.freeze([
     "",
     "Giao Thành Công",
+    "ĐÃ GIAO",
     "Đang Giao",
     "ĐANG GIAO",
     "Chưa Giao",
+    "CHƯA GIAO",
     "Hủy",
     "Hoàn",
     "HOÀN",

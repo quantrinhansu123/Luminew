@@ -540,6 +540,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_mkt: [],
     nv_van_don: [],
     shipping_unit: [],
+    delivery_status: [],
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã',
@@ -557,6 +558,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_mkt: [],
     nv_van_don: [],
     shipping_unit: [],
+    delivery_status: [],
     tracking_include: '',
     tracking_exclude: '',
     tracking_status: 'Tình trạng mã',
@@ -1055,6 +1057,7 @@ function VanDon({ dataSource = 'default' }) {
       nv_mkt: appliedFilterValues.nv_mkt,
       nv_van_don: appliedFilterValues.nv_van_don,
       shipping_unit: appliedFilterValues.shipping_unit,
+      delivery_status: appliedFilterValues.delivery_status,
       dateFrom: appliedEnableDateFilter ? appliedDateFrom : undefined,
       dateTo: appliedEnableDateFilter ? appliedDateTo : undefined,
       dateType: appliedBolDateType,
@@ -1189,6 +1192,7 @@ function VanDon({ dataSource = 'default' }) {
         nv_mkt: activeFilters.nv_mkt,
         nv_van_don: activeFilters.nv_van_don,
         shipping_unit: activeFilters.shipping_unit,
+        delivery_status: activeFilters.delivery_status,
         dateFrom: activeFilters.dateFrom,
         dateTo: activeFilters.dateTo,
         dateType: activeFilters.dateType,
@@ -4006,7 +4010,9 @@ function VanDon({ dataSource = 'default' }) {
       'Nhân viên Sale': 'nv_sale',
       'Nhân viên MKT': 'nv_mkt',
       'NV Vận đơn': 'nv_van_don',
-      'Đơn vị vận chuyển': 'shipping_unit'
+      'Đơn vị vận chuyển': 'shipping_unit',
+      'Trạng thái giao hàng NB': 'delivery_status',
+      'Trạng thái giao hàng': 'delivery_status'
     };
     const filterKey = filterKeyMap[col] || col;
     const isCheckCol = col === 'Kết quả Check' || col === 'Kết quả check';
@@ -4618,6 +4624,58 @@ function VanDon({ dataSource = 'default' }) {
                     setFilterValues((prev) => ({ ...prev, shipping_unit: vals }));
                   }}
                 />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 bg-red-50 px-1.5 py-0.5 rounded-md border border-red-200 shrink-0" title="Trạng thái giao hàng">
+              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📦</span>
+              <div className="relative" style={{ minWidth: '130px', zIndex: 997 }}>
+                <MultiSelect
+                  compact
+                  label="Trạng thái giao..."
+                  options={getFilterMultiSelectOptions('Trạng thái giao hàng NB')}
+                  selected={filterValues.delivery_status || []}
+                  onChange={(vals) => {
+                    setFilterValues((prev) => ({ ...prev, delivery_status: vals }));
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-1 ml-1 border-l border-red-200 pl-1.5 py-0.5">
+                {[
+                  { label: 'Chưa giao', values: ['Chưa Giao', 'chờ check', 'Chưa giao', 'CHƯA GIAO', ''] },
+                  { label: 'ĐANG GIAO', values: ['Đang Giao', 'ĐANG GIAO'] },
+                  { label: 'ĐÃ GIAO', values: ['Giao Thành Công', 'Đã giao', 'ĐÃ GIAO'] },
+                  { label: 'HOÀN', values: ['Hoàn', 'HOÀN'] }
+                ].map((q) => {
+                  const current = filterValues.delivery_status || [];
+                  const isActive = q.values.length > 0 && q.values.every(v => current.includes(v));
+                  return (
+                    <button
+                      key={q.label}
+                      type="button"
+                      onClick={() => {
+                        setFilterValues((prev) => {
+                          const curr = prev.delivery_status || [];
+                          const allIncluded = q.values.every(v => curr.includes(v));
+                          if (allIncluded) {
+                            return { ...prev, delivery_status: curr.filter(v => !q.values.includes(v)) };
+                          } else {
+                            // Gộp với các giá trị hiện tại hay ghi đè?
+                            // Với nút Quick Filter, thường là ghi đè để xem nhanh nhóm đó.
+                            return { ...prev, delivery_status: q.values };
+                          }
+                        });
+                      }}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition-all whitespace-nowrap ${
+                        isActive
+                          ? 'bg-blue-600 border-blue-700 text-white shadow-sm scale-105'
+                          : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600'
+                      }`}
+                    >
+                      {q.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
             </div>

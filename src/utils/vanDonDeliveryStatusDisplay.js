@@ -8,15 +8,6 @@ import { isVanDonSemanticEmpty } from './vanDonSemanticEmpty';
 export function normalizeVanDonNbDeliveryStatusDisplay(raw) {
   if (raw == null) return '';
   const s = String(raw).replace(/[\u00a0\u200b\ufeff]/g, '').trim();
-  if (s === '') return '';
-  const key = s.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-  const fromFfm = new Map([
-    ['đã giao', 'Giao Thành Công'],
-    ['đang giao', 'Đang Giao'],
-    ['hoàn', 'Hoàn'],
-    ['nhãn', 'NHÃN'],
-  ]);
-  if (fromFfm.has(key)) return fromFfm.get(key);
   return s;
 }
 
