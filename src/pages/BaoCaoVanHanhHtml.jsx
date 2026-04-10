@@ -39,6 +39,17 @@ const formatDateForInput = (date) => {
     return `${y}-${m}-${d}`;
 };
 
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Lùi / tiến theo lịch dương (trưa UTC cố định, tránh lệch DST). */
+const addCalendarDaysYmd = (ymd, deltaDays) => {
+    const s = String(ymd || '').slice(0, 10);
+    if (!YMD_RE.test(s)) return '';
+    const d = new Date(`${s}T12:00:00`);
+    d.setDate(d.getDate() + deltaDays);
+    return formatDateForInput(d);
+};
+
 const newBcvhRowId = () =>
     `bcvh-${
         typeof crypto !== 'undefined' && crypto.randomUUID
@@ -48,6 +59,191 @@ const newBcvhRowId = () =>
 
 const TABS = ['tab1', 'tab2', 'tab3', 'tab4', 'tab5'];
 const BCVH_CRITERIA_STORAGE_KEY = 'bao_cao_van_hanh_tab2_criteria_v1';
+/** Tab BC VH: một dòng / một ngày tự sinh; giới hạn để UI và fetch không quá tải. */
+const MAX_BCVH_DAILY_ROWS = 45;
+/** Tổng số dòng (dòng theo ngày + dòng thêm tay). */
+const MAX_BCVH_ROWS_TOTAL = 60;
+
+/** Preset «Chọn nhanh» → khoảng ngày (local). */
+function computePresetDateRange(dateRangeKey) {
+    if (!dateRangeKey) return null;
+    const now = new Date();
+    const year = now.getFullYear();
+    let start;
+    let end;
+    switch (dateRangeKey) {
+        case 'last10Days':
+            start = new Date(now);
+            start.setDate(now.getDate() - 9);
+            end = new Date(now);
+            break;
+        case 'last3Days':
+            start = new Date(now);
+            start.setDate(now.getDate() - 3);
+            end = new Date(now);
+            break;
+        case 'thisWeek': {
+            const day = now.getDay() || 7;
+            start = new Date(now);
+            start.setDate(now.getDate() - day + 1);
+            end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            break;
+        }
+        case 'lastWeek': {
+            const day = now.getDay() || 7;
+            start = new Date(now);
+            start.setDate(now.getDate() - day - 6);
+            end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            break;
+        }
+        case 'thisMonth':
+            start = new Date(year, now.getMonth(), 1);
+            end = new Date(year, now.getMonth() + 1, 0);
+            break;
+        default:
+            if (dateRangeKey.startsWith('month_')) {
+                const m = parseInt(dateRangeKey.split('_')[1], 10) - 1;
+                start = new Date(year, m, 1);
+                end = new Date(year, m + 1, 0);
+            } else if (dateRangeKey.startsWith('quarter_')) {
+                const q = parseInt(dateRangeKey.split('_')[1], 10);
+                start = new Date(year, (q - 1) * 3, 1);
+                end = new Date(year, (q - 1) * 3 + 3, 0);
+            }
+    }
+    if (!start || !end) return null;
+    return { start, end };
+}
+
+function enumerateCalendarDays(fromYmd, toYmd) {
+    const a = String(fromYmd || '').slice(0, 10);
+    const b = String(toYmd || '').slice(0, 10);
+    if (!YMD_RE.test(a) || !YMD_RE.test(b) || a > b) return [];
+    const out = [];
+    let cur = a;
+    for (let guard = 0; guard < 400; guard += 1) {
+        out.push(cur);
+        if (cur === b) break;
+        const next = addCalendarDaysYmd(cur, 1);
+        if (!next || next < cur) break;
+        cur = next;
+    }
+    return out;
+}
+
+function buildDailyBcvhRowsFromDays(dayList, idFactory) {
+    return dayList.map((d) => ({
+        id: idFactory(),
+        startDate: d,
+        endDate: d,
+        product: '',
+        market: '',
+        isManual: false
+    }));
+}
+
+/** Chỉ merge bộ lọc từ các dòng tự sinh (không phải dòng thêm tay). */
+function reconcileDailyBcvhRowsFromPrevious(prevAutoRows, dayList, idFactory) {
+    const byDay = new Map();
+    for (const r of prevAutoRows) {
+        if (r?.isManual) continue;
+        const ds = String(r.startDate || '').slice(0, 10);
+        const de = String(r.endDate || '').slice(0, 10);
+        if (YMD_RE.test(ds) && ds === de) {
+            byDay.set(ds, {
+                product: String(r.product || ''),
+                market: String(r.market || '')
+            });
+        }
+    }
+    return buildDailyBcvhRowsFromDays(dayList, idFactory).map((row) => {
+        const m = byDay.get(row.startDate);
+        if (!m) return row;
+        return { ...row, product: m.product, market: m.market };
+    });
+}
+
+function applyStoredBcvhFiltersByDay(rows) {
+    try {
+        if (typeof window === 'undefined') return rows;
+        const raw = window.localStorage.getItem(BCVH_CRITERIA_STORAGE_KEY);
+        if (!raw) return rows;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return rows;
+        const byDay = new Map();
+        for (const item of parsed) {
+            if (item?.isManual) continue;
+            const ds = String(item?.startDate || '').slice(0, 10);
+            const de = String(item?.endDate || '').slice(0, 10);
+            if (YMD_RE.test(ds) && ds === de) {
+                byDay.set(ds, {
+                    product: String(item?.product || ''),
+                    market: String(item?.market || '')
+                });
+            }
+        }
+        return rows.map((r) => {
+            const d = String(r.startDate || '').slice(0, 10);
+            const m = byDay.get(d);
+            if (!m) return r;
+            return { ...r, product: m.product, market: m.market };
+        });
+    } catch {
+        return rows;
+    }
+}
+
+function createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframeFlag) {
+    let start = String(urlStartDate || '').slice(0, 10);
+    let end = String(urlEndDate || '').slice(0, 10);
+    if (!YMD_RE.test(start) || !YMD_RE.test(end)) {
+        if (inIframeFlag && typeof window !== 'undefined') {
+            const g = readDashboardGlobalDateRange();
+            if (g?.from && g?.to) {
+                start = g.from.slice(0, 10);
+                end = g.to.slice(0, 10);
+            }
+        }
+    }
+    if (!YMD_RE.test(start) || !YMD_RE.test(end)) {
+        const endD = new Date();
+        const startD = new Date();
+        startD.setDate(endD.getDate() - 9);
+        start = formatDateForInput(startD);
+        end = formatDateForInput(endD);
+    }
+    let days = enumerateCalendarDays(start, end);
+    if (days.length > MAX_BCVH_DAILY_ROWS) {
+        days = days.slice(0, MAX_BCVH_DAILY_ROWS);
+    }
+    const baseRows = buildDailyBcvhRowsFromDays(days, newBcvhRowId);
+    let rows = applyStoredBcvhFiltersByDay(baseRows);
+    try {
+        if (typeof window === 'undefined') return rows;
+        const raw = window.localStorage.getItem(BCVH_CRITERIA_STORAGE_KEY);
+        if (!raw) return rows;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return rows;
+        const manual = parsed
+            .filter((item) => item?.isManual)
+            .map((item) => ({
+                id: newBcvhRowId(),
+                startDate: String(item?.startDate || '').slice(0, 10),
+                endDate: String(item?.endDate || '').slice(0, 10),
+                product: String(item?.product || ''),
+                market: String(item?.market || ''),
+                isManual: true
+            }))
+            .filter((r) => YMD_RE.test(r.startDate) && YMD_RE.test(r.endDate));
+        const cap = Math.max(0, MAX_BCVH_ROWS_TOTAL - rows.length);
+        return [...rows, ...manual.slice(0, cap)];
+    } catch {
+        return rows;
+    }
+}
+
 const normalizeYmd = (value) => {
     if (!value) return '';
     const s = String(value).trim();
@@ -193,67 +389,6 @@ export default function BaoCaoVanHanhHtml() {
     const inIframe = typeof window !== 'undefined' && window.self !== window.top;
     const urlStartDate = searchParams.get('from_date');
     const urlEndDate = searchParams.get('to_date');
-    const buildDefaultBcvhRows = useCallback(() => {
-        if (urlStartDate && urlEndDate) {
-            return [
-                {
-                    id: newBcvhRowId(),
-                    startDate: urlStartDate,
-                    endDate: urlEndDate,
-                    product: '',
-                    market: ''
-                }
-            ];
-        }
-        if (inIframe) {
-            const g = readDashboardGlobalDateRange();
-            if (g) {
-                return [
-                    {
-                        id: newBcvhRowId(),
-                        startDate: g.from,
-                        endDate: g.to,
-                        product: '',
-                        market: ''
-                    }
-                ];
-            }
-        }
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - 9);
-        return [
-            {
-                id: newBcvhRowId(),
-                startDate: formatDateForInput(start),
-                endDate: formatDateForInput(end),
-                product: '',
-                market: ''
-            }
-        ];
-    }, [inIframe, urlEndDate, urlStartDate]);
-
-    const readStoredBcvhRows = useCallback(() => {
-        try {
-            const raw = localStorage.getItem(BCVH_CRITERIA_STORAGE_KEY);
-            if (!raw) return null;
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed) || parsed.length === 0) return null;
-            const sanitized = parsed
-                .map((row) => ({
-                    id: newBcvhRowId(),
-                    startDate: String(row?.startDate || ''),
-                    endDate: String(row?.endDate || ''),
-                    product: String(row?.product || ''),
-                    market: String(row?.market || '')
-                }))
-                .filter((row) => row.startDate || row.endDate || row.product || row.market);
-            return sanitized.length > 0 ? sanitized : null;
-        } catch {
-            return null;
-        }
-    }, []);
-
     const userRole = localStorage.getItem('userRole') || '';
     const isAdmin =
         ['admin', 'super_admin', 'administrator'].includes(userRole.toLowerCase()) ||
@@ -308,10 +443,13 @@ export default function BaoCaoVanHanhHtml() {
     const [error, setError] = useState(null);
     const [rawData, setRawData] = useState([]);
     const [ffmPushRows, setFfmPushRows] = useState([]);
-    const [bcvhCriteriaRows, setBcvhCriteriaRows] = useState(() => {
-        const stored = readStoredBcvhRows();
-        return stored || buildDefaultBcvhRows();
-    });
+    const [bcvhCriteriaRows, setBcvhCriteriaRows] = useState(() =>
+        createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframe)
+    );
+    /** Khoảng Từ–Đến dài hơn MAX_BCVH_DAILY_ROWS — chỉ tạo dòng cho N ngày đầu trong khoảng. */
+    const [bcvhDailyRangeTruncated, setBcvhDailyRangeTruncated] = useState(false);
+    const [bcvhBulkProduct, setBcvhBulkProduct] = useState('');
+    const [bcvhBulkMarket, setBcvhBulkMarket] = useState('');
     /** Tab 2: drill-down danh sách đơn theo ô số đã bấm */
     const [bcvhDrill, setBcvhDrill] = useState(null);
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
@@ -371,11 +509,6 @@ export default function BaoCaoVanHanhHtml() {
             const r = parseDashboardGlobalDateMessage(e.data);
             if (!r) return;
             setReportFilters((p) => ({ ...p, startDate: r.from, endDate: r.to, dateRange: '' }));
-            setBcvhCriteriaRows((prev) => {
-                if (!prev.length) return prev;
-                const [first, ...rest] = prev;
-                return [{ ...first, startDate: r.from, endDate: r.to }, ...rest];
-            });
         };
         window.addEventListener('message', onMsg);
         return () => window.removeEventListener('message', onMsg);
@@ -397,7 +530,8 @@ export default function BaoCaoVanHanhHtml() {
                 startDate: row.startDate || '',
                 endDate: row.endDate || '',
                 product: row.product || '',
-                market: row.market || ''
+                market: row.market || '',
+                isManual: Boolean(row.isManual)
             }));
             localStorage.setItem(BCVH_CRITERIA_STORAGE_KEY, JSON.stringify(payload));
         } catch {
@@ -427,60 +561,38 @@ export default function BaoCaoVanHanhHtml() {
 
     useEffect(() => {
         if (!reportFilters.dateRange) return;
-        const now = new Date();
-        const year = now.getFullYear();
-        let start;
-        let end;
-        switch (reportFilters.dateRange) {
-            case 'last10Days':
-                start = new Date(now);
-                start.setDate(now.getDate() - 9);
-                end = new Date(now);
-                break;
-            case 'last3Days':
-                start = new Date(now);
-                start.setDate(now.getDate() - 3);
-                end = new Date(now);
-                break;
-            case 'thisWeek': {
-                const day = now.getDay() || 7;
-                start = new Date(now);
-                start.setDate(now.getDate() - day + 1);
-                end = new Date(start);
-                end.setDate(start.getDate() + 6);
-                break;
-            }
-            case 'lastWeek': {
-                const day = now.getDay() || 7;
-                start = new Date(now);
-                start.setDate(now.getDate() - day - 6);
-                end = new Date(start);
-                end.setDate(start.getDate() + 6);
-                break;
-            }
-            case 'thisMonth':
-                start = new Date(year, now.getMonth(), 1);
-                end = new Date(year, now.getMonth() + 1, 0);
-                break;
-            default:
-                if (reportFilters.dateRange.startsWith('month_')) {
-                    const m = parseInt(reportFilters.dateRange.split('_')[1], 10) - 1;
-                    start = new Date(year, m, 1);
-                    end = new Date(year, m + 1, 0);
-                } else if (reportFilters.dateRange.startsWith('quarter_')) {
-                    const q = parseInt(reportFilters.dateRange.split('_')[1], 10);
-                    start = new Date(year, (q - 1) * 3, 1);
-                    end = new Date(year, (q - 1) * 3 + 3, 0);
-                }
-        }
-        if (start && end) {
-            setReportFilters((p) => ({
-                ...p,
-                startDate: formatDateForInput(start),
-                endDate: formatDateForInput(end)
-            }));
-        }
+        const range = computePresetDateRange(reportFilters.dateRange);
+        if (!range) return;
+        const sd = formatDateForInput(range.start);
+        const ed = formatDateForInput(range.end);
+        setReportFilters((p) => ({
+            ...p,
+            startDate: sd,
+            endDate: ed
+        }));
     }, [reportFilters.dateRange]);
+
+    /** BC VH: mỗi ngày trong Từ–Đến = một dòng — cập nhật cả khi không mở tab 2 (để Tìm union đúng ngày). */
+    useEffect(() => {
+        const a = String(reportFilters.startDate || '').slice(0, 10);
+        const b = String(reportFilters.endDate || '').slice(0, 10);
+        if (!YMD_RE.test(a) || !YMD_RE.test(b) || a > b) return;
+        let days = enumerateCalendarDays(a, b);
+        let truncated = false;
+        if (days.length > MAX_BCVH_DAILY_ROWS) {
+            days = days.slice(0, MAX_BCVH_DAILY_ROWS);
+            truncated = true;
+        } else {
+            truncated = false;
+        }
+        setBcvhDailyRangeTruncated(truncated);
+        setBcvhCriteriaRows((prev) => {
+            const manual = prev.filter((r) => r.isManual);
+            const autoPrev = prev.filter((r) => !r.isManual);
+            const autoRows = reconcileDailyBcvhRowsFromPrevious(autoPrev, days, newBcvhRowId);
+            return [...autoRows, ...manual];
+        });
+    }, [reportFilters.startDate, reportFilters.endDate]);
 
     const [hcmProductOptions, setHcmProductOptions] = useState([]);
     useEffect(() => {
@@ -621,28 +733,43 @@ export default function BaoCaoVanHanhHtml() {
         XLSX.writeFile(wb, `BaoCaoVH_ma_don_tab1_${stamp}.xlsx`);
     }, [rawData, reportFilters.startDate, reportFilters.endDate]);
 
+    const patchBcvhRow = (id, patch) => {
+        setBcvhCriteriaRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    };
+
     const addBcvhRow = () => {
         setBcvhCriteriaRows((prev) => {
+            if (prev.length >= MAX_BCVH_ROWS_TOTAL) return prev;
             const last = prev[prev.length - 1];
+            let day = String(last?.endDate || reportFilters.endDate || '').slice(0, 10);
+            if (!YMD_RE.test(day)) day = String(reportFilters.endDate || '').slice(0, 10);
+            if (!YMD_RE.test(day)) day = String(reportFilters.startDate || '').slice(0, 10);
             return [
                 ...prev,
                 {
                     id: newBcvhRowId(),
-                    startDate: last?.startDate || reportFilters.startDate,
-                    endDate: last?.endDate || reportFilters.endDate,
+                    startDate: day,
+                    endDate: day,
                     product: '',
-                    market: ''
+                    market: '',
+                    isManual: true
                 }
             ];
         });
     };
 
     const removeBcvhRow = (id) => {
-        setBcvhCriteriaRows((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.id !== id)));
+        setBcvhCriteriaRows((prev) => prev.filter((r) => !(r.id === id && r.isManual)));
     };
 
-    const patchBcvhRow = (id, patch) => {
-        setBcvhCriteriaRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    const applyBcvhBulkProductMarket = () => {
+        setBcvhCriteriaRows((prev) =>
+            prev.map((r) => ({
+                ...r,
+                product: bcvhBulkProduct,
+                market: bcvhBulkMarket
+            }))
+        );
     };
 
     const bcvhRowContextLabel = (line) => {
@@ -1762,6 +1889,21 @@ export default function BaoCaoVanHanhHtml() {
                                 Cố định 4 cột đầu
                             </div>
                             <label className="flex items-center gap-1">
+                                Chọn nhanh
+                                <select
+                                    className="rounded border border-gray-300 px-2 py-1 text-xs"
+                                    value={reportFilters.dateRange}
+                                    onChange={(e) => setReportFilters((p) => ({ ...p, dateRange: e.target.value }))}
+                                >
+                                    <option value="">— Tùy chọn —</option>
+                                    <option value="last10Days">10 ngày gần nhất</option>
+                                    <option value="last3Days">3 ngày gần nhất</option>
+                                    <option value="thisWeek">Tuần này</option>
+                                    <option value="lastWeek">Tuần trước</option>
+                                    <option value="thisMonth">Tháng này</option>
+                                </select>
+                            </label>
+                            <label className="flex items-center gap-1">
                                 Từ ngày
                                 <input
                                     type="date"
@@ -1793,7 +1935,7 @@ export default function BaoCaoVanHanhHtml() {
                             </label>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <button
                                 type="button"
                                 disabled={loading}
@@ -1805,12 +1947,63 @@ export default function BaoCaoVanHanhHtml() {
                             <button
                                 type="button"
                                 onClick={addBcvhRow}
-                                className="shrink-0 rounded border border-gray-400 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                                title="Thêm dòng tiêu chí"
+                                disabled={bcvhCriteriaRows.length >= MAX_BCVH_ROWS_TOTAL}
+                                className="shrink-0 rounded border border-gray-400 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                title={
+                                    bcvhCriteriaRows.length >= MAX_BCVH_ROWS_TOTAL
+                                        ? `Tối đa ${MAX_BCVH_ROWS_TOTAL} dòng`
+                                        : 'Thêm dòng (chỉnh ngày & bộ lọc riêng)'
+                                }
                             >
                                 + Thêm dòng
                             </button>
                         </div>
+                    </div>
+                    {bcvhDailyRangeTruncated && (
+                        <p className="mb-2 rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+                            Khoảng Từ–Đến dài hơn {MAX_BCVH_DAILY_ROWS} ngày: chỉ tạo {MAX_BCVH_DAILY_ROWS} dòng cho các
+                            ngày đầu trong khoảng. Thu hẹp khoảng ngày nếu cần đủ từng ngày.
+                        </p>
+                    )}
+                    <div className="mb-2 flex flex-wrap items-end gap-2 rounded border border-gray-200 bg-gray-50 px-2 py-2 text-xs text-gray-700">
+                        <span className="self-center font-medium text-gray-600">Áp dụng hàng loạt:</span>
+                        <label className="flex flex-col gap-0.5">
+                            <span className="text-[10px] uppercase tracking-wide text-gray-500">Sản phẩm</span>
+                            <select
+                                className="min-w-[9rem] rounded border border-gray-300 px-2 py-1 text-xs"
+                                value={bcvhBulkProduct}
+                                onChange={(e) => setBcvhBulkProduct(e.target.value)}
+                            >
+                                <option value="">Tất cả</option>
+                                {uniqueProducts.map((p) => (
+                                    <option key={p} value={p}>
+                                        {p}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <label className="flex flex-col gap-0.5">
+                            <span className="text-[10px] uppercase tracking-wide text-gray-500">Thị trường</span>
+                            <select
+                                className="min-w-[9rem] rounded border border-gray-300 px-2 py-1 text-xs"
+                                value={bcvhBulkMarket}
+                                onChange={(e) => setBcvhBulkMarket(e.target.value)}
+                            >
+                                <option value="">Tất cả</option>
+                                {uniqueMarkets.map((m) => (
+                                    <option key={m} value={m}>
+                                        {m}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <button
+                            type="button"
+                            className="rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                            onClick={applyBcvhBulkProductMarket}
+                        >
+                            Áp dụng cho tất cả dòng
+                        </button>
                     </div>
                     <div className="bcvh-split-title">
                         <div className="bcvh-title-row text-center uppercase tracking-wide">BÁO CÁO VẬN HÀNH</div>
@@ -1868,12 +2061,21 @@ export default function BaoCaoVanHanhHtml() {
                                                 >
                                                     <input
                                                         type="date"
-                                                        className="bcvh-cell-input"
+                                                        readOnly={!line.isManual}
+                                                        title={
+                                                            line.isManual
+                                                                ? 'Dòng thêm tay — chỉnh ngày'
+                                                                : 'Theo từng ngày trong khoảng Từ–Đến'
+                                                        }
+                                                        className={`bcvh-cell-input text-gray-700 ${line.isManual ? '' : 'cursor-default bg-gray-50'}`}
                                                         value={line.startDate || ''}
-                                                        onChange={(e) =>
-                                                            patchBcvhRow(line.id, {
-                                                                startDate: e.target.value
-                                                            })
+                                                        onChange={
+                                                            line.isManual
+                                                                ? (e) =>
+                                                                      patchBcvhRow(line.id, {
+                                                                          startDate: e.target.value
+                                                                      })
+                                                                : undefined
                                                         }
                                                     />
                                                 </td>
@@ -1882,12 +2084,21 @@ export default function BaoCaoVanHanhHtml() {
                                                 >
                                                     <input
                                                         type="date"
-                                                        className="bcvh-cell-input"
+                                                        readOnly={!line.isManual}
+                                                        title={
+                                                            line.isManual
+                                                                ? 'Dòng thêm tay — chỉnh ngày'
+                                                                : 'Cùng ngày với cột Ngày đầu'
+                                                        }
+                                                        className={`bcvh-cell-input text-gray-700 ${line.isManual ? '' : 'cursor-default bg-gray-50'}`}
                                                         value={line.endDate || ''}
-                                                        onChange={(e) =>
-                                                            patchBcvhRow(line.id, {
-                                                                endDate: e.target.value
-                                                            })
+                                                        onChange={
+                                                            line.isManual
+                                                                ? (e) =>
+                                                                      patchBcvhRow(line.id, {
+                                                                          endDate: e.target.value
+                                                                      })
+                                                                : undefined
                                                         }
                                                     />
                                                 </td>
@@ -1898,9 +2109,7 @@ export default function BaoCaoVanHanhHtml() {
                                                         className="bcvh-cell-select"
                                                         value={line.product}
                                                         onChange={(e) =>
-                                                            patchBcvhRow(line.id, {
-                                                                product: e.target.value
-                                                            })
+                                                            patchBcvhRow(line.id, { product: e.target.value })
                                                         }
                                                     >
                                                         <option value="">Tất cả</option>
@@ -1919,9 +2128,7 @@ export default function BaoCaoVanHanhHtml() {
                                                             className="bcvh-cell-select min-w-[100px] flex-1"
                                                             value={line.market}
                                                             onChange={(e) =>
-                                                                patchBcvhRow(line.id, {
-                                                                    market: e.target.value
-                                                                })
+                                                                patchBcvhRow(line.id, { market: e.target.value })
                                                             }
                                                         >
                                                             <option value="">Tất cả</option>
@@ -1931,11 +2138,11 @@ export default function BaoCaoVanHanhHtml() {
                                                                 </option>
                                                             ))}
                                                         </select>
-                                                        {bcvhCriteriaRows.length > 1 && (
+                                                        {line.isManual && (
                                                             <button
                                                                 type="button"
                                                                 className="shrink-0 rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-50"
-                                                                title="Xóa dòng"
+                                                                title="Xóa dòng thêm tay"
                                                                 onClick={() => removeBcvhRow(line.id)}
                                                             >
                                                                 ×
