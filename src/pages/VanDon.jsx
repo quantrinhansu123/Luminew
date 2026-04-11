@@ -95,6 +95,52 @@ function colInList(col, list) {
   return false;
 }
 
+/**
+ * Gộp distinct DB + giá trị trên trang cho trạng thái giao NB — trùng không phân biệt hoa thường, ưu tiên chữ trong preset.
+ * Dùng chung logic với bộ lọc MultiSelect (không có mục «Trống» — ô `<select>` dùng '' riêng).
+ */
+function mergeVanDonNbDeliveryStatusValueList(preset, dbAndPageValues) {
+  const pickBetterCase = (a, b) => {
+    const aEx = preset.some((p) => p !== '' && String(p) === String(a));
+    const bEx = preset.some((p) => p !== '' && String(p) === String(b));
+    if (aEx && !bEx) return a;
+    if (bEx && !aEx) return b;
+    const al = String(a).toLowerCase();
+    const bl = String(b).toLowerCase();
+    const piA = preset.findIndex((p) => p !== '' && String(p).toLowerCase() === al);
+    const piB = preset.findIndex((p) => p !== '' && String(p).toLowerCase() === bl);
+    if (piA !== -1 && piB === -1) return preset[piA];
+    if (piB !== -1 && piA === -1) return preset[piB];
+    if (piA !== -1 && piB !== -1) return preset[Math.min(piA, piB)];
+    return String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true }) <= 0 ? a : b;
+  };
+
+  const byLower = new Map();
+  for (const raw of dbAndPageValues) {
+    if (isVanDonSemanticEmpty(raw)) continue;
+    const s = String(raw).trim();
+    const lk = s.toLowerCase();
+    if (!byLower.has(lk)) byLower.set(lk, s);
+    else byLower.set(lk, pickBetterCase(byLower.get(lk), s));
+  }
+
+  let merged = Array.from(byLower.values());
+  const mergedLower = new Set(merged.map((v) => String(v).trim().toLowerCase()));
+  for (const p of preset) {
+    if (p === '') continue;
+    const pl = String(p).trim().toLowerCase();
+    if (!mergedLower.has(pl)) {
+      merged.push(String(p).trim());
+      mergedLower.add(pl);
+    }
+  }
+
+  merged.sort((a, b) =>
+    String(a).localeCompare(String(b), 'vi', { sensitivity: 'base', numeric: true })
+  );
+  return merged;
+}
+
 /** Nhãn UI hoặc khóa DB (snake_case) — khớp DB_TO_APP_MAPPING. */
 function isVanDonGridReadOnlyColumnKey(colOrKey) {
   if (colOrKey == null || colOrKey === '') return false;
@@ -3059,11 +3105,25 @@ function VanDon({ dataSource = 'default' }) {
     [getUniqueValues, vanDonDistinctFilterOptions, vanDonAdminCatalogProductNames, keyMarketsCatalog]
   );
 
-  /** Ô chỉnh sửa trong bảng: vẫn gộp preset DROPDOWN + giá trị đã có trong data (cho phép chọn trạng thái chuẩn). */
+  /** Ô chỉnh sửa: cột NB / «Trạng thái giao hàng» gộp preset + distinct toàn DB (giống bộ lọc) + unique trang hiện tại. */
   const getCellEditSelectOptions = (col) => {
     const key = COLUMN_MAPPING[col] || col;
     const preset = DROPDOWN_OPTIONS[key] || DROPDOWN_OPTIONS[col];
     const fromData = getUniqueValues(col);
+    const isNbDelivery =
+      normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng NB') ||
+      normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng') ||
+      normalizeColHeader(key) === normalizeColHeader('Trạng thái giao hàng NB');
+
+    if (preset && isNbDelivery) {
+      const dbArr =
+        (Array.isArray(vanDonDistinctFilterOptions[col]) && vanDonDistinctFilterOptions[col]) ||
+        vanDonDistinctFilterOptions['Trạng thái giao hàng NB'];
+      const dbArrSafe = Array.isArray(dbArr) ? dbArr : [];
+      const list = mergeVanDonNbDeliveryStatusValueList(preset, [...dbArrSafe, ...fromData]);
+      return ['', ...list];
+    }
+
     if (preset) {
       const merged = new Set();
       for (const x of [...preset, ...fromData]) {
@@ -4435,7 +4495,7 @@ function VanDon({ dataSource = 'default' }) {
     pendingChanges, selectionBounds, isReadonlyEditTab, isLongTextExpanded,
     currentPage, effectiveRowsPerPage, viewMode,
     handleCellChange, handleMouseDown, handleMouseEnter, setSelection,
-    getCellClass, formatDate, getCellEditSelectOptions,
+    getCellClass, formatDate, getCellEditSelectOptions, vanDonDistinctFilterOptions,
     vanDonLongTextDraftRef, effectiveFixedColumns, openOrderHistoryModal, historyLoadingOrderId
   ]);
 
