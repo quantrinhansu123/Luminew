@@ -74,6 +74,17 @@ function escapeIlikePatternFragment(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
+/** Admin / quản lý hoặc Trưởng nhóm MKT: được xóa/đổi cột Tên để chọn nhân viên MKT khác. */
+function canEditMktReporterName(role) {
+  const r = String(role ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  if (['admin', 'director', 'manager', 'super_admin', 'administrator'].includes(r)) return true;
+  if (r === 'mkt_leader') return true;
+  return false;
+}
+
 /**
  * Lấy `team` từ bảng `users` (Supabase) — chỉ theo khớp `name` với `Tên`, không dùng email / localStorage / MKT.
  */
@@ -654,10 +665,8 @@ export default function BaoCaoMarketing({
       data['Tên'] = sessionUserName;
     }
 
-    const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
-
     // User thường: Tên theo profile đăng nhập; Email luôn email đăng nhập (xử lý cuối hàm)
-    if (!isManager) {
+    if (!canEditMktReporterName(role)) {
       if (sessionUserName) data['Tên'] = sessionUserName || data['Tên'];
       if (!employeeToUse) {
         const forcedEmp =
@@ -1010,8 +1019,7 @@ export default function BaoCaoMarketing({
 
   /** Đồng bộ Email/Team/id_NS khi chọn từ datalist (một số trình duyệt chỉ hoàn tất giá trị lúc blur). */
   const syncTenColumnFromInput = (index, value) => {
-    const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
-    if (!isManager) return;
+    if (!canEditMktReporterName(role)) return;
 
     const nameLookup = getMktNameLookup();
     setTableRows((prev) => {
@@ -1049,11 +1057,11 @@ export default function BaoCaoMarketing({
   };
 
   const handleRowChange = async (index, field, value) => {
-    // Prevent editing Email/Name if restricted
-    const isManager = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
-    if (!isManager && (field === 'Email' || field === 'Tên')) {
-      return;
-    }
+    const strictManager = ['admin', 'director', 'manager', 'super_admin', 'administrator'].includes(
+      (role || '').toLowerCase()
+    );
+    if (field === 'Email' && !strictManager) return;
+    if (field === 'Tên' && !canEditMktReporterName(role)) return;
 
     let lsTeam = '';
     try {
@@ -1478,7 +1486,7 @@ export default function BaoCaoMarketing({
   const numberFields = ['Số Mess', 'Phản hồi', 'Đơn Mess', 'Doanh số Mess', 'CPQC', 'Số_Mess_Cmt', 'Số đơn', 'Doanh số'];
   const hiddenFields = ['id', 'id phản hồi', 'id số mess', 'id_ns', 'trạng thái', 'chi nhánh', 'doanh số đi', 'số đơn hoàn huỷ', 'số đơn hoàn hủy', 'doanh số hoàn huỷ', 'số đơn thành công', 'doanh số thành công', 'khách mới', 'khách cũ', 'bán chéo', 'bán chéo team', 'ds chốt', 'ds sau hoàn hủy', 'số đơn sau hoàn hủy', 'doanh số sau ship', 'doanh số tc', 'kpis', 'cpqc theo tkqc', 'báo cáo theo page', 'cảnh báo', 'số đơn thực tế', 'doanh số thực tế'];
 
-  const isManagerRole = ['admin', 'director', 'manager', 'super_admin'].includes((role || '').toLowerCase());
+  const canPickMktReporterName = canEditMktReporterName(role);
 
   /**
    * Gợi ý cột Tên: users MKT HN + tên MKT trong human_resources (khớp cách viết HR);
@@ -1584,25 +1592,18 @@ export default function BaoCaoMarketing({
       );
     }
     if (header === 'Sản_phẩm') {
+      const cur = String(row.data[header] || '').trim();
       return (
-        <select
-          value={row.data[header] || ''}
+        <input
+          type="text"
+          list="mkt-product-datalist"
+          autoComplete="off"
+          placeholder="Gõ để tìm SP…"
+          value={cur}
           onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
           className={`${mktInputCls} bg-white`}
-          title="Chọn sản phẩm — luôn mở được toàn bộ danh sách (khác datalist trình duyệt)"
-        >
-          <option value="">-- Chọn sản phẩm --</option>
-          {(() => {
-            const list = appData.productList || [];
-            const cur = String(row.data[header] || '').trim();
-            const head = cur && !list.includes(cur) ? [cur] : [];
-            return [...head, ...list].map((product) => (
-              <option key={product} value={product}>
-                {product}
-              </option>
-            ));
-          })()}
-        </select>
+          title="Gõ để lọc gợi ý; chọn từ danh sách hoặc nhập đúng tên sản phẩm"
+        />
       );
     }
     if (header === 'Thị_trường') {
@@ -1642,7 +1643,7 @@ export default function BaoCaoMarketing({
       );
     }
     if (header === 'Tên') {
-      if (isManagerRole) {
+      if (canPickMktReporterName) {
         return (
           <input
             type="text"
@@ -1861,6 +1862,12 @@ export default function BaoCaoMarketing({
         <datalist id="email-datalist">
           {emailDatalistValues.map((em) => (
             <option key={em} value={em} />
+          ))}
+        </datalist>
+
+        <datalist id="mkt-product-datalist">
+          {(appData.productList || []).map((p) => (
+            <option key={p} value={p} />
           ))}
         </datalist>
 
