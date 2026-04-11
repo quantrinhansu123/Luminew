@@ -5,16 +5,6 @@ import { FFM_QUICK_ADD_COLUMNS } from '../types';
 // Các cột cho bảng Thêm nhanh - đồng bộ với bảng chính
 const COLUMNS = FFM_QUICK_ADD_COLUMNS;
 const TRACKING_COL_INDEX = COLUMNS.indexOf("Mã Tracking");
-const NGAY_DONG_HANG_COL_INDEX = COLUMNS.indexOf("Ngày đóng hàng");
-
-/** Hôm nay theo giờ local (gợi ý khi sync có tracking, chưa nhập ngày đóng hàng). */
-const getTodayDDMMYYYY = () => {
-    const d = new Date();
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const year = d.getFullYear();
-    return `${day}/${month}/${year}`;
-};
 
 /** Cùng quy tắc với FFM handleQuickSync — khớp đúng dòng theo Mã đơn hàng trong bảng chính. */
 const normOrderId = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
@@ -393,22 +383,14 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
     }, [rows, existingTrackingOwnerMap, visibleColIndices]);
 
     const handleSyncClick = () => {
-        const todayStr = getTodayDDMMYYYY();
         const activeColumns = visibleColIndices
             .filter((idx) => idx !== 0)
             .map((idx) => COLUMNS[idx]);
-        const activeColSet = new Set(activeColumns);
 
+        // Không tự điền «Ngày đóng hàng»: để trống = không can thiệp dữ liệu (khớp FFM handleQuickSync).
         const working = rows.map((r) => {
             const copy = [...r];
             while (copy.length < COLUMNS.length) copy.push("");
-            const orderCode = normOrderId(copy[0]);
-            const tracking = normOrderId(copy[TRACKING_COL_INDEX]);
-            const ngay = normOrderId(copy[NGAY_DONG_HANG_COL_INDEX]);
-            // Chỉ tự điền ngày khi cột «Ngày đóng hàng» đang bật (tránh gợi ý ngầm lên cột ẩn).
-            if (activeColSet.has('Ngày đóng hàng') && orderCode && tracking && !ngay) {
-                copy[NGAY_DONG_HANG_COL_INDEX] = todayStr;
-            }
             return copy;
         });
 
