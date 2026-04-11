@@ -56,6 +56,76 @@ function normalizeBcvhPmArrays(product, market) {
     return { product: pa, market: ma };
 }
 
+/** Hai mảng chọn (bỏ thứ tự) có cùng tập giá trị. */
+function bcvhSelectedSetsEqual(sel, globalArr) {
+    const g = [...globalArr].map(String).filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
+    const s = [...sel].map(String).filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
+    if (g.length !== s.length) return false;
+    return g.every((x, i) => x === s[i]);
+}
+
+/**
+ * SP/TT hiệu lực trên dòng BC VH = bộ lọc trang (Mặt hàng / khu vực khi Tìm) + lọc trên dòng.
+ * Dòng để trống SP/TT → kế thừa toàn bộ phần đang lọc ở trang (nếu có).
+ */
+function getEffectiveBcvhPmForRow(reportFilters, row) {
+    const rowPm = normalizeBcvhPmArrays(row.product, row.market);
+    const gP = Array.isArray(reportFilters?.product) ? reportFilters.product.map(String).filter(Boolean) : [];
+    const gM = Array.isArray(reportFilters?.market) ? reportFilters.market.map(String).filter(Boolean) : [];
+
+    let effP;
+    if (gP.length > 0) {
+        effP = rowPm.product.length > 0 ? rowPm.product.filter((x) => gP.includes(String(x))) : [...gP];
+    } else {
+        effP = [...rowPm.product];
+    }
+
+    let effM;
+    if (gM.length > 0) {
+        effM = rowPm.market.length > 0 ? rowPm.market.filter((x) => gM.includes(String(x))) : [...gM];
+    } else {
+        effM = [...rowPm.market];
+    }
+
+    return { product: effP, market: effM };
+}
+
+/** Chuỗi chọn trên MultiSelect → giá trị lưu trên dòng ([] = dùng hết bộ lọc trang). */
+function decodeBcvhRowProductFromUi(sel, globalProduct) {
+    const g = Array.isArray(globalProduct) ? globalProduct.map(String).filter(Boolean) : [];
+    if (g.length === 0) return [...sel].map(String).filter(Boolean);
+    const filtered = [...sel].map(String).filter(Boolean).filter((x) => g.includes(x));
+    if (bcvhSelectedSetsEqual(filtered, g)) return [];
+    return filtered;
+}
+
+function decodeBcvhRowMarketFromUi(sel, globalMarket) {
+    const g = Array.isArray(globalMarket) ? globalMarket.map(String).filter(Boolean) : [];
+    if (g.length === 0) return [...sel].map(String).filter(Boolean);
+    const filtered = [...sel].map(String).filter(Boolean).filter((x) => g.includes(x));
+    if (bcvhSelectedSetsEqual(filtered, g)) return [];
+    return filtered;
+}
+
+function getBcvhCriteriaSlice(rawData, reportFilters, row) {
+    const rowPm = normalizeBcvhPmArrays(row.product, row.market);
+    const gP = Array.isArray(reportFilters?.product) ? reportFilters.product.map(String).filter(Boolean) : [];
+    const gM = Array.isArray(reportFilters?.market) ? reportFilters.market.map(String).filter(Boolean) : [];
+    if (gP.length > 0 && rowPm.product.length > 0 && !rowPm.product.some((x) => gP.includes(String(x)))) {
+        return [];
+    }
+    if (gM.length > 0 && rowPm.market.length > 0 && !rowPm.market.some((x) => gM.includes(String(x)))) {
+        return [];
+    }
+    const eff = getEffectiveBcvhPmForRow(reportFilters, row);
+    return filterSliceForCriteriaRow(rawData, {
+        startDate: row.startDate,
+        endDate: row.endDate,
+        product: eff.product,
+        market: eff.market
+    });
+}
+
 /** Lùi / tiến theo lịch dương (trưa UTC cố định, tránh lệch DST). */
 const addCalendarDaysYmd = (ymd, deltaDays) => {
     const s = String(ymd || '').slice(0, 10);
@@ -74,7 +144,7 @@ const newBcvhRowId = () =>
 
 const TABS = ['tab1', 'tab2', 'tab3', 'tab4', 'tab5'];
 const BCVH_CRITERIA_STORAGE_KEY = 'bao_cao_van_hanh_tab2_criteria_v1';
-/** Tab BC VH: một dòng / một ngày tự sinh; giới hạn để UI và fetch không quá tải. */
+/** Tab BC VH: mỗi ngày trong khoảng ít nhất một dòng auto; có thể nhiều dòng/ngày (SP/TT). Giới hạn tổng dòng để UI/fetch không quá tải. */
 const MAX_BCVH_DAILY_ROWS = 45;
 /** Tổng số dòng (dòng theo ngày + dòng thêm tay). */
 const MAX_BCVH_ROWS_TOTAL = 60;
@@ -159,50 +229,119 @@ function buildDailyBcvhRowsFromDays(dayList, idFactory) {
     }));
 }
 
-/** Chỉ merge bộ lọc từ các dòng tự sinh (không phải dòng thêm tay). */
+/**
+ * Gom các dòng auto cùng một ngày (startDate === endDate) thành danh sách bộ lọc SP/TT.
+ * Một ngày có thể có nhiều dòng (nhiều cặp SP/TT).
+ */
 function reconcileDailyBcvhRowsFromPrevious(prevAutoRows, dayList, idFactory) {
+    /** @type {Map<string, Array<{ product: string[]; market: string[] }>>} */
     const byDay = new Map();
     for (const r of prevAutoRows) {
         if (r?.isManual) continue;
         const ds = String(r.startDate || '').slice(0, 10);
         const de = String(r.endDate || '').slice(0, 10);
-        if (YMD_RE.test(ds) && ds === de) {
-            const pm = normalizeBcvhPmArrays(r.product, r.market);
-            byDay.set(ds, pm);
+        if (!YMD_RE.test(ds) || ds !== de) continue;
+        const pm = normalizeBcvhPmArrays(r.product, r.market);
+        if (!byDay.has(ds)) byDay.set(ds, []);
+        byDay.get(ds).push(pm);
+    }
+    const out = [];
+    for (const d of dayList) {
+        const list = byDay.get(d);
+        if (list && list.length > 0) {
+            for (const pm of list) {
+                out.push({
+                    id: idFactory(),
+                    startDate: d,
+                    endDate: d,
+                    product: [...pm.product],
+                    market: [...pm.market],
+                    isManual: false
+                });
+            }
+        } else {
+            out.push({
+                id: idFactory(),
+                startDate: d,
+                endDate: d,
+                product: [],
+                market: [],
+                isManual: false
+            });
         }
     }
-    return buildDailyBcvhRowsFromDays(dayList, idFactory).map((row) => {
-        const m = byDay.get(row.startDate);
-        if (!m) return row;
-        return { ...row, product: [...m.product], market: [...m.market] };
-    });
+    return out;
 }
 
-function applyStoredBcvhFiltersByDay(rows) {
+/** Khôi phục dòng auto từ localStorage: mỗi ngày giữ đủ các dòng SP/TT đã lưu. */
+function expandAutoBcvhRowsFromStorage(days, idFactory, parsed) {
+    /** @type {Map<string, Array<{ product: string[]; market: string[] }>> | null} */
+    let byDayLists = null;
     try {
-        if (typeof window === 'undefined') return rows;
-        const raw = window.localStorage.getItem(BCVH_CRITERIA_STORAGE_KEY);
-        if (!raw) return rows;
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return rows;
-        const byDay = new Map();
-        for (const item of parsed) {
-            if (item?.isManual) continue;
-            const ds = String(item?.startDate || '').slice(0, 10);
-            const de = String(item?.endDate || '').slice(0, 10);
-            if (YMD_RE.test(ds) && ds === de) {
-                byDay.set(ds, normalizeBcvhPmArrays(item?.product, item?.market));
+        if (Array.isArray(parsed)) {
+            byDayLists = new Map();
+            for (const item of parsed) {
+                if (item?.isManual) continue;
+                const ds = String(item?.startDate || '').slice(0, 10);
+                const de = String(item?.endDate || '').slice(0, 10);
+                if (!YMD_RE.test(ds) || ds !== de) continue;
+                if (!byDayLists.has(ds)) byDayLists.set(ds, []);
+                byDayLists.get(ds).push(normalizeBcvhPmArrays(item?.product, item?.market));
             }
         }
-        return rows.map((r) => {
-            const d = String(r.startDate || '').slice(0, 10);
-            const m = byDay.get(d);
-            if (!m) return r;
-            return { ...r, product: [...m.product], market: [...m.market] };
-        });
     } catch {
-        return rows;
+        byDayLists = null;
     }
+
+    const out = [];
+    for (const d of days) {
+        const list = byDayLists?.get(d);
+        if (list && list.length > 0) {
+            for (const pm of list) {
+                out.push({
+                    id: idFactory(),
+                    startDate: d,
+                    endDate: d,
+                    product: [...pm.product],
+                    market: [...pm.market],
+                    isManual: false
+                });
+            }
+        } else {
+            out.push({
+                id: idFactory(),
+                startDate: d,
+                endDate: d,
+                product: [],
+                market: [],
+                isManual: false
+            });
+        }
+    }
+    return out;
+}
+
+/** Từ bulk SP/TT → danh sách tổ hợp lọc (mỗi phần tử = một dòng, lặp lại cho từng ngày khi áp dụng). */
+function buildBcvhBulkFilterTuples(pIn, mIn) {
+    const p = [...pIn];
+    const m = [...mIn];
+    const tuples = [];
+    if (p.length > 0 && m.length > 0) {
+        for (const pi of p) {
+            for (const mj of m) {
+                tuples.push({ product: [pi], market: [mj] });
+            }
+        }
+    } else if (p.length > 0) {
+        for (const pi of p) {
+            tuples.push({ product: [pi], market: [...m] });
+        }
+    } else if (m.length > 0) {
+        for (const mj of m) {
+            tuples.push({ product: [...p], market: [mj] });
+        }
+    }
+    return tuples;
 }
 
 function createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframeFlag) {
@@ -228,13 +367,20 @@ function createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframeFlag) {
     if (days.length > MAX_BCVH_DAILY_ROWS) {
         days = days.slice(0, MAX_BCVH_DAILY_ROWS);
     }
-    const baseRows = buildDailyBcvhRowsFromDays(days, newBcvhRowId);
-    let rows = applyStoredBcvhFiltersByDay(baseRows);
+    let parsed = null;
     try {
-        if (typeof window === 'undefined') return rows;
-        const raw = window.localStorage.getItem(BCVH_CRITERIA_STORAGE_KEY);
-        if (!raw) return rows;
-        const parsed = JSON.parse(raw);
+        if (typeof window !== 'undefined') {
+            const raw = window.localStorage.getItem(BCVH_CRITERIA_STORAGE_KEY);
+            if (raw) parsed = JSON.parse(raw);
+        }
+    } catch {
+        parsed = null;
+    }
+    let rows = expandAutoBcvhRowsFromStorage(days, newBcvhRowId, parsed);
+    if (rows.length > MAX_BCVH_ROWS_TOTAL) {
+        rows = rows.slice(0, MAX_BCVH_ROWS_TOTAL);
+    }
+    try {
         if (!Array.isArray(parsed)) return rows;
         const manual = parsed
             .filter((item) => item?.isManual)
@@ -591,7 +737,7 @@ export default function BaoCaoVanHanhHtml() {
         }));
     }, [reportFilters.dateRange]);
 
-    /** BC VH: mỗi ngày trong Từ–Đến = một dòng — cập nhật cả khi không mở tab 2 (để Tìm union đúng ngày). */
+    /** BC VH: mỗi ngày trong Từ–Đến = ít nhất một dòng; cùng ngày có thể nhiều dòng (nhiều SP/TT). */
     useEffect(() => {
         const a = String(reportFilters.startDate || '').slice(0, 10);
         const b = String(reportFilters.endDate || '').slice(0, 10);
@@ -608,7 +754,11 @@ export default function BaoCaoVanHanhHtml() {
         setBcvhCriteriaRows((prev) => {
             const manual = prev.filter((r) => r.isManual);
             const autoPrev = prev.filter((r) => !r.isManual);
-            const autoRows = reconcileDailyBcvhRowsFromPrevious(autoPrev, days, newBcvhRowId);
+            let autoRows = reconcileDailyBcvhRowsFromPrevious(autoPrev, days, newBcvhRowId);
+            const cap = Math.max(0, MAX_BCVH_ROWS_TOTAL - manual.length);
+            if (autoRows.length > cap) {
+                autoRows = autoRows.slice(0, cap);
+            }
             return [...autoRows, ...manual];
         });
     }, [reportFilters.startDate, reportFilters.endDate]);
@@ -749,9 +899,8 @@ export default function BaoCaoVanHanhHtml() {
 
     const { bcvhLines, bcvhTotal, bcvhSlicesByRow } = useMemo(() => {
         // "TỔNG" phải theo đúng các dòng tiêu chí đang hiển thị trong tab 2.
-        // Hiện tại bcvhTotal đang cộng rawData (bỏ qua product/market/start-end của từng dòng),
-        // nên khi user sửa các dòng tiêu chí mà không bấm "Tìm", hàng "TỔNG" sẽ lệch.
-        const slicesByRow = bcvhCriteriaRows.map((row) => filterSliceForCriteriaRow(rawData, row));
+        // Gộp bộ lọc SP/TT trang (reportFilters) vào từng dòng để không lệch "Tất cả" vs dữ liệu đã Tìm.
+        const slicesByRow = bcvhCriteriaRows.map((row) => getBcvhCriteriaSlice(rawData, reportFilters, row));
         const lines = bcvhCriteriaRows.map((row, idx) => ({
             ...row,
             metrics: aggregateOperationalReportSlice(slicesByRow[idx])
@@ -763,7 +912,7 @@ export default function BaoCaoVanHanhHtml() {
             bcvhTotal: aggregateOperationalReportSlice(slicesByRow.flat()),
             bcvhSlicesByRow: slicesByRow
         };
-    }, [rawData, bcvhCriteriaRows]);
+    }, [rawData, bcvhCriteriaRows, reportFilters.product, reportFilters.market]);
 
     /** Tab 1: một khoảng ngày + bộ lọc đã tải — cùng rule aggregateOperationalReportSlice với BC Vận Hành (tab 2). */
     const tab1Operational = useMemo(() => {
@@ -843,39 +992,42 @@ export default function BaoCaoVanHanhHtml() {
         const m = [...bcvhBulkMarket];
         const start = String(reportFilters.startDate || '').slice(0, 10);
         const end = String(reportFilters.endDate || '').slice(0, 10);
-        if (!YMD_RE.test(start) || !YMD_RE.test(end)) return;
+        if (!YMD_RE.test(start) || !YMD_RE.test(end) || start > end) return;
 
-        /** Mỗi SP hoặc TT đã tick → một dòng; tick cả hai → tích Descartes (giới hạn MAX_BCVH_ROWS_TOTAL). */
-        const tuples = [];
-        if (p.length > 0 && m.length > 0) {
-            for (const pi of p) {
-                for (const mj of m) {
-                    tuples.push({ product: [pi], market: [mj] });
-                }
-            }
-        } else if (p.length > 0) {
-            for (const pi of p) {
-                tuples.push({ product: [pi], market: [...m] });
-            }
-        } else if (m.length > 0) {
-            for (const mj of m) {
-                tuples.push({ product: [...p], market: [mj] });
-            }
-        } else {
-            return;
+        let dayList = enumerateCalendarDays(start, end);
+        if (dayList.length > MAX_BCVH_DAILY_ROWS) {
+            dayList = dayList.slice(0, MAX_BCVH_DAILY_ROWS);
         }
 
-        const capped = tuples.slice(0, MAX_BCVH_ROWS_TOTAL);
-        setBcvhCriteriaRows(
-            capped.map((t) => ({
-                id: newBcvhRowId(),
-                startDate: start,
-                endDate: end,
-                product: t.product,
-                market: t.market,
-                isManual: true
-            }))
-        );
+        setBcvhCriteriaRows((prev) => {
+            const manual = prev.filter((r) => r.isManual);
+            const cap = Math.max(0, MAX_BCVH_ROWS_TOTAL - manual.length);
+
+            if (p.length === 0 && m.length === 0) {
+                let autoRows = buildDailyBcvhRowsFromDays(dayList, newBcvhRowId);
+                if (autoRows.length > cap) autoRows = autoRows.slice(0, cap);
+                return [...autoRows, ...manual];
+            }
+
+            const tuples = buildBcvhBulkFilterTuples(p, m);
+            if (tuples.length === 0) return prev;
+
+            const autoRows = [];
+            outer: for (const d of dayList) {
+                for (const t of tuples) {
+                    if (autoRows.length >= cap) break outer;
+                    autoRows.push({
+                        id: newBcvhRowId(),
+                        startDate: d,
+                        endDate: d,
+                        product: [...t.product],
+                        market: [...t.market],
+                        isManual: false
+                    });
+                }
+            }
+            return [...autoRows, ...manual];
+        });
         setBcvhBulkProduct([]);
         setBcvhBulkMarket([]);
     };
@@ -887,7 +1039,7 @@ export default function BaoCaoVanHanhHtml() {
     };
 
     const bcvhRowContextLabel = (line) => {
-        const pm = normalizeBcvhPmArrays(line?.product, line?.market);
+        const pm = getEffectiveBcvhPmForRow(reportFilters, line);
         const p = pm.product.length ? pm.product.join(', ') : 'Tất cả';
         const m = pm.market.length ? pm.market.join(', ') : 'Tất cả';
         return `${p} / ${m}`;
@@ -1888,7 +2040,11 @@ export default function BaoCaoVanHanhHtml() {
                                 <th colSpan={2} className="bg-[#A9D08E] px-3 py-2 font-normal">
                                     Đã thanh toán
                                 </th>
-                                <th rowSpan={2} className="bg-lime-400 px-3 py-2 font-normal leading-tight">
+                                <th
+                                    rowSpan={2}
+                                    className="bg-lime-400 px-3 py-2 font-normal leading-tight"
+                                    title="Tổng trọng số nhóm «giao OK» trên histogram NB: gồm nhãn chứa «giao thành công» hoặc «đơn thành công». Khác với lọc Vận đơn theo đúng một chuỗi (ví dụ chỉ «Đơn thành công»)."
+                                >
                                     Đơn
                                     <br />
                                     thành
@@ -2106,7 +2262,7 @@ export default function BaoCaoVanHanhHtml() {
                             type="button"
                             className="rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
                             onClick={applyBcvhBulkProductMarket}
-                            title="Mỗi SP/TT đã chọn → một dòng (khoảng ngày = Từ–Đến); chọn cả SP và TT → mỗi cặp một dòng"
+                            title="Với mỗi ngày trong Từ–Đến: lặp lại bộ tổ hợp SP/TT đã chọn (nhiều SP/TT → nhiều dòng/ngày). Để trống SP và TT rồi bấm → một dòng/ngày không lọc."
                         >
                             Tạo dòng từ lựa chọn
                         </button>
@@ -2223,11 +2379,16 @@ export default function BaoCaoVanHanhHtml() {
                                                             placeholder="SP"
                                                             options={uniqueProducts}
                                                             selected={
-                                                                normalizeBcvhPmArrays(line.product, line.market)
+                                                                getEffectiveBcvhPmForRow(reportFilters, line)
                                                                     .product
                                                             }
                                                             onChange={(sel) =>
-                                                                patchBcvhRow(line.id, { product: sel })
+                                                                patchBcvhRow(line.id, {
+                                                                    product: decodeBcvhRowProductFromUi(
+                                                                        sel,
+                                                                        reportFilters.product
+                                                                    )
+                                                                })
                                                             }
                                                             compact
                                                         />
@@ -2241,11 +2402,16 @@ export default function BaoCaoVanHanhHtml() {
                                                                 placeholder="TT"
                                                                 options={uniqueMarkets}
                                                                 selected={
-                                                                    normalizeBcvhPmArrays(line.product, line.market)
+                                                                    getEffectiveBcvhPmForRow(reportFilters, line)
                                                                         .market
                                                                 }
                                                                 onChange={(sel) =>
-                                                                    patchBcvhRow(line.id, { market: sel })
+                                                                    patchBcvhRow(line.id, {
+                                                                        market: decodeBcvhRowMarketFromUi(
+                                                                            sel,
+                                                                            reportFilters.market
+                                                                        )
+                                                                    })
                                                                 }
                                                                 compact
                                                             />

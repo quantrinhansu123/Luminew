@@ -1281,12 +1281,12 @@ export const fetchVanDon = async (options = {}) => {
                 'Ngày đẩy đơn': 'accounting_check_date',
                 'Ngày có mã tracking': 'tracking_check_date',
             };
-            const dateColumn = dateColumnMapping[options.dateType] || 'order_date';
+            const dateColumn = dateColumnMapping[options.dateType];
 
-            if (dateFrom) {
+            if (dateColumn && dateFrom) {
                 query = query.gte(dateColumn, dateFrom);
             }
-            if (dateTo) {
+            if (dateColumn && dateTo) {
                 query = query.lte(dateColumn, dateTo);
             }
 

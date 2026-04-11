@@ -19,6 +19,8 @@ const classifyTrangThaiGiaoHangKey = (key) => {
     ) {
         return 'Trống trạng thái';
     }
+    /** Cùng nghĩa «giao OK» trong dữ liệu thực tế / lọc Vận đơn (preset có «Giao Thành Công», DB có thể ghi «Đơn thành công»). */
+    if (l.includes('đơn thành công')) return 'Giao Thành Công';
     if (l.includes('giao thành công')) return 'Giao Thành Công';
     if (l.includes('đang giao')) return 'Đang Giao';
     if (l.includes('chưa giao')) return 'Chưa Giao';

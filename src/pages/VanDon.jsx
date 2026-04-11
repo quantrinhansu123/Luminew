@@ -71,6 +71,8 @@ const BULK_THRESHOLD = 1;
 const VAN_DON_CHECKBOX_COL_PX = 50;
 /** Cột orders.canh_bao — luôn hiển thị trên mọi tab vận đơn */
 const VAN_DON_CANH_BAO_COLUMN = 'Cảnh báo trùng';
+/** Toolbar «Loại ngày» = không lọc theo khoảng Từ–Đến trên một cột ngày (API + client). */
+const BOL_TOOLBAR_DATE_TYPE_ALL = 'Tất cả';
 /** Chỉ trang /van-don-hcm — map DB `thu_tu_chia` */
 const VAN_DON_HCM_THU_TU_CHIA_COLUMN = 'Thứ tự chia';
 
@@ -1013,9 +1015,11 @@ function VanDon({ dataSource = 'default' }) {
     const DATE_FILTER_KEYS = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'];
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
     const toolbarDateOverrideKeys =
-      activeDateType === 'Ngày đẩy đơn'
-        ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
-        : new Set([activeDateType]);
+      activeDateType === BOL_TOOLBAR_DATE_TYPE_ALL
+        ? new Set()
+        : activeDateType === 'Ngày đẩy đơn'
+          ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
+          : new Set([activeDateType]);
 
     Object.entries(appliedFilterValues).forEach(([key, val]) => {
       if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'delivery_status', 'delivery_status_nb', 'payment_status', 'tracking_include', 'tracking_exclude', 'tracking_status'].includes(key)) return;
@@ -1073,9 +1077,16 @@ function VanDon({ dataSource = 'default' }) {
       shipping_unit: appliedFilterValues.shipping_unit,
       delivery_status: appliedFilterValues.delivery_status,
       payment_status: appliedFilterValues.payment_status,
-      dateFrom: appliedEnableDateFilter ? appliedDateFrom : undefined,
-      dateTo: appliedEnableDateFilter ? appliedDateTo : undefined,
-      dateType: appliedBolDateType,
+      dateFrom:
+        appliedEnableDateFilter && appliedBolDateType !== BOL_TOOLBAR_DATE_TYPE_ALL
+          ? appliedDateFrom
+          : undefined,
+      dateTo:
+        appliedEnableDateFilter && appliedBolDateType !== BOL_TOOLBAR_DATE_TYPE_ALL
+          ? appliedDateTo
+          : undefined,
+      dateType:
+        appliedBolDateType === BOL_TOOLBAR_DATE_TYPE_ALL ? undefined : appliedBolDateType,
       tab: bolActiveTab,
       /** Tab Đơn cá nhân: lọc delivery_staff theo tên đăng nhập; admin xem toàn bộ — không gửi filter. */
       deliveryStaffSelfFilter: bolActiveTab === 'ca_nhan' && !isAdmin ? sessionName : undefined,
@@ -1669,7 +1680,11 @@ function VanDon({ dataSource = 'default' }) {
     }
 
     // Date Range (toolbar "Lọc thời gian") — cùng quy tắc chuẩn hóa ngày với lọc cột & API (YYYY-MM-DD)
-    if (appliedEnableDateFilter) {
+    // Chế độ vận đơn + «Tất cả» loại ngày: không lọc theo cột ngày toolbar (OM vẫn dùng omDateType).
+    if (
+      appliedEnableDateFilter &&
+      (viewMode === 'ORDER_MANAGEMENT' || appliedBolDateType !== BOL_TOOLBAR_DATE_TYPE_ALL)
+    ) {
       if (appliedDateFrom) {
         const fromNorm = String(appliedDateFrom).split('T')[0];
         data = data.filter((row) => {
@@ -1699,9 +1714,11 @@ function VanDon({ dataSource = 'default' }) {
     // Cột ngày trùng với "Loại ngày+ khoảng" trên toolbar → đã lọc ở trên, bỏ lọc 1 ngày ở header cho tránh lệch / chồng hai bộ lọc
     const DATE_FILTER_KEYS = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2'];
     const toolbarDateOverrideKeys =
-      activeDateType === 'Ngày đẩy đơn'
-        ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
-        : new Set([activeDateType]);
+      activeDateType === BOL_TOOLBAR_DATE_TYPE_ALL
+        ? new Set()
+        : activeDateType === 'Ngày đẩy đơn'
+          ? new Set(['Ngày đẩy đơn', 'Ngày Kế toán đối soát với FFM lần 2'])
+          : new Set([activeDateType]);
 
     // Column Filters (Text & Dropdown)
     // Luôn áp dụng ở client để nhiều cột kết hợp ổn định (kể cả khi backend pagination đang bật).
@@ -4614,7 +4631,7 @@ function VanDon({ dataSource = 'default' }) {
             <div className="shrink-0 w-px h-4 bg-gray-200 self-center" aria-hidden />
             <div
               className="flex items-center gap-1 bg-blue-50 px-1.5 py-0.5 rounded-md border border-blue-200 shrink-0"
-              title="Lọc thời gian"
+              title={`Lọc thời gian theo cột ngày. «${BOL_TOOLBAR_DATE_TYPE_ALL}»: không áp dụng khoảng Từ–Đến lên một cột (vẫn có thể lọc ngày qua ô header cột).`}
             >
               <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap" aria-hidden>
                 📅
@@ -4626,7 +4643,9 @@ function VanDon({ dataSource = 'default' }) {
                   onChange={(e) => {
                     setBolDateType(e.target.value);
                   }}
+                  aria-label="Loại ngày lọc toolbar"
                 >
+                  <option value={BOL_TOOLBAR_DATE_TYPE_ALL}>{BOL_TOOLBAR_DATE_TYPE_ALL}</option>
                   <option value="Ngày lên đơn">Lên đơn</option>
                   <option value="Ngày đóng hàng">Đóng hàng</option>
                   <option value="Ngày đẩy đơn">Đẩy đơn</option>
