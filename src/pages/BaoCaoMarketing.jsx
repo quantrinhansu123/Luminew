@@ -5,6 +5,7 @@ import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { buildMktReportDedupeKey, normalizeMktReportDate } from '../utils/mktDetailReportKey';
+import { MktSearchableProductSelect } from '../components/mkt/MktSearchableProductSelect';
 
 /** Độ rộng cột nút — lưới nhập báo cáo MKT */
 const MKT_REPORT_ACTION_COL = '5.75rem';
@@ -1593,16 +1594,12 @@ export default function BaoCaoMarketing({
     }
     if (header === 'Sản_phẩm') {
       const cur = String(row.data[header] || '').trim();
+      const list = appData.productList || [];
       return (
-        <input
-          type="text"
-          list="mkt-product-datalist"
-          autoComplete="off"
-          placeholder="Gõ để tìm SP…"
+        <MktSearchableProductSelect
           value={cur}
-          onChange={(e) => handleRowChange(rowIndex, header, e.target.value)}
-          className={`${mktInputCls} bg-white`}
-          title="Gõ để lọc gợi ý; chọn từ danh sách hoặc nhập đúng tên sản phẩm"
+          options={list}
+          onChange={(v) => handleRowChange(rowIndex, header, v)}
         />
       );
     }
@@ -1862,12 +1859,6 @@ export default function BaoCaoMarketing({
         <datalist id="email-datalist">
           {emailDatalistValues.map((em) => (
             <option key={em} value={em} />
-          ))}
-        </datalist>
-
-        <datalist id="mkt-product-datalist">
-          {(appData.productList || []).map((p) => (
-            <option key={p} value={p} />
           ))}
         </datalist>
 
