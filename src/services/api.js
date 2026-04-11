@@ -1112,7 +1112,7 @@ export const fetchVanDon = async (options = {}) => {
          */
         hanoiTabSqlScope = null,
         /**
-         * `rows` — chỉ trang + đếm ước lượng (nhanh, không chờ SUM toàn bộ bộ lọc).
+         * `rows` — chỉ trang dữ liệu + đếm chính xác (`count: exact`, cùng bộ lọc) để «Số lượng đơn» khớp DB.
          * `money` — chỉ tổng tiền (SUM + fallback); dùng song song với `rows` từ UI.
          * `null` / không truyền — một lần gọi đầy đủ (đếm chính xác + SUM), ví dụ xuất Excel.
          */
@@ -1543,10 +1543,10 @@ export const fetchVanDon = async (options = {}) => {
                 return { sumError, totalAmountVndSum };
             };
 
-            /** Chỉ lưới + đếm ước lượng — không chạy SUM (trả về nhanh hơn nhiều khi bảng lớn). */
+            /** Chỉ lưới — không chạy SUM; đếm `exact` để tổng đơn trên UI khớp bộ lọc (tránh lệch do `estimated` của Postgres). */
             if (vanDonRowsOnly) {
                 const baseData = applyVanDonFilters(
-                    supabase.from(tableName).select(selectCols, { count: 'estimated' })
+                    supabase.from(tableName).select(selectCols, { count: 'exact' })
                 );
                 const listRes = await baseData.range(pageFrom, pageTo).order('order_date', { ascending: false });
                 return {
