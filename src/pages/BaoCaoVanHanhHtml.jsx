@@ -841,19 +841,49 @@ export default function BaoCaoVanHanhHtml() {
     const applyBcvhBulkProductMarket = () => {
         const p = [...bcvhBulkProduct];
         const m = [...bcvhBulkMarket];
-        setBcvhCriteriaRows((prev) =>
-            prev.map((r) => ({
-                ...r,
-                product: [...p],
-                market: [...m]
+        const start = String(reportFilters.startDate || '').slice(0, 10);
+        const end = String(reportFilters.endDate || '').slice(0, 10);
+        if (!YMD_RE.test(start) || !YMD_RE.test(end)) return;
+
+        /** Mỗi SP hoặc TT đã tick → một dòng; tick cả hai → tích Descartes (giới hạn MAX_BCVH_ROWS_TOTAL). */
+        const tuples = [];
+        if (p.length > 0 && m.length > 0) {
+            for (const pi of p) {
+                for (const mj of m) {
+                    tuples.push({ product: [pi], market: [mj] });
+                }
+            }
+        } else if (p.length > 0) {
+            for (const pi of p) {
+                tuples.push({ product: [pi], market: [...m] });
+            }
+        } else if (m.length > 0) {
+            for (const mj of m) {
+                tuples.push({ product: [...p], market: [mj] });
+            }
+        } else {
+            return;
+        }
+
+        const capped = tuples.slice(0, MAX_BCVH_ROWS_TOTAL);
+        setBcvhCriteriaRows(
+            capped.map((t) => ({
+                id: newBcvhRowId(),
+                startDate: start,
+                endDate: end,
+                product: t.product,
+                market: t.market,
+                isManual: true
             }))
         );
+        setBcvhBulkProduct([]);
+        setBcvhBulkMarket([]);
     };
 
     const clearAllBcvhProductMarketFilters = () => {
         setBcvhBulkProduct([]);
         setBcvhBulkMarket([]);
-        setBcvhCriteriaRows((prev) => prev.map((r) => ({ ...r, product: [], market: [] })));
+        setBcvhCriteriaRows([]);
     };
 
     const bcvhRowContextLabel = (line) => {
@@ -2076,15 +2106,17 @@ export default function BaoCaoVanHanhHtml() {
                             type="button"
                             className="rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
                             onClick={applyBcvhBulkProductMarket}
+                            title="Mỗi SP/TT đã chọn → một dòng (khoảng ngày = Từ–Đến); chọn cả SP và TT → mỗi cặp một dòng"
                         >
-                            Áp dụng cho tất cả dòng
+                            Tạo dòng từ lựa chọn
                         </button>
                         <button
                             type="button"
                             className="rounded border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-50"
                             onClick={clearAllBcvhProductMarketFilters}
+                            title="Xóa hết các dòng trong bảng (và bộ lọc hàng loạt)"
                         >
-                            Xóa tất cả
+                            Xóa tất cả dòng
                         </button>
                     </div>
                     <div className="bcvh-split-title">
