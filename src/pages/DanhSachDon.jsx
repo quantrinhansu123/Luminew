@@ -412,7 +412,6 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [isFillingPaymentCurrency, setIsFillingPaymentCurrency] = useState(false); // Tự điền Loại tiền theo Khu vực
   const [isRecalculatingZeroTotalVnd, setIsRecalculatingZeroTotalVnd] = useState(false); // Tính lại Tổng tiền VNĐ (chỉ ô = 0)
   const [isApplyingCanhBaoTrung, setIsApplyingCanhBaoTrung] = useState(false); // Ghi canh_bao theo trùng khách (Ngày lên đơn + created_at)
-  const [isRenamingNguyenTrongDai, setIsRenamingNguyenTrongDai] = useState(false); // NGUYỄN TRỌNG ĐẠI → Nguyễn Trọng Đại
   /** Chỉ HCM: tra cứu `orders` (team chứa HCM), theo Từ/Đến ngày trên trang — modal xem, không ghi DB. */
   const [isFetchingOrdersHcmLookaside, setIsFetchingOrdersHcmLookaside] = useState(false);
   const [isFillingHcmFromOrdersLookaside, setIsFillingHcmFromOrdersLookaside] = useState(false);
@@ -1746,117 +1745,6 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
   };
 
-  /**
-   * Chuẩn hóa "NGUYỄN TRỌNG ĐẠI" (mọi biến thể) → "Nguyễn Trọng Đại" theo bộ lọc hiện tại.
-   * Áp dụng cho 3 cột: sale_staff, marketing_staff, delivery_staff.
-   */
-  const handleNormalizeNguyenTrongDaiStaff = async () => {
-    if (isRenamingNguyenTrongDai) return;
-
-    const CANON = 'Nguyễn Trọng Đại';
-    const normalize = (s) =>
-      String(s ?? '')
-        .trim()
-        .replace(/\s+/g, ' ')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/\p{M}/gu, '');
-    const wrongKey = normalize('NGUYỄN TRỌNG ĐẠI');
-
-    const canonicalizeStaffCell = (raw) => {
-      const s = String(raw ?? '').trim();
-      if (!s) return null;
-      let next = s.replace(/nguyễn\s+trọng\s+đại/giu, CANON);
-      if (next !== s) return next;
-      if (normalize(s) === wrongKey && s !== CANON) return CANON;
-      return null;
-    };
-
-    const rows = filteredData || [];
-    const updates = [];
-
-    for (const r of rows) {
-      const id = r?._id;
-      if (!id) continue;
-
-      const patch = {};
-
-      const saleNext = canonicalizeStaffCell(r?.['Nhân viên Sale']);
-      if (saleNext !== null) patch.sale_staff = saleNext;
-
-      const mktNext = canonicalizeStaffCell(r?.['Nhân viên Marketing']);
-      if (mktNext !== null) patch.marketing_staff = mktNext;
-
-      const deliveryNext = canonicalizeStaffCell(r?.['NV Vận đơn']);
-      if (deliveryNext !== null) patch.delivery_staff = deliveryNext;
-
-      if (Object.keys(patch).length > 0) {
-        updates.push({ id, patch });
-      }
-    }
-
-    const uniqueUpdatedIds = [...new Set(updates.map((u) => u.id))];
-    if (uniqueUpdatedIds.length === 0) {
-      toast.info('Không có đơn nào cần chuẩn hóa "NGUYỄN TRỌNG ĐẠI" trong bộ lọc hiện tại.');
-      return;
-    }
-
-    if (
-      !window.confirm(
-        `Chuẩn hóa "NGUYỄN TRỌNG ĐẠI" → "Nguyễn Trọng Đại" cho ${uniqueUpdatedIds.length} đơn trong bộ lọc hiện tại.\n\nÁp dụng cho: Nhân viên Sale, Nhân viên Marketing, NV Vận đơn.\n\nTiếp tục?`
-      )
-    ) {
-      return;
-    }
-
-    setIsRenamingNguyenTrongDai(true);
-    try {
-      let success = 0;
-      const chunkSize = 10;
-      for (let i = 0; i < uniqueUpdatedIds.length; i += chunkSize) {
-        const chunkIds = uniqueUpdatedIds.slice(i, i + chunkSize);
-        const patchById = new Map(updates.map((u) => [u.id, u.patch]));
-        await Promise.all(
-          chunkIds.map(async (id) => {
-            const payload = patchById.get(id);
-            if (!payload) return;
-            const { error } = await supabase.from(ordersTableName).update(payload).eq('id', id);
-            if (!error) success++;
-          })
-        );
-      }
-
-      const patchById = new Map(updates.map((u) => [u.id, u.patch]));
-      setAllData((prev) =>
-        (prev || []).map((r) => {
-          const id = r?._id;
-          const patch = patchById.get(id);
-          if (!patch) return r;
-          return {
-            ...r,
-            ...(patch.sale_staff !== undefined ? { 'Nhân viên Sale': patch.sale_staff } : {}),
-            ...(patch.marketing_staff !== undefined ? { 'Nhân viên Marketing': patch.marketing_staff } : {}),
-            ...(patch.delivery_staff !== undefined ? { 'NV Vận đơn': patch.delivery_staff } : {}),
-          };
-        })
-      );
-
-      toast.success(
-        `Đã chuẩn hóa "NGUYỄN TRỌNG ĐẠI" → "Nguyễn Trọng Đại" cho ${success}/${uniqueUpdatedIds.length} đơn.`,
-        {
-          autoClose: 2500,
-          hideProgressBar: true,
-        }
-      );
-    } catch (err) {
-      console.error('Normalize Nguyễn Trọng Đại error:', err);
-      toast.error(`Lỗi đổi tên: ${err?.message || String(err)}`);
-    } finally {
-      setIsRenamingNguyenTrongDai(false);
-      loadData();
-    }
-  };
-
   /** Đổi Ca từ "Giữa ca" → "Giữa ca,Hết ca" trong cùng phạm vi team / nhân sự / ngày như Tải lại */
   const handleFixGiuaCaShift = async () => {
     if (
@@ -3063,8 +2951,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       isFixingShift ||
                       isFillingPaymentCurrency ||
                       isRecalculatingZeroTotalVnd ||
-                      isApplyingCanhBaoTrung ||
-                      isRenamingNguyenTrongDai
+                      isApplyingCanhBaoTrung
                     }
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
@@ -3081,37 +2968,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                     )}
                   </button>
                   <button
-                    onClick={handleNormalizeNguyenTrongDaiStaff}
-                    disabled={
-                      syncing ||
-                      loading ||
-                      deleting ||
-                      isFixingTeams ||
-                      isFixingShift ||
-                      isFillingPaymentCurrency ||
-                      isRecalculatingZeroTotalVnd ||
-                      isApplyingCanhBaoTrung ||
-                      isRenamingNguyenTrongDai
-                    }
-                    className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
-                    title='Chuẩn hóa "NGUYỄN TRỌNG ĐẠI" thành "Nguyễn Trọng Đại" (Sale / MKT / NV Vận đơn) theo bộ lọc hiện tại'
-                  >
-                    {isRenamingNguyenTrongDai ? (
-                      <>
-                        <span className="animate-spin">⏳</span>
-                        Đang đổi...
-                      </>
-                    ) : (
-                      <>
-                        <Pencil className="w-4 h-4 shrink-0" />
-                        <span className="flex flex-col items-start leading-tight text-left text-xs">
-                          <span className="whitespace-nowrap">NGUYỄN TRỌNG ĐẠI</span>
-                          <span className="whitespace-nowrap font-medium">→ Nguyễn Trọng Đại</span>
-                        </span>
-                      </>
-                    )}
-                  </button>
-                  <button
                     onClick={handleFixGiuaCaShift}
                     disabled={
                       syncing ||
@@ -3121,8 +2977,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                       isFixingShift ||
                       isFillingPaymentCurrency ||
                       isRecalculatingZeroTotalVnd ||
-                      isApplyingCanhBaoTrung ||
-                      isRenamingNguyenTrongDai
+                      isApplyingCanhBaoTrung
                     }
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
                   >
@@ -3153,7 +3008,6 @@ function DanhSachDon({ dataSource = 'default' }) {
                     isFillingPaymentCurrency ||
                     isRecalculatingZeroTotalVnd ||
                     isApplyingCanhBaoTrung ||
-                    isRenamingNguyenTrongDai ||
                     isFetchingOrdersHcmLookaside
                   }
                   className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 flex items-center gap-2 shadow-sm"
