@@ -16,6 +16,132 @@ function isManagerRole(roleStr, legacyStr) {
     return mgr.includes(r) || mgr.includes(l);
 }
 
+/** Cùng nguồn hiển thị với cột lưới — giống danh-sach-don */
+function rowDisplaySaleStaff(row) {
+    return String(row?.['Nhân viên Sale'] ?? row?.sale_staff ?? '').trim();
+}
+function rowDisplayMktStaff(row) {
+    return String(row?.['Nhân viên Marketing'] ?? row?.marketing_staff ?? '').trim();
+}
+
+function uniqueColumnValuesWithTrong(rows, colKey) {
+    const set = new Set();
+    let hasEmpty = false;
+    for (const row of rows || []) {
+        const raw = row[colKey];
+        const t = raw != null && String(raw).trim() !== '' ? String(raw).trim() : '';
+        if (t) set.add(t);
+        else hasEmpty = true;
+    }
+    const sorted = [...set].sort((a, b) => a.localeCompare(b, 'vi'));
+    return hasEmpty ? ['(Trống)', ...sorted] : sorted;
+}
+
+function filterByMultiTrong(selected, cellRaw) {
+    if (!selected || selected.length === 0) return true;
+    const t = cellRaw != null && String(cellRaw).trim() !== '' ? String(cellRaw).trim() : '';
+    if (selected.includes('(Trống)') && !t) return true;
+    return selected.includes(t);
+}
+
+/** Dropdown đa chọn + checkbox — cùng mẫu danh-sach-don */
+function MultiCheckboxFilter({
+    label,
+    open,
+    onOpenChange,
+    selected,
+    onSelected,
+    options,
+    searchText,
+    onSearchText,
+    showSearch,
+    enableSelectAllFiltered
+}) {
+    const summary =
+        selected.length === 0 ? 'Tất cả' : selected.length === 1 ? selected[0] : `Đã chọn ${selected.length}`;
+
+    const toggleOption = (opt, checked) => {
+        if (checked) onSelected([...selected, opt]);
+        else onSelected(selected.filter((x) => x !== opt));
+    };
+
+    return (
+        <div className="min-w-[200px] relative">
+            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">{label}</label>
+            <div className="relative">
+                <button
+                    type="button"
+                    onClick={() => onOpenChange(!open)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                    <span className="truncate">{summary}</span>
+                    <span className="ml-2 shrink-0">▼</span>
+                </button>
+                {open && (
+                    <div className="absolute z-[50] mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                                <span className="text-xs font-semibold text-gray-700">Chọn:</span>
+                                <div className="flex items-center gap-3">
+                                    {enableSelectAllFiltered ? (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                onSelected(Array.from(new Set([...(selected || []), ...options])))
+                                            }
+                                            className="text-xs text-blue-600 hover:text-blue-800"
+                                        >
+                                            Chọn tất cả
+                                        </button>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            onSelected([]);
+                                            onOpenChange(false);
+                                        }}
+                                        className="text-xs text-blue-600 hover:text-blue-800"
+                                    >
+                                        Bỏ chọn tất cả
+                                    </button>
+                                </div>
+                            </div>
+                            {showSearch ? (
+                                <div className="mb-2">
+                                    <input
+                                        type="text"
+                                        value={searchText}
+                                        onChange={(e) => onSearchText(e.target.value)}
+                                        placeholder="Gõ để tìm nhanh..."
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                                    />
+                                </div>
+                            ) : null}
+                            {options.map((opt) => (
+                                <label
+                                    key={String(opt)}
+                                    className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={selected.includes(opt)}
+                                        onChange={(e) => toggleOption(opt, e.target.checked)}
+                                        className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                    />
+                                    <span className="ml-2 text-sm text-gray-700">{opt}</span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+            {open ? (
+                <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} aria-hidden />
+            ) : null}
+        </div>
+    );
+}
+
 function BaoCaoChiTiet({ dataSource = 'default' }) {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
@@ -52,6 +178,30 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     const [showStatusFilter, setShowStatusFilter] = useState(false);
     const [showCheckResultFilter, setShowCheckResultFilter] = useState(false);
     const [checkResultFilterSearchText, setCheckResultFilterSearchText] = useState('');
+    const [filterSaleStaff, setFilterSaleStaff] = useState([]);
+    const [showSaleStaffFilter, setShowSaleStaffFilter] = useState(false);
+    const [saleStaffFilterSearchText, setSaleStaffFilterSearchText] = useState('');
+    const [filterMktStaff, setFilterMktStaff] = useState([]);
+    const [showMktStaffFilter, setShowMktStaffFilter] = useState(false);
+    const [mktStaffFilterSearchText, setMktStaffFilterSearchText] = useState('');
+    const [filterDeliveryStaff, setFilterDeliveryStaff] = useState([]);
+    const [showDeliveryStaffFilter, setShowDeliveryStaffFilter] = useState(false);
+    const [deliveryStaffFilterSearchText, setDeliveryStaffFilterSearchText] = useState('');
+    const [filterTeam, setFilterTeam] = useState([]);
+    const [showTeamFilter, setShowTeamFilter] = useState(false);
+    const [teamFilterSearchText, setTeamFilterSearchText] = useState('');
+    const [filterPage, setFilterPage] = useState([]);
+    const [showPageFilter, setShowPageFilter] = useState(false);
+    const [pageFilterSearchText, setPageFilterSearchText] = useState('');
+    const [filterPaymentDetail, setFilterPaymentDetail] = useState([]);
+    const [showPaymentDetailFilter, setShowPaymentDetailFilter] = useState(false);
+    const [paymentDetailFilterSearchText, setPaymentDetailFilterSearchText] = useState('');
+    const [filterCskh, setFilterCskh] = useState([]);
+    const [showCskhFilter, setShowCskhFilter] = useState(false);
+    const [cskhFilterSearchText, setCskhFilterSearchText] = useState('');
+    const [filterShippingUnit, setFilterShippingUnit] = useState([]);
+    const [showShippingUnitFilter, setShowShippingUnitFilter] = useState(false);
+    const [shippingUnitFilterSearchText, setShippingUnitFilterSearchText] = useState('');
     // User thường: mặc định 3 ngày. Admin/Manager: sau khi load quyền → để trống = xem full (lọc theo ngày tùy chọn).
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
@@ -492,6 +642,102 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         return uniqueCheckResults.filter((v) => String(v || '').toLowerCase().includes(kw));
     }, [checkResultFilterSearchText, uniqueCheckResults]);
 
+    const uniqueSaleStaff = useMemo(() => {
+        const vals = new Set();
+        let hasEmpty = false;
+        allData.forEach((row) => {
+            const v = rowDisplaySaleStaff(row);
+            if (v) vals.add(v);
+            else hasEmpty = true;
+        });
+        const sorted = [...vals].sort((a, b) => a.localeCompare(b, 'vi'));
+        return hasEmpty ? ['(Trống)', ...sorted] : sorted;
+    }, [allData]);
+
+    const filteredSaleStaff = useMemo(() => {
+        const kw = String(saleStaffFilterSearchText || '').trim().toLowerCase();
+        if (!kw) return uniqueSaleStaff;
+        return uniqueSaleStaff.filter((v) => String(v || '').toLowerCase().includes(kw));
+    }, [saleStaffFilterSearchText, uniqueSaleStaff]);
+
+    const uniqueMktStaff = useMemo(() => {
+        const vals = new Set();
+        let hasEmpty = false;
+        allData.forEach((row) => {
+            const v = rowDisplayMktStaff(row);
+            if (v) vals.add(v);
+            else hasEmpty = true;
+        });
+        const sorted = [...vals].sort((a, b) => a.localeCompare(b, 'vi'));
+        return hasEmpty ? ['(Trống)', ...sorted] : sorted;
+    }, [allData]);
+
+    const filteredMktStaff = useMemo(() => {
+        const kw = String(mktStaffFilterSearchText || '').trim().toLowerCase();
+        if (!kw) return uniqueMktStaff;
+        return uniqueMktStaff.filter((v) => String(v || '').toLowerCase().includes(kw));
+    }, [mktStaffFilterSearchText, uniqueMktStaff]);
+
+    const uniqueDeliveryStaff = useMemo(() => {
+        const vals = new Set();
+        let hasEmpty = false;
+        allData.forEach((row) => {
+            const v = row['NV Vận đơn'] ?? row.delivery_staff;
+            const t = v != null && String(v).trim() !== '' ? String(v).trim() : '';
+            if (t) vals.add(t);
+            else hasEmpty = true;
+        });
+        const sorted = [...vals].sort((a, b) => a.localeCompare(b, 'vi'));
+        return hasEmpty ? ['(Trống)', ...sorted] : sorted;
+    }, [allData]);
+
+    const filteredDeliveryStaff = useMemo(() => {
+        const kw = String(deliveryStaffFilterSearchText || '').trim().toLowerCase();
+        if (!kw) return uniqueDeliveryStaff;
+        return uniqueDeliveryStaff.filter((v) => String(v || '').toLowerCase().includes(kw));
+    }, [deliveryStaffFilterSearchText, uniqueDeliveryStaff]);
+
+    const uniqueTeams = useMemo(() => uniqueColumnValuesWithTrong(allData, 'Team'), [allData]);
+    const filteredTeams = useMemo(() => {
+        const kw = String(teamFilterSearchText || '').trim().toLowerCase();
+        if (!kw) return uniqueTeams;
+        return uniqueTeams.filter((v) => String(v || '').toLowerCase().includes(kw));
+    }, [teamFilterSearchText, uniqueTeams]);
+
+    const uniquePages = useMemo(() => uniqueColumnValuesWithTrong(allData, 'Page'), [allData]);
+    const filteredPages = useMemo(() => {
+        const kw = String(pageFilterSearchText || '').trim().toLowerCase();
+        if (!kw) return uniquePages;
+        return uniquePages.filter((v) => String(v || '').toLowerCase().includes(kw));
+    }, [pageFilterSearchText, uniquePages]);
+
+    const uniquePaymentDetails = useMemo(
+        () => uniqueColumnValuesWithTrong(allData, 'Trạng thái thu tiền'),
+        [allData]
+    );
+    const filteredPaymentDetails = useMemo(() => {
+        const kw = String(paymentDetailFilterSearchText || '').trim().toLowerCase();
+        if (!kw) return uniquePaymentDetails;
+        return uniquePaymentDetails.filter((v) => String(v || '').toLowerCase().includes(kw));
+    }, [paymentDetailFilterSearchText, uniquePaymentDetails]);
+
+    const uniqueCskh = useMemo(() => uniqueColumnValuesWithTrong(allData, 'CSKH'), [allData]);
+    const filteredCskh = useMemo(() => {
+        const kw = String(cskhFilterSearchText || '').trim().toLowerCase();
+        if (!kw) return uniqueCskh;
+        return uniqueCskh.filter((v) => String(v || '').toLowerCase().includes(kw));
+    }, [cskhFilterSearchText, uniqueCskh]);
+
+    const uniqueShippingUnits = useMemo(
+        () => uniqueColumnValuesWithTrong(allData, 'Đơn vị vận chuyển'),
+        [allData]
+    );
+    const filteredShippingUnits = useMemo(() => {
+        const kw = String(shippingUnitFilterSearchText || '').trim().toLowerCase();
+        if (!kw) return uniqueShippingUnits;
+        return uniqueShippingUnits.filter((v) => String(v || '').toLowerCase().includes(kw));
+    }, [shippingUnitFilterSearchText, uniqueShippingUnits]);
+
     // Helper: Parse Excel Date
     const parseExcelDate = (excelDate) => {
         if (!excelDate) return null;
@@ -618,15 +864,25 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     const filteredData = useMemo(() => {
         let data = [...allData];
 
-        // Search filter (using debounced value)
+        // Tìm kiếm — cùng phạm vi chính với danh-sach-don
         if (debouncedSearchText) {
             const searchNorm = normalizeSearch(debouncedSearchText);
-            data = data.filter(row => {
+            data = data.filter((row) => {
                 return (
-                    normalizeSearch(row["Mã đơn hàng"]).includes(searchNorm) ||
-                    normalizeSearch(row["Name*"]).includes(searchNorm) ||
-                    normalizeSearch(row["Phone*"]).includes(searchNorm) ||
-                    normalizeSearch(row["Mã Tracking"]).includes(searchNorm)
+                    normalizeSearch(row['Mã đơn hàng']).includes(searchNorm) ||
+                    normalizeSearch(row['Mã Tracking']).includes(searchNorm) ||
+                    normalizeSearch(row['Name*']).includes(searchNorm) ||
+                    normalizeSearch(row['Phone*']).includes(searchNorm) ||
+                    normalizeSearch(row['Add']).includes(searchNorm) ||
+                    normalizeSearch(row['City']).includes(searchNorm) ||
+                    normalizeSearch(row['State']).includes(searchNorm) ||
+                    normalizeSearch(row['Zipcode']).includes(searchNorm) ||
+                    normalizeSearch(row['Khu vực']).includes(searchNorm) ||
+                    normalizeSearch(rowDisplayMktStaff(row)).includes(searchNorm) ||
+                    normalizeSearch(rowDisplaySaleStaff(row)).includes(searchNorm) ||
+                    normalizeSearch(row['CSKH']).includes(searchNorm) ||
+                    normalizeSearch(row['NV Vận đơn']).includes(searchNorm) ||
+                    normalizeSearch(row['Team']).includes(searchNorm)
                 );
             });
         }
@@ -676,6 +932,37 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
             });
         }
 
+        if (filterSaleStaff.length > 0) {
+            data = data.filter((row) => filterByMultiTrong(filterSaleStaff, rowDisplaySaleStaff(row)));
+        }
+        if (filterMktStaff.length > 0) {
+            data = data.filter((row) => filterByMultiTrong(filterMktStaff, rowDisplayMktStaff(row)));
+        }
+        if (filterDeliveryStaff.length > 0) {
+            data = data.filter((row) =>
+                filterByMultiTrong(filterDeliveryStaff, row['NV Vận đơn'] ?? row.delivery_staff)
+            );
+        }
+        if (filterTeam.length > 0) {
+            data = data.filter((row) => filterByMultiTrong(filterTeam, row['Team']));
+        }
+        if (filterPage.length > 0) {
+            data = data.filter((row) => filterByMultiTrong(filterPage, row['Page']));
+        }
+        if (filterPaymentDetail.length > 0) {
+            data = data.filter((row) =>
+                filterByMultiTrong(filterPaymentDetail, row['Trạng thái thu tiền'])
+            );
+        }
+        if (filterCskh.length > 0) {
+            data = data.filter((row) => filterByMultiTrong(filterCskh, row['CSKH']));
+        }
+        if (filterShippingUnit.length > 0) {
+            data = data.filter((row) =>
+                filterByMultiTrong(filterShippingUnit, row['Đơn vị vận chuyển'])
+            );
+        }
+
         // Branch filter
         if (filterBranch) {
             data = data.filter(row => {
@@ -715,6 +1002,14 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         filterProduct,
         filterStatus,
         filterCheckResult,
+        filterSaleStaff,
+        filterMktStaff,
+        filterDeliveryStaff,
+        filterTeam,
+        filterPage,
+        filterPaymentDetail,
+        filterCskh,
+        filterShippingUnit,
         filterBranch,
         userBranchMap,
         startDate,
@@ -725,7 +1020,21 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [filterMarket, filterProduct, filterStatus, filterCheckResult, filterBranch]);
+    }, [
+        filterMarket,
+        filterProduct,
+        filterStatus,
+        filterCheckResult,
+        filterSaleStaff,
+        filterMktStaff,
+        filterDeliveryStaff,
+        filterTeam,
+        filterPage,
+        filterPaymentDetail,
+        filterCskh,
+        filterShippingUnit,
+        filterBranch
+    ]);
 
     // Pagination
     const totalPages = Math.ceil(filteredData.length / rowsPerPage);
@@ -887,7 +1196,7 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
                                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                                 <input
                                     type="text"
-                                    placeholder="Mã đơn, tên, SĐT, tracking..."
+                                    placeholder="Mã đơn, tracking, khách, địa chỉ, khu vực, NV Sale/MKT/Vận đơn, Team…"
                                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
                                     value={searchText}
                                     onChange={(e) => setSearchText(e.target.value)}
@@ -1205,6 +1514,108 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
                                 <div className="fixed inset-0 z-40" onClick={() => setShowCheckResultFilter(false)} aria-hidden />
                             )}
                         </div>
+
+                        <div
+                            className="w-full basis-full border-t border-gray-100 pt-3 mt-1"
+                            aria-hidden
+                        />
+
+                        <MultiCheckboxFilter
+                            label="Nhân viên Sale"
+                            open={showSaleStaffFilter}
+                            onOpenChange={setShowSaleStaffFilter}
+                            selected={filterSaleStaff}
+                            onSelected={setFilterSaleStaff}
+                            options={filteredSaleStaff}
+                            searchText={saleStaffFilterSearchText}
+                            onSearchText={setSaleStaffFilterSearchText}
+                            showSearch
+                            enableSelectAllFiltered
+                        />
+                        <MultiCheckboxFilter
+                            label="Nhân viên MKT"
+                            open={showMktStaffFilter}
+                            onOpenChange={setShowMktStaffFilter}
+                            selected={filterMktStaff}
+                            onSelected={setFilterMktStaff}
+                            options={filteredMktStaff}
+                            searchText={mktStaffFilterSearchText}
+                            onSearchText={setMktStaffFilterSearchText}
+                            showSearch
+                            enableSelectAllFiltered
+                        />
+                        <MultiCheckboxFilter
+                            label="NV Vận đơn"
+                            open={showDeliveryStaffFilter}
+                            onOpenChange={setShowDeliveryStaffFilter}
+                            selected={filterDeliveryStaff}
+                            onSelected={setFilterDeliveryStaff}
+                            options={filteredDeliveryStaff}
+                            searchText={deliveryStaffFilterSearchText}
+                            onSearchText={setDeliveryStaffFilterSearchText}
+                            showSearch
+                            enableSelectAllFiltered
+                        />
+                        <MultiCheckboxFilter
+                            label="Team"
+                            open={showTeamFilter}
+                            onOpenChange={setShowTeamFilter}
+                            selected={filterTeam}
+                            onSelected={setFilterTeam}
+                            options={filteredTeams}
+                            searchText={teamFilterSearchText}
+                            onSearchText={setTeamFilterSearchText}
+                            showSearch
+                            enableSelectAllFiltered
+                        />
+                        <MultiCheckboxFilter
+                            label="Page"
+                            open={showPageFilter}
+                            onOpenChange={setShowPageFilter}
+                            selected={filterPage}
+                            onSelected={setFilterPage}
+                            options={filteredPages}
+                            searchText={pageFilterSearchText}
+                            onSearchText={setPageFilterSearchText}
+                            showSearch
+                            enableSelectAllFiltered
+                        />
+                        <MultiCheckboxFilter
+                            label="Trạng thái thu tiền"
+                            open={showPaymentDetailFilter}
+                            onOpenChange={setShowPaymentDetailFilter}
+                            selected={filterPaymentDetail}
+                            onSelected={setFilterPaymentDetail}
+                            options={filteredPaymentDetails}
+                            searchText={paymentDetailFilterSearchText}
+                            onSearchText={setPaymentDetailFilterSearchText}
+                            showSearch
+                            enableSelectAllFiltered
+                        />
+                        <MultiCheckboxFilter
+                            label="CSKH"
+                            open={showCskhFilter}
+                            onOpenChange={setShowCskhFilter}
+                            selected={filterCskh}
+                            onSelected={setFilterCskh}
+                            options={filteredCskh}
+                            searchText={cskhFilterSearchText}
+                            onSearchText={setCskhFilterSearchText}
+                            showSearch
+                            enableSelectAllFiltered
+                        />
+                        <MultiCheckboxFilter
+                            label="Đơn vị vận chuyển"
+                            open={showShippingUnitFilter}
+                            onOpenChange={setShowShippingUnitFilter}
+                            selected={filterShippingUnit}
+                            onSelected={setFilterShippingUnit}
+                            options={filteredShippingUnits}
+                            searchText={shippingUnitFilterSearchText}
+                            onSearchText={setShippingUnitFilterSearchText}
+                            showSearch
+                            enableSelectAllFiltered
+                        />
 
                         {/* Branch Filter */}
                         <div className="min-w-[150px]">
