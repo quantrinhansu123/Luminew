@@ -1515,11 +1515,6 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
                             )}
                         </div>
 
-                        <div
-                            className="w-full basis-full border-t border-gray-100 pt-3 mt-1"
-                            aria-hidden
-                        />
-
                         <MultiCheckboxFilter
                             label="Nhân viên Sale"
                             open={showSaleStaffFilter}
