@@ -65,6 +65,48 @@ function isOnlyGiuaCaShift(shiftVal) {
   return n === 'giua ca';
 }
 
+/** Chuẩn hoá dấu phẩy / khoảng trắng trong cột Ca (vd. «Giữa ca, Hết ca» → «Giữa ca,Hết ca») — khớp NhapDonMoi / migration SQL. */
+function normalizeCaShiftDisplay(raw) {
+  return String(raw ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ',');
+}
+
+/**
+ * Suy ca từ datetime khi DB chưa có shift — cùng khung giờ với NhapDonMoi; chỉ khi chuỗi có giờ rõ ràng (tránh date-only → 00:00 sai).
+ */
+function inferCaShiftFromDateTime(dateTimeString) {
+  const s = String(dateTimeString ?? '').trim();
+  if (!s) return '';
+  const hasExplicitTime =
+    /^(\d{4}-\d{2}-\d{2})[T ]\d{2}:\d{2}/.test(s) || /^\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}/.test(s);
+  if (!hasExplicitTime) return '';
+  try {
+    let hour;
+    let minute;
+    const localMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+    if (localMatch) {
+      hour = parseInt(localMatch[4], 10);
+      minute = parseInt(localMatch[5], 10);
+    } else {
+      const date = new Date(s);
+      if (Number.isNaN(date.getTime())) return '';
+      hour = date.getHours();
+      minute = date.getMinutes();
+    }
+    const totalMinutes = hour * 60 + minute;
+    const startGiuaCa = 7 * 60 + 30;
+    const endGiuaCa = 15 * 60 + 30;
+    const endDay = 23 * 60 + 59;
+    if (totalMinutes >= startGiuaCa && totalMinutes <= endGiuaCa) return 'Giữa ca';
+    if (totalMinutes > endGiuaCa && totalMinutes <= endDay) return SHIFT_GIUA_CA_HET_CA;
+    return 'Hết ca';
+  } catch {
+    return '';
+  }
+}
+
 /** Khớp bộ phận Vận đơn trên users.department hoặc human_resources."Bộ phận". */
 function isBoPhanVanDon(dept) {
   const raw = (dept ?? '').toString().trim();
@@ -605,7 +647,11 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Trạng thái thu tiền": item.payment_status_detail,
     "Lý do": item.reason,
     "Page": item.page_name, // Map Page Name
-    "Ca": item.shift, // Map shift to Ca
+    "Ca": (() => {
+      const stored = normalizeCaShiftDisplay(item.shift ?? item.ca ?? '');
+      if (stored) return stored;
+      return inferCaShiftFromDateTime(item.created_at || item.order_date);
+    })(),
     "Payment Bill": item.payment_bill, // Trạng thái bill
     "Payment Image": item.payment_image, // Link hình ảnh bill
     "Cảnh báo trùng": item.canh_bao || '',

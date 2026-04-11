@@ -26,6 +26,7 @@ export const DB_TO_APP_MAPPING = {
     "marketing_staff": "Nhân viên MKT",
     "sale_staff": "Nhân viên Sale",
     "team": "Team",
+    "shift": "Ca",
     "delivery_staff": "NV Vận đơn",
     "delivery_status": "Trạng thái giao hàng",
     "payment_status": "Trạng thái thu tiền",
