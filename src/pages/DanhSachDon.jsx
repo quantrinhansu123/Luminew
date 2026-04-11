@@ -620,7 +620,10 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Khu vực": item.country, // Lấy từ country
     "Zipcode": item.zipcode,
     "Mặt hàng": item.product,
-    "Loại tiền thanh toán": item.payment_currency || item.paymentCurrency || '',
+    /** Chuẩn DB: payment_currency; fallback payment_type (dữ liệu cũ) — cùng quy tắc NhapDonMoi.readPaymentCurrencyFromOrderRow */
+    "Loại tiền thanh toán": String(
+      item.payment_currency ?? item.paymentCurrency ?? item.payment_type ?? ''
+    ).trim(),
     "Tên mặt hàng 1": item.product_name_1 || item.product,
     "Số lượng mặt hàng 1": item.quantity_1 ?? item.item_qty_1 ?? '',
     "Tên mặt hàng 2": item.product_name_2 ?? item.item_name_2 ?? '',
