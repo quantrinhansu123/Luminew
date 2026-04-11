@@ -1567,7 +1567,7 @@ function VanDon({ dataSource = 'default' }) {
 
     // Market & Product / NV / ĐVVC — tab Đơn Nhật & Đẩy FFM: bỏ lọc toolbar trên client (logic tab + API).
     // Phân trang backend: toolbar đã lọc ở API — lọc lại client dễ lệch chuẩn hóa → sót / ẩn nhầm dòng.
-    // LOGIC OR: Các bộ lọc hoạt động song song (chỉ cần thỏa mãn MỘT điều kiện)
+    // LOGIC AND: Các bộ lọc toolbar kết hợp — phải thỏa mãn TẤT CẢ điều kiện đang bật
     const queueTabSkipMarketAndNvToolbar = bolActiveTab === 'japan' || bolActiveTab === 'hanoi';
     try {
       if (!useBackendPagination) {
@@ -1616,13 +1616,12 @@ function VanDon({ dataSource = 'default' }) {
           });
         }
 
-        // Áp dụng logic OR: chỉ cần thỏa mãn MỘT trong các bộ lọc
+        // Áp dụng logic AND: phải thỏa mãn TẤT CẢ các bộ lọc đang bật
         if (activeFilters.length > 0) {
           data = data.filter(row => {
             const orderId = row[PRIMARY_KEY_COLUMN];
             
-            // Kiểm tra từng bộ lọc, nếu thỏa mãn BẤT KỲ bộ lọc nào thì giữ lại
-            return activeFilters.some(filter => {
+            return activeFilters.every(filter => {
               switch (filter.type) {
                 case 'market': {
                   const o = getPendingOriginal(orderId, 'Khu vực', 'khu vực', 'country');
@@ -1666,7 +1665,7 @@ function VanDon({ dataSource = 'default' }) {
             });
           });
           
-          console.log(`🔍 [VanDon OR Filter] Áp dụng ${activeFilters.length} bộ lọc song song (OR logic), còn ${data.length} đơn`);
+          console.log(`🔍 [VanDon AND Filter] Áp dụng ${activeFilters.length} bộ lọc toolbar (AND), còn ${data.length} đơn`);
         }
       }
     } catch (err) {
