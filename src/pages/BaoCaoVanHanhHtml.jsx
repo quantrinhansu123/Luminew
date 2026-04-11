@@ -126,15 +126,6 @@ function getBcvhCriteriaSlice(rawData, reportFilters, row) {
     });
 }
 
-/** Lùi / tiến theo lịch dương (trưa UTC cố định, tránh lệch DST). */
-const addCalendarDaysYmd = (ymd, deltaDays) => {
-    const s = String(ymd || '').slice(0, 10);
-    if (!YMD_RE.test(s)) return '';
-    const d = new Date(`${s}T12:00:00`);
-    d.setDate(d.getDate() + deltaDays);
-    return formatDateForInput(d);
-};
-
 const newBcvhRowId = () =>
     `bcvh-${
         typeof crypto !== 'undefined' && crypto.randomUUID
@@ -144,9 +135,7 @@ const newBcvhRowId = () =>
 
 const TABS = ['tab1', 'tab2', 'tab3', 'tab4', 'tab5'];
 const BCVH_CRITERIA_STORAGE_KEY = 'bao_cao_van_hanh_tab2_criteria_v1';
-/** Tab BC VH: mỗi ngày trong khoảng ít nhất một dòng auto; có thể nhiều dòng/ngày (SP/TT). Giới hạn tổng dòng để UI/fetch không quá tải. */
-const MAX_BCVH_DAILY_ROWS = 45;
-/** Tổng số dòng (dòng theo ngày + dòng thêm tay). */
+/** Tổng số dòng (dòng tiêu chí auto + dòng thêm tay). */
 const MAX_BCVH_ROWS_TOTAL = 60;
 
 /** Preset «Chọn nhanh» → khoảng ngày (local). */
@@ -202,126 +191,85 @@ function computePresetDateRange(dateRangeKey) {
     return { start, end };
 }
 
-function enumerateCalendarDays(fromYmd, toYmd) {
-    const a = String(fromYmd || '').slice(0, 10);
-    const b = String(toYmd || '').slice(0, 10);
-    if (!YMD_RE.test(a) || !YMD_RE.test(b) || a > b) return [];
-    const out = [];
-    let cur = a;
-    for (let guard = 0; guard < 400; guard += 1) {
-        out.push(cur);
-        if (cur === b) break;
-        const next = addCalendarDaysYmd(cur, 1);
-        if (!next || next < cur) break;
-        cur = next;
-    }
-    return out;
+function bcvhPmConfigKey(pm) {
+    const p = [...pm.product].map(String).sort((a, b) => a.localeCompare(b, 'vi')).join('\0');
+    const m = [...pm.market].map(String).sort((a, b) => a.localeCompare(b, 'vi')).join('\0');
+    return `${p}\n${m}`;
 }
 
-function buildDailyBcvhRowsFromDays(dayList, idFactory) {
-    return dayList.map((d) => ({
+/**
+ * Mỗi dòng auto = cả khoảng Từ–Đến; gom theo tổ hợp SP/TT (bỏ trùng).
+ */
+function reconcileAutoBcvhRowsToDateRange(prevAutoRows, newStart, newEnd, idFactory) {
+    /** @type {Map<string, { product: string[]; market: string[] }>} */
+    const byPm = new Map();
+    for (const r of prevAutoRows) {
+        if (r?.isManual) continue;
+        const pm = normalizeBcvhPmArrays(r.product, r.market);
+        const k = bcvhPmConfigKey(pm);
+        if (!byPm.has(k)) byPm.set(k, pm);
+    }
+    if (byPm.size === 0) {
+        return [
+            {
+                id: idFactory(),
+                startDate: newStart,
+                endDate: newEnd,
+                product: [],
+                market: [],
+                isManual: false
+            }
+        ];
+    }
+    return [...byPm.values()].map((pm) => ({
         id: idFactory(),
-        startDate: d,
-        endDate: d,
-        product: [],
-        market: [],
+        startDate: newStart,
+        endDate: newEnd,
+        product: [...pm.product],
+        market: [...pm.market],
         isManual: false
     }));
 }
 
-/**
- * Gom các dòng auto cùng một ngày (startDate === endDate) thành danh sách bộ lọc SP/TT.
- * Một ngày có thể có nhiều dòng (nhiều cặp SP/TT).
- */
-function reconcileDailyBcvhRowsFromPrevious(prevAutoRows, dayList, idFactory) {
-    /** @type {Map<string, Array<{ product: string[]; market: string[] }>>} */
-    const byDay = new Map();
-    for (const r of prevAutoRows) {
-        if (r?.isManual) continue;
-        const ds = String(r.startDate || '').slice(0, 10);
-        const de = String(r.endDate || '').slice(0, 10);
-        if (!YMD_RE.test(ds) || ds !== de) continue;
-        const pm = normalizeBcvhPmArrays(r.product, r.market);
-        if (!byDay.has(ds)) byDay.set(ds, []);
-        byDay.get(ds).push(pm);
-    }
-    const out = [];
-    for (const d of dayList) {
-        const list = byDay.get(d);
-        if (list && list.length > 0) {
-            for (const pm of list) {
-                out.push({
-                    id: idFactory(),
-                    startDate: d,
-                    endDate: d,
-                    product: [...pm.product],
-                    market: [...pm.market],
-                    isManual: false
-                });
-            }
-        } else {
-            out.push({
-                id: idFactory(),
-                startDate: d,
-                endDate: d,
-                product: [],
-                market: [],
-                isManual: false
-            });
-        }
-    }
-    return out;
-}
-
-/** Khôi phục dòng auto từ localStorage: mỗi ngày giữ đủ các dòng SP/TT đã lưu. */
-function expandAutoBcvhRowsFromStorage(days, idFactory, parsed) {
-    /** @type {Map<string, Array<{ product: string[]; market: string[] }>> | null} */
-    let byDayLists = null;
+/** Khôi phục dòng auto từ localStorage — ngày trên dòng = khoảng Từ–Đến hiện tại, giữ tổ hợp SP/TT. */
+function buildInitialAutoBcvhRowsFromStorage(startIso, endIso, idFactory, parsed) {
+    /** @type {Map<string, { product: string[]; market: string[] }>} */
+    const byPm = new Map();
     try {
         if (Array.isArray(parsed)) {
-            byDayLists = new Map();
             for (const item of parsed) {
                 if (item?.isManual) continue;
-                const ds = String(item?.startDate || '').slice(0, 10);
-                const de = String(item?.endDate || '').slice(0, 10);
-                if (!YMD_RE.test(ds) || ds !== de) continue;
-                if (!byDayLists.has(ds)) byDayLists.set(ds, []);
-                byDayLists.get(ds).push(normalizeBcvhPmArrays(item?.product, item?.market));
+                const pm = normalizeBcvhPmArrays(item?.product, item?.market);
+                const k = bcvhPmConfigKey(pm);
+                if (!byPm.has(k)) byPm.set(k, pm);
             }
         }
     } catch {
-        byDayLists = null;
+        // ignore
     }
-
-    const out = [];
-    for (const d of days) {
-        const list = byDayLists?.get(d);
-        if (list && list.length > 0) {
-            for (const pm of list) {
-                out.push({
-                    id: idFactory(),
-                    startDate: d,
-                    endDate: d,
-                    product: [...pm.product],
-                    market: [...pm.market],
-                    isManual: false
-                });
-            }
-        } else {
-            out.push({
+    if (byPm.size === 0) {
+        return [
+            {
                 id: idFactory(),
-                startDate: d,
-                endDate: d,
+                startDate: startIso,
+                endDate: endIso,
                 product: [],
                 market: [],
                 isManual: false
-            });
-        }
+            }
+        ];
     }
-    return out;
+    return [...byPm.values()].map((pm) => ({
+        id: idFactory(),
+        startDate: startIso,
+        endDate: endIso,
+        product: [...pm.product],
+        market: [...pm.market],
+        isManual: false
+    }));
 }
 
-/** Từ bulk SP/TT → danh sách tổ hợp lọc (mỗi phần tử = một dòng, lặp lại cho từng ngày khi áp dụng). */
+/** Từ bulk SP/TT → danh sách tổ hợp lọc (mỗi phần tử = một dòng trên bảng, một khoảng Từ–Đến). */
 function buildBcvhBulkFilterTuples(pIn, mIn) {
     const p = [...pIn];
     const m = [...mIn];
@@ -344,6 +292,51 @@ function buildBcvhBulkFilterTuples(pIn, mIn) {
     return tuples;
 }
 
+/**
+ * Gộp dòng auto từ SP/TT hàng loạt + giữ dòng tay (cùng logic «Tạo dòng từ lựa chọn»).
+ * Trả về null nếu khoảng ngày không hợp lệ.
+ */
+function computeBcvhCriteriaAfterBulkApply(prevCriteriaRows, bulkP, bulkM, start, end, idFactory = newBcvhRowId) {
+    const startY = String(start || '').slice(0, 10);
+    const endY = String(end || '').slice(0, 10);
+    if (!YMD_RE.test(startY) || !YMD_RE.test(endY) || startY > endY) return null;
+
+    const p = [...bulkP];
+    const m = [...bulkM];
+    const manual = prevCriteriaRows.filter((r) => r.isManual);
+    const cap = Math.max(0, MAX_BCVH_ROWS_TOTAL - manual.length);
+
+    let autoRows;
+    if (p.length === 0 && m.length === 0) {
+        autoRows = [
+            {
+                id: idFactory(),
+                startDate: startY,
+                endDate: endY,
+                product: [],
+                market: [],
+                isManual: false
+            }
+        ];
+    } else {
+        const tuples = buildBcvhBulkFilterTuples(p, m);
+        if (tuples.length === 0) return null;
+        autoRows = [];
+        for (const t of tuples) {
+            if (autoRows.length >= cap) break;
+            autoRows.push({
+                id: idFactory(),
+                startDate: startY,
+                endDate: endY,
+                product: [...t.product],
+                market: [...t.market],
+                isManual: false
+            });
+        }
+    }
+    return [...autoRows, ...manual];
+}
+
 function createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframeFlag) {
     let start = String(urlStartDate || '').slice(0, 10);
     let end = String(urlEndDate || '').slice(0, 10);
@@ -363,10 +356,6 @@ function createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframeFlag) {
         start = formatDateForInput(startD);
         end = formatDateForInput(endD);
     }
-    let days = enumerateCalendarDays(start, end);
-    if (days.length > MAX_BCVH_DAILY_ROWS) {
-        days = days.slice(0, MAX_BCVH_DAILY_ROWS);
-    }
     let parsed = null;
     try {
         if (typeof window !== 'undefined') {
@@ -376,7 +365,7 @@ function createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframeFlag) {
     } catch {
         parsed = null;
     }
-    let rows = expandAutoBcvhRowsFromStorage(days, newBcvhRowId, parsed);
+    let rows = buildInitialAutoBcvhRowsFromStorage(start, end, newBcvhRowId, parsed);
     if (rows.length > MAX_BCVH_ROWS_TOTAL) {
         rows = rows.slice(0, MAX_BCVH_ROWS_TOTAL);
     }
@@ -605,8 +594,6 @@ export default function BaoCaoVanHanhHtml() {
     const [bcvhCriteriaRows, setBcvhCriteriaRows] = useState(() =>
         createInitialBcvhDailyRows(urlStartDate, urlEndDate, inIframe)
     );
-    /** Khoảng Từ–Đến dài hơn MAX_BCVH_DAILY_ROWS — chỉ tạo dòng cho N ngày đầu trong khoảng. */
-    const [bcvhDailyRangeTruncated, setBcvhDailyRangeTruncated] = useState(false);
     const [bcvhBulkProduct, setBcvhBulkProduct] = useState([]);
     const [bcvhBulkMarket, setBcvhBulkMarket] = useState([]);
     /** SP/TT lấy sẵn từ DB khi chưa bấm Tìm (rawData rỗng) — MultiSelect không trống. */
@@ -737,24 +724,15 @@ export default function BaoCaoVanHanhHtml() {
         }));
     }, [reportFilters.dateRange]);
 
-    /** BC VH: mỗi ngày trong Từ–Đến = ít nhất một dòng; cùng ngày có thể nhiều dòng (nhiều SP/TT). */
+    /** BC VH: mỗi dòng auto = cả khoảng Từ–Đến; giữ tách dòng theo tổ hợp SP/TT đã chọn. */
     useEffect(() => {
         const a = String(reportFilters.startDate || '').slice(0, 10);
         const b = String(reportFilters.endDate || '').slice(0, 10);
         if (!YMD_RE.test(a) || !YMD_RE.test(b) || a > b) return;
-        let days = enumerateCalendarDays(a, b);
-        let truncated = false;
-        if (days.length > MAX_BCVH_DAILY_ROWS) {
-            days = days.slice(0, MAX_BCVH_DAILY_ROWS);
-            truncated = true;
-        } else {
-            truncated = false;
-        }
-        setBcvhDailyRangeTruncated(truncated);
         setBcvhCriteriaRows((prev) => {
             const manual = prev.filter((r) => r.isManual);
             const autoPrev = prev.filter((r) => !r.isManual);
-            let autoRows = reconcileDailyBcvhRowsFromPrevious(autoPrev, days, newBcvhRowId);
+            let autoRows = reconcileAutoBcvhRowsToDateRange(autoPrev, a, b, newBcvhRowId);
             const cap = Math.max(0, MAX_BCVH_ROWS_TOTAL - manual.length);
             if (autoRows.length > cap) {
                 autoRows = autoRows.slice(0, cap);
@@ -987,51 +965,6 @@ export default function BaoCaoVanHanhHtml() {
         setBcvhCriteriaRows((prev) => prev.filter((r) => !(r.id === id && r.isManual)));
     };
 
-    const applyBcvhBulkProductMarket = () => {
-        const p = [...bcvhBulkProduct];
-        const m = [...bcvhBulkMarket];
-        const start = String(reportFilters.startDate || '').slice(0, 10);
-        const end = String(reportFilters.endDate || '').slice(0, 10);
-        if (!YMD_RE.test(start) || !YMD_RE.test(end) || start > end) return;
-
-        let dayList = enumerateCalendarDays(start, end);
-        if (dayList.length > MAX_BCVH_DAILY_ROWS) {
-            dayList = dayList.slice(0, MAX_BCVH_DAILY_ROWS);
-        }
-
-        setBcvhCriteriaRows((prev) => {
-            const manual = prev.filter((r) => r.isManual);
-            const cap = Math.max(0, MAX_BCVH_ROWS_TOTAL - manual.length);
-
-            if (p.length === 0 && m.length === 0) {
-                let autoRows = buildDailyBcvhRowsFromDays(dayList, newBcvhRowId);
-                if (autoRows.length > cap) autoRows = autoRows.slice(0, cap);
-                return [...autoRows, ...manual];
-            }
-
-            const tuples = buildBcvhBulkFilterTuples(p, m);
-            if (tuples.length === 0) return prev;
-
-            const autoRows = [];
-            outer: for (const d of dayList) {
-                for (const t of tuples) {
-                    if (autoRows.length >= cap) break outer;
-                    autoRows.push({
-                        id: newBcvhRowId(),
-                        startDate: d,
-                        endDate: d,
-                        product: [...t.product],
-                        market: [...t.market],
-                        isManual: false
-                    });
-                }
-            }
-            return [...autoRows, ...manual];
-        });
-        setBcvhBulkProduct([]);
-        setBcvhBulkMarket([]);
-    };
-
     const clearAllBcvhProductMarketFilters = () => {
         setBcvhBulkProduct([]);
         setBcvhBulkMarket([]);
@@ -1191,14 +1124,15 @@ export default function BaoCaoVanHanhHtml() {
         </thead>
     );
 
-    const fetchData = async () => {
+    const fetchData = async (opts) => {
         const PAGE_SIZE = 1000; // phân trang để lấy full dữ liệu theo khoảng ngày
         if (!reportFilters.startDate || !reportFilters.endDate) {
             alert('Vui lòng chọn khoảng thời gian.');
             return;
         }
-        const rowStarts = bcvhCriteriaRows.map((r) => r.startDate).filter(Boolean);
-        const rowEnds = bcvhCriteriaRows.map((r) => r.endDate).filter(Boolean);
+        const criteriaRowsForQuery = opts?.bcvhCriteriaRowsOverride ?? bcvhCriteriaRows;
+        const rowStarts = criteriaRowsForQuery.map((r) => r.startDate).filter(Boolean);
+        const rowEnds = criteriaRowsForQuery.map((r) => r.endDate).filter(Boolean);
         const allStarts = [reportFilters.startDate, ...rowStarts];
         const allEnds = [reportFilters.endDate, ...rowEnds];
         const qStart = allStarts.reduce((a, b) => (a < b ? a : b));
@@ -1415,6 +1349,40 @@ export default function BaoCaoVanHanhHtml() {
         } finally {
             setLoading(false);
         }
+    };
+
+    /** Tab 2: áp dụng SP/TT hàng loạt lên các dòng auto rồi tải dữ liệu (một nút). */
+    const runTab2SearchWithBulk = async () => {
+        if (!reportFilters.startDate || !reportFilters.endDate) {
+            alert('Vui lòng chọn khoảng thời gian.');
+            return;
+        }
+        const start = String(reportFilters.startDate || '').slice(0, 10);
+        const end = String(reportFilters.endDate || '').slice(0, 10);
+        if (!YMD_RE.test(start) || !YMD_RE.test(end) || start > end) {
+            alert('Vui lòng chọn khoảng thời gian.');
+            return;
+        }
+        const next = computeBcvhCriteriaAfterBulkApply(
+            bcvhCriteriaRows,
+            bcvhBulkProduct,
+            bcvhBulkMarket,
+            start,
+            end
+        );
+        if (next === null) {
+            alert('Vui lòng chọn khoảng thời gian.');
+            return;
+        }
+        setBcvhCriteriaRows(next);
+        setBcvhBulkProduct([]);
+        setBcvhBulkMarket([]);
+        await fetchData({ bcvhCriteriaRowsOverride: next });
+        const p = new URLSearchParams(searchParams);
+        p.set('from_date', reportFilters.startDate);
+        p.set('to_date', reportFilters.endDate);
+        p.set('tab', activeTab);
+        setSearchParams(p, { replace: true });
     };
 
     const renderMetricPair = (m) => (
@@ -2209,14 +2177,6 @@ export default function BaoCaoVanHanhHtml() {
                         <div className="flex flex-wrap items-center gap-2">
                             <button
                                 type="button"
-                                disabled={loading}
-                                className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white disabled:bg-gray-400"
-                                onClick={runTabSearch}
-                            >
-                                {loading ? 'Đang tải…' : '🔍 Tìm'}
-                            </button>
-                            <button
-                                type="button"
                                 onClick={addBcvhRow}
                                 disabled={bcvhCriteriaRows.length >= MAX_BCVH_ROWS_TOTAL}
                                 className="shrink-0 rounded border border-gray-400 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -2230,12 +2190,6 @@ export default function BaoCaoVanHanhHtml() {
                             </button>
                         </div>
                     </div>
-                    {bcvhDailyRangeTruncated && (
-                        <p className="mb-2 rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
-                            Khoảng Từ–Đến dài hơn {MAX_BCVH_DAILY_ROWS} ngày: chỉ tạo {MAX_BCVH_DAILY_ROWS} dòng cho các
-                            ngày đầu trong khoảng. Thu hẹp khoảng ngày nếu cần đủ từng ngày.
-                        </p>
-                    )}
                     <div className="mb-2 flex flex-wrap items-end gap-2 rounded border border-gray-200 bg-gray-50 px-2 py-2 text-xs text-gray-700">
                         <span className="self-center font-medium text-gray-600">Áp dụng hàng loạt:</span>
                         <div className="min-w-[9.5rem] max-w-[14rem] flex-1">
@@ -2260,11 +2214,12 @@ export default function BaoCaoVanHanhHtml() {
                         </div>
                         <button
                             type="button"
-                            className="rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
-                            onClick={applyBcvhBulkProductMarket}
-                            title="Với mỗi ngày trong Từ–Đến: lặp lại bộ tổ hợp SP/TT đã chọn (nhiều SP/TT → nhiều dòng/ngày). Để trống SP và TT rồi bấm → một dòng/ngày không lọc."
+                            disabled={loading}
+                            className="rounded bg-[#20744a] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#1a5f3c] disabled:bg-gray-400"
+                            onClick={runTab2SearchWithBulk}
+                            title="Áp dụng SP/TT hàng loạt lên các dòng báo cáo (để trống = một dòng không lọc SP/TT), rồi tải dữ liệu."
                         >
-                            Tạo dòng từ lựa chọn
+                            {loading ? 'Đang tải…' : '🔍 Tìm'}
                         </button>
                         <button
                             type="button"
@@ -2335,7 +2290,7 @@ export default function BaoCaoVanHanhHtml() {
                                                         title={
                                                             line.isManual
                                                                 ? 'Dòng thêm tay — chỉnh ngày'
-                                                                : 'Theo từng ngày trong khoảng Từ–Đến'
+                                                                : 'Bắt đầu khoảng (theo Từ ngày ở bộ lọc trên)'
                                                         }
                                                         className={`bcvh-cell-input text-gray-700 ${line.isManual ? '' : 'cursor-default bg-gray-50'}`}
                                                         value={line.startDate || ''}
@@ -2358,7 +2313,7 @@ export default function BaoCaoVanHanhHtml() {
                                                         title={
                                                             line.isManual
                                                                 ? 'Dòng thêm tay — chỉnh ngày'
-                                                                : 'Cùng ngày với cột Ngày đầu'
+                                                                : 'Kết thúc khoảng (theo Đến ngày ở bộ lọc trên)'
                                                         }
                                                         className={`bcvh-cell-input text-gray-700 ${line.isManual ? '' : 'cursor-default bg-gray-50'}`}
                                                         value={line.endDate || ''}
