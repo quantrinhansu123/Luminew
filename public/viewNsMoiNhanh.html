@@ -1012,10 +1012,11 @@
 
     function normalizeCaForRowKey(caVal) {
       const s = normalizeFieldForKey(caVal);
-      // Ca trống (không có "Hết ca/Giữa ca") mặc định quy về "Hết ca" để khớp rule tính Số đơn thực tế.
+      // Ca trống → het. «Giữa ca,Hết ca» → chỉ gua (không coi là het — tránh sai số khi gộp key).
       if (!s) return 'het';
       const hasHet = s.includes('hết ca') || s.includes('het ca');
       const hasGua = s.includes('giữa ca') || s.includes('giua ca');
+      if (hasHet && hasGua) return 'gua';
       if (hasHet) return 'het';
       if (hasGua) return 'gua';
       return s;

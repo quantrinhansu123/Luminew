@@ -247,7 +247,8 @@ function buildKey(dateStr, name, product, market) {
 
 /**
  * Chuẩn ca về segment key (Ngày|Tên|SP|TT|ca) — cùng logic tách phẩy với orderShiftToGroups.
- * Có «Hết ca» (kể cả chuỗi «Giữa ca, Hết ca») → luôn `het` — khớp cách recalc lấy primaryGroup = Hết ca cho dòng gộp 2 ca.
+ * «Giữa ca,Hết ca» → `gua` (chỉ bucket Giữa ca cho key; cột ca gốc vẫn giữ chuỗi gộp) — khớp viewNsMoiNhanh / HCM.
+ * Chỉ «Hết ca» → `het`; chỉ «Giữa ca» → `gua`; trống → `het`.
  */
 function normalizeCaForRowKey(caVal) {
   const s = normalizeFieldForKey(caVal);
@@ -255,6 +256,7 @@ function normalizeCaForRowKey(caVal) {
   const g = orderShiftToGroups(caVal);
   const hasHet = g.includes('Hết ca');
   const hasGua = g.includes('Giữa ca');
+  if (hasHet && hasGua) return 'gua';
   if (hasHet) return 'het';
   if (hasGua) return 'gua';
   return s;

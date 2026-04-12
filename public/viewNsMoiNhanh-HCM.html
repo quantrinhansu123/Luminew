@@ -2037,13 +2037,14 @@
       return groups;
     }
 
-    /** Khớp mktRecalcSoDonThucTeFromOrders: có Hết ca (kể cả «Giữa ca, Hết ca») → het; chỉ Giữa ca → gua; trống → het. */
+    /** Khớp mktRecalcSoDonThucTeFromOrders: «Giữa ca,Hết ca» → gua; chỉ Hết ca → het; chỉ Giữa ca → gua; trống → het. */
     function normalizeCaForRowKey(caVal) {
       const s = normalizeFieldForKey(caVal);
       if (!s) return 'het';
       const g = orderShiftToGroupsForMktKey(caVal);
       const hasHet = g.includes('Hết ca');
       const hasGua = g.includes('Giữa ca');
+      if (hasHet && hasGua) return 'gua';
       if (hasHet) return 'het';
       if (hasGua) return 'gua';
       return s;
@@ -2055,7 +2056,7 @@
      * - Ngày: YYYY-MM-DD (parse từ ô Ngày).
      * - Tên: chuẩn hóa mạnh (bỏ dấu, ký tự ẩn…).
      * - SP / TT: chữ thường, gộp khoảng trắng, gắn số-chữ (vd. "20 x" → "20x").
-     * - Ca: trống → het; có «Hết ca» (kể cả kèm «Giữa ca») → het; chỉ «Giữa ca» → gua; khác → chuỗi đã chuẩn hóa.
+     * - Ca: trống → het; «Giữa ca,Hết ca» → gua; chỉ «Hết ca» → het; chỉ «Giữa ca» → gua; khác → chuỗi đã chuẩn hóa.
      */
     function buildMktDetailReportRowKey(row) {
       const r = row || {};
