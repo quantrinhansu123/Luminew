@@ -2,6 +2,7 @@
  * Logic trích từ nhanSuSaleLumiMoi.html (giữ nguyên công thức / lọc / gom nhóm).
  */
 
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import { convertDateToAPIFormat } from '../services/ordersApiService';
 
@@ -526,7 +527,7 @@ export function mapSupabaseSalesReportRow(row) {
     team,
     chiNhanh: displayChiNhanhFromBranchAndTeam(row.branch, row.team),
     ngay: row.date ?? '',
-    ca: row.shift || 'Hết ca',
+    ca: row.shift || REPORT_CA_COMBINED,
     sanPham: row.product || '',
     thiTruong: row.market || '',
     soMessCmt: Number(row.mess_count) || 0,
@@ -562,7 +563,7 @@ export function mapLumidataSalesReportRow(item) {
     team,
     chiNhanh: displayChiNhanhFromBranchAndTeam(item.branch, item.team),
     ngay: item.date ?? '',
-    ca: item.ca || 'Hết ca',
+    ca: item.ca || REPORT_CA_COMBINED,
     sanPham: item.san_pham || '',
     thiTruong: item.thi_truong || '',
     soMessCmt: Number(item.mess_count) || 0,

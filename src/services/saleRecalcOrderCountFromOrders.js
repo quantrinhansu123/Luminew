@@ -1,3 +1,4 @@
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, normalizePersonKey } from '../utils/emailFromName';
 import { getCheckResult, isCheckResultHuy, orderAmountVnd } from '../utils/orderCheckAndVnd';
@@ -377,6 +378,7 @@ export async function recalcSaleOrderCountFromOrders({
       existingByShiftKey.add(`${gs[0]}|${key}`);
     } else if (gs.length === 2) {
       existingByShiftKey.add(`Hết ca|${key}`);
+      existingByShiftKey.add(`Giữa ca|${key}`);
     }
   }
 
@@ -411,7 +413,7 @@ export async function recalcSaleOrderCountFromOrders({
       revenue_go_actual: goRevenue,
     };
     if (gs.length === 2) {
-      patch.shift = 'Hết ca';
+      patch.shift = REPORT_CA_COMBINED;
     }
     if (resolvedEmail && !String(r.email ?? '').trim()) {
       patch.email = resolvedEmail;
@@ -422,7 +424,7 @@ export async function recalcSaleOrderCountFromOrders({
 
     if (previewRows.length < PREVIEW_LIMIT) {
       previewRows.push({
-        ca: primaryGroup,
+        ca: gs.length === 2 ? REPORT_CA_COMBINED : primaryGroup,
         Ngày: normalizeDateStr(r.date),
         Tên: String(r.name || '').trim(),
         Sản_phẩm: String(r.product || '').trim(),
@@ -465,7 +467,7 @@ export async function recalcSaleOrderCountFromOrders({
         email: email || null,
         team: teamForRow,
         date: entry.sample.date,
-        shift: group,
+        shift: REPORT_CA_COMBINED,
         product: entry.sample.product || null,
         market: entry.sample.market || null,
         order_count: entry.count,
@@ -477,10 +479,12 @@ export async function recalcSaleOrderCountFromOrders({
         revenue_go_actual: entry.goRevenueVnd ?? 0,
       };
       createRows.push(row);
+      existingByShiftKey.add(`Hết ca|${key}`);
+      existingByShiftKey.add(`Giữa ca|${key}`);
 
       if (previewRows.length < PREVIEW_LIMIT) {
         previewRows.push({
-          ca: group,
+          ca: REPORT_CA_COMBINED,
           Ngày: row.date,
           Tên: row.name,
           Sản_phẩm: row.product || '',

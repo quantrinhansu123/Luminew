@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 
@@ -9,7 +10,7 @@ export default function BaoCaoRnD() {
 
     const [appData, setAppData] = useState({
         employeeDetails: [],
-        shiftList: ['Hết ca', 'Giữa ca'],
+        shiftList: [REPORT_CA_COMBINED],
         productList: [
             'Sản phẩm R&D 1',
             'Sản phẩm R&D 2',

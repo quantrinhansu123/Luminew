@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { getDetailReportsStatisticsByQuery } from '../services/detailReportsApiService';
 import './TestMKT.css';
 import '../pages/XemBaoCaoMKT.css';
@@ -52,7 +53,7 @@ function TestMKT() {
       console.warn('⚠️ Could not fetch filter options, using mock data');
       // Use mock data
       setTeams(["MARKETING", "MKT - Đức Anh", "HN-MKT", "Team Test", "MKT-Công ty-HCM", "MKT - Đức Anh 1", "MKT-Công ty-HN"]);
-      setCas(["Hết ca", "Giữa ca", "Unknown"]);
+      setCas([REPORT_CA_COMBINED, 'Unknown']);
       setSanPhams(["Gel Trĩ", "Fitgum CAFE 20X", "Bakuchiol Retinol", "DG", "Kem Body", "Serum Sâm", "Bonavita Coffee", "Dán Kinoki", "Dragon Blood Cream", "Brusko coffe", "ComboGold24k", "Unknown", "Gel Xương Khớp", "Sữa tắm CUISHIFAN"]);
       setThiTruongs(["Nhật Bản", "Canada", "Hàn Quốc", "US", "Úc", "CĐ Nhật Bản", "Unknown"]);
     }

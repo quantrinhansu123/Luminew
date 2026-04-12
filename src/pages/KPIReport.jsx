@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useReportData } from "../hooks/useReportData";
 import { KPIReportTab } from "../components/tabs/KPIReportTab";
+import { REPORT_CA_COMBINED, rowCaMatchesSelectedShifts } from "../constants/reportShifts";
 import FilterPanel from "../components/FilterPanel";
 import { ChevronLeft } from 'lucide-react';
 import { Settings } from 'lucide-react';
@@ -31,7 +32,7 @@ export default function KPIReport() {
 
   const [availableFilters, setAvailableFilters] = useState({
     products: [],
-    shifts: ["Giữa ca", "Hết ca"],
+    shifts: [REPORT_CA_COMBINED],
     markets: [],
     teams: [],
   });
@@ -197,7 +198,7 @@ export default function KPIReport() {
       filtered = filtered.filter((r) => filters.products.includes(r.product));
     }
     if (filters.shifts.length > 0) {
-      filtered = filtered.filter((r) => filters.shifts.includes(r.shift));
+      filtered = filtered.filter((r) => rowCaMatchesSelectedShifts(r.shift, filters.shifts));
     }
     if (filters.markets.length > 0) {
       filtered = filtered.filter((r) => filters.markets.includes(r.market));

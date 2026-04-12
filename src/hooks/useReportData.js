@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 
 // Add useSnapshot parameter, default to true for safety/performance as requested
@@ -31,7 +32,7 @@ export function useReportData(userRole, userTeam, userEmail, useSnapshot = false
                   name: "Nhân viên Test 1",
                   email: "test.nv1@gmail.com",
                   date: new Date().toISOString(),
-                  shift: "Hết ca",
+                  shift: REPORT_CA_COMBINED,
                   product: "Sản phẩm A",
                   market: "Hà Nội",
                   team: "Team Test",
@@ -56,7 +57,7 @@ export function useReportData(userRole, userTeam, userEmail, useSnapshot = false
                   name: "Nhân viên Test 2",
                   email: "test.nv2@gmail.com",
                   date: new Date().toISOString(),
-                  shift: "Giữa ca",
+                  shift: REPORT_CA_COMBINED,
                   product: "Sản phẩm B",
                   market: "Hồ Chí Minh",
                   team: "Team Test",

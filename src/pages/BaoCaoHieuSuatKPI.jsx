@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, RefreshCw, Settings } from "lucide-react";
 import { toast } from "react-toastify";
+import { REPORT_CA_COMBINED, rowCaMatchesSelectedShifts } from "../constants/reportShifts";
 import FilterPanel from "../components/FilterPanel";
 import ColumnSettingsModal from "../components/ColumnSettingsModal";
 
@@ -35,7 +36,7 @@ export default function BaoCaoHieuSuatKPI() {
 
   const [availableFilters, setAvailableFilters] = useState({
     products: [],
-    shifts: ["Giữa ca", "Hết ca"],
+    shifts: [REPORT_CA_COMBINED],
     markets: [],
     teams: [],
   });
@@ -632,7 +633,7 @@ export default function BaoCaoHieuSuatKPI() {
 
     if (filters.shifts && filters.shifts.length > 0) {
       filtered = filtered.filter((report) =>
-        filters.shifts.includes(report.ca)
+        rowCaMatchesSelectedShifts(report.ca, filters.shifts)
       );
     }
 

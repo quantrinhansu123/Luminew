@@ -4,6 +4,7 @@ import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { buildMktReportDedupeKey, normalizeMktReportDate } from '../utils/mktDetailReportKey';
 import { MktSearchableProductSelect } from '../components/mkt/MktSearchableProductSelect';
 
@@ -230,7 +231,7 @@ export default function BaoCaoMarketing({
     mktHnUserEmployees: [],
     /** Sheet / fallback khi không có user MKT HN trong DB */
     sheetLookupEmployees: [],
-    shiftList: ['Hết ca', 'Giữa ca'],
+    shiftList: [REPORT_CA_COMBINED],
     productList: [
       'Gel Dạ Dày',
       'Gel Trĩ',
@@ -822,17 +823,19 @@ export default function BaoCaoMarketing({
         query = query.ilike('marketing_staff', `%${reportName.trim()}%`);
       }
 
-      // Filter by shift/ca
+      // Filter by shift/ca — ca chuẩn gộp: lấy đơn có Giữa ca hoặc Hết ca (kể cả shift gộp trên đơn)
       const caValue = String(reportCa || '').trim();
+      const caLo = caValue.toLowerCase();
+      const hasHet = caLo.includes('hết ca') || caLo.includes('het ca');
+      const hasGua = caLo.includes('giữa ca') || caLo.includes('giua ca');
 
-      if (caValue === 'Hết ca' || caValue.toLowerCase() === 'hết ca') {
-        // Hết ca: tính đơn có shift chứa "Hết ca"
+      if (hasHet && hasGua) {
+        query = query.or('shift.ilike.%Hết ca%,shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
+      } else if (hasHet && !hasGua) {
         query = query.ilike('shift', '%Hết ca%');
-      } else if (caValue === 'Giữa ca' || caValue.toLowerCase() === 'giữa ca') {
-        // Giữa ca: tính đơn có shift chứa "Giữa ca" hoặc "giữa ca"
+      } else if (hasGua && !hasHet) {
         query = query.or('shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
       } else if (caValue) {
-        // Other ca: partial match
         query = query.ilike('shift', `%${caValue}%`);
       }
 
@@ -1392,9 +1395,9 @@ export default function BaoCaoMarketing({
 
           // Auto-fields if missing
           if (!rowObject['Ngày']) rowObject['Ngày'] = getToday();
-          // Ca trống → Giữa ca (giống nhập đơn / recalc chỉ xử lý Hết ca | Giữa ca)
+          // Ca trống → chuỗi gộp chuẩn (một giá trị cho cả ngày)
           if (!String(rowObject['ca'] ?? '').trim()) {
-            rowObject['ca'] = 'Giữa ca';
+            rowObject['ca'] = REPORT_CA_COMBINED;
           }
 
           // Note: Số đơn thực tế và Doanh số thực tế được tính tự động từ orders table sau khi insert

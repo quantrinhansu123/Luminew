@@ -1,3 +1,4 @@
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { normalizePersonKey } from './emailFromName';
 
 /** Cùng logic chuẩn hóa ngày với mktRecalcSoDonThucTeFromOrders / Key(R) */
@@ -55,15 +56,17 @@ export function reportCaToGroup(caVal) {
 }
 
 /**
- * Bucket ca cho key khớp DB / nhập đơn: ca trống coi như "Giữa ca" (mặc định app),
- * tránh lệch key giữa form (để trống) và dòng đã có từ recalc ("Giữa ca").
+ * Bucket ca cho key gộp báo cáo: mọi ca chuẩn (Giữa / Hết / gộp) cùng một bucket
+ * để không tách thành hai dòng trùng key.
  */
 export function caBucketForDedupeKey(row) {
-  const g = reportCaToGroup(row?.ca);
-  if (g) return g;
-  const raw = normalizePersonKey(row?.ca);
-  if (raw) return `raw:${raw}`;
-  return 'Giữa ca';
+  const raw = String(row?.ca ?? '').trim();
+  if (!raw) return REPORT_CA_COMBINED;
+  const lower = normalizePersonKey(raw);
+  const hasHet = lower.includes('hết ca') || lower.includes('het ca');
+  const hasGua = lower.includes('giữa ca') || lower.includes('giua ca');
+  if (hasHet || hasGua) return REPORT_CA_COMBINED;
+  return `raw:${lower}`;
 }
 
 /**

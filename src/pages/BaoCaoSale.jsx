@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
 
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
 import { isDateInRange } from '../utils/dateParsing';
@@ -452,7 +453,7 @@ export default function BaoCaoSale({ reportType = 'sale' } = {}) {
                 team: item.team || '',
                 chiNhanh: item.branch || 'Không xác định',
                 ngay: item.date || '',
-                ca: item.ca || 'Hết ca',
+                ca: item.ca || REPORT_CA_COMBINED,
                 sanPham: item.san_pham || '',
                 thiTruong: item.thi_truong || '',
                 soMessCmt: Number(item.mess_count) || 0,

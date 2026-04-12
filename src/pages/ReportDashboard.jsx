@@ -10,6 +10,7 @@ import { KPIReportTab } from "../components/tabs/KPIReportTab";
 import { MarketEffectivenessTab } from "../components/tabs/MarketEffectivenessTab";
 import { UserManagementTab } from "../components/tabs/UserManagementTab";
 import { BaoCaoThuCongTab } from "../components/tabs/BaoCaoThuCongTab";
+import { REPORT_CA_COMBINED, rowCaMatchesSelectedShifts } from "../constants/reportShifts";
 import FilterPanel from "../components/FilterPanel";
 import { ChevronLeft } from 'lucide-react';
 
@@ -48,7 +49,7 @@ function ReportDashboard() {
 
   const [availableFilters, setAvailableFilters] = useState({
     products: [],
-    shifts: ["Giữa ca", "Hết ca"],
+    shifts: [REPORT_CA_COMBINED],
     markets: [],
     teams: [],
   });
@@ -319,7 +320,9 @@ function ReportDashboard() {
 
     // Shift filter by Ca
     if (filters.shifts.length > 0) {
-      filtered = filtered.filter((item) => filters.shifts.includes(item["Ca"]));
+      filtered = filtered.filter((item) =>
+        rowCaMatchesSelectedShifts(item["Ca"], filters.shifts)
+      );
     }
 
     // Team filter
@@ -419,7 +422,7 @@ function ReportDashboard() {
     // Shift filter
     if (filters.shifts.length > 0) {
       filtered = filtered.filter((report) =>
-        filters.shifts.includes(report.shift)
+        rowCaMatchesSelectedShifts(report.shift, filters.shifts)
       );
     }
 
@@ -491,7 +494,7 @@ function ReportDashboard() {
 
     // Shift filter
     if (filters.shifts.length > 0) {
-      filtered = filtered.filter((r) => filters.shifts.includes(r.shift));
+      filtered = filtered.filter((r) => rowCaMatchesSelectedShifts(r.shift, filters.shifts));
     }
 
     // Market filter

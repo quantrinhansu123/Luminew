@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { F3ReportTab } from "../components/tabs/F3ReportTab";
+import { REPORT_CA_COMBINED } from "../constants/reportShifts";
 import FilterPanel from "../components/FilterPanel";
 import ColumnSettingsModal from "../components/ColumnSettingsModal";
 import { ChevronLeft, Settings } from 'lucide-react';
@@ -28,7 +29,7 @@ export default function F3Report() {
 
   const [availableFilters, setAvailableFilters] = useState({
     products: [],
-    shifts: ["Giữa ca", "Hết ca"],
+    shifts: [REPORT_CA_COMBINED],
     markets: [],
     teams: [],
   });

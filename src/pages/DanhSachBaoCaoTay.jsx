@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import * as rbacService from '../services/rbacService';
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../services/supabaseClient';
 import './BaoCaoSale.css'; // Reusing styles for consistency
 
@@ -359,7 +360,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         products: [],
         markets: [],
         branches: [],
-        shifts: ['Hết ca', 'Giữa ca']
+        shifts: [REPORT_CA_COMBINED]
     });
 
     // Load selected personnel names for current user
@@ -911,11 +912,23 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
 
                 const branches = [...new Set(branchesData?.map(b => b.branch).filter(Boolean))].sort();
 
+                const { data: shiftData } = await supabase
+                    .from(reportTable)
+                    .select('shift')
+                    .not('shift', 'is', null)
+                    .limit(2000);
+                const shiftsFromDb = [
+                    ...new Set(shiftData?.map((r) => String(r.shift || '').trim()).filter(Boolean)),
+                ];
+                const shifts = [...new Set([REPORT_CA_COMBINED, ...shiftsFromDb])].sort((a, b) =>
+                    a.localeCompare(b, 'vi', { sensitivity: 'base' })
+                );
+
                 setEditOptions({
                     products,
                     markets,
                     branches,
-                    shifts: ['Hết ca', 'Giữa ca']
+                    shifts
                 });
             } catch (error) {
                 console.error('Error loading edit options:', error);

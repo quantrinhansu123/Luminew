@@ -5,7 +5,7 @@ const SCRIPT_URL = 'https://n-api-gamma.vercel.app/bulk-insert';
 const SPREADSHEET_ID = '1ylYT0UAcahij5UtDikKyJFWT3gIyRZsuFsYQ5aUTi2Y';
 const EMPLOYEE_API_URL = 'https://n-api-rouge.vercel.app/sheet/getSheets?rangeSheet=A:K&sheetName=Nh%C3%A2n%20s%E1%BB%B1&spreadsheetId=1Cl-56By1eYFB4G7ITuG0IQhH39ITwo0AkZPFvsLfo54';
 
-const SHIFT_LIST = ["Hết ca", "Giữa ca"];
+const SHIFT_LIST = ['Giữa ca,Hết ca'];
 const PRODUCT_LIST = ["Gel Dạ Dày", "Gel Trĩ", "ComboGold24k", "Fitgum CAFE 20X", "Bonavita Coffee", "Dragon Blood Cream", "Kem Body", "Bakuchiol Retinol", "Serum sâm", "DG", "Kẹo Táo", "Glutathione Collagen", "Glutathione Collagen NEW", "Gel trị ngứa", "Nám DR Hancy", "Gel Xương Khớp", "Gel XK Thái", "Gel XK Phi", "Dán Kinoki", "Sữa tắm CUISHIFAN"];
 const MARKET_LIST = ["Nhật Bản", "Hàn Quốc", "Canada", "US", "Úc", "Anh", "CĐ Nhật Bản"];
 

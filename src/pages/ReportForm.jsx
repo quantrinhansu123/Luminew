@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../services/supabaseClient';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 
@@ -27,7 +28,7 @@ function ReportForm({
     name: '',
     email: '',
     date: new Date().toISOString().split('T')[0],
-    shift: 'Hết ca', // Tự động điền "Hết ca"
+    shift: REPORT_CA_COMBINED,
     branch: ''
   });
 
@@ -292,7 +293,7 @@ function ReportForm({
         name,
         email,
         date: currentDate,
-        shift: 'Hết ca', // Tự động điền "Hết ca"
+        shift: REPORT_CA_COMBINED,
         branch: userBranch
       }));
 
@@ -301,7 +302,7 @@ function ReportForm({
         name: name,
         email: email,
         date: currentDate,
-        shift: 'Hết ca', // Tự động điền "Hết ca"
+        shift: REPORT_CA_COMBINED,
         product: '',
         market: '',
         branch: userBranch, // Tự động điền chi nhánh từ users
@@ -350,11 +351,13 @@ function ReportForm({
 
     const lastReport = reports[reports.length - 1] || defaultInfo;
     const normalizedShift = String(lastReport.shift || '').trim().toLowerCase();
-    const isGiuaCa = normalizedShift.includes('giữa ca') || normalizedShift.includes('giua ca');
+    const hasHet = normalizedShift.includes('hết ca') || normalizedShift.includes('het ca');
+    const hasGua = normalizedShift.includes('giữa ca') || normalizedShift.includes('giua ca');
+    const isGiuaCaOnly = hasGua && !hasHet;
 
-    // Sale only: không tự động thêm dòng khi dòng hiện tại là "Giữa ca"
-    if (isGiuaCa) {
-      toast.info('Dòng "Giữa ca" không tự động thêm. Chỉ thêm 1 lần "Hết ca".', {
+    // Legacy: chỉ «Giữa ca» — không tự thêm dòng (dữ liệu cũ)
+    if (isGiuaCaOnly) {
+      toast.info('Dòng chỉ «Giữa ca» (cũ) không tự động thêm. Nên dùng ca «Giữa ca,Hết ca».', {
         position: 'top-right',
         autoClose: 2500
       });
@@ -365,7 +368,7 @@ function ReportForm({
       name: lastReport.name,
       email: lastReport.email,
       date: lastReport.date,
-      shift: 'Hết ca',
+      shift: REPORT_CA_COMBINED,
       product: lastReport.product || '',
       market: lastReport.market || '',
       branch: lastReport.branch || defaultInfo.branch || '',
@@ -497,7 +500,7 @@ function ReportForm({
         name: defaultInfo.name,
         email: defaultInfo.email,
         date: new Date().toISOString().split('T')[0],
-        shift: 'Hết ca', // Tự động điền "Hết ca"
+        shift: REPORT_CA_COMBINED,
         product: '',
         market: '',
         branch: defaultInfo.branch || '', // Giữ chi nhánh
@@ -534,7 +537,7 @@ function ReportForm({
         {/* Main Table */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 overflow-hidden">
           <p className="mb-3 text-xs text-gray-500 leading-snug">
-            * Mẹo: Dòng mới sao chép Tên, Email, Ngày, Chi nhánh từ dòng trên; Ca mặc định &quot;Hết ca&quot;. &quot;Giữa ca&quot; không tự thêm dòng.
+            * Mẹo: Ca chuẩn «Giữa ca,Hết ca» (một giá trị gộp). Dòng mới sao chép Tên, Email, Ngày, Chi nhánh từ dòng trên.
           </p>
 
           <div className="space-y-2 pb-2">
@@ -615,8 +618,7 @@ function ReportForm({
                       className={`w-full px-1 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-shift`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                     >
                       <option value="">—</option>
-                      <option value="Hết ca">Hết ca</option>
-                      <option value="Giữa ca">Giữa ca</option>
+                      <option value={REPORT_CA_COMBINED}>{REPORT_CA_COMBINED}</option>
                     </select>
                   </div>
                   <div className="flex flex-col min-w-[6.5rem] shrink-0">
@@ -704,7 +706,7 @@ function ReportForm({
                       name: defaultInfo.name,
                       email: defaultInfo.email,
                       date: new Date().toISOString().split('T')[0],
-                      shift: 'Hết ca', // Tự động điền "Hết ca"
+                      shift: REPORT_CA_COMBINED,
                       product: '',
                       market: '',
                       branch: defaultInfo.branch || '',

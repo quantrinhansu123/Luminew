@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { rowCaMatchesSelectedShifts } from "../constants/reportShifts";
 
 export function useF3Data(filters, userRole, userEmail, userTeam = '') {
   const [f3Data, setF3Data] = useState([]);
@@ -199,7 +200,9 @@ export function useF3Data(filters, userRole, userEmail, userTeam = '') {
 
     // Shift filter - match with 'Ca'
     if (filters.shifts && filters.shifts.length > 0) {
-      filtered = filtered.filter((item) => filters.shifts.includes(item["Ca"]));
+      filtered = filtered.filter((item) =>
+        rowCaMatchesSelectedShifts(item["Ca"], filters.shifts)
+      );
     }
 
     // Market filter - can be inferred from address or stored separately

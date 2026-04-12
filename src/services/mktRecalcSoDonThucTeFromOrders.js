@@ -1,3 +1,4 @@
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName } from '../utils/emailFromName';
 import { mergeUniqueRowsById, parseSmartDate } from '../utils/dateParsing';
@@ -81,6 +82,20 @@ function normalizeDateStr(dateVal) {
   }
 
   return s;
+}
+
+/** Gộp thống kê đơn theo hai nhóm ca (cùng key Ngày|Tên|SP|TT). */
+function mergeOrderAggs(a, b) {
+  if (!a && !b) return null;
+  if (!a) return { ...b };
+  if (!b) return { ...a };
+  return {
+    count: (a.count ?? 0) + (b.count ?? 0),
+    totalRevenueVnd: (a.totalRevenueVnd ?? 0) + (b.totalRevenueVnd ?? 0),
+    cancelCount: (a.cancelCount ?? 0) + (b.cancelCount ?? 0),
+    cancelRevenueVnd: (a.cancelRevenueVnd ?? 0) + (b.cancelRevenueVnd ?? 0),
+    sample: a.sample || b.sample,
+  };
 }
 
 function nextDateStr(dateStr) {
@@ -819,12 +834,10 @@ export async function recalcMktSoDonThucTeFromOrders({
 
   /*
    * Ca (shift) và số liệu:
-   * - Đơn: shift chỉ Hết ca → chỉ cộng nhóm Hết ca; chỉ Giữa ca → chỉ Giữa ca; "Giữa ca,Hết ca" → cộng cả hai nhóm;
-   *   shift trống/không nhận diện → coi là Hết ca (để vẫn tạo/cập nhật dòng báo cáo).
-   * - Tự tạo / cập nhật dòng: mỗi dòng DB có ca chuẩn "Hết ca" hoặc "Giữa ca" (không gộp hai ca trong một dòng sau recalc).
-   * - Dòng đang lưu chuỗi gộp (2 ca): coi là dòng Hết ca — cập nhật số theo nhóm Hết ca, ghi ca = "Hết ca";
-   *   nếu chưa có dòng Giữa ca|cùng key thì chỉ UPDATE khi `createMissingRows=true` (mặc định là `false`).
-   * - Dòng một ca: UPDATE số theo đúng nhóm; key = Ngày + Tên + SP + TT (không gồm ca).
+   * - Đơn: tách nhóm Hết ca / Giữa ca như cũ (kể cả shift gộp trên đơn).
+   * - Dòng báo cáo lưu ca chuẩn «Giữa ca,Hết ca»: cập nhật số = tổng đơn khớp key của cả hai nhóm; patch.ca giữ chuỗi gộp.
+   * - Dòng một ca (legacy): vẫn cập nhật theo đúng một nhóm.
+   * - Ca trống / không nhận diện khi recalc: coi là Hết ca để gom đơn; patch.ca ghi «Giữa ca,Hết ca» khi auto-điền.
    */
   // countsByGroup: Map value { count, totalRevenueVnd, cancelCount, cancelRevenueVnd, sample }
   const countsByGroup = {
@@ -914,7 +927,10 @@ export async function recalcMktSoDonThucTeFromOrders({
     const key = ek.key;
     const hadExplicitCa = reportCaToGroups(r.ca).length > 0;
     const primaryGroup = gs.length === 2 ? 'Hết ca' : gs[0];
-    const agg = countsByGroup[primaryGroup]?.get(key);
+    const agg =
+      gs.length === 2
+        ? mergeOrderAggs(countsByGroup['Hết ca']?.get(key), countsByGroup['Giữa ca']?.get(key))
+        : countsByGroup[primaryGroup]?.get(key);
     const grossCount = agg?.count || 0;
     const soDonHoanHuyTT = agg?.cancelCount ?? 0;
     const dsHoanHuyTT = agg?.cancelRevenueVnd ?? 0;
@@ -934,9 +950,9 @@ export async function recalcMktSoDonThucTeFromOrders({
       'Doanh số hoàn hủy thực tế': dsHoanHuyTT,
     };
     if (gs.length === 2) {
-      patch.ca = 'Hết ca';
+      patch.ca = REPORT_CA_COMBINED;
     } else if (!hadExplicitCa) {
-      patch.ca = 'Hết ca';
+      patch.ca = REPORT_CA_COMBINED;
     }
     if (ek.patchProduct) patch['Sản_phẩm'] = ek.product;
     if (ek.patchMarket) patch['Thị_trường'] = ek.market;
@@ -961,7 +977,7 @@ export async function recalcMktSoDonThucTeFromOrders({
 
     if (previewRows.length < PREVIEW_LIMIT) {
       previewRows.push({
-        ca: primaryGroup,
+        ca: gs.length === 2 ? REPORT_CA_COMBINED : primaryGroup,
         'Ngày': normalizeDateStr(r['Ngày']),
         'Tên': String(r['Tên'] || '').trim(),
         'Sản_phẩm': ek.product,
@@ -977,63 +993,73 @@ export async function recalcMktSoDonThucTeFromOrders({
     }
   }
 
-  // 2) Create missing report rows for keys not present in detail_reports (B2)
+  // 2) Create missing report rows — một dòng / key với ca «Giữa ca,Hết ca» (tổng cả hai nhóm)
   if (createMissingRows) {
-    for (const group of ['Hết ca', 'Giữa ca']) {
-      const mapForGroup = countsByGroup[group];
-      for (const [key, entry] of mapForGroup.entries()) {
-        const exists = existingByCaKey.has(`${group}|${key}`);
-        if (exists) continue;
+    const allKeys = new Set([
+      ...countsByGroup['Hết ca'].keys(),
+      ...countsByGroup['Giữa ca'].keys(),
+    ]);
+    for (const key of allKeys) {
+      const existsHet = existingByCaKey.has(`Hết ca|${key}`);
+      const existsGua = existingByCaKey.has(`Giữa ca|${key}`);
+      if (existsHet || existsGua) continue;
 
-        const rawNameFromOrder = String(entry.sample.name || '').trim();
-        if (!rawNameFromOrder) continue;
-        const normalizedName = normalizeNameForKey(rawNameFromOrder);
-        const canonicalName =
-            canonicalNameByNormalized.get(normalizedName) || rawNameFromOrder;
+      const entry = mergeOrderAggs(
+        countsByGroup['Hết ca'].get(key),
+        countsByGroup['Giữa ca'].get(key)
+      );
+      if (!entry) continue;
 
-        const resolved = resolveUserTeamEmail(canonicalName, '', usersLookup);
-        const email = resolved.email || emailFromName(canonicalName, hrEmailLookup) || '';
-        const resolvedTeam = resolved.team || null;
+      const rawNameFromOrder = String(entry.sample.name || '').trim();
+      if (!rawNameFromOrder) continue;
+      const normalizedName = normalizeNameForKey(rawNameFromOrder);
+      const canonicalName =
+        canonicalNameByNormalized.get(normalizedName) || rawNameFromOrder;
 
-        const cc = entry.cancelCount ?? 0;
-        const crv = entry.cancelRevenueVnd ?? 0;
-        const netSoDon = Math.max(0, (entry.count ?? 0) - cc);
-        const netDoanhSoTT = Math.max(0, (entry.totalRevenueVnd ?? 0) - crv);
-        const row = {
-          id: makeId(),
-          'Tên': canonicalName,
-          'Email': email,
-          'Ngày': entry.sample.date,
-          ca: group,
-          'Sản_phẩm': entry.sample.product,
-          'Thị_trường': entry.sample.market,
-          'Team': resolvedTeam,
-          'Số đơn thực tế': netSoDon,
-          'Doanh số TT': netDoanhSoTT,
-          'Số đơn hoàn hủy': cc,
-          'Số đơn hoàn hủy thực tế': cc,
-          'Doanh số hoàn hủy thực tế': crv,
-        };
-        if (reportsTableName !== 'marketing_report_hcm' && resolved.department) {
-          row['department'] = resolved.department;
-        }
-        createRows.push(row);
+      const resolved = resolveUserTeamEmail(canonicalName, '', usersLookup);
+      const email = resolved.email || emailFromName(canonicalName, hrEmailLookup) || '';
+      const resolvedTeam = resolved.team || null;
 
-        if (previewRows.length < PREVIEW_LIMIT) {
-          previewRows.push({
-            ca: group,
-            'Ngày': row['Ngày'],
-            'Tên': row['Tên'],
-            'Sản_phẩm': row['Sản_phẩm'],
-            'Thị_trường': row['Thị_trường'],
-            'Số đơn thực tế': row['Số đơn thực tế'],
-            'Doanh số TT': row['Doanh số TT'],
-            'Số đơn hoàn hủy': row['Số đơn hoàn hủy'],
-            'Số đơn hoàn hủy thực tế': row['Số đơn hoàn hủy thực tế'],
-            'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
-            action: 'create',
-          });
-        }
+      const cc = entry.cancelCount ?? 0;
+      const crv = entry.cancelRevenueVnd ?? 0;
+      const netSoDon = Math.max(0, (entry.count ?? 0) - cc);
+      const netDoanhSoTT = Math.max(0, (entry.totalRevenueVnd ?? 0) - crv);
+      const row = {
+        id: makeId(),
+        'Tên': canonicalName,
+        'Email': email,
+        'Ngày': entry.sample.date,
+        ca: REPORT_CA_COMBINED,
+        'Sản_phẩm': entry.sample.product,
+        'Thị_trường': entry.sample.market,
+        'Team': resolvedTeam,
+        'Số đơn thực tế': netSoDon,
+        'Doanh số TT': netDoanhSoTT,
+        'Số đơn hoàn hủy': cc,
+        'Số đơn hoàn hủy thực tế': cc,
+        'Doanh số hoàn hủy thực tế': crv,
+      };
+      if (reportsTableName !== 'marketing_report_hcm' && resolved.department) {
+        row['department'] = resolved.department;
+      }
+      createRows.push(row);
+      existingByCaKey.add(`Hết ca|${key}`);
+      existingByCaKey.add(`Giữa ca|${key}`);
+
+      if (previewRows.length < PREVIEW_LIMIT) {
+        previewRows.push({
+          ca: REPORT_CA_COMBINED,
+          'Ngày': row['Ngày'],
+          'Tên': row['Tên'],
+          'Sản_phẩm': row['Sản_phẩm'],
+          'Thị_trường': row['Thị_trường'],
+          'Số đơn thực tế': row['Số đơn thực tế'],
+          'Doanh số TT': row['Doanh số TT'],
+          'Số đơn hoàn hủy': row['Số đơn hoàn hủy'],
+          'Số đơn hoàn hủy thực tế': row['Số đơn hoàn hủy thực tế'],
+          'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
+          action: 'create',
+        });
       }
     }
   }

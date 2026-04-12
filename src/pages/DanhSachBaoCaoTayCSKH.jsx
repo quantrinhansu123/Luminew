@@ -4,6 +4,7 @@ import { Calculator, Eye, RefreshCw, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import { fetchMatchingOrdersForReport } from '../utils/lumidataSalesReportSync';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
@@ -191,7 +192,7 @@ export default function DanhSachBaoCaoTayCSKH({
         products: [],
         markets: [],
         branches: [],
-        shifts: ['Hết ca', 'Giữa ca']
+        shifts: [REPORT_CA_COMBINED]
     });
 
     // Map tên nhân sự -> email (lấy từ bảng nhân sự)
@@ -440,11 +441,27 @@ export default function DanhSachBaoCaoTayCSKH({
 
                 const branches = [...new Set(branchesData?.map(b => b.branch).filter(Boolean))].sort();
 
+                let shiftsQ = supabase
+                    .from('sales_reports')
+                    .select('shift')
+                    .not('shift', 'is', null)
+                    .limit(2000);
+                if (useTeamInQuery) {
+                    shiftsQ = shiftsQ.in('team', effectiveTeamFilter);
+                }
+                const { data: shiftData } = await shiftsQ;
+                const shiftsFromDb = [
+                    ...new Set(shiftData?.map((r) => String(r.shift || '').trim()).filter(Boolean)),
+                ];
+                const shifts = [...new Set([REPORT_CA_COMBINED, ...shiftsFromDb])].sort((a, b) =>
+                    a.localeCompare(b, 'vi', { sensitivity: 'base' })
+                );
+
                 setEditOptions({
                     products,
                     markets,
                     branches,
-                    shifts: ['Hết ca', 'Giữa ca']
+                    shifts
                 });
             } catch (error) {
                 console.error('Error loading edit options:', error);

@@ -6,6 +6,7 @@ import {
     buildMktDetailReportRowKey,
     recalcMktSoDonThucTeFromOrders,
 } from '../services/mktRecalcSoDonThucTeFromOrders';
+import { rowCaMatchesSelectedShifts } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import * as rbacService from '../services/rbacService';
 import { XEM_BAO_CAO_MKT_HCM_TEAM } from './XemBaoCaoMKTLegacy';
@@ -387,10 +388,15 @@ export default function DanhSachBaoCaoTayMKT({
                     .ilike('marketing_staff', `%${reportName}%`);
 
                 const caValue = String(reportCa || '').trim();
+                const caLo = caValue.toLowerCase();
+                const hasHet = caLo.includes('hết ca') || caLo.includes('het ca');
+                const hasGua = caLo.includes('giữa ca') || caLo.includes('giua ca');
 
-                if (caValue === 'Hết ca' || caValue.toLowerCase() === 'hết ca') {
+                if (hasHet && hasGua) {
+                    q = q.or('shift.ilike.%Hết ca%,shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
+                } else if (hasHet && !hasGua) {
                     q = q.ilike('shift', '%Hết ca%');
-                } else if (caValue === 'Giữa ca' || caValue.toLowerCase() === 'giữa ca') {
+                } else if (hasGua && !hasHet) {
                     q = q.or('shift.ilike.%Giữa ca%,shift.ilike.%giữa ca%');
                 } else if (caValue) {
                     q = q.ilike('shift', `%${caValue}%`);
@@ -932,7 +938,7 @@ export default function DanhSachBaoCaoTayMKT({
             const market = String(item?.['Thị_trường'] || '').trim();
 
             if (selectedPersonnel.size > 0 && !selectedPersonnel.has(nameKey)) return false;
-            if (selectedShifts.size > 0 && !selectedShifts.has(shift)) return false;
+            if (selectedShifts.size > 0 && !rowCaMatchesSelectedShifts(shift, [...selectedShifts])) return false;
             if (selectedTeams.size > 0 && !selectedTeams.has(team)) return false;
             if (selectedProducts.size > 0 && !selectedProducts.has(product)) return false;
             if (selectedMarkets.size > 0 && !selectedMarkets.has(market)) return false;

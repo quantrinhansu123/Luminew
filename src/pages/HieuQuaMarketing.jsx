@@ -2,6 +2,7 @@ import { ChevronLeft, Settings } from 'lucide-react';
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import ColumnSettingsModal from "../components/ColumnSettingsModal";
+import { REPORT_CA_COMBINED, rowCaMatchesSelectedShifts } from "../constants/reportShifts";
 import FilterPanel from "../components/FilterPanel";
 import { MarketEffectivenessTab } from "../components/tabs/MarketEffectivenessTab";
 import { useReportData } from "../hooks/useReportData";
@@ -31,7 +32,7 @@ export default function HieuQuaMarketing() {
 
   const [availableFilters, setAvailableFilters] = useState({
     products: [],
-    shifts: ["Giữa ca", "Hết ca"],
+    shifts: [REPORT_CA_COMBINED],
     markets: [],
     teams: [],
   });
@@ -176,7 +177,7 @@ export default function HieuQuaMarketing() {
       filtered = filtered.filter((r) => filters.products.includes(r.product));
     }
     if (filters.shifts.length > 0) {
-      filtered = filtered.filter((r) => filters.shifts.includes(r.shift));
+      filtered = filtered.filter((r) => rowCaMatchesSelectedShifts(r.shift, filters.shifts));
     }
     if (filters.markets.length > 0) {
       filtered = filtered.filter((r) => filters.markets.includes(r.market));

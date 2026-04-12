@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../services/supabaseClient';
 
 function ReportFormCSKH({
@@ -15,7 +16,7 @@ function ReportFormCSKH({
     name: '',
     email: '',
     date: new Date().toISOString().split('T')[0],
-    shift: 'Hết ca', // Tự động điền "Hết ca"
+    shift: REPORT_CA_COMBINED,
     branch: ''
   });
 
@@ -163,7 +164,7 @@ function ReportFormCSKH({
         name,
         email,
         date: currentDate,
-        shift: 'Hết ca', // Tự động điền "Hết ca"
+        shift: REPORT_CA_COMBINED,
         branch: userBranch
       }));
 
@@ -172,7 +173,7 @@ function ReportFormCSKH({
         name: name,
         email: email,
         date: currentDate,
-        shift: 'Hết ca', // Tự động điền "Hết ca"
+        shift: REPORT_CA_COMBINED,
         product: '',
         market: '',
         branch: userBranch, // Tự động điền chi nhánh từ users
@@ -331,7 +332,7 @@ function ReportFormCSKH({
         name: defaultInfo.name,
         email: defaultInfo.email,
         date: new Date().toISOString().split('T')[0],
-        shift: 'Hết ca', // Tự động điền "Hết ca"
+        shift: REPORT_CA_COMBINED,
         product: '',
         market: '',
         branch: defaultInfo.branch || '', // Giữ chi nhánh
@@ -443,8 +444,7 @@ function ReportFormCSKH({
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-sm transition-all ${errors[`${idx}-shift`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                       >
                         <option value="">Chọn ca</option>
-                        <option value="Hết ca">Hết ca</option>
-                        <option value="Giữa ca">Giữa ca</option>
+                        <option value={REPORT_CA_COMBINED}>{REPORT_CA_COMBINED}</option>
                       </select>
                     </td>
                     <td className="p-3">
@@ -568,7 +568,7 @@ function ReportFormCSKH({
                     name: defaultInfo.name,
                     email: defaultInfo.email,
                     date: new Date().toISOString().split('T')[0],
-                    shift: 'Hết ca', // Tự động điền "Hết ca"
+                    shift: REPORT_CA_COMBINED,
                     product: '',
                     market: '',
                     branch: defaultInfo.branch || '',
