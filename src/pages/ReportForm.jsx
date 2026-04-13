@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../services/supabaseClient';
 import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
+
+const DEFAULT_REPORT_SHIFT = 'Hết ca';
 
 /** Phòng ban Sale trên `users.department` (chuẩn hóa, có cả biến thể tiếng Việt). */
 function isUserDepartmentSale(department) {
@@ -28,7 +29,7 @@ function ReportForm({
     name: '',
     email: '',
     date: new Date().toISOString().split('T')[0],
-    shift: REPORT_CA_COMBINED,
+    shift: DEFAULT_REPORT_SHIFT,
     branch: ''
   });
 
@@ -293,7 +294,7 @@ function ReportForm({
         name,
         email,
         date: currentDate,
-        shift: REPORT_CA_COMBINED,
+        shift: DEFAULT_REPORT_SHIFT,
         branch: userBranch
       }));
 
@@ -302,7 +303,7 @@ function ReportForm({
         name: name,
         email: email,
         date: currentDate,
-        shift: REPORT_CA_COMBINED,
+        shift: DEFAULT_REPORT_SHIFT,
         product: '',
         market: '',
         branch: userBranch, // Tự động điền chi nhánh từ users
@@ -368,7 +369,7 @@ function ReportForm({
       name: lastReport.name,
       email: lastReport.email,
       date: lastReport.date,
-      shift: REPORT_CA_COMBINED,
+      shift: DEFAULT_REPORT_SHIFT,
       product: lastReport.product || '',
       market: lastReport.market || '',
       branch: lastReport.branch || defaultInfo.branch || '',
@@ -500,7 +501,7 @@ function ReportForm({
         name: defaultInfo.name,
         email: defaultInfo.email,
         date: new Date().toISOString().split('T')[0],
-        shift: REPORT_CA_COMBINED,
+        shift: DEFAULT_REPORT_SHIFT,
         product: '',
         market: '',
         branch: defaultInfo.branch || '', // Giữ chi nhánh
@@ -537,7 +538,7 @@ function ReportForm({
         {/* Main Table */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 overflow-hidden">
           <p className="mb-3 text-xs text-gray-500 leading-snug">
-            * Mẹo: Ca chuẩn «Giữa ca,Hết ca» (một giá trị gộp). Dòng mới sao chép Tên, Email, Ngày, Chi nhánh từ dòng trên.
+            * Mẹo: Ca mặc định là «Hết ca». Dòng mới sao chép Tên, Email, Ngày, Chi nhánh từ dòng trên.
           </p>
 
           <div className="space-y-2 pb-2">
@@ -618,7 +619,7 @@ function ReportForm({
                       className={`w-full px-1 py-1.5 border rounded-md focus:ring-1 focus:ring-blue-500 text-xs ${errors[`${idx}-shift`] ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}
                     >
                       <option value="">—</option>
-                      <option value={REPORT_CA_COMBINED}>{REPORT_CA_COMBINED}</option>
+                      <option value={DEFAULT_REPORT_SHIFT}>{DEFAULT_REPORT_SHIFT}</option>
                     </select>
                   </div>
                   <div className="flex flex-col min-w-[6.5rem] shrink-0">
@@ -706,7 +707,7 @@ function ReportForm({
                       name: defaultInfo.name,
                       email: defaultInfo.email,
                       date: new Date().toISOString().split('T')[0],
-                      shift: REPORT_CA_COMBINED,
+                      shift: DEFAULT_REPORT_SHIFT,
                       product: '',
                       market: '',
                       branch: defaultInfo.branch || '',
