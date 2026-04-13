@@ -1112,6 +1112,7 @@ export const fetchVanDon = async (options = {}) => {
         /** Multi-select đơn vị vận chuyển (cột shipping_unit) */
         shipping_unit = [],
         delivery_status = [],
+        delivery_status_nb = [],
         payment_status = [],
         dateFrom,
         dateTo,
@@ -1225,19 +1226,16 @@ export const fetchVanDon = async (options = {}) => {
             }
 
             const applyEmptyOrInFilter = (field, value) => {
-                const hasEmpty = Array.isArray(value) ? value.includes('Trống') || value.includes('__EMPTY__') : value === 'Trống' || value === '__EMPTY__';
-                const inValues = Array.isArray(value)
-                    ? value.filter((x) => x && x !== 'Trống' && x !== '__EMPTY__')
-                    : typeof value === 'string' && value && value !== 'Trống' && value !== '__EMPTY__'
-                      ? [value]
-                      : [];
+                const values = Array.isArray(value) ? value : [value];
+                const hasEmpty = values.some(v => v === 'Trống' || v === '__EMPTY__' || v === '' || v === null);
+                const inValues = values.filter((x) => x !== 'Trống' && x !== '__EMPTY__' && x !== '' && x !== null);
 
                 const useIlikeExact = VAN_DON_ILIKE_EXACT_DB_COLS.has(field);
                 
                 // Mở rộng khái niệm 'is.null' cho khớp với isVanDonSemanticEmpty ở Client
                 let emptyFragment = `${field}.is.null,${field}.eq.`;
                 if (hasEmpty) {
-                    const garbage = ['null', 'undefined', 'none', 'n/a', 'N/A', 'na', 'NA', '#n/a', '#N/A', '-', '--', '—', ' ', '  '];
+                    const garbage = ['null', 'undefined', '-', '—', ' ', '  '];
                     emptyFragment += `,${field}.in.(${orEncodeInList(garbage)})`;
                 }
 
@@ -1284,7 +1282,10 @@ export const fetchVanDon = async (options = {}) => {
                 applyEmptyOrInFilter('shipping_unit', shipping_unit);
             }
             if (delivery_status !== undefined && delivery_status !== null && Array.isArray(delivery_status) && delivery_status.length > 0) {
-                applyEmptyOrInFilter('delivery_status_nb', delivery_status);
+                applyEmptyOrInFilter('delivery_status', delivery_status);
+            }
+            if (delivery_status_nb !== undefined && delivery_status_nb !== null && Array.isArray(delivery_status_nb) && delivery_status_nb.length > 0) {
+                applyEmptyOrInFilter('delivery_status_nb', delivery_status_nb);
             }
             if (payment_status !== undefined && payment_status !== null && Array.isArray(payment_status) && payment_status.length > 0) {
                 applyEmptyOrInFilter('payment_status', payment_status);

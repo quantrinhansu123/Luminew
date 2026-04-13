@@ -179,13 +179,16 @@ function getVanDonGridCellValue(row, colHeader) {
   if (!row) return '';
   const logical = COLUMN_MAPPING[colHeader] || colHeader;
   const isNbDeliveryStatusCol =
-    normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng') ||
     normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng NB') ||
     normalizeColHeader(logical) === normalizeColHeader('Trạng thái giao hàng NB');
   if (isNbDeliveryStatusCol) {
     const raw = resolveVanDonDeliveryStatusForNbColumn(row);
     const normalized = normalizeVanDonNbDeliveryStatusDisplay(raw);
     return coalesceVanDonDisplayValue(normalized);
+  }
+  const isFfmDeliveryStatusCol = normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng');
+  if (isFfmDeliveryStatusCol) {
+    return coalesceVanDonDisplayValue(row.delivery_status || row['Trạng thái giao hàng'] || '');
   }
   const tryKeys = [logical, colHeader, String(logical).replace(/ /g, '_'), String(colHeader).replace(/ /g, '_')];
   for (let i = 0; i < tryKeys.length; i++) {
@@ -620,6 +623,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_van_don: [],
     shipping_unit: [],
     delivery_status: [],
+    delivery_status_nb: [],
     payment_status: [],
     tracking_include: '',
     tracking_exclude: '',
@@ -639,6 +643,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_van_don: [],
     shipping_unit: [],
     delivery_status: [],
+    delivery_status_nb: [],
     payment_status: [],
     tracking_include: '',
     tracking_exclude: '',
@@ -1073,6 +1078,7 @@ function VanDon({ dataSource = 'default' }) {
       nv_van_don: appliedFilterValues.nv_van_don,
       shipping_unit: appliedFilterValues.shipping_unit,
       delivery_status: appliedFilterValues.delivery_status,
+      delivery_status_nb: appliedFilterValues.delivery_status_nb,
       payment_status: appliedFilterValues.payment_status,
       dateFrom:
         appliedEnableDateFilter && appliedBolDateType !== BOL_TOOLBAR_DATE_TYPE_ALL
@@ -1216,6 +1222,7 @@ function VanDon({ dataSource = 'default' }) {
         nv_van_don: activeFilters.nv_van_don,
         shipping_unit: activeFilters.shipping_unit,
         delivery_status: activeFilters.delivery_status,
+        delivery_status_nb: activeFilters.delivery_status_nb,
         dateFrom: activeFilters.dateFrom,
         dateTo: activeFilters.dateTo,
         dateType: activeFilters.dateType,
@@ -1612,6 +1619,27 @@ function VanDon({ dataSource = 'default' }) {
             values: new Set(appliedFilterValues.shipping_unit)
           });
         }
+        
+        if (appliedFilterValues.delivery_status && Array.isArray(appliedFilterValues.delivery_status) && appliedFilterValues.delivery_status.length > 0) {
+          activeFilters.push({
+            type: 'delivery_status',
+            values: new Set(appliedFilterValues.delivery_status)
+          });
+        }
+
+        if (appliedFilterValues.delivery_status_nb && Array.isArray(appliedFilterValues.delivery_status_nb) && appliedFilterValues.delivery_status_nb.length > 0) {
+          activeFilters.push({
+            type: 'delivery_status_nb',
+            values: new Set(appliedFilterValues.delivery_status_nb)
+          });
+        }
+
+        if (appliedFilterValues.payment_status && Array.isArray(appliedFilterValues.payment_status) && appliedFilterValues.payment_status.length > 0) {
+          activeFilters.push({
+            type: 'payment_status',
+            values: new Set(appliedFilterValues.payment_status)
+          });
+        }
 
         // Áp dụng logic AND: phải thỏa mãn TẤT CẢ các bộ lọc đang bật
         if (activeFilters.length > 0) {
@@ -1653,6 +1681,24 @@ function VanDon({ dataSource = 'default' }) {
                 case 'shipping_unit': {
                   const o = getPendingOriginal(orderId, 'Đơn vị vận chuyển', 'Đơn vị Vận chuyển', 'Đơn_vị_vận_chuyển');
                   const v = o !== undefined ? strNorm(o) : strNorm(row['Đơn vị vận chuyển'] || row['Đơn_vị_vận_chuyển'] || '');
+                  if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+                  return !isVanDonSemanticEmpty(v) && filter.values.has(v);
+                }
+                case 'delivery_status': {
+                  const o = getPendingOriginal(orderId, 'Trạng thái giao hàng', 'delivery_status');
+                  const v = o !== undefined ? strNorm(o) : strNorm(row['Trạng thái giao hàng'] || row.delivery_status || '');
+                  if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+                  return !isVanDonSemanticEmpty(v) && filter.values.has(v);
+                }
+                case 'delivery_status_nb': {
+                  const o = getPendingOriginal(orderId, 'Trạng thái giao hàng NB', 'delivery_status_nb');
+                  const v = o !== undefined ? strNorm(o) : strNorm(row['Trạng thái giao hàng NB'] || row.delivery_status_nb || '');
+                  if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+                  return !isVanDonSemanticEmpty(v) && filter.values.has(v);
+                }
+                case 'payment_status': {
+                  const o = getPendingOriginal(orderId, 'Trạng thái thu tiền', 'payment_status');
+                  const v = o !== undefined ? strNorm(o) : strNorm(row['Trạng thái thu tiền'] || row.payment_status || '');
                   if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
                   return !isVanDonSemanticEmpty(v) && filter.values.has(v);
                 }
@@ -4152,8 +4198,9 @@ function VanDon({ dataSource = 'default' }) {
       'Nhân viên MKT': 'nv_mkt',
       'NV Vận đơn': 'nv_van_don',
       'Đơn vị vận chuyển': 'shipping_unit',
-      'Trạng thái giao hàng NB': 'delivery_status',
-      'Trạng thái giao hàng': 'delivery_status'
+      'Trạng thái giao hàng NB': 'delivery_status_nb',
+      'Trạng thái giao hàng': 'delivery_status',
+      'Trạng thái thu tiền': 'payment_status'
     };
     const filterKey = filterKeyMap[col] || col;
     const isCheckCol = col === 'Kết quả Check' || col === 'Kết quả check';
@@ -4777,9 +4824,9 @@ function VanDon({ dataSource = 'default' }) {
                   compact
                   label="Trạng thái giao..."
                   options={getFilterMultiSelectOptions('Trạng thái giao hàng NB')}
-                  selected={filterValues.delivery_status || []}
+                  selected={filterValues.delivery_status_nb || []}
                   onChange={(vals) => {
-                    setFilterValues((prev) => ({ ...prev, delivery_status: vals }));
+                    setFilterValues((prev) => ({ ...prev, delivery_status_nb: vals }));
                   }}
                 />
               </div>
@@ -4790,7 +4837,7 @@ function VanDon({ dataSource = 'default' }) {
                   { label: 'Đã giao', values: ['Giao Thành Công'] },
                   { label: 'Hoàn', values: ['Hoàn'] }
                 ].map((q) => {
-                  const current = filterValues.delivery_status || [];
+                  const current = filterValues.delivery_status_nb || [];
                   const isActive = q.values.length > 0 && q.values.every(v => current.includes(v));
                   return (
                     <button
@@ -4798,14 +4845,14 @@ function VanDon({ dataSource = 'default' }) {
                       type="button"
                       onClick={() => {
                         setFilterValues((prev) => {
-                          const curr = prev.delivery_status || [];
+                          const curr = prev.delivery_status_nb || [];
                           const allIncluded = q.values.every(v => curr.includes(v));
                           if (allIncluded) {
-                            return { ...prev, delivery_status: curr.filter(v => !q.values.includes(v)) };
+                            return { ...prev, delivery_status_nb: curr.filter(v => !q.values.includes(v)) };
                           } else {
                             // Gộp với các giá trị hiện tại hay ghi đè?
                             // Với nút Quick Filter, thường là ghi đè để xem nhanh nhóm đó.
-                            return { ...prev, delivery_status: q.values };
+                            return { ...prev, delivery_status_nb: q.values };
                           }
                         });
                       }}
