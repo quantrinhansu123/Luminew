@@ -40,7 +40,7 @@ export default function DanhSachPage() {
         page_link: ''
     });
     const [addingPage, setAddingPage] = useState(false);
-    const [renamingMktCanonical, setRenamingMktCanonical] = useState(false);
+    const [renamingManhCuongMkt, setRenamingManhCuongMkt] = useState(false);
     const [exportingExcel, setExportingExcel] = useState(false);
     /** Tên nhân sự bộ phận MKT (users.department) — gợi ý ô Tên MKT khi thêm/sửa page */
     const [mktDepartmentNames, setMktDepartmentNames] = useState([]);
@@ -481,24 +481,24 @@ export default function DanhSachPage() {
         setShowViewModal(true);
     };
 
-    /** Chuẩn hóa mọi biến thể «NGUYỄN TRỌNG ĐẠI» → «Nguyễn Trọng Đại» trong chuỗi Tên MKT. */
-    const toCanonicalNguyenTrongDai = (s) => {
+    /** Chuẩn hóa «Mạnh Cường» (mọi biến thể) → «Đỗ Mạnh Cường»; không sửa chỗ đã là «Đỗ Mạnh Cường». */
+    const toDoManhCuongMkt = (s) => {
         const str = String(s ?? '');
-        return str.replace(/nguyễn\s+trọng\s+đại/giu, 'Nguyễn Trọng Đại');
+        return str.replace(/(?<!Đỗ\s)(?<!đỗ\s)mạnh\s+cường/giu, 'Đỗ Mạnh Cường');
     };
 
-    const handleNormalizeNguyenTrongDaiMkt = async () => {
-        if (renamingMktCanonical) return;
+    const handleNormalizeManhCuongMkt = async () => {
+        if (renamingManhCuongMkt) return;
         const ok = window.confirm(
-            'Đổi mọi biến thể "NGUYỄN TRỌNG ĐẠI" thành "Nguyễn Trọng Đại" trong cột Tên MKT (mkt_staff) của toàn bộ page đang tải?'
+            'Đổi mọi biến thể "Mạnh Cường" thành "Đỗ Mạnh Cường" trong cột Tên MKT (mkt_staff) của toàn bộ page đang tải?'
         );
         if (!ok) return;
 
-        setRenamingMktCanonical(true);
+        setRenamingManhCuongMkt(true);
         try {
             const candidates = (data || []).filter((row) => {
                 const current = String(row?.mkt_staff || '');
-                return toCanonicalNguyenTrongDai(current) !== current;
+                return toDoManhCuongMkt(current) !== current;
             });
 
             if (candidates.length === 0) {
@@ -507,7 +507,7 @@ export default function DanhSachPage() {
             }
 
             for (const row of candidates) {
-                const nextName = toCanonicalNguyenTrongDai(row.mkt_staff);
+                const nextName = toDoManhCuongMkt(row.mkt_staff);
                 const { error } = await supabase
                     .from('marketing_pages')
                     .update({ mkt_staff: nextName })
@@ -518,10 +518,10 @@ export default function DanhSachPage() {
             toast.success(`Đã cập nhật ${candidates.length} dòng.`);
             await loadData();
         } catch (error) {
-            console.error('Error normalizing Nguyễn Trọng Đại:', error);
+            console.error('Error normalizing Đỗ Mạnh Cường:', error);
             toast.error('Lỗi khi đổi tên: ' + (error?.message || String(error)));
         } finally {
-            setRenamingMktCanonical(false);
+            setRenamingManhCuongMkt(false);
         }
     };
 
@@ -642,18 +642,18 @@ export default function DanhSachPage() {
 
                         <button
                             type="button"
-                            onClick={handleNormalizeNguyenTrongDaiMkt}
-                            disabled={renamingMktCanonical || loading}
+                            onClick={handleNormalizeManhCuongMkt}
+                            disabled={renamingManhCuongMkt || loading}
                             className="px-3 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center gap-2 text-sm font-medium"
-                            title='Đổi mọi biến thể NGUYỄN TRỌNG ĐẠI thành "Nguyễn Trọng Đại" trong Tên MKT'
+                            title='Đổi mọi biến thể "Mạnh Cường" thành "Đỗ Mạnh Cường" trong Tên MKT'
                         >
-                            {renamingMktCanonical ? (
+                            {renamingManhCuongMkt ? (
                                 <>
                                     <RefreshCw className="w-4 h-4 animate-spin" />
                                     Đang đổi...
                                 </>
                             ) : (
-                                <>Đổi NGUYỄN TRỌNG ĐẠI</>
+                                <span className="whitespace-nowrap">ĐỔI MẠNH CƯỜNG</span>
                             )}
                         </button>
                     </div>

@@ -4,7 +4,7 @@ import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
-import { REPORT_CA_COMBINED } from '../constants/reportShifts';
+import { REPORT_CA_SHIFT_OPTIONS } from '../constants/reportShifts';
 import { buildMktReportDedupeKey, normalizeMktReportDate } from '../utils/mktDetailReportKey';
 import { MktSearchableProductSelect } from '../components/mkt/MktSearchableProductSelect';
 
@@ -231,7 +231,7 @@ export default function BaoCaoMarketing({
     mktHnUserEmployees: [],
     /** Sheet / fallback khi không có user MKT HN trong DB */
     sheetLookupEmployees: [],
-    shiftList: [REPORT_CA_COMBINED],
+    shiftList: [...REPORT_CA_SHIFT_OPTIONS],
     productList: [
       'Gel Dạ Dày',
       'Gel Trĩ',
@@ -1286,6 +1286,17 @@ export default function BaoCaoMarketing({
     setLoading(true);
     updateStatus('Bắt đầu gửi dữ liệu lên Supabase...');
 
+    const missingCaRow = tableRows.find((r) => !String(r?.data?.ca ?? '').trim());
+    if (missingCaRow) {
+      setResponseMsg({
+        text: 'Vui lòng chọn ca (Giữa ca hoặc Hết ca) cho tất cả các dòng.',
+        isSuccess: false,
+        visible: true,
+      });
+      setLoading(false);
+      return;
+    }
+
     try {
       const teamByNormalizedTen = new Map();
       const resolveTeamFromUsersByTen = async (ten) => {
@@ -1395,10 +1406,6 @@ export default function BaoCaoMarketing({
 
           // Auto-fields if missing
           if (!rowObject['Ngày']) rowObject['Ngày'] = getToday();
-          // Ca trống → chuỗi gộp chuẩn (một giá trị cho cả ngày)
-          if (!String(rowObject['ca'] ?? '').trim()) {
-            rowObject['ca'] = REPORT_CA_COMBINED;
-          }
 
           // Note: Số đơn thực tế và Doanh số thực tế được tính tự động từ orders table sau khi insert
           // Không truyền vào payload khi submit

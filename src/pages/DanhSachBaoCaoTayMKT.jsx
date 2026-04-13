@@ -172,7 +172,6 @@ export default function DanhSachBaoCaoTayMKT({
     });
     const [personnelSearch, setPersonnelSearch] = useState('');
     const [syncing, setSyncing] = useState(false);
-    const [syncingTeamHanoi, setSyncingTeamHanoi] = useState(false);
     const [syncingTeamFromUsers, setSyncingTeamFromUsers] = useState(false);
     const [fixingUsThiTruong, setFixingUsThiTruong] = useState(false);
     const [mktRecalcLoading, setMktRecalcLoading] = useState(false);
@@ -949,12 +948,12 @@ export default function DanhSachBaoCaoTayMKT({
     const reportsAfterFiltersRef = useRef(reportsAfterFilters);
     reportsAfterFiltersRef.current = reportsAfterFilters;
 
-    /** HCM marketing: khớp cột `Tên` với users.name / username → ghi users.team vào `Team` (theo bộ lọc danh sách). */
+    /** Khớp cột `Tên` với users.name / username → ghi users.team vào `Team` (theo bộ lọc danh sách; mọi bảng báo cáo MKT). */
     const handleSyncTeamFromUsersForMarketing = async () => {
-        if (!isAdminOnly || !isHcmMarketingReport) return;
+        if (!isAdminOnly) return;
         if (
             !window.confirm(
-                'Đồng bộ cột Team từ bảng users?\n\n' +
+                'Đồng bộ cột Team theo user (bảng users)?\n\n' +
                     'Áp dụng cho các dòng đang có trong danh sách (theo bộ lọc ngày / nhân sự).\n' +
                     'Khớp tên cột "Tên" với users.name / username (không phân biệt hoa thường, sau khi chuẩn hóa khoảng trắng).'
             )
@@ -1433,41 +1432,6 @@ export default function DanhSachBaoCaoTayMKT({
             toast.error('Lỗi cập nhật Số đơn TT: ' + msg + fetchHint, { autoClose: 12000 });
         } finally {
             setMktRecalcLoading(false);
-        }
-    };
-
-    /** Chỉ đổi ô Team đúng bằng "Hà Nội" → "HN-MKT" (không xóa dòng). */
-    const handleSyncTeamHanoiToHnMkt = async () => {
-        if (!isAdminOnly) return;
-        if (
-            !window.confirm(
-                'Đồng bộ Team: mọi bản ghi trong detail_reports có cột Team đúng bằng "Hà Nội" sẽ được đổi thành "HN-MKT".\n\nKhông xóa dữ liệu. Tiếp tục?'
-            )
-        ) {
-            return;
-        }
-        try {
-            setSyncingTeamHanoi(true);
-            const { count: nBefore, error: countErr } = await supabase
-                .from(reportTableName)
-                .select('*', { count: 'exact', head: true })
-                .eq('Team', 'Hà Nội');
-
-            if (countErr) throw countErr;
-
-            const { error } = await supabase
-                .from(reportTableName)
-                .update({ Team: 'HN-MKT' })
-                .eq('Team', 'Hà Nội');
-
-            if (error) throw error;
-            alert(`Đã cập nhật ${nBefore ?? 0} dòng (Team: Hà Nội → HN-MKT).`);
-            fetchData();
-        } catch (err) {
-            console.error('Sync Team Hà Nội error:', err);
-            alert('Lỗi khi đồng bộ Team: ' + (err.message || String(err)));
-        } finally {
-            setSyncingTeamHanoi(false);
         }
     };
 
@@ -1971,7 +1935,6 @@ export default function DanhSachBaoCaoTayMKT({
                                         loading ||
                                         deleting ||
                                         syncing ||
-                                        syncingTeamHanoi ||
                                         syncingTeamFromUsers ||
                                         fixingUsThiTruong ||
                                         !filters.startDate ||
@@ -1999,7 +1962,6 @@ export default function DanhSachBaoCaoTayMKT({
                                         loading ||
                                         deleting ||
                                         syncing ||
-                                        syncingTeamHanoi ||
                                         syncingTeamFromUsers ||
                                         fixingUsThiTruong ||
                                         mktRecalcLoading
@@ -2017,25 +1979,7 @@ export default function DanhSachBaoCaoTayMKT({
                                     )}
                                 </button>
                             )}
-                            {isAdminOnly && !isHcmMarketingReport && (
-                                <button
-                                    type="button"
-                                    onClick={handleSyncTeamHanoiToHnMkt}
-                                    disabled={syncingTeamHanoi || loading || deleting || deletingDupKeys || syncing || mktRecalcLoading}
-                                    className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                    title='Chỉ cập nhật các dòng có Team đúng bằng "Hà Nội"'
-                                >
-                                    {syncingTeamHanoi ? (
-                                        <>
-                                            <span className="animate-spin">⏳</span>
-                                            Đang đồng bộ Team…
-                                        </>
-                                    ) : (
-                                        <>🏷️ Đồng bộ Team: Hà Nội → HN-MKT</>
-                                    )}
-                                </button>
-                            )}
-                            {isAdminOnly && isHcmMarketingReport && (
+                            {isAdminOnly && (
                                 <>
                                     <button
                                         type="button"
@@ -2055,36 +1999,38 @@ export default function DanhSachBaoCaoTayMKT({
                                         {syncingTeamFromUsers ? (
                                             <>
                                                 <span className="animate-spin">⏳</span>
-                                                Đang đồng bộ Team từ users…
+                                                Đang đồng bộ team theo user…
                                             </>
                                         ) : (
-                                            <>🏷️ Đồng bộ team từ users</>
+                                            <>🏷️ Đồng bộ team theo user</>
                                         )}
                                     </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleFixUsThiTruongToUS}
-                                        disabled={
-                                            fixingUsThiTruong ||
-                                            loading ||
-                                            deleting ||
-                                            deletingDupKeys ||
-                                            syncing ||
-                                            syncingTeamFromUsers ||
-                                            mktRecalcLoading
-                                        }
-                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
-                                        title="Cập nhật toàn bảng marketing_report_hcm: Thị_trường = Us → US"
-                                    >
-                                        {fixingUsThiTruong ? (
-                                            <>
-                                                <span className="animate-spin">⏳</span>
-                                                Đang đổi Us → US…
-                                            </>
-                                        ) : (
-                                            <>Đổi Us → US (thị trường)</>
-                                        )}
-                                    </button>
+                                    {isHcmMarketingReport && (
+                                        <button
+                                            type="button"
+                                            onClick={handleFixUsThiTruongToUS}
+                                            disabled={
+                                                fixingUsThiTruong ||
+                                                loading ||
+                                                deleting ||
+                                                deletingDupKeys ||
+                                                syncing ||
+                                                syncingTeamFromUsers ||
+                                                mktRecalcLoading
+                                            }
+                                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                            title="Cập nhật toàn bảng marketing_report_hcm: Thị_trường = Us → US"
+                                        >
+                                            {fixingUsThiTruong ? (
+                                                <>
+                                                    <span className="animate-spin">⏳</span>
+                                                    Đang đổi Us → US…
+                                                </>
+                                            ) : (
+                                                <>Đổi Us → US (thị trường)</>
+                                            )}
+                                        </button>
+                                    )}
                                 </>
                             )}
                         </div>

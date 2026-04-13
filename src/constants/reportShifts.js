@@ -4,6 +4,9 @@
  */
 export const REPORT_CA_COMBINED = 'Giữa ca,Hết ca';
 
+/** Hai lựa chọn trong sổ xuống ca (nhập báo cáo MKT / tương tự). */
+export const REPORT_CA_SHIFT_OPTIONS = ['Giữa ca', 'Hết ca'];
+
 /**
  * Lọc theo ca: chọn «Giữa ca,Hết ca» khớp mọi dòng có Hết / Giữa / gộp (dữ liệu cũ vẫn lọc được).
  */
