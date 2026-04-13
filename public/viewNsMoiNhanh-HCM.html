@@ -1818,17 +1818,37 @@
       const normalizeCaForFilter = (v) =>
         String(v || '')
           .trim()
+          .replace(/\u00a0/g, ' ')
+          .replace(/\s+/g, ' ')
           .toLowerCase()
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '');
+      /**
+       * Chọn «Hết ca» → tính cả Hết ca và Giữa ca (+ gộp + ca trống).
+       * «Giữa ca»: Giữa thuần hoặc gộp. Nhãn gộp: mọi ca chuẩn hoặc trống.
+       */
       const rowMatchesCaFilters = (rowCa, selected) => {
         if (!selected || selected.length === 0) return true;
         const norm = normalizeCaForFilter(rowCa);
+        const rowHet = norm.includes('het ca');
+        const rowGua = norm.includes('giua ca');
+        const isRowCombined = rowHet && rowGua;
         return selected.some((sel) => {
           const s = normalizeCaForFilter(sel);
           if (norm === s) return true;
-          if (s.includes('het ca') && norm.includes('het ca')) return true;
-          if (s.includes('giua ca') && norm.includes('giua ca')) return true;
+          const selHet = s.includes('het ca');
+          const selGua = s.includes('giua ca');
+          const selOnlyHet = selHet && !selGua;
+          const selOnlyGua = selGua && !selHet;
+          if (selOnlyHet) {
+            return !norm || rowHet || rowGua || isRowCombined;
+          }
+          if (selOnlyGua) {
+            return rowGua || isRowCombined;
+          }
+          if (selHet && selGua) {
+            return !norm || rowHet || rowGua || isRowCombined;
+          }
           return false;
         });
       };
@@ -1878,6 +1898,8 @@
       const normCaForFilterList = (v) =>
         String(v || '')
           .trim()
+          .replace(/\u00a0/g, ' ')
+          .replace(/\s+/g, ' ')
           .toLowerCase()
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '');

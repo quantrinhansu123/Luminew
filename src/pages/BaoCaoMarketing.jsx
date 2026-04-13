@@ -4,7 +4,7 @@ import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
-import { REPORT_CA_SHIFT_OPTIONS } from '../constants/reportShifts';
+import { REPORT_CA_INPUT_OPTIONS } from '../constants/reportShifts';
 import { buildMktReportDedupeKey, normalizeMktReportDate } from '../utils/mktDetailReportKey';
 import { MktSearchableProductSelect } from '../components/mkt/MktSearchableProductSelect';
 
@@ -231,7 +231,7 @@ export default function BaoCaoMarketing({
     mktHnUserEmployees: [],
     /** Sheet / fallback khi không có user MKT HN trong DB */
     sheetLookupEmployees: [],
-    shiftList: [...REPORT_CA_SHIFT_OPTIONS],
+    shiftList: [...REPORT_CA_INPUT_OPTIONS],
     productList: [
       'Gel Dạ Dày',
       'Gel Trĩ',
@@ -1289,7 +1289,7 @@ export default function BaoCaoMarketing({
     const missingCaRow = tableRows.find((r) => !String(r?.data?.ca ?? '').trim());
     if (missingCaRow) {
       setResponseMsg({
-        text: 'Vui lòng chọn ca (Giữa ca hoặc Hết ca) cho tất cả các dòng.',
+        text: 'Vui lòng chọn ca (Giữa ca, Hết ca hoặc Giữa ca,Hết ca) cho tất cả các dòng.',
         isSuccess: false,
         visible: true,
       });

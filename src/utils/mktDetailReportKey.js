@@ -46,12 +46,21 @@ export function normalizeMktReportDate(dateVal) {
   return s;
 }
 
-/** Giống reportCaToGroup trong recalc MKT */
+/**
+ * Một nhóm đơn (Hết / Giữa). Với ca gộp «Giữa ca,Hết ca» trả về null — phải dùng logic hai nhóm
+ * (`reportCaMeansBothHetAndGua` / recalc `reportCaToGroups`).
+ */
 export function reportCaToGroup(caVal) {
   const lower = normalizePersonKey(caVal);
   if (!lower) return null;
-  if (lower.includes('hết ca') || lower.includes('het ca')) return 'Hết ca';
-  if (lower.includes('giữa ca') || lower.includes('giua ca')) return 'Giữa ca';
+  const de = lower
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const hasHet = de.includes('het ca') || lower.includes('hết ca');
+  const hasGua = de.includes('giua ca') || lower.includes('giữa ca');
+  if (hasHet && hasGua) return null;
+  if (hasHet) return 'Hết ca';
+  if (hasGua) return 'Giữa ca';
   return null;
 }
 

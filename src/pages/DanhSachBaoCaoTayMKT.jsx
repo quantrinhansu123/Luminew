@@ -67,6 +67,13 @@ const normalizePersonName = (s) =>
         .replace(/\s+/g, ' ')
         .toLowerCase();
 
+/** Cột ca trên detail_reports / marketing_report_hcm (PostgREST có thể trả `ca` hoặc `Ca`). */
+function getMktReportCaFromRow(row) {
+    if (!row || typeof row !== 'object') return '';
+    const raw = row.ca ?? row['ca'] ?? row.Ca ?? row['Ca'] ?? row.shift ?? '';
+    return String(raw ?? '').trim();
+}
+
 /** Khớp tên nhân sự (substring, giống filter Tên báo cáo). */
 function namesLooseMatchPersonnel(a, b) {
     const na = normalizePersonName(a);
@@ -364,7 +371,7 @@ export default function DanhSachBaoCaoTayMKT({
         try {
             const reportDate = report['Ngày'];
             const reportName = report['Tên'];
-            const reportCa = report['ca'];
+            const reportCa = getMktReportCaFromRow(report);
             const reportProduct = report['Sản_phẩm'];
             const reportMarket = report['Thị_trường'];
 
@@ -891,8 +898,10 @@ export default function DanhSachBaoCaoTayMKT({
     }, [userEmail, userName, reportTableName, selectedPersonnelNames]);
 
     const availableShiftOptions = useMemo(
-        () => [...new Set((allReports || []).map((item) => String(item?.['ca'] || '').trim()).filter(Boolean))]
-            .sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' })),
+        () =>
+            [...new Set((allReports || []).map((item) => getMktReportCaFromRow(item)).filter(Boolean))].sort((a, b) =>
+                a.localeCompare(b, 'vi', { sensitivity: 'base' })
+            ),
         [allReports]
     );
 
@@ -931,7 +940,7 @@ export default function DanhSachBaoCaoTayMKT({
 
         return (allReports || []).filter((item) => {
             const nameKey = personKey(item?.[MKT_REPORT_TEN_COLUMN]);
-            const shift = String(item?.['ca'] || '').trim();
+            const shift = getMktReportCaFromRow(item);
             const team = String(item?.['Team'] || '').trim();
             const product = String(item?.['Sản_phẩm'] || '').trim();
             const market = String(item?.['Thị_trường'] || '').trim();
@@ -1380,7 +1389,7 @@ export default function DanhSachBaoCaoTayMKT({
                 orderSourceHint +
                 'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
                 'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
-                'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu hẳn dòng (key + ca) sẽ tạo mới từ đơn.\n\n' +
+                'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu dòng theo từng ca (Hết ca / Giữa ca) so với đơn sẽ INSERT thêm dòng tương ứng.\n\n' +
                 `Khoảng ngày: ${filters.startDate} → ${filters.endDate} (theo bộ lọc trái).\n\n` +
                 'Bạn có chắc muốn chạy không?'
         );
@@ -1526,7 +1535,7 @@ export default function DanhSachBaoCaoTayMKT({
             ten: report['Tên'] || '',
             email: report['Email'] || '',
             ngay: report['Ngày'] || '',
-            ca: report['ca'] || '',
+            ca: getMktReportCaFromRow(report) || '',
             team: report['Team'] || '',
             san_pham: report['Sản_phẩm'] || '',
             thi_truong: report['Thị_trường'] || '',
@@ -2222,7 +2231,7 @@ export default function DanhSachBaoCaoTayMKT({
                                                 <tr key={item.id || index}>
                                                     <td className="text-center">{startIndex + index + 1}</td>
                                                     <td>{formatDate(item['Ngày'])}</td>
-                                                    <td>{item['ca']}</td>
+                                                    <td>{getMktReportCaFromRow(item)}</td>
                                                     <td>{item['Tên']}</td>
                                                     <td>{item['Team']}</td>
                                                     <td>{item['Sản_phẩm']}</td>

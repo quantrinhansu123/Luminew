@@ -995,25 +995,18 @@ export async function recalcMktSoDonThucTeFromOrders({
     }
   }
 
-  // 2) Create missing report rows — một dòng / key với ca «Giữa ca,Hết ca» (tổng cả hai nhóm)
+  // 2) Create missing report rows — theo từng nhóm ca: thiếu «Hết ca» / «Giữa ca» nào mà có đơn thì INSERT dòng đó.
+  // Trước đây: nếu đã có một trong hai → bỏ qua hết → sau khi form chỉ nhập một ca, đơn thuộc ca kia không bao giờ được tạo dòng.
   if (createMissingRows) {
     const allKeys = new Set([
       ...countsByGroup['Hết ca'].keys(),
       ...countsByGroup['Giữa ca'].keys(),
     ]);
-    for (const key of allKeys) {
-      const existsHet = existingByCaKey.has(`Hết ca|${key}`);
-      const existsGua = existingByCaKey.has(`Giữa ca|${key}`);
-      if (existsHet || existsGua) continue;
 
-      const entry = mergeOrderAggs(
-        countsByGroup['Hết ca'].get(key),
-        countsByGroup['Giữa ca'].get(key)
-      );
-      if (!entry) continue;
-
-      const rawNameFromOrder = String(entry.sample.name || '').trim();
-      if (!rawNameFromOrder) continue;
+    const pushMissingRowForGroup = (groupLabel, key, entry) => {
+      if (!entry) return;
+      const rawNameFromOrder = String(entry.sample?.name || '').trim();
+      if (!rawNameFromOrder) return;
       const normalizedName = normalizeNameForKey(rawNameFromOrder);
       const canonicalName =
         canonicalNameByNormalized.get(normalizedName) || rawNameFromOrder;
@@ -1031,7 +1024,7 @@ export async function recalcMktSoDonThucTeFromOrders({
         'Tên': canonicalName,
         'Email': email,
         'Ngày': entry.sample.date,
-        ca: REPORT_CA_COMBINED,
+        ca: groupLabel,
         'Sản_phẩm': entry.sample.product,
         'Thị_trường': entry.sample.market,
         'Team': resolvedTeam,
@@ -1045,12 +1038,11 @@ export async function recalcMktSoDonThucTeFromOrders({
         row['department'] = resolved.department;
       }
       createRows.push(row);
-      existingByCaKey.add(`Hết ca|${key}`);
-      existingByCaKey.add(`Giữa ca|${key}`);
+      existingByCaKey.add(`${groupLabel}|${key}`);
 
       if (previewRows.length < PREVIEW_LIMIT) {
         previewRows.push({
-          ca: REPORT_CA_COMBINED,
+          ca: groupLabel,
           'Ngày': row['Ngày'],
           'Tên': row['Tên'],
           'Sản_phẩm': row['Sản_phẩm'],
@@ -1062,6 +1054,17 @@ export async function recalcMktSoDonThucTeFromOrders({
           'Doanh số hoàn hủy thực tế': row['Doanh số hoàn hủy thực tế'],
           action: 'create',
         });
+      }
+    };
+
+    for (const key of allKeys) {
+      const existsHet = existingByCaKey.has(`Hết ca|${key}`);
+      const existsGua = existingByCaKey.has(`Giữa ca|${key}`);
+      if (!existsHet) {
+        pushMissingRowForGroup('Hết ca', key, countsByGroup['Hết ca'].get(key));
+      }
+      if (!existsGua) {
+        pushMissingRowForGroup('Giữa ca', key, countsByGroup['Giữa ca'].get(key));
       }
     }
   }
