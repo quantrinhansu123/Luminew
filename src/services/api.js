@@ -1035,6 +1035,9 @@ const VAN_DON_ILIKE_EXACT_DB_COLS = new Set([
     'vandon_note',
 ]);
 
+/** Escape giá trị trong PostgREST `in.(...)` hoặc `ilike."..."` khi ghép vào `.or(...)`. */
+const orEncodeQuoteValue = (v) => `"${String(v ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
 /** Ghép điều kiện `col.ilike.val` cho `.or()` (PostgREST). */
 function buildVanDonOrIlikeExact(field, values) {
     if (field === 'tracking_code') {
@@ -1043,7 +1046,7 @@ function buildVanDonOrIlikeExact(field, values) {
                 const norm = normalizeVanDonFilterWhitespace(String(v));
                 if (!norm) return null;
                 const flex = buildVanDonFlexibleIlikePattern(norm);
-                return flex ? `${field}.ilike.${flex}` : null;
+                return flex ? `${field}.ilike.${orEncodeQuoteValue(flex)}` : null;
             })
             .filter(Boolean)
             .join(',');
@@ -1052,7 +1055,7 @@ function buildVanDonOrIlikeExact(field, values) {
         .map((v) => {
             const norm = normalizeVanDonFilterWhitespace(String(v));
             if (!norm) return null;
-            return `${field}.ilike.${escapeIlikePattern(norm)}`;
+            return `${field}.ilike.${orEncodeQuoteValue(escapeIlikePattern(norm))}`;
         })
         .filter(Boolean)
         .join(',');
@@ -1201,13 +1204,8 @@ export const fetchVanDon = async (options = {}) => {
         const pageFrom = (page - 1) * limit;
         const pageTo = pageFrom + limit - 1;
 
-        /** Escape giá trị trong PostgREST `in.(...)` khi ghép vào `.or(...)`. */
         const orEncodeInList = (vals) =>
-            vals.map((v) => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',');
-
-        /** Pattern `ILIKE` trong `.or(...)` PostgREST — bọc ngoặc kép để `,` / ký tự đặc biệt không làm tách nhánh OR sai. */
-        const quotePostgrestOrIlikePattern = (p) =>
-            `"${String(p).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+            vals.map((v) => orEncodeQuoteValue(v)).join(',');
 
         const applyVanDonFilters = (initialQuery) => {
             let query = initialQuery;
@@ -1292,40 +1290,38 @@ export const fetchVanDon = async (options = {}) => {
             if (delivery_status !== undefined && delivery_status !== null && Array.isArray(delivery_status) && delivery_status.length > 0) {
                 applyEmptyOrInFilter('delivery_status', delivery_status);
             }
-            if (delivery_status_nb !== undefined && delivery_status_nb !== null && Array.isArray(delivery_status_nb) && delivery_status_nb.length > 0) {
-                const values = delivery_status_nb;
-                const hasEmpty = values.some(v => v === 'Trống' || v === '__EMPTY__' || v === '' || v === null);
-                const inValues = values.filter((x) => x !== 'Trống' && x !== '__EMPTY__' && x !== '' && x !== null);
-                
-                const nbEmptyFrag = `delivery_status_nb.is.null,delivery_status_nb.eq.,delivery_status_nb.in.(${orEncodeInList(['null', 'undefined', '-', '—', ' ', '  '])})`;
-                
-                let segments = [];
-                if (inValues.length > 0) {
-                    // Match NB directly
-                    const nbIn = buildVanDonOrIlikeExact('delivery_status_nb', inValues);
-                    segments.push(nbIn);
-                    // OR (NB is empty AND FFM matches)
-                    const ffmIn = buildVanDonOrIlikeExact('delivery_status', inValues);
-                    // PostgREST doesn't support nested complex OR/AND easily in .or() string without extensions
-                    // But we can approximate by adding simple ORs if the values are identical.
-                    // For now, let's keep it simple: match NB or match FFM if we want broad coverage, 
-                    // or use a more complex string if the backend supports it.
-                    // Given the constraint, we use the combined logic: (nb is value) OR (nb is null AND ffm is value)
-                    // In PostgREST: or=(delivery_status_nb.in.(...),and(delivery_status_nb.is.null,delivery_status.in.(...)))
-                    const enc = orEncodeInList(inValues);
-                    segments.push(`and(${nbEmptyFrag},delivery_status.in.(${enc}))`);
+                if (delivery_status_nb !== undefined && delivery_status_nb !== null && Array.isArray(delivery_status_nb) && delivery_status_nb.length > 0) {
+                    const values = delivery_status_nb;
+                    const hasEmpty = values.some(v => v === 'Trống' || v === '__EMPTY__' || v === '' || v === null);
+                    const inValues = values.filter((x) => x !== 'Trống' && x !== '__EMPTY__' && x !== '' && x !== null);
+                    
+                    const emptyConditions = ['is.null', 'eq.', `in.(${orEncodeInList(['null', 'undefined', '-', '—', ' ', '  '])})`];
+                    
+                    let segments = [];
+                    if (inValues.length > 0) {
+                        // 1. Khớp thẳng cột NB
+                        segments.push(`delivery_status_nb.in.(${orEncodeInList(inValues)})`);
+                        
+                        // 2. Hoặc (NB trống VÀ FFM khớp)
+                        const ffmEnc = orEncodeInList(inValues);
+                        for (const cond of emptyConditions) {
+                            segments.push(`and(delivery_status_nb.${cond},delivery_status.in.(${ffmEnc}))`);
+                        }
+                    }
+                    
+                    if (hasEmpty) {
+                        // 3. Hoặc (Cả NB và FFM đều trống)
+                        for (const nbCond of emptyConditions) {
+                            for (const ffmCond of emptyConditions) {
+                                segments.push(`and(delivery_status_nb.${nbCond},delivery_status.${ffmCond})`);
+                            }
+                        }
+                    }
+                    
+                    if (segments.length > 0) {
+                        query = query.or(segments.join(','));
+                    }
                 }
-                
-                if (hasEmpty) {
-                    // (NB is Empty AND FFM is Empty)
-                    const ffmEmptyFrag = `delivery_status.is.null,delivery_status.eq.,delivery_status.in.(${orEncodeInList(['null', 'undefined', '-', '—', ' ', '  '])})`;
-                    segments.push(`and(${nbEmptyFrag},${ffmEmptyFrag})`);
-                }
-                
-                if (segments.length > 0) {
-                    query = query.or(segments.join(','));
-                }
-            }
             if (payment_status !== undefined && payment_status !== null && Array.isArray(payment_status) && payment_status.length > 0) {
                 applyEmptyOrInFilter('payment_status', payment_status);
             }

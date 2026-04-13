@@ -1223,6 +1223,7 @@ function VanDon({ dataSource = 'default' }) {
         shipping_unit: activeFilters.shipping_unit,
         delivery_status: activeFilters.delivery_status,
         delivery_status_nb: activeFilters.delivery_status_nb,
+        payment_status: activeFilters.payment_status,
         dateFrom: activeFilters.dateFrom,
         dateTo: activeFilters.dateTo,
         dateType: activeFilters.dateType,
