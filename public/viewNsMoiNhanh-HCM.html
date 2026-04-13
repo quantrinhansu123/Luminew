@@ -1875,8 +1875,22 @@
       if (!masterData.length) return;
 
       const products = [...new Set(masterData.map(r => r.sanPham).filter(Boolean))].sort();
-      const MKT_CA_FILTER_COMBINED = 'Giữa ca,Hết ca';
-      const cas = [...new Set([MKT_CA_FILTER_COMBINED, ...masterData.map((r) => r.ca).filter(Boolean)])].sort((a, b) =>
+      const normCaForFilterList = (v) =>
+        String(v || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      /** Ẩn nhãn ca gộp trong UI lọc; dòng DB «Giữa ca,Hết ca» vẫn khớp khi chọn Giữa ca hoặc Hết ca. */
+      const isCombinedCaDisplayLabel = (c) => {
+        const s = normCaForFilterList(c);
+        return s.includes('giua ca') && s.includes('het ca');
+      };
+      const casFromRows = masterData
+        .map((r) => r.ca)
+        .filter(Boolean)
+        .filter((c) => !isCombinedCaDisplayLabel(c));
+      const cas = [...new Set(['Giữa ca', 'Hết ca', ...casFromRows])].sort((a, b) =>
         String(a).localeCompare(String(b), 'vi', { sensitivity: 'base' })
       );
       const teams = [...new Set(masterData.map(r => r.team).filter(Boolean))].sort();
