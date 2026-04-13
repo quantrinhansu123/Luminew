@@ -1872,7 +1872,10 @@
       if (!masterData.length) return;
 
       const products = [...new Set(masterData.map(r => r.sanPham).filter(Boolean))].sort();
-      const cas = [...new Set(masterData.map(r => r.ca).filter(Boolean))].sort();
+      const MKT_CA_FILTER_COMBINED = 'Giữa ca,Hết ca';
+      const cas = [...new Set([MKT_CA_FILTER_COMBINED, ...masterData.map((r) => r.ca).filter(Boolean)])].sort((a, b) =>
+        String(a).localeCompare(String(b), 'vi', { sensitivity: 'base' })
+      );
       const teams = [...new Set(masterData.map(r => r.team).filter(Boolean))].sort();
       const markets = [...new Set(masterData.map(r => r.thiTruong).filter(Boolean))].sort();
 
