@@ -1389,7 +1389,7 @@ export default function DanhSachBaoCaoTayMKT({
                 orderSourceHint +
                 'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
                 'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
-                'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu dòng theo từng ca (Hết ca / Giữa ca) so với đơn sẽ INSERT thêm dòng tương ứng.\n\n' +
+                'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu dòng theo từng ca (Hết ca / Giữa ca) so với đơn sẽ INSERT thêm dòng tương ứng — đã có đúng key+ca thì chỉ cập nhật.\n\n' +
                 `Khoảng ngày: ${filters.startDate} → ${filters.endDate} (theo bộ lọc trái).\n\n` +
                 'Bạn có chắc muốn chạy không?'
         );

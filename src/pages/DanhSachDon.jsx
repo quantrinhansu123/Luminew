@@ -390,6 +390,14 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [filterDeliveryStaff, setFilterDeliveryStaff] = useState([]);
   const [showDeliveryStaffFilter, setShowDeliveryStaffFilter] = useState(false);
   const [deliveryStaffFilterSearchText, setDeliveryStaffFilterSearchText] = useState('');
+  /** Facebook/Page… — cột «Page» (page_name) */
+  const [filterPageNames, setFilterPageNames] = useState([]);
+  const [showPageFilter, setShowPageFilter] = useState(false);
+  const [pageFilterSearchText, setPageFilterSearchText] = useState('');
+  /** payment_status_detail — cột «Trạng thái thu tiền» */
+  const [filterPaymentCollectionStatus, setFilterPaymentCollectionStatus] = useState([]);
+  const [showPaymentCollectionFilter, setShowPaymentCollectionFilter] = useState(false);
+  const [paymentCollectionFilterSearchText, setPaymentCollectionFilterSearchText] = useState('');
   // Mặc định 30 ngày (trước chỉ 3 ngày — dễ không thấy đơn cũ hơn)
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -462,6 +470,10 @@ function DanhSachDon({ dataSource = 'default' }) {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchText]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterPageNames, filterPaymentCollectionStatus]);
 
   // Get all available columns from data (excluding hidden columns and technical columns)
   const allAvailableColumns = useMemo(() => {
@@ -2313,6 +2325,52 @@ function DanhSachDon({ dataSource = 'default' }) {
     return uniqueCheckResults.filter((v) => String(v || '').toLowerCase().includes(kw));
   }, [checkResultFilterSearchText, uniqueCheckResults]);
 
+  const uniquePageNames = useMemo(() => {
+    const pages = new Set();
+    let hasEmpty = false;
+    allData.forEach((row) => {
+      const p = row['Page'] ?? row.page_name;
+      if (p != null && String(p).trim()) {
+        pages.add(String(p).trim());
+      } else {
+        hasEmpty = true;
+      }
+    });
+    const sorted = Array.from(pages).sort((a, b) => a.localeCompare(b, 'vi'));
+    if (hasEmpty) return ['(Trống)', ...sorted];
+    return sorted;
+  }, [allData]);
+
+  const filteredPageNames = useMemo(() => {
+    const kw = String(pageFilterSearchText || '').trim().toLowerCase();
+    if (!kw) return uniquePageNames;
+    return uniquePageNames.filter((v) => String(v || '').toLowerCase().includes(kw));
+  }, [pageFilterSearchText, uniquePageNames]);
+
+  const uniquePaymentCollectionStatuses = useMemo(() => {
+    const vals = new Set();
+    let hasEmpty = false;
+    allData.forEach((row) => {
+      const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail;
+      if (v != null && String(v).trim()) {
+        vals.add(String(v).trim());
+      } else {
+        hasEmpty = true;
+      }
+    });
+    const sorted = Array.from(vals).sort((a, b) => a.localeCompare(b, 'vi'));
+    if (hasEmpty) return ['(Trống)', ...sorted];
+    return sorted;
+  }, [allData]);
+
+  const filteredPaymentCollectionStatuses = useMemo(() => {
+    const kw = String(paymentCollectionFilterSearchText || '').trim().toLowerCase();
+    if (!kw) return uniquePaymentCollectionStatuses;
+    return uniquePaymentCollectionStatuses.filter((v) =>
+      String(v || '').toLowerCase().includes(kw)
+    );
+  }, [paymentCollectionFilterSearchText, uniquePaymentCollectionStatuses]);
+
   const uniqueSaleStaff = useMemo(() => {
     const vals = new Set();
     allData.forEach(row => {
@@ -2541,9 +2599,29 @@ function DanhSachDon({ dataSource = 'default' }) {
       });
     }
 
+    // Page (page_name) — multi-select + tìm trong dropdown
+    if (filterPageNames.length > 0) {
+      data = data.filter((row) => {
+        const pageVal = row['Page'] ?? row.page_name;
+        const pageStr = pageVal != null ? String(pageVal).trim() : '';
+        if (filterPageNames.includes('(Trống)')) {
+          if (!pageStr) return true;
+        }
+        return filterPageNames.includes(pageStr);
+      });
+    }
 
-
-
+    // Trạng thái thu tiền (payment_status_detail)
+    if (filterPaymentCollectionStatus.length > 0) {
+      data = data.filter((row) => {
+        const v = row['Trạng thái thu tiền'] ?? row.payment_status_detail;
+        const s = v != null ? String(v).trim() : '';
+        if (filterPaymentCollectionStatus.includes('(Trống)')) {
+          if (!s) return true;
+        }
+        return filterPaymentCollectionStatus.includes(s);
+      });
+    }
 
     // Sort
     if (sortColumn) {
@@ -2566,7 +2644,28 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
 
     return data;
-  }, [allData, debouncedSearchText, startDate, endDate, isAdmin, isHcmView, filterMarket, filterProduct, filterStatus, filterCheckResult, filterSaleStaff, filterMktStaff, filterDeliveryStaff, sortColumn, sortDirection, selectedPersonnelNames, selectedPersonnelEmails, personnelEmailToNameMap]);
+  }, [
+    allData,
+    debouncedSearchText,
+    startDate,
+    endDate,
+    isAdmin,
+    isHcmView,
+    filterMarket,
+    filterProduct,
+    filterStatus,
+    filterCheckResult,
+    filterSaleStaff,
+    filterMktStaff,
+    filterDeliveryStaff,
+    filterPageNames,
+    filterPaymentCollectionStatus,
+    sortColumn,
+    sortDirection,
+    selectedPersonnelNames,
+    selectedPersonnelEmails,
+    personnelEmailToNameMap,
+  ]);
 
   const duplicateTripleKeysInFilter = useMemo(() => {
     const counts = new Map();
@@ -3512,6 +3611,201 @@ function DanhSachDon({ dataSource = 'default' }) {
                 <div
                   className="fixed inset-0 z-40"
                   onClick={() => setShowCheckResultFilter(false)}
+                />
+              )}
+            </div>
+
+            {/* Page — checkbox + gõ tìm (page_name) */}
+            <div className="min-w-[200px] relative">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Page</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowPageFilter(!showPageFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterPageNames.length === 0
+                      ? 'Tất cả'
+                      : filterPageNames.length === 1
+                        ? filterPageNames[0]
+                        : `Đã chọn ${filterPageNames.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+
+                {showPageFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn Page:</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Array.from(
+                                new Set([...(filterPageNames || []), ...filteredPageNames])
+                              );
+                              setFilterPageNames(next);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterPageNames([]);
+                              setShowPageFilter(false);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mb-2">
+                        <input
+                          type="text"
+                          value={pageFilterSearchText}
+                          onChange={(e) => setPageFilterSearchText(e.target.value)}
+                          placeholder="Gõ để tìm nhanh..."
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                        />
+                      </div>
+                      {filteredPageNames.map((pageName) => {
+                        const isChecked = filterPageNames.includes(pageName);
+                        return (
+                          <label
+                            key={pageName}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterPageNames([...filterPageNames, pageName]);
+                                } else {
+                                  setFilterPageNames(filterPageNames.filter((p) => p !== pageName));
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{pageName}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {showPageFilter && (
+                <div className="fixed inset-0 z-40" onClick={() => setShowPageFilter(false)} />
+              )}
+            </div>
+
+            {/* Trạng thái thu tiền (payment_status_detail) */}
+            <div className="min-w-[200px] relative">
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
+                Trạng thái thu tiền
+              </label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowPaymentCollectionFilter(!showPaymentCollectionFilter)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                >
+                  <span className="truncate">
+                    {filterPaymentCollectionStatus.length === 0
+                      ? 'Tất cả'
+                      : filterPaymentCollectionStatus.length === 1
+                        ? filterPaymentCollectionStatus[0]
+                        : `Đã chọn ${filterPaymentCollectionStatus.length}`}
+                  </span>
+                  <span className="ml-2">▼</span>
+                </button>
+
+                {showPaymentCollectionFilter && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                        <span className="text-xs font-semibold text-gray-700">Chọn trạng thái thu tiền:</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Array.from(
+                                new Set([
+                                  ...(filterPaymentCollectionStatus || []),
+                                  ...filteredPaymentCollectionStatuses,
+                                ])
+                              );
+                              setFilterPaymentCollectionStatus(next);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterPaymentCollectionStatus([]);
+                              setShowPaymentCollectionFilter(false);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mb-2">
+                        <input
+                          type="text"
+                          value={paymentCollectionFilterSearchText}
+                          onChange={(e) => setPaymentCollectionFilterSearchText(e.target.value)}
+                          placeholder="Gõ để tìm nhanh..."
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                        />
+                      </div>
+                      {filteredPaymentCollectionStatuses.map((st) => {
+                        const isChecked = filterPaymentCollectionStatus.includes(st);
+                        return (
+                          <label
+                            key={st}
+                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFilterPaymentCollectionStatus([
+                                    ...filterPaymentCollectionStatus,
+                                    st,
+                                  ]);
+                                } else {
+                                  setFilterPaymentCollectionStatus(
+                                    filterPaymentCollectionStatus.filter((x) => x !== st)
+                                  );
+                                }
+                              }}
+                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">{st}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {showPaymentCollectionFilter && (
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowPaymentCollectionFilter(false)}
                 />
               )}
             </div>
