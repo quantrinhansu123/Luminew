@@ -30,23 +30,59 @@ const FIELD_MAPPING = {
     'Cảnh báo': 'Cảnh báo'
 };
 
+function normalizeDept(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ');
+}
+
+function isMktDepartment(value) {
+    const d = normalizeDept(value);
+    return d.includes('mkt') || d.includes('marketing');
+}
+
 export const fetchMktEmployees = async () => {
     try {
         const { data, error } = await supabase
             .from('users')
-            .select('name, email, team, branch, chi_nhanh, department')
-            .or('department.ilike.%mkt%,department.ilike.%marketing%');
+            .select('*');
 
         if (error) throw error;
 
-        // Transform to format used in component
-        return (data || []).map(emp => ({
-            name: String(emp.name || '').trim(),
-            email: emp.email,
-            team: emp.team,
-            branch: emp.branch || emp.chi_nhanh || '',
-            id_ns: null
-        })).filter((emp) => emp.name);
+        const names = new Map();
+        (data || []).forEach((emp) => {
+            const dept =
+                emp?.department ??
+                emp?.bo_phan ??
+                emp?.['Bộ phận'] ??
+                emp?.Bộ_phận ??
+                '';
+            if (!isMktDepartment(dept)) return;
+
+            const name = String(
+                emp?.name ??
+                    emp?.username ??
+                    emp?.full_name ??
+                    emp?.['Họ Và Tên'] ??
+                    ''
+            ).trim();
+            if (!name) return;
+            const key = name.toLowerCase();
+            if (!names.has(key)) {
+                names.set(key, {
+                    name,
+                    email: emp?.email || null,
+                    team: emp?.team || null,
+                    branch: emp?.branch || emp?.chi_nhanh || '',
+                    id_ns: null,
+                });
+            }
+        });
+
+        return Array.from(names.values());
     } catch (error) {
         console.error('Error fetching MKT employees:', error);
         throw error;
