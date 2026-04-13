@@ -2206,7 +2206,6 @@ function VanDon({ dataSource = 'default' }) {
       const rows = await API.fetchOrderChangeHistory({
         orderCode: oid,
         sourceTable: dataSource === 'hcm' ? 'order_code_hcm' : 'orders',
-        limit: 200,
       });
       setHistoryDateFrom('');
       setHistoryDateTo('');
@@ -5419,7 +5418,7 @@ function VanDon({ dataSource = 'default' }) {
                 </button>
               </div>
               <div className="text-xs text-gray-500 mb-3">
-                Dữ liệu audit bất biến từ DB trigger (thời gian, người sửa, giá trị trước/sau).
+                Nguồn: cột Log (jsonb) trên đơn — mỗi lần sửa lưới / Nhập đơn ghi đủ thời gian, người thao tác, giá trị cũ/mới.
               </div>
               <div className="flex flex-wrap items-end gap-3 mb-3">
                 <div>

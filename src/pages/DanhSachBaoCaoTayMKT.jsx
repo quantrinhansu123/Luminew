@@ -26,6 +26,19 @@ const formatDate = (dateValue) => {
     return `${day}/${month}/${year}`;
 };
 
+/** Hiển thị thời điểm nhập dòng (created_at ISO). */
+const formatDateTime = (dateValue) => {
+    if (!dateValue) return '';
+    const d = new Date(dateValue);
+    if (isNaN(d.getTime())) return String(dateValue);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${day}/${month}/${year} ${h}:${min}`;
+};
+
 /** YYYY-MM-DD theo lịch local (input type="date"), tránh lệch ngày so với toISOString UTC. */
 const formatDateYmdLocal = (d) => {
     const date = d instanceof Date ? d : new Date(d);
@@ -72,6 +85,13 @@ function getMktReportCaFromRow(row) {
     if (!row || typeof row !== 'object') return '';
     const raw = row.ca ?? row['ca'] ?? row.Ca ?? row['Ca'] ?? row.shift ?? '';
     return String(raw ?? '').trim();
+}
+
+/** Thời điểm tạo bản ghi (ngày nhập dòng) — PostgREST thường trả `created_at`. */
+function getMktReportNgayNhapFromRow(row) {
+    if (!row || typeof row !== 'object') return null;
+    const raw = row.created_at ?? row['created_at'] ?? row.inserted_at ?? row['inserted_at'] ?? null;
+    return raw;
 }
 
 /** Khớp tên nhân sự (substring, giống filter Tên báo cáo). */
@@ -1173,6 +1193,12 @@ export default function DanhSachBaoCaoTayMKT({
                 return Number.isNaN(t) ? 0 : t;
             }
 
+            if (sortColumn === 'created_at') {
+                const raw = getMktReportNgayNhapFromRow(item);
+                const t = raw ? new Date(raw).getTime() : 0;
+                return Number.isNaN(t) ? 0 : t;
+            }
+
             if (sortColumn === 'Số đơn') {
                 const id = item?.id;
                 if (isHcmMarketingReport) {
@@ -2097,6 +2123,13 @@ export default function DanhSachBaoCaoTayMKT({
                                         Ngày {sortColumn === 'Ngày' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                                     </th>
                                     <th
+                                        onClick={() => handleSort('created_at')}
+                                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                        Ngày nhập{' '}
+                                        {sortColumn === 'created_at' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th
                                         onClick={() => handleSort('ca')}
                                         style={{ cursor: 'pointer', userSelect: 'none' }}
                                     >
@@ -2184,7 +2217,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 {reportsAfterFilters.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={isHcmMarketingReport ? 15 : 12}
+                                            colSpan={isHcmMarketingReport ? 16 : 13}
                                             className="text-center"
                                         >
                                             {loading || calculatingRealValues ? 'Đang tải...' : 'Không có dữ liệu trong khoảng thời gian này.'}
@@ -2193,7 +2226,7 @@ export default function DanhSachBaoCaoTayMKT({
                                 ) : (
                                     <>
                                         <tr className="total-row">
-                                            <td className="total-label" colSpan="7">TỔNG CỘNG</td>
+                                            <td className="total-label" colSpan="8">TỔNG CỘNG</td>
                                             <td className="total-value">{formatNumber(totalsByFiltered.cpqc)}</td>
                                             <td className="total-value">{formatNumber(totalsByFiltered.mess)}</td>
                                             {isHcmMarketingReport && (
@@ -2231,6 +2264,7 @@ export default function DanhSachBaoCaoTayMKT({
                                                 <tr key={item.id || index}>
                                                     <td className="text-center">{startIndex + index + 1}</td>
                                                     <td>{formatDate(item['Ngày'])}</td>
+                                                    <td>{formatDateTime(getMktReportNgayNhapFromRow(item))}</td>
                                                     <td>{getMktReportCaFromRow(item)}</td>
                                                     <td>{item['Tên']}</td>
                                                     <td>{item['Team']}</td>

@@ -1,7 +1,12 @@
 import { COLUMN_MAPPING, DROPDOWN_OPTIONS, PRIMARY_KEY_COLUMN, SETTINGS_KEY } from '../types';
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
-import { formatOrderLogJsonbForDisplay, mergeOrderLogJsonb, parseOrderLogJsonb } from '../utils/orderLogJsonb';
+import {
+    formatOrderLogJsonbForDisplay,
+    labelForOrderLogDbKey,
+    mergeOrderLogJsonb,
+    parseOrderLogJsonb,
+} from '../utils/orderLogJsonb';
 import {
     buildVanDonFlexibleIlikePattern,
     escapeIlikePattern,
@@ -115,6 +120,9 @@ const resolveAppKeyToDbKey = (appKey) => {
     if (Object.prototype.hasOwnProperty.call(DB_TO_APP_MAPPING, nfc)) return nfc;
 
     if (appKey === 'Trạng thái giao hàng NB') return 'delivery_status_nb';
+    /** Alias UI (types COLUMN_MAPPING) — khớp ghi log batch. */
+    if (nfc === 'Kết quả check'.normalize('NFC')) return 'check_result';
+    if (nfc === 'Nhân viên vận đơn'.normalize('NFC')) return 'delivery_staff';
     if (appKey === 'delivery_status') return 'delivery_status';
     if (appKey === 'Ghi chú vận đơn' || appKey === 'Ghi chú của VĐ') return 'vandon_note';
     if (appKey === 'Ngày đẩy đơn') return 'accounting_check_date';
@@ -796,7 +804,8 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
         console.log(`Supabase Batch Update: ${rows.length} rows`);
 
         const sourceTable = String(options?.sourceTable || 'orders').trim() || 'orders';
-        const supportsActivityLog = sourceTable === 'orders';
+        /** Cùng cột `log` (jsonb) trên `orders` và `order_code_hcm` — mọi ô sửa (Kết quả Check, NB, thu tiền, Tracking, …) đều append vào log. */
+        const supportsActivityLog = sourceTable === 'orders' || sourceTable === 'order_code_hcm';
         const useActivityLog = supportsActivityLog && Array.isArray(changeLog) && changeLog.length > 0;
 
         const updates = rows.map(row => {
@@ -861,11 +870,18 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                 const prev = parseOrderLogJsonb(dbRow?.log);
                 const ts = new Date().toISOString();
                 const nv = String(modifiedBy || '').trim() || 'hệ thống';
+                const LOG_TRACKED_DB_KEYS = new Set([
+                    'check_result',
+                    'delivery_status_nb',
+                    'payment_status',
+                    'tracking_code',
+                    'delivery_staff',
+                ]);
                 const entries = trail
                         .map((ch) => {
                             const dbK = resolveAppKeyToDbKey(ch.colKey);
-                            if (!dbK) return null;
-                            const cot = String(ch.colKey || '').trim() || dbK;
+                            if (!dbK || !LOG_TRACKED_DB_KEYS.has(dbK)) return null;
+                            const cot = labelForOrderLogDbKey(dbK);
                             const cuRaw = ch.originalValue != null ? String(ch.originalValue) : '';
                             const moiRaw = ch.newValue != null ? String(ch.newValue) : '';
                             const cu = normalizeVanDonLogDisplayText(cuRaw);
@@ -1657,23 +1673,37 @@ export const fetchVanDon = async (options = {}) => {
 };
 
 /**
- * Lịch sử thay đổi bất biến theo đơn (audit table từ DB trigger).
- * Trả về danh sách mới nhất trước.
+ * Lịch sử thay đổi trên /van-don: đọc từ cột `log` (jsonb) trên `orders` / `order_code_hcm`
+ * — cùng nguồn ghi khi sửa lưới / Nhập đơn (không dùng bảng order_change_audit).
+ * Trả về danh sách mới nhất trước, khớp shape modal VanDon (changed_at / changed_by / changed_fields).
  */
-export const fetchOrderChangeHistory = async ({ orderCode, sourceTable = 'orders', limit = 200 } = {}) => {
+export const fetchOrderChangeHistory = async ({ orderCode, sourceTable = 'orders' } = {}) => {
     const oc = String(orderCode || '').trim();
     if (!oc) return [];
     const st = String(sourceTable || 'orders').trim() || 'orders';
-    const safeLimit = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(1000, Number(limit))) : 200;
-    const { data, error } = await supabase
-        .from('order_change_audit')
-        .select('id, order_code, source_table, changed_at, changed_by, changed_fields, op')
-        .eq('order_code', oc)
-        .eq('source_table', st)
-        .order('changed_at', { ascending: false })
-        .limit(safeLimit);
+    const { data, error } = await supabase.from(st).select('log').eq('order_code', oc).maybeSingle();
     if (error) throw error;
-    return Array.isArray(data) ? data : [];
+    const entries = parseOrderLogJsonb(data?.log);
+    const rows = entries.map((e, i) => {
+        const label = String(e.cot || e.cot_db || 'Thay đổi').trim() || 'Thay đổi';
+        return {
+            id: `log-${i}-${String(e.thoi_gian ?? i)}`,
+            changed_at: e.thoi_gian,
+            changed_by: e.nhan_vien != null ? String(e.nhan_vien) : 'hệ thống',
+            changed_fields: {
+                [label]: {
+                    old: e.gia_tri_cu !== undefined ? e.gia_tri_cu : null,
+                    new: e.gia_tri_moi !== undefined ? e.gia_tri_moi : null,
+                },
+            },
+        };
+    });
+    rows.sort((a, b) => {
+        const ta = new Date(a.changed_at || 0).getTime();
+        const tb = new Date(b.changed_at || 0).getTime();
+        return tb - ta;
+    });
+    return rows;
 };
 
 /** Khớp `DanhSachVanDon.jsx` — chi nhánh HCM (users.branch / HR «chi nhánh»). */
