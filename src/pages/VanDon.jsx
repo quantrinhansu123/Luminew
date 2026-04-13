@@ -974,11 +974,8 @@ function VanDon({ dataSource = 'default' }) {
 
   const formatAuditColumnName = (col) => {
     const k = String(col || '').trim();
-    if (k === 'check_result') return 'Kết quả Check';
-    if (k === 'delivery_status_nb') return 'Trạng thái giao hàng NB';
-    if (k === 'tracking_code') return 'Mã Tracking';
-    if (k === 'payment_status') return 'Trạng thái thu tiền';
-    return k || '(không rõ)';
+    if (!k) return '(không rõ)';
+    return API.DB_TO_APP_MAPPING[k] || k;
   };
 
   const getYmdFromAuditTs = (v) => {
@@ -5391,10 +5388,15 @@ function VanDon({ dataSource = 'default' }) {
         {historyModalData && (
           (() => {
             const filteredHistoryRows = (historyModalData.rows || []).filter((row) => {
+              const hasDateRange = Boolean(historyDateFrom || historyDateTo);
               const ymd = getYmdFromAuditTs(row?.changed_at);
-              if (!ymd) return false;
-              if (historyDateFrom && ymd < historyDateFrom) return false;
-              if (historyDateTo && ymd > historyDateTo) return false;
+              // Chỉ loại dòng khi không parse được ngày **và** user đang lọc theo khoảng ngày.
+              // Trước đây: !ymd → luôn loại → cả lịch sử «mất» dù DB có bản ghi (định dạng thời gian lạ / lỗi parse).
+              if (hasDateRange) {
+                if (!ymd) return false;
+                if (historyDateFrom && ymd < historyDateFrom) return false;
+                if (historyDateTo && ymd > historyDateTo) return false;
+              }
               return true;
             });
             return (

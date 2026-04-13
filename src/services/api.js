@@ -36,7 +36,7 @@ export const DB_TO_APP_MAPPING = {
     "sale_price": "Giá bán",
     "shipping_unit": "Đơn vị vận chuyển",
     "accountant_confirm": "Kế toán xác nhận thu tiền về",
-    "created_at": "created_at",
+    "created_at": "Ngày tạo (DB)",
     "ngaydonghang": "Ngày đóng hàng",
     "check_result": "Kết quả Check",
     "vandon_note": "Ghi chú của VĐ",
@@ -64,7 +64,11 @@ export const DB_TO_APP_MAPPING = {
     "cskh_status": "Trạng thái cskh",
     "log": "Nhật ký",
     "canh_bao": "Cảnh báo trùng",
-    "thu_tu_chia": "Thứ tự chia"
+    "thu_tu_chia": "Thứ tự chia",
+    "ngay_chia_van_don": "Ngày chia vận đơn",
+    "payment_method_text": "Hình thức thanh toán (text)",
+    "reason": "Lý do (reason)",
+    "estimated_delivery_date": "Thời gian giao dự kiến (cũ)"
 };
 
 /**
