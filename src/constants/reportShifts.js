@@ -36,9 +36,9 @@ function foldCaForShiftMatch(s) {
 
 /**
  * Lọc theo ca (React — cùng quy tắc trang xem MKT HTML):
- * - Chỉ chọn «Hết ca»: khớp mọi dòng có Giữa ca / Hết ca / gộp + ca trống.
+ * - Chỉ chọn «Hết ca»: chỉ dòng ca thuần «Hết ca» (không Giữa, không gộp).
  * - Chỉ chọn «Giữa ca»: Giữa ca thuần hoặc gộp «Giữa ca,Hết ca».
- * - Chọn nhãn gộp: như lọc Hết (mọi ca chuẩn + trống).
+ * - Nhãn lọc gộp (cả hai cụm): chỉ dòng gộp.
  * Nhiều mục chọn = OR.
  */
 export function rowCaMatchesSelectedShifts(rowCa, selectedShifts) {
@@ -60,7 +60,7 @@ export function rowCaMatchesSelectedShifts(rowCa, selectedShifts) {
     const selOnlyGua = selGua && !selHet;
 
     if (selOnlyHet) {
-      if (!foldedRow || rowHet || rowGua || isRowCombined) return true;
+      if (rowHet && !rowGua) return true;
       continue;
     }
     if (selOnlyGua) {
@@ -68,7 +68,7 @@ export function rowCaMatchesSelectedShifts(rowCa, selectedShifts) {
       continue;
     }
     if (selHet && selGua) {
-      if (!foldedRow || rowHet || rowGua || isRowCombined) return true;
+      if (isRowCombined) return true;
       continue;
     }
   }

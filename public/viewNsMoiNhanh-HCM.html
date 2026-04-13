@@ -1824,8 +1824,7 @@
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '');
       /**
-       * Chọn «Hết ca» → tính cả Hết ca và Giữa ca (+ gộp + ca trống).
-       * «Giữa ca»: Giữa thuần hoặc gộp. Nhãn gộp: mọi ca chuẩn hoặc trống.
+       * «Hết ca» → chỉ dòng thuần Hết ca. «Giữa ca» → Giữa thuần hoặc gộp. Gộp → chỉ dòng gộp.
        */
       const rowMatchesCaFilters = (rowCa, selected) => {
         if (!selected || selected.length === 0) return true;
@@ -1841,13 +1840,13 @@
           const selOnlyHet = selHet && !selGua;
           const selOnlyGua = selGua && !selHet;
           if (selOnlyHet) {
-            return !norm || rowHet || rowGua || isRowCombined;
+            return rowHet && !rowGua;
           }
           if (selOnlyGua) {
             return rowGua || isRowCombined;
           }
           if (selHet && selGua) {
-            return !norm || rowHet || rowGua || isRowCombined;
+            return isRowCombined;
           }
           return false;
         });

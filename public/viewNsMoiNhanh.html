@@ -1822,9 +1822,9 @@
           .replace(/[\u0300-\u036f]/g, '');
       /**
        * Khớp ca đã chọn với cột ca dòng:
-       * - Chọn «Hết ca» → phải tính cả dòng Hết ca lẫn Giữa ca (và gộp + ca trống).
-       * - Chọn «Giữa ca» → chỉ Giữa ca thuần hoặc gộp «Giữa ca,Hết ca».
-       * - Nhãn gộp trên lọc: mọi ca chuẩn hoặc trống.
+       * - «Hết ca» → chỉ dòng thuần Hết ca (không Giữa, không gộp).
+       * - «Giữa ca» → Giữa thuần hoặc gộp.
+       * - Nhãn gộp trên lọc → chỉ dòng gộp.
        */
       const rowMatchesCaFilters = (rowCa, selected) => {
         if (!selected || selected.length === 0) return true;
@@ -1840,13 +1840,13 @@
           const selOnlyHet = selHet && !selGua;
           const selOnlyGua = selGua && !selHet;
           if (selOnlyHet) {
-            return !norm || rowHet || rowGua || isRowCombined;
+            return rowHet && !rowGua;
           }
           if (selOnlyGua) {
             return rowGua || isRowCombined;
           }
           if (selHet && selGua) {
-            return !norm || rowHet || rowGua || isRowCombined;
+            return isRowCombined;
           }
           return false;
         });
