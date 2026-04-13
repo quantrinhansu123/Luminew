@@ -1620,6 +1620,14 @@ function VanDon({ dataSource = 'default' }) {
           });
         }
         
+        if (serverTrackingFilter) {
+          activeFilters.push({
+            type: 'tracking_filter',
+            values: serverTrackingFilter
+          });
+        }
+        
+
         if (appliedFilterValues.delivery_status && Array.isArray(appliedFilterValues.delivery_status) && appliedFilterValues.delivery_status.length > 0) {
           activeFilters.push({
             type: 'delivery_status',
@@ -1691,10 +1699,36 @@ function VanDon({ dataSource = 'default' }) {
                   return !isVanDonSemanticEmpty(v) && filter.values.has(v);
                 }
                 case 'delivery_status_nb': {
-                  const o = getPendingOriginal(orderId, 'Trạng thái giao hàng NB', 'delivery_status_nb');
-                  const v = o !== undefined ? strNorm(o) : strNorm(row['Trạng thái giao hàng NB'] || row.delivery_status_nb || '');
-                  if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
-                  return !isVanDonSemanticEmpty(v) && filter.values.has(v);
+                  // Dùng chính hàm resolve để khớp với logic hiển thị % fallback
+                  const v = resolveVanDonDeliveryStatusForNbColumn(row);
+                  const normV = strNorm(v);
+                  if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(normV)) return true;
+                  return !isVanDonSemanticEmpty(normV) && filter.values.has(normV);
+                }
+                case 'tracking_filter': {
+                  const tf = filter.values;
+                  const statusTf = String(tf.status || 'Tình trạng mã').trim();
+                  const incRaw = String(tf.include || '').trim().toLowerCase();
+                  const excRaw = String(tf.exclude || '').trim().toLowerCase();
+                  
+                  const orderId = row[PRIMARY_KEY_COLUMN];
+                  const o = getPendingOriginal(orderId, 'Mã Tracking', 'Mã tracking');
+                  const code = o !== undefined ? strNorm(o) : strNorm(row['Mã Tracking'] || row.tracking_code || '');
+                  
+                  // 1. Check status
+                  if (statusTf === 'Tất cả có mã') {
+                    if (isVanDonSemanticEmpty(code)) return false;
+                  } else if (statusTf === 'Trống') {
+                    if (!isVanDonSemanticEmpty(code)) return false;
+                  } else if (statusTf === 'Toàn số') {
+                    if (isVanDonSemanticEmpty(code) || !/^[0-9]+$/.test(code)) return false;
+                  }
+                  
+                  // 2. Check include/exclude
+                  if (incRaw && !code.toLowerCase().includes(incRaw)) return false;
+                  if (excRaw && code.toLowerCase().includes(excRaw)) return false;
+                  
+                  return true;
                 }
                 case 'payment_status': {
                   const o = getPendingOriginal(orderId, 'Trạng thái thu tiền', 'payment_status');
