@@ -43,6 +43,7 @@ import {
 
 const LOGO_URL =
   'https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2Ff930e667.%E1%BA%A2nh.025539.jpg';
+const CA_FILTER_OPTIONS = ['Hết ca'];
 
 /** Chuẩn hóa tên nhập nhầm trên stack HCM (xem-bao-cao-sale-hcm). */
 const HCM_RENAME_ANH_NGUYET_FROM = 'Nguyễn Thị Ánh Nguyệt 1';
@@ -560,7 +561,7 @@ export default function NhanSuSaleLumiMoiView({
       setNameAllApplied(true);
       setNameSelApplied([]);
       setProductSel(uniqueSorted(dataForFilters, 'sanPham'));
-      setCaSel(uniqueSorted(dataForFilters, 'ca').map(String));
+      setCaSel(CA_FILTER_OPTIONS.map(String));
       setTeamSel(uniqueTeamLabelsForFilter(dataForFilters).map(String));
       setMarketSel(uniqueSorted(dataForFilters, 'thiTruong'));
       setBoPhanPick('');
@@ -577,7 +578,7 @@ export default function NhanSuSaleLumiMoiView({
         emailForRow
       );
       const products = uniqueSorted(dataForFilters, 'sanPham');
-      const cas = uniqueSorted(dataForFilters, 'ca').map(String);
+      const cas = CA_FILTER_OPTIONS.map(String);
       const teams = uniqueTeamLabelsForFilter(dataForFilters);
       const markets = uniqueSorted(dataForFilters, 'thiTruong');
       setProductSel((prev) => prev.filter((p) => products.includes(p)));
@@ -1318,10 +1319,7 @@ restrictedForPopulate,
             Tất cả
           </label>
           <div className="indent">
-            {uniqueSorted(
-              restrictedForPopulate,
-              'ca'
-            ).map((val) => (
+            {CA_FILTER_OPTIONS.map((val) => (
               <label key={String(val)}>
                 <input
                   type="checkbox"
@@ -1335,10 +1333,7 @@ restrictedForPopulate,
                     const s = String(val);
                     const next = caSel.includes(s) ? caSel.filter((x) => x !== s) : [...caSel, s];
                     setCaSel(next);
-                    const allKeys = uniqueSorted(
-restrictedForPopulate,
-                      'ca'
-                    ).map(String);
+                    const allKeys = CA_FILTER_OPTIONS.map(String);
                     if (next.length === allKeys.length) {
                       setCaAll(true);
                       setCaSel([]);

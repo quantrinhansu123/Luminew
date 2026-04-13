@@ -161,6 +161,7 @@ export default function DanhSachBaoCaoTayCSKH({
         personnel: []
     });
     const [teamSyncing, setTeamSyncing] = useState(false);
+    const [fixingCombinedShiftToHetCa, setFixingCombinedShiftToHetCa] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
     /** Admin: chọn nhiều dòng để xóa (theo id bản ghi sales_reports) */
     const [selectedReportIds, setSelectedReportIds] = useState(() => new Set());
@@ -864,6 +865,54 @@ export default function DanhSachBaoCaoTayCSKH({
         }
     };
 
+    /** Đổi ca gộp "Hết ca,Giữa ca" thành "Hết ca" trên danh sách đang lọc. */
+    const handleFixCombinedShiftToHetCa = async () => {
+        if (fixingCombinedShiftToHetCa) return;
+        if (!allReports.length) {
+            toast.info('Không có dữ liệu trong danh sách hiện tại.');
+            return;
+        }
+
+        const isCombinedShift = (value) => {
+            const s = String(value || '')
+                .replace(/\u00a0/g, ' ')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+            return s.includes('het ca') && s.includes('giua ca');
+        };
+
+        const targets = allReports.filter((r) => isCombinedShift(r?.shift) && r?.id);
+        if (!targets.length) {
+            toast.info('Không có dòng ca gộp để đổi về Hết ca.');
+            return;
+        }
+
+        const ok = window.confirm(
+            `Tìm thấy ${targets.length} dòng ca gộp (Hết ca,Giữa ca).\n\nĐổi tất cả thành "Hết ca" trong danh sách đang lọc?`
+        );
+        if (!ok) return;
+
+        setFixingCombinedShiftToHetCa(true);
+        try {
+            let updated = 0;
+            for (const r of targets) {
+                const { error } = await supabase.from('sales_reports').update({ shift: 'Hết ca' }).eq('id', r.id);
+                if (error) throw error;
+                updated += 1;
+            }
+            toast.success(`Đã đổi ${updated} dòng: Hết ca,Giữa ca → Hết ca.`);
+            fetchData();
+        } catch (error) {
+            console.error('handleFixCombinedShiftToHetCa:', error);
+            toast.error('Lỗi đổi ca gộp → Hết ca: ' + (error.message || String(error)));
+        } finally {
+            setFixingCombinedShiftToHetCa(false);
+        }
+    };
+
     // Calculate pagination
     const totalPages = Math.ceil(allReports.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -1305,7 +1354,7 @@ export default function DanhSachBaoCaoTayCSKH({
                                 <button
                                     type="button"
                                     onClick={handleSyncTeamFromUsers}
-                                    disabled={teamSyncing || loading || updatingOrders || removingDuplicates}
+                                    disabled={teamSyncing || loading || updatingOrders || removingDuplicates || fixingCombinedShiftToHetCa}
                                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
                                 >
                                     {teamSyncing ? (
@@ -1316,6 +1365,23 @@ export default function DanhSachBaoCaoTayCSKH({
                                     ) : (
                                         <>Chỉnh team & chi nhánh (theo users)</>
                                     )}
+                                </button>
+                            )}
+                            {isAdminOnly && (
+                                <button
+                                    type="button"
+                                    onClick={handleFixCombinedShiftToHetCa}
+                                    disabled={
+                                        fixingCombinedShiftToHetCa ||
+                                        loading ||
+                                        updatingOrders ||
+                                        removingDuplicates ||
+                                        teamSyncing
+                                    }
+                                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition"
+                                    title='Đổi ca gộp "Hết ca,Giữa ca" thành "Hết ca" (danh sách đang lọc)'
+                                >
+                                    {fixingCombinedShiftToHetCa ? 'Đang đổi ca gộp...' : 'Đổi ca gộp → Hết ca'}
                                 </button>
                             )}
                         </div>

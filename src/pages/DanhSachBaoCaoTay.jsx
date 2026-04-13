@@ -267,12 +267,19 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const hasManualListAccess = isHcm ? canView('SALE_MANUAL_HCM') : canView(permissionCode);
     const deniedPermissionLabel = isHcm ? 'SALE_MANUAL_HCM' : permissionCode;
 
-    /** Nút chỉnh team / chuẩn hoá CSKH-Lý: chỉ role admin thật từ DB (không tin localStorage). */
+    /** Nút thao tác nhanh cho Admin + Quản lý Sale. */
     const showBaoCaoTayAdminToolbarButtons = useMemo(() => {
         if (permissionsLoading) return false;
         if (role == null || String(role).trim() === '') return false;
         const l = String(role).trim().toLowerCase();
-        return l === 'admin' || l === 'super_admin' || l === 'administrator';
+        const isAdminRole = l === 'admin' || l === 'super_admin' || l === 'administrator';
+        const isSaleManagerRole =
+            l === 'manager' ||
+            l === 'sale_manager' ||
+            l === 'sales_manager' ||
+            l === 'director' ||
+            l === 'leader-bgd';
+        return isAdminRole || isSaleManagerRole;
     }, [permissionsLoading, role]);
 
     // Kiểm tra xem user có phải Admin không (chỉ Admin mới thấy nút xóa)
@@ -343,6 +350,7 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
     const [teamSyncing, setTeamSyncing] = useState(false);
     const [normalizingCskhLyTeam, setNormalizingCskhLyTeam] = useState(false);
     const [fixingUsMarket, setFixingUsMarket] = useState(false);
+    const [fixingCombinedShiftToHetCa, setFixingCombinedShiftToHetCa] = useState(false);
     const [backingUp, setBackingUp] = useState(false);
     const [updatingOrders, setUpdatingOrders] = useState(false);
     const [updateProgress, setUpdateProgress] = useState({ current: 0, total: 0 });
@@ -1468,6 +1476,59 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
         }
     }, [fetchData, isHcm, reportTable]);
 
+    /** Đổi ca gộp "Hết ca,Giữa ca" về "Hết ca" trong các dòng đang hiển thị. */
+    const handleFixCombinedShiftToHetCa = useCallback(async () => {
+        if (fixingCombinedShiftToHetCa) return;
+
+        const rows = reportsAfterPersonnelFilter || [];
+        if (!rows.length) {
+            toast.info('Không có dữ liệu trong danh sách đã lọc.');
+            return;
+        }
+
+        const isCombinedShift = (value) => {
+            const s = String(value || '')
+                .replace(/\u00a0/g, ' ')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+            return s.includes('het ca') && s.includes('giua ca');
+        };
+
+        const targets = rows.filter((r) => isCombinedShift(r?.shift) && r?.id);
+        if (!targets.length) {
+            toast.info('Không có dòng ca gộp để đổi về Hết ca.');
+            return;
+        }
+
+        const ok = window.confirm(
+            `Tìm thấy ${targets.length} dòng ca gộp (Hết ca,Giữa ca).\n\nĐổi tất cả thành "Hết ca" trong danh sách đang lọc?`
+        );
+        if (!ok) return;
+
+        setFixingCombinedShiftToHetCa(true);
+        try {
+            let updated = 0;
+            for (const r of targets) {
+                const { error } = await supabase
+                    .from(reportTable)
+                    .update({ shift: 'Hết ca' })
+                    .eq('id', r.id);
+                if (error) throw error;
+                updated += 1;
+            }
+            toast.success(`Đã đổi ${updated} dòng: Hết ca,Giữa ca → Hết ca.`);
+            await fetchData();
+        } catch (error) {
+            console.error('handleFixCombinedShiftToHetCa:', error);
+            toast.error('Lỗi đổi ca gộp → Hết ca: ' + (error.message || String(error)));
+        } finally {
+            setFixingCombinedShiftToHetCa(false);
+        }
+    }, [fetchData, fixingCombinedShiftToHetCa, reportTable, reportsAfterPersonnelFilter]);
+
     // Hiển thị từng dòng báo cáo, không gộp theo ngày + tên (mỗi bản ghi một hàng, đủ thao tác).
     const reportsGroupedByDateAndName = useMemo(() => {
         return (reportsAfterPersonnelFilter || []).map((row) => ({
@@ -1871,6 +1932,27 @@ export default function DanhSachBaoCaoTay({ dataSource = 'default' }) {
                                             )}
                                         </button>
                                     )}
+                                    <button
+                                        type="button"
+                                        onClick={handleFixCombinedShiftToHetCa}
+                                        disabled={
+                                            fixingCombinedShiftToHetCa ||
+                                            loading ||
+                                            normalizingCskhLyTeam ||
+                                            teamSyncing
+                                        }
+                                        className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded-md text-sm font-semibold transition shadow-sm"
+                                        title='Đổi ca gộp "Hết ca,Giữa ca" thành "Hết ca" (trong danh sách đang lọc)'
+                                    >
+                                        {fixingCombinedShiftToHetCa ? (
+                                            <>
+                                                <span className="inline-block animate-spin mr-1">⏳</span>
+                                                Đang đổi ca gộp…
+                                            </>
+                                        ) : (
+                                            'Đổi ca gộp → Hết ca'
+                                        )}
+                                    </button>
                                 </>
                             )}
                         </div>

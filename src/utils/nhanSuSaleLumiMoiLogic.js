@@ -929,6 +929,35 @@ export function filterRawData({
   /** Chuỗi rỗng = tất cả — khớp `chucVu` (cột position / Vị trí trên báo cáo). */
   chucVuPick = '',
 }) {
+  const normalizeCaForFilter = (value) =>
+    String(value || '')
+      .replace(/\u00a0/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
+  const rowMatchesShiftSelection = (rowCa, selectedShiftsList) => {
+    if (!Array.isArray(selectedShiftsList) || selectedShiftsList.length === 0) return true;
+    const rowNorm = normalizeCaForFilter(rowCa);
+    const rowHasHet = rowNorm.includes('het ca');
+    const rowHasGiua = rowNorm.includes('giua ca');
+    const rowIsCombined = rowHasHet && rowHasGiua;
+
+    return selectedShiftsList.some((selected) => {
+      const s = normalizeCaForFilter(selected);
+      if (!s) return false;
+      // Chọn "Hết ca" => khớp cả dòng thuần Hết và dòng gộp Giữa+Hết.
+      if (s.includes('het ca') && !s.includes('giua ca')) return rowHasHet;
+      // Chọn "Giữa ca" => khớp cả dòng thuần Giữa và dòng gộp.
+      if (s.includes('giua ca') && !s.includes('het ca')) return rowHasGiua;
+      // Chọn nhãn gộp => chỉ khớp dòng gộp.
+      if (s.includes('het ca') && s.includes('giua ca')) return rowIsCombined;
+      return rowNorm === s;
+    });
+  };
+
   const startDate = startDateStr ? new Date(startDateStr) : null;
   if (startDate) startDate.setHours(0, 0, 0, 0);
   const endDate = endDateStr ? new Date(endDateStr) : null;
@@ -965,8 +994,7 @@ export function filterRawData({
       productAll || (selectedProducts && selectedProducts.includes(r.sanPham));
     const isMarketOk =
       marketAll || (selectedMarkets && selectedMarkets.includes(r.thiTruong));
-    const isShiftOk =
-      caAll || (selectedShifts && selectedShifts.includes(String(r.ca)));
+    const isShiftOk = caAll || rowMatchesShiftSelection(r.ca, selectedShifts);
     const rowTeamKey = canonicalTeamKeyForFilter(String(r.team ?? ''));
     const isTeamOk =
       teamAll ||

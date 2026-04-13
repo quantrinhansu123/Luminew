@@ -201,6 +201,7 @@ export default function DanhSachBaoCaoTayMKT({
     const [syncing, setSyncing] = useState(false);
     const [syncingTeamFromUsers, setSyncingTeamFromUsers] = useState(false);
     const [fixingUsThiTruong, setFixingUsThiTruong] = useState(false);
+    const [fixingCombinedCaToHetCa, setFixingCombinedCaToHetCa] = useState(false);
     const [mktRecalcLoading, setMktRecalcLoading] = useState(false);
     const [deletingDupKeys, setDeletingDupKeys] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -1075,6 +1076,57 @@ export default function DanhSachBaoCaoTayMKT({
             toast.error('Lỗi đổi Us → US: ' + (error.message || String(error)));
         } finally {
             setFixingUsThiTruong(false);
+        }
+    };
+
+    /** MKT: đổi các giá trị ca gộp (Hết ca,Giữa ca) về Hết ca trên danh sách đang lọc. */
+    const handleFixCombinedCaToHetCa = async () => {
+        if (!canDeleteAll || teamFilter === 'RD') return;
+        if (fixingCombinedCaToHetCa) return;
+
+        const rows = reportsAfterFilters || [];
+        if (!rows.length) {
+            toast.info('Không có dữ liệu trong khoảng đã lọc.');
+            return;
+        }
+
+        const isCombinedCa = (value) => {
+            const s = String(value || '')
+                .replace(/\u00a0/g, ' ')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+            return s.includes('het ca') && s.includes('giua ca');
+        };
+
+        const targets = rows.filter((r) => isCombinedCa(getMktReportCaFromRow(r)) && r?.id);
+        if (!targets.length) {
+            toast.info('Không có dòng ca gộp để đổi về Hết ca trong danh sách đã lọc.');
+            return;
+        }
+
+        const ok = window.confirm(
+            `Tìm thấy ${targets.length} dòng ca gộp (Hết ca,Giữa ca).\n\nĐổi tất cả thành "Hết ca" trong phạm vi danh sách đang lọc?`
+        );
+        if (!ok) return;
+
+        setFixingCombinedCaToHetCa(true);
+        try {
+            let updated = 0;
+            for (const r of targets) {
+                const { error } = await supabase.from(reportTableName).update({ ca: 'Hết ca' }).eq('id', r.id);
+                if (error) throw error;
+                updated += 1;
+            }
+            toast.success(`Đã đổi ${updated} dòng: Hết ca,Giữa ca → Hết ca.`);
+            fetchData();
+        } catch (error) {
+            console.error('handleFixCombinedCaToHetCa:', error);
+            toast.error('Lỗi đổi ca gộp → Hết ca: ' + (error.message || String(error)));
+        } finally {
+            setFixingCombinedCaToHetCa(false);
         }
     };
 
@@ -2046,6 +2098,7 @@ export default function DanhSachBaoCaoTayMKT({
                                             onClick={handleFixUsThiTruongToUS}
                                             disabled={
                                                 fixingUsThiTruong ||
+                                                fixingCombinedCaToHetCa ||
                                                 loading ||
                                                 deleting ||
                                                 deletingDupKeys ||
@@ -2067,6 +2120,33 @@ export default function DanhSachBaoCaoTayMKT({
                                         </button>
                                     )}
                                 </>
+                            )}
+                            {canDeleteAll && teamFilter !== 'RD' && (
+                                <button
+                                    type="button"
+                                    onClick={handleFixCombinedCaToHetCa}
+                                    disabled={
+                                        fixingCombinedCaToHetCa ||
+                                        fixingUsThiTruong ||
+                                        loading ||
+                                        deleting ||
+                                        deletingDupKeys ||
+                                        syncing ||
+                                        syncingTeamFromUsers ||
+                                        mktRecalcLoading
+                                    }
+                                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded text-sm font-semibold transition flex items-center gap-2"
+                                    title='Đổi ca gộp "Hết ca,Giữa ca" thành "Hết ca" trong danh sách đang lọc'
+                                >
+                                    {fixingCombinedCaToHetCa ? (
+                                        <>
+                                            <span className="animate-spin">⏳</span>
+                                            Đang đổi ca gộp…
+                                        </>
+                                    ) : (
+                                        <>Đổi ca gộp → Hết ca</>
+                                    )}
+                                </button>
                             )}
                         </div>
                         <div style={{ display: 'none', gap: '10px', flexWrap: 'wrap' }}>

@@ -1,0 +1,36 @@
+---
+description: Flow when saving an order from NhapDon; how sales_reports rows are updated/created
+---
+
+# Nhập đơn → cập nhật/insert vào sales_reports
+
+- Nút “Lưu đơn hàng” trong [`src/pages/NhapDonMoi.jsx`](mdc:src/pages/NhapDonMoi.jsx) gọi `handleSave()`.
+- Sau khi ghi `orders` thành công, code gọi:
+  - `recalcMktSoDonAfterOrderSave(...)` để đồng bộ báo cáo MKT (`detail_reports` hoặc `marketing_report_hcm`).
+  - `recalcSaleOrderCountAfterOrderSave(...)` để đồng bộ báo cáo Sale.
+
+## Điểm móc cập nhật sales_reports
+
+Tại [`src/pages/NhapDonMoi.jsx`](mdc:src/pages/NhapDonMoi.jsx), tìm đoạn:
+
+- `recalcSaleOrderCountAfterOrderSave({ newOrderKey, previousOrderKey, createMissingForHetCa: true, reportsTable: isHcmView ? 'sale_report_hcm' : 'sales_reports', ordersTable: isHcmView ? 'order_code_hcm' : 'orders' })`
+
+=> Với view mặc định, bảng đích là `sales_reports`. Cờ `createMissingForHetCa: true` cho phép:
+- UPDATE khi dòng đã tồn tại
+- INSERT dòng mới nếu key (ngày + tên sale + sản phẩm + thị trường + ca) chưa có
+
+Logic triển khai nằm ở [`src/services/saleRecalcOrderCountFromOrders.js`](mdc:src/services/saleRecalcOrderCountFromOrders.js):
+- Hàm chính tính lại `order_count`, doanh thu thực, số/tiền hủy,… từ bảng `orders`
+- Khi cần tạo mới, thực hiện `insert` theo từng chunk (xem `INSERT_CHUNK`) để đảm bảo an toàn.
+
+## Tóm tắt hành vi
+
+1) Người dùng nhấn Lưu/Cập nhật → ghi `orders` xong.
+2) Gọi hàm “recalc” key-scoped:
+   - Nếu đã có dòng `sales_reports` tương ứng → UPDATE
+   - Nếu chưa có → INSERT dòng mới (nhờ `createMissingForHetCa: true`)
+
+## Liên quan
+- MKT sync: [`src/utils/baoCaoVanDonMarketMatrix.js`](mdc:src/utils/baoCaoVanDonMarketMatrix.js) và các helper khác.
+- Nhân sự Sale/Team dò từ `users` và fallback từ `orders` trong [`src/pages/NhapDonMoi.jsx`](mdc:src/pages/NhapDonMoi.jsx).
+

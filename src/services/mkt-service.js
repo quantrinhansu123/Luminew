@@ -60,7 +60,8 @@ export const fetchMktEmployees = async () => {
                 emp?.['Bộ phận'] ??
                 emp?.Bộ_phận ??
                 '';
-            if (!isMktDepartment(dept)) return;
+            const team = emp?.team ?? '';
+            if (!isMktDepartment(dept) && !isMktDepartment(team)) return;
 
             const name = String(
                 emp?.name ??
