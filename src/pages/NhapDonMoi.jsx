@@ -1439,17 +1439,14 @@ export default function NhapDonMoi({ isEdit = false }) {
             const totalMinutes = hour * 60 + minute;
 
             // Logic phân ca:
-            // - 07:30 -> 15:30: "Giữa ca"
+            // - 07:30 -> 15:30: "Giữa ca,Hết ca" (Trước đây là "Giữa ca", nay chuyển sang gộp luôn)
             // - Sau 15:30 đến 23:59: "Giữa ca,Hết ca" (cả hai nhóm)
             // - Còn lại (00:00 -> 07:29): "Hết ca"
             const startGiuaCa = 7 * 60 + 30; // 07:30
             const endGiuaCa = 15 * 60 + 30; // 15:30
             const endDay = 23 * 60 + 59; // 23:59
 
-            if (totalMinutes >= startGiuaCa && totalMinutes <= endGiuaCa) {
-                return "Giữa ca";
-            }
-            if (totalMinutes > endGiuaCa && totalMinutes <= endDay) {
+            if (totalMinutes >= startGiuaCa && totalMinutes <= endDay) {
                 return "Giữa ca,Hết ca";
             }
             return "Hết ca";

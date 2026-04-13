@@ -99,8 +99,7 @@ function inferCaShiftFromDateTime(dateTimeString) {
     const startGiuaCa = 7 * 60 + 30;
     const endGiuaCa = 15 * 60 + 30;
     const endDay = 23 * 60 + 59;
-    if (totalMinutes >= startGiuaCa && totalMinutes <= endGiuaCa) return 'Giữa ca';
-    if (totalMinutes > endGiuaCa && totalMinutes <= endDay) return SHIFT_GIUA_CA_HET_CA;
+    if (totalMinutes >= startGiuaCa && totalMinutes <= endDay) return SHIFT_GIUA_CA_HET_CA;
     return 'Hết ca';
   } catch {
     return '';

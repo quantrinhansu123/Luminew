@@ -553,6 +553,14 @@ const prepareValueForDB = (dbKey, value) => {
         if (typeof value === 'string' && value.trim() === '') return null;
         return parseVietnameseMoneyToNumber(value);
     }
+    if (dbKey === 'shift') {
+        if (!value) return null;
+        const s = String(value).trim().replace(/\s+/g, ' ');
+        const n = s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+        if (n === 'giua ca') return 'Giữa ca,Hết ca';
+        return s;
+    }
+
     return value;
 };
 
