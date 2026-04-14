@@ -44,6 +44,16 @@ function getFfmShippingUnitString(row) {
 }
 
 /**
+ * FFM MGT: chỉ dòng có Đơn vị vận chuyển là MGT (không phân biệt hoa thường,
+ * cho phép biến thể như «MGT Express»).
+ */
+function isFfmMgtCarrierRow(row) {
+  const u = getFfmShippingUnitString(row).toLowerCase();
+  if (!u) return false;
+  return u.includes('mgt');
+}
+
+/**
  * FFM T&T: chỉ dòng có Đơn vị vận chuyển là T&T (chuỗi gốc sau trim; so khớp không phân biệt hoa thường,
  * cho phép biến thể như «T&T Express» — đồng bộ với lọc API `shipping_unit ilike %T&T%`).
  */
@@ -1331,7 +1341,9 @@ function FFM({ variant = 'MGT' }) {
   const applyFfmFilters = useCallback((sourceRows, fv) => {
     let data = sourceRows;
 
-    if (variant === 'TT') {
+    if (variant === 'MGT') {
+      data = data.filter(isFfmMgtCarrierRow);
+    } else if (variant === 'TT') {
       data = data.filter(isFfmTtCarrierRow);
     }
 
