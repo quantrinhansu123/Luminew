@@ -1,7 +1,7 @@
 // Columns to always hide
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng", "Người đẩy FFM"];
 import { Calendar, Edit, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
@@ -103,6 +103,8 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
     const [nguoiSuaHoSearch, setNguoiSuaHoSearch] = useState('');
     const [showHoVaTenDropdown, setShowHoVaTenDropdown] = useState(false);
     const [showNguoiSuaHoDropdown, setShowNguoiSuaHoDropdown] = useState(false);
+    const missingVanDonTableNotifiedRef = useRef(false);
+    const missingNguoiDayFfmColumnRef = useRef(false);
 
     // Load "Nhân sự vận đơn" (human_resources + users) để phục vụ dropdown "Họ và tên *".
     const loadVanDonStaff = async () => {
@@ -326,7 +328,21 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             setFilteredData(recordsWithCount);
         } catch (error) {
             console.error('Error loading data:', error);
-            toast.error('Lỗi khi tải dữ liệu: ' + error.message);
+            const message = String(error?.message || '');
+            const isMissingTable =
+                error?.code === 'PGRST205' ||
+                message.includes("Could not find table 'public.danh_sach_van_don'");
+
+            if (isMissingTable) {
+                setData([]);
+                setFilteredData([]);
+                if (!missingVanDonTableNotifiedRef.current) {
+                    toast.error('Thiếu bảng danh_sach_van_don trên Supabase. Vui lòng chạy migration.');
+                    missingVanDonTableNotifiedRef.current = true;
+                }
+            } else {
+                toast.error('Lỗi khi tải dữ liệu: ' + message);
+            }
         } finally {
             setLoading(false);
         }
@@ -417,15 +433,21 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
         }
 
         const searchLower = searchText.toLowerCase();
-        const filtered = base.filter((item) =>
+        const filtered = base.filter((item) => {
+            const nguoiSuaHoText = Array.isArray(item.nguoi_sua_ho)
+                ? item.nguoi_sua_ho.join(' ')
+                : String(item.nguoi_sua_ho || '');
+
+            return (
             item.ho_va_ten?.toLowerCase().includes(searchLower) ||
             item.trang_thai_chia?.toLowerCase().includes(searchLower) ||
             item.chi_nhanh?.toLowerCase().includes(searchLower) ||
-            item.nguoi_sua_ho?.toLowerCase().includes(searchLower) ||
+            nguoiSuaHoText.toLowerCase().includes(searchLower) ||
             (item.nguoi_day_ffm_parsed &&
                 item.nguoi_day_ffm_parsed.some((name) => name.toLowerCase().includes(searchLower))) ||
             String(item.so_don || '').includes(searchText)
-        );
+            );
+        });
         setFilteredData(filtered);
     }, [searchText, data, branchFilter]);
 
@@ -535,14 +557,14 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
         try {
             // Auto-count orders when saving
             const orderCount = await countOrdersForStaff(editForm.ho_va_ten);
-            // Lưu nguoi_sua_ho và nguoi_day_ffm dưới dạng JSON array string
+            // Lưu đúng kiểu JSON array cho cột jsonb
             const formData = {
                 ho_va_ten: editForm.ho_va_ten.trim(),
                 trang_thai_chia: editForm.trang_thai_chia || null,
                 chi_nhanh: isHcmView ? 'HCM' : editForm.chi_nhanh || null,
                 so_don: orderCount,
-                nguoi_sua_ho: JSON.stringify(editForm.nguoi_sua_ho || []),
-                nguoi_day_ffm: JSON.stringify(editForm.nguoi_day_ffm || [])
+                nguoi_sua_ho: Array.isArray(editForm.nguoi_sua_ho) ? editForm.nguoi_sua_ho : [],
+                nguoi_day_ffm: Array.isArray(editForm.nguoi_day_ffm) ? editForm.nguoi_day_ffm : []
             };
 
             console.log('💾 [DanhSachVanDon] Saving data:', {
@@ -551,28 +573,49 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                 formData
             });
 
-            if (isAdding) {
-                // Add new
-                const { data, error } = await supabase
-                    .from('danh_sach_van_don')
-                    .insert([formData])
-                    .select();
-
-                if (error) {
-                    console.error('❌ [DanhSachVanDon] Insert error:', error);
-                    throw error;
+            const saveWithPayload = async (payload) => {
+                if (isAdding) {
+                    return await supabase
+                        .from('danh_sach_van_don')
+                        .insert([payload])
+                        .select();
                 }
-                console.log('✅ [DanhSachVanDon] Insert success:', data);
-                toast.success('Đã thêm thành công!');
-            } else {
-                // Update
-                const { data, error } = await supabase
+                return await supabase
                     .from('danh_sach_van_don')
-                    .update(formData)
+                    .update(payload)
                     .eq('id', editingId)
                     .select();
+            };
 
-                if (error) {
+            let { data, error } = await saveWithPayload(formData);
+
+            if (error && String(error.message || '').includes('nguoi_day_ffm')) {
+                const fallbackPayload = { ...formData };
+                delete fallbackPayload.nguoi_day_ffm;
+                ({ data, error } = await saveWithPayload(fallbackPayload));
+                if (!error && !missingNguoiDayFfmColumnRef.current) {
+                    toast.warning('DB chưa có cột nguoi_day_ffm, đã tự lưu ở chế độ tương thích.');
+                    missingNguoiDayFfmColumnRef.current = true;
+                }
+            }
+
+            if (error && String(error.message || '').includes('danh_sach_van_don_nguoi_sua_ho_is_array')) {
+                const fallbackPayload = {
+                    ho_va_ten: formData.ho_va_ten,
+                    trang_thai_chia: formData.trang_thai_chia,
+                    chi_nhanh: formData.chi_nhanh,
+                    so_don: formData.so_don,
+                };
+                ({ data, error } = await saveWithPayload(fallbackPayload));
+                if (!error) {
+                    toast.warning('DB hiện tại chưa tương thích cột nguoi_sua_ho/nguoi_day_ffm, đã lưu bản ghi cơ bản.');
+                }
+            }
+
+            if (error) {
+                if (isAdding) {
+                    console.error('❌ [DanhSachVanDon] Insert error:', error);
+                } else {
                     console.error('❌ [DanhSachVanDon] Update error:', error);
                     console.error('❌ [DanhSachVanDon] Error details:', {
                         message: error.message,
@@ -580,11 +623,12 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                         details: error.details,
                         hint: error.hint
                     });
-                    throw error;
                 }
-                console.log('✅ [DanhSachVanDon] Update success:', data);
-                toast.success('Đã cập nhật thành công!');
+                throw error;
             }
+
+            console.log(`✅ [DanhSachVanDon] ${isAdding ? 'Insert' : 'Update'} success:`, data);
+            toast.success(isAdding ? 'Đã thêm thành công!' : 'Đã cập nhật thành công!');
 
             setShowModal(false);
             loadData();
@@ -593,16 +637,9 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             console.error('❌ [DanhSachVanDon] Full error object:', JSON.stringify(error, null, 2));
             const errorMessage = error.message || error.details || 'Không xác định được lỗi';
             
-            // Kiểm tra nếu lỗi liên quan đến cột không tồn tại
-            if (error.message && error.message.includes('nguoi_day_ffm')) {
-                toast.error('Lỗi: Cột "nguoi_day_ffm" chưa được tạo trong database. Vui lòng chạy script SQL: supabase_scripts/add_nguoi_day_ffm_column.sql', {
-                    autoClose: 8000
-                });
-            } else {
-                toast.error(`Lỗi khi lưu: ${errorMessage}`, {
-                    autoClose: 5000
-                });
-            }
+            toast.error(`Lỗi khi lưu: ${errorMessage}`, {
+                autoClose: 5000
+            });
         }
     };
 
@@ -730,7 +767,7 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                         {/* Only render columns not in HIDDEN_COLUMNS */}
                                         {!HIDDEN_COLUMNS.includes("ID") && (
                                             <td className="px-4 py-3 text-gray-500 font-mono text-xs">
-                                                {item.id.substring(0, 8)}...
+                                                {String(item.id ?? '').slice(0, 8)}...
                                             </td>
                                         )}
                                         {!HIDDEN_COLUMNS.includes("Họ và tên") && (

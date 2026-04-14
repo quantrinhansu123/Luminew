@@ -803,6 +803,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
         selectedPersonnel: [] // Danh sách nhân sự đã chọn
     });
     const [editPersonnelSearch, setEditPersonnelSearch] = useState('');
+    const [newPrimaryTeamInput, setNewPrimaryTeamInput] = useState('');
 
     const filteredEmployeesForEditPersonnel = useMemo(() => {
         const q = editPersonnelSearch.trim().toLowerCase();
@@ -1060,6 +1061,32 @@ const PermissionManager = ({ searchQuery = "" }) => {
         } catch (error) {
             toast.error("Lỗi cập nhật teams: " + error.message);
         }
+    };
+
+    const handleAddNewPrimaryTeam = () => {
+        const raw = String(newPrimaryTeamInput || '').trim();
+        if (!raw) {
+            toast.warning('Nhập tên Team mới trước khi thêm.');
+            return;
+        }
+
+        setEditFormData((prev) => {
+            const mergedTeams = Array.from(new Set([...(prev.teams || []), raw]));
+            return {
+                ...prev,
+                team: raw,
+                teams: mergedTeams,
+            };
+        });
+
+        setDistinctUserTeams((prev) =>
+            Array.from(new Set([...(prev || []), raw])).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }))
+        );
+        setAllTeams((prev) =>
+            Array.from(new Set([...(prev || []), raw])).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }))
+        );
+        setNewPrimaryTeamInput('');
+        toast.success(`Đã thêm Team mới: ${raw}`);
     };
 
     const handleSaveSelectedPersonnel = async (email, personnelNames) => {
@@ -1770,6 +1797,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                     setEditingUser(null);
                                     setEditPersonnelSearch('');
                                     setEditFormData({ name: '', department: '', position: '', branch: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
+                                    setNewPrimaryTeamInput('');
                                 }}
                             >
                                 <div 
@@ -1870,6 +1898,29 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                     options={editPrimaryTeamSelectOptions}
                                                     placeholder="-- Chọn Team chính --"
                                                 />
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <input
+                                                        type="text"
+                                                        value={newPrimaryTeamInput}
+                                                        onChange={(e) => setNewPrimaryTeamInput(e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                handleAddNewPrimaryTeam();
+                                                            }
+                                                        }}
+                                                        className="flex-1 border rounded px-3 py-2 text-sm"
+                                                        placeholder="Nhập Team mới (ví dụ: MKT_HCM_3)"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleAddNewPrimaryTeam}
+                                                        className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                                                    >
+                                                        <Plus className="w-4 h-4" />
+                                                        Thêm Team
+                                                    </button>
+                                                </div>
                                                 <label className="block text-xs font-medium text-gray-500 mb-1">
                                                     Vị trí Team (multi):
                                                 </label>
@@ -1975,7 +2026,8 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                             onClick={() => {
                                                 setEditingUser(null);
                                                 setEditPersonnelSearch('');
-                                                setEditFormData({ name: '', department: '', position: '', branch: '', team: '', role_code: '', selectedPersonnel: [] });
+                                                setEditFormData({ name: '', department: '', position: '', branch: '', team: '', teams: [], role_code: '', selectedPersonnel: [] });
+                                                setNewPrimaryTeamInput('');
                                             }}
                                             className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300 text-sm"
                                         >
