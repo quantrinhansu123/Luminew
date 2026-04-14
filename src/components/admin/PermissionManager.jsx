@@ -923,7 +923,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
             }
         } catch (error) {
             console.error(error);
-            toast.error("Lỗi tải dữ liệu phân quyền");
+            toast.error("Lỗi tải dữ liệu phân quyền: " + (error?.message || 'Unknown error'));
         } finally {
             setLoading(false);
         }

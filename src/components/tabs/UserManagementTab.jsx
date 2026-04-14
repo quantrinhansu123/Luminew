@@ -211,11 +211,7 @@ export function UserManagementTab({ userRole, userTeam, searchText, teamFilter }
       // Hash password
       const hashedPassword = bcrypt.hashSync(newUser.password, 10);
 
-      // Generate unique ID
-      const userId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
       const userData = {
-        id: userId,
         username: newUser.email.split('@')[0],
         name: newUser.name,
         email: newUser.email,

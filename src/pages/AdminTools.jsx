@@ -282,6 +282,8 @@ const AdminTools = () => {
     const [nameSearchQuery, setNameSearchQuery] = useState(''); // Search query for account name
     const [branchFilter, setBranchFilter] = useState('');
     const [departmentFilter, setDepartmentFilter] = useState('');
+    const [selectedAccountIds, setSelectedAccountIds] = useState([]);
+    const [bulkDeletingAccounts, setBulkDeletingAccounts] = useState(false);
     const [accountImportLoading, setAccountImportLoading] = useState(false);
     const accountImportInputRef = useRef(null);
 
@@ -2665,29 +2667,40 @@ const AdminTools = () => {
             // Lấy linh hoạt toàn bộ cột để tránh crash khi schema users khác nhau giữa môi trường
             const { data, error } = await supabase
                 .from('users')
-                .select('*')
-                .order('created_at', { ascending: false });
+                .select('*');
 
             if (error) {
                 throw error;
             }
 
+            const sortedUsers = [...(data || [])].sort((a, b) => {
+                const aTs = a?.created_at ? new Date(a.created_at).getTime() : 0;
+                const bTs = b?.created_at ? new Date(b.created_at).getTime() : 0;
+                return bTs - aTs;
+            });
+
             // Map dữ liệu và thêm thông tin has_password
-            const accounts = (data || []).map(user => {
+            const accounts = sortedUsers.map(user => {
                 const fallbackUsername = (user?.email ? String(user.email).split('@')[0] : '') || '';
+                const resolvedId = user?.id || user?.user_id || user?.id_appsheet || user?.email;
                 return {
                     ...user,
+                    id: resolvedId,
                     username: user?.username || user?.user_name || fallbackUsername,
                     can_day_ffm: user?.can_day_ffm ?? user?.canDayFfm ?? false,
                     has_password: !!user.password,
                     status: user.password ? 'active' : 'inactive',
-                    user_id: user.id // Để tương thích với auth_accounts structure
+                    user_id: resolvedId // Để tương thích với auth_accounts structure
                 };
             });
 
             // Hide system accounts from the user/account list UI
             const visibleAccounts = accounts.filter((a) => a.role !== 'super_admin');
             setAuthAccounts(visibleAccounts);
+            setSelectedAccountIds((prev) => {
+                const ids = new Set(visibleAccounts.map((a) => a.id).filter(Boolean));
+                return prev.filter((id) => ids.has(id));
+            });
             console.log(
                 `✅ Đã tải ${visibleAccounts.length} tài khoản (đã ẩn super_admin) từ bảng users`
             );
@@ -2697,6 +2710,61 @@ const AdminTools = () => {
             setAuthAccounts([]);
         } finally {
             setAccountLoading(false);
+        }
+    };
+
+    const toggleAccountSelected = (accountId, checked) => {
+        if (!accountId) return;
+        setSelectedAccountIds((prev) => {
+            if (checked) {
+                return prev.includes(accountId) ? prev : [...prev, accountId];
+            }
+            return prev.filter((id) => id !== accountId);
+        });
+    };
+
+    const handleDeleteSelectedAccounts = async () => {
+        if (selectedAccountIds.length === 0) {
+            toast.info('Chưa chọn tài khoản nào để xóa.');
+            return;
+        }
+
+        if (!window.confirm(`Bạn có chắc muốn xóa ${selectedAccountIds.length} tài khoản đã chọn?`)) {
+            return;
+        }
+
+        setBulkDeletingAccounts(true);
+        try {
+            const { error } = await supabase
+                .from('users')
+                .delete()
+                .in('id', selectedAccountIds);
+
+            if (error) throw error;
+
+            setSelectedAccountIds([]);
+            setShowPasswords((prev) => {
+                const next = { ...prev };
+                selectedAccountIds.forEach((id) => {
+                    delete next[id];
+                });
+                return next;
+            });
+            setPasswordInputs((prev) => {
+                const next = { ...prev };
+                selectedAccountIds.forEach((id) => {
+                    delete next[id];
+                });
+                return next;
+            });
+
+            toast.success(`Đã xóa ${selectedAccountIds.length} tài khoản.`);
+            await loadAuthAccounts();
+        } catch (error) {
+            console.error('Error deleting selected accounts:', error);
+            toast.error('Lỗi xóa tài khoản hàng loạt: ' + (error?.message || 'Unknown error'));
+        } finally {
+            setBulkDeletingAccounts(false);
         }
     };
 
@@ -4915,9 +4983,10 @@ const AdminTools = () => {
                                 onClick={loadAuthAccounts}
                                 disabled={accountLoading}
                                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                title="Lấy dữ liệu trực tiếp từ bảng users"
                             >
                                 <RefreshCw className={`w-4 h-4 ${accountLoading ? 'animate-spin' : ''}`} />
-                                Tải lại danh sách
+                                {accountLoading ? 'Đang lấy users...' : 'Lấy data từ users'}
                             </button>
                             <button
                                 onClick={() => {
@@ -5058,12 +5127,54 @@ const AdminTools = () => {
 
                             return (
                                 <div className="overflow-x-auto">
-                                    <div className="mb-2 text-sm text-gray-600">
-                                        Hiển thị {filteredAccounts.length} / {authAccounts.length} tài khoản
+                                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                                        <div className="text-sm text-gray-600">
+                                            Hiển thị {filteredAccounts.length} / {authAccounts.length} tài khoản
+                                            {selectedAccountIds.length > 0 ? ` - Đã chọn ${selectedAccountIds.length}` : ''}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => setSelectedAccountIds([])}
+                                                disabled={selectedAccountIds.length === 0 || bulkDeletingAccounts}
+                                                className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                Bỏ chọn
+                                            </button>
+                                            <button
+                                                onClick={handleDeleteSelectedAccounts}
+                                                disabled={selectedAccountIds.length === 0 || bulkDeletingAccounts}
+                                                className="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                                {bulkDeletingAccounts ? 'Đang xóa...' : 'Xóa đã chọn'}
+                                            </button>
+                                        </div>
                                     </div>
                                     <table className="min-w-full border-collapse border border-gray-300">
                                         <thead>
                                             <tr className="bg-gray-100">
+                                                <th className="border border-gray-300 px-4 py-3 text-center font-semibold">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={
+                                                            filteredAccounts.length > 0 &&
+                                                            filteredAccounts.every((account) => selectedAccountIds.includes(account.id))
+                                                        }
+                                                        onChange={(e) => {
+                                                            const visibleIds = filteredAccounts.map((account) => account.id).filter(Boolean);
+                                                            const checked = e.target.checked;
+                                                            setSelectedAccountIds((prev) => {
+                                                                if (checked) {
+                                                                    return Array.from(new Set([...prev, ...visibleIds]));
+                                                                }
+                                                                const hiddenSelected = prev.filter((id) => !visibleIds.includes(id));
+                                                                return hiddenSelected;
+                                                            });
+                                                        }}
+                                                        className="w-4 h-4"
+                                                        title="Chọn tất cả tài khoản đang hiển thị"
+                                                    />
+                                                </th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Email</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Username</th>
                                                 <th className="border border-gray-300 px-4 py-3 text-left font-semibold">Tên</th>
@@ -5078,6 +5189,14 @@ const AdminTools = () => {
                                         <tbody>
                                             {filteredAccounts.map((account) => (
                                             <tr key={account.id} className="hover:bg-gray-50">
+                                                <td className="border border-gray-300 px-4 py-3 text-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedAccountIds.includes(account.id)}
+                                                        onChange={(e) => toggleAccountSelected(account.id, e.target.checked)}
+                                                        className="w-4 h-4"
+                                                    />
+                                                </td>
                                                 <td className="border border-gray-300 px-4 py-3">{account.email}</td>
                                                 <td className="border border-gray-300 px-4 py-3">{account.username || '-'}</td>
                                                 <td className="border border-gray-300 px-4 py-3">{account.name || '-'}</td>
