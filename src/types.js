@@ -36,7 +36,7 @@ export const BILL_LADING_COLUMNS = [
     "Loại tiền thanh toán", "Tổng tiền VNĐ", "Hình thức thanh toán", "Ghi chú",
     "Mã Tracking", "Ngày đóng hàng", "Trạng thái giao hàng", "Thời gian giao dự kiến",
     "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
-    "Nhân viên Sale", "Nhân viên MKT", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
+    "Nhân viên Sale", "Nhân viên MKT", "Page", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
     "Ngày up bill", "Tiền đã thanh toán",
     "Nhật ký", "Lịch sử thay đổi"
@@ -46,7 +46,7 @@ export const BILL_LADING_COLUMNS = [
 export const DEFAULT_BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add", "City", "State",
     "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
-    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT", "Lịch sử thay đổi"
+    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT", "Page", "Lịch sử thay đổi"
 ];
 
 /**
@@ -84,7 +84,7 @@ export const EDITABLE_COLS = [
     "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ", "Đơn vị vận chuyển",
     "Ngày Kế toán đối soát với FFM lần 2", "Ghi chú vận đơn",
     // Thêm các cột khách hàng để có thể paste
-    "Name*", "Phone*", "Add", "City", "State", "Zipcode", "Khu vực", "Mặt hàng",
+    "Name*", "Phone*", "Add", "City", "State", "Zipcode", "Khu vực", "Mặt hàng", "Page",
     "Tên mặt hàng 1", "Số lượng mặt hàng 1", "Tên mặt hàng 2", "Số lượng mặt hàng 2",
     "Quà tặng", "Số lượng quà kèm", "Giá bán", "Loại tiền thanh toán", "Tổng tiền VNĐ",
     "Hình thức thanh toán",
@@ -118,6 +118,7 @@ export const COLUMN_MAPPING = {
     "Ngày up bill": "ngayupbill",
     "Nhân viên Sale": "sale_staff",
     "Nhân viên MKT": "marketing_staff",
+    "Page": "page_name",
     "Tiền đã thanh toán": "reconciled_vnd",
     "Trạng thái thu tiền": "payment_status"
 };

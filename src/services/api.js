@@ -30,6 +30,7 @@ export const DB_TO_APP_MAPPING = {
     "shipping_fee": "Phí ship",
     "marketing_staff": "Nhân viên MKT",
     "sale_staff": "Nhân viên Sale",
+    "page_name": "Page",
     "team": "Team",
     "shift": "Ca",
     "delivery_staff": "NV Vận đơn",
@@ -964,7 +965,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
 export const VAN_DON_PAGE_COLUMN_LIST = [
     'order_code', 'customer_name', 'customer_phone', 'customer_address', 'city', 'state', 'country', 'zipcode',
     'product', 'total_amount_vnd', 'payment_method', 'payment_method_text', 'tracking_code', 'shipping_fee',
-    'marketing_staff', 'sale_staff', 'team', 'delivery_staff', 'delivery_status', 'payment_status', 'note', 'lydo',
+    'marketing_staff', 'sale_staff', 'page_name', 'team', 'delivery_staff', 'delivery_status', 'payment_status', 'note', 'lydo',
     'order_date', 'sale_price', 'goods_amount', 'shipping_unit', 'accountant_confirm', 'created_at', 'ngaydonghang',
     'check_result', 'vandon_note', 'product_name_1', 'quantity_1', 'product_name_2', 'quantity_2', 'gift', 'gift_item', 'gift_quantity', 'gift_qty',
     'delivery_status_nb', 'payment_currency', 'estimated_delivery_date', 'thoigiangiaohangffm', 'warehouse_fee', 'luu_kho_usd',
@@ -1081,6 +1082,7 @@ export function resolveVanDonFilterUiKeyToDb(uiKey) {
 const VAN_DON_MULTISELECT_FILTER_DB_COLS = new Set([
     'sale_staff',
     'marketing_staff',
+    'page_name',
     'delivery_staff',
     'shipping_unit',
     'country',
@@ -1122,6 +1124,8 @@ export const fetchVanDon = async (options = {}) => {
         nv_van_don = [],
         /** Multi-select đơn vị vận chuyển (cột shipping_unit) */
         shipping_unit = [],
+        /** Multi-select tên page (cột page_name) */
+        page_name = [],
         delivery_status = [],
         delivery_status_nb = [],
         payment_status = [],
@@ -1286,6 +1290,9 @@ export const fetchVanDon = async (options = {}) => {
             }
             if (shipping_unit !== undefined && shipping_unit !== null && Array.isArray(shipping_unit) && shipping_unit.length > 0) {
                 applyEmptyOrInFilter('shipping_unit', shipping_unit);
+            }
+            if (page_name !== undefined && page_name !== null && Array.isArray(page_name) && page_name.length > 0) {
+                applyEmptyOrInFilter('page_name', page_name);
             }
             if (delivery_status !== undefined && delivery_status !== null && Array.isArray(delivery_status) && delivery_status.length > 0) {
                 applyEmptyOrInFilter('delivery_status', delivery_status);
@@ -1537,15 +1544,37 @@ export const fetchVanDon = async (options = {}) => {
                     tongRaw = sums.tongRaw;
                 }
 
+                /**
+                 * Gộp SUM khớp `resolveVanDonMoneyVndFromDbRow` / cột generated `van_don_line_total_vnd`:
+                 * `SUM(total_amount_vnd)` có thể = 0 trong khi tiền nằm ở tong_tien / sale_price / goods / line.
+                 * Trước đây nhánh `totalRaw != null` gán luôn cả 0 → bỏ qua line/tong → header «Tổng tiền» sai (vd. 43 đơn nhưng tổng 0).
+                 */
                 let totalAmountVndSum = null;
-                if (!totalMissing && totalRaw != null) {
-                    totalAmountVndSum = totalRaw;
+                const nz = (v) => {
+                    if (v == null || v === '') return null;
+                    const n = typeof v === 'number' ? v : Number(v);
+                    return Number.isFinite(n) && n !== 0 ? n : null;
+                };
+                if (!totalMissing && nz(totalRaw) != null) {
+                    totalAmountVndSum = nz(totalRaw);
+                }
+                if (totalAmountVndSum == null && !lineMissing && nz(lineRaw) != null) {
+                    totalAmountVndSum = nz(lineRaw);
+                }
+                if (totalAmountVndSum == null && !tongMissing && nz(tongRaw) != null) {
+                    totalAmountVndSum = nz(tongRaw);
+                }
+                if (totalAmountVndSum == null && !totalMissing && totalRaw != null) {
+                    const n = typeof totalRaw === 'number' ? totalRaw : Number(totalRaw);
+                    if (Number.isFinite(n)) totalAmountVndSum = n;
                 }
                 if (totalAmountVndSum == null && !lineMissing && lineRaw != null) {
-                    totalAmountVndSum = lineRaw;
+                    const n = typeof lineRaw === 'number' ? lineRaw : Number(lineRaw);
+                    if (Number.isFinite(n)) totalAmountVndSum = n;
                 }
                 if (totalAmountVndSum == null && !tongMissing && tongRaw != null) {
-                    totalAmountVndSum = tongRaw;
+                    const n = typeof tongRaw === 'number' ? tongRaw : Number(tongRaw);
+                    if (Number.isFinite(n)) totalAmountVndSum = n;
                 }
                 if (totalAmountVndSum == null) totalAmountVndSum = 0;
 
@@ -1618,7 +1647,7 @@ export const fetchVanDon = async (options = {}) => {
             /** Chỉ tổng tiền — song song với request `rows` từ UI. */
             if (vanDonMoneyOnly) {
                 const headQ = applyVanDonFilters(
-                    supabase.from(tableName).select('order_code', { count: 'estimated', head: true })
+                    supabase.from(tableName).select('order_code', { count: 'exact', head: true })
                 );
                 const [headRes, sumCombinedRes] = await Promise.all([headQ, sumMoneyCombinedQ]);
                 const syntheticList = { count: headRes.count ?? 0, data: [] };
@@ -1864,6 +1893,7 @@ const VAN_DON_DISTINCT_DB_TO_UI_KEYS = {
     product: ['Mặt hàng'],
     sale_staff: ['Nhân viên Sale'],
     marketing_staff: ['Nhân viên MKT'],
+    page_name: ['Page'],
     delivery_staff: ['NV Vận đơn'],
     shipping_unit: ['Đơn vị vận chuyển'],
     check_result: ['Kết quả Check', 'Kết quả check'],

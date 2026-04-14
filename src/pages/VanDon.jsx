@@ -622,6 +622,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_mkt: [],
     nv_van_don: [],
     shipping_unit: [],
+    ten_page: [],
     delivery_status: [],
     delivery_status_nb: [],
     payment_status: [],
@@ -642,6 +643,7 @@ function VanDon({ dataSource = 'default' }) {
     nv_mkt: [],
     nv_van_don: [],
     shipping_unit: [],
+    ten_page: [],
     delivery_status: [],
     delivery_status_nb: [],
     payment_status: [],
@@ -678,20 +680,24 @@ function VanDon({ dataSource = 'default' }) {
   const [fixedColumns, setFixedColumns] = useState(2);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
 
-  // Column visibility state
+  // Column visibility state — cột mới trong DEFAULT: bật mặc định nếu chưa có trong localStorage.
   const [visibleColumns, setVisibleColumns] = useState(() => {
+    const billDefaultCols = DEFAULT_BILL_LADING_COLUMNS.filter((c) => !HIDDEN_COLUMNS.includes(c));
+    const initial = {};
     const saved = localStorage.getItem('vanDon_visibleColumns');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        Object.assign(initial, parsed);
+        billDefaultCols.forEach((col) => {
+          if (initial[col] === undefined) initial[col] = true;
+        });
+        return initial;
       } catch (e) {
         console.error('Error parsing saved columns:', e);
       }
     }
-    // Initialize with default columns
-    const initial = {};
-    const cols = viewMode === 'ORDER_MANAGEMENT' ? ORDER_MGMT_COLUMNS : DEFAULT_BILL_LADING_COLUMNS;
-    cols.forEach(col => {
+    billDefaultCols.forEach((col) => {
       initial[col] = true;
     });
     return initial;
@@ -1024,7 +1030,25 @@ function VanDon({ dataSource = 'default' }) {
           : new Set([activeDateType]);
 
     Object.entries(appliedFilterValues).forEach(([key, val]) => {
-      if (['market', 'product', 'nv_sale', 'nv_mkt', 'nv_van_don', 'shipping_unit', 'delivery_status', 'delivery_status_nb', 'payment_status', 'tracking_include', 'tracking_exclude', 'tracking_status', 'canh_bao_filter'].includes(key)) return;
+      if (
+        [
+          'market',
+          'product',
+          'nv_sale',
+          'nv_mkt',
+          'nv_van_don',
+          'shipping_unit',
+          'ten_page',
+          'delivery_status',
+          'delivery_status_nb',
+          'payment_status',
+          'tracking_include',
+          'tracking_exclude',
+          'tracking_status',
+          'canh_bao_filter',
+        ].includes(key)
+      )
+        return;
       if (appliedEnableDateFilter && DATE_FILTER_KEYS.includes(key) && toolbarDateOverrideKeys.has(key)) return;
       if (val == null) return;
       if (Array.isArray(val) && val.length === 0) return;
@@ -1077,6 +1101,7 @@ function VanDon({ dataSource = 'default' }) {
       nv_mkt: appliedFilterValues.nv_mkt,
       nv_van_don: appliedFilterValues.nv_van_don,
       shipping_unit: appliedFilterValues.shipping_unit,
+      page_name: appliedFilterValues.ten_page,
       delivery_status: appliedFilterValues.delivery_status,
       delivery_status_nb: appliedFilterValues.delivery_status_nb,
       payment_status: appliedFilterValues.payment_status,
@@ -1221,6 +1246,7 @@ function VanDon({ dataSource = 'default' }) {
         nv_mkt: activeFilters.nv_mkt,
         nv_van_don: activeFilters.nv_van_don,
         shipping_unit: activeFilters.shipping_unit,
+        page_name: activeFilters.page_name,
         delivery_status: activeFilters.delivery_status,
         delivery_status_nb: activeFilters.delivery_status_nb,
         payment_status: activeFilters.payment_status,
@@ -1650,6 +1676,13 @@ function VanDon({ dataSource = 'default' }) {
           });
         }
 
+        if (appliedFilterValues.ten_page && Array.isArray(appliedFilterValues.ten_page) && appliedFilterValues.ten_page.length > 0) {
+          activeFilters.push({
+            type: 'ten_page',
+            values: new Set(appliedFilterValues.ten_page)
+          });
+        }
+
         // Áp dụng logic AND: phải thỏa mãn TẤT CẢ các bộ lọc đang bật
         if (activeFilters.length > 0) {
           data = data.filter(row => {
@@ -1693,6 +1726,12 @@ function VanDon({ dataSource = 'default' }) {
                   if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
                   return !isVanDonSemanticEmpty(v) && filter.values.has(v);
                 }
+                case 'ten_page': {
+                  const o = getPendingOriginal(orderId, 'Page', 'page_name');
+                  const v = o !== undefined ? strNorm(o) : strNorm(row['Page'] || row.page_name || '');
+                  if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
+                  return !isVanDonSemanticEmpty(v) && filter.values.has(v);
+                }
                 case 'delivery_status': {
                   const o = getPendingOriginal(orderId, 'Trạng thái giao hàng', 'delivery_status');
                   const v = o !== undefined ? strNorm(o) : strNorm(row['Trạng thái giao hàng'] || row.delivery_status || '');
@@ -1711,11 +1750,10 @@ function VanDon({ dataSource = 'default' }) {
                   const statusTf = String(tf.status || 'Tình trạng mã').trim();
                   const incRaw = String(tf.include || '').trim().toLowerCase();
                   const excRaw = String(tf.exclude || '').trim().toLowerCase();
-                  
-                  const orderId = row[PRIMARY_KEY_COLUMN];
+
                   const o = getPendingOriginal(orderId, 'Mã Tracking', 'Mã tracking');
                   const code = o !== undefined ? strNorm(o) : strNorm(row['Mã Tracking'] || row.tracking_code || '');
-                  
+
                   // 1. Check status
                   if (statusTf === 'Tất cả có mã') {
                     if (isVanDonSemanticEmpty(code)) return false;
@@ -1724,11 +1762,11 @@ function VanDon({ dataSource = 'default' }) {
                   } else if (statusTf === 'Toàn số') {
                     if (isVanDonSemanticEmpty(code) || !/^[0-9]+$/.test(code)) return false;
                   }
-                  
+
                   // 2. Check include/exclude
                   if (incRaw && !code.toLowerCase().includes(incRaw)) return false;
                   if (excRaw && code.toLowerCase().includes(excRaw)) return false;
-                  
+
                   return true;
                 }
                 case 'payment_status': {
@@ -1809,6 +1847,7 @@ function VanDon({ dataSource = 'default' }) {
             'nv_mkt',
             'nv_van_don',
             'shipping_unit',
+            'ten_page',
             'tracking_include',
             'tracking_exclude',
             'tracking_status',
@@ -2007,224 +2046,74 @@ function VanDon({ dataSource = 'default' }) {
     return copy;
   }, [getFilteredData, sortColumn, sortDirection]);
 
+  /** Sắp xếp một mảng bất kỳ giống `sortedData` (xuất Excel đủ trang / nhiều batch). */
+  const sortRowsLikeDataGrid = useCallback(
+    (rows) => {
+      const base = rows || [];
+      if (!sortColumn || base.length === 0) return base;
+      const col = sortColumn;
+      const dir = sortDirection === 'desc' ? -1 : 1;
+      const isDateCol = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col);
+      const isMoneyCol = ['Tổng tiền VNĐ', 'Tiền đã thanh toán'].includes(col);
+      if (col === 'STT') return base;
+
+      const toComparable = (row) => {
+        try {
+          if (isMoneyCol) {
+            const v = getVanDonGridCellValue(row, col);
+            const n = typeof v === 'number' ? v : parseVietnameseMoneyToNumber(v);
+            return Number.isFinite(n) ? n : -Infinity;
+          }
+          if (isDateCol) {
+            const v = getVanDonGridCellValue(row, col);
+            const ymd = extractDateFromDateTime(v);
+            return ymd || '';
+          }
+          const v = getVanDonGridCellValue(row, col);
+          if (v == null) return '';
+          if (typeof v === 'number') return v;
+          const s = String(v).trim();
+          if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+          return s.toLowerCase();
+        } catch {
+          return '';
+        }
+      };
+
+      const copy = [...base];
+      copy.sort((a, b) => {
+        const va = toComparable(a);
+        const vb = toComparable(b);
+        if (va == null && vb == null) return 0;
+        if (va == null) return -1 * dir;
+        if (vb == null) return 1 * dir;
+        if (typeof va === 'number' && typeof vb === 'number') {
+          return va === vb ? 0 : va < vb ? -1 * dir : 1 * dir;
+        }
+        return String(va).localeCompare(String(vb), 'vi', { sensitivity: 'base' }) * dir;
+      });
+      return copy;
+    },
+    [sortColumn, sortDirection]
+  );
+
   /** Cùng thứ tự hàng với `TableVirtuoso` (`data={sortedData}`). Chỉ số selection / copy / paste phải dùng mảng này — không dùng `paginatedData` (có thể khác thứ tự khi đang sort). */
   const virtuosoRowData = sortedData;
 
-  const handleExportMaDonExcel = useCallback(async () => {
-    if (permissionsLoading) {
-      addToast('Đang tải quyền, thử lại sau.', 'warning');
-      return;
-    }
-    setExportingMaDon(true);
-    const loadingId = addToast('Đang xuất Excel vận đơn…', 'loading', 0);
-    try {
-      let sourceRows;
-      if (!useBackendPagination) {
-        sourceRows = allData;
-      } else {
-        const limit = VAN_DON_POSTGREST_MAX_ROWS;
-        let page = 1;
-        const accumulated = [];
-        let total = 0;
-        const maxPages = 50000;
-        while (page <= maxPages) {
-          const res = await runVanDonFetch(page, limit);
-          total = res.total || 0;
-          const batch = res.data || [];
-          accumulated.push(...batch);
-          if (batch.length < limit || accumulated.length >= total) break;
-          page += 1;
-        }
-        sourceRows = accumulated;
-      }
-
-      let rows = sourceRows;
-      if (bolActiveTab === 'hanoi') {
-        rows = rows.filter((row) => {
-          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-          return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
-        });
-      }
-      rows = mergePendingRowsIntoFetchedData(rows);
-      const filtered = computeFilteredData(rows);
-
-      const codeOf = (row) =>
-        String(row['Mã đơn hàng'] ?? row.order_code ?? row[PRIMARY_KEY_COLUMN] ?? '').trim();
-
-      const excelCellStr = (row, appKeys, dbKeys = []) => {
-        if (!row) return '';
-        for (const k of appKeys) {
-          const v = row[k];
-          if (v != null && String(v).trim() !== '') return String(v).trim();
-        }
-        for (const k of dbKeys) {
-          const v = row[k];
-          if (v != null && String(v).trim() !== '') return String(v).trim();
-        }
-        return '';
-      };
-
-      const codes = [...new Set(filtered.map(codeOf).filter(Boolean))].sort((a, b) =>
-        a.localeCompare(b, 'vi', { sensitivity: 'base' })
-      );
-
-      const rowByCode = new Map();
-      for (const row of filtered) {
-        const c = codeOf(row);
-        if (c && !rowByCode.has(c)) rowByCode.set(c, row);
-      }
-
-      removeToast(loadingId);
-      if (codes.length === 0) {
-        addToast('Không có mã đơn hàng phù hợp bộ lọc.', 'warning');
-        return;
-      }
-
-      const headerRow = [
-        'Mã đơn hàng',
-        'NV Vận đơn',
-        'Kết quả Check',
-        'Trạng thái giao hàng NB',
-        'Trạng thái thu tiền',
-      ];
-      const dataRows = codes.map((c) => {
-        const row = rowByCode.get(c);
-        return [
-          c,
-          excelCellStr(row, ['NV Vận đơn'], ['delivery_staff']),
-          excelCellStr(row, ['Kết quả Check', 'Kết quả check'], ['check_result']),
-          excelCellStr(row, ['Trạng thái giao hàng NB'], ['delivery_status_nb']),
-          excelCellStr(row, ['Trạng thái thu tiền'], ['payment_status']),
-        ];
-      });
-
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
-      XLSX.utils.book_append_sheet(wb, ws, 'Van_don');
-      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      XLSX.writeFile(wb, `VanDon_export_${stamp}.xlsx`);
-      addToast(`Đã xuất ${codes.length} dòng (mã + NV + trạng thái) ra Excel.`, 'success');
-    } catch (e) {
-      removeToast(loadingId);
-      console.error(e);
-      addToast(e?.message || 'Lỗi xuất Excel', 'error');
-    } finally {
-      setExportingMaDon(false);
-    }
-  }, [
-    permissionsLoading,
-    useBackendPagination,
-    allData,
-    bolActiveTab,
-    mergePendingRowsIntoFetchedData,
-    computeFilteredData,
-    runVanDonFetch,
-    addToast,
-    removeToast
-  ]);
-
-  const handleExportFilteredExcel = async () => {
-    if (permissionsLoading) {
-      addToast('Đang tải quyền, thử lại sau.', 'warning');
-      return;
-    }
-    setExportingFilteredExcel(true);
-    const loadingId = addToast('Đang xuất Excel theo bộ lọc…', 'loading', 0);
-    try {
-      let sourceRows;
-      if (!useBackendPagination) {
-        sourceRows = allData;
-      } else {
-        const limit = VAN_DON_POSTGREST_MAX_ROWS;
-        let page = 1;
-        const accumulated = [];
-        let total = 0;
-        const maxPages = 50000;
-        while (page <= maxPages) {
-          const res = await runVanDonFetch(page, limit);
-          total = res.total || 0;
-          const batch = res.data || [];
-          accumulated.push(...batch);
-          if (batch.length < limit || accumulated.length >= total) break;
-          page += 1;
-        }
-        sourceRows = accumulated;
-      }
-
-      let rows = sourceRows;
-      if (bolActiveTab === 'hanoi') {
-        rows = rows.filter((row) => {
-          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
-          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
-          return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
-        });
-      }
-      rows = mergePendingRowsIntoFetchedData(rows);
-      const filtered = computeFilteredData(rows);
-
-      removeToast(loadingId);
-      if (!filtered.length) {
-        addToast('Không có dữ liệu phù hợp bộ lọc để xuất Excel.', 'warning');
-        return;
-      }
-
-      const exportColumns = currentColumns.includes('Mã đơn hàng')
-        ? currentColumns
-        : ['Mã đơn hàng', ...currentColumns];
-
-      const headerRow = exportColumns;
-      const dataRows = filtered.map((row) =>
-        exportColumns.map((col) => {
-          const raw = getVanDonGridCellValue(row, col);
-          if (raw === null || raw === undefined) return '';
-          if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
-          return sanitizeExcelTsvCell(String(raw), { skipLeadingApostrophe: true });
-        })
-      );
-
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
-      XLSX.utils.book_append_sheet(wb, ws, 'Van_don_loc');
-      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      XLSX.writeFile(wb, `VanDon_filtered_${stamp}.xlsx`);
-      addToast(`Đã xuất ${filtered.length.toLocaleString('vi-VN')} dòng theo bộ lọc.`, 'success');
-    } catch (e) {
-      removeToast(loadingId);
-      console.error(e);
-      addToast(e?.message || 'Lỗi xuất Excel theo bộ lọc', 'error');
-    } finally {
-      setExportingFilteredExcel(false);
-    }
-  };
-
-  // --- Render Prep (moved up for dependencies) ---
-  // Use fewer rows for Bill of Lading due to long text columns
   const effectiveRowsPerPage = clampRowsPerPage(rowsPerPage);
-
-  // If using backend pagination, data is already paginated
-  const paginatedData = useMemo(() => {
-    if (useBackendPagination) {
-      // Data is already paginated from backend, just apply client-side filters (tracking, etc.)
-      return getFilteredData;
-    } else {
-      // Old way: paginate client-side
-      return getFilteredData.slice((currentPage - 1) * effectiveRowsPerPage, currentPage * effectiveRowsPerPage);
-    }
-  }, [getFilteredData, currentPage, effectiveRowsPerPage, useBackendPagination]);
-
-  const totalPages = useBackendPagination
-    ? Math.ceil(totalRecords / effectiveRowsPerPage)
-    : Math.ceil(getFilteredData.length / effectiveRowsPerPage);
 
   /** Giá trị copy Ctrl+C khớp những gì lưới hiển thị (cùng logic đọc ô với `getVanDonGridCellValue` + format ngày/tiền). */
   const getVanDonClipboardCellText = useCallback(
-    (rData, rowIdxInView, colName) => {
+    (rData, rowIdxInView, colName, opts) => {
       let out;
       if (colName === 'STT') {
-        out = String(
-          rData?.rowIndex ?? (currentPage - 1) * effectiveRowsPerPage + rowIdxInView + 1
-        );
+        if (opts?.exportFullList) {
+          out = String(rowIdxInView + 1);
+        } else {
+          out = String(
+            rData?.rowIndex ?? (currentPage - 1) * effectiveRowsPerPage + rowIdxInView + 1
+          );
+        }
         return sanitizeExcelTsvCell(out, { skipLeadingApostrophe: true });
       }
       let val = getVanDonGridCellValue(rData, colName);
@@ -2249,7 +2138,7 @@ function VanDon({ dataSource = 'default' }) {
       } else if (colName === 'Tổng tiền VNĐ' || colName === 'Tiền đã thanh toán') {
         const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
         out = n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';
-      } else if (val === undefined || val === null) {
+      } else if (val === undefined || val == null) {
         out = '';
       } else if (typeof val === 'number' || typeof val === 'boolean') {
         out = String(val);
@@ -2260,6 +2149,21 @@ function VanDon({ dataSource = 'default' }) {
     },
     [currentPage, effectiveRowsPerPage, formatDate]
   );
+
+  // If using backend pagination, data is already paginated
+  const paginatedData = useMemo(() => {
+    if (useBackendPagination) {
+      // Data is already paginated from backend, just apply client-side filters (tracking, etc.)
+      return getFilteredData;
+    } else {
+      // Old way: paginate client-side
+      return getFilteredData.slice((currentPage - 1) * effectiveRowsPerPage, currentPage * effectiveRowsPerPage);
+    }
+  }, [getFilteredData, currentPage, effectiveRowsPerPage, useBackendPagination]);
+
+  const totalPages = useBackendPagination
+    ? Math.ceil(totalRecords / effectiveRowsPerPage)
+    : Math.ceil(getFilteredData.length / effectiveRowsPerPage);
 
   // Rebuild missing snapshots when data arrives
   useEffect(() => {
@@ -2323,7 +2227,7 @@ function VanDon({ dataSource = 'default' }) {
     // Reset filters
     const defaultFilters = {
       market: [], product: [], nv_sale: [], nv_mkt: [], nv_van_don: [],
-      shipping_unit: [], delivery_status: [], payment_status: [], tracking_include: '', tracking_exclude: '',
+      shipping_unit: [], ten_page: [], delivery_status: [], payment_status: [], tracking_include: '', tracking_exclude: '',
       tracking_status: 'Tình trạng mã',
       canh_bao_filter: '',
     };
@@ -2797,6 +2701,177 @@ function VanDon({ dataSource = 'default' }) {
     return withHcmThuTuChia(next);
   }, [allColumns, visibleColumns, bolActiveTab, dataSource]);
 
+  const handleExportMaDonExcel = useCallback(async () => {
+    if (permissionsLoading) {
+      addToast('Đang tải quyền, thử lại sau.', 'warning');
+      return;
+    }
+    setExportingMaDon(true);
+    const loadingId = addToast('Đang xuất Excel vận đơn…', 'loading', 0);
+    try {
+      let sourceRows;
+      if (!useBackendPagination) {
+        sourceRows = allData;
+      } else {
+        const limit = VAN_DON_POSTGREST_MAX_ROWS;
+        let page = 1;
+        const accumulated = [];
+        let total = 0;
+        const maxPages = 50000;
+        while (page <= maxPages) {
+          const res = await runVanDonFetch(page, limit);
+          total = res.total || 0;
+          const batch = res.data || [];
+          accumulated.push(...batch);
+          if (batch.length < limit || accumulated.length >= total) break;
+          page += 1;
+        }
+        sourceRows = accumulated;
+      }
+
+      let rows = sourceRows;
+      if (bolActiveTab === 'hanoi') {
+        rows = rows.filter((row) => {
+          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+          return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
+        });
+      }
+      rows = mergePendingRowsIntoFetchedData(rows);
+      const filtered = computeFilteredData(rows);
+
+      removeToast(loadingId);
+      if (!filtered.length) {
+        addToast('Không có dữ liệu phù hợp bộ lọc để xuất Excel.', 'warning');
+        return;
+      }
+
+      const sorted = sortRowsLikeDataGrid(filtered);
+      const exportColumns = currentColumns.includes('Mã đơn hàng')
+        ? currentColumns
+        : ['Mã đơn hàng', ...currentColumns];
+      const headerRow = exportColumns;
+      const dataRows = sorted.map((row, rowIdx) =>
+        exportColumns.map((col) => getVanDonClipboardCellText(row, rowIdx, col, { exportFullList: true }))
+      );
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Van_don');
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      XLSX.writeFile(wb, `VanDon_export_${stamp}.xlsx`);
+      addToast(
+        `Đã xuất ${sorted.length.toLocaleString('vi-VN')} dòng, ${exportColumns.length} cột (đang hiện trên lưới) ra Excel.`,
+        'success'
+      );
+    } catch (e) {
+      removeToast(loadingId);
+      console.error(e);
+      addToast(e?.message || 'Lỗi xuất Excel', 'error');
+    } finally {
+      setExportingMaDon(false);
+    }
+  }, [
+    permissionsLoading,
+    useBackendPagination,
+    allData,
+    bolActiveTab,
+    mergePendingRowsIntoFetchedData,
+    computeFilteredData,
+    runVanDonFetch,
+    addToast,
+    removeToast,
+    currentColumns,
+    getVanDonClipboardCellText,
+    sortRowsLikeDataGrid
+  ]);
+
+  const handleExportFilteredExcel = useCallback(async () => {
+    if (permissionsLoading) {
+      addToast('Đang tải quyền, thử lại sau.', 'warning');
+      return;
+    }
+    setExportingFilteredExcel(true);
+    const loadingId = addToast('Đang xuất Excel theo bộ lọc…', 'loading', 0);
+    try {
+      let sourceRows;
+      if (!useBackendPagination) {
+        sourceRows = allData;
+      } else {
+        const limit = VAN_DON_POSTGREST_MAX_ROWS;
+        let page = 1;
+        const accumulated = [];
+        let total = 0;
+        const maxPages = 50000;
+        while (page <= maxPages) {
+          const res = await runVanDonFetch(page, limit);
+          total = res.total || 0;
+          const batch = res.data || [];
+          accumulated.push(...batch);
+          if (batch.length < limit || accumulated.length >= total) break;
+          page += 1;
+        }
+        sourceRows = accumulated;
+      }
+
+      let rows = sourceRows;
+      if (bolActiveTab === 'hanoi') {
+        rows = rows.filter((row) => {
+          const checkResult = String(row['Kết quả Check'] || row['Kết quả check'] || '').trim();
+          const deliveryUnit = String(row['Đơn vị vận chuyển'] || row['Đơn vị Vận chuyển'] || '').trim();
+          return checkResult.toLowerCase() === 'ok' && isVanDonSemanticEmpty(deliveryUnit);
+        });
+      }
+      rows = mergePendingRowsIntoFetchedData(rows);
+      const filtered = computeFilteredData(rows);
+
+      removeToast(loadingId);
+      if (!filtered.length) {
+        addToast('Không có dữ liệu phù hợp bộ lọc để xuất Excel.', 'warning');
+        return;
+      }
+
+      const sorted = sortRowsLikeDataGrid(filtered);
+      const exportColumns = currentColumns.includes('Mã đơn hàng')
+        ? currentColumns
+        : ['Mã đơn hàng', ...currentColumns];
+
+      const headerRow = exportColumns;
+      const dataRows = sorted.map((row, rowIdx) =>
+        exportColumns.map((col) => getVanDonClipboardCellText(row, rowIdx, col, { exportFullList: true }))
+      );
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Van_don_loc');
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      XLSX.writeFile(wb, `VanDon_filtered_${stamp}.xlsx`);
+      addToast(
+        `Đã xuất ${sorted.length.toLocaleString('vi-VN')} dòng, ${exportColumns.length} cột (đang hiện trên lưới).`,
+        'success'
+      );
+    } catch (e) {
+      removeToast(loadingId);
+      console.error(e);
+      addToast(e?.message || 'Lỗi xuất Excel theo bộ lọc', 'error');
+    } finally {
+      setExportingFilteredExcel(false);
+    }
+  }, [
+    permissionsLoading,
+    useBackendPagination,
+    allData,
+    bolActiveTab,
+    mergePendingRowsIntoFetchedData,
+    computeFilteredData,
+    runVanDonFetch,
+    addToast,
+    removeToast,
+    currentColumns,
+    getVanDonClipboardCellText,
+    sortRowsLikeDataGrid
+  ]);
+
   /** Luôn cố định tối thiểu 2 cột trái khi cuộn ngang. */
   const effectiveFixedColumns = useMemo(() => {
     const minFixed = Math.min(2, currentColumns.length);
@@ -2868,6 +2943,7 @@ function VanDon({ dataSource = 'default' }) {
     if (isProductNameCol) return 260;
     if (cl === 'cảnh báo trùng') return 240;
     if (cl === 'thứ tự chia') return 96;
+    if (cl === 'page') return 200;
     return 120;
   }, [mktColumnWidth]);
 
@@ -4233,9 +4309,10 @@ function VanDon({ dataSource = 'default' }) {
       'Nhân viên MKT': 'nv_mkt',
       'NV Vận đơn': 'nv_van_don',
       'Đơn vị vận chuyển': 'shipping_unit',
+      'Page': 'ten_page',
       'Trạng thái giao hàng NB': 'delivery_status_nb',
       'Trạng thái giao hàng': 'delivery_status',
-      'Trạng thái thu tiền': 'payment_status'
+      'Trạng thái thu tiền': 'payment_status',
     };
     const filterKey = filterKeyMap[col] || col;
     const isCheckCol = col === 'Kết quả Check' || col === 'Kết quả check';
@@ -4346,8 +4423,8 @@ function VanDon({ dataSource = 'default' }) {
             <option value="khong_trung">Không trùng</option>
           </select>
         ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || [
-          'Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển', 
-          'Nhân viên Sale', 'Nhân viên MKT', 'NV Vận đơn', 'Mặt hàng', 'Khu vực'
+          'Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển',
+          'Nhân viên Sale', 'Nhân viên MKT', 'Page', 'NV Vận đơn', 'Mặt hàng', 'Khu vực'
         ].includes(col) ? (
           <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
             <MultiSelect
@@ -4674,38 +4751,6 @@ function VanDon({ dataSource = 'default' }) {
                 ))}
             </div>
             <div className="shrink-0 w-px h-4 bg-gray-200 self-center" aria-hidden />
-            <label
-              className="text-[10px] font-semibold text-gray-700 whitespace-nowrap shrink-0"
-              htmlFor="van-don-customer-quick-search"
-              title="Tra mã đơn / SĐT / tên / địa chỉ"
-            >
-              Tìm:
-            </label>
-            <input
-              id="van-don-customer-quick-search"
-              type="search"
-              enterKeyHint="search"
-              autoComplete="off"
-              placeholder="Mã đơn, SĐT, tên…"
-              title="Tra mã đơn / SĐT / tên / địa chỉ"
-              value={customerQuickSearch}
-              onChange={(e) => {
-                setCustomerQuickSearch(e.target.value);
-              }}
-              className="w-[min(128px,22vw)] min-w-[88px] max-w-[160px] shrink-0 text-[10px] px-1 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
-            />
-            {customerQuickSearch.trim() ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomerQuickSearch('');
-                }}
-                className="text-[10px] text-gray-500 hover:text-gray-800 px-1 py-0.5 rounded border border-gray-200 hover:bg-gray-50 shrink-0"
-              >
-                ✕
-              </button>
-            ) : null}
-            <div className="shrink-0 w-px h-4 bg-gray-200 self-center" aria-hidden />
             <div
               className="flex items-center gap-1 bg-blue-50 px-1.5 py-0.5 rounded-md border border-blue-200 shrink-0"
               title={`Lọc thời gian theo cột ngày. «${BOL_TOOLBAR_DATE_TYPE_ALL}»: không áp dụng khoảng Từ–Đến lên một cột (vẫn có thể lọc ngày qua ô header cột).`}
@@ -4852,57 +4897,53 @@ function VanDon({ dataSource = 'default' }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-1 bg-red-50 px-1.5 py-0.5 rounded-md border border-red-200 shrink-0" title="Trạng thái giao hàng">
-              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📦</span>
-              <div className="relative" style={{ minWidth: '130px', zIndex: 997 }}>
-                <MultiSelect
-                  compact
-                  label="Trạng thái giao..."
-                  options={getFilterMultiSelectOptions('Trạng thái giao hàng NB')}
-                  selected={filterValues.delivery_status_nb || []}
-                  onChange={(vals) => {
-                    setFilterValues((prev) => ({ ...prev, delivery_status_nb: vals }));
-                  }}
+            <div
+              className="flex items-center gap-2 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0 min-w-0 max-w-full"
+              title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm nhanh: mã đơn / SĐT / tên / địa chỉ."
+            >
+              <div className="flex items-center gap-1 shrink-0" title="Page (page_name)">
+                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📄</span>
+                <div className="relative" style={{ minWidth: '132px', zIndex: 997 }}>
+                  <MultiSelect
+                    compact
+                    label="Page…"
+                    options={getFilterMultiSelectOptions('Page')}
+                    selected={filterValues.ten_page || []}
+                    onChange={(vals) => {
+                      setFilterValues((prev) => ({ ...prev, ten_page: vals }));
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="h-4 w-px bg-slate-200 shrink-0 self-center" aria-hidden />
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <label
+                  htmlFor="van-don-toolbar-quick-search"
+                  className="text-[10px] font-semibold text-gray-700 whitespace-nowrap shrink-0"
+                >
+                  Tìm
+                </label>
+                <input
+                  id="van-don-toolbar-quick-search"
+                  type="search"
+                  enterKeyHint="search"
+                  autoComplete="off"
+                  placeholder="Mã đơn, SĐT, tên, địa chỉ…"
+                  title="Tra mã đơn / SĐT / tên / địa chỉ"
+                  value={customerQuickSearch}
+                  onChange={(e) => setCustomerQuickSearch(e.target.value)}
+                  className="min-w-[100px] w-[min(200px,32vw)] max-w-[260px] shrink text-[10px] px-1.5 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
                 />
+                {customerQuickSearch.trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => setCustomerQuickSearch('')}
+                    className="text-[10px] text-gray-500 hover:text-gray-800 px-1 py-0.5 rounded border border-gray-200 hover:bg-gray-100 shrink-0"
+                  >
+                    ✕
+                  </button>
+                ) : null}
               </div>
-              <div className="flex items-center gap-1 ml-1 border-l border-red-200 pl-1.5 py-0.5">
-                {[
-                  { label: 'Chưa giao', values: ['Chưa Giao', 'chờ check', ''] },
-                  { label: 'Đang giao', values: ['Đang Giao'] },
-                  { label: 'Đã giao', values: ['Giao Thành Công'] },
-                  { label: 'Hoàn', values: ['Hoàn'] }
-                ].map((q) => {
-                  const current = filterValues.delivery_status_nb || [];
-                  const isActive = q.values.length > 0 && q.values.every(v => current.includes(v));
-                  return (
-                    <button
-                      key={q.label}
-                      type="button"
-                      onClick={() => {
-                        setFilterValues((prev) => {
-                          const curr = prev.delivery_status_nb || [];
-                          const allIncluded = q.values.every(v => curr.includes(v));
-                          if (allIncluded) {
-                            return { ...prev, delivery_status_nb: curr.filter(v => !q.values.includes(v)) };
-                          } else {
-                            // Gộp với các giá trị hiện tại hay ghi đè?
-                            // Với nút Quick Filter, thường là ghi đè để xem nhanh nhóm đó.
-                            return { ...prev, delivery_status_nb: q.values };
-                          }
-                        });
-                      }}
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition-all whitespace-nowrap ${
-                        isActive
-                          ? 'bg-blue-600 border-blue-700 text-white shadow-sm scale-105'
-                          : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600'
-                      }`}
-                    >
-                      {q.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0 border-t border-gray-200 pt-1.5 mt-0.5 sm:border-t-0 sm:pt-0 sm:mt-0 sm:border-l sm:border-gray-200 sm:pl-1.5 sm:ml-0.5 bg-white w-full sm:w-auto justify-end sm:justify-start">
               <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded border border-gray-100">
@@ -4934,21 +4975,21 @@ function VanDon({ dataSource = 'default' }) {
                 onClick={handleExportMaDonExcel}
                 disabled={exportingMaDon || isQueryLoading || permissionsLoading}
                 className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
-                title="Excel: Mã đơn hàng, NV Vận đơn, Kết quả Check, Trạng thái giao hàng NB, Trạng thái thu tiền — theo bộ lọc (tải đủ trang khi phân trang backend)"
+                title="Excel: tất cả các cột đang bật trên lưới (cùng định dạng như copy), thứ tự hàng theo cột đang sort — theo bộ lọc; tải đủ trang khi phân trang backend"
               >
                 {exportingMaDon ? (
                   <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
                 ) : (
                   <span>📥</span>
                 )}
-                {exportingMaDon ? '…' : 'Excel mã đơn'}
+                {exportingMaDon ? '…' : 'Excel (cột lưới)'}
               </button>
               <button
                 type="button"
                 onClick={handleExportFilteredExcel}
                 disabled={exportingFilteredExcel || isQueryLoading || permissionsLoading}
                 className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
-                title="Xuất toàn bộ dữ liệu theo bộ lọc đang áp dụng (kể cả nhiều trang khi phân trang backend)"
+                title="Excel: các cột đang bật trên lưới, thứ tự hàng theo sort — toàn bộ dòng khớp bộ lọc (kể cả nhiều trang khi phân trang backend)"
               >
                 {exportingFilteredExcel ? (
                   <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
@@ -5126,7 +5167,7 @@ function VanDon({ dataSource = 'default' }) {
                               <input
                                 type="checkbox"
                                 checked={(() => {
-                                  const withId = getFilteredData.map((r) => getVanDonRowOrderId(r)).filter(Boolean);
+                                  const withId = paginatedData.map((r) => getVanDonRowOrderId(r)).filter(Boolean);
                                   return withId.length > 0 && withId.every((id) => selectedRows.has(id));
                                 })()}
                                 onChange={(e) => {
