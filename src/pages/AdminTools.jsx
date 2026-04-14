@@ -1,7 +1,8 @@
 import JSZip from 'jszip';
 import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
+import * as XLSX from 'xlsx';
 import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
@@ -56,6 +57,25 @@ const GLOBAL_SETTINGS_ID = 'global_config';
 
 const CSKH_ORDER_TABLE_HN = 'orders';
 const CSKH_ORDER_TABLE_HCM = 'order_code_hcm';
+
+const ACCOUNT_TEMPLATE_ROWS = [
+    {
+        email: 'user01@example.com',
+        username: 'user01',
+        name: 'Nguyen Van A',
+        password: '123456',
+        role: 'user',
+        branch: 'HCM',
+        department: 'CSKH',
+        can_day_ffm: 0
+    }
+];
+
+const getSupabaseFetchHint = (err) => {
+    const msg = String(err?.message || err || '');
+    if (!/failed to fetch/i.test(msg)) return '';
+    return ' Kiểm tra mạng/VPN, cấu hình .env (VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY), dự án Supabase có bị pause không, rồi thử lại.';
+};
 
 function normalizeVietnamesePaymentLabel(s) {
     return String(s ?? '')
@@ -262,6 +282,8 @@ const AdminTools = () => {
     const [nameSearchQuery, setNameSearchQuery] = useState(''); // Search query for account name
     const [branchFilter, setBranchFilter] = useState('');
     const [departmentFilter, setDepartmentFilter] = useState('');
+    const [accountImportLoading, setAccountImportLoading] = useState(false);
+    const accountImportInputRef = useRef(null);
 
     // --- AUTO FILL TEAM STATE ---
     const [isFillingTeam, setIsFillingTeam] = useState(false);
@@ -1008,7 +1030,7 @@ const AdminTools = () => {
         try {
             const { data, error } = await supabase
                 .from('system_settings')
-                .select('id, name, type, updated_at, updated_by')
+                .select('id, name, type')
                 .order('name', { ascending: true });
 
             if (error) {
@@ -1137,7 +1159,22 @@ const AdminTools = () => {
             }
         } catch (error) {
             console.error('Error loading exchange rates:', error);
-            toast.error('Lỗi khi tải tỷ giá: ' + error.message);
+            const errorMessage = String(error?.message || '');
+            const isMissingTable = error?.code === 'PGRST205' || errorMessage.includes("Could not find table 'public.exchange_rates'");
+
+            if (isMissingTable) {
+                setExchangeRates([
+                    { ti_gia: 'USD', gia_tri: 25000 },
+                    { ti_gia: 'JPY', gia_tri: 180 },
+                    { ti_gia: 'CAD', gia_tri: 19000 },
+                    { ti_gia: 'AUD', gia_tri: 18000 },
+                    { ti_gia: 'GBP', gia_tri: 32000 },
+                    { ti_gia: 'KRW', gia_tri: 20 },
+                ]);
+                toast.error('Thiếu bảng exchange_rates trên Supabase. Hãy chạy migration rồi tải lại.');
+            } else {
+                toast.error('Lỗi khi tải tỷ giá: ' + error.message);
+            }
         } finally {
             setExchangeLoading(false);
         }
@@ -1334,18 +1371,33 @@ const AdminTools = () => {
     // Lưu sản phẩm vào database (bảng mới với 2 cột)
     const saveProductToDatabase = async (productName, productType) => {
         try {
-            const { error } = await supabase
+            const normalizedName = String(productName || '').trim();
+            const { data: existingRows, error: checkError } = await supabase
                 .from('system_settings')
-                .upsert({
-                    name: productName.trim(),
-                    type: productType,
-                    updated_at: new Date().toISOString(),
-                    updated_by: userEmail
-                }, {
-                    onConflict: 'name'
-                });
+                .select('id')
+                .eq('name', normalizedName)
+                .limit(1);
 
-            if (error) throw error;
+            if (checkError) throw checkError;
+
+            if (existingRows && existingRows.length > 0) {
+                const { error: updateError } = await supabase
+                    .from('system_settings')
+                    .update({ type: productType })
+                    .eq('id', existingRows[0].id);
+
+                if (updateError) throw updateError;
+            } else {
+                const { error: insertError } = await supabase
+                    .from('system_settings')
+                    .insert({
+                        name: normalizedName,
+                        type: productType
+                    });
+
+                if (insertError) throw insertError;
+            }
+
             return true;
         } catch (err) {
             console.error("Error saving product to database:", err);
@@ -1375,9 +1427,7 @@ const AdminTools = () => {
             const { error } = await supabase
                 .from('system_settings')
                 .update({
-                    type: newType,
-                    updated_at: new Date().toISOString(),
-                    updated_by: userEmail
+                    type: newType
                 })
                 .eq('name', productName.trim());
 
@@ -2402,13 +2452,220 @@ const AdminTools = () => {
     // Xóa toàn bộ dữ liệu trong cột CSKH
 
     // --- ACCOUNT MANAGEMENT FUNCTIONS ---
+    const normalizeHeaderKey = (value) =>
+        String(value || '')
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]/g, '');
+
+    const getAccountField = (row, aliases) => {
+        const normalizedAliases = aliases.map(normalizeHeaderKey);
+        for (const key of Object.keys(row || {})) {
+            if (normalizedAliases.includes(normalizeHeaderKey(key))) {
+                return row[key];
+            }
+        }
+        return '';
+    };
+
+    const parseBooleanField = (value) => {
+        const normalized = normalizeStr(value);
+        return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'co' || normalized === 'x';
+    };
+
+    const parseAccountImportRow = (row) => {
+        const roleRaw = String(getAccountField(row, ['role', 'vai trò', 'vai tro']) || 'user')
+            .trim()
+            .toLowerCase();
+        const safeRole = ['user', 'leader', 'admin', 'super_admin'].includes(roleRaw) ? roleRaw : 'user';
+
+        const email = String(getAccountField(row, ['email', 'mail', 'email address', 'dia chi email']) || '').trim().toLowerCase();
+        const usernameRaw = String(
+            getAccountField(row, [
+                'username',
+                'user name',
+                'user',
+                'account',
+                'account name',
+                'tai khoan',
+                'tên đăng nhập',
+                'ten dang nhap'
+            ]) || ''
+        ).trim();
+        const emailPrefix = email.includes('@') ? email.split('@')[0] : email;
+        const username = usernameRaw || emailPrefix;
+
+        const nameRaw = String(
+            getAccountField(row, [
+                'name',
+                'full name',
+                'full_name',
+                'display name',
+                'display_name',
+                'họ tên',
+                'ho ten',
+                'ten',
+                'tên'
+            ]) || ''
+        ).trim();
+        const name = nameRaw || username || emailPrefix;
+
+        return {
+            email,
+            username,
+            name,
+            password: String(getAccountField(row, ['password', 'password_hash', 'mật khẩu', 'mat khau']) || '').trim(),
+            role: safeRole,
+            branch: String(getAccountField(row, ['branch', 'chi nhánh', 'chi nhanh', 'team']) || '').trim(),
+            department: String(getAccountField(row, ['department', 'phòng ban', 'phong ban']) || '').trim(),
+            can_day_ffm: parseBooleanField(getAccountField(row, ['can_day_ffm', 'can day ffm', 'đẩy ffm', 'day ffm']))
+        };
+    };
+
+    const handleDownloadAccountTemplate = () => {
+        try {
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(ACCOUNT_TEMPLATE_ROWS);
+            XLSX.utils.book_append_sheet(wb, ws, 'Accounts_Template');
+            XLSX.writeFile(wb, `Mau_TaiKhoan_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            toast.success('Đã tải mẫu Excel tài khoản');
+        } catch (error) {
+            console.error('Error downloading account template:', error);
+            toast.error('Không thể tạo file mẫu Excel: ' + (error?.message || 'Unknown error'));
+        }
+    };
+
+    const handleImportAccountsFromExcel = async (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
+
+        setAccountImportLoading(true);
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const wb = XLSX.read(arrayBuffer, { type: 'array' });
+            const firstSheetName = wb.SheetNames?.[0];
+            if (!firstSheetName) {
+                toast.error('File Excel không có sheet dữ liệu.');
+                return;
+            }
+
+            const ws = wb.Sheets[firstSheetName];
+            const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+            if (!rows || rows.length === 0) {
+                toast.warning('File Excel trống, không có dữ liệu để nhập.');
+                return;
+            }
+
+            const bcrypt = await import('bcryptjs');
+            let createdCount = 0;
+            let updatedCount = 0;
+            let skippedCount = 0;
+            let failedCount = 0;
+            const errorLines = [];
+
+            for (let idx = 0; idx < rows.length; idx++) {
+                const lineNo = idx + 2; // +1 for header, +1 for 1-indexed line
+                const parsed = parseAccountImportRow(rows[idx]);
+
+                if (!parsed.email || !parsed.username || !parsed.name) {
+                    skippedCount++;
+                    errorLines.push(`Dòng ${lineNo}: thiếu email/username/name`);
+                    continue;
+                }
+
+                try {
+                    const { data: existingRows, error: checkError } = await supabase
+                        .from('users')
+                        .select('id')
+                        .eq('email', parsed.email)
+                        .limit(1);
+                    if (checkError) throw checkError;
+
+                    const isBcryptHash = typeof parsed.password === 'string' && /^\$2[aby]\$\d{2}\$/.test(parsed.password);
+                    const passwordHash = parsed.password
+                        ? (isBcryptHash ? parsed.password : bcrypt.default.hashSync(parsed.password, 10))
+                        : null;
+
+                    if (existingRows && existingRows.length > 0) {
+                        const updateData = {
+                            name: parsed.name,
+                            role: parsed.role,
+                            branch: parsed.branch || null,
+                            department: parsed.department || null,
+                            can_day_ffm: parsed.can_day_ffm
+                        };
+                        if (passwordHash) updateData.password = passwordHash;
+
+                        const { error: updateError } = await supabase
+                            .from('users')
+                            .update(updateData)
+                            .eq('id', existingRows[0].id);
+                        if (updateError) throw updateError;
+                        updatedCount++;
+                    } else {
+                        if (!passwordHash) {
+                            skippedCount++;
+                            errorLines.push(`Dòng ${lineNo}: tài khoản mới bắt buộc có password`);
+                            continue;
+                        }
+
+                        const { error: insertError } = await supabase
+                            .from('users')
+                            .insert({
+                                email: parsed.email,
+                                password: passwordHash,
+                                name: parsed.name,
+                                role: parsed.role,
+                                branch: parsed.branch || null,
+                                department: parsed.department || null,
+                                can_day_ffm: parsed.can_day_ffm
+                            });
+                        if (insertError) throw insertError;
+                        createdCount++;
+                    }
+                } catch (rowError) {
+                    failedCount++;
+                    errorLines.push(`Dòng ${lineNo}: ${rowError?.message || 'Lỗi không xác định'}`);
+                }
+            }
+
+            const totalHandled = createdCount + updatedCount;
+            if (totalHandled > 0) {
+                toast.success(`Import xong: tạo ${createdCount}, cập nhật ${updatedCount}, bỏ qua ${skippedCount}, lỗi ${failedCount}.`);
+                await loadAuthAccounts();
+            } else {
+                const reasonPreview = errorLines.slice(0, 3).join(' | ');
+                toast.warning(
+                    reasonPreview
+                        ? `Không có dòng nào được import. Bỏ qua ${skippedCount}, lỗi ${failedCount}. ${reasonPreview}`
+                        : `Không có dòng nào được import. Bỏ qua ${skippedCount}, lỗi ${failedCount}.`
+                );
+            }
+
+            if (errorLines.length > 0) {
+                console.warn('[Account Import] Details:', errorLines.slice(0, 50));
+            }
+        } catch (error) {
+            console.error('Error importing accounts from Excel:', error);
+            toast.error('Lỗi import tài khoản: ' + (error?.message || 'Unknown error'));
+        } finally {
+            setAccountImportLoading(false);
+            if (event?.target) {
+                event.target.value = '';
+            }
+        }
+    };
+
     const loadAuthAccounts = async () => {
         setAccountLoading(true);
         try {
-            // Lấy danh sách từ bảng users (bao gồm can_day_ffm và password)
+            // Lấy linh hoạt toàn bộ cột để tránh crash khi schema users khác nhau giữa môi trường
             const { data, error } = await supabase
                 .from('users')
-                .select('id, username, email, password, name, role, team, department, position, branch, shift, created_at, can_day_ffm')
+                .select('*')
                 .order('created_at', { ascending: false });
 
             if (error) {
@@ -2416,12 +2673,17 @@ const AdminTools = () => {
             }
 
             // Map dữ liệu và thêm thông tin has_password
-            const accounts = (data || []).map(user => ({
-                ...user,
-                has_password: !!user.password,
-                status: user.password ? 'active' : 'inactive',
-                user_id: user.id // Để tương thích với auth_accounts structure
-            }));
+            const accounts = (data || []).map(user => {
+                const fallbackUsername = (user?.email ? String(user.email).split('@')[0] : '') || '';
+                return {
+                    ...user,
+                    username: user?.username || user?.user_name || fallbackUsername,
+                    can_day_ffm: user?.can_day_ffm ?? user?.canDayFfm ?? false,
+                    has_password: !!user.password,
+                    status: user.password ? 'active' : 'inactive',
+                    user_id: user.id // Để tương thích với auth_accounts structure
+                };
+            });
 
             // Hide system accounts from the user/account list UI
             const visibleAccounts = accounts.filter((a) => a.role !== 'super_admin');
@@ -2562,7 +2824,6 @@ const AdminTools = () => {
                 // Update existing user in users table
                 const updateData = {
                     email: accountForm.email,
-                    username: accountForm.username,
                     name: accountForm.name,
                     role: accountForm.role || 'user'
                 };
@@ -2592,25 +2853,15 @@ const AdminTools = () => {
                     return;
                 }
 
-                if (!accountForm.username) {
-                    toast.error('Username là bắt buộc!');
-                    return;
-                }
-
                 if (!accountForm.name) {
                     toast.error('Tên là bắt buộc!');
                     return;
                 }
 
-                // Generate ID từ email hoặc username
-                const userId = accountForm.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-
                 const { error } = await supabase
                     .from('users')
                     .insert({
-                        id: userId,
                         email: accountForm.email,
-                        username: accountForm.username,
                         password: passwordHash,
                         name: accountForm.name,
                         role: accountForm.role || 'user',
@@ -2622,7 +2873,6 @@ const AdminTools = () => {
                     // Nếu user đã tồn tại, update thông tin
                     if (error.code === '23505') { // Unique violation
                         const updateData = {
-                            username: accountForm.username,
                             password: passwordHash,
                             name: accountForm.name,
                             role: accountForm.role || 'user'
@@ -3605,7 +3855,7 @@ const AdminTools = () => {
                                                         e.target.value = '';
                                                         toast.success(`Đã thêm sản phẩm "${val}"`);
                                                     } catch (err) {
-                                                        toast.error(`Lỗi thêm sản phẩm: ${err.message}`);
+                                                        toast.error(`Lỗi thêm sản phẩm: ${err.message}${getSupabaseFetchHint(err)}`);
                                                     }
                                                 }
                                             }}
@@ -3643,7 +3893,7 @@ const AdminTools = () => {
                                                     input.value = '';
                                                     toast.success(`Đã thêm sản phẩm "${val}"`);
                                                 } catch (err) {
-                                                    toast.error(`Lỗi thêm sản phẩm: ${err.message}`);
+                                                    toast.error(`Lỗi thêm sản phẩm: ${err.message}${getSupabaseFetchHint(err)}`);
                                                 }
                                             }}
                                             className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-blue-700"
@@ -4691,6 +4941,28 @@ const AdminTools = () => {
                                 <Users className="w-4 h-4" />
                                 Tạo tài khoản mới
                             </button>
+                            <button
+                                onClick={handleDownloadAccountTemplate}
+                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors flex items-center gap-2"
+                            >
+                                <Download className="w-4 h-4" />
+                                Tải mẫu Excel
+                            </button>
+                            <button
+                                onClick={() => accountImportInputRef.current?.click()}
+                                disabled={accountImportLoading}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                                <Upload className="w-4 h-4" />
+                                {accountImportLoading ? 'Đang tải lên...' : 'Tải lên'}
+                            </button>
+                            <input
+                                ref={accountImportInputRef}
+                                type="file"
+                                accept=".xlsx,.xls"
+                                className="hidden"
+                                onChange={handleImportAccountsFromExcel}
+                            />
                         </div>
 
                         {/* Search + filters */}

@@ -472,7 +472,13 @@ const EmployeesList = ({
         });
     };
 
-    const handleSave = () => {
+    const getNetworkHint = (err) => {
+        const msg = String(err?.message || err || '');
+        if (!/failed to fetch|networkerror/i.test(msg)) return '';
+        return ' Kiểm tra mạng/VPN, Vercel env (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY) và trạng thái project Supabase.';
+    };
+
+    const handleSave = async () => {
         console.log('💾 EmployeesList handleSave called:', { 
             selectedEmployees, 
             count: selectedEmployees.length,
@@ -493,14 +499,13 @@ const EmployeesList = ({
         console.log('📞 Calling onUpdateEmployees with:', validNames);
         
         try {
-            onUpdateEmployees(validNames);
+            await onUpdateEmployees(validNames);
             console.log('✅ onUpdateEmployees called successfully');
+            setIsEditing(false);
         } catch (error) {
             console.error('❌ Error calling onUpdateEmployees:', error);
-            alert('Lỗi khi lưu: ' + error.message);
+            toast.error('Lỗi khi lưu: ' + (error?.message || 'Unknown error') + getNetworkHint(error));
         }
-        
-        setIsEditing(false);
     };
 
     const handleCancel = () => {
@@ -1666,6 +1671,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                                             } catch (error) {
                                                                 console.error('❌ Error in onUpdateEmployees:', error);
                                                                 toast.error('Lỗi: ' + (error.message || 'Unknown error'));
+                                                                throw error;
                                                             }
                                                         }}
                                                     />

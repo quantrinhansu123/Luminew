@@ -12,15 +12,23 @@ const CURRENCY_OPTIONS = [
   { key: 'krw', label: 'KRW', symbol: '₩' },
 ];
 
+const DEFAULT_EXCHANGE_RATES = {
+  usd: 25000,
+  jpy: 180,
+  cad: 19000,
+  aud: 18000,
+  gbp: 32000,
+  krw: 20,
+};
+
+const isMissingExchangeRatesTable = (error) => {
+  if (!error) return false;
+  const message = String(error.message || '');
+  return error.code === 'PGRST205' || message.includes("Could not find table 'public.exchange_rates'");
+};
+
 function QuanLyTyGia() {
-  const [exchangeRates, setExchangeRates] = useState({
-    usd: 0,
-    jpy: 0,
-    cad: 0,
-    aud: 0,
-    gbp: 0,
-    krw: 0,
-  });
+  const [exchangeRates, setExchangeRates] = useState(DEFAULT_EXCHANGE_RATES);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -31,32 +39,36 @@ function QuanLyTyGia() {
     try {
       const { data, error } = await supabase
         .from('exchange_rates')
-        .select('*')
-        .eq('id', 1)
-        .single();
+        .select('ti_gia, gia_tri')
+        .order('ti_gia', { ascending: true });
 
-      if (error) {
-        // Nếu bảng chưa tồn tại hoặc chưa có dữ liệu, tạo mới
-        if (error.code === 'PGRST116') {
-          // Không có dữ liệu, giữ giá trị mặc định
-          setMessage({ type: 'info', text: 'Chưa có dữ liệu tỷ giá. Vui lòng nhập và lưu.' });
-        } else {
-          throw error;
-        }
-      } else if (data) {
-        setExchangeRates({
-          usd: data.usd || 0,
-          jpy: data.jpy || 0,
-          cad: data.cad || 0,
-          aud: data.aud || 0,
-          gbp: data.gbp || 0,
-          krw: data.krw || 0,
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const ratesFromDb = { ...DEFAULT_EXCHANGE_RATES };
+        data.forEach((rate) => {
+          const key = String(rate.ti_gia || '').trim().toLowerCase();
+          if (Object.prototype.hasOwnProperty.call(ratesFromDb, key)) {
+            ratesFromDb[key] = Number(rate.gia_tri) || 0;
+          }
         });
+        setExchangeRates(ratesFromDb);
         setMessage({ type: 'success', text: 'Đã tải tỷ giá từ database' });
+      } else {
+        setExchangeRates(DEFAULT_EXCHANGE_RATES);
+        setMessage({ type: 'info', text: 'Chưa có dữ liệu tỷ giá. Đã nạp giá trị mặc định, vui lòng lưu để tạo dữ liệu.' });
       }
     } catch (error) {
       console.error('Error loading exchange rates:', error);
-      setMessage({ type: 'error', text: 'Lỗi khi tải tỷ giá: ' + error.message });
+      if (isMissingExchangeRatesTable(error)) {
+        setExchangeRates(DEFAULT_EXCHANGE_RATES);
+        setMessage({
+          type: 'error',
+          text: 'Thiếu bảng exchange_rates trên Supabase. Vui lòng chạy migration rồi tải lại.',
+        });
+      } else {
+        setMessage({ type: 'error', text: 'Lỗi khi tải tỷ giá: ' + error.message });
+      }
     } finally {
       setLoading(false);
     }
@@ -81,42 +93,32 @@ function QuanLyTyGia() {
     setMessage({ type: '', text: '' });
     
     try {
-      // Kiểm tra xem đã có record với id=1 chưa
-      const { data: existingData } = await supabase
+      const rows = CURRENCY_OPTIONS.map((currency) => ({
+        ti_gia: currency.label.split(' ')[0].toUpperCase(),
+        gia_tri: Number(exchangeRates[currency.key]) || 0,
+        updated_at: new Date().toISOString(),
+      }));
+
+      const { error } = await supabase
         .from('exchange_rates')
-        .select('id')
-        .eq('id', 1)
-        .single();
+        .upsert(rows, {
+          onConflict: 'ti_gia',
+          ignoreDuplicates: false,
+        });
 
-      if (existingData) {
-        // Update existing record
-        const { error } = await supabase
-          .from('exchange_rates')
-          .update({
-            ...exchangeRates,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', 1);
-
-        if (error) throw error;
-        setMessage({ type: 'success', text: 'Đã cập nhật tỷ giá thành công!' });
-      } else {
-        // Insert new record
-        const { error } = await supabase
-          .from('exchange_rates')
-          .insert({
-            id: 1,
-            ...exchangeRates,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-
-        if (error) throw error;
-        setMessage({ type: 'success', text: 'Đã tạo mới tỷ giá thành công!' });
-      }
+      if (error) throw error;
+      setMessage({ type: 'success', text: 'Đã lưu tỷ giá thành công!' });
+      await loadExchangeRates();
     } catch (error) {
       console.error('Error saving exchange rates:', error);
-      setMessage({ type: 'error', text: 'Lỗi khi lưu tỷ giá: ' + error.message });
+      if (isMissingExchangeRatesTable(error)) {
+        setMessage({
+          type: 'error',
+          text: 'Thiếu bảng exchange_rates trên Supabase. Vui lòng chạy migration trước khi lưu.',
+        });
+      } else {
+        setMessage({ type: 'error', text: 'Lỗi khi lưu tỷ giá: ' + error.message });
+      }
     } finally {
       setSaving(false);
     }
