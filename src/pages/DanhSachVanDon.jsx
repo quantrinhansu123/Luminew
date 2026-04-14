@@ -241,22 +241,25 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
 
             if (error) throw error;
 
-            // Filter by selected_personnel khi có — admin / director / manager xem toàn bộ (không lọc).
+            // Filter theo selected_personnel: chỉ hiển thị đúng tên nằm trong list đã chọn.
             let filteredRecords = records || [];
             if (!isAdminVanDonList && selectedPersonnelNames && selectedPersonnelNames.length > 0) {
-                console.log('🔐 [DanhSachVanDon] Filtering by selected_personnel:', selectedPersonnelNames);
+                console.log('🔐 [DanhSachVanDon] Filtering strictly by selected_personnel:', selectedPersonnelNames);
+                const allowedNames = new Set(
+                    selectedPersonnelNames
+                        .map((name) => String(name || '').trim().toLowerCase())
+                        .filter(Boolean)
+                );
                 filteredRecords = (records || []).filter(record => {
-                    const hoVaTen = (record.ho_va_ten || '').toLowerCase().trim();
-                    return selectedPersonnelNames.some(name => {
-                        const nameLower = String(name).toLowerCase().trim();
-                        return hoVaTen === nameLower || hoVaTen.includes(nameLower);
-                    });
+                    const hoVaTen = String(record?.ho_va_ten || '').trim().toLowerCase();
+                    return allowedNames.has(hoVaTen);
                 });
                 console.log('✅ [DanhSachVanDon] Filtered records:', filteredRecords.length, 'out of', records?.length || 0);
             } else if (isAdminVanDonList) {
                 console.log('👑 [DanhSachVanDon] Admin — hiển thị đủ danh sách (bỏ lọc selected_personnel)');
             } else {
-                console.log('✅ [DanhSachVanDon] No selected_personnel, showing all records');
+                filteredRecords = [];
+                console.log('ℹ️ [DanhSachVanDon] selected_personnel rỗng — không hiển thị bản ghi nào');
             }
 
             // View HCM: chỉ hiển thị chi nhánh HCM.
