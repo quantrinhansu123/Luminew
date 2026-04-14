@@ -1138,6 +1138,8 @@ export const fetchVanDon = async (options = {}) => {
         columnFilters = {},
         /** { status, include, exclude } — khớp bộ lọc Mã Tracking trên lưới. */
         trackingFilter = null,
+        /** Danh sách mã đơn cần lọc khớp chính xác (mỗi phần tử là 1 mã). */
+        bulkOrderCodes = [],
         /** Tra cứu nhanh khách: OR ilike trên tên / SĐT / địa chỉ (đồng bộ tổng đơn & tổng tiền với lưới). */
         customerQuickSearch = '',
         /** `co_trung` | `khong_trung` — lọc cột cảnh báo (mức SQL; gần với lưới). */
@@ -1216,6 +1218,20 @@ export const fetchVanDon = async (options = {}) => {
 
             if (team && team !== 'all') {
                 query = query.eq('team', team);
+            }
+
+            if (Array.isArray(bulkOrderCodes) && bulkOrderCodes.length > 0) {
+                const exactCodes = Array.from(
+                    new Set(
+                        bulkOrderCodes
+                            .map((v) => normalizeVanDonFilterWhitespace(String(v)))
+                            .filter(Boolean)
+                    )
+                );
+                if (exactCodes.length > 0) {
+                    const codeOrExpr = buildVanDonOrIlikeExact('order_code', exactCodes);
+                    if (codeOrExpr) query = query.or(codeOrExpr);
+                }
             }
 
             if (excludeHcmTeam) {

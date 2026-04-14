@@ -258,6 +258,10 @@ function normalizeVanDonOrderIdKey(id) {
   return String(id).trim();
 }
 
+function normalizeVanDonBulkOrderCode(code) {
+  return String(code ?? '').trim().toLowerCase();
+}
+
 /** Cột được sửa trực tiếp trên lưới vận đơn (Mã Tracking chỉ đọc; Cảnh báo trùng không nằm trong EDITABLE_COLS — mọi tab). */
 function isVanDonUserEditableColumn(col) {
   if (isVanDonGridReadOnlyColumnKey(col)) return false;
@@ -628,6 +632,7 @@ function VanDon({ dataSource = 'default' }) {
     payment_status: [],
     tracking_include: '',
     tracking_exclude: '',
+    tracking_bulk_codes: '',
     tracking_status: 'Tình trạng mã',
     /** '' | 'co_trung' | 'khong_trung' — cột canh_bao / Cảnh báo trùng */
     canh_bao_filter: '',
@@ -649,6 +654,7 @@ function VanDon({ dataSource = 'default' }) {
     payment_status: [],
     tracking_include: '',
     tracking_exclude: '',
+    tracking_bulk_codes: '',
     tracking_status: 'Tình trạng mã',
     canh_bao_filter: '',
   });
@@ -1044,6 +1050,7 @@ function VanDon({ dataSource = 'default' }) {
           'payment_status',
           'tracking_include',
           'tracking_exclude',
+          'tracking_bulk_codes',
           'tracking_status',
           'canh_bao_filter',
         ].includes(key)
@@ -1067,6 +1074,12 @@ function VanDon({ dataSource = 'default' }) {
 
   const serverTrackingFilter = useMemo(() => {
     if (!useBackendPagination) return null;
+    if (
+      (bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') &&
+      String(appliedFilterValues.tracking_bulk_codes || '').trim()
+    ) {
+      return null;
+    }
     if (!appliedFilterValues.tracking_status && !appliedFilterValues.tracking_include && !appliedFilterValues.tracking_exclude) return null;
     return {
       status: appliedFilterValues.tracking_status || 'Tình trạng mã',
@@ -1075,6 +1088,8 @@ function VanDon({ dataSource = 'default' }) {
     };
   }, [
     useBackendPagination,
+    bolActiveTab,
+    appliedFilterValues.tracking_bulk_codes,
     appliedFilterValues.tracking_status,
     appliedFilterValues.tracking_include,
     appliedFilterValues.tracking_exclude
@@ -1123,6 +1138,17 @@ function VanDon({ dataSource = 'default' }) {
       useBackend: useBackendPagination,
       columnFilters: serverColumnFilters,
       trackingFilter: serverTrackingFilter,
+      bulkOrderCodes:
+        bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all'
+          ? Array.from(
+              new Set(
+                String(appliedFilterValues.tracking_bulk_codes || '')
+                  .split(/[,\n\r]+/g)
+                  .map((s) => String(s || '').trim())
+                  .filter(Boolean)
+              )
+            )
+          : [],
       customerQuickSearch: normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch) || undefined,
       canh_bao_filter:
         appliedFilterValues.canh_bao_filter === 'co_trung' || appliedFilterValues.canh_bao_filter === 'khong_trung'
@@ -1257,6 +1283,7 @@ function VanDon({ dataSource = 'default' }) {
         deliveryStaffSelfFilter: selfDeliveryName || undefined,
         columnFilters: activeFilters.columnFilters || {},
         trackingFilter: activeFilters.trackingFilter || null,
+        bulkOrderCodes: activeFilters.bulkOrderCodes || [],
         customerQuickSearch: activeFilters.customerQuickSearch,
         canh_bao_filter: activeFilters.canh_bao_filter,
         vanDonFetchMode
@@ -1850,6 +1877,7 @@ function VanDon({ dataSource = 'default' }) {
             'ten_page',
             'tracking_include',
             'tracking_exclude',
+            'tracking_bulk_codes',
             'tracking_status',
             'canh_bao_filter',
           ].includes(key)
@@ -1933,39 +1961,62 @@ function VanDon({ dataSource = 'default' }) {
 
     // Tracking filter cũng chạy ở client để ghép chính xác cùng các cột header khác.
     try {
-      if (appliedFilterValues.tracking_status || appliedFilterValues.tracking_include || appliedFilterValues.tracking_exclude) {
-          const inc = appliedFilterValues.tracking_include ? String(appliedFilterValues.tracking_include).toLowerCase() : '';
-          const exc = appliedFilterValues.tracking_exclude ? String(appliedFilterValues.tracking_exclude).toLowerCase() : '';
-          const status = appliedFilterValues.tracking_status || 'Tình trạng mã';
+      const bulkRaw = String(appliedFilterValues.tracking_bulk_codes || '').trim();
+      const bulkCodesSet = bulkRaw
+        ? new Set(
+            bulkRaw
+              .split(/\r?\n+/g)
+              .map((line) => normalizeVanDonBulkOrderCode(line))
+              .filter(Boolean)
+          )
+        : null;
+      const hasBulkCodes =
+        (bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') &&
+        !!bulkCodesSet &&
+        bulkCodesSet.size > 0;
 
-          data = data.filter(row => {
-            try {
-              const orderId = row[PRIMARY_KEY_COLUMN];
-              const o = getPendingOriginal(orderId, 'Mã Tracking', 'Mã tracking');
-              const code = o !== undefined ? strNorm(o) : strNorm(row['Mã Tracking'] || row['Mã tracking'] || '');
-              const lowerCode = code.toLowerCase();
+      if (hasBulkCodes) {
+        data = data.filter((row) => {
+          const orderId = getVanDonRowOrderId(row);
+          return bulkCodesSet.has(normalizeVanDonBulkOrderCode(orderId));
+        });
+      } else if (
+        appliedFilterValues.tracking_status ||
+        appliedFilterValues.tracking_include ||
+        appliedFilterValues.tracking_exclude
+      ) {
+        const inc = appliedFilterValues.tracking_include ? String(appliedFilterValues.tracking_include).toLowerCase() : '';
+        const exc = appliedFilterValues.tracking_exclude ? String(appliedFilterValues.tracking_exclude).toLowerCase() : '';
+        const status = appliedFilterValues.tracking_status || 'Tình trạng mã';
 
-              if (status === 'Tất cả có mã' && isVanDonSemanticEmpty(code)) return false;
-              if (status === 'Trống' && !isVanDonSemanticEmpty(code)) return false;
-              if (status === 'Toàn số' && (isVanDonSemanticEmpty(code) || !/^\d+$/.test(code))) return false;
+        data = data.filter(row => {
+          try {
+            const orderId = row[PRIMARY_KEY_COLUMN];
+            const o = getPendingOriginal(orderId, 'Mã Tracking', 'Mã tracking');
+            const code = o !== undefined ? strNorm(o) : strNorm(row['Mã Tracking'] || row['Mã tracking'] || '');
+            const lowerCode = code.toLowerCase();
 
-              if (status === 'Tình trạng mã') {
-                if (exc && exc.trim() && lowerCode.includes(exc)) return false;
-                if (inc && inc.trim()) {
-                  if (inc.includes('\n')) {
-                    const codes = new Set(inc.split('\n').map(t => t.trim()).filter(Boolean).map(t => t.toLowerCase()));
-                    if (!codes.has(lowerCode)) return false;
-                  } else {
-                    if (!lowerCode.includes(inc)) return false;
-                  }
+            if (status === 'Tất cả có mã' && isVanDonSemanticEmpty(code)) return false;
+            if (status === 'Trống' && !isVanDonSemanticEmpty(code)) return false;
+            if (status === 'Toàn số' && (isVanDonSemanticEmpty(code) || !/^\d+$/.test(code))) return false;
+
+            if (status === 'Tình trạng mã') {
+              if (exc && exc.trim() && lowerCode.includes(exc)) return false;
+              if (inc && inc.trim()) {
+                if (inc.includes('\n')) {
+                  const codes = new Set(inc.split('\n').map(t => t.trim()).filter(Boolean).map(t => t.toLowerCase()));
+                  if (!codes.has(lowerCode)) return false;
+                } else {
+                  if (!lowerCode.includes(inc)) return false;
                 }
               }
-              return true;
-            } catch (err) {
-              console.warn('⚠️ [Filter Error] Lỗi khi filter tracking:', err);
-              return true;
             }
-          });
+            return true;
+          } catch (err) {
+            console.warn('⚠️ [Filter Error] Lỗi khi filter tracking:', err);
+            return true;
+          }
+        });
       }
     } catch (err) {
       console.warn('⚠️ [Filter Error] Lỗi khi xử lý tracking filter:', err);
@@ -2228,6 +2279,7 @@ function VanDon({ dataSource = 'default' }) {
     const defaultFilters = {
       market: [], product: [], nv_sale: [], nv_mkt: [], nv_van_don: [],
       shipping_unit: [], ten_page: [], delivery_status: [], payment_status: [], tracking_include: '', tracking_exclude: '',
+      tracking_bulk_codes: '',
       tracking_status: 'Tình trạng mã',
       canh_bao_filter: '',
     };
@@ -4721,7 +4773,7 @@ function VanDon({ dataSource = 'default' }) {
                 { id: 'ca_nhan', label: 'Đơn cá nhân', icon: '👤' },
                 { id: 'readonly_all', label: 'Xem tất cả', icon: '👁️' },
                 { id: 'japan', label: 'Đơn Nhật', icon: '🇯🇵' },
-                { id: 'hanoi', label: 'Đẩy Đơn HCM', icon: '🏛️' }
+                { id: 'hanoi', label: 'Đẩy đơn HN', icon: '🏛️' }
               ]
                 .filter((tab) => {
                   if (tab.id === 'hanoi') {
@@ -4901,6 +4953,21 @@ function VanDon({ dataSource = 'default' }) {
               className="flex items-center gap-2 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0 min-w-0 max-w-full"
               title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm nhanh: mã đơn / SĐT / tên / địa chỉ."
             >
+              {(bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') && (
+                <>
+                  <div className="flex items-start gap-1.5 min-w-[180px]">
+                    <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap mt-1">📌 Mã đơn</span>
+                    <textarea
+                      className="text-[10px] px-1.5 py-0.5 border border-gray-300 rounded bg-white leading-tight min-h-[42px] w-[200px] resize-y"
+                      placeholder={"Mỗi dòng 1 mã đơn\nFit87d8a7454\nFit3f482a4d"}
+                      value={filterValues.tracking_bulk_codes || ''}
+                      onChange={(e) => setFilterValues((prev) => ({ ...prev, tracking_bulk_codes: e.target.value }))}
+                      title="Dán nhiều mã đơn hàng, mỗi dòng 1 mã (nhấn Enter để áp dụng)"
+                    />
+                  </div>
+                  <div className="h-4 w-px bg-slate-200 shrink-0 self-center" aria-hidden />
+                </>
+              )}
               <div className="flex items-center gap-1 shrink-0" title="Page (page_name)">
                 <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📄</span>
                 <div className="relative" style={{ minWidth: '132px', zIndex: 997 }}>
