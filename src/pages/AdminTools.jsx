@@ -284,6 +284,8 @@ const AdminTools = () => {
     const [departmentFilter, setDepartmentFilter] = useState('');
     const [selectedAccountIds, setSelectedAccountIds] = useState([]);
     const [bulkDeletingAccounts, setBulkDeletingAccounts] = useState(false);
+    const [bulkAssignTeamValue, setBulkAssignTeamValue] = useState('');
+    const [bulkAssigningTeam, setBulkAssigningTeam] = useState(false);
     const [accountImportLoading, setAccountImportLoading] = useState(false);
     const accountImportInputRef = useRef(null);
 
@@ -2768,6 +2770,44 @@ const AdminTools = () => {
         }
     };
 
+    const handleAssignTeamSelectedAccounts = async () => {
+        if (selectedAccountIds.length === 0) {
+            toast.info('Chưa chọn tài khoản nào để gán team.');
+            return;
+        }
+
+        const teamValue = String(bulkAssignTeamValue || '').trim();
+        if (!teamValue) {
+            toast.error('Vui lòng nhập Team trước khi gán hàng loạt.');
+            return;
+        }
+
+        if (!window.confirm(`Gán Team "${teamValue}" cho ${selectedAccountIds.length} tài khoản đã chọn?`)) {
+            return;
+        }
+
+        setBulkAssigningTeam(true);
+        try {
+            const { error } = await supabase
+                .from('users')
+                .update({
+                    team: teamValue,
+                    branch: teamValue
+                })
+                .in('id', selectedAccountIds);
+
+            if (error) throw error;
+
+            toast.success(`Đã gán Team "${teamValue}" cho ${selectedAccountIds.length} tài khoản.`);
+            await loadAuthAccounts();
+        } catch (error) {
+            console.error('Error assigning team for selected accounts:', error);
+            toast.error('Lỗi gán team hàng loạt: ' + (error?.message || 'Unknown error'));
+        } finally {
+            setBulkAssigningTeam(false);
+        }
+    };
+
     const handleViewLoginHistory = async (accountId) => {
         try {
             // Lấy lịch sử đăng nhập từ login_history dựa trên user_id hoặc email
@@ -5133,16 +5173,39 @@ const AdminTools = () => {
                                             {selectedAccountIds.length > 0 ? ` - Đã chọn ${selectedAccountIds.length}` : ''}
                                         </div>
                                         <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={bulkAssignTeamValue}
+                                                onChange={(e) => setBulkAssignTeamValue(e.target.value)}
+                                                placeholder="Nhập Team..."
+                                                className="px-3 py-1.5 border border-gray-300 rounded text-sm min-w-[140px]"
+                                                disabled={bulkAssigningTeam || bulkDeletingAccounts}
+                                                title="Nhập Team để gán hàng loạt"
+                                            />
+                                            <button
+                                                onClick={handleAssignTeamSelectedAccounts}
+                                                disabled={
+                                                    selectedAccountIds.length === 0 ||
+                                                    bulkAssigningTeam ||
+                                                    bulkDeletingAccounts ||
+                                                    !bulkAssignTeamValue.trim()
+                                                }
+                                                className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                                title="Gán Team hàng loạt cho tài khoản đã chọn"
+                                            >
+                                                <Tag className="w-4 h-4" />
+                                                {bulkAssigningTeam ? 'Đang gán team...' : 'Gán Team đã chọn'}
+                                            </button>
                                             <button
                                                 onClick={() => setSelectedAccountIds([])}
-                                                disabled={selectedAccountIds.length === 0 || bulkDeletingAccounts}
+                                                disabled={selectedAccountIds.length === 0 || bulkDeletingAccounts || bulkAssigningTeam}
                                                 className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 Bỏ chọn
                                             </button>
                                             <button
                                                 onClick={handleDeleteSelectedAccounts}
-                                                disabled={selectedAccountIds.length === 0 || bulkDeletingAccounts}
+                                                disabled={selectedAccountIds.length === 0 || bulkDeletingAccounts || bulkAssigningTeam}
                                                 className="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                             >
                                                 <Trash2 className="w-4 h-4" />

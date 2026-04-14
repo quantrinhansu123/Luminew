@@ -779,6 +779,7 @@ const PermissionManager = ({ searchQuery = "" }) => {
     const [assignEmail, setAssignEmail] = useState('');
     const [assignRole, setAssignRole] = useState('');
     const [bulkAssignRole, setBulkAssignRole] = useState('');
+    const [bulkAssignTeam, setBulkAssignTeam] = useState('');
     const [selectedUserEmails, setSelectedUserEmails] = useState([]);
 
     // Matrix State
@@ -1012,6 +1013,34 @@ const PermissionManager = ({ searchQuery = "" }) => {
             dispatchPermissionsInvalidate();
         } catch (error) {
             toast.error("Lỗi gán quyền hàng loạt: " + error.message);
+        }
+    };
+
+    const handleBulkAssignTeam = async () => {
+        const teamValue = String(bulkAssignTeam || '').trim();
+        if (!teamValue) return toast.warning("Nhập Team để gán hàng loạt");
+        if (!selectedUserEmails.length) return toast.warning("Chọn ít nhất 1 nhân viên");
+        if (!window.confirm(`Gán Team "${teamValue}" cho ${selectedUserEmails.length} nhân viên đã chọn?`)) return;
+        try {
+            const results = await Promise.allSettled(
+                selectedUserEmails.map((email) => rbacService.updateUserTeam(email, teamValue))
+            );
+            const successCount = results.filter((r) => r.status === 'fulfilled').length;
+            const failCount = results.length - successCount;
+            if (successCount > 0) {
+                toast.success(`Đã gán Team cho ${successCount} nhân viên${failCount > 0 ? `, lỗi ${failCount}` : ''}`);
+            } else {
+                toast.error("Không gán được Team cho nhân viên nào.");
+            }
+            if (failCount > 0) {
+                console.warn('Bulk assign team failures:', results.filter((r) => r.status === 'rejected'));
+            }
+            setSelectedUserEmails([]);
+            setBulkAssignTeam('');
+            loadData();
+            dispatchPermissionsInvalidate();
+        } catch (error) {
+            toast.error("Lỗi gán team hàng loạt: " + error.message);
         }
     };
 
@@ -1597,6 +1626,22 @@ const PermissionManager = ({ searchQuery = "" }) => {
                                 className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700 h-10"
                             >
                                 Gán vai trò hàng loạt
+                            </button>
+                            <div className="w-full md:w-56">
+                                <label className="text-xs font-semibold text-gray-500 mb-1 block">Team gán hàng loạt</label>
+                                <input
+                                    type="text"
+                                    value={bulkAssignTeam}
+                                    onChange={(e) => setBulkAssignTeam(e.target.value)}
+                                    placeholder="VD: HCM, Hà Nội..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                                />
+                            </div>
+                            <button
+                                onClick={handleBulkAssignTeam}
+                                className="bg-indigo-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-indigo-700 h-10"
+                            >
+                                Gán team hàng loạt
                             </button>
                         </div>
 
