@@ -1,7 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { TableVirtuoso } from 'react-virtuoso';
 import * as XLSX from 'xlsx';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
@@ -287,37 +286,9 @@ function vanDonMoneyCellValuesEqual(a, b) {
   return pa === pb;
 }
 
-/** TableVirtuoso chỉ bọc sẵn <tr> — không được trả về <tr> từ itemContent (tránh <tr> lồng <tr>, DOM hỏng). */
-function VanDonVirtuosoTable({ style, ...props }) {
-  return (
-    <table
-      {...props}
-      className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed"
-      style={{ ...style, tableLayout: 'fixed' }}
-    />
-  );
-}
-
-const VanDonVirtuosoTableBody = React.forwardRef((props, ref) => <tbody {...props} ref={ref} />);
-VanDonVirtuosoTableBody.displayName = 'VanDonVirtuosoTableBody';
-
-/** Cuộn ngang + dọc trên cùng một scroller; `overflow: hidden` mặc định của ô không áp dụng lên `sticky` (xem VanDonVirtuoso). */
-const VanDonVirtuosoScroller = React.forwardRef(({ style, ...props }, ref) => (
-  <div
-    {...props}
-    ref={ref}
-    style={{
-      ...style,
-      overflow: 'auto',
-      WebkitOverflowScrolling: 'touch',
-    }}
-  />
-));
-VanDonVirtuosoScroller.displayName = 'VanDonVirtuosoScroller';
-
 /**
  * VanDonRow — component hàng được bọc React.memo để tránh re-render không cần thiết.
- * Virtuoso chỉ gọi lại khi row, selection, pending, selectedRows thay đổi thuộc về hàng này.
+ * React chỉ gọi lại khi row, selection, pending, selectedRows thay đổi thuộc về hàng này.
  * Khi cuộn, các hàng đang visible không thay đổi → React skip hoàn toàn (zero re-render).
  */
 const VanDonRow = React.memo(function VanDonRow({
@@ -1599,22 +1570,41 @@ function VanDon({ dataSource = 'default' }) {
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
 
     const traCuuKhach = normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch);
+    const GLOBAL_SEARCH_FIELDS = [
+      ['Mã đơn hàng', 'order_code', PRIMARY_KEY_COLUMN],
+      ['Name*', 'customer_name'],
+      ['Phone*', 'customer_phone'],
+      ['Add', 'customer_address'],
+      ['Mã Tracking', 'Mã tracking', 'tracking_code'],
+      ['Khu vực', 'country'],
+      ['Mặt hàng', 'product'],
+      ['Page', 'page_name'],
+      ['Đơn vị vận chuyển', 'Đơn_vị_vận_chuyển', 'shipping_unit'],
+      ['Nhân viên Sale', 'sale_staff'],
+      ['Nhân viên MKT', 'marketing_staff'],
+      ['NV Vận đơn', 'Nhân viên Vận đơn', 'delivery_staff'],
+      ['Trạng thái giao hàng', 'delivery_status'],
+      ['Trạng thái thu tiền', 'payment_status'],
+    ];
     // Phân trang backend: tra cứu khách đã lọc ở API — tránh lệch tổng đơn / tổng tiền và lọc hai lần.
     if (traCuuKhach && !useBackendPagination) {
       const digitsOnly = (s) => String(s ?? '').replace(/\D/g, '');
       const qDigits = digitsOnly(traCuuKhach);
       data = data.filter((row) => {
         const orderId = row[PRIMARY_KEY_COLUMN];
-        const nameO = getPendingOriginal(orderId, 'Name*', 'customer_name');
-        const phoneO = getPendingOriginal(orderId, 'Phone*', 'customer_phone');
-        const addO = getPendingOriginal(orderId, 'Add', 'customer_address');
-        const nameRaw = nameO !== undefined ? nameO : row['Name*'] ?? row.customer_name;
-        const phoneRaw = phoneO !== undefined ? phoneO : row['Phone*'] ?? row.customer_phone ?? '';
-        const addrRaw = addO !== undefined ? addO : row['Add'] ?? row.customer_address;
-        const codeRaw = row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? row['Mã đơn hàng'] ?? '';
-        if (matchesVanDonHeaderSearch(nameRaw, traCuuKhach)) return true;
-        if (matchesVanDonHeaderSearch(addrRaw, traCuuKhach)) return true;
-        if (matchesVanDonHeaderSearch(codeRaw, traCuuKhach)) return true;
+        const phoneOriginal = getPendingOriginal(orderId, 'Phone*', 'customer_phone');
+        const phoneRaw = phoneOriginal !== undefined ? phoneOriginal : row['Phone*'] ?? row.customer_phone ?? '';
+        for (const fieldCandidates of GLOBAL_SEARCH_FIELDS) {
+          const originalValue = getPendingOriginal(orderId, ...fieldCandidates);
+          let rawValue = originalValue;
+          if (rawValue === undefined) {
+            rawValue = fieldCandidates.reduce((acc, key) => {
+              if (acc !== undefined && acc !== null && String(acc).trim() !== '') return acc;
+              return row[key];
+            }, undefined);
+          }
+          if (matchesVanDonHeaderSearch(rawValue ?? '', traCuuKhach)) return true;
+        }
         const phoneNorm = normalizeVanDonFilterWhitespace(phoneRaw).toLowerCase();
         const qLower = traCuuKhach.toLowerCase();
         if (phoneNorm.includes(qLower)) return true;
@@ -4331,26 +4321,6 @@ function VanDon({ dataSource = 'default' }) {
     return classes;
   };
 
-  const vanDonVirtuosoComponents = useMemo(() => {
-    const TableRow = React.forwardRef(({ item, children, ...rest }, ref) => {
-      const orderId = getVanDonRowOrderId(item);
-      const isSelected = Boolean(orderId && selectedRows.has(orderId));
-      const mergedClass = [rest.className, isSelected ? 'bg-blue-50' : ''].filter(Boolean).join(' ').trim();
-      return (
-        <tr ref={ref} {...rest} className={mergedClass || undefined}>
-          {children}
-        </tr>
-      );
-    });
-    TableRow.displayName = 'VanDonVirtuosoTableRow';
-    return {
-      Scroller: VanDonVirtuosoScroller,
-      Table: VanDonVirtuosoTable,
-      TableBody: VanDonVirtuosoTableBody,
-      TableRow
-    };
-  }, [selectedRows]);
-
   const renderVanDonFilterTh = (col, idx, positionStyle, showFreezeShadow, isFixedCol) => {
     const key = COLUMN_MAPPING[col] || col;
     // Đồng bộ key với thanh toolbar để lọc song song không bị xung đột logic
@@ -4951,7 +4921,7 @@ function VanDon({ dataSource = 'default' }) {
 
             <div
               className="flex items-center gap-2 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0 min-w-0 max-w-full"
-              title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm nhanh: mã đơn / SĐT / tên / địa chỉ."
+              title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm tổng: mã đơn / SĐT / tên / địa chỉ / tracking / trạng thái / page / nhân sự / thị trường / mặt hàng."
             >
               {(bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') && (
                 <>
@@ -4995,8 +4965,8 @@ function VanDon({ dataSource = 'default' }) {
                   type="search"
                   enterKeyHint="search"
                   autoComplete="off"
-                  placeholder="Mã đơn, SĐT, tên, địa chỉ…"
-                  title="Tra mã đơn / SĐT / tên / địa chỉ"
+                  placeholder="Tìm tổng: mã đơn, SĐT, tên, tracking, trạng thái…"
+                  title="Tra theo các cột quan trọng: mã đơn, SĐT, tên, địa chỉ, tracking, trạng thái, page, nhân sự, thị trường, mặt hàng, đơn vị vận chuyển"
                   value={customerQuickSearch}
                   onChange={(e) => setCustomerQuickSearch(e.target.value)}
                   className="min-w-[100px] w-[min(200px,32vw)] max-w-[260px] shrink text-[10px] px-1.5 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
@@ -5260,7 +5230,7 @@ function VanDon({ dataSource = 'default' }) {
                   </table>
                 </div>
 
-                {/* 2. SCROLLABLE BODY (Virtualized) */}
+                {/* 2. SCROLLABLE BODY */}
                 {getFilteredData.length === 0 ? (
                   <div
                     className="flex-1 overflow-auto overscroll-contain bg-white relative"
@@ -5296,42 +5266,51 @@ function VanDon({ dataSource = 'default' }) {
                     </table>
                   </div>
                 ) : (
-                  <div className="flex-1 min-h-0 min-w-0 w-full flex flex-col">
-                  <TableVirtuoso
-                    data={sortedData}
-                    style={{ height: '100%', minHeight: 0, width: '100%', flex: '1 1 auto' }}
-                    scrollerRef={(el) => {
+                  <div
+                    className="flex-1 overflow-auto overscroll-contain bg-white relative min-h-0"
+                    onScroll={onTableScroll}
+                    ref={(el) => {
                       if (el) {
                         tableRef.current = el;
                         horizontalScrollHostRef.current = el;
-                        el.addEventListener('scroll', onTableScroll);
                         if (vanDonHeaderContainerRef.current) {
                           el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
                         }
                       }
                     }}
-                    components={vanDonVirtuosoComponents}
-                    overscan={150}
-                    itemContent={(rIdx, row) => (
-                      <VanDonRow
-                        row={row}
-                        rIdx={rIdx}
-                        currentColumns={currentColumns}
-                        effectiveFixedColumns={effectiveFixedColumns}
-                        bolActiveTab={bolActiveTab}
-                        selectedRows={selectedRows}
-                        pendingChanges={pendingChanges}
-                        selectionBounds={selectionBounds}
-                        getStickyLeftPx={getStickyLeftPx}
-                        getColumnWidthStyles={getColumnWidthStyles}
-                        renderVanDonDataCell={renderVanDonDataCell}
-                        toggleRowSelection={toggleRowSelection}
-                        isLongTextExpanded={isLongTextExpanded}
-                        currentPage={currentPage}
-                        effectiveRowsPerPage={effectiveRowsPerPage}
-                      />
-                    )}
-                  />
+                  >
+                    <table
+                      className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed font-sans"
+                      style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}
+                    >
+                      <tbody>
+                        {sortedData.map((row, rIdx) => {
+                          const orderId = getVanDonRowOrderId(row);
+                          const isSelected = Boolean(orderId && selectedRows.has(orderId));
+                          return (
+                            <tr key={orderId || `r${rIdx}`} className={isSelected ? 'bg-blue-50' : undefined}>
+                              <VanDonRow
+                                row={row}
+                                rIdx={rIdx}
+                                currentColumns={currentColumns}
+                                effectiveFixedColumns={effectiveFixedColumns}
+                                bolActiveTab={bolActiveTab}
+                                selectedRows={selectedRows}
+                                pendingChanges={pendingChanges}
+                                selectionBounds={selectionBounds}
+                                getStickyLeftPx={getStickyLeftPx}
+                                getColumnWidthStyles={getColumnWidthStyles}
+                                renderVanDonDataCell={renderVanDonDataCell}
+                                toggleRowSelection={toggleRowSelection}
+                                isLongTextExpanded={isLongTextExpanded}
+                                currentPage={currentPage}
+                                effectiveRowsPerPage={effectiveRowsPerPage}
+                              />
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
