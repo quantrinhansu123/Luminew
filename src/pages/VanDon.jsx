@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { TableVirtuoso } from 'react-virtuoso';
 import * as XLSX from 'xlsx';
 
 import ColumnSettingsModal from '../components/ColumnSettingsModal';
@@ -286,9 +287,37 @@ function vanDonMoneyCellValuesEqual(a, b) {
   return pa === pb;
 }
 
+/** TableVirtuoso chỉ bọc sẵn <tr> — không được trả về <tr> từ itemContent (tránh <tr> lồng <tr>, DOM hỏng). */
+function VanDonVirtuosoTable({ style, ...props }) {
+  return (
+    <table
+      {...props}
+      className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed"
+      style={{ ...style, tableLayout: 'fixed' }}
+    />
+  );
+}
+
+const VanDonVirtuosoTableBody = React.forwardRef((props, ref) => <tbody {...props} ref={ref} />);
+VanDonVirtuosoTableBody.displayName = 'VanDonVirtuosoTableBody';
+
+/** Cuộn ngang + dọc trên cùng một scroller; `overflow: hidden` mặc định của ô không áp dụng lên `sticky` (xem VanDonVirtuoso). */
+const VanDonVirtuosoScroller = React.forwardRef(({ style, ...props }, ref) => (
+  <div
+    {...props}
+    ref={ref}
+    style={{
+      ...style,
+      overflow: 'auto',
+      WebkitOverflowScrolling: 'touch',
+    }}
+  />
+));
+VanDonVirtuosoScroller.displayName = 'VanDonVirtuosoScroller';
+
 /**
  * VanDonRow — component hàng được bọc React.memo để tránh re-render không cần thiết.
- * React chỉ gọi lại khi row, selection, pending, selectedRows thay đổi thuộc về hàng này.
+ * Virtuoso chỉ gọi lại khi row, selection, pending, selectedRows thay đổi thuộc về hàng này.
  * Khi cuộn, các hàng đang visible không thay đổi → React skip hoàn toàn (zero re-render).
  */
 const VanDonRow = React.memo(function VanDonRow({
@@ -549,12 +578,12 @@ function VanDon({ dataSource = 'default' }) {
   // Tự động đồng bộ queue từ pendingChanges khi có thay đổi
   useEffect(() => {
     if (pendingChanges.size === 0) return;
-    
+
     // Kiểm tra xem có thay đổi nào trong pendingChanges mà không có trong queue không
     const queueKeys = new Set(
       dbQueueRef.current.map(q => `${q.orderId}::${q.colKey}`)
     );
-    
+
     let needsSync = false;
     pendingChanges.forEach((innerMap, orderId) => {
       innerMap.forEach((info, colKey) => {
@@ -564,7 +593,7 @@ function VanDon({ dataSource = 'default' }) {
         }
       });
     });
-    
+
     if (needsSync) {
       console.log('🔄 [VanDon] Tự động đồng bộ queue từ pendingChanges');
       const recovered = [];
@@ -582,7 +611,7 @@ function VanDon({ dataSource = 'default' }) {
           }
         });
       });
-      
+
       if (recovered.length > 0) {
         dbQueueRef.current.push(...recovered);
       }
@@ -874,12 +903,12 @@ function VanDon({ dataSource = 'default' }) {
   const extractDateFromDateTime = (dateTimeString) => {
     if (!dateTimeString) return '';
     const str = String(dateTimeString).trim();
-    
+
     // Case 1: Standard YYYY-MM-DD[...]
     if (str.match(/^\d{4}-\d{2}-\d{2}/)) {
       return str.split('T')[0].split(' ')[0];
     }
-    
+
     // Case 2: DD/MM/YYYY[...]
     if (str.includes('/')) {
       const parts = str.split(' ')[0].split('/');
@@ -889,7 +918,7 @@ function VanDon({ dataSource = 'default' }) {
         return `${fullYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       }
     }
-    
+
     return str;
   };
 
@@ -1112,13 +1141,13 @@ function VanDon({ dataSource = 'default' }) {
       bulkOrderCodes:
         bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all'
           ? Array.from(
-              new Set(
-                String(appliedFilterValues.tracking_bulk_codes || '')
-                  .split(/[,\n\r]+/g)
-                  .map((s) => String(s || '').trim())
-                  .filter(Boolean)
-              )
+            new Set(
+              String(appliedFilterValues.tracking_bulk_codes || '')
+                .split(/[,\n\r]+/g)
+                .map((s) => String(s || '').trim())
+                .filter(Boolean)
             )
+          )
           : [],
       customerQuickSearch: normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch) || undefined,
       canh_bao_filter:
@@ -1219,10 +1248,10 @@ function VanDon({ dataSource = 'default' }) {
 
       const allowedStaffForRequest =
         isManager ||
-        activeFilters.tab === 'ca_nhan' ||
-        activeFilters.tab === 'japan' ||
-        activeFilters.tab === 'hanoi' ||
-        activeFilters.tab === 'readonly_all'
+          activeFilters.tab === 'ca_nhan' ||
+          activeFilters.tab === 'japan' ||
+          activeFilters.tab === 'hanoi' ||
+          activeFilters.tab === 'readonly_all'
           ? undefined
           : allAllowedNames.length > 0
             ? allAllowedNames
@@ -1602,56 +1631,56 @@ function VanDon({ dataSource = 'default' }) {
       if (!useBackendPagination) {
         // Thu thập tất cả các bộ lọc đang active
         const activeFilters = [];
-        
+
         if (!queueTabSkipMarketAndNvToolbar && appliedFilterValues.market && Array.isArray(appliedFilterValues.market) && appliedFilterValues.market.length > 0) {
           activeFilters.push({
             type: 'market',
             values: new Set(appliedFilterValues.market)
           });
         }
-        
+
         if (appliedFilterValues.product && Array.isArray(appliedFilterValues.product) && appliedFilterValues.product.length > 0) {
           activeFilters.push({
             type: 'product',
             values: new Set(appliedFilterValues.product)
           });
         }
-        
+
         if (!queueTabSkipMarketAndNvToolbar && appliedFilterValues.nv_sale && Array.isArray(appliedFilterValues.nv_sale) && appliedFilterValues.nv_sale.length > 0) {
           activeFilters.push({
             type: 'nv_sale',
             values: new Set(appliedFilterValues.nv_sale)
           });
         }
-        
+
         if (!queueTabSkipMarketAndNvToolbar && appliedFilterValues.nv_mkt && Array.isArray(appliedFilterValues.nv_mkt) && appliedFilterValues.nv_mkt.length > 0) {
           activeFilters.push({
             type: 'nv_mkt',
             values: new Set(appliedFilterValues.nv_mkt)
           });
         }
-        
+
         if (!queueTabSkipMarketAndNvToolbar && appliedFilterValues.nv_van_don && Array.isArray(appliedFilterValues.nv_van_don) && appliedFilterValues.nv_van_don.length > 0) {
           activeFilters.push({
             type: 'nv_van_don',
             values: new Set(appliedFilterValues.nv_van_don)
           });
         }
-        
+
         if (appliedFilterValues.shipping_unit && Array.isArray(appliedFilterValues.shipping_unit) && appliedFilterValues.shipping_unit.length > 0) {
           activeFilters.push({
             type: 'shipping_unit',
             values: new Set(appliedFilterValues.shipping_unit)
           });
         }
-        
+
         if (serverTrackingFilter) {
           activeFilters.push({
             type: 'tracking_filter',
             values: serverTrackingFilter
           });
         }
-        
+
 
         if (appliedFilterValues.delivery_status && Array.isArray(appliedFilterValues.delivery_status) && appliedFilterValues.delivery_status.length > 0) {
           activeFilters.push({
@@ -1685,7 +1714,7 @@ function VanDon({ dataSource = 'default' }) {
         if (activeFilters.length > 0) {
           data = data.filter(row => {
             const orderId = row[PRIMARY_KEY_COLUMN];
-            
+
             return activeFilters.every(filter => {
               switch (filter.type) {
                 case 'market': {
@@ -1778,7 +1807,7 @@ function VanDon({ dataSource = 'default' }) {
               }
             });
           });
-          
+
           console.log(`🔍 [VanDon AND Filter] Áp dụng ${activeFilters.length} bộ lọc toolbar (AND), còn ${data.length} đơn`);
         }
       }
@@ -1935,11 +1964,11 @@ function VanDon({ dataSource = 'default' }) {
       const bulkRaw = String(appliedFilterValues.tracking_bulk_codes || '').trim();
       const bulkCodesSet = bulkRaw
         ? new Set(
-            bulkRaw
-              .split(/\r?\n+/g)
-              .map((line) => normalizeVanDonBulkOrderCode(line))
-              .filter(Boolean)
-          )
+          bulkRaw
+            .split(/\r?\n+/g)
+            .map((line) => normalizeVanDonBulkOrderCode(line))
+            .filter(Boolean)
+        )
         : null;
       const hasBulkCodes =
         (bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') &&
@@ -3253,10 +3282,10 @@ function VanDon({ dataSource = 'default' }) {
       );
 
       // Cột "Trạng thái giao hàng NB": chỉ hiển thị giá trị có trong data, không hiển thị preset không có data
-      const isDeliveryStatusNbCol = 
+      const isDeliveryStatusNbCol =
         normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng NB') ||
         normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng');
-      
+
       if (isDeliveryStatusNbCol) {
         // Chỉ lấy giá trị từ data, không thêm preset
         // Một mục "Trống" cho ô trống
@@ -3337,21 +3366,21 @@ function VanDon({ dataSource = 'default' }) {
     // Kiểm tra xem có thay đổi cột "Kết quả check" không
     const hasCheckResultChange = batchChanges.some(change => {
       const colKey = normalizeColHeader(change.colKey);
-      return colKey === normalizeColHeader('Kết quả Check') || 
-             colKey === normalizeColHeader('Kết quả check') ||
-             colKey === normalizeColHeader('check_result');
+      return colKey === normalizeColHeader('Kết quả Check') ||
+        colKey === normalizeColHeader('Kết quả check') ||
+        colKey === normalizeColHeader('check_result');
     });
 
     if (!hasCheckResultChange) return;
 
     try {
       console.log('🔄 Kích hoạt công thức tính toán báo cáo do thay đổi "Kết quả check"...');
-      
+
       // Lấy danh sách các đơn hàng bị ảnh hưởng
       const affectedOrderIds = [...new Set(batchChanges.map(c => normalizeVanDonOrderIdKey(c.orderId)).filter(Boolean))];
-      
+
       // Lấy thông tin ngày, nhân viên, sản phẩm, thị trường từ các đơn bị ảnh hưởng
-      const affectedOrders = allData.filter(row => 
+      const affectedOrders = allData.filter(row =>
         affectedOrderIds.includes(getVanDonRowOrderId(row))
       );
 
@@ -3364,9 +3393,9 @@ function VanDon({ dataSource = 'default' }) {
         const nhanVien = order['NV Vận đơn'] || order.delivery_staff || '';
         const sanPham = order['Mặt hàng'] || order.product || '';
         const thiTruong = order['Khu vực'] || order.country || '';
-        
+
         if (!ngay || !nhanVien) return;
-        
+
         const key = `${ngay}|${nhanVien}|${sanPham}|${thiTruong}`;
         if (!recalcGroups.has(key)) {
           recalcGroups.set(key, { ngay, nhanVien, sanPham, thiTruong, count: 0 });
@@ -3385,9 +3414,9 @@ function VanDon({ dataSource = 'default' }) {
       // Ví dụ: Invalidate cache báo cáo
       queryClient.invalidateQueries({ queryKey: ['baoCaoVanDon'] });
       queryClient.invalidateQueries({ queryKey: ['baoCaoTayMKT'] });
-      
+
       addToast(`✅ Đã kích hoạt cập nhật báo cáo cho ${affectedOrderIds.length} đơn hàng`, 'success', 3000);
-      
+
     } catch (error) {
       console.error('❌ Lỗi khi kích hoạt công thức báo cáo:', error);
       addToast('⚠️ Không thể cập nhật báo cáo tự động', 'warning', 3000);
@@ -3448,7 +3477,7 @@ function VanDon({ dataSource = 'default' }) {
         if (success) {
           // CHỈ xóa queue khi lưu thành công
           dbQueueRef.current = [];
-          
+
           // Kích hoạt công thức tính toán báo cáo nếu có thay đổi "Kết quả check"
           await triggerReportRecalculation(batchToProcess);
 
@@ -3641,7 +3670,7 @@ function VanDon({ dataSource = 'default' }) {
     const keyLc = String(colKey || '').trim().toLowerCase();
     if (keyLc === 'canh_bao' || normalizeColHeader(colKey) === normalizeColHeader(VAN_DON_CANH_BAO_COLUMN)) return;
     if (isVanDonGridReadOnlyColumnKey(colKey)) return;
-    
+
     const originalRow = allData.find((r) => getVanDonRowOrderId(r) === oid);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
@@ -3654,10 +3683,10 @@ function VanDon({ dataSource = 'default' }) {
     } else if (String(newValue) === String(stepOriginalValue)) return;
 
     // BỎ baseValue - Không cần kiểm tra xung đột nữa
-    pushChange([{ 
-      orderId: oid, 
-      colKey, 
-      originalValue: String(stepOriginalValue), 
+    pushChange([{
+      orderId: oid,
+      colKey,
+      originalValue: String(stepOriginalValue),
       newValue: String(newValue)
     }]);
   }, [allData, pendingChanges, pushChange, isReadonlyEditTab]);
@@ -3665,12 +3694,12 @@ function VanDon({ dataSource = 'default' }) {
   // Hàm đồng bộ queue từ pendingChanges (tự động phục hồi)
   const syncQueueFromPending = useCallback(() => {
     if (pendingChangesRef.current.size === 0) return;
-    
+
     // Xóa queue cũ để tránh trùng lặp
     const existingKeys = new Set(
       dbQueueRef.current.map(q => `${q.orderId}::${q.colKey}`)
     );
-    
+
     const recovered = [];
     pendingChangesRef.current.forEach((innerMap, orderId) => {
       innerMap.forEach((info, colKey) => {
@@ -3686,7 +3715,7 @@ function VanDon({ dataSource = 'default' }) {
         }
       });
     });
-    
+
     if (recovered.length > 0) {
       console.log('🔄 [VanDon] Đồng bộ', recovered.length, 'thay đổi vào queue');
       dbQueueRef.current.push(...recovered);
@@ -3735,12 +3764,12 @@ function VanDon({ dataSource = 'default' }) {
 
     // --- Hiện bảng tổng kết trước khi lưu bằng Modal tuỳ chỉnh ---
     const summaries = dbQueueRef.current.map(c => ({
-        orderId: c.orderId,
-        colKey: c.colKey,
-        originalValue: c.originalValue,
-        newValue: c.newValue
+      orderId: c.orderId,
+      colKey: c.colKey,
+      originalValue: c.originalValue,
+      newValue: c.newValue
     }));
-    
+
     setSaveConfirmData({
       summaries,
       onConfirm: async () => {
@@ -4223,9 +4252,8 @@ function VanDon({ dataSource = 'default' }) {
 
     // Default cell sizing
     // NOTE: For select-based columns, avoid vertical padding so the select can fill the cell height cleanly.
-    let classes = `${(isCheckCol || isStatusCol) ? "py-0" : "py-2.5"} border border-gray-200 text-sm ${
-      isLongTextEditable ? (isLongTextExpanded ? "min-h-[140px] h-auto" : "min-h-[56px] h-auto") : "h-[38px]"
-    } whitespace-nowrap `;
+    let classes = `${(isCheckCol || isStatusCol) ? "py-0" : "py-2.5"} border border-gray-200 text-sm ${isLongTextEditable ? (isLongTextExpanded ? "min-h-[140px] h-auto" : "min-h-[56px] h-auto") : "h-[38px]"
+      } whitespace-nowrap `;
 
     // Padding adjustment for specific columns
     if (isCheckCol) {
@@ -4302,6 +4330,26 @@ function VanDon({ dataSource = 'default' }) {
     return classes;
   };
 
+  const vanDonVirtuosoComponents = useMemo(() => {
+    const TableRow = React.forwardRef(({ item, children, ...rest }, ref) => {
+      const orderId = getVanDonRowOrderId(item);
+      const isSelected = Boolean(orderId && selectedRows.has(orderId));
+      const mergedClass = [rest.className, isSelected ? 'bg-blue-50' : ''].filter(Boolean).join(' ').trim();
+      return (
+        <tr ref={ref} {...rest} className={mergedClass || undefined}>
+          {children}
+        </tr>
+      );
+    });
+    TableRow.displayName = 'VanDonVirtuosoTableRow';
+    return {
+      Scroller: VanDonVirtuosoScroller,
+      Table: VanDonVirtuosoTable,
+      TableBody: VanDonVirtuosoTableBody,
+      TableRow
+    };
+  }, [selectedRows]);
+
   const renderVanDonFilterTh = (col, idx, positionStyle, showFreezeShadow, isFixedCol) => {
     const key = COLUMN_MAPPING[col] || col;
     // Đồng bộ key với thanh toolbar để lọc song song không bị xung đột logic
@@ -4334,19 +4382,19 @@ function VanDon({ dataSource = 'default' }) {
 
     const headerCellStyle = isFixedCol
       ? {
-          ...cellWidthStyles,
-          ...positionStyle,
-          position: 'sticky',
-          top: 0,
-          background: '#f8f9fa',
-          backgroundClip: 'padding-box',
-          boxShadow: showFreezeShadow ? '2px 0 0 #d1d5db' : undefined,
-        }
+        ...cellWidthStyles,
+        ...positionStyle,
+        position: 'sticky',
+        top: 0,
+        background: '#f8f9fa',
+        backgroundClip: 'padding-box',
+        boxShadow: showFreezeShadow ? '2px 0 0 #d1d5db' : undefined,
+      }
       : {
-          ...widthStyles,
-          ...positionStyle,
-          background: '#f8f9fa',
-        };
+        ...widthStyles,
+        ...positionStyle,
+        background: '#f8f9fa',
+      };
 
     const filterInputCls = 'w-full text-[11px] px-1.5 py-0.5 border rounded shadow-sm leading-tight';
 
@@ -4479,9 +4527,9 @@ function VanDon({ dataSource = 'default' }) {
       ? formatDate(val)
       : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
         ? (() => {
-            const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
-            return n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';
-          })()
+          const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
+          return n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';
+        })()
         : val;
 
     const usePresetSelectMatch =
@@ -4815,161 +4863,160 @@ function VanDon({ dataSource = 'default' }) {
           {/* Hàng 2 — bộ lọc MultiSelect + trạng thái / Tải lại (mọi tab) */}
           <div className="flex flex-wrap items-center gap-1.5 min-w-0 w-full justify-between sm:items-center">
             <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
-            <div className="flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200 shrink-0" title="Thị trường">
-              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🌍</span>
-              <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
-                <MultiSelect
-                  compact
-                  label="Chọn thị trường..."
-                  options={getFilterMultiSelectOptions('Khu vực')}
-                  selected={filterValues.market || []}
-                  onChange={(vals) => {
-                    setFilterValues((prev) => ({ ...prev, market: vals }));
-                  }}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-1 bg-green-50 px-1.5 py-0.5 rounded-md border border-green-200 shrink-0" title="Sản phẩm">
-              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📦</span>
-              <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
-                <MultiSelect
-                  compact
-                  label="Chọn sản phẩm..."
-                  options={getFilterMultiSelectOptions('Mặt hàng')}
-                  selected={filterValues.product || []}
-                  onChange={(vals) => {
-                    setFilterValues((prev) => ({ ...prev, product: vals }));
-                  }}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200 shrink-0" title="NV Sale">
-              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">👤</span>
-              <div className="relative" style={{ minWidth: '118px', zIndex: 1001 }}>
-                <MultiSelect
-                  compact
-                  label="Chọn NV Sale..."
-                  options={getFilterMultiSelectOptions('Nhân viên Sale')}
-                  selected={filterValues.nv_sale || []}
-                  onChange={(vals) => {
-                    setFilterValues((prev) => ({ ...prev, nv_sale: vals }));
-                  }}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-1 bg-teal-50 px-1.5 py-0.5 rounded-md border border-teal-200 shrink-0" title="NV MKT">
-              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📣</span>
-              <div className="relative" style={{ minWidth: '118px', zIndex: 1000 }}>
-                <MultiSelect
-                  compact
-                  label="Chọn NV MKT..."
-                  options={getFilterMultiSelectOptions('Nhân viên MKT')}
-                  selected={filterValues.nv_mkt || []}
-                  onChange={(vals) => {
-                    setFilterValues((prev) => ({ ...prev, nv_mkt: vals }));
-                  }}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-1 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200 shrink-0" title="NV Vận đơn">
-              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚚</span>
-              <div className="relative" style={{ minWidth: '118px', zIndex: 999 }}>
-                <MultiSelect
-                  compact
-                  label="Chọn NV Vận đơn..."
-                  options={getFilterMultiSelectOptions('NV Vận đơn')}
-                  selected={filterValues.nv_van_don || []}
-                  onChange={(vals) => {
-                    setFilterValues((prev) => ({ ...prev, nv_van_don: vals }));
-                  }}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-1 bg-cyan-50 px-1.5 py-0.5 rounded-md border border-cyan-200 shrink-0" title="Đơn vị vận chuyển">
-              <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚛</span>
-              <div className="relative" style={{ minWidth: '124px', zIndex: 998 }}>
-                <MultiSelect
-                  compact
-                  label="Chọn đơn vị..."
-                  options={getFilterMultiSelectOptions('Đơn vị vận chuyển')}
-                  selected={filterValues.shipping_unit || []}
-                  onChange={(vals) => {
-                    setFilterValues((prev) => ({ ...prev, shipping_unit: vals }));
-                  }}
-                />
-              </div>
-            </div>
-
-            <div
-              className="flex items-center gap-2 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0 min-w-0 max-w-full"
-              title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm nhanh: mã đơn / SĐT / tên / địa chỉ."
-            >
-              {(bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') && (
-                <>
-                  <div className="flex items-start gap-1.5 min-w-[180px]">
-                    <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap mt-1">📌 Mã đơn</span>
-                    <textarea
-                      className="text-[10px] px-1.5 py-0.5 border border-gray-300 rounded bg-white leading-tight min-h-[42px] w-[200px] resize-y"
-                      placeholder={"Mỗi dòng 1 mã đơn\nFit87d8a7454\nFit3f482a4d"}
-                      value={filterValues.tracking_bulk_codes || ''}
-                      onChange={(e) => setFilterValues((prev) => ({ ...prev, tracking_bulk_codes: e.target.value }))}
-                      title="Dán nhiều mã đơn hàng, mỗi dòng 1 mã (nhấn Enter để áp dụng)"
-                    />
-                  </div>
-                  <div className="h-4 w-px bg-slate-200 shrink-0 self-center" aria-hidden />
-                </>
-              )}
-              <div className="flex items-center gap-1 shrink-0" title="Page (page_name)">
-                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📄</span>
-                <div className="relative" style={{ minWidth: '132px', zIndex: 997 }}>
+              <div className="flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200 shrink-0" title="Thị trường">
+                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🌍</span>
+                <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
                   <MultiSelect
                     compact
-                    label="Page…"
-                    options={getFilterMultiSelectOptions('Page')}
-                    selected={filterValues.ten_page || []}
+                    label="Chọn thị trường..."
+                    options={getFilterMultiSelectOptions('Khu vực')}
+                    selected={filterValues.market || []}
                     onChange={(vals) => {
-                      setFilterValues((prev) => ({ ...prev, ten_page: vals }));
+                      setFilterValues((prev) => ({ ...prev, market: vals }));
                     }}
                   />
                 </div>
               </div>
-              <div className="h-4 w-px bg-slate-200 shrink-0 self-center" aria-hidden />
-              <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                <label
-                  htmlFor="van-don-toolbar-quick-search"
-                  className="text-[10px] font-semibold text-gray-700 whitespace-nowrap shrink-0"
-                >
-                  Tìm
-                </label>
-                <input
-                  id="van-don-toolbar-quick-search"
-                  type="search"
-                  enterKeyHint="search"
-                  autoComplete="off"
-                  placeholder="Mã đơn, SĐT, tên, địa chỉ…"
-                  title="Tra mã đơn / SĐT / tên / địa chỉ"
-                  value={customerQuickSearch}
-                  onChange={(e) => setCustomerQuickSearch(e.target.value)}
-                  className="min-w-[100px] w-[min(200px,32vw)] max-w-[260px] shrink text-[10px] px-1.5 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
-                />
-                {customerQuickSearch.trim() ? (
-                  <button
-                    type="button"
-                    onClick={() => setCustomerQuickSearch('')}
-                    className="text-[10px] text-gray-500 hover:text-gray-800 px-1 py-0.5 rounded border border-gray-200 hover:bg-gray-100 shrink-0"
-                  >
-                    ✕
-                  </button>
-                ) : null}
+              <div className="flex items-center gap-1 bg-green-50 px-1.5 py-0.5 rounded-md border border-green-200 shrink-0" title="Sản phẩm">
+                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📦</span>
+                <div className="relative" style={{ minWidth: '112px', zIndex: 1002 }}>
+                  <MultiSelect
+                    compact
+                    label="Chọn sản phẩm..."
+                    options={getFilterMultiSelectOptions('Mặt hàng')}
+                    selected={filterValues.product || []}
+                    onChange={(vals) => {
+                      setFilterValues((prev) => ({ ...prev, product: vals }));
+                    }}
+                  />
+                </div>
               </div>
-            </div>
+              <div className="flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200 shrink-0" title="NV Sale">
+                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">👤</span>
+                <div className="relative" style={{ minWidth: '118px', zIndex: 1001 }}>
+                  <MultiSelect
+                    compact
+                    label="Chọn NV Sale..."
+                    options={getFilterMultiSelectOptions('Nhân viên Sale')}
+                    selected={filterValues.nv_sale || []}
+                    onChange={(vals) => {
+                      setFilterValues((prev) => ({ ...prev, nv_sale: vals }));
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-1 bg-teal-50 px-1.5 py-0.5 rounded-md border border-teal-200 shrink-0" title="NV MKT">
+                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📣</span>
+                <div className="relative" style={{ minWidth: '118px', zIndex: 1000 }}>
+                  <MultiSelect
+                    compact
+                    label="Chọn NV MKT..."
+                    options={getFilterMultiSelectOptions('Nhân viên MKT')}
+                    selected={filterValues.nv_mkt || []}
+                    onChange={(vals) => {
+                      setFilterValues((prev) => ({ ...prev, nv_mkt: vals }));
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-1 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200 shrink-0" title="NV Vận đơn">
+                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚚</span>
+                <div className="relative" style={{ minWidth: '118px', zIndex: 999 }}>
+                  <MultiSelect
+                    compact
+                    label="Chọn NV Vận đơn..."
+                    options={getFilterMultiSelectOptions('NV Vận đơn')}
+                    selected={filterValues.nv_van_don || []}
+                    onChange={(vals) => {
+                      setFilterValues((prev) => ({ ...prev, nv_van_don: vals }));
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-1 bg-cyan-50 px-1.5 py-0.5 rounded-md border border-cyan-200 shrink-0" title="Đơn vị vận chuyển">
+                <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">🚛</span>
+                <div className="relative" style={{ minWidth: '124px', zIndex: 998 }}>
+                  <MultiSelect
+                    compact
+                    label="Chọn đơn vị..."
+                    options={getFilterMultiSelectOptions('Đơn vị vận chuyển')}
+                    selected={filterValues.shipping_unit || []}
+                    onChange={(vals) => {
+                      setFilterValues((prev) => ({ ...prev, shipping_unit: vals }));
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div
+                className="flex items-center gap-2 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0 min-w-0 max-w-full"
+                title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm nhanh: mã đơn / SĐT / tên / địa chỉ."
+              >
+                {(bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') && (
+                  <>
+                    <div className="flex items-start gap-1.5 min-w-[180px]">
+                      <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap mt-1">📌 Mã đơn</span>
+                      <textarea
+                        className="text-[10px] px-1.5 py-0.5 border border-gray-300 rounded bg-white leading-tight min-h-[42px] w-[200px] resize-y"
+                        placeholder={"Mỗi dòng 1 mã đơn\nFit87d8a7454\nFit3f482a4d"}
+                        value={filterValues.tracking_bulk_codes || ''}
+                        onChange={(e) => setFilterValues((prev) => ({ ...prev, tracking_bulk_codes: e.target.value }))}
+                        title="Dán nhiều mã đơn hàng, mỗi dòng 1 mã (nhấn Enter để áp dụng)"
+                      />
+                    </div>
+                    <div className="h-4 w-px bg-slate-200 shrink-0 self-center" aria-hidden />
+                  </>
+                )}
+                <div className="flex items-center gap-1 shrink-0" title="Page (page_name)">
+                  <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap">📄</span>
+                  <div className="relative" style={{ minWidth: '132px', zIndex: 997 }}>
+                    <MultiSelect
+                      compact
+                      label="Page…"
+                      options={getFilterMultiSelectOptions('Page')}
+                      selected={filterValues.ten_page || []}
+                      onChange={(vals) => {
+                        setFilterValues((prev) => ({ ...prev, ten_page: vals }));
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="h-4 w-px bg-slate-200 shrink-0 self-center" aria-hidden />
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <label
+                    htmlFor="van-don-toolbar-quick-search"
+                    className="text-[10px] font-semibold text-gray-700 whitespace-nowrap shrink-0"
+                  >
+                    Tìm
+                  </label>
+                  <input
+                    id="van-don-toolbar-quick-search"
+                    type="search"
+                    enterKeyHint="search"
+                    autoComplete="off"
+                    placeholder="Mã đơn, SĐT, tên, địa chỉ…"
+                    title="Tra mã đơn / SĐT / tên / địa chỉ"
+                    value={customerQuickSearch}
+                    onChange={(e) => setCustomerQuickSearch(e.target.value)}
+                    className="min-w-[100px] w-[min(200px,32vw)] max-w-[260px] shrink text-[10px] px-1.5 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
+                  />
+                  {customerQuickSearch.trim() ? (
+                    <button
+                      type="button"
+                      onClick={() => setCustomerQuickSearch('')}
+                      className="text-[10px] text-gray-500 hover:text-gray-800 px-1 py-0.5 rounded border border-gray-200 hover:bg-gray-100 shrink-0"
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0 border-t border-gray-200 pt-1.5 mt-0.5 sm:border-t-0 sm:pt-0 sm:mt-0 sm:border-l sm:border-gray-200 sm:pl-1.5 sm:ml-0.5 bg-white w-full sm:w-auto justify-end sm:justify-start">
               <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 rounded border border-gray-100">
                 <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    (useBackendPagination ? totalRecords : getFilteredData.length) > 0 ? 'bg-green-500' : 'bg-red-500'
-                  }`}
+                  className={`h-1.5 w-1.5 rounded-full ${(useBackendPagination ? totalRecords : getFilteredData.length) > 0 ? 'bg-green-500' : 'bg-red-500'
+                    }`}
                 />
                 <span className="text-[9px] uppercase font-bold text-gray-500 whitespace-nowrap">
                   {(useBackendPagination ? totalRecords : getFilteredData.length) > 0
@@ -5048,11 +5095,10 @@ function VanDon({ dataSource = 'default' }) {
               <button
                 onClick={handleUpdateAll}
                 disabled={isReadonlyEditTab}
-                className={`p-0.5 px-1.5 rounded text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
-                  pendingChanges.size > 0
+                className={`p-0.5 px-1.5 rounded text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${pendingChanges.size > 0
                     ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse ring-2 ring-red-300 ring-offset-1'
                     : 'bg-[#F37021] hover:bg-[#e55f1a] text-white'
-                }`}
+                  }`}
                 title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Ghi các thay đổi đang chờ xuống CSDL'}
               >
                 ✅ Xác nhận lưu
@@ -5211,7 +5257,7 @@ function VanDon({ dataSource = 'default' }) {
                   </table>
                 </div>
 
-                {/* 2. SCROLLABLE BODY */}
+                {/* 2. SCROLLABLE BODY (Virtualized) */}
                 {getFilteredData.length === 0 ? (
                   <div
                     className="flex-1 overflow-auto overscroll-contain bg-white relative"
@@ -5247,51 +5293,42 @@ function VanDon({ dataSource = 'default' }) {
                     </table>
                   </div>
                 ) : (
-                  <div
-                    className="flex-1 overflow-auto overscroll-contain bg-white relative min-h-0"
-                    onScroll={onTableScroll}
-                    ref={(el) => {
-                      if (el) {
-                        tableRef.current = el;
-                        horizontalScrollHostRef.current = el;
-                        if (vanDonHeaderContainerRef.current) {
-                          el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
+                  <div className="flex-1 min-h-0 min-w-0 w-full flex flex-col">
+                    <TableVirtuoso
+                      data={sortedData}
+                      style={{ height: '100%', minHeight: 0, width: '100%', flex: '1 1 auto' }}
+                      scrollerRef={(el) => {
+                        if (el) {
+                          tableRef.current = el;
+                          horizontalScrollHostRef.current = el;
+                          el.addEventListener('scroll', onTableScroll);
+                          if (vanDonHeaderContainerRef.current) {
+                            el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
+                          }
                         }
-                      }
-                    }}
-                  >
-                    <table
-                      className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed font-sans"
-                      style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}
-                    >
-                      <tbody>
-                        {sortedData.map((row, rIdx) => {
-                          const orderId = getVanDonRowOrderId(row);
-                          const isSelected = Boolean(orderId && selectedRows.has(orderId));
-                          return (
-                            <tr key={orderId || `r${rIdx}`} className={isSelected ? 'bg-blue-50' : undefined}>
-                              <VanDonRow
-                                row={row}
-                                rIdx={rIdx}
-                                currentColumns={currentColumns}
-                                effectiveFixedColumns={effectiveFixedColumns}
-                                bolActiveTab={bolActiveTab}
-                                selectedRows={selectedRows}
-                                pendingChanges={pendingChanges}
-                                selectionBounds={selectionBounds}
-                                getStickyLeftPx={getStickyLeftPx}
-                                getColumnWidthStyles={getColumnWidthStyles}
-                                renderVanDonDataCell={renderVanDonDataCell}
-                                toggleRowSelection={toggleRowSelection}
-                                isLongTextExpanded={isLongTextExpanded}
-                                currentPage={currentPage}
-                                effectiveRowsPerPage={effectiveRowsPerPage}
-                              />
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                      }}
+                      components={vanDonVirtuosoComponents}
+                      overscan={150}
+                      itemContent={(rIdx, row) => (
+                        <VanDonRow
+                          row={row}
+                          rIdx={rIdx}
+                          currentColumns={currentColumns}
+                          effectiveFixedColumns={effectiveFixedColumns}
+                          bolActiveTab={bolActiveTab}
+                          selectedRows={selectedRows}
+                          pendingChanges={pendingChanges}
+                          selectionBounds={selectionBounds}
+                          getStickyLeftPx={getStickyLeftPx}
+                          getColumnWidthStyles={getColumnWidthStyles}
+                          renderVanDonDataCell={renderVanDonDataCell}
+                          toggleRowSelection={toggleRowSelection}
+                          isLongTextExpanded={isLongTextExpanded}
+                          currentPage={currentPage}
+                          effectiveRowsPerPage={effectiveRowsPerPage}
+                        />
+                      )}
+                    />
                   </div>
                 )}
               </div>
@@ -5550,165 +5587,165 @@ function VanDon({ dataSource = 'default' }) {
               return true;
             });
             return (
-          <div className="fixed inset-0 z-[21000] flex items-center justify-center pointer-events-auto">
-            <div
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-              onClick={() => setHistoryModalData(null)}
-            ></div>
-            <div className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 px-6 py-5 max-w-5xl w-full mx-4 max-h-[85vh] overflow-hidden">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-bold text-slate-900">
-                  Lịch sử thay đổi - {historyModalData.orderId}
-                </h3>
-                <button
+              <div className="fixed inset-0 z-[21000] flex items-center justify-center pointer-events-auto">
+                <div
+                  className="absolute inset-0 bg-black/40 backdrop-blur-sm"
                   onClick={() => setHistoryModalData(null)}
-                  className="text-gray-500 hover:text-gray-900 font-bold text-xl"
-                  aria-label="Đóng"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="text-xs text-gray-500 mb-3">
-                Nguồn: cột Log (jsonb) trên đơn — mỗi lần sửa lưới / Nhập đơn ghi đủ thời gian, người thao tác, giá trị cũ/mới.
-              </div>
-              <div className="flex flex-wrap items-end gap-3 mb-3">
-                <div>
-                  <label className="block text-[11px] text-gray-600 mb-1">Từ ngày thao tác</label>
-                  <input
-                    type="date"
-                    value={historyDateFrom}
-                    onChange={(e) => setHistoryDateFrom(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-gray-600 mb-1">Đến ngày thao tác</label>
-                  <input
-                    type="date"
-                    value={historyDateTo}
-                    onChange={(e) => setHistoryDateTo(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHistoryDateFrom('');
-                    setHistoryDateTo('');
-                  }}
-                  className="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
-                >
-                  Xóa lọc ngày
-                </button>
-                <div className="text-xs text-gray-500">
-                  Hiển thị {filteredHistoryRows.length}/{historyModalData.rows.length} lần thao tác
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const exportRows = [];
-                    filteredHistoryRows.forEach((row) => {
-                      const fields = row?.changed_fields && typeof row.changed_fields === 'object' ? row.changed_fields : {};
-                      const entries = Object.entries(fields);
-                      if (entries.length === 0) {
-                        exportRows.push({
-                          'Mã đơn hàng': historyModalData.orderId,
-                          'Thời gian thao tác': formatDateTime(row?.changed_at),
-                          'Người thao tác': String(row?.changed_by || 'hệ thống'),
-                          'Cột thay đổi': '',
-                          'Giá trị cũ': '',
-                          'Giá trị mới': '',
+                ></div>
+                <div className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 px-6 py-5 max-w-5xl w-full mx-4 max-h-[85vh] overflow-hidden">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-bold text-slate-900">
+                      Lịch sử thay đổi - {historyModalData.orderId}
+                    </h3>
+                    <button
+                      onClick={() => setHistoryModalData(null)}
+                      className="text-gray-500 hover:text-gray-900 font-bold text-xl"
+                      aria-label="Đóng"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="text-xs text-gray-500 mb-3">
+                    Nguồn: cột Log (jsonb) trên đơn — mỗi lần sửa lưới / Nhập đơn ghi đủ thời gian, người thao tác, giá trị cũ/mới.
+                  </div>
+                  <div className="flex flex-wrap items-end gap-3 mb-3">
+                    <div>
+                      <label className="block text-[11px] text-gray-600 mb-1">Từ ngày thao tác</label>
+                      <input
+                        type="date"
+                        value={historyDateFrom}
+                        onChange={(e) => setHistoryDateFrom(e.target.value)}
+                        className="border rounded px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-gray-600 mb-1">Đến ngày thao tác</label>
+                      <input
+                        type="date"
+                        value={historyDateTo}
+                        onChange={(e) => setHistoryDateTo(e.target.value)}
+                        className="border rounded px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryDateFrom('');
+                        setHistoryDateTo('');
+                      }}
+                      className="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    >
+                      Xóa lọc ngày
+                    </button>
+                    <div className="text-xs text-gray-500">
+                      Hiển thị {filteredHistoryRows.length}/{historyModalData.rows.length} lần thao tác
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const exportRows = [];
+                        filteredHistoryRows.forEach((row) => {
+                          const fields = row?.changed_fields && typeof row.changed_fields === 'object' ? row.changed_fields : {};
+                          const entries = Object.entries(fields);
+                          if (entries.length === 0) {
+                            exportRows.push({
+                              'Mã đơn hàng': historyModalData.orderId,
+                              'Thời gian thao tác': formatDateTime(row?.changed_at),
+                              'Người thao tác': String(row?.changed_by || 'hệ thống'),
+                              'Cột thay đổi': '',
+                              'Giá trị cũ': '',
+                              'Giá trị mới': '',
+                            });
+                            return;
+                          }
+                          entries.forEach(([colName, diff]) => {
+                            exportRows.push({
+                              'Mã đơn hàng': historyModalData.orderId,
+                              'Thời gian thao tác': formatDateTime(row?.changed_at),
+                              'Người thao tác': String(row?.changed_by || 'hệ thống'),
+                              'Cột thay đổi': formatAuditColumnName(colName),
+                              'Giá trị cũ': formatAuditValueForUi(diff?.old),
+                              'Giá trị mới': formatAuditValueForUi(diff?.new),
+                            });
+                          });
                         });
-                        return;
-                      }
-                      entries.forEach(([colName, diff]) => {
-                        exportRows.push({
-                          'Mã đơn hàng': historyModalData.orderId,
-                          'Thời gian thao tác': formatDateTime(row?.changed_at),
-                          'Người thao tác': String(row?.changed_by || 'hệ thống'),
-                          'Cột thay đổi': formatAuditColumnName(colName),
-                          'Giá trị cũ': formatAuditValueForUi(diff?.old),
-                          'Giá trị mới': formatAuditValueForUi(diff?.new),
-                        });
-                      });
-                    });
-                    if (exportRows.length === 0) {
-                      addToast('Không có dữ liệu lịch sử theo bộ lọc để xuất Excel.', 'warning');
-                      return;
-                    }
-                    const wb = XLSX.utils.book_new();
-                    const ws = XLSX.utils.json_to_sheet(exportRows);
-                    XLSX.utils.book_append_sheet(wb, ws, 'Lich_su_thay_doi');
-                    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-                    XLSX.writeFile(wb, `LichSuThayDoi_${historyModalData.orderId}_${stamp}.xlsx`);
-                    addToast(`Đã xuất ${exportRows.length} dòng lịch sử.`, 'success');
-                  }}
-                  className="px-3 py-1.5 text-xs rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                >
-                  Xuất Excel theo bộ lọc ngày
-                </button>
-              </div>
-              <div className="border rounded-xl overflow-auto max-h-[65vh]">
-                <table className="w-full text-sm border-collapse">
-                  <thead className="sticky top-0 bg-slate-50 border-b">
-                    <tr>
-                      <th className="text-left px-3 py-2 w-48">Thời gian</th>
-                      <th className="text-left px-3 py-2 w-40">Người sửa</th>
-                      <th className="text-left px-3 py-2 w-44">Cột</th>
-                      <th className="text-left px-3 py-2">Giá trị cũ</th>
-                      <th className="text-left px-3 py-2">Giá trị mới</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredHistoryRows.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-gray-500" colSpan={5}>
-                          Không có lịch sử thay đổi theo bộ lọc ngày thao tác.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredHistoryRows.map((row) => {
-                        const fields = row?.changed_fields && typeof row.changed_fields === 'object' ? row.changed_fields : {};
-                        const entries = Object.entries(fields);
-                        if (entries.length === 0) {
-                          return (
-                            <tr key={row.id} className="border-b last:border-b-0">
-                              <td className="px-3 py-2 align-top">{formatDateTime(row.changed_at)}</td>
-                              <td className="px-3 py-2 align-top">{String(row.changed_by || 'hệ thống')}</td>
-                              <td className="px-3 py-2 align-top text-gray-400" colSpan={3}>
-                                Không có chi tiết cột đổi
-                              </td>
-                            </tr>
-                          );
+                        if (exportRows.length === 0) {
+                          addToast('Không có dữ liệu lịch sử theo bộ lọc để xuất Excel.', 'warning');
+                          return;
                         }
-                        return entries.map(([colName, diff], idx) => (
-                          <tr key={`${row.id}-${colName}`} className="border-b last:border-b-0">
-                            {idx === 0 ? (
-                              <>
-                                <td className="px-3 py-2 align-top" rowSpan={entries.length}>
-                                  {formatDateTime(row.changed_at)}
-                                </td>
-                                <td className="px-3 py-2 align-top" rowSpan={entries.length}>
-                                  {String(row.changed_by || 'hệ thống')}
-                                </td>
-                              </>
-                            ) : null}
-                            <td className="px-3 py-2 align-top font-medium">{formatAuditColumnName(colName)}</td>
-                            <td className="px-3 py-2 align-top text-rose-700 whitespace-pre-wrap break-words">
-                              {formatAuditValueForUi(diff?.old)}
-                            </td>
-                            <td className="px-3 py-2 align-top text-emerald-700 whitespace-pre-wrap break-words">
-                              {formatAuditValueForUi(diff?.new)}
+                        const wb = XLSX.utils.book_new();
+                        const ws = XLSX.utils.json_to_sheet(exportRows);
+                        XLSX.utils.book_append_sheet(wb, ws, 'Lich_su_thay_doi');
+                        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+                        XLSX.writeFile(wb, `LichSuThayDoi_${historyModalData.orderId}_${stamp}.xlsx`);
+                        addToast(`Đã xuất ${exportRows.length} dòng lịch sử.`, 'success');
+                      }}
+                      className="px-3 py-1.5 text-xs rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    >
+                      Xuất Excel theo bộ lọc ngày
+                    </button>
+                  </div>
+                  <div className="border rounded-xl overflow-auto max-h-[65vh]">
+                    <table className="w-full text-sm border-collapse">
+                      <thead className="sticky top-0 bg-slate-50 border-b">
+                        <tr>
+                          <th className="text-left px-3 py-2 w-48">Thời gian</th>
+                          <th className="text-left px-3 py-2 w-40">Người sửa</th>
+                          <th className="text-left px-3 py-2 w-44">Cột</th>
+                          <th className="text-left px-3 py-2">Giá trị cũ</th>
+                          <th className="text-left px-3 py-2">Giá trị mới</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredHistoryRows.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-6 text-center text-gray-500" colSpan={5}>
+                              Không có lịch sử thay đổi theo bộ lọc ngày thao tác.
                             </td>
                           </tr>
-                        ));
-                      })
-                    )}
-                  </tbody>
-                </table>
+                        ) : (
+                          filteredHistoryRows.map((row) => {
+                            const fields = row?.changed_fields && typeof row.changed_fields === 'object' ? row.changed_fields : {};
+                            const entries = Object.entries(fields);
+                            if (entries.length === 0) {
+                              return (
+                                <tr key={row.id} className="border-b last:border-b-0">
+                                  <td className="px-3 py-2 align-top">{formatDateTime(row.changed_at)}</td>
+                                  <td className="px-3 py-2 align-top">{String(row.changed_by || 'hệ thống')}</td>
+                                  <td className="px-3 py-2 align-top text-gray-400" colSpan={3}>
+                                    Không có chi tiết cột đổi
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            return entries.map(([colName, diff], idx) => (
+                              <tr key={`${row.id}-${colName}`} className="border-b last:border-b-0">
+                                {idx === 0 ? (
+                                  <>
+                                    <td className="px-3 py-2 align-top" rowSpan={entries.length}>
+                                      {formatDateTime(row.changed_at)}
+                                    </td>
+                                    <td className="px-3 py-2 align-top" rowSpan={entries.length}>
+                                      {String(row.changed_by || 'hệ thống')}
+                                    </td>
+                                  </>
+                                ) : null}
+                                <td className="px-3 py-2 align-top font-medium">{formatAuditColumnName(colName)}</td>
+                                <td className="px-3 py-2 align-top text-rose-700 whitespace-pre-wrap break-words">
+                                  {formatAuditValueForUi(diff?.old)}
+                                </td>
+                                <td className="px-3 py-2 align-top text-emerald-700 whitespace-pre-wrap break-words">
+                                  {formatAuditValueForUi(diff?.new)}
+                                </td>
+                              </tr>
+                            ));
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
             );
           })()
         )}
