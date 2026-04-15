@@ -79,6 +79,51 @@ function normalizeCuocMaDon(code) {
   return String(code).trim();
 }
 
+function toIsoDateString(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function parseExcelDateToISO(rawValue) {
+  if (rawValue == null || rawValue === '') return null;
+
+  if (rawValue instanceof Date) {
+    return toIsoDateString(rawValue);
+  }
+
+  if (typeof rawValue === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(rawValue);
+    if (parsed && parsed.y && parsed.m && parsed.d) {
+      const dt = new Date(parsed.y, parsed.m - 1, parsed.d);
+      return toIsoDateString(dt);
+    }
+    return null;
+  }
+
+  const value = String(rawValue).trim();
+  if (!value) return null;
+
+  // Ưu tiên định dạng kế toán hay dùng: dd/mm/yyyy
+  const dmy = value.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (dmy) {
+    const d = Number(dmy[1]);
+    const m = Number(dmy[2]);
+    const yRaw = Number(dmy[3]);
+    const y = yRaw < 100 ? 2000 + yRaw : yRaw;
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d) {
+      return toIsoDateString(dt);
+    }
+  }
+
+  // Fallback cho các định dạng Date chuẩn khác.
+  const dt = new Date(value);
+  return toIsoDateString(dt);
+}
+
 /** Mã đơn cước trên bảng (ưu tiên pending), đã normalize trim. */
 function getEffectiveCuocMaDonHang(row, pendingChanges) {
   const pendRow = pendingChanges.get(row.id);
@@ -1601,11 +1646,11 @@ function DoiSoatBillCuoc() {
     const templateData = [];
 
     if (activeTab === 'bill' || activeTab === 'bill_view') {
-      // Ngày đối soát: không có trong mẫu — khi import hệ thống tự gán today.
       templateData.push({
         STT: 1,
         'Mã đơn hàng': 'Bona272f26d',
         'Mã Tracking': '',
+        'Ngày đối soát': '02/04/2026',
         FFM: '',
         'Số tiền đối soát': 100.5,
         'Tỷ giá': 25000,
@@ -1616,6 +1661,7 @@ function DoiSoatBillCuoc() {
         STT: 2,
         'Mã đơn hàng': '',
         'Mã Tracking': 'TRACK002',
+        'Ngày đối soát': '02/04/2026',
         FFM: '',
         'Số tiền đối soát': 50.75,
         'Tỷ giá': 18000,
@@ -1626,6 +1672,7 @@ function DoiSoatBillCuoc() {
         STT: 3,
         'Mã đơn hàng': 'DG6da921bf',
         'Mã Tracking': 'TRACK003',
+        'Ngày đối soát': '09/04/2026',
         FFM: '',
         'Số tiền đối soát': 75.25,
         'Tỷ giá': 19000,
@@ -1723,32 +1770,12 @@ function DoiSoatBillCuoc() {
               return;
             }
 
-            if (tableName === 'chi_tiet_bill_tien' && dbKey === 'ngay_doi_soat') {
-              return;
-            }
-
             // Xử lý giá trị theo loại cột
-            // Với tab Cước: đôi khi Excel trả về kiểu date không parse được.
-            // Bạn muốn luôn set `Ngày đối soát cước` = today khi import.
-            if (tableName === 'chitiet_cuoc' && dbKey === 'ngay_doi_soat_cuoc') {
-              record[dbKey] = today;
-              hasData = true;
-              return;
-            }
             if (dbKey.includes('ngay') || dbKey.includes('date')) {
-              // Date field - chuyển đổi format
-              if (value) {
-                // Nếu là string date, chuyển sang ISO format
-                if (typeof value === 'string') {
-                  const date = new Date(value);
-                  if (!isNaN(date.getTime())) {
-                    record[dbKey] = date.toISOString().split('T')[0];
-                    hasData = true;
-                  }
-                } else if (value instanceof Date) {
-                  record[dbKey] = value.toISOString().split('T')[0];
-                  hasData = true;
-                }
+              const parsedDate = parseExcelDateToISO(value);
+              if (parsedDate) {
+                record[dbKey] = parsedDate;
+                hasData = true;
               }
             } else if (dbKey.includes('tien') || dbKey.includes('so_tien') || dbKey.includes('ty_gia') || dbKey.includes('cuoc') || dbKey === 'stt') {
               // Number field
@@ -1769,6 +1796,22 @@ function DoiSoatBillCuoc() {
           }
         });
 
+        // Bill: hỗ trợ file thực tế có cột ngày thêm tay nhưng để trống tiêu đề
+        // (XLSX thường sinh key kiểu __EMPTY / __EMPTY_1).
+        if (tableName === 'chi_tiet_bill_tien' && !record.ngay_doi_soat) {
+          for (const [excelKey, rawValue] of Object.entries(row)) {
+            const key = String(excelKey ?? '').trim().toLowerCase();
+            if (key === '' || key.startsWith('__empty')) {
+              const parsedDate = parseExcelDateToISO(rawValue);
+              if (parsedDate) {
+                record.ngay_doi_soat = parsedDate;
+                hasData = true;
+                break;
+              }
+            }
+          }
+        }
+
         delete record.dem_lan_thanh_toan;
 
         if (tableName === 'chitiet_cuoc') {
@@ -1776,7 +1819,15 @@ function DoiSoatBillCuoc() {
         }
 
         if (tableName === 'chi_tiet_bill_tien') {
-          record.ngay_doi_soat = today;
+          if (!record.ngay_doi_soat) {
+            record.ngay_doi_soat = today;
+          }
+        }
+
+        if (tableName === 'chitiet_cuoc') {
+          if (!record.ngay_doi_soat_cuoc) {
+            record.ngay_doi_soat_cuoc = today;
+          }
         }
 
         const mdh = record.ma_don_hang != null && String(record.ma_don_hang).trim() !== '';
@@ -1841,6 +1892,35 @@ function DoiSoatBillCuoc() {
           }
         }
         rowsToInsert = recordsToInsert;
+
+        const trackingCounts = new Map();
+        rowsToInsert.forEach((r) => {
+          const tk = r.ma_tracking != null ? String(r.ma_tracking).trim() : '';
+          if (!tk || isBillTrackingDropoffPlaceholder(tk)) return;
+          trackingCounts.set(tk, (trackingCounts.get(tk) || 0) + 1);
+        });
+        const duplicateTrackings = [...trackingCounts.entries()]
+          .filter(([, cnt]) => cnt > 1)
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+        if (duplicateTrackings.length > 0) {
+          const preview = duplicateTrackings
+            .slice(0, 15)
+            .map(([tk, cnt]) => `- ${tk}: trùng ${cnt} lần`)
+            .join('\n');
+          const extra =
+            duplicateTrackings.length > 15
+              ? `\n... và ${duplicateTrackings.length - 15} mã Tracking khác.`
+              : '';
+          const shouldContinue = window.confirm(
+            `⚠️ Phát hiện trùng Mã Tracking trong file import (${duplicateTrackings.length} mã).\n` +
+              `${preview}${extra}\n\nBạn có muốn tiếp tục nhập dữ liệu không?`
+          );
+          if (!shouldContinue) {
+            setUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+          }
+        }
       } else if (tableName === 'chitiet_cuoc') {
         recordsToInsert.forEach((r) => {
           const d = r.ma_don_hang != null ? String(r.ma_don_hang).trim() : '';
