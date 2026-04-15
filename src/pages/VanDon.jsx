@@ -659,9 +659,10 @@ function VanDon({ dataSource = 'default' }) {
     canh_bao_filter: '',
   });
 
-  /** Tra nhanh theo SĐT / tên / địa chỉ — chỉ lọc client, không đưa vào query API. */
+  /** Tra nhanh theo nhiều cột quan trọng (SĐT / tên / địa chỉ / mã đơn...). */
   const [customerQuickSearch, setCustomerQuickSearch] = useState('');
   const [appliedCustomerQuickSearch, setAppliedCustomerQuickSearch] = useState('');
+  const CUSTOMER_QUICK_SEARCH_DEBOUNCE_MS = 250;
 
   // Calculate 3 days ago (today, yesterday, day before yesterday)
   const getThreeDaysAgo = () => {
@@ -761,6 +762,7 @@ function VanDon({ dataSource = 'default' }) {
   useEffect(() => {
     customerQuickSearchRef.current = customerQuickSearch;
   }, [customerQuickSearch]);
+  // Ô tra cứu nhanh: Đã tắt tự động debounce theo yêu cầu — người dùng phải bấm Enter mới thực hiện tìm kiếm.
   useEffect(() => {
     bolDateTypeRef.current = bolDateType;
   }, [bolDateType]);
@@ -1149,7 +1151,8 @@ function VanDon({ dataSource = 'default' }) {
             )
           )
           : [],
-      customerQuickSearch: normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch) || undefined,
+      // Tạm thời chỉ dùng quick search ở client để tránh lệch truy vấn API gây ẩn sạch kết quả.
+      customerQuickSearch: undefined,
       canh_bao_filter:
         appliedFilterValues.canh_bao_filter === 'co_trung' || appliedFilterValues.canh_bao_filter === 'khong_trung'
           ? appliedFilterValues.canh_bao_filter
@@ -1284,7 +1287,7 @@ function VanDon({ dataSource = 'default' }) {
         columnFilters: activeFilters.columnFilters || {},
         trackingFilter: activeFilters.trackingFilter || null,
         bulkOrderCodes: activeFilters.bulkOrderCodes || [],
-        customerQuickSearch: activeFilters.customerQuickSearch,
+        customerQuickSearch: undefined,
         canh_bao_filter: activeFilters.canh_bao_filter,
         vanDonFetchMode
       });
@@ -1599,27 +1602,81 @@ function VanDon({ dataSource = 'default' }) {
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
 
     const traCuuKhach = normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch);
-    // Phân trang backend: tra cứu khách đã lọc ở API — tránh lệch tổng đơn / tổng tiền và lọc hai lần.
-    if (traCuuKhach && !useBackendPagination) {
-      const digitsOnly = (s) => String(s ?? '').replace(/\D/g, '');
-      const qDigits = digitsOnly(traCuuKhach);
+    if (traCuuKhach) {
+      const qLower = traCuuKhach.toLowerCase();
+      const removeAccents = (str) => {
+        return String(str || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/đ/g, 'd')
+          .replace(/Đ/g, 'D');
+      };
+      
+      const qNoAccents = removeAccents(qLower);
+      const qTokens = qNoAccents.split(/\s+/).filter(Boolean);
+
       data = data.filter((row) => {
         const orderId = row[PRIMARY_KEY_COLUMN];
-        const nameO = getPendingOriginal(orderId, 'Name*', 'customer_name');
-        const phoneO = getPendingOriginal(orderId, 'Phone*', 'customer_phone');
-        const addO = getPendingOriginal(orderId, 'Add', 'customer_address');
-        const nameRaw = nameO !== undefined ? nameO : row['Name*'] ?? row.customer_name;
-        const phoneRaw = phoneO !== undefined ? phoneO : row['Phone*'] ?? row.customer_phone ?? '';
-        const addrRaw = addO !== undefined ? addO : row['Add'] ?? row.customer_address;
-        const codeRaw = row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? row['Mã đơn hàng'] ?? '';
-        if (matchesVanDonHeaderSearch(nameRaw, traCuuKhach)) return true;
-        if (matchesVanDonHeaderSearch(addrRaw, traCuuKhach)) return true;
-        if (matchesVanDonHeaderSearch(codeRaw, traCuuKhach)) return true;
-        const phoneNorm = normalizeVanDonFilterWhitespace(phoneRaw).toLowerCase();
-        const qLower = traCuuKhach.toLowerCase();
-        if (phoneNorm.includes(qLower)) return true;
-        if (qDigits.length >= 3 && digitsOnly(phoneRaw).includes(qDigits)) return true;
-        return false;
+        
+        // 1. Thu thập tất cả các giá trị hiển thị / quan trọng của hàng
+        const searchFields = [
+          row[PRIMARY_KEY_COLUMN],
+          row.order_code,
+          row['Name*'],
+          row.customer_name,
+          row['Phone*'],
+          row.customer_phone,
+          row['Add'],
+          row.customer_address,
+          row.page_name,
+          row['Page'],
+          row.product,
+          row['Mặt hàng'],
+          row.product_name,
+          row.sale_staff,
+          row['Nhân viên Sale'],
+          row.marketing_staff,
+          row['Nhân viên MKT'],
+          row.delivery_staff,
+          row['NV Vận đơn'],
+          row['Nhân viên Vận đơn'],
+          row.delivery_status,
+          row['Trạng thái giao hàng'],
+          row.tracking_code,
+          row['Mã Tracking'],
+          row['Mã tracking'],
+          row.country,
+          row['Khu vực'],
+          row.note,
+          row.vandon_note,
+          row['Ghi chú'],
+          row.shipping_unit,
+          row['Đơn vị vận chuyển'],
+          row.payment_status,
+          row['Trạng thái thu tiền'],
+          row.status_detail,
+          row.order_date,
+          row['Ngày lên đơn']
+        ];
+
+        // 2. Bổ sung giá trị gốc (nếu đang có thay đổi chưa lưu) để tránh hàng bị ẩn khi đang sửa
+        if (orderId && pendingChanges.has(orderId)) {
+          pendingChanges.get(orderId).forEach((info) => {
+            if (info.originalValue) searchFields.push(info.originalValue);
+          });
+        }
+
+        // 3. Tạo một haystack (chuỗi văn bản lớn) không dấu để tìm kiếm
+        const haystack = removeAccents(
+          searchFields
+            .filter(v => v !== null && v !== undefined && v !== '')
+            .map(v => String(v))
+            .join(' ')
+            .toLowerCase()
+        );
+
+        // 4. Logic Đa Năng: Mỗi từ trong ô tìm kiếm phải xuất hiện ít nhất 1 lần trong hàng (không quan trọng thứ tự)
+        return qTokens.every((token) => haystack.includes(token));
       });
     }
 
@@ -5204,7 +5261,7 @@ function VanDon({ dataSource = 'default' }) {
         {/* Vùng bảng + phân trang: chiếm toàn bộ chiều cao còn lại */}
         <div className="flex-1 min-h-0 flex flex-col gap-1 min-w-0 w-full overflow-hidden">
           <div className="relative z-0 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col min-h-0 flex-1 w-full">
-            {isQueryLoading ? (
+            {(isQueryLoading && allData.length === 0) ? (
               <div className="flex-1 flex flex-col items-center justify-center min-h-0 bg-white rounded-lg">
                 <div className="relative w-16 h-16 mb-4">
                   <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>

@@ -1474,21 +1474,39 @@ export const fetchVanDon = async (options = {}) => {
                 customerQuickSearch != null ? String(customerQuickSearch) : ''
             );
             if (cq) {
-                const pat = buildVanDonFlexibleIlikePattern(cq);
-                if (pat) {
-                    const qv = quotePostgrestOrIlikePattern(pat);
-                    const segments = [
-                        `customer_name.ilike.${qv}`,
-                        `customer_phone.ilike.${qv}`,
-                        `customer_address.ilike.${qv}`,
-                        `order_code.ilike.${qv}`,
+                const tokens = cq.split(/\s+/).filter(Boolean);
+                if (tokens.length > 0) {
+                    const allColumns = [
+                        'customer_name', 'customer_phone', 'customer_address', 'order_code',
+                        'page_name', 'product', 'sale_staff', 'marketing_staff', 'delivery_staff',
+                        'delivery_status', 'tracking_code', 'country', 'shipping_unit',
+                        'payment_status', 'note', 'vandon_note', 'check_result'
                     ];
-                    const digitsOnly = cq.replace(/\D/g, '');
-                    if (digitsOnly.length >= 6 && digitsOnly.length <= 16) {
-                        const flexPhonePat = `%${digitsOnly.split('').join('%')}%`;
-                        segments.push(`customer_phone.ilike.${quotePostgrestOrIlikePattern(flexPhonePat)}`);
+
+                    const andSegments = tokens.map((tk) => {
+                        const pat = buildVanDonFlexibleIlikePattern(tk);
+                        if (!pat) return null;
+                        const qv = quotePostgrestOrIlikePattern(pat);
+                        
+                        const orParts = allColumns.map(col => `${col}.ilike.${qv}`);
+                        
+                        // SĐT ghép thêm logic số liền mạch
+                        const digits = tk.replace(/\D/g, '');
+                        if (digits.length >= 6) {
+                            const flexPhonePat = `%${digits.split('').join('%')}%`;
+                            orParts.push(`customer_phone.ilike.${quotePostgrestOrIlikePattern(flexPhonePat)}`);
+                        }
+                        
+                        return `or(${orParts.join(',')})`;
+                    }).filter(Boolean);
+
+                    if (andSegments.length > 1) {
+                        query = query.or(andSegments.join(','), { and: true });
+                    } else if (andSegments.length === 1) {
+                        // Bỏ bọc and() nếu chỉ có 1 token để query gọn hơn
+                        const singleOr = andSegments[0].replace(/^or\(|\)$/g, '');
+                        query = query.or(singleOr);
                     }
-                    query = query.or(segments.join(','));
                 }
             }
 
