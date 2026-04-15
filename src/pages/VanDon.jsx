@@ -1570,41 +1570,22 @@ function VanDon({ dataSource = 'default' }) {
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
 
     const traCuuKhach = normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch);
-    const GLOBAL_SEARCH_FIELDS = [
-      ['Mã đơn hàng', 'order_code', PRIMARY_KEY_COLUMN],
-      ['Name*', 'customer_name'],
-      ['Phone*', 'customer_phone'],
-      ['Add', 'customer_address'],
-      ['Mã Tracking', 'Mã tracking', 'tracking_code'],
-      ['Khu vực', 'country'],
-      ['Mặt hàng', 'product'],
-      ['Page', 'page_name'],
-      ['Đơn vị vận chuyển', 'Đơn_vị_vận_chuyển', 'shipping_unit'],
-      ['Nhân viên Sale', 'sale_staff'],
-      ['Nhân viên MKT', 'marketing_staff'],
-      ['NV Vận đơn', 'Nhân viên Vận đơn', 'delivery_staff'],
-      ['Trạng thái giao hàng', 'delivery_status'],
-      ['Trạng thái thu tiền', 'payment_status'],
-    ];
     // Phân trang backend: tra cứu khách đã lọc ở API — tránh lệch tổng đơn / tổng tiền và lọc hai lần.
     if (traCuuKhach && !useBackendPagination) {
       const digitsOnly = (s) => String(s ?? '').replace(/\D/g, '');
       const qDigits = digitsOnly(traCuuKhach);
       data = data.filter((row) => {
         const orderId = row[PRIMARY_KEY_COLUMN];
-        const phoneOriginal = getPendingOriginal(orderId, 'Phone*', 'customer_phone');
-        const phoneRaw = phoneOriginal !== undefined ? phoneOriginal : row['Phone*'] ?? row.customer_phone ?? '';
-        for (const fieldCandidates of GLOBAL_SEARCH_FIELDS) {
-          const originalValue = getPendingOriginal(orderId, ...fieldCandidates);
-          let rawValue = originalValue;
-          if (rawValue === undefined) {
-            rawValue = fieldCandidates.reduce((acc, key) => {
-              if (acc !== undefined && acc !== null && String(acc).trim() !== '') return acc;
-              return row[key];
-            }, undefined);
-          }
-          if (matchesVanDonHeaderSearch(rawValue ?? '', traCuuKhach)) return true;
-        }
+        const nameO = getPendingOriginal(orderId, 'Name*', 'customer_name');
+        const phoneO = getPendingOriginal(orderId, 'Phone*', 'customer_phone');
+        const addO = getPendingOriginal(orderId, 'Add', 'customer_address');
+        const nameRaw = nameO !== undefined ? nameO : row['Name*'] ?? row.customer_name;
+        const phoneRaw = phoneO !== undefined ? phoneO : row['Phone*'] ?? row.customer_phone ?? '';
+        const addrRaw = addO !== undefined ? addO : row['Add'] ?? row.customer_address;
+        const codeRaw = row[PRIMARY_KEY_COLUMN] ?? row.order_code ?? row['Mã đơn hàng'] ?? '';
+        if (matchesVanDonHeaderSearch(nameRaw, traCuuKhach)) return true;
+        if (matchesVanDonHeaderSearch(addrRaw, traCuuKhach)) return true;
+        if (matchesVanDonHeaderSearch(codeRaw, traCuuKhach)) return true;
         const phoneNorm = normalizeVanDonFilterWhitespace(phoneRaw).toLowerCase();
         const qLower = traCuuKhach.toLowerCase();
         if (phoneNorm.includes(qLower)) return true;
@@ -4921,7 +4902,7 @@ function VanDon({ dataSource = 'default' }) {
 
             <div
               className="flex items-center gap-2 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0 min-w-0 max-w-full"
-              title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm tổng: mã đơn / SĐT / tên / địa chỉ / tracking / trạng thái / page / nhân sự / thị trường / mặt hàng."
+              title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm nhanh: mã đơn / SĐT / tên / địa chỉ."
             >
               {(bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') && (
                 <>
@@ -4965,8 +4946,8 @@ function VanDon({ dataSource = 'default' }) {
                   type="search"
                   enterKeyHint="search"
                   autoComplete="off"
-                  placeholder="Tìm tổng: mã đơn, SĐT, tên, tracking, trạng thái…"
-                  title="Tra theo các cột quan trọng: mã đơn, SĐT, tên, địa chỉ, tracking, trạng thái, page, nhân sự, thị trường, mặt hàng, đơn vị vận chuyển"
+                  placeholder="Mã đơn, SĐT, tên, địa chỉ…"
+                  title="Tra mã đơn / SĐT / tên / địa chỉ"
                   value={customerQuickSearch}
                   onChange={(e) => setCustomerQuickSearch(e.target.value)}
                   className="min-w-[100px] w-[min(200px,32vw)] max-w-[260px] shrink text-[10px] px-1.5 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
