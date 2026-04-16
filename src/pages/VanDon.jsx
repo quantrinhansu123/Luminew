@@ -294,7 +294,10 @@ function VanDonVirtuosoTable({ style, ...props }) {
     <table
       {...props}
       className="border-separate border-spacing-0 w-max text-[13px] leading-tight table-fixed"
-      style={{ ...style, tableLayout: 'fixed' }}
+      style={{ 
+        ...style, 
+        tableLayout: 'fixed',
+      }}
     />
   );
 }
@@ -302,15 +305,17 @@ function VanDonVirtuosoTable({ style, ...props }) {
 const VanDonVirtuosoTableBody = React.forwardRef((props, ref) => <tbody {...props} ref={ref} />);
 VanDonVirtuosoTableBody.displayName = 'VanDonVirtuosoTableBody';
 
-/** Cuộn ngang + dọc trên cùng một scroller; `overflow: hidden` mặc định của ô không áp dụng lên `sticky` (xem VanDonVirtuoso). */
+/** Cuộn ngang + dọc trên cùng một scroller. Cột ghim dùng translateX(var(--vd-sl)) thay vì position:sticky. */
 const VanDonVirtuosoScroller = React.forwardRef(({ style, ...props }, ref) => (
   <div
     {...props}
     ref={ref}
+    data-van-don-scroller=""
     style={{
       ...style,
       overflow: 'auto',
       WebkitOverflowScrolling: 'touch',
+      position: 'relative',
     }}
   />
 ));
@@ -346,10 +351,11 @@ const VanDonRow = React.memo(function VanDonRow({
     <>
       {bolActiveTab === 'hanoi' && (
         <td
-          className={`py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 sticky left-0 z-[3300] ${hasCanhBao && !isSelected ? 'van-don-canh-bao-blink' : ''}`}
+          className={`py-2 border border-gray-200 text-sm h-[38px] whitespace-nowrap px-2 relative z-[6000] ${hasCanhBao && !isSelected ? 'van-don-canh-bao-blink' : ''}`}
           style={{
             width: VAN_DON_CHECKBOX_COL_PX,
             minWidth: VAN_DON_CHECKBOX_COL_PX,
+            transform: 'translateX(var(--vd-sl, 0px))',
             ...(isSelected
               ? { backgroundColor: '#dbeafe' }
               : hasCanhBao
@@ -375,14 +381,14 @@ const VanDonRow = React.memo(function VanDonRow({
         const colWidthStyles = getColumnWidthStyles(col);
         const cellStyle = isFixed
           ? {
-            position: 'sticky',
-            left: cellStickyLeft,
-            zIndex: 3100,
+            position: 'relative',
+            zIndex: 5000,
             backgroundColor: '#f9fafb',
             ...colWidthStyles,
             overflow: 'visible',
             textOverflow: 'clip',
-            boxShadow: '2px 0 4px rgba(0,0,0,0.08)'
+            boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 6px rgba(0,0,0,0.12)' : '2px 0 4px rgba(0,0,0,0.08)',
+            transform: 'translateX(var(--vd-sl, 0px))',
           }
           : { position: 'relative', zIndex: 10, ...colWidthStyles };
         return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
@@ -3004,8 +3010,18 @@ function VanDon({ dataSource = 'default' }) {
     sortRowsLikeDataGrid
   ]);
 
-  /** Luôn cố định cột đầu tiên (Mã đơn hàng). */
-  const effectiveFixedColumns = Math.min(1, currentColumns.length);
+  /** Số cột cố định (ghim) - có thể điều chỉnh bởi người dùng */
+  const [numFixedColumns, setNumFixedColumns] = useState(() => {
+    const saved = localStorage.getItem('vanDon_numFixedColumns');
+    return saved ? Math.max(1, Math.min(Number(saved), 5)) : 1;
+  });
+
+  // Lưu số cột cố định vào localStorage
+  useEffect(() => {
+    localStorage.setItem('vanDon_numFixedColumns', String(numFixedColumns));
+  }, [numFixedColumns]);
+
+  const effectiveFixedColumns = Math.min(numFixedColumns, currentColumns.length);
 
   const checkboxStickyPad = bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0;
 
@@ -3123,7 +3139,7 @@ function VanDon({ dataSource = 'default' }) {
     recalcStickyOffsets();
     window.addEventListener('resize', recalcStickyOffsets);
     return () => window.removeEventListener('resize', recalcStickyOffsets);
-  }, [currentColumns, checkboxStickyPad, getColumnWidthPx, filterValues, isLongTextExpanded]);
+  }, [currentColumns, checkboxStickyPad, getColumnWidthPx, filterValues, isLongTextExpanded, numFixedColumns]);
 
 
   // Virtualization is handled by react-virtuoso, so we no longer need manual height sync
@@ -3169,9 +3185,11 @@ function VanDon({ dataSource = 'default' }) {
   // Scroll sync not needed with Virtuoso + single table logic
   // Scroll sync for separate header (FFM style)
   const onTableScroll = useCallback((e) => {
-    // Sync the horizontal position of the separate header div with the table's scroller
+    const sl = e.target.scrollLeft;
+    e.target.style.setProperty('--vd-sl', sl + 'px');
     if (vanDonHeaderContainerRef.current) {
-      vanDonHeaderContainerRef.current.scrollLeft = e.target.scrollLeft;
+      vanDonHeaderContainerRef.current.style.setProperty('--vd-sl', sl + 'px');
+      vanDonHeaderContainerRef.current.scrollLeft = sl;
     }
   }, []);
 
@@ -4442,11 +4460,9 @@ function VanDon({ dataSource = 'default' }) {
       ? {
         ...cellWidthStyles,
         ...positionStyle,
-        position: 'sticky',
-        top: 0,
         background: '#f8f9fa',
         backgroundClip: 'padding-box',
-        boxShadow: showFreezeShadow ? '2px 0 0 #d1d5db' : undefined,
+        boxShadow: showFreezeShadow ? '2px 0 6px rgba(0,0,0,0.12)' : undefined,
       }
       : {
         ...widthStyles,
@@ -4609,8 +4625,12 @@ function VanDon({ dataSource = 'default' }) {
     const isReadonlyOrderDataTab = false;
 
     const mergedCellStyle = { ...(cellStyle || {}) };
+    const isFixedCol = cellStyle?.zIndex >= 5000;
+    
     // Ô văn bản dài: bỏ overflow hidden trên <td> (cột không sticky) — tránh cắt textarea / khó click nhập.
+    // QUAN TRỌNG: Không ghi đè overflow cho cột sticky vì sẽ làm hỏng sticky positioning
     if (
+      !isFixedCol &&
       !isReadonlyEditTab &&
       !isTrackingCol &&
       !isCanhBaoCol &&
@@ -5173,6 +5193,29 @@ function VanDon({ dataSource = 'default' }) {
                 ⚙️ Cài đặt cột
               </button>
 
+              {/* Điều chỉnh số cột cố định */}
+              <div className="flex items-center gap-1 bg-gray-100 rounded px-2 py-0.5 border border-gray-300">
+                <span className="text-[11px] text-gray-700 font-medium whitespace-nowrap">📌 Ghim:</span>
+                <button
+                  onClick={() => setNumFixedColumns(Math.max(1, numFixedColumns - 1))}
+                  disabled={numFixedColumns <= 1}
+                  className="w-5 h-5 flex items-center justify-center bg-white hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-gray-700 rounded text-xs font-bold border border-gray-300 transition-colors"
+                  title="Giảm số cột cố định"
+                >
+                  −
+                </button>
+                <span className="text-[11px] font-bold text-gray-800 min-w-[20px] text-center">{numFixedColumns}</span>
+                <button
+                  onClick={() => setNumFixedColumns(Math.min(5, currentColumns.length, numFixedColumns + 1))}
+                  disabled={numFixedColumns >= Math.min(5, currentColumns.length)}
+                  className="w-5 h-5 flex items-center justify-center bg-white hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-gray-700 rounded text-xs font-bold border border-gray-300 transition-colors"
+                  title="Tăng số cột cố định"
+                >
+                  +
+                </button>
+                <span className="text-[10px] text-gray-500 whitespace-nowrap">cột</span>
+              </div>
+
               {/* Phân FFM button - chỉ hiển thị trong tab Hà Nội */}
               {bolActiveTab === 'hanoi' && (
                 <div className="relative" ref={phanFFMRef}>
@@ -5255,7 +5298,7 @@ function VanDon({ dataSource = 'default' }) {
                     <thead className="bg-[#f8f9fa]">
                       <tr className="bg-gray-100 align-top">
                         {bolActiveTab === 'hanoi' && (
-                          <th className="py-1 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap px-2 sticky left-0 z-[10100]" style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX }}>
+                          <th className="py-1 border-b-2 border-r border-gray-300 align-top bg-[#f8f9fa] whitespace-nowrap px-2 relative z-[16000]" style={{ width: VAN_DON_CHECKBOX_COL_PX, minWidth: VAN_DON_CHECKBOX_COL_PX, transform: 'translateX(var(--vd-sl, 0px))' }}>
                             <div className="flex items-center justify-center">
                               <input
                                 type="checkbox"
@@ -5273,10 +5316,9 @@ function VanDon({ dataSource = 'default' }) {
                           </th>
                         )}
                         {currentColumns.map((col, idx) => {
-                          const stickyLeft = getStickyLeftPx(idx);
                           const isFixed = idx < effectiveFixedColumns;
                           const style = isFixed
-                            ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa', boxShadow: '2px 0 4px rgba(0,0,0,0.08)' }
+                            ? { position: 'relative', zIndex: 15000, background: '#f8f9fa', boxShadow: idx === effectiveFixedColumns - 1 ? '2px 0 6px rgba(0,0,0,0.12)' : '2px 0 4px rgba(0,0,0,0.08)', transform: 'translateX(var(--vd-sl, 0px))' }
                             : { position: 'relative', zIndex: 10200 };
                           return renderVanDonFilterTh(col, idx, style, isFixed && idx === effectiveFixedColumns - 1, isFixed);
                         })}
@@ -5330,7 +5372,9 @@ function VanDon({ dataSource = 'default' }) {
                           tableRef.current = el;
                           horizontalScrollHostRef.current = el;
                           el.addEventListener('scroll', onTableScroll);
+                          el.style.setProperty('--vd-sl', (el.scrollLeft || 0) + 'px');
                           if (vanDonHeaderContainerRef.current) {
+                            vanDonHeaderContainerRef.current.style.setProperty('--vd-sl', (el.scrollLeft || 0) + 'px');
                             el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
                           }
                         }
