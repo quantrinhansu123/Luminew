@@ -52,7 +52,7 @@ export const DEFAULT_BILL_LADING_COLUMNS = [
 /**
  * Danh mục trạng thái giao dùng chung cho mọi dropdown «Trạng thái giao hàng» / «Trạng thái giao hàng NB»
  * (Vận đơn, FFM, Thêm nhanh, v.v.). Chỉ giữ các nhãn viết thường có dấu, bỏ các biến thể viết HOA.
- * Lưu DB: FFM → `delivery_status`, vận đơn → `delivery_status_nb` (logic resolve không đổi).
+ * Lưu DB: FFM → `delivery_status`, vận đơn NB → `delivery_status_nb` (hiển thị NB không fallback sang FFM).
  */
 export const DELIVERY_STATUS_PRESETS = Object.freeze([
     "",

@@ -194,18 +194,14 @@ export const mapSupabaseOrderToApp = (sOrder) => {
 
     if (!appOrder["Ngày lên đơn"] && sOrder.order_date) appOrder["Ngày lên đơn"] = sOrder.order_date;
     if (!appOrder["Mã đơn hàng"]) appOrder["Mã đơn hàng"] = sOrder.order_code;
-    // NB: nguồn chuẩn vận đơn; «Trạng thái giao hàng» hiển thị NB trước, fallback delivery_status (FFM) khi NB trống
+    // NB: chỉ từ `delivery_status_nb`. Cột gộp «Trạng thái giao hàng» = FFM (`delivery_status`), tách biệt NB.
     appOrder["Trạng thái giao hàng NB"] = sOrder.delivery_status_nb ?? '';
     {
-        const nbTrim =
-            appOrder["Trạng thái giao hàng NB"] != null && String(appOrder["Trạng thái giao hàng NB"]).trim() !== ''
-                ? String(appOrder["Trạng thái giao hàng NB"]).trim()
-                : '';
         const ffmTrim =
             sOrder.delivery_status != null && String(sOrder.delivery_status).trim() !== ''
                 ? String(sOrder.delivery_status).trim()
                 : '';
-        appOrder["Trạng thái giao hàng"] = nbTrim || ffmTrim || '';
+        appOrder["Trạng thái giao hàng"] = ffmTrim;
     }
 
     if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;

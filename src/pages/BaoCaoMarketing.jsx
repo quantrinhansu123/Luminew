@@ -1,12 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
 import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
 import { REPORT_CA_INPUT_OPTIONS } from '../constants/reportShifts';
-import { buildMktReportDedupeKey, normalizeMktReportDate } from '../utils/mktDetailReportKey';
+import {
+  buildMktReportDedupeKey,
+  mktRowSnapshotForDedupeKey,
+  normalizeMktReportDate,
+} from '../utils/mktDetailReportKey';
 import { MktSearchableProductSelect } from '../components/mkt/MktSearchableProductSelect';
+
+const MktQuickAddModal = lazy(() => import('../components/MktQuickAddModal'));
+
+/** Cố định tham chiếu — tránh modal điền nhanh coi `visibleColumns` đổi mỗi render và reset bảng. */
+const MKT_QUICK_ADD_DEFAULT_VISIBLE_COLUMNS = {};
 
 /** Độ rộng cột nút — lưới nhập báo cáo MKT */
 const MKT_REPORT_ACTION_COL = '5.75rem';
@@ -292,6 +301,7 @@ export default function BaoCaoMarketing({
   const [employeeNameFromUrl, setEmployeeNameFromUrl] = useState('');
   const [status, setStatus] = useState('Đang khởi tạo ứng dụng...');
   const [responseMsg, setResponseMsg] = useState({ text: '', isSuccess: true, visible: false });
+  const [mktQuickAddOpen, setMktQuickAddOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -982,8 +992,8 @@ export default function BaoCaoMarketing({
   };
 
   // Calculate real values when relevant fields change
-  const calculateRealValuesForRow = async (rowIndex, rowData) => {
-    const rowId = tableRows[rowIndex]?.id;
+  const calculateRealValuesForRow = async (rowIndex, rowData, rowIdOverride) => {
+    const rowId = rowIdOverride ?? tableRows[rowIndex]?.id;
     if (!rowId) return;
 
     console.log('🔄 Calculating real values for row:', {
@@ -1565,7 +1575,151 @@ export default function BaoCaoMarketing({
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }));
   }, [appData.mktHnUserEmployees, appData.sheetLookupEmployees, appData.employeeDetails, tableRows, loginUserTeam]);
 
-  const visibleMktHeaders = headerMkt.filter((h) => !hiddenFields.includes(h.toLowerCase()));
+  const visibleMktHeaders = useMemo(
+    () => headerMkt.filter((h) => !hiddenFields.includes(h.toLowerCase())),
+    []
+  );
+
+  const handleMktQuickSync = useCallback(
+    (syncRows, options = {}) => {
+      const activeList = options?.activeColumns;
+      const activeSet =
+        Array.isArray(activeList) && activeList.length > 0 ? new Set(activeList) : new Set(visibleMktHeaders);
+
+      const strictManager = ['admin', 'director', 'manager', 'super_admin', 'administrator'].includes(
+        (role || '').toLowerCase()
+      );
+      const canPick = canEditMktReporterName(role);
+      const loginEm = String(userEmail || '').trim();
+      let lsTeam = '';
+      try {
+        lsTeam = String(localStorage.getItem('userTeam') || '').trim();
+      } catch {
+        /* ignore */
+      }
+      const stampTeam = String(loginUserTeam || '').trim() || lsTeam;
+      const lockedTeam = !!loginEm && !!stampTeam;
+
+      let notFound = 0;
+      let fieldUpdates = 0;
+      const recalcTasks = [];
+
+      setTableRows((prev) => {
+        const next = prev.map((row) => ({
+          ...row,
+          data: { ...row.data },
+        }));
+        const nameLookup = getMktNameLookup();
+
+        const reporterNameFallback =
+          prev.map((r) => String(r?.data?.['Tên'] || '').trim()).find(Boolean) ||
+          getDisplayNameFromStoredUser() ||
+          String(employeeNameFromUrl || '').trim();
+
+        syncRows.forEach((rowArr) => {
+          const incoming = {};
+          visibleMktHeaders.forEach((c, i) => {
+            incoming[c] = rowArr[i];
+          });
+
+          for (const k of ['Ngày', 'ca', 'Sản_phẩm', 'Thị_trường']) {
+            if (!String(incoming[k] ?? '').trim()) return;
+          }
+          if (canPick && !String(incoming['Tên'] ?? '').trim()) return;
+
+          let rowForKey = mktRowSnapshotForDedupeKey(incoming);
+          if (!canPick && reporterNameFallback) {
+            rowForKey = { ...rowForKey, Tên: reporterNameFallback };
+          }
+
+          const key = buildMktReportDedupeKey(rowForKey);
+          const idx = next.findIndex((r) => {
+            const snap = mktRowSnapshotForDedupeKey(r.data);
+            return buildMktReportDedupeKey(snap) === key;
+          });
+          if (idx === -1) {
+            notFound += 1;
+            return;
+          }
+
+          let needsRecalc = false;
+
+          visibleMktHeaders.forEach((col, i) => {
+            if (!activeSet.has(col)) return;
+            if (col === 'Email' && !strictManager) return;
+            if (col === 'Tên' && !canPick) return;
+            if (col === 'Team' && lockedTeam) return;
+
+            const rawVal = rowArr[i];
+            const valStr = rawVal === undefined || rawVal === null ? '' : String(rawVal).trim();
+            if (valStr === '') return;
+
+            let outVal = valStr;
+            if (col === 'Ngày') {
+              outVal = normalizeMktReportDate(valStr) || valStr;
+            } else if (numberFields.includes(col)) {
+              const clean = valStr.replace(/[^0-9]/g, '');
+              outVal = clean ? formatNumberInput(clean) : '';
+            }
+
+            const curRaw = next[idx].data[col];
+            const curStr = curRaw === undefined || curRaw === null ? '' : String(curRaw).trim();
+            if (curStr === String(outVal).trim()) return;
+
+            next[idx].data[col] = outVal;
+            fieldUpdates += 1;
+
+            if (col === 'Tên' && canPick) {
+              const employee = findEmployeeByName(nameLookup, outVal);
+              if (employee) {
+                next[idx].data['id_NS'] = employee.id_ns || '';
+                next[idx].data['Chi nhánh'] = employee.branch || '';
+              }
+            }
+
+            if (['Ngày', 'Tên', 'ca', 'Sản_phẩm', 'Thị_trường'].includes(col)) {
+              needsRecalc = true;
+            }
+          });
+
+          if (needsRecalc) {
+            recalcTasks.push({
+              idx,
+              rowId: next[idx].id,
+              data: { ...next[idx].data },
+            });
+          }
+        });
+
+        queueMicrotask(() => {
+          recalcTasks.forEach(({ idx, rowId, data }) => {
+            calculateRealValuesForRow(idx, data, rowId);
+          });
+        });
+
+        return next;
+      });
+
+      if (fieldUpdates > 0) {
+        setResponseMsg({
+          text: `Đã đồng bộ ${fieldUpdates} giá trị vào lưới.${notFound ? ` ${notFound} dòng không khớp dòng trên lưới.` : ''}`,
+          isSuccess: true,
+          visible: true,
+        });
+      } else {
+        setResponseMsg({
+          text:
+            notFound > 0
+              ? `Không áp được thay đổi. ${notFound} dòng không khớp (Ngày / Tên / ca / Sản phẩm / Thị trường).`
+              : 'Không có ô nào mới để đồng bộ (ô trống hoặc trùng giá trị hiện tại).',
+          isSuccess: notFound === 0,
+          visible: true,
+        });
+      }
+    },
+    [visibleMktHeaders, role, userEmail, loginUserTeam, employeeNameFromUrl]
+  );
+
   const mktReportGridTemplate = [MKT_REPORT_ACTION_COL, ...visibleMktHeaders.map(mktReportGridColWidth)].join(' ');
 
   const mktInputCls =
@@ -1766,13 +1920,22 @@ export default function BaoCaoMarketing({
         <div className="mb-3 p-2 rounded bg-gray-100 text-gray-700 text-sm">{status}</div>
 
         {/* Add Row Button */}
-        <button
-          type="button"
-          onClick={handleAddNewRow}
-          className="mb-3 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-semibold transition"
-        >
-          ➕ Thêm dòng
-        </button>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleAddNewRow}
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-semibold transition"
+          >
+            ➕ Thêm dòng
+          </button>
+          <button
+            type="button"
+            onClick={() => setMktQuickAddOpen(true)}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-semibold transition"
+          >
+            ⚡ Điền nhanh
+          </button>
+        </div>
 
         {/* Lưới nhập: một CSS Grid — header và ô dùng chung template cột → không lệch như table+sticky */}
         <form onSubmit={handleSubmit}>
@@ -1872,6 +2035,24 @@ export default function BaoCaoMarketing({
           ))}
         </datalist>
 
+        <Suspense
+          fallback={
+            mktQuickAddOpen ? (
+              <div className="fixed inset-0 z-[1055] flex items-center justify-center bg-black/40 text-white text-sm">
+                Đang mở bảng điền nhanh…
+              </div>
+            ) : null
+          }
+        >
+          <MktQuickAddModal
+            isOpen={mktQuickAddOpen}
+            onClose={() => setMktQuickAddOpen(false)}
+            onSync={handleMktQuickSync}
+            columns={visibleMktHeaders}
+            visibleColumns={MKT_QUICK_ADD_DEFAULT_VISIBLE_COLUMNS}
+            skipTenRequiredForKeyMatch={!canPickMktReporterName}
+          />
+        </Suspense>
       </div>
     </div>
   );

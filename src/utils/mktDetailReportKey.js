@@ -92,3 +92,23 @@ export function buildMktReportDedupeKey(row) {
     normalizePersonKey(row?.['Thị_trường']),
   ].join('||');
 }
+
+/**
+ * Chuẩn hoá 5 trường dùng cho `buildMktReportDedupeKey` (dòng modal / clipboard / lưới).
+ * Bỏ BOM, \r, trim — tránh lệch khớp với dữ liệu copy từ Excel.
+ */
+export function mktRowSnapshotForDedupeKey(row) {
+  const o = row && typeof row === 'object' ? row : {};
+  const strip = (v) =>
+    String(v ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\r/g, '')
+      .trim();
+  return {
+    Ngày: normalizeMktReportDate(strip(o['Ngày'])),
+    Tên: strip(o['Tên']),
+    ca: strip(o['ca']),
+    Sản_phẩm: strip(o['Sản_phẩm']),
+    Thị_trường: strip(o['Thị_trường']),
+  };
+}

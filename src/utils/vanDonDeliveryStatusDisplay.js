@@ -1,9 +1,5 @@
-import { isVanDonSemanticEmpty } from './vanDonSemanticEmpty';
-
 /**
- * Chuẩn hoá nhãn trạng thái giao cho lưới Vận đơn: bộ FFM (`delivery_status`) dùng NHÃN/ĐANG GIAO/ĐÃ GIAO/HOÀN,
- * bộ NB (`delivery_status_nb`) dùng cùng nội dung nghiệp vụ với cách viết khác (vd. «Giao Thành Công»).
- * Hàm này chỉ dùng khi hiển thị / chọn trên cột NB — không tự ghi DB.
+ * Chuẩn hoá nhãn ô cột NB (trim, bỏ ký tự ẩn) — nguồn chỉ từ `delivery_status_nb` / nhãn «Trạng thái giao hàng NB».
  */
 export function normalizeVanDonNbDeliveryStatusDisplay(raw) {
   if (raw == null) return '';
@@ -11,14 +7,10 @@ export function normalizeVanDonNbDeliveryStatusDisplay(raw) {
   return s;
 }
 
-/** Giá trị hiển thị cột trạng thái NB: ưu tiên `delivery_status_nb`, sau đó cột gộp + `delivery_status`. */
+/** Giá trị cột «Trạng thái giao hàng NB»: chỉ đọc `delivery_status_nb` (và alias nhãn app), không fallback FFM / cột gộp. */
 export function resolveVanDonDeliveryStatusForNbColumn(row) {
   if (!row) return '';
-  const nb = row['Trạng thái giao hàng NB'] ?? row.delivery_status_nb;
-  if (!isVanDonSemanticEmpty(nb)) return String(nb).trim();
-  const merged = row['Trạng thái giao hàng'];
-  if (!isVanDonSemanticEmpty(merged)) return String(merged).trim();
-  const ffm = row.delivery_status;
-  if (!isVanDonSemanticEmpty(ffm)) return String(ffm).trim();
-  return '';
+  const nb = row.delivery_status_nb ?? row['Trạng thái giao hàng NB'];
+  if (nb === undefined || nb === null) return '';
+  return String(nb).trim();
 }

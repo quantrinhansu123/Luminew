@@ -33,11 +33,18 @@ const PROD_HOST = 'https://n-api-gamma.vercel.app';
 const SHEET_NAME = 'F3';
 const DATA_API_URL = `${PROD_HOST}/sheet/${SHEET_NAME}/data`;
 
-// Supabase configuration (using service role key if available to bypass RLS)
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://gsjhsmxyxjyiqovauyrp.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_vXBSa3eP8cvjIK2qLWI6Ug_FoYm4CNy';
+// Supabase — chỉ từ .env (không nhúng key trong repo)
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
-// Create Supabase client with service role key (bypasses RLS)
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error(
+    '❌ Thiếu VITE_SUPABASE_URL và SUPABASE_SERVICE_ROLE_KEY (hoặc VITE_SUPABASE_ANON_KEY) trong .env'
+  );
+  process.exit(1);
+}
+
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Log which key is being used (for debugging)

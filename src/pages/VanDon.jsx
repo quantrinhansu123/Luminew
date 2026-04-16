@@ -3558,9 +3558,8 @@ function VanDon({ dataSource = 'default' }) {
               const merged = { ...row, ...upd };
               const nbKey = 'Trạng thái giao hàng NB';
               if (Object.prototype.hasOwnProperty.call(upd, nbKey)) {
-                const nbTrim = String(merged[nbKey] ?? '').trim();
                 const ffmTrim = String(merged.delivery_status ?? row.delivery_status ?? '').trim();
-                merged['Trạng thái giao hàng'] = nbTrim || ffmTrim || '';
+                merged['Trạng thái giao hàng'] = ffmTrim;
               }
               return merged;
             });
