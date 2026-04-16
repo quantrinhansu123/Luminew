@@ -1312,38 +1312,9 @@ export const fetchVanDon = async (options = {}) => {
             if (delivery_status !== undefined && delivery_status !== null && Array.isArray(delivery_status) && delivery_status.length > 0) {
                 applyEmptyOrInFilter('delivery_status', delivery_status);
             }
-                if (delivery_status_nb !== undefined && delivery_status_nb !== null && Array.isArray(delivery_status_nb) && delivery_status_nb.length > 0) {
-                    const values = delivery_status_nb;
-                    const hasEmpty = values.some(v => v === 'Trống' || v === '__EMPTY__' || v === '' || v === null);
-                    const inValues = values.filter((x) => x !== 'Trống' && x !== '__EMPTY__' && x !== '' && x !== null);
-                    
-                    const emptyConditions = ['is.null', 'eq.', `in.(${orEncodeInList(['null', 'undefined', '-', '—', ' ', '  '])})`];
-                    
-                    let segments = [];
-                    if (inValues.length > 0) {
-                        // 1. Khớp thẳng cột NB
-                        segments.push(`delivery_status_nb.in.(${orEncodeInList(inValues)})`);
-                        
-                        // 2. Hoặc (NB trống VÀ FFM khớp)
-                        const ffmEnc = orEncodeInList(inValues);
-                        for (const cond of emptyConditions) {
-                            segments.push(`and(delivery_status_nb.${cond},delivery_status.in.(${ffmEnc}))`);
-                        }
-                    }
-                    
-                    if (hasEmpty) {
-                        // 3. Hoặc (Cả NB và FFM đều trống)
-                        for (const nbCond of emptyConditions) {
-                            for (const ffmCond of emptyConditions) {
-                                segments.push(`and(delivery_status_nb.${nbCond},delivery_status.${ffmCond})`);
-                            }
-                        }
-                    }
-                    
-                    if (segments.length > 0) {
-                        query = query.or(segments.join(','));
-                    }
-                }
+            if (delivery_status_nb !== undefined && delivery_status_nb !== null && Array.isArray(delivery_status_nb) && delivery_status_nb.length > 0) {
+                applyEmptyOrInFilter('delivery_status_nb', delivery_status_nb);
+            }
             if (payment_status !== undefined && payment_status !== null && Array.isArray(payment_status) && payment_status.length > 0) {
                 applyEmptyOrInFilter('payment_status', payment_status);
             }
