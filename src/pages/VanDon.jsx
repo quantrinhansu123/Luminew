@@ -1631,9 +1631,10 @@ function VanDon({ dataSource = 'default' }) {
           .replace(/đ/g, 'd')
           .replace(/Đ/g, 'D');
       };
-      
-      const qNoAccents = removeAccents(qLower);
-      const qTokens = qNoAccents.split(/\s+/).filter(Boolean);
+
+      /** Cụm từ (giữ thứ tự), bỏ dấu + gom khoảng trắng — khớp trong từng ô, không ghép nhiều cột. */
+      const qPhrase = removeAccents(qLower).replace(/\s+/g, ' ').trim();
+      const qDigits = traCuuKhach.replace(/\D/g, '');
 
       data = data.filter((row) => {
         const orderId = row[PRIMARY_KEY_COLUMN];
@@ -1686,17 +1687,28 @@ function VanDon({ dataSource = 'default' }) {
           });
         }
 
-        // 3. Tạo một haystack (chuỗi văn bản lớn) không dấu để tìm kiếm
-        const haystack = removeAccents(
-          searchFields
-            .filter(v => v !== null && v !== undefined && v !== '')
-            .map(v => String(v))
-            .join(' ')
-            .toLowerCase()
-        );
+        // 3. Khớp cụm trong ít nhất một ô (không AND từng từ trên toàn bộ hàng đã ghép).
+        const cells = searchFields
+          .filter((v) => v !== null && v !== undefined && v !== '')
+          .map((v) => removeAccents(String(v).toLowerCase()).replace(/\s+/g, ' '));
+        if (cells.some((c) => c.includes(qPhrase))) return true;
 
-        // 4. Logic Đa Năng: Mỗi từ trong ô tìm kiếm phải xuất hiện ít nhất 1 lần trong hàng (không quan trọng thứ tự)
-        return qTokens.every((token) => haystack.includes(token));
+        // 4. SĐT: chữ số xuất hiện đúng thứ tự (bỏ qua ký tự ngăn cách), giống ILIKE %d%d%... trên API
+        if (qDigits.length >= 6) {
+          const digitSubsequence = (hay, want) => {
+            let j = 0;
+            for (let i = 0; i < hay.length && j < want.length; i += 1) {
+              if (hay[i] === want[j]) j += 1;
+            }
+            return j === want.length;
+          };
+          const phoneRaw = [row['Phone*'], row.customer_phone]
+            .filter((v) => v != null && v !== '')
+            .map((v) => String(v).replace(/\D/g, ''))
+            .join('');
+          if (phoneRaw && digitSubsequence(phoneRaw, qDigits)) return true;
+        }
+        return false;
       });
     }
 
@@ -5030,7 +5042,7 @@ function VanDon({ dataSource = 'default' }) {
 
               <div
                 className="flex items-center gap-2 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0 min-w-0 max-w-full"
-                title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm nhanh: mã đơn / SĐT / tên / địa chỉ."
+                title="Lọc theo tên page (fanpage); ô tìm trong dropdown MultiSelect. Tìm nhanh: cụm từ trong một cột (mã đơn / SĐT / tên / địa chỉ…), không AND từng từ trên cả hàng."
               >
                 {(bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') && (
                   <>
@@ -5075,7 +5087,7 @@ function VanDon({ dataSource = 'default' }) {
                     enterKeyHint="search"
                     autoComplete="off"
                     placeholder="Mã đơn, SĐT, tên, địa chỉ…"
-                    title="Tra mã đơn / SĐT / tên / địa chỉ"
+                    title="Tra theo cụm từ (khớp trong một ô). SĐT ≥6 số: cho phép cách ngăn cách giữa các chữ số."
                     value={customerQuickSearch}
                     onChange={(e) => setCustomerQuickSearch(e.target.value)}
                     className="min-w-[100px] w-[min(200px,32vw)] max-w-[260px] shrink text-[10px] px-1.5 py-0.5 border border-gray-300 rounded focus:ring-1 focus:ring-[#F37021] focus:border-[#F37021] bg-white leading-tight"
