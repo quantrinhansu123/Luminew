@@ -5372,10 +5372,13 @@ function VanDon({ dataSource = 'default' }) {
                           tableRef.current = el;
                           horizontalScrollHostRef.current = el;
                           el.addEventListener('scroll', onTableScroll);
-                          el.style.setProperty('--vd-sl', (el.scrollLeft || 0) + 'px');
                           if (vanDonHeaderContainerRef.current) {
-                            vanDonHeaderContainerRef.current.style.setProperty('--vd-sl', (el.scrollLeft || 0) + 'px');
                             el.scrollLeft = vanDonHeaderContainerRef.current.scrollLeft;
+                          }
+                          const sl = el.scrollLeft || 0;
+                          el.style.setProperty('--vd-sl', sl + 'px');
+                          if (vanDonHeaderContainerRef.current) {
+                            vanDonHeaderContainerRef.current.style.setProperty('--vd-sl', sl + 'px');
                           }
                         }
                       }}
