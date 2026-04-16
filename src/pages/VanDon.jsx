@@ -14,8 +14,7 @@ import '../styles/selection.css';
 import { supabase } from '../supabase/config';
 import { parseVietnameseMoneyToNumber } from '../utils/parseVietnameseMoney';
 import {
-  normalizeVanDonNbDeliveryStatusDisplay,
-  resolveVanDonDeliveryStatusForNbColumn
+  normalizeVanDonNbDeliveryStatusDisplay
 } from '../utils/vanDonDeliveryStatusDisplay';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { matchesVanDonHeaderSearch, normalizeVanDonFilterWhitespace } from '../utils/vanDonFilterNormalize';
@@ -178,16 +177,18 @@ function matchVanDonSelectToOptionList(raw, optionList) {
 function getVanDonGridCellValue(row, colHeader) {
   if (!row) return '';
   const logical = COLUMN_MAPPING[colHeader] || colHeader;
+  const isFfmDeliveryStatusColEarly = normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng');
   const isNbDeliveryStatusCol =
-    normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng NB') ||
-    normalizeColHeader(logical) === normalizeColHeader('Trạng thái giao hàng NB');
+    !isFfmDeliveryStatusColEarly && (
+      normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng NB') ||
+      normalizeColHeader(logical) === normalizeColHeader('Trạng thái giao hàng NB')
+    );
   if (isNbDeliveryStatusCol) {
-    const raw = resolveVanDonDeliveryStatusForNbColumn(row);
-    const normalized = normalizeVanDonNbDeliveryStatusDisplay(raw);
-    return coalesceVanDonDisplayValue(normalized);
+    // Hiển thị cột NB theo đúng field NB, không fallback qua FFM/cột gộp.
+    const raw = row?.['Trạng thái giao hàng NB'] ?? row?.delivery_status_nb ?? '';
+    return coalesceVanDonDisplayValue(normalizeVanDonNbDeliveryStatusDisplay(raw));
   }
-  const isFfmDeliveryStatusCol = normalizeColHeader(colHeader) === normalizeColHeader('Trạng thái giao hàng');
-  if (isFfmDeliveryStatusCol) {
+  if (isFfmDeliveryStatusColEarly) {
     return coalesceVanDonDisplayValue(row.delivery_status || row['Trạng thái giao hàng'] || '');
   }
   const tryKeys = [logical, colHeader, String(logical).replace(/ /g, '_'), String(colHeader).replace(/ /g, '_')];
@@ -1486,6 +1487,20 @@ function VanDon({ dataSource = 'default' }) {
       }
       return undefined;
     };
+    /** Giá trị đang sửa (newValue) để lọc khớp với dữ liệu hiển thị trên lưới. */
+    const getPendingCurrent = (orderId, ...keyCandidates) => {
+      const pmap = pendingChanges.get(orderId);
+      if (!pmap?.size) return undefined;
+      for (const k of keyCandidates) {
+        if (k && pmap.has(k)) return pmap.get(k).newValue;
+      }
+      const lowers = keyCandidates.filter(Boolean).map((k) => String(k).toLowerCase());
+      for (const [colKey, info] of pmap.entries()) {
+        const lc = String(colKey || '').toLowerCase();
+        if (lowers.includes(lc)) return info.newValue;
+      }
+      return undefined;
+    };
     const strNorm = (v) => normalizeVanDonFilterWhitespace(String(v ?? ''));
 
     if (viewMode === 'ORDER_MANAGEMENT') {
@@ -1817,14 +1832,17 @@ function VanDon({ dataSource = 'default' }) {
                   return !isVanDonSemanticEmpty(v) && filter.values.has(v);
                 }
                 case 'delivery_status': {
-                  const o = getPendingOriginal(orderId, 'Trạng thái giao hàng', 'delivery_status');
-                  const v = o !== undefined ? strNorm(o) : strNorm(row['Trạng thái giao hàng'] || row.delivery_status || '');
+                  const cur = getPendingCurrent(orderId, 'delivery_status', 'Trạng thái giao hàng');
+                  const v = cur !== undefined ? strNorm(cur) : strNorm(row.delivery_status ?? '');
                   if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
                   return !isVanDonSemanticEmpty(v) && filter.values.has(v);
                 }
                 case 'delivery_status_nb': {
-                  // Dùng chính hàm resolve để khớp với logic hiển thị % fallback
-                  const v = resolveVanDonDeliveryStatusForNbColumn(row);
+                  const cur = getPendingCurrent(orderId, 'Trạng thái giao hàng NB', 'delivery_status_nb');
+                  const v =
+                    cur !== undefined
+                      ? cur
+                      : (row?.['Trạng thái giao hàng NB'] ?? row?.delivery_status_nb ?? '');
                   const normV = strNorm(v);
                   if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(normV)) return true;
                   return !isVanDonSemanticEmpty(normV) && filter.values.has(normV);
@@ -4566,7 +4584,9 @@ function VanDon({ dataSource = 'default' }) {
 
   const renderVanDonDataCell = useCallback((row, rIdx, col, cIdx, cellStyle) => {
     const orderId = getVanDonRowOrderId(row);
-    const key = COLUMN_MAPPING[col] || col;
+    // Cột FFM phải bám key DB `delivery_status`, không map sang NB.
+    const key = col === 'Trạng thái giao hàng' ? 'delivery_status' : (COLUMN_MAPPING[col] || col);
+    const pendingDisplayKey = key;
     let val = getVanDonGridCellValue(row, col);
     if (!val && col === 'Ngày up bill') {
       val = row.ngayupbill ?? row.ngay_up_bill ?? '';
@@ -4574,7 +4594,7 @@ function VanDon({ dataSource = 'default' }) {
     if (!val && col === 'Tiền đã thanh toán') {
       val = row.reconciled_vnd ?? '';
     }
-    const pendingInfo = pendingChanges.get(orderId)?.get(key);
+    const pendingInfo = pendingChanges.get(orderId)?.get(pendingDisplayKey);
     if (pendingInfo) {
       val = pendingInfo.newValue;
     }

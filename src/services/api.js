@@ -194,15 +194,12 @@ export const mapSupabaseOrderToApp = (sOrder) => {
 
     if (!appOrder["Ngày lên đơn"] && sOrder.order_date) appOrder["Ngày lên đơn"] = sOrder.order_date;
     if (!appOrder["Mã đơn hàng"]) appOrder["Mã đơn hàng"] = sOrder.order_code;
-    // NB: chỉ từ `delivery_status_nb`. Cột gộp «Trạng thái giao hàng» = FFM (`delivery_status`), tách biệt NB.
+    // Tách tuyệt đối 2 cột trạng thái: NB và FFM không fallback chéo.
     appOrder["Trạng thái giao hàng NB"] = sOrder.delivery_status_nb ?? '';
-    {
-        const ffmTrim =
-            sOrder.delivery_status != null && String(sOrder.delivery_status).trim() !== ''
-                ? String(sOrder.delivery_status).trim()
-                : '';
-        appOrder["Trạng thái giao hàng"] = ffmTrim;
-    }
+    appOrder["Trạng thái giao hàng"] =
+        sOrder.delivery_status != null && String(sOrder.delivery_status).trim() !== ''
+            ? String(sOrder.delivery_status).trim()
+            : '';
 
     if (sOrder.payment_bill) appOrder["Payment Bill"] = sOrder.payment_bill;
     if (sOrder.payment_image) appOrder["Payment Image"] = sOrder.payment_image;
@@ -1061,6 +1058,9 @@ function buildVanDonOrIlikeExact(field, values) {
 /** @param {string} uiKey — khóa trong filterValues (tiêu đề cột). */
 export function resolveVanDonFilterUiKeyToDb(uiKey) {
     if (!uiKey || typeof uiKey !== 'string') return null;
+    const uiNfc = String(uiKey).normalize('NFC');
+    if (uiNfc === 'Trạng thái giao hàng'.normalize('NFC')) return 'delivery_status';
+    if (uiNfc === 'Trạng thái giao hàng NB'.normalize('NFC')) return 'delivery_status_nb';
     const resolved = COLUMN_MAPPING[uiKey] || uiKey;
     const override = VAN_DON_UI_COL_DB_OVERRIDE[resolved] || VAN_DON_UI_COL_DB_OVERRIDE[uiKey];
     if (override) return override;
@@ -1927,7 +1927,8 @@ const VAN_DON_DISTINCT_DB_TO_UI_KEYS = {
     delivery_staff: ['NV Vận đơn'],
     shipping_unit: ['Đơn vị vận chuyển'],
     check_result: ['Kết quả Check', 'Kết quả check'],
-    delivery_status_nb: ['Trạng thái giao hàng NB', 'Trạng thái giao hàng'],
+    delivery_status: ['Trạng thái giao hàng'],
+    delivery_status_nb: ['Trạng thái giao hàng NB'],
     payment_status: ['Trạng thái thu tiền'],
     note_caps: ['GHI CHÚ'],
     vandon_note: ['Ghi chú của VĐ'],
