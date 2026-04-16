@@ -378,10 +378,11 @@ const VanDonRow = React.memo(function VanDonRow({
             position: 'sticky',
             left: cellStickyLeft,
             zIndex: 3100,
+            backgroundColor: '#f9fafb',
             ...colWidthStyles,
             overflow: 'visible',
             textOverflow: 'clip',
-            boxShadow: cIdx === effectiveFixedColumns - 1 ? '2px 0 0 #e5e7eb' : undefined
+            boxShadow: '2px 0 4px rgba(0,0,0,0.08)'
           }
           : { position: 'relative', zIndex: 10, ...colWidthStyles };
         return renderVanDonDataCell(row, rIdx, col, cIdx, cellStyle);
@@ -685,7 +686,6 @@ function VanDon({ dataSource = 'default' }) {
   const [appliedDateTo, setAppliedDateTo] = useState('');
   const [appliedEnableDateFilter, setAppliedEnableDateFilter] = useState(false);
   const [quickFilter, setQuickFilter] = useState('');
-  const [fixedColumns, setFixedColumns] = useState(2);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
 
   // Column visibility state — cột mới trong DEFAULT: bật mặc định nếu chưa có trong localStorage.
@@ -2791,15 +2791,21 @@ function VanDon({ dataSource = 'default' }) {
     const filtered = allColumns.filter(col => visibleColumns[col] === true);
     let cols = filtered;
 
-    // Không ép hiện «Cảnh báo trùng» khi user tắt trong Cài đặt cột (trước đây luôn chèn lại sau «Ngày lên đơn»).
+    // Luôn đẩy "Mã đơn hàng" lên đầu (cột cố định khi cuộn ngang)
+    const orderCodeCol = 'Mã đơn hàng';
+    if (cols.includes(orderCodeCol)) {
+      cols = [orderCodeCol, ...cols.filter(c => c !== orderCodeCol)];
+    }
 
-    // Trong tab "Hà Nội", đẩy cột "Đơn vị vận chuyển" lên đầu
+    // Trong tab "Hà Nội", đẩy cột "Đơn vị vận chuyển" lên ngay sau "Mã đơn hàng"
     if (bolActiveTab === 'hanoi') {
       const carrierCol = 'Đơn vị vận chuyển';
       const hasCarrier = cols.includes(carrierCol);
       if (hasCarrier) {
         const withoutCarrier = cols.filter(col => col !== carrierCol);
-        cols = [carrierCol, ...withoutCarrier];
+        const orderIdx = withoutCarrier.indexOf(orderCodeCol);
+        withoutCarrier.splice(orderIdx + 1, 0, carrierCol);
+        cols = withoutCarrier;
       }
     }
 
@@ -2998,19 +3004,8 @@ function VanDon({ dataSource = 'default' }) {
     sortRowsLikeDataGrid
   ]);
 
-  /** Luôn cố định tối thiểu 2 cột trái khi cuộn ngang. */
-  const effectiveFixedColumns = useMemo(() => {
-    const minFixed = Math.min(2, currentColumns.length);
-    const raw = Number(fixedColumns);
-    const n = Number.isFinite(raw) ? Math.floor(raw) : minFixed;
-    return Math.max(minFixed, Math.min(n, currentColumns.length));
-  }, [fixedColumns, currentColumns.length]);
-
-  /** Hai bảng: cột cố định ngoài vùng cuộn ngang (giống FFM). */
-  const splitPane =
-    effectiveFixedColumns > 0 && effectiveFixedColumns < currentColumns.length;
-  const frozenCols = splitPane ? currentColumns.slice(0, effectiveFixedColumns) : [];
-  const scrollCols = splitPane ? currentColumns.slice(effectiveFixedColumns) : [];
+  /** Luôn cố định cột đầu tiên (Mã đơn hàng). */
+  const effectiveFixedColumns = Math.min(1, currentColumns.length);
 
   const checkboxStickyPad = bolActiveTab === 'hanoi' ? VAN_DON_CHECKBOX_COL_PX : 0;
 
@@ -3195,15 +3190,6 @@ function VanDon({ dataSource = 'default' }) {
     root.scrollTop = next;
     /* Cuộn dọc chỉ trên root (tableRef); pane trái/phải di chuyển theo nội dung, không gán scrollTop riêng. */
   }, []);
-
-  /** Khi ẩn bớt cột, hạ số cố định nếu đang vượt quá số cột hiển thị */
-  useEffect(() => {
-    setFixedColumns((prev) => {
-      const n = Math.floor(Number(prev) || 0);
-      if (currentColumns.length === 0) return n;
-      return Math.min(n, currentColumns.length);
-    });
-  }, [currentColumns.length]);
 
   // Save column visibility to localStorage
   useEffect(() => {
@@ -4370,9 +4356,8 @@ function VanDon({ dataSource = 'default' }) {
       }
     }
 
-    // Fixed (sticky positioning được set bằng inline style để dùng offset chính xác)
     if (cIdx < effectiveFixedColumns) {
-      classes += "z-10 bg-gray-50 ";
+      classes += "z-10 ";
     }
 
     // Selection - Highlight cell nếu nằm trong vùng selection
@@ -5188,38 +5173,6 @@ function VanDon({ dataSource = 'default' }) {
                 ⚙️ Cài đặt cột
               </button>
 
-              <div
-                className="flex items-center gap-0.5 text-[11px] text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100"
-                title="Cố định chỉ ảnh hưởng khi kéo ngang (freeze cột), KHÔNG khóa chỉnh sửa ô. Nhập 0 để không ghim cột dữ liệu (cột checkbox tab Hà Nội vẫn ghim riêng)."
-              >
-                Cố định (freeze):
-                <input
-                  type="number"
-                  min={Math.min(2, currentColumns.length)}
-                  max={currentColumns.length}
-                  className="w-10 border-none bg-transparent focus:ring-0 text-center font-bold text-[#F37021]"
-                  value={fixedColumns}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (raw === '') {
-                      setFixedColumns(Math.min(2, currentColumns.length));
-                      return;
-                    }
-                    const v = Number(raw);
-                    const minFixed = Math.min(2, currentColumns.length);
-                    setFixedColumns(Number.isFinite(v) ? Math.max(minFixed, v) : minFixed);
-                  }}
-                  onBlur={() => {
-                    const minFixed = Math.min(2, currentColumns.length);
-                    setFixedColumns((p) =>
-                      Math.max(minFixed, Math.min(Math.floor(Number(p) || minFixed), currentColumns.length))
-                    );
-                  }}
-                />
-                <span className="text-[10px] opacity-70 tabular-nums">/ {currentColumns.length}</span>
-                <span className="text-[10px] text-gray-400 ml-1">vẫn sửa được</span>
-              </div>
-
               {/* Phân FFM button - chỉ hiển thị trong tab Hà Nội */}
               {bolActiveTab === 'hanoi' && (
                 <div className="relative" ref={phanFFMRef}>
@@ -5323,7 +5276,7 @@ function VanDon({ dataSource = 'default' }) {
                           const stickyLeft = getStickyLeftPx(idx);
                           const isFixed = idx < effectiveFixedColumns;
                           const style = isFixed
-                            ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa' }
+                            ? { position: 'sticky', left: stickyLeft, zIndex: 10200, background: '#f8f9fa', boxShadow: '2px 0 4px rgba(0,0,0,0.08)' }
                             : { position: 'relative', zIndex: 10200 };
                           return renderVanDonFilterTh(col, idx, style, isFixed && idx === effectiveFixedColumns - 1, isFixed);
                         })}

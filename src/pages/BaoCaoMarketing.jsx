@@ -566,9 +566,15 @@ export default function BaoCaoMarketing({
       setTableHeaders(headerMkt);
 
       let fetchedTeam = '';
-      const emTrim = String(email || '').trim();
-      if (emTrim) {
-        fetchedTeam = (await fetchUserTeamByEmailFromSupabase(emTrim)) || '';
+      const hotenTrim = String(hoten || '').trim();
+      if (hotenTrim) {
+        fetchedTeam = (await fetchUserTeamByNameFromSupabase(hotenTrim)) || '';
+      }
+      if (!fetchedTeam) {
+        const emTrim = String(email || '').trim();
+        if (emTrim) {
+          fetchedTeam = (await fetchUserTeamByEmailFromSupabase(emTrim)) || '';
+        }
       }
       if (!fetchedTeam) {
         try {
@@ -1320,6 +1326,12 @@ export default function BaoCaoMarketing({
 
       const submitLogin = String(userEmail || '').trim();
       let prefTeam = String(loginUserTeam || '').trim();
+      if (!prefTeam) {
+        const submitName = String(employeeNameFromUrl || getDisplayNameFromStoredUser() || '').trim();
+        if (submitName) {
+          prefTeam = await resolveTeamFromUsersByTen(submitName);
+        }
+      }
       if (!prefTeam && submitLogin) {
         prefTeam = (await fetchUserTeamByEmailFromSupabase(submitLogin)) || '';
       }

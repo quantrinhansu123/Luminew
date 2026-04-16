@@ -2000,6 +2000,22 @@ function FFM({ variant = 'MGT' }) {
       }
     }
 
+    const isShippingUnitCol = colKey === 'Đơn vị vận chuyển' || colKey === 'shipping_unit';
+    if (isShippingUnitCol && nextValue !== '') {
+      const nbKey = 'delivery_status_nb';
+      const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
+      const currentNb = pendingNb
+        ? pendingNb.newValue
+        : String(originalRow?.delivery_status_nb ?? originalRow?.['Trạng thái giao hàng NB'] ?? '').trim();
+      if (!currentNb) {
+        changes.push({
+          orderId,
+          colKey: nbKey,
+          originalValue: currentNb,
+          newValue: 'Chưa giao'
+        });
+      }
+    }
 
     pushChange(changes, { deferDbSave: true });
   }, [allData, pendingChanges, pushChange]);
@@ -2086,6 +2102,23 @@ function FFM({ variant = 'MGT' }) {
                 colKey: uiCol,
                 originalValue: String(currentUiValTracking),
                 newValue: todayStr
+              });
+            }
+          }
+
+          const isShippingUnit = dataKey === 'Đơn vị vận chuyển' || dataKey === 'shipping_unit';
+          if (isShippingUnit && valStr.trim() !== '') {
+            const nbKey = 'delivery_status_nb';
+            const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
+            const currentNb = pendingNb
+              ? pendingNb.newValue
+              : String(originalRow?.delivery_status_nb ?? originalRow?.['Trạng thái giao hàng NB'] ?? '').trim();
+            if (!currentNb) {
+              changesArray.push({
+                orderId,
+                colKey: nbKey,
+                originalValue: currentNb,
+                newValue: 'Chưa giao'
               });
             }
           }
@@ -2424,6 +2457,23 @@ function FFM({ variant = 'MGT' }) {
                 colKey: uiCol,
                 originalValue: String(currentUiVal || ''),
                 newValue: todayStr
+              });
+            }
+          }
+
+          const isShippingUnit = dataKey === 'Đơn vị vận chuyển' || dataKey === 'shipping_unit';
+          if (isShippingUnit && String(fillValue).trim() !== '') {
+            const nbKey = 'delivery_status_nb';
+            const pendingNb = pendingChanges.get(tid)?.get(nbKey);
+            const currentNb = pendingNb
+              ? pendingNb.newValue
+              : String(targetRow?.delivery_status_nb ?? targetRow?.['Trạng thái giao hàng NB'] ?? '').trim();
+            if (!currentNb) {
+              fillChanges.push({
+                orderId: tid,
+                colKey: nbKey,
+                originalValue: currentNb,
+                newValue: 'Chưa giao'
               });
             }
           }
@@ -2867,6 +2917,23 @@ function FFM({ variant = 'MGT' }) {
                   colKey: uiCol,
                   originalValue: String(currentUiVal),
                   newValue: todayStr
+                });
+              }
+            }
+
+            const isShippingUnit = dataKey === 'Đơn vị vận chuyển' || dataKey === 'shipping_unit';
+            if (isShippingUnit && String(pasteValue).trim() !== '') {
+              const nbKey = 'delivery_status_nb';
+              const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
+              const currentNb = pendingNb
+                ? pendingNb.newValue
+                : String(rowData?.delivery_status_nb ?? rowData?.['Trạng thái giao hàng NB'] ?? '').trim();
+              if (!currentNb) {
+                pasteChanges.push({
+                  orderId,
+                  colKey: nbKey,
+                  originalValue: currentNb,
+                  newValue: 'Chưa giao'
                 });
               }
             }
