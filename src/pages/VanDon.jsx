@@ -1152,8 +1152,7 @@ function VanDon({ dataSource = 'default' }) {
             )
           )
           : [],
-      // Tạm thời chỉ dùng quick search ở client để tránh lệch truy vấn API gây ẩn sạch kết quả.
-      customerQuickSearch: undefined,
+      customerQuickSearch: useBackendPagination ? appliedCustomerQuickSearch || undefined : undefined,
       canh_bao_filter:
         appliedFilterValues.canh_bao_filter === 'co_trung' || appliedFilterValues.canh_bao_filter === 'khong_trung'
           ? appliedFilterValues.canh_bao_filter
@@ -1288,7 +1287,7 @@ function VanDon({ dataSource = 'default' }) {
         columnFilters: activeFilters.columnFilters || {},
         trackingFilter: activeFilters.trackingFilter || null,
         bulkOrderCodes: activeFilters.bulkOrderCodes || [],
-        customerQuickSearch: undefined,
+        customerQuickSearch: activeFilters.customerQuickSearch,
         canh_bao_filter: activeFilters.canh_bao_filter,
         vanDonFetchMode
       });
@@ -1617,7 +1616,7 @@ function VanDon({ dataSource = 'default' }) {
     const activeDateType = viewMode === 'ORDER_MANAGEMENT' ? omDateType : appliedBolDateType;
 
     const traCuuKhach = normalizeVanDonFilterWhitespace(appliedCustomerQuickSearch);
-    if (traCuuKhach) {
+    if (traCuuKhach && !useBackendPagination) {
       const qLower = traCuuKhach.toLowerCase();
       const removeAccents = (str) => {
         return String(str || '')

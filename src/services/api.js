@@ -1032,6 +1032,9 @@ const VAN_DON_ILIKE_EXACT_DB_COLS = new Set([
 /** Escape giá trị trong PostgREST `in.(...)` hoặc `ilike."..."` khi ghép vào `.or(...)`. */
 const orEncodeQuoteValue = (v) => `"${String(v ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
+/** Quote một ILIKE pattern (đã có % wildcard) để dùng an toàn trong `.or()` PostgREST. */
+const quotePostgrestOrIlikePattern = (pat) => orEncodeQuoteValue(pat);
+
 /** Ghép điều kiện `col.ilike.val` cho `.or()` (PostgREST). */
 function buildVanDonOrIlikeExact(field, values) {
     if (field === 'tracking_code') {
