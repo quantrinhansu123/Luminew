@@ -2038,7 +2038,7 @@ export default function BaoCaoVanHanhHtml() {
                                 <th rowSpan={2} className="bg-[#FFC000] px-3 py-2 font-normal leading-tight">
                                     tỷ lệ đơn có bill
                                     <br />
-                                    / đơn có mã
+                                    / đơn thành công
                                 </th>
                             </tr>
                             <tr>
@@ -2103,7 +2103,7 @@ export default function BaoCaoVanHanhHtml() {
                                     {formatPct(tab1Operational.giaoTC, tab1Operational.tongNoiBo)}
                                 </td>
                                 <td className="px-3 py-2 font-extrabold tabular-nums">
-                                    {formatPct(tab1Operational.donCoBill, tab1Operational.coMa)}
+                                    {formatPct(tab1Operational.donCoBill, tab1Operational.giaoTC)}
                                 </td>
                             </tr>
                         </tbody>
@@ -2727,13 +2727,13 @@ export default function BaoCaoVanHanhHtml() {
                             {renderPctPair(formatPct(total.donCoBill, total.giaoTC))}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1">Tỷ lệ thu tiền / đơn có mã (%)</td>
+                            <td className="border border-black px-2 py-1">Tỷ lệ thu tiền / đơn thành công (%)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`tcm-${mk}`}>
-                                    {renderPctPair(formatPct(byMarket[mk].donCoBill, byMarket[mk].coMa))}
+                                    {renderPctPair(formatPct(byMarket[mk].donCoBill, byMarket[mk].giaoTC))}
                                 </React.Fragment>
                             ))}
-                            {renderPctPair(formatPct(total.donCoBill, total.coMa))}
+                            {renderPctPair(formatPct(total.donCoBill, total.giaoTC))}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
                             <td className="border border-black px-2 py-1">Tỷ lệ vận hành (Giao TC / Tổng lên đơn)</td>
