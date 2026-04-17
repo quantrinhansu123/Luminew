@@ -340,6 +340,71 @@
     color: #2c3e50;
 }
 
+/* --- Cố định các cột đầu khi cuộn ngang --- */
+.bcvd-summary-table th:first-child,
+.bcvd-summary-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 25;
+    background: #fff;
+}
+
+.bcvd-summary-table th:nth-child(2),
+.bcvd-summary-table td:nth-child(2) {
+    position: sticky;
+    left: 180px;
+    z-index: 24;
+    background: #fff;
+}
+
+.bcvd-summary-table thead th:first-child,
+.bcvd-summary-table thead th:nth-child(2) {
+    background: #2c3e50;
+    z-index: 30;
+}
+
+.bcvd-summary-table th:first-child,
+.bcvd-summary-table td:first-child {
+    min-width: 180px;
+}
+
+.bcvd-summary-table th:nth-child(2),
+.bcvd-summary-table td:nth-child(2) {
+    min-width: 180px;
+}
+
+.bcvd-data-table th:first-child,
+.bcvd-data-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 22;
+    background: #fff;
+}
+
+.bcvd-data-table th:nth-child(2),
+.bcvd-data-table td:nth-child(2) {
+    position: sticky;
+    left: 170px;
+    z-index: 21;
+    background: #fff;
+}
+
+.bcvd-data-table thead th:first-child,
+.bcvd-data-table thead th:nth-child(2) {
+    background: #2c3e50;
+    z-index: 26;
+}
+
+.bcvd-data-table th:first-child,
+.bcvd-data-table td:first-child {
+    min-width: 170px;
+}
+
+.bcvd-data-table th:nth-child(2),
+.bcvd-data-table td:nth-child(2) {
+    min-width: 170px;
+}
+
 .bcvd-text-positive {
     color: #27ae60;
     font-weight: bold;

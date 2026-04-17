@@ -3552,16 +3552,16 @@ function FFMMgtHcm() {
                       const lastFrozen = idx === effectiveFixedColumns - 1;
                       let stickyStyle = { ...colWidthStyles };
 
-                      // Vẫn hỗ trợ freeze cột ngang cho header
+                      // Freeze bằng translateX(scrollLeft) để ổn định hơn sticky trong layout phức tạp.
                       if (idx < effectiveFixedColumns) {
                         stickyStyle = {
                           ...stickyStyle,
-                          position: 'sticky',
-                          left: getStickyLeftPx(idx),
+                          position: 'relative',
                           zIndex: 11000,
                           background: '#f8f9fa',
                           backgroundClip: 'padding-box',
                           contain: 'none',
+                          transform: 'translateX(var(--ffm-sl, 0px))',
                           ...(lastFrozen ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.12)' } : {})
                         };
                       } else {
@@ -3597,8 +3597,11 @@ function FFMMgtHcm() {
               ref={ffmScrollContainerRef}
               className="flex-1 overflow-auto overscroll-contain bg-white relative"
               onScroll={(e) => {
+                const sl = e.target.scrollLeft || 0;
+                e.target.style.setProperty('--ffm-sl', `${sl}px`);
                 if (ffmHeaderContainerRef.current) {
-                  ffmHeaderContainerRef.current.scrollLeft = e.target.scrollLeft;
+                  ffmHeaderContainerRef.current.style.setProperty('--ffm-sl', `${sl}px`);
+                  ffmHeaderContainerRef.current.scrollLeft = sl;
                 }
               }}
             >
@@ -3615,10 +3618,10 @@ function FFMMgtHcm() {
                             const lastFrozenCol = cIdx === effectiveFixedColumns - 1;
                             const cellStyle = cIdx < effectiveFixedColumns
                               ? {
-                                position: 'sticky',
-                                left: getStickyLeftPx(cIdx),
+                                position: 'relative',
                                 zIndex: 20,
                                 ...colWidthStyles,
+                                transform: 'translateX(var(--ffm-sl, 0px))',
                                 ...(lastFrozenCol ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
                               }
                               : { ...colWidthStyles };
