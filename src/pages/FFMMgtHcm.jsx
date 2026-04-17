@@ -2320,6 +2320,9 @@ function FFMMgtHcm() {
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selection.startRow === null) return;
+        if (isInInput && active && !active.closest('td')) {
+          return;
+        }
         const bounds = getSelectionBounds();
         if (!bounds) return;
 

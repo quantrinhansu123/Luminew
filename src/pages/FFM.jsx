@@ -2722,6 +2722,10 @@ function FFM({ variant = 'MGT' }) {
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selection.startRow === null) return;
+        // Bộ lọc / textarea ngoài lưới (vd. «Dán nhiều Mã đơn hàng»): chỉ xóa chữ trong control — không xóa ô đã chọn trên bảng
+        if (isInInput && active && !active.closest('td')) {
+          return;
+        }
         const bounds = getSelectionBounds();
         if (!bounds) return;
 
