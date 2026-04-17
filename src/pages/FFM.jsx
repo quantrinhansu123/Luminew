@@ -3227,6 +3227,15 @@ function FFM({ variant = 'MGT' }) {
     }, 0);
   }, [getFilteredData]);
 
+  const onTableScroll = useCallback((e) => {
+    const sl = e.target.scrollLeft || 0;
+    e.target.style.setProperty('--vd-sl', `${sl}px`);
+    if (ffmHeaderContainerRef.current) {
+      ffmHeaderContainerRef.current.style.setProperty('--vd-sl', `${sl}px`);
+      ffmHeaderContainerRef.current.scrollLeft = sl;
+    }
+  }, []);
+
   const getCellClass = useCallback((row, col, val, rIdx, cIdx) => {
     let classes =
       'px-4 py-2.5 border border-gray-200 text-sm min-h-[38px] min-w-max align-top whitespace-normal break-words overflow-visible box-border ';
@@ -4027,7 +4036,7 @@ function FFM({ variant = 'MGT' }) {
                           background: '#f8f9fa',
                           backgroundClip: 'padding-box',
                           contain: 'none',
-                          transform: 'translateX(var(--ffm-sl, 0px))',
+                          transform: 'translateX(var(--vd-sl, 0px))',
                           ...(lastFrozen ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.12)' } : {})
                         };
                       } else {
@@ -4062,14 +4071,7 @@ function FFM({ variant = 'MGT' }) {
             <div
               ref={ffmScrollContainerRef}
               className="flex-1 overflow-auto overscroll-contain bg-white relative"
-              onScroll={(e) => {
-                const sl = e.target.scrollLeft || 0;
-                e.target.style.setProperty('--ffm-sl', `${sl}px`);
-                if (ffmHeaderContainerRef.current) {
-                  ffmHeaderContainerRef.current.style.setProperty('--ffm-sl', `${sl}px`);
-                  ffmHeaderContainerRef.current.scrollLeft = sl;
-                }
-              }}
+              onScroll={onTableScroll}
             >
               {renderFfmEmptyOverlay()}
               <table ref={tableRef} className={`${tableClassName} w-max`} style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
@@ -4085,9 +4087,9 @@ function FFM({ variant = 'MGT' }) {
                             const cellStyle = cIdx < effectiveFixedColumns
                               ? {
                                 position: 'relative',
-                                zIndex: 20,
+                                zIndex: 5000,
                                 ...colWidthStyles,
-                                transform: 'translateX(var(--ffm-sl, 0px))',
+                                transform: 'translateX(var(--vd-sl, 0px))',
                                 ...(lastFrozenCol ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.1)' } : {})
                               }
                               : { ...colWidthStyles };
