@@ -1,0 +1,1354 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Báo cáo Vận đơn - Tổng kết</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-color: #2980b9;
+            --primary-light: #3498db;
+            --primary-dark: #2c3e50;
+            --secondary-color: #f39c12;
+            --text-dark: #34495e;
+            --text-medium: #555;
+            --bg-light: #f5f7fa;
+            --border-color: #e0e0e0;
+            --font-main: 'Roboto', Arial, sans-serif;
+            --header-bg-dark: #34495e;
+        }
+
+        body {
+            font-family: var(--font-main);
+            padding: 20px;
+            background-color: var(--bg-light);
+            color: var(--text-dark);
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: auto;
+            margin-top: 20px;
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.07);
+        }
+
+        th,
+        td {
+            border: 1px solid var(--border-color);
+            padding: 14px 16px;
+            white-space: nowrap;
+            vertical-align: middle;
+            text-align: left;
+            transition: background-color 0.2s ease;
+        }
+
+        th {
+            text-align: center !important;
+            font-weight: 500;
+            background-color: var(--header-bg-dark);
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+
+        tbody tr:hover {
+            background-color: #f0f5f9;
+        }
+
+        tr.total-row {
+            background-color: #fff3cd !important;
+            color: #583d0c !important;
+            font-size: 1.5em !important;
+            font-weight: 700 !important;
+            border-top: 4px solid var(--primary-color) !important;
+            border-bottom: none;
+        }
+
+        #VanDonReport {
+            font-family: var(--font-main);
+            color: var(--text-dark);
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 25px;
+            align-items: center;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            flex-wrap: wrap;
+            gap: 15px 20px;
+        }
+
+        .controls .left-controls,
+        .controls .right-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .controls .date-filter {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .controls button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            color: white;
+            background-color: var(--primary-color);
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+        }
+
+        .controls button:hover {
+            background-color: var(--primary-light);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .clear-filter-btn {
+            background-color: var(--secondary-color) !important;
+        }
+
+        .clear-filter-btn:hover {
+            background-color: #e67e22 !important;
+        }
+
+        .controls .filter-select,
+        .controls input[type="date"],
+        .controls input[type="text"],
+        .controls select {
+            padding: 12px 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+            background-color: white;
+            min-width: 150px;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            padding: 15px 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            margin-top: 25px;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+        }
+
+        .chart-controls label {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 15px;
+        }
+
+        .table-wrapper {
+            position: relative;
+            overflow-x: hidden;
+            overflow-y: auto;
+            max-height: 75vh;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+            margin-top: 25px;
+        }
+
+        #VanDonReport table {
+            border-collapse: collapse;
+            width: 100%;
+            table-layout: fixed;
+            font-size: 15px;
+            box-shadow: none;
+        }
+
+        #VanDonReport th,
+        #VanDonReport td {
+            border: 1px solid #e0e0e0;
+            padding: 12px 15px;
+            white-space: normal;
+            word-wrap: break-word;
+            word-break: break-word;
+            background-color: white;
+            text-align: left;
+            overflow: hidden;
+        }
+
+        #VanDonReport th {
+            background-color: var(--header-bg-dark);
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            vertical-align: middle;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            text-align: center !important;
+        }
+
+        #VanDonReport .summary-table th:first-child,
+        #VanDonReport .summary-table td:first-child {
+            width: 180px;
+            min-width: 180px;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            position: sticky;
+            left: 0;
+            z-index: 21;
+            border-right: 2px solid #bdc3c7;
+        }
+
+        #VanDonReport .summary-table th:first-child {
+            z-index: 22;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 30px;
+            color: #7f8c8d;
+            font-style: italic;
+            font-size: 18px;
+        }
+
+        #charts-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 25px;
+        }
+
+        .chart-wrapper {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+            display: flex;
+            flex-direction: column;
+            min-height: 450px;
+        }
+
+        .chart-wrapper h3 {
+            text-align: center;
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #34495e;
+            font-size: 1.5em;
+            flex-shrink: 0;
+        }
+
+        .chart-canvas-container {
+            position: relative;
+            flex-grow: 1;
+            width: 100%;
+        }
+
+        .chart-wrapper canvas {
+            height: 80% !important;
+            width: 80% !important;
+        }
+
+        .summary-table td {
+            text-align: center;
+            font-weight: 500;
+            color: #34495e;
+        }
+
+        .positive {
+            color: #27ae60;
+            font-weight: bold;
+        }
+
+        .negative {
+            color: #c0392b;
+            font-weight: bold;
+        }
+
+        ::-webkit-scrollbar {
+            height: 12px;
+            width: 12px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            border-radius: 6px;
+            background-color: rgba(41, 128, 185, 0.7);
+            border: 3px solid var(--bg-light);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: var(--primary-color);
+        }
+
+        .multi-select-container {
+            position: relative;
+            display: inline-block;
+            min-width: 200px;
+        }
+
+        .multi-select-container button {
+            background-color: white;
+            color: var(--text-dark);
+            border: 1px solid #ccc;
+            font-size: 16px;
+            padding: 12px 15px;
+            text-align: left;
+            width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-radius: 5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-width: 180px;
+        }
+
+        .multi-select-container button::after {
+            content: "\f0d7";
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            margin-left: 8px;
+        }
+
+        .checkbox-dropdown {
+            display: none;
+            position: absolute;
+            background-color: #f9f9f9;
+            min-width: 100%;
+            box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+            z-index: 101;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            left: 0;
+            top: 100%;
+            margin-top: 5px;
+        }
+
+        .checkbox-dropdown.show {
+            display: block;
+        }
+
+        .checkbox-dropdown label {
+            display: flex;
+            align-items: center;
+            padding: 10px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+            white-space: nowrap;
+            color: var(--text-dark);
+            font-size: 15px;
+        }
+
+        .checkbox-dropdown label:hover {
+            background-color: #e0e0e0;
+        }
+
+        .checkbox-dropdown label input {
+            margin-right: 10px;
+        }
+
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+
+        .sortable-header::after {
+            content: ' \f0dc';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            color: rgba(255, 255, 255, 0.5);
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .sortable-header.sorted-desc::after {
+            content: ' \f0dd';
+            color: white;
+        }
+
+        .sortable-header.sorted-asc::after {
+            content: ' \f0de';
+            color: white;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: all 0.3s ease;
+            visibility: hidden;
+            opacity: 0;
+            backdrop-filter: blur(4px);
+        }
+
+        #loading-overlay.visible {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .loading-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .loader-spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid var(--primary-color);
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1.5s linear infinite;
+        }
+
+        .loading-text {
+            margin-top: 20px;
+            font-size: 1.4em;
+            font-weight: 500;
+            color: var(--primary-color);
+        }
+
+        .header-main {
+            background-color: #5d6d7e !important;
+        }
+
+        .header-tonghop {
+            background-color: #1abc9c !important;
+            color: #fff !important;
+        }
+
+        .header-lenvanhanh {
+            background-color: #3498db !important;
+            color: #fff !important;
+        }
+
+        .header-tyle {
+            background-color: #f1c40f !important;
+            color: #333 !important;
+        }
+
+        .summary-grand-total td {
+            background-color: inherit !important;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .controls,
+            .chart-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .controls .left-controls,
+            .controls .right-controls {
+                width: 100%;
+                justify-content: center;
+            }
+
+            #charts-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading-overlay">
+        <div class="loading-content">
+            <div class="loader-spinner"></div>
+            <div class="loading-text">Đang tải dữ liệu...</div>
+        </div>
+    </div>
+
+    <div id="VanDonReport">
+        <div id="contentReport">
+            <div class="controls">
+                <div class="left-controls"><span style="font-weight: bold; font-size: 18px;">Tùy chọn Báo cáo</span>
+                </div>
+                <div class="right-controls">
+                    <label style="display: flex; align-items: center; gap: 8px; white-space: nowrap;">Chọn nhanh:
+                        <select id="quick-date-vandon" class="quick-date-select">
+                            <option value="">-- Tùy chọn --</option>
+                            <optgroup label="Tuần">
+                                <option value="lastWeek">Tuần trước</option>
+                                <option value="thisWeek">Tuần này</option>
+                            </optgroup>
+                            <optgroup label="Tháng">
+                                <option value="thisMonth">Tháng này</option>
+                                <option value="month_1">Tháng 1</option>
+                                <option value="month_2">Tháng 2</option>
+                                <option value="month_3">Tháng 3</option>
+                                <option value="month_4">Tháng 4</option>
+                                <option value="month_5">Tháng 5</option>
+                                <option value="month_6">Tháng 6</option>
+                                <option value="month_7">Tháng 7</option>
+                                <option value="month_8">Tháng 8</option>
+                                <option value="month_9">Tháng 9</option>
+                                <option value="month_10">Tháng 10</option>
+                                <option value="month_11">Tháng 11</option>
+                                <option value="month_12">Tháng 12</option>
+                            </optgroup>
+                            <optgroup label="Quý">
+                                <option value="quarter_1">Quý 1</option>
+                                <option value="quarter_2">Quý 2</option>
+                                <option value="quarter_3">Quý 3</option>
+                                <option value="quarter_4">Quý 4</option>
+                            </optgroup>
+                        </select>
+                    </label>
+                    <div class="date-filter"><span>Từ:</span><input type="date"
+                            id="reportStartDateFilter" /><span>Đến:</span><input type="date" id="reportEndDateFilter" />
+                    </div>
+                    <div class="multi-select-container"><button id="reportTeamFilterBtn">Tất cả Team</button>
+                        <div id="reportTeamDropdown" class="checkbox-dropdown"></div>
+                    </div>
+                    <div class="multi-select-container"><button id="reportStaffFilterBtn">Tất cả NV Vận đơn</button>
+                        <div id="reportStaffDropdown" class="checkbox-dropdown"></div>
+                    </div>
+                    <div class="multi-select-container"><button id="reportProductFilterBtn">Tất cả sản phẩm</button>
+                        <div id="reportProductDropdown" class="checkbox-dropdown"></div>
+                    </div>
+                    <div class="multi-select-container"><button id="reportMarketFilterBtn">Tất cả khu vực</button>
+                        <div id="reportMarketDropdown" class="checkbox-dropdown"></div>
+                    </div>
+                    <div class="multi-select-container">
+                        <button id="reportTrackingFilterBtn">Tất cả mã tracking</button>
+                        <div id="reportTrackingDropdown" class="checkbox-dropdown" style="min-width: 200px;">
+                            <label style="font-weight: bold; border-bottom: 1px solid #ccc; padding-bottom: 5px;">
+                                <input type="checkbox" id="reportTrackingSelectAll"> Chọn tất cả
+                            </label>
+                            <label><input type="checkbox" value="not-empty"> Tất cả có mã</label>
+                            <label><input type="checkbox" value="empty"> Trống</label>
+                            <label><input type="checkbox" value="numeric-start"> Toàn số</label>
+                        </div>
+                    </div>
+                    <button id="reportClearFilters" class="clear-filter-btn">Xóa lọc</button>
+                </div>
+            </div>
+
+            <div class="chart-controls">
+                <label><input type="checkbox" id="toggleAllCharts" checked> <b>Tất cả biểu đồ</b></label>
+                <label><input type="checkbox" class="chart-toggle" data-chart-id="statusBreakdownChart" checked> Phân
+                    tích Trạng thái</label>
+                <label><input type="checkbox" class="chart-toggle" data-chart-id="funnelChart" checked> Phân tích Kênh
+                    Vận hành</label>
+                <label><input type="checkbox" class="chart-toggle" data-chart-id="staffPerformanceChart" checked> Hiệu
+                    suất NV</label>
+                <label><input type="checkbox" class="chart-toggle" data-chart-id="staffSuccessRateChart" checked> Tỉ lệ
+                    thu tiền</label>
+            </div>
+
+            <div id="charts-container">
+                <div class="chart-wrapper">
+                    <h3>Phân tích Trạng thái Giao hàng</h3>
+                    <div class="chart-canvas-container">
+                        <canvas id="statusBreakdownChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <h3>Phân tích Kênh Vận hành</h3>
+                    <div class="chart-canvas-container">
+                        <canvas id="funnelChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <h3>Hiệu suất theo NV Vận đơn</h3>
+                    <div class="chart-canvas-container">
+                        <canvas id="staffPerformanceChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <h3>Tỉ lệ thu tiền / Giao thành công</h3>
+                    <div class="chart-canvas-container">
+                        <canvas id="staffSuccessRateChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <h3 style="text-align: center; color: #2c3e50; margin-bottom: 20px; font-size: 1.8em;">Báo cáo chi tiết
+                </h3>
+                <table class="summary-table">
+                    <!-- ===== START: HTML MODIFICATION ===== -->
+                    <thead>
+                        <tr>
+                            <th rowspan="2" class="header-main">NV Vận đơn</th>
+                            <th colspan="2" class="header-tonghop">Đã Thanh Toán (có bill)</th>
+                            <th rowspan="2" class="sortable-header header-tonghop">Bill 1 phần</th>
+                            <th rowspan="2" class="sortable-header header-tonghop">Tổng đơn lên nội bộ</th>
+                            <th rowspan="2" class="sortable-header header-tonghop">Tổng đơn đủ đkien đẩy vh</th>
+                            <th rowspan="2" class="sortable-header header-tonghop">Hoàn vận hành</th>
+                            <th rowspan="2" class="sortable-header header-tonghop">Tổng đơn lên vận hành chưa mã</th>
+                            <th rowspan="2" class="sortable-header header-tonghop">Đơn OK chưa đẩy đi</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh">Giao Thành Công</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh">Đang Giao</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh">Chưa Giao</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh">chờ check</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh">Trống trạng thái</th>
+                            <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ đơn lên vận hành</th>
+                            <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ thu tiền/giao thành công</th>
+                            <th rowspan="2" class="sortable-header header-tyle">Tỷ lệ TT thành công/Đơn tính phí</th>
+                        </tr>
+                        <tr>
+                            <th class="sortable-header header-tonghop">Số đơn</th>
+                            <th class="sortable-header header-tonghop">Thành Tiền</th>
+                        </tr>
+                    </thead>
+                    <!-- ===== END: HTML MODIFICATION ===== -->
+                    <tbody id="summaryTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const loader = document.getElementById('loading-overlay');
+            const showLoader = () => loader.classList.add('visible');
+            const hideLoader = () => loader.classList.remove('visible');
+            let globalData = [];
+
+            function formatDateForInputLocal(date) {
+                if (!date) return '';
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const d = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            }
+            const dateRangeHandler = {
+                formatDateForInput: formatDateForInputLocal,
+                getRange: function (value) {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    let startDate, endDate;
+                    switch (value) {
+                        case 'thisWeek':
+                            {
+                                const d = new Date(now);
+                                const day = (d.getDay() === 0) ? 6 : d.getDay() - 1;
+                                d.setDate(d.getDate() - day);
+                                startDate = d;
+                                endDate = new Date(d);
+                                endDate.setDate(d.getDate() + 6);
+                                break;
+                            }
+                        case 'lastWeek':
+                            {
+                                const d = new Date(now);
+                                const day = (d.getDay() === 0) ? 6 : d.getDay() - 1;
+                                d.setDate(d.getDate() - day - 7);
+                                startDate = d;
+                                endDate = new Date(d);
+                                endDate.setDate(d.getDate() + 6);
+                                break;
+                            }
+                        case 'thisMonth':
+                            startDate = new Date(year, now.getMonth(), 1);
+                            endDate = new Date(year, now.getMonth() + 1, 0);
+                            break;
+                        default:
+                            if (value.startsWith('month_')) {
+                                const m = parseInt(value.split('_')[1], 10) - 1;
+                                if (!isNaN(m)) {
+                                    startDate = new Date(year, m, 1);
+                                    endDate = new Date(year, m + 1, 0);
+                                }
+                            }
+                            if (value.startsWith('quarter_')) {
+                                const q = parseInt(value.split('_')[1], 10);
+                                if (!isNaN(q)) {
+                                    const sm = (q - 1) * 3;
+                                    startDate = new Date(year, sm, 1);
+                                    endDate = new Date(year, sm + 3, 0);
+                                }
+                            }
+                    }
+                    return startDate && endDate ? {
+                        startDate: this.formatDateForInput(startDate),
+                        endDate: this.formatDateForInput(endDate)
+                    } : null;
+                }
+            };
+
+            function setupQuickDateSelect(quickSelectId, startDateId, endDateId, changeTriggerElementId) {
+                const q = document.getElementById(quickSelectId),
+                    s = document.getElementById(startDateId),
+                    e = document.getElementById(endDateId),
+                    t = document.getElementById(changeTriggerElementId);
+                if (q && s && e && t) q.addEventListener('change', (ev) => {
+                    const r = dateRangeHandler.getRange(ev.target.value);
+                    s.value = r ? r.startDate : '';
+                    e.value = r ? r.endDate : '';
+                    t.dispatchEvent(new Event('change', {
+                        bubbles: true
+                    }));
+                });
+            }
+
+            function parseOrderDateToMs(value) {
+                if (!value) return NaN;
+                const raw = String(value).trim();
+                const d1 = new Date(raw);
+                if (!isNaN(d1.getTime())) return d1.getTime();
+                const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+                if (m) {
+                    const dd = Number(m[1]);
+                    const mm = Number(m[2]) - 1;
+                    const yy = Number(m[3]);
+                    const d2 = new Date(yy, mm, dd);
+                    return isNaN(d2.getTime()) ? NaN : d2.getTime();
+                }
+                return NaN;
+            }
+
+            function normalizeApiRowsPayload(payload) {
+                if (Array.isArray(payload)) return { rows: payload };
+                if (payload && typeof payload === 'object') {
+                    if (Array.isArray(payload.rows)) return { rows: payload.rows };
+                    if (Array.isArray(payload.data)) return { rows: payload.data };
+                    return { rows: Object.values(payload).filter(item => item && typeof item === 'object') };
+                }
+                return { rows: [] };
+            }
+
+            function getRowValue(row, ...keys) {
+                for (const k of keys) {
+                    if (row[k] !== undefined && row[k] !== null && row[k] !== '') return row[k];
+                }
+                return '';
+            }
+
+            function normalizeSourceRow(row) {
+                return {
+                    ...row,
+                    "Mã đơn hàng": getRowValue(row, "Mã đơn hàng", "Mã_đơn_hàng"),
+                    "Ngày lên đơn": getRowValue(row, "Ngày lên đơn", "Ngày_lên_đơn", "Thời gian lên đơn"),
+                    "Mặt hàng": getRowValue(row, "Mặt hàng", "Mặt_hàng"),
+                    "Khu vực": getRowValue(row, "Khu vực", "Khu_vực"),
+                    "khu vực": getRowValue(row, "khu vực", "Khu_vực", "Khu vực"),
+                    "NV Vận đơn": getRowValue(row, "NV Vận đơn", "NV_Vận_đơn"),
+                    "Team": getRowValue(row, "Team", "Chi nhánh", "Chi_nhánh"),
+                    "Mã Tracking": getRowValue(row, "Mã Tracking", "Mã_Tracking"),
+                    "Đơn vị vận chuyển": getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển"),
+                    "Kết quả Check": getRowValue(row, "Kết quả Check", "Kết_quả_Check"),
+                    "Trạng thái thu tiền": getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"),
+                    "Trạng thái giao hàng NB": getRowValue(row, "Trạng thái giao hàng NB", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"),
+                    "Tổng tiền VNĐ": getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ"),
+                };
+            }
+
+function handleData(response) {
+                hideLoader();
+                if (response.error || !Array.isArray(response.rows)) {
+                    vanDonReportApp.showError('Lỗi hoặc không có dữ liệu: ' + (response.error || 'Định dạng dữ liệu không đúng'));
+                    return;
+                }
+                // Khớp logic vận hành: chỉ tính trên đơn có mã đơn hàng.
+                globalData = response.rows
+                    .map(normalizeSourceRow)
+                    .filter(r => getRowValue(r, "Mã đơn hàng", "Mã_đơn_hàng"));
+                vanDonReportApp.populateReportFilters();
+                vanDonReportApp.applyAllFilters();
+            }
+
+            function loadData() {
+                showLoader();
+                vanDonReportApp.showError('Đang tải dữ liệu, vui lòng chờ...');
+                vanDonReportApp.updateCharts([]);
+                const apiUrl = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json';
+                fetch(apiUrl)
+                    .then(response => {
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        return response.json();
+                    })
+                    .then(data => handleData(normalizeApiRowsPayload(data)))
+                    .catch(error => {
+                        console.error('Đã xảy ra lỗi khi tải dữ liệu:', error.message);
+                        let userMessage = 'Tải dữ liệu thất bại. Vui lòng kiểm tra kết nối mạng và địa chỉ API.';
+
+                        if (error instanceof TypeError && error.message === 'Failed to fetch') {
+                            userMessage += ' (Lỗi có thể do CORS hoặc mạng không ổn định). Hãy kiểm tra Console (F12) để biết thêm chi tiết.';
+                        } else {
+                            userMessage += ` (Chi tiết lỗi: ${error.message})`;
+                        }
+
+                        vanDonReportApp.showError(userMessage);
+                    });
+            }
+
+            function setupChartToggles() {
+                const tAll = document.getElementById('toggleAllCharts'),
+                    tgs = document.querySelectorAll('.chart-toggle');
+                if (!tAll) return;
+                const update = () => {
+                    let all = true;
+                    tgs.forEach(t => {
+                        const w = document.getElementById(t.dataset.chartId)?.closest('.chart-wrapper');
+                        if (w) {
+                            w.style.display = t.checked ? 'flex' : 'none';
+                            if (!t.checked) all = false;
+                        }
+                    });
+                    tAll.checked = all;
+                };
+                tAll.addEventListener('change', () => {
+                    tgs.forEach(t => t.checked = tAll.checked);
+                    update();
+                });
+                tgs.forEach(t => t.addEventListener('change', update));
+                update();
+            }
+            const vanDonReportApp = {
+                chartInstances: {},
+                sortState: null,
+                lastSummaryRows: [],
+                lastGrandTotal: null,
+                init: function () {
+                    this.setupControls();
+                    setupQuickDateSelect('quick-date-vandon', 'reportStartDateFilter', 'reportEndDateFilter', 'reportEndDateFilter');
+                    setupChartToggles();
+                    this.setupSummarySorting();
+                },
+                showError: function (message) {
+                    const tbody = document.getElementById('summaryTableBody');
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="17" class="no-data">${message}</td></tr>`;
+                    hideLoader();
+                },
+                createEmptyStats: () => ({
+                    "Đã Thanh Toán (có bill)": { count: 0, amount: 0 },
+                    "Bill 1 phần": { count: 0 },
+                    "Tổng đơn lên nội bộ": { count: 0 },
+                    "Tổng đơn đủ đkien đẩy vh": { count: 0 },
+                    "Tổng đơn lên vận hành": { count: 0 },
+                    "Tổng đơn chưa lên vận hành": { count: 0 },
+                    "Đơn Ok chưa đẩy đi": { count: 0 },
+                    "Giao Thành Công": { count: 0 },
+                    "Đang Giao": { count: 0 },
+                    "Chưa Giao": { count: 0 },
+                    "Hoàn": { count: 0 },
+                    "chờ check": { count: 0 },
+                    "Trống trạng thái": { count: 0 },
+                    "Tổng đơn OK": { count: 0 },
+                    "Tổng đơn có dvvc": { count: 0 },
+                    "Tổng đơn có mã tracking": { count: 0 }
+                }),
+                updateDetailedSummaryTable: function (filteredData) {
+                    const tbody = document.getElementById('summaryTableBody');
+                    tbody.innerHTML = '';
+                    if (filteredData.length === 0) {
+                        this.showError('Không có dữ liệu báo cáo khớp với bộ lọc.');
+                        return;
+                    }
+                    this.buildSummaryData(filteredData);
+                    this.renderSummaryTable();
+                },
+                updateCharts: function (filteredData) {
+                    Object.values(this.chartInstances).forEach(chart => chart.destroy());
+                    this.chartInstances = {};
+                    if (filteredData.length === 0) return;
+
+                    const statusCtx = document.getElementById('statusBreakdownChart')?.getContext('2d');
+                    if (statusCtx) {
+                        const statusCounts = { 'Giao Thành Công': 0, 'Hoàn': 0, 'Đang Giao': 0, 'chờ check': 0, 'Khác': 0 };
+                        filteredData.forEach(r => {
+                            const s = r["Trạng thái giao hàng NB"] || "";
+                            if (s.includes("Giao Thành Công")) statusCounts['Giao Thành Công']++;
+                            else if (s.includes("Hoàn")) statusCounts['Hoàn']++;
+                            else if (s.includes("Đang Giao")) statusCounts['Đang Giao']++;
+                            else if (s.includes("chờ check")) statusCounts['chờ check']++;
+                            else if (s) statusCounts['Khác']++;
+                        });
+                        const sortedStatus = Object.entries(statusCounts).sort(([, a], [, b]) => b - a);
+                        this.chartInstances.status = new Chart(statusCtx, {
+                            type: 'doughnut',
+                            data: {
+                                labels: sortedStatus.map(e => e[0]),
+                                datasets: [{
+                                    data: sortedStatus.map(e => e[1]),
+                                    backgroundColor: ['#2ecc71', '#e74c3c', '#3498db', '#f1c40f', '#95a5a6']
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { position: 'bottom' },
+                                    datalabels: { color: '#fff', font: { weight: 'bold' }, formatter: (v, c) => (v > 0 ? (v * 100 / c.chart.getDatasetMeta(0).total).toFixed(1) + '%' : '') }
+                                }
+                            },
+                            plugins: [ChartDataLabels]
+                        });
+                    }
+                    const funnelCtx = document.getElementById('funnelChart')?.getContext('2d');
+                    if (funnelCtx) {
+                        const funnelStats = { "Tổng đơn nội bộ": 0, "Đơn lên vận hành": 0, "Giao thành công": 0, "Có bill": 0, "Có bill 1 phần": 0 };
+                        filteredData.forEach(r => {
+                            funnelStats["Tổng đơn nội bộ"]++;
+                            if ((r["Mã Tracking"] || "").trim()) funnelStats["Đơn lên vận hành"]++;
+                            if ((r["Trạng thái giao hàng NB"] || "").includes("Giao Thành Công")) funnelStats["Giao thành công"]++;
+                            if ((r["Trạng thái thu tiền"] || "").includes("Có bill 1 phần")) funnelStats["Có bill 1 phần"]++;
+                            else if ((r["Trạng thái thu tiền"] || "").includes("Có bill")) funnelStats["Có bill"]++;
+                        });
+                        this.chartInstances.funnel = new Chart(funnelCtx, {
+                            type: 'bar',
+                            plugins: [ChartDataLabels],
+                            data: {
+                                labels: Object.keys(funnelStats),
+                                datasets: [{ data: Object.values(funnelStats), backgroundColor: ['#3498db', '#f39c12', '#27ae60', '#ffcd56', '#ff9f40'] }]
+                            },
+                            options: {
+                                indexAxis: 'y',
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    datalabels: { anchor: 'end', align: 'right', color: 'black', font: { weight: 'bold' }, formatter: v => v > 0 ? v.toLocaleString('vi-VN') : '' }
+                                }
+                            }
+                        });
+                    }
+                    const staffData = {};
+                    filteredData.forEach(r => {
+                        const staff = r["NV Vận đơn"] || "Chưa có NV";
+                        if (!staffData[staff]) staffData[staff] = { success: 0, returned: 0, paid: 0 };
+                        const status = r["Trạng thái giao hàng NB"] || "";
+                        if (status.includes("Giao Thành Công")) staffData[staff].success++;
+                        else if (status.includes("Hoàn")) staffData[staff].returned++;
+                        if ((r["Trạng thái thu tiền"] || "").includes("Có bill")) staffData[staff].paid++;
+                    });
+                    const staffPerfCtx = document.getElementById('staffPerformanceChart')?.getContext('2d');
+                    if (staffPerfCtx) {
+                        let perfArray = Object.entries(staffData).map(([s, d]) => ({ staff: s, ...d })).sort((a, b) => b.success - a.success);
+                        this.chartInstances.staffPerf = new Chart(staffPerfCtx, {
+                            type: 'bar',
+                            data: {
+                                labels: perfArray.map(i => i.staff),
+                                datasets: [{ label: 'Thành Công', data: perfArray.map(i => i.success), backgroundColor: '#2ecc71' }, { label: 'Hoàn', data: perfArray.map(i => i.returned), backgroundColor: '#e74c3c' }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+                                plugins: { legend: { position: 'bottom' } }
+                            }
+                        });
+                    }
+                    const staffRateCtx = document.getElementById('staffSuccessRateChart')?.getContext('2d');
+                    if (staffRateCtx) {
+                        let rateArray = Object.entries(staffData).map(([s, d]) => ({ staff: s, ...d, rate: d.success > 0 ? (d.paid * 100 / d.success) : 0 })).sort((a, b) => b.rate - a.rate);
+                        this.chartInstances.staffRate = new Chart(staffRateCtx, {
+                            type: 'bar',
+                            plugins: [ChartDataLabels],
+                            data: {
+                                labels: rateArray.map(i => i.staff),
+                                datasets: [{ label: 'Tỷ lệ thu tiền / giao thành công (%)', data: rateArray.map(i => i.rate), backgroundColor: '#36A2EB' }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: { y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } } },
+                                plugins: {
+                                    legend: { position: 'bottom' },
+                                    tooltip: { callbacks: { label: c => `${c.dataset.label || ''}: ${c.parsed.y.toFixed(1)}%` } },
+                                    datalabels: { anchor: 'end', align: 'top', formatter: v => v > 0 ? v.toFixed(1) + '%' : '', color: '#333', font: { weight: 'bold' } }
+                                }
+                            }
+                        });
+                    }
+                },
+                // ===== START: JAVASCRIPT MODIFICATION (buildSummaryData) =====
+                buildSummaryData: function (filteredData) {
+                    const staffStats = {};
+                    const grandTotal = this.createEmptyStats();
+                    filteredData.forEach(row => {
+                        const staffName = row["NV Vận đơn"] || "Chưa có NV";
+                        if (!staffStats[staffName]) staffStats[staffName] = this.createEmptyStats();
+                        const statsToUpdate = [staffStats[staffName], grandTotal];
+                        const amount = parseFloat(String(getRowValue(row, "Tổng tiền VNĐ", "Tổng_tiền_VNĐ") || '0').replace(/[^\d.-]/g, '')) || 0;
+                        const payment = String(getRowValue(row, "Trạng thái thu tiền", "Trạng_thái_thu_tiền"));
+                        const delivery = String(getRowValue(row, "Trạng thái giao hàng NB", "Trạng thái giao hàng", "Trạng_thái_giao_hàng_NB", "Trạng_thái_giao_hàng"));
+                        const ketQuaCheck = String(getRowValue(row, "Kết quả Check", "Kết_quả_Check")).trim().toUpperCase();
+                        const maTracking = String(getRowValue(row, "Mã Tracking", "Mã_Tracking")).trim();
+                        const dvvc = String(getRowValue(row, "Đơn vị vận chuyển", "Đơn_vị_vận_chuyển")).trim();
+                        statsToUpdate.forEach(stats => {
+                            stats["Tổng đơn lên nội bộ"].count++;
+                            if (ketQuaCheck === "OK") {
+                                stats["Tổng đơn đủ đkien đẩy vh"].count++;
+                                stats["Tổng đơn OK"].count++;
+                                if (dvvc === "") {
+                                    stats["Đơn Ok chưa đẩy đi"].count++;
+                                }
+                            }
+                            if (maTracking !== "") {
+                                stats["Tổng đơn có mã tracking"].count++;
+                            }
+                            if(dvvc !== "") {
+                                stats["Tổng đơn có dvvc"].count++;
+                            }
+                            // Khớp logic trang báo cáo mới: đơn có ĐVVC được coi là đã lên vận hành.
+                            if (dvvc !== "") {
+                                stats["Tổng đơn lên vận hành"].count++;
+                            }
+                            if (dvvc !== "" && maTracking === "") {
+                                stats["Tổng đơn chưa lên vận hành"].count++;
+                            }
+                            if (payment.includes("Có bill 1 phần")) {
+                                stats["Bill 1 phần"].count++;
+                            } else if (payment.includes("Có bill")) {
+                                stats["Đã Thanh Toán (có bill)"].count++;
+                                stats["Đã Thanh Toán (có bill)"].amount += amount;
+                            }
+                            if(ketQuaCheck === "OK" && payment === "" && delivery === "") {
+                                stats["Trống trạng thái"].count++;
+                            }
+                            const deliveryLower = delivery.toLowerCase();
+                            if (deliveryLower.includes("giao thành công") || deliveryLower.includes("đơn thành công")) stats["Giao Thành Công"].count++;
+                            else if (delivery.includes("Đang Giao")) stats["Đang Giao"].count++;
+                            else if (delivery.includes("Chưa Giao")) stats["Chưa Giao"].count++;
+                            else if (delivery.includes("Hoàn")) stats["Hoàn"].count++;
+                            else if (delivery.includes("chờ check")) stats["chờ check"].count++;
+                        });
+                    });
+                    this.lastSummaryRows = Object.keys(staffStats).map(staff => {
+                        const s = staffStats[staff];
+                        return {
+                            staff,
+                            paidCount: s["Đã Thanh Toán (có bill)"].count,
+                            paidAmount: s["Đã Thanh Toán (có bill)"].amount,
+                            partialCount: s["Bill 1 phần"].count,
+                            totalInternal: s["Tổng đơn lên nội bộ"].count,
+                            eligible: s["Tổng đơn đủ đkien đẩy vh"].count,
+                            
+                            hoanVanHanh: s["Hoàn"].count, // <-- CHANGE 1: Cột "Hoàn vận hành" lấy dữ liệu từ "Hoàn"
+                            shippedTotal: s["Tổng đơn lên vận hành"].count, // <-- Giữ lại để tính toán tỷ lệ
+
+                            notYetShipped: s["Tổng đơn chưa lên vận hành"].count,
+                            okNotPushed: s["Đơn Ok chưa đẩy đi"].count,
+                            success: s["Giao Thành Công"].count,
+                            inTransit: s["Đang Giao"].count,
+                            notShipped: s["Chưa Giao"].count,
+                            returned: s["Hoàn"].count,
+                            pendingCheck: s["chờ check"].count,
+                            emptyStatus: s["Trống trạng thái"].count,
+                            okCount: s["Tổng đơn OK"].count, // Giữ để debug
+
+                            // Khớp công thức trên trang Báo cáo vận đơn mới.
+                            shipRate: s["Tổng đơn lên nội bộ"].count > 0 ? (s["Tổng đơn lên vận hành"].count / s["Tổng đơn lên nội bộ"].count * 100) : 0,
+                            
+                            paymentRate: s["Giao Thành Công"].count > 0 ? (s["Đã Thanh Toán (có bill)"].count / s["Giao Thành Công"].count * 100) : 0,
+                            
+                            // <-- Logic tính toán tỷ lệ không đổi, chỉ thay đổi cách hiển thị
+                            ttThanhCongTrenDonTinhPhi: s["Tổng đơn lên vận hành"].count > 0 ? (s["Đã Thanh Toán (có bill)"].count / s["Tổng đơn lên vận hành"].count * 100) : 0,
+
+                            billOkTrenGiaoThanhCong: s["Giao Thành Công"].count > 0 ? ((s["Đã Thanh Toán (có bill)"].count + s["Bill 1 phần"].count) / s["Giao Thành Công"].count * 100) : 0
+                        };
+                    });
+                    this.lastGrandTotal = grandTotal;
+                },
+                // ===== END: JAVASCRIPT MODIFICATION (buildSummaryData) =====
+
+                // ===== START: JAVASCRIPT MODIFICATION (renderSummaryTable) =====
+                renderSummaryTable: function () {
+                    const tbody = document.getElementById('summaryTableBody');
+                    tbody.innerHTML = '';
+                    const g = this.lastGrandTotal;
+                    if (g) {
+                        const tr = document.createElement('tr');
+                        tr.className = 'summary-grand-total total-row';
+                        
+                        // Tính toán các tỷ lệ cho dòng tổng
+                        const tongTyLeDonLenVanHanh = g["Tổng đơn lên nội bộ"].count > 0 ? (g["Tổng đơn lên vận hành"].count / g["Tổng đơn lên nội bộ"].count * 100) : 0;
+                        const tongTyLeTTThanhCong = g["Tổng đơn lên vận hành"].count > 0 ? (g["Đã Thanh Toán (có bill)"].count / g["Tổng đơn lên vận hành"].count * 100) : 0;
+
+                        const tongTyLeThuTien = g["Giao Thành Công"].count > 0 ? (g["Đã Thanh Toán (có bill)"].count / g["Giao Thành Công"].count * 100) : 0;
+                        tr.innerHTML = `<td>TỔNG TOÀN BỘ</td>
+                                        <td>${g["Đã Thanh Toán (có bill)"].count}</td>
+                                        <td>${new Intl.NumberFormat('vi-VN').format(g["Đã Thanh Toán (có bill)"].amount)} ₫</td>
+                                        <td>${g["Bill 1 phần"].count}</td>
+                                        <td>${g["Tổng đơn lên nội bộ"].count}</td>
+                                        <td>${g["Tổng đơn đủ đkien đẩy vh"].count}</td>
+                                        <td>${g["Hoàn"].count}</td>
+                                        <td>${g["Tổng đơn chưa lên vận hành"].count}</td>
+                                        <td>${g["Đơn Ok chưa đẩy đi"].count}</td>
+                                        <td>${g["Giao Thành Công"].count}</td>
+                                        <td>${g["Đang Giao"].count}</td>
+                                        <td>${g["Chưa Giao"].count}</td>
+                                        <td>${g["chờ check"].count}</td>
+                                        <td>${g["Trống trạng thái"].count}</td>
+                                        <td>(${g["Tổng đơn lên vận hành"].count} / ${g["Tổng đơn lên nội bộ"].count}) = ${tongTyLeDonLenVanHanh.toFixed(1)}%</td>
+                                        <td>(${g["Đã Thanh Toán (có bill)"].count} / ${g["Giao Thành Công"].count}) = ${tongTyLeThuTien.toFixed(1)}%</td>
+                                        <td>(${g["Đã Thanh Toán (có bill)"].count} / ${g["Tổng đơn lên vận hành"].count}) = ${tongTyLeTTThanhCong.toFixed(1)}%</td>`;
+                        tbody.appendChild(tr);
+                    }
+                    let rows = [...this.lastSummaryRows];
+                    const st = this.sortState || {};
+                    if (st.key) {
+                        rows.sort((a, b) => {
+                            const va = a[st.key], vb = b[st.key];
+                            if (va < vb) return st.dir === 'asc' ? -1 : 1;
+                            if (va > vb) return st.dir === 'asc' ? 1 : -1;
+                            return 0;
+                        });
+                    } else {
+                        rows.sort((a, b) => a.staff.localeCompare(b.staff, 'vi'));
+                    }
+                    rows.forEach(r => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${r.staff}</td>
+                                        <td>${r.paidCount}</td>
+                                        <td>${new Intl.NumberFormat('vi-VN').format(r.paidAmount)} ₫</td>
+                                        <td>${r.partialCount}</td>
+                                        <td>${r.totalInternal}</td>
+                                        <td>${r.eligible}</td>
+                                        <td>${r.hoanVanHanh}</td>
+                                        <td>${r.notYetShipped}</td>
+                                        <td>${r.okNotPushed}</td>
+                                        <td>${r.success}</td>
+                                        <td>${r.inTransit}</td>
+                                        <td>${r.notShipped}</td>
+                                        <td>${r.pendingCheck}</td>
+                                        <td>${r.emptyStatus}</td>
+                                        <td class="${r.shipRate > 70 ? 'positive' : 'negative'}">(${r.shippedTotal} / ${r.totalInternal}) = ${r.shipRate.toFixed(1)}%</td>
+                                        <td class="${r.paymentRate > 80 ? 'positive' : 'negative'}">(${r.paidCount} / ${r.success}) = ${r.paymentRate.toFixed(1)}%</td>
+                                        <td class="${r.ttThanhCongTrenDonTinhPhi > 70 ? 'positive' : 'negative'}">(${r.paidCount} / ${r.shippedTotal}) = ${r.ttThanhCongTrenDonTinhPhi.toFixed(1)}%</td>`;
+                        tbody.appendChild(tr);
+                    });
+                },
+                // ===== END: JAVASCRIPT MODIFICATION (renderSummaryTable) =====
+
+                // ===== START: JAVASCRIPT MODIFICATION (setupSummarySorting) =====
+                setupSummarySorting: function () {
+                    const colMap = { "Số đơn": "paidCount", "Thành Tiền": "paidAmount", "Bill 1 phần": "partialCount", "Tổng đơn lên nội bộ": "totalInternal", "Tổng đơn đủ đkien đẩy vh": "eligible", "Hoàn vận hành": "hoanVanHanh", "Tổng đơn lên vận hành chưa mã": "notYetShipped", "Đơn OK chưa đẩy đi": "okNotPushed", "Giao Thành Công": "success", "Đang Giao": "inTransit", "Chưa Giao": "notShipped", "chờ check": "pendingCheck", "Trống trạng thái": "emptyStatus", "Tỷ lệ đơn lên vận hành": "shipRate", "Tỷ lệ thu tiền/giao thành công": "paymentRate", "Tỷ lệ TT thành công/Đơn tính phí": "ttThanhCongTrenDonTinhPhi" };
+                    document.querySelectorAll('.summary-table thead .sortable-header').forEach(th => {
+                        const key = colMap[th.textContent.trim()];
+                        if (key) th.addEventListener('click', () => {
+                            if (!this.sortState || this.sortState.key !== key) {
+                                this.sortState = { key, dir: 'desc' };
+                            } else {
+                                this.sortState.dir = this.sortState.dir === 'asc' ? 'desc' : 'asc';
+                            }
+                            document.querySelectorAll('.sortable-header').forEach(h => h.classList.remove('sorted-asc', 'sorted-desc'));
+                            th.classList.add(this.sortState.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+                            this.renderSummaryTable();
+                        });
+                    });
+                },
+                // ===== END: JAVASCRIPT MODIFICATION (setupSummarySorting) =====
+                
+                setupControls: function () {
+                    ['reportStartDateFilter', 'reportEndDateFilter'].forEach(id => document.getElementById(id)?.addEventListener('change', this.applyAllFilters.bind(this)));
+                    document.getElementById('reportClearFilters')?.addEventListener('click', () => {
+                        document.getElementById('reportStartDateFilter').value = '';
+                        document.getElementById('reportEndDateFilter').value = '';
+                        document.getElementById('quick-date-vandon').value = '';
+                        ['reportProductDropdown', 'reportMarketDropdown', 'reportStaffDropdown', 'reportTeamDropdown', 'reportTrackingDropdown'].forEach(id => document.getElementById(id)?.querySelectorAll('input').forEach(cb => cb.checked = false));
+                        this.updateProductFilterButtonText();
+                        this.updateMarketFilterButtonText();
+                        this.updateStaffFilterButtonText();
+                        this.updateTeamFilterButtonText();
+                        this.updateTrackingFilterButtonText();
+                        this.applyAllFilters();
+                    });
+                    ['reportStaffFilterBtn', 'reportTeamFilterBtn', 'reportProductFilterBtn', 'reportMarketFilterBtn', 'reportTrackingFilterBtn'].forEach(id => {
+                        const btn = document.getElementById(id), dropdown = document.getElementById(id.replace('FilterBtn', 'Dropdown'));
+                        if (btn && dropdown) {
+                            btn.addEventListener('click', e => {
+                                e.stopPropagation();
+                                document.querySelectorAll('.checkbox-dropdown.show').forEach(d => d.id !== dropdown.id && d.classList.remove('show'));
+                                dropdown.classList.toggle('show');
+                            });
+                            dropdown.addEventListener('click', e => e.stopPropagation());
+                        }
+                    });
+                    window.addEventListener('click', () => document.querySelectorAll('.checkbox-dropdown.show').forEach(d => d.classList.remove('show')));
+                },
+                populateReportFilters: function () {
+                    const allProducts = [...new Set(globalData.map(r => r["Mặt hàng"]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+                    const allMarkets = [...new Set(globalData.map(r => r["Khu vực"] || r["khu vực"]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+                    const allStaff = [...new Set(globalData.map(r => (r["NV Vận đơn"] || '').toString().trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+                    const allTeams = [...new Set(globalData.map(r => r["Team"]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+                    const populate = (dropdownId, selectAllId, items, callback) => {
+                        const dropdown = document.getElementById(dropdownId);
+                        if (!dropdown) return;
+                        
+                        if (dropdownId === 'reportTrackingDropdown') {
+                            dropdown.addEventListener('change', e => {
+                                if (e.target.id === selectAllId) {
+                                    dropdown.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = e.target.checked);
+                                } else {
+                                    const allCb = document.getElementById(selectAllId);
+                                    if (allCb) allCb.checked = dropdown.querySelectorAll(`input:checked:not(#${selectAllId})`).length === 3;
+                                }
+                                callback();
+                                this.applyAllFilters();
+                            });
+                            return;
+                        }
+                        
+                        dropdown.innerHTML = `<label style="font-weight: bold; border-bottom: 1px solid #ccc; padding-bottom: 5px;"><input type="checkbox" id="${selectAllId}"> Chọn tất cả</label>`;
+                        items.forEach(item => {
+                            dropdown.innerHTML += `<label><input type="checkbox" value="${item.replace(/"/g, '&quot;')}"> ${item}</label>`;
+                        });
+                        dropdown.addEventListener('change', e => {
+                            if (e.target.id === selectAllId) {
+                                dropdown.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = e.target.checked);
+                            } else {
+                                const allCb = document.getElementById(selectAllId);
+                                if (allCb) allCb.checked = dropdown.querySelectorAll(`input:checked:not(#${selectAllId})`).length === items.length;
+                            }
+                            callback();
+                            this.applyAllFilters();
+                        });
+                    };
+                    populate('reportStaffDropdown', 'reportStaffSelectAll', allStaff, this.updateStaffFilterButtonText.bind(this));
+                    populate('reportTeamDropdown', 'reportTeamSelectAll', allTeams, this.updateTeamFilterButtonText.bind(this));
+                    populate('reportProductDropdown', 'reportProductSelectAll', allProducts, this.updateProductFilterButtonText.bind(this));
+                    populate('reportMarketDropdown', 'reportMarketSelectAll', allMarkets, this.updateMarketFilterButtonText.bind(this));
+                    populate('reportTrackingDropdown', 'reportTrackingSelectAll', [], this.updateTrackingFilterButtonText.bind(this));
+                    this.updateStaffFilterButtonText();
+                    this.updateTeamFilterButtonText();
+                    this.updateProductFilterButtonText();
+                    this.updateMarketFilterButtonText();
+                    this.updateTrackingFilterButtonText();
+                },
+                updateFilterButtonText: function (btnId, dropdownId, selectAllId, defaultText, selectedText) {
+                    const btn = document.getElementById(btnId), dropdown = document.getElementById(dropdownId);
+                    if (!btn || !dropdown) return;
+                    const selectedCount = dropdown.querySelectorAll(`input:checked:not(#${selectAllId})`).length;
+                    const totalCount = dropdown.querySelectorAll(`input:not(#${selectAllId})`).length;
+                    if (selectedCount === 0 || selectedCount === totalCount) btn.textContent = defaultText;
+                    else if (selectedCount === 1) btn.textContent = dropdown.querySelector(`input:checked:not(#${selectAllId})`).value;
+                    else btn.textContent = `${selectedCount} ${selectedText} đã chọn`;
+                },
+                updateProductFilterButtonText: function () { this.updateFilterButtonText('reportProductFilterBtn', 'reportProductDropdown', 'reportProductSelectAll', 'Tất cả sản phẩm', 'sản phẩm'); },
+                updateMarketFilterButtonText: function () { this.updateFilterButtonText('reportMarketFilterBtn', 'reportMarketDropdown', 'reportMarketSelectAll', 'Tất cả khu vực', 'khu vực'); },
+                updateStaffFilterButtonText: function () { this.updateFilterButtonText('reportStaffFilterBtn', 'reportStaffDropdown', 'reportStaffSelectAll', 'Tất cả NV Vận đơn', 'NV'); },
+                updateTeamFilterButtonText: function () { this.updateFilterButtonText('reportTeamFilterBtn', 'reportTeamDropdown', 'reportTeamSelectAll', 'Tất cả Team', 'Team'); },
+                updateTrackingFilterButtonText: function () { this.updateFilterButtonText('reportTrackingFilterBtn', 'reportTrackingDropdown', 'reportTrackingSelectAll', 'Tất cả mã tracking', 'trạng thái'); },
+                applyAllFilters: function () {
+                    let data = [...globalData];
+                    const startValue = document.getElementById('reportStartDateFilter')?.value;
+                    const endValue = document.getElementById('reportEndDateFilter')?.value;
+
+                    let start, end;
+
+                    if (startValue) {
+                        start = new Date(startValue); 
+                        start.setHours(0, 0, 0, 0); 
+                    }
+
+                    if (endValue) {
+                        end = new Date(endValue); 
+                        end.setHours(23, 59, 59, 999); 
+                    }
+
+                    if (start) {
+                        data = data.filter(r => parseOrderDateToMs(r["Ngày lên đơn"]) >= start.getTime());
+                    }
+                    if (end) {
+                        data = data.filter(r => parseOrderDateToMs(r["Ngày lên đơn"]) <= end.getTime());
+                    }
+
+                    const getSelected = (selector) => new Set(Array.from(document.querySelectorAll(selector)).map(cb => cb.value));
+                    const products = getSelected('#reportProductDropdown input:checked:not(#reportProductSelectAll)');
+                    const markets = getSelected('#reportMarketDropdown input:checked:not(#reportMarketSelectAll)');
+                    const staff = getSelected('#reportStaffDropdown input:checked:not(#reportStaffSelectAll)');
+                    const teams = getSelected('#reportTeamDropdown input:checked:not(#reportTeamSelectAll)');
+                    const trackingFilters = getSelected('#reportTrackingDropdown input:checked:not(#reportTrackingSelectAll)');
+                    
+                    if (products.size) data = data.filter(r => products.has(r["Mặt hàng"]));
+                    if (markets.size) data = data.filter(r => markets.has(r["Khu vực"] || r["khu vực"]));
+                    if (staff.size) data = data.filter(r => staff.has(r["NV Vận đơn"]));
+                    if (teams.size) data = data.filter(r => teams.has(r["Team"]));
+                    
+                    if (trackingFilters.size > 0) {
+                        data = data.filter(r => {
+                            const trackingValue = (r["Mã Tracking"] || "").trim();
+                            const isEmpty = !trackingValue;
+                            
+                            return Array.from(trackingFilters).some(filter => {
+                                switch (filter) {
+                                    case 'empty':
+                                        return isEmpty;
+                                    case 'not-empty':
+                                        return !isEmpty;
+                                    case 'numeric-start':
+                                        return !isEmpty && /^\d/.test(trackingValue);
+                                    default:
+                                        return false;
+                                }
+                            });
+                        });
+                    }
+                    this.updateDetailedSummaryTable(data);
+                    this.updateCharts(data);
+                }
+            };
+            vanDonReportApp.init();
+            loadData();
+        });
+    </script>
+</body>
+
+</html>
+

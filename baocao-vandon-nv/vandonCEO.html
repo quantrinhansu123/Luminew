@@ -1,0 +1,2559 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Báo cáo Vận đơn - Tổng kết</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #2d7c2d;
+            --primary-light: #4CAF50;
+            --primary-dark: #2d7c2d;
+            --secondary-color: #2d7c2d;
+            --text-dark: #111;
+            --text-medium: #333;
+            --bg-light: #f4f4f4;
+            --border-color: #e0e0e0;
+            --font-main: 'Roboto', Arial, sans-serif;
+            --header-gradient: #4CAF50;
+            --hover-highlight: rgba(76, 175, 80, 0.12);
+        }
+
+        /* ===== START: MODIFICATION (Further Font & Layout Shrinking) ===== */
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        body {
+            font-family: var(--font-main);
+            padding: 0;
+            background: #f4f4f4;
+            color: var(--text-dark);
+            line-height: 1.45;
+            margin: 0;
+            font-size: 11px;
+        }
+
+        th,
+        td {
+            padding: 4px 6px;
+        }
+
+        /* ===== END: MODIFICATION (Further Font & Layout Shrinking) ===== */
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            margin-top: 10px;
+            background: #fff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(20, 107, 54, 0.12);
+        }
+
+        th,
+        td {
+            border: 1px solid var(--border-color);
+            white-space: normal;
+            word-break: break-word;
+            vertical-align: middle;
+            text-align: left;
+            transition: background-color 0.2s ease;
+            padding: 4px 6px;
+        }
+
+        th {
+            text-align: center !important;
+            font-weight: 700;
+            background: #4CAF50;
+            color: #fff;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            white-space: normal;
+            line-height: 1.2;
+            font-size: 11px;
+        }
+
+        tbody tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+
+        tbody tr:hover {
+            background-color: #eff5fb;
+        }
+
+        /* ===== START: MODIFICATION (Further Font & Layout Shrinking) ===== */
+        tr.total-row {
+            background: #ffeb3b !important;
+            color: #000 !important;
+            font-size: 1.12em !important;
+            font-weight: 700 !important;
+            border-top: none;
+            border-bottom: none;
+        }
+
+        /* ===== END: MODIFICATION (Further Font & Layout Shrinking) ===== */
+
+        #VanDonReport {
+            font-family: var(--font-main);
+            color: var(--text-dark);
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            display: block;
+        }
+
+        /* ===== START: MODIFICATION (Further Font & Layout Shrinking) ===== */
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px;
+            margin-bottom: 12px;
+            align-items: center;
+            background: #ffffff;
+            backdrop-filter: blur(8px);
+            padding: 10px 14px;
+            border-radius: 10px;
+            box-shadow: 0 6px 18px rgba(15, 85, 47, 0.15);
+            position: sticky;
+            top: 0;
+            z-index: 99999;
+            flex-wrap: wrap;
+            gap: 6px;
+            border: 1px solid rgba(31, 157, 85, 0.25);
+            flex-shrink: 0;
+            overflow: visible;
+        }
+
+        /* Filter style từ KPisale - Bố cục chiều ngang */
+        .filters { 
+            display: flex; 
+            flex-wrap: nowrap; 
+            gap: 8px; 
+            align-items: center; 
+            justify-content: flex-start; 
+            background: transparent;
+            padding: 0; 
+            border-radius: 0; 
+            box-shadow: none;
+            margin-bottom: 0;
+            border: none;
+            position: relative;
+            z-index: 1001;
+            overflow: visible;
+            width: 100%;
+        }
+        .filters::-webkit-scrollbar {
+            height: 6px;
+        }
+        .filters::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        .filters::-webkit-scrollbar-thumb {
+            background: var(--primary-color);
+            border-radius: 3px;
+        }
+        .filters > * {
+            flex-shrink: 0;
+        }
+
+        .controls .left-controls,
+        .controls .right-controls {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .controls .left-controls span {
+            font-weight: bold;
+            font-size: 12px;
+            color: #0e3e22;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+
+        .controls .right-controls {
+            justify-content: flex-end;
+            flex-grow: 1;
+        }
+
+        .controls .date-filter {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .controls .date-filter span {
+            font-weight: 600;
+            color: #111;
+        }
+
+        .controls label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #111;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .controls button {
+            padding: 6px 10px;
+            border: none;
+            border-radius: 999px;
+            font-size: 11px;
+            color: #fff;
+            background-color: var(--primary-color);
+            transition: all 0.25s ease-in-out;
+            cursor: pointer;
+            box-shadow: 0 6px 14px rgba(31, 157, 85, 0.27);
+            letter-spacing: 0.35px;
+            text-transform: uppercase;
+        }
+
+        .controls .filter-select,
+        .controls input[type="date"],
+        .controls input[type="text"],
+        .controls select {
+            padding: 5px 8px;
+            border: 1px solid rgba(31, 157, 85, 0.25);
+            border-radius: 8px;
+            font-size: 11px;
+            background-color: rgba(255, 255, 255, 0.98);
+            min-width: 110px;
+            color: #111;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .controls input:focus,
+        .controls select:focus {
+            outline: none;
+            border-color: rgba(11, 102, 35, 0.7);
+            box-shadow: 0 0 0 3px rgba(11, 102, 35, 0.2);
+        }
+
+        /* ===== END: MODIFICATION (Further Font & Layout Shrinking) ===== */
+
+        .controls button:hover {
+            background-color: var(--primary-light);
+            transform: translateY(-1px);
+            box-shadow: 0 3px 12px rgba(11, 102, 35, 0.25);
+        }
+
+        .clear-filter-btn {
+            background-color: var(--secondary-color) !important;
+        }
+
+        .clear-filter-btn:hover {
+            background-color: var(--primary-light) !important;
+            box-shadow: 0 8px 18px rgba(11, 102, 35, 0.28);
+        }
+
+        .column-toggle-btn {
+            background-color: var(--primary-color) !important;
+        }
+
+        .column-toggle-btn:hover {
+            background-color: var(--primary-dark) !important;
+            box-shadow: 0 8px 20px rgba(5, 46, 22, 0.32);
+        }
+
+        .table-wrapper {
+            position: relative;
+            overflow-x: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            margin: 10px;
+            z-index: 1;
+            margin-bottom: 20px;
+        }
+        
+        #VanDonReport {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .summary-table {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .summary-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 5 !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .summary-table tbody tr {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .summary-table tbody tr:hover {
+            z-index: 2;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        /* ===== START: MODIFICATION (Further Font & Layout Shrinking) ===== */
+        #VanDonReport table {
+            border-collapse: collapse;
+            width: 100%;
+            min-width: 1400px;
+            /* Đảm bảo đủ chỗ cho cột Thành Tiền */
+            max-width: 100%;
+            table-layout: auto;
+            /* Cho phép cột mở rộng theo nội dung */
+            font-size: 10px;
+            box-shadow: none;
+        }
+
+        #VanDonReport th {
+            background: var(--header-gradient);
+            color: white;
+            font-weight: 600;
+            font-size: 10.5px;
+            vertical-align: middle;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            text-align: center !important;
+            padding: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+        }
+
+        /* ===== END: MODIFICATION (Further Font & Layout Shrinking) ===== */
+
+        #VanDonReport td {
+            border: 1px solid var(--border-color);
+            background-color: white;
+            text-align: left;
+            padding: 6px;
+            font-size: 10.5px;
+        }
+
+        #VanDonReport .summary-table th:first-child,
+        #VanDonReport .summary-table td:first-child {
+            width: 120px;
+            min-width: 100px;
+            max-width: 130px;
+            position: sticky;
+            left: 0;
+            z-index: 6;
+            border-right: 2px solid rgba(31, 157, 85, 0.25);
+            background: rgba(255, 255, 255, 0.98);
+            text-align: left;
+            font-weight: 600;
+            box-shadow: 8px 0 16px -12px rgba(0, 0, 0, 0.45);
+        }
+
+        #VanDonReport .summary-table th:first-child {
+            z-index: 7;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 30px;
+            color: #7f8c8d;
+            font-style: italic;
+            font-size: 14px;
+        }
+
+        .summary-table td {
+            text-align: center;
+            font-weight: 600;
+            color: #000;
+        }
+
+        .summary-table td:first-child {
+            text-align: left;
+            font-weight: 700;
+            color: #000;
+        }
+
+        .summary-table tbody tr:nth-child(even) td {
+            background: rgba(244, 253, 246, 0.6);
+        }
+
+        .summary-table tbody tr:nth-child(even) td:first-child {
+            background: rgba(244, 253, 246, 0.85);
+        }
+
+        .summary-table tbody tr:hover td,
+        .summary-table tbody tr:hover td:first-child {
+            background-color: rgba(11, 102, 35, 0.14);
+        }
+
+        .positive,
+        .negative {
+            color: #000;
+            font-weight: 600;
+        }
+
+        ::-webkit-scrollbar {
+            height: 10px;
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            border-radius: 5px;
+            background-color: rgba(39, 174, 96, 0.7);
+            border: 2px solid var(--bg-light);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: var(--primary-color);
+        }
+
+        .summary-table th[data-col-id],
+        .summary-table td[data-col-id] {
+            max-width: 88px;
+            min-width: 64px;
+        }
+
+        .summary-table th[data-col-id] {
+            white-space: normal;
+            line-height: 1.25;
+            padding: 6px 6px 4px;
+        }
+
+        .summary-table td[data-col-id] {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .summary-table th[data-col-id="staff"],
+        .summary-table td[data-col-id="staff"] {
+            max-width: 120px;
+            min-width: 100px;
+        }
+
+        .summary-table td[data-col-id="staff"] {
+            white-space: normal;
+        }
+
+        .summary-table th[data-col-id="paidCount"],
+        .summary-table td[data-col-id="paidCount"],
+        .summary-table th[data-col-id="partialCount"],
+        .summary-table td[data-col-id="partialCount"] {
+            max-width: 35px;
+            min-width: 30px;
+        }
+
+        .summary-table th[data-col-id="paidAmount"],
+        .summary-table td[data-col-id="paidAmount"] {
+            /* Điều chỉnh độ rộng cột Thành Tiền vừa phải */
+            min-width: 100px;
+            max-width: 120px;
+            width: 110px;
+            white-space: nowrap;
+            overflow: visible;
+            text-overflow: unset;
+        }
+
+        .summary-table th[data-col-group="payment"] {
+            /* Điều chỉnh độ rộng cột cha "Đã Thanh Toán (có bill)" */
+            width: 145px;
+            min-width: 135px;
+            max-width: 155px;
+        }
+
+        /* ===== START: MODIFICATION (Further Font & Layout Shrinking) ===== */
+        .multi-select-container {
+            position: relative;
+            display: inline-block;
+            min-width: 125px;
+            /* Giảm độ rộng */
+        }
+
+        .multi-select-container button {
+            background-color: white;
+            color: var(--text-dark);
+            border: 1px solid #ccc;
+            font-size: 11px;
+            /* Giảm font-size */
+            padding: 5px 8px;
+            /* Giảm padding */
+            text-align: left;
+            width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* ===== END: MODIFICATION (Further Font & Layout Shrinking) ===== */
+
+        .multi-select-container button::after {
+            content: "\f0d7";
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            margin-left: 6px;
+        }
+
+        .checkbox-dropdown {
+            display: none;
+            position: absolute;
+            background-color: #fff;
+            min-width: 100%;
+            box-shadow: 0px 10px 30px 0px rgba(0, 0, 0, 0.25);
+            z-index: 999999;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 6px;
+            left: 0;
+            top: 100%;
+            margin-top: 3px;
+        }
+        
+        .multi-select-container {
+            position: relative;
+            z-index: 999999;
+        }
+
+        .checkbox-dropdown.show {
+            display: block;
+        }
+
+        /* ===== START: MODIFICATION (Further Font & Layout Shrinking) ===== */
+        .checkbox-dropdown label {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            /* Giảm padding */
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+            white-space: nowrap;
+            color: var(--text-dark);
+            font-size: 11px;
+            /* Giảm font-size */
+        }
+
+        /* ===== END: MODIFICATION (Further Font & Layout Shrinking) ===== */
+
+        .checkbox-dropdown label:hover {
+            background-color: #e0e0e0;
+        }
+
+        .checkbox-dropdown label input {
+            margin-right: 8px;
+        }
+
+        /* Dropdown style từ KPisale */
+        .dd { position: relative; }
+        .dd-btn { 
+          display:inline-flex; 
+          align-items:center; 
+          gap:6px; 
+          padding:6px 10px; 
+          border:1px solid #ccc; 
+          border-radius:6px; 
+          background:#fff; 
+          cursor:pointer; 
+          font-size:12px; 
+          color:var(--text-medium);
+          transition: all 0.2s ease;
+        }
+        .dd-btn:hover {
+          background: var(--hover-highlight);
+          border-color: var(--primary-light);
+        }
+        .dd-btn:after { content:'▾'; font-size:10px; opacity:.7; }
+        .dd-menu { 
+          position:absolute; 
+          top: 100%;
+          left:0; 
+          margin-top: 2px;
+          z-index:999999; 
+          min-width:200px; 
+          max-height:260px; 
+          overflow:auto; 
+          background:#fff; 
+          border:1px solid var(--border-color); 
+          border-radius:6px; 
+          box-shadow:0 10px 30px rgba(0, 0, 0, 0.25); 
+          padding:6px; 
+          display:none; 
+        }
+        .dd { position: relative; z-index: 999999; }
+        .dd.open { z-index: 999999; position: relative; }
+        .dd.open .dd-menu { display:block; z-index: 999999; }
+        .dd-menu .dd-item { 
+          display:flex; 
+          align-items:center; 
+          gap:6px; 
+          padding:4px 6px; 
+          border-radius:4px; 
+          font-size:12px;
+          transition: background 0.2s ease;
+        }
+        .dd-menu .dd-item:hover { background: var(--hover-highlight); }
+        .dd-menu .dd-item input { margin:0; }
+        .dd-menu .dd-section { font-weight:700; color:#555; margin:4px 0 2px; padding:2px 6px; font-size:11px; }
+        .dd-menu .dd-group-header { 
+          font-weight: 700; 
+          color: var(--primary-dark); 
+          margin: 8px 0 4px 0; 
+          padding: 6px 6px 4px 6px; 
+          font-size: 11px; 
+          background: #f0f7f0;
+          border-left: 3px solid var(--primary-color);
+          border-radius: 3px;
+          position: sticky;
+          top: 0;
+          z-index: 10;
+        }
+        .dd-menu .dd-group-header:first-of-type {
+          margin-top: 4px;
+        }
+        .dd-menu .dd-search { width:100%; padding:6px 8px; margin-bottom:6px; border:1px solid var(--border-color); border-radius:4px; font-size:12px; }
+        .badge-range { 
+          padding: 4px 8px; 
+          background: #e3f2fd; 
+          color: #1976d2; 
+          border-radius: 4px; 
+          font-size: 11px; 
+          font-weight: 600; 
+        }
+
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+
+        .sortable-header::after {
+            content: ' \f0dc';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            color: rgba(255, 255, 255, 0.5);
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .sortable-header.sorted-desc::after {
+            content: ' \f0dd';
+            color: white;
+        }
+
+        .sortable-header.sorted-asc::after {
+            content: ' \f0de';
+            color: white;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: all 0.3s ease;
+            visibility: hidden;
+            opacity: 0;
+            backdrop-filter: blur(4px);
+        }
+
+        #loading-overlay.visible {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .loading-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .loader-spinner {
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid var(--primary-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1.5s linear infinite;
+        }
+
+        .loading-text {
+            margin-top: 15px;
+            font-size: 1.1em;
+            font-weight: 500;
+            color: var(--primary-color);
+        }
+
+        .header-main {
+            background-color: var(--primary-dark) !important;
+        }
+
+        .header-tonghop {
+            background-color: var(--primary-color) !important;
+            color: #fff !important;
+        }
+
+        .header-lenvanhanh {
+            background-color: var(--secondary-color) !important;
+            color: #fff !important;
+        }
+
+        .header-tyle {
+            background-color: var(--primary-light) !important;
+            color: #fff !important;
+        }
+
+        .summary-grand-total td {
+            background-color: inherit !important;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 5px;
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .controls .left-controls,
+            .controls .right-controls {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading-overlay">
+        <div class="loading-content">
+            <div class="loader-spinner"></div>
+            <div class="loading-text">Đang tải dữ liệu...</div>
+        </div>
+    </div>
+
+    <!-- Bộ lọc ra ngoài bảng -->
+    <div class="controls">
+        <div class="filters">
+                    <!-- Quick Date Dropdown -->
+                    <div class="dd" id="dd-quickDate">
+                        <button type="button" class="dd-btn" id="btn-quickDate">Bộ lọc nhanh</button>
+                        <div class="dd-menu" id="menu-quickDate">
+                            <div class="dd-section">Khoảng thời gian</div>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="today"> <span>Hôm nay</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="yesterday"> <span>Hôm qua</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="thisWeek"> <span>Tuần này</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="lastWeek"> <span>Tuần trước</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="thisMonth"> <span>Tháng này</span></label>
+                            <div class="dd-section">Theo tháng</div>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month1"> <span>Tháng 1</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month2"> <span>Tháng 2</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month3"> <span>Tháng 3</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month4"> <span>Tháng 4</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month5"> <span>Tháng 5</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month6"> <span>Tháng 6</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month7"> <span>Tháng 7</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month8"> <span>Tháng 8</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month9"> <span>Tháng 9</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month10"> <span>Tháng 10</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month11"> <span>Tháng 11</span></label>
+                            <label class="dd-item"><input type="radio" name="quickDate" value="month12"> <span>Tháng 12</span></label>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="reportStartDateFilter">Từ ngày</label>
+                        <input type="date" id="reportStartDateFilter" />
+                    </div>
+                    <div>
+                        <label for="reportEndDateFilter">Đến ngày</label>
+                        <input type="date" id="reportEndDateFilter" />
+                    </div>
+                    <!-- Map từ reportStaffTypeFilterBtn sang KPisale style -->
+                    <div class="dd" id="dd-reportStaffType" style="display: none;">
+                        <button type="button" class="dd-btn" id="btn-reportStaffType">Loại NV (Tất cả)</button>
+                        <div class="dd-menu" id="menu-reportStaffType"></div>
+                    </div>
+                    <!-- Map từ reportTeamFilterBtn sang KPisale style -->
+                    <div class="dd" id="dd-reportTeam">
+                        <button type="button" class="dd-btn" id="btn-reportTeam">Team (Tất cả)</button>
+                        <div class="dd-menu" id="menu-reportTeam"></div>
+                    </div>
+                    <!-- Map từ reportStaffFilterBtn sang KPisale style -->
+                    <div class="dd" id="dd-reportStaff">
+                        <button type="button" class="dd-btn" id="btn-reportStaff">Tìm tên (Tất cả)</button>
+                        <div class="dd-menu" id="menu-reportStaff"></div>
+                    </div>
+                    <!-- Map từ reportProductFilterBtn sang KPisale style -->
+                    <div class="dd" id="dd-reportProduct">
+                        <button type="button" class="dd-btn" id="btn-reportProduct">Sản phẩm (Tất cả)</button>
+                        <div class="dd-menu" id="menu-reportProduct"></div>
+                    </div>
+                    <!-- Map từ reportMarketFilterBtn sang KPisale style -->
+                    <div class="dd" id="dd-reportMarket">
+                        <button type="button" class="dd-btn" id="btn-reportMarket">Thị trường (Tất cả)</button>
+                        <div class="dd-menu" id="menu-reportMarket"></div>
+                    </div>
+                    <div>
+                        <label><input type="checkbox" id="includeZeroShip" checked /> Bao gồm đơn ship = 0</label>
+                    </div>
+                    <!-- Map từ reportBranch sang KPisale style (nếu cần) -->
+                    <!-- Giữ nguyên column toggle dropdown (checkbox-dropdown style) -->
+                    <div class="multi-select-container">
+                        <button id="columnToggleButton" class="column-toggle-btn">Ẩn/Hiện Cột</button>
+                        <div id="columnToggleDropdown" class="checkbox-dropdown"></div>
+                    </div>
+                    <span id="rangeText" class="badge-range"></span>
+                    <span class="spacer"></span>
+                    <button id="showAllBtn" class="btn btn-secondary">Hiện tất cả</button>
+                    <button id="reportClearFilters" class="btn btn-secondary clear-filter-btn">Xóa lọc</button>
+                </div>
+            </div>
+
+    <div id="VanDonReport">
+        <div id="contentReport">
+            <div class="table-wrapper">
+                <h3 style="text-align: center; color: #2c3e50; margin-bottom: 15px; font-size: 1.5em;">Báo cáo chi tiết
+                </h3>
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="2" class="header-main" data-col-id="staff">Tên NV</th>
+                            <th colspan="2" class="header-tonghop" data-col-group="payment">Đã Thanh Toán (có bill)</th>
+                            <th rowspan="2" class="sortable-header header-tonghop" data-col-id="partialCount">Bill 1
+                                phần</th>
+                            <th rowspan="2" class="sortable-header header-tonghop" data-col-id="totalInternal">Tổng đơn
+                                lên nội bộ</th>
+                            <th rowspan="2" class="sortable-header header-tonghop" data-col-id="eligible">Tổng đơn đủ
+                                đkien đẩy vh</th>
+                            <th rowspan="2" class="sortable-header header-tonghop" data-col-id="hoanVanHanh">Hoàn vận
+                                hành</th>
+                            <th rowspan="2" class="sortable-header header-tonghop" data-col-id="notYetShipped">Tổng đơn
+                                lên vận hành chưa mã</th>
+                            <th rowspan="2" class="sortable-header header-tonghop" data-col-id="okNotPushed">Đơn OK chưa
+                                đẩy đi</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh" data-col-id="success">Giao Thành
+                                Công</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh" data-col-id="inTransit">Đang Giao
+                            </th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh" data-col-id="notShipped">Chưa Giao
+                            </th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh" data-col-id="pendingCheck">chờ
+                                check</th>
+                            <th rowspan="2" class="sortable-header header-lenvanhanh" data-col-id="emptyStatus">Trống
+                                trạng thái</th>
+                            <th rowspan="2" class="sortable-header header-tyle" data-col-id="shipRate">Tỷ lệ đơn lên vận
+                                hành</th>
+                            <th rowspan="2" class="sortable-header header-tyle" data-col-id="paymentRate">Tỷ lệ thu
+                                tiền/giao thành công</th>
+                            <th rowspan="2" class="sortable-header header-tyle" data-col-id="ttThanhCongTrenDonTinhPhi">
+                                Tỷ lệ TT thành công/Đơn tính phí</th>
+                        </tr>
+                        <tr>
+                            <th class="sortable-header header-tonghop" data-col-id="paidCount">Số đơn</th>
+                            <th class="sortable-header header-tonghop" data-col-id="paidAmount">Thành Tiền</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summaryTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const loader = document.getElementById('loading-overlay');
+            const showLoader = () => loader.classList.add('visible');
+            const hideLoader = () => loader.classList.remove('visible');
+            let globalData = [];
+            let rawData = []; // Lưu toàn bộ dữ liệu từ API trước khi filter
+            let employeeData = [];
+            let nhanSuData = []; // Dữ liệu nhân sự từ Firebase để lọc Team
+
+            // Biến quản lý quyền truy cập
+            let allowedNames = null; // Set<string> hoặc null (null = xem tất cả)
+            let userPosition = '';
+            let userTeam = '';
+            let userName = '';
+
+            // Hàm lấy query parameter từ URL
+            function getQueryParam(key) {
+                try {
+                    const params = new URLSearchParams(window.location.search);
+                    let val = params.get(key);
+                    if (!val) {
+                        const hash = window.location.hash || '';
+                        const match = hash.match(new RegExp(`[?#&]?(?:${key})=([^&]+)`));
+                        if (match && match[1]) val = decodeURIComponent(match[1]);
+                    }
+                    return val ? String(val).trim() : '';
+                } catch (_) { return ''; }
+            }
+
+            // Helper function để lấy giá trị từ row với nhiều tên cột khác nhau
+            function getRowValue(row, ...columnNames) {
+                for (const colName of columnNames) {
+                    if (row[colName] !== undefined && row[colName] !== null && row[colName] !== '') {
+                        return row[colName];
+                    }
+                }
+                return '';
+            }
+
+            function parseOrderDateToMs(value) {
+                if (!value) return NaN;
+                const raw = String(value).trim();
+                const d1 = new Date(raw);
+                if (!isNaN(d1.getTime())) return d1.getTime();
+                const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+                if (m) {
+                    const dd = Number(m[1]);
+                    const mm = Number(m[2]) - 1;
+                    const yy = Number(m[3]);
+                    const d2 = new Date(yy, mm, dd);
+                    return isNaN(d2.getTime()) ? NaN : d2.getTime();
+                }
+                return NaN;
+            }
+
+            // Hàm normalize tên để so sánh (loại bỏ khoảng trắng thừa, chuyển về lowercase)
+            // Helper function để lấy giá trị từ row với nhiều tên cột khác nhau
+            function getRowValue(row, ...columnNames) {
+                for (const colName of columnNames) {
+                    if (row[colName] !== undefined && row[colName] !== null && row[colName] !== '') {
+                        return row[colName];
+                    }
+                }
+                return '';
+            }
+
+            function normalizeName(name) {
+                if (!name) return '';
+                return String(name).trim().toLowerCase().replace(/\s+/g, ' ');
+            }
+
+            // ========== FUNCTIONS TỪ KPISALE FILTERS ==========
+            let filterTimeout = null;
+            function debounceFilter(callback, delay = 300) {
+                if (filterTimeout) clearTimeout(filterTimeout);
+                filterTimeout = setTimeout(callback, delay);
+            }
+
+            function closeAllDropdowns() {
+                document.querySelectorAll('.dd.open').forEach(el => el.classList.remove('open'));
+                document.querySelectorAll('.checkbox-dropdown.show').forEach(el => el.classList.remove('show'));
+            }
+
+            function updateRangeBadge() {
+                const s = document.getElementById('reportStartDateFilter').value;
+                const e = document.getElementById('reportEndDateFilter').value;
+                const el = document.getElementById('rangeText');
+                if (el) {
+                    el.textContent = (s && e) ? `Khoảng: ${s} → ${e}` : '';
+                }
+            }
+
+            // Map filter ID từ KPisale sang vanDonSale
+            function mapFilterId(kpisaleId) {
+                const map = {
+                    'filterTeam': 'reportTeam',
+                    'filterName': 'reportStaff',
+                    'filterProduct': 'reportProduct',
+                    'filterMarket': 'reportMarket',
+                    'filterStaffType': 'reportStaffType',
+                    'filterBranch': 'reportBranch'
+                };
+                return map[kpisaleId] || kpisaleId;
+            }
+
+            function getSelectedDropdown(filterId) {
+                const mappedId = mapFilterId(filterId);
+                const menu = document.getElementById(`menu-${mappedId}`);
+                if (!menu) return { all:false, empty:false, values:[] };
+                const sel = Array.from(menu.querySelectorAll('input[type="checkbox"]:checked')).map(i=>i.value);
+                const hasAll = sel.includes('__ALL__');
+                const hasEmpty = sel.includes('__EMPTY__');
+                const values = sel.filter(v => v !== '__ALL__' && v !== '__EMPTY__');
+                return { all: hasAll || sel.length===0, empty: hasEmpty, values };
+            }
+
+            function setDropdownAll(filterId) {
+                const mappedId = mapFilterId(filterId);
+                const menu = document.getElementById(`menu-${mappedId}`);
+                if (!menu) return;
+                menu.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+                const all = menu.querySelector('input[value="__ALL__"]');
+                if (all) all.checked = true;
+                updateDropdownButtonLabel(filterId);
+            }
+
+            function setDropdownValues(filterId, values) {
+                const mappedId = mapFilterId(filterId);
+                const menu = document.getElementById(`menu-${mappedId}`);
+                if (!menu) return;
+                const set = new Set(Array.isArray(values) ? values : values ? Array.from(values) : []);
+                menu.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+                menu.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    if (set.has(cb.value)) cb.checked = true;
+                });
+                const all = menu.querySelector('input[value="__ALL__"]');
+                const empty = menu.querySelector('input[value="__EMPTY__"]');
+                if (all) all.checked = false;
+                if (empty) empty.checked = false;
+                updateDropdownButtonLabel(filterId);
+            }
+
+            function updateDropdownButtonLabel(filterId) {
+                const mappedId = mapFilterId(filterId);
+                const menu = document.getElementById(`menu-${mappedId}`);
+                const btn = document.getElementById(`btn-${mappedId}`);
+                if (!menu || !btn) return;
+                const checked = Array.from(menu.querySelectorAll('input[type="checkbox"]:checked')).map(i=>i.value);
+                let text = btn.textContent.split(' (')[0];
+                if (checked.includes('__ALL__') || checked.length === 0) {
+                    btn.textContent = `${text} (Tất cả)`;
+                    return;
+                }
+                const selectedLabels = checked.filter(v=>v!=='__ALL__' && v!=='__EMPTY__');
+                if (checked.includes('__EMPTY__')) selectedLabels.unshift('Trống');
+                btn.textContent = `${text} (${selectedLabels.length || 'Tất cả'})`;
+            }
+
+            function attachDropdownSearch(filterId) {
+                const mappedId = mapFilterId(filterId);
+                const menu = document.getElementById(`menu-${mappedId}`);
+                if (!menu) return;
+                const search = menu.querySelector('.dd-search');
+                const itemsWrap = menu.querySelector('.dd-items');
+                if (!search || !itemsWrap) return;
+                search.addEventListener('input', () => {
+                    const q = search.value.trim().toLowerCase();
+                    itemsWrap.querySelectorAll('.dd-item').forEach(item => {
+                        const label = (item.querySelector('span')?.textContent || '').toLowerCase();
+                        item.style.display = q === '' || label.includes(q) ? '' : 'none';
+                    });
+                    if (filterId === 'filterName' || mappedId === 'reportStaff') {
+                        itemsWrap.querySelectorAll('.dd-group-header').forEach(header => {
+                            let hasVisibleItem = false;
+                            let nextElement = header.nextElementSibling;
+                            while (nextElement && !nextElement.classList.contains('dd-group-header')) {
+                                if (nextElement.classList.contains('dd-item') && nextElement.style.display !== 'none') {
+                                    hasVisibleItem = true;
+                                    break;
+                                }
+                                nextElement = nextElement.nextElementSibling;
+                            }
+                            header.style.display = (q === '' || hasVisibleItem) ? '' : 'none';
+                        });
+                    }
+                });
+            }
+
+            function populateDropdown(filterId, values) {
+                const mappedId = mapFilterId(filterId);
+                const menu = document.getElementById(`menu-${mappedId}`);
+                const btn = document.getElementById(`btn-${mappedId}`);
+                if (!menu || !btn) return;
+                const prev = new Set(Array.from(menu.querySelectorAll('input[type="checkbox"]:checked')).map(i=>i.value));
+                const makeItem = (value, label) => `<label class="dd-item"><input type="checkbox" value="${value}"> <span>${label}</span></label>`;
+                const specialsHtml = [
+                    makeItem('__ALL__', '✓ Tất cả'),
+                    makeItem('__EMPTY__', '[ Trống ]')
+                ].join('');
+                const regularHtml = values.map(v => makeItem(v, v)).join('');
+                menu.innerHTML = `
+                    <input type="text" class="dd-search" placeholder="Tìm..." aria-label="Tìm nhanh">
+                    ${specialsHtml}
+                    <div class="dd-items">${regularHtml}</div>
+                `;
+                menu.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    if (prev.size) cb.checked = prev.has(cb.value);
+                });
+                updateDropdownButtonLabel(filterId);
+                attachDropdownSearch(filterId);
+            }
+
+            // Hàm tính toán quyền truy cập dựa trên id và HR data
+            function computeAccessScope() {
+                allowedNames = null;
+                userPosition = '';
+                userTeam = '';
+                userName = '';
+
+                console.log('🔐 computeAccessScope() called');
+                console.log('📊 nhanSuData length:', nhanSuData?.length || 0);
+
+                // Nếu có scope=allF3 trên URL → không giới hạn, xem full data
+                const scope = getQueryParam('scope');
+                if (scope === 'allF3') {
+                    console.log('🌐 scope=allF3 → no restriction');
+                    return;
+                }
+
+                if (!Array.isArray(nhanSuData) || !nhanSuData.length) {
+                    console.warn('⚠️ No HR data available');
+                    return;
+                }
+
+                const idParam = getQueryParam('id');
+                console.log('🆔 ID from URL:', idParam);
+                
+                if (!idParam) {
+                    // Không có id → admin mode, xem tất cả
+                    allowedNames = null;
+                    console.log('🌐 No ID → admin mode, showing all');
+                    return;
+                }
+
+                // Tìm nhân viên trong HR data theo sid (QUAN TRỌNG: so với cột "sid" không phải "id")
+                const matchId = (row) => {
+                    // Ưu tiên tìm theo cột "sid" trước
+                    const candidates = ['sid', 'SID', 'Sid', 'sId', 'id', 'ID', 'Id', 'uid', 'UID', 'Uid', 'Mã nhân sự', 'Mã_Nhân_sự', 'Ma_Nhan_su', 'Mã', 'mã'];
+                    for (const k of candidates) {
+                        if (row[k] !== undefined && String(row[k]).trim() === idParam) {
+                            console.log(`✅ Matched ID via key "${k}":`, row[k]);
+                            return true;
+                        }
+                    }
+                    // Kiểm tra tất cả các key có chứa "sid" hoặc "id" (case-insensitive)
+                    for (const k in row) {
+                        if (k && (k.toLowerCase() === 'sid' || k.toLowerCase().includes('sid') || k.toLowerCase() === 'id' || k.toLowerCase().includes('id')) && String(row[k]).trim() === idParam) {
+                            console.log(`✅ Matched ID via key "${k}":`, row[k]);
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+
+                const me = nhanSuData.find(matchId);
+                if (!me) {
+                    console.warn(`❌ Không tìm thấy id: "${idParam}" trong Nhân sự`);
+                    console.log('📋 Total HR records:', nhanSuData.length);
+                    console.log('📋 Sample HR records (first 10):');
+                    nhanSuData.slice(0, 10).forEach((r, idx) => {
+                        const sid = r['sid'] || r['SID'] || r['Sid'] || 'no sid';
+                        const id = r['id'] || r['ID'] || r['Id'] || 'no id';
+                        const name = r['Tên'] || r['Name'] || r['Họ và tên'] || r['Họ Và Tên'] || 'no name';
+                        const viTri = r['Vị trí'] || r['Vi_tri'] || r['Position'] || 'no position';
+                        console.log(`  [${idx}] sid="${sid}", id="${id}", name="${name}", position="${viTri}"`);
+                    });
+                    // Không tìm thấy → CHẶN hoàn toàn (không cho xem gì cả)
+                    allowedNames = new Set(); // Empty set = không có quyền xem gì
+                    console.log('❌ User not found → BLOCKING all data (no access)');
+                    return;
+                }
+
+                console.log('✅ Found user in HR data:', me);
+
+                userName = (me['Tên'] ?? me['Name'] ?? me['Họ và tên'] ?? me['Họ_và_tên'] ?? me['Họ Và Tên'] ?? '').toString().trim();
+                userPosition = (me['Vị trí'] ?? me['Vi_tri'] ?? me['Vi trí'] ?? me['Position'] ?? '').toString().trim();
+                userTeam = (me['Team'] ?? '').toString().trim();
+
+                // Kiểm tra Vị trí chính xác: "NV" hoặc "Leader"
+                const positionUpper = userPosition.toUpperCase();
+                const isLeader = positionUpper === 'LEADER' || positionUpper.includes('LEADER');
+                const isNV = positionUpper === 'NV' || positionUpper === 'NHÂN VIÊN' || positionUpper === 'NHAN VIEN';
+
+                console.log('👤 User info:', { 
+                    id: idParam, 
+                    sid: me['sid'] || me['SID'] || me['Sid'],
+                    userName, 
+                    userPosition, 
+                    userTeam, 
+                    isLeader, 
+                    isNV 
+                });
+
+                const set = new Set();
+                if (isLeader) {
+                    // Leader: xem full Team của mình
+                    console.log(`👔 Leader "${userName}" (Team: "${userTeam}") - loading all team members...`);
+                    let teamCount = 0;
+                    nhanSuData.forEach(r => {
+                        const t = (r['Team'] ?? '').toString().trim();
+                        if (t === userTeam && t) { // Chỉ lấy nhân viên cùng Team
+                            const n = (r['Tên'] ?? r['Name'] ?? r['Họ và tên'] ?? r['Họ_và_tên'] ?? r['Họ Và Tên'] ?? '').toString().trim();
+                            if (n) {
+                                set.add(n);
+                                // Thêm cả tên đã normalize để so sánh tốt hơn
+                                const normalized = normalizeName(n);
+                                if (normalized && normalized !== n.toLowerCase()) {
+                                    set.add(normalized);
+                                }
+                                teamCount++;
+                            }
+                        }
+                    });
+                    console.log(`👔 Leader - Found ${teamCount} team members. Allowed names:`, Array.from(set).slice(0, 10), teamCount > 10 ? '...' : '');
+                } else if (isNV) {
+                    // NV: chỉ xem của chính mình
+                    console.log(`👷 NV "${userName}" - showing personal data only`);
+                    if (userName) {
+                        set.add(userName);
+                        // Thêm cả tên đã normalize
+                        const normalized = normalizeName(userName);
+                        if (normalized && normalized !== userName.toLowerCase()) {
+                            set.add(normalized);
+                        }
+                    }
+                    console.log('👷 NV - allowed name (self only):', userName);
+                } else {
+                    // Vị trí khác: chỉ xem của chính mình
+                    console.log(`👤 Position "${userPosition}" - showing personal data only`);
+                    if (userName) {
+                        set.add(userName);
+                        const normalized = normalizeName(userName);
+                        if (normalized && normalized !== userName.toLowerCase()) {
+                            set.add(normalized);
+                        }
+                    }
+                }
+                allowedNames = set.size ? set : null;
+                console.log('🔒 Final allowedNames count:', allowedNames ? allowedNames.size : 'null (all access)');
+            }
+
+            // Hàm áp dụng phân quyền vào UI (disable các bộ lọc khi có id=)
+            function applyAccessControlToUI() {
+                const idParam = getQueryParam('id');
+                if (!idParam) return; // Không có id → không áp dụng
+
+                console.log('🔒 Applying access control to UI...');
+                console.log('📋 User Team:', userTeam);
+                console.log('📋 User Name:', userName);
+
+                // 1. Ẩn/Disable bộ lọc "Loại NV"
+                const staffTypeBtn = document.getElementById('reportStaffTypeFilterBtn');
+                const staffTypeDropdown = document.getElementById('reportStaffTypeDropdown');
+                if (staffTypeBtn && staffTypeDropdown) {
+                    staffTypeBtn.disabled = true;
+                    staffTypeBtn.style.opacity = '0.5';
+                    staffTypeBtn.style.cursor = 'not-allowed';
+                    staffTypeDropdown.style.pointerEvents = 'none';
+                    console.log('✅ Disabled "Loại NV" filter');
+                }
+
+                // 2. Auto-select và Disable bộ lọc Team
+                const teamBtn = document.getElementById('reportTeamFilterBtn');
+                const teamDropdown = document.getElementById('reportTeamDropdown');
+                if (teamBtn && teamDropdown && userTeam) {
+                    // Tự động chọn Team của user
+                    const teamCheckboxes = teamDropdown.querySelectorAll('input[type="checkbox"]:not(#reportTeamSelectAll)');
+                    teamCheckboxes.forEach(cb => {
+                        if (cb.value === userTeam) {
+                            cb.checked = true;
+                            console.log('✅ Auto-selected team:', userTeam);
+                        } else {
+                            cb.checked = false;
+                        }
+                    });
+                    // Disable bộ lọc
+                    teamBtn.disabled = true;
+                    teamBtn.style.opacity = '0.5';
+                    teamBtn.style.cursor = 'not-allowed';
+                    teamDropdown.style.pointerEvents = 'none';
+                    
+                    // Cập nhật text của button
+                    teamBtn.textContent = userTeam || 'Tất cả Team';
+                    console.log('✅ Disabled "Team" filter and set to:', userTeam);
+                }
+
+                // 3. Auto-select và Disable bộ lọc Nhân viên
+                const staffBtn = document.getElementById('reportStaffFilterBtn');
+                const staffDropdown = document.getElementById('reportStaffDropdown');
+                if (staffBtn && staffDropdown && allowedNames && allowedNames.size > 0) {
+                    // Tự động chọn các nhân viên trong allowedNames
+                    const staffCheckboxes = staffDropdown.querySelectorAll('input[type="checkbox"]:not(#reportStaffSelectAll)');
+                    let selectedCount = 0;
+                    staffCheckboxes.forEach(cb => {
+                        const cbValue = cb.value;
+                        // cbValue có format "name|||type"
+                        const [name, type] = cbValue.split('|||');
+                        const nameNormalized = normalizeName(name);
+                        
+                        if (allowedNames.has(name) || allowedNames.has(nameNormalized)) {
+                            cb.checked = true;
+                            selectedCount++;
+                        } else {
+                            cb.checked = false;
+                        }
+                    });
+                    
+                    // Disable bộ lọc
+                    staffBtn.disabled = true;
+                    staffBtn.style.opacity = '0.5';
+                    staffBtn.style.cursor = 'not-allowed';
+                    staffDropdown.style.pointerEvents = 'none';
+                    
+                    // Cập nhật text của button
+                    if (selectedCount === 1 && userName) {
+                        staffBtn.textContent = userName;
+                    } else if (selectedCount > 1) {
+                        staffBtn.textContent = `${selectedCount} nhân viên`;
+                    }
+                    console.log('✅ Disabled "Nhân viên" filter and selected', selectedCount, 'staff');
+                }
+            }
+
+            // --- HÀM LẤY DỮ LIỆU NHÂN VIÊN ---
+            function fetchEmployeeData(result) {
+                try {
+                    const mapped = result
+                        .filter(r => r["Họ Và Tên"] && String(r["Họ Và Tên"]).trim() !== '')
+                        .map(r => {
+                            // Lấy tất cả các trường có thể liên quan đến chức vụ
+                            const viTri = (r["Vị trí"] || '').trim();
+                            const chucVu = (r["Chức vụ"] || '').trim();
+                            const position = (r["Position"] || '').trim();
+
+                            // Ưu tiên các trường có dữ liệu
+                            const chucVuFinal = (chucVu || viTri || position).toLowerCase();
+
+                            return {
+                                idnv: (r["id"] || '').trim(),
+                                ten: (r["Họ Và Tên"] || 'N/A').trim(),
+                                email: (r["Email"] || '').trim(),
+                                team: (r["Team"] || 'N/A').trim(),
+                                chucVu: chucVuFinal,
+                                chiNhanh: (r["chi nhánh"] || 'N/A').trim(),
+                            };
+                        });
+
+                    // Log để debug
+                    console.log('Employee data loaded:', mapped.length, 'employees');
+                    console.log('Sample employee:', mapped[0]);
+
+                    return mapped;
+                } catch (err) {
+                    console.error("Lỗi tải dữ liệu nhân viên:", err);
+                    return [];
+                }
+            }
+
+            function formatDateForInputLocal(date) {
+                if (!date) return '';
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const d = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            }
+            const dateRangeHandler = {
+                formatDateForInput: formatDateForInputLocal,
+                getRange: function (value) {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    let startDate, endDate;
+                    switch (value) {
+                        case 'thisWeek':
+                            {
+                                const d = new Date(now);
+                                const day = (d.getDay() === 0) ? 6 : d.getDay() - 1;
+                                d.setDate(d.getDate() - day);
+                                startDate = d;
+                                endDate = new Date(d);
+                                endDate.setDate(d.getDate() + 6);
+                                break;
+                            }
+                        case 'lastWeek':
+                            {
+                                const d = new Date(now);
+                                const day = (d.getDay() === 0) ? 6 : d.getDay() - 1;
+                                d.setDate(d.getDate() - day - 7);
+                                startDate = d;
+                                endDate = new Date(d);
+                                endDate.setDate(d.getDate() + 6);
+                                break;
+                            }
+                        case 'thisMonth':
+                            startDate = new Date(year, now.getMonth(), 1);
+                            endDate = new Date(year, now.getMonth() + 1, 0);
+                            break;
+                        default:
+                            if (value.startsWith('month_')) {
+                                const m = parseInt(value.split('_')[1], 10) - 1;
+                                if (!isNaN(m)) {
+                                    startDate = new Date(year, m, 1);
+                                    endDate = new Date(year, m + 1, 0);
+                                }
+                            }
+                            if (value.startsWith('quarter_')) {
+                                const q = parseInt(value.split('_')[1], 10);
+                                if (!isNaN(q)) {
+                                    const sm = (q - 1) * 3;
+                                    startDate = new Date(year, sm, 1);
+                                    endDate = new Date(year, sm + 3, 0);
+                                }
+                            }
+                    }
+                    return startDate && endDate ? {
+                        startDate: this.formatDateForInput(startDate),
+                        endDate: this.formatDateForInput(endDate)
+                    } : null;
+                }
+            };
+
+            function setupQuickDateSelect(quickSelectId, startDateId, endDateId, changeTriggerElementId) {
+                const q = document.getElementById(quickSelectId),
+                    s = document.getElementById(startDateId),
+                    e = document.getElementById(endDateId),
+                    t = document.getElementById(changeTriggerElementId);
+                if (q && s && e && t) q.addEventListener('change', (ev) => {
+                    const r = dateRangeHandler.getRange(ev.target.value);
+                    s.value = r ? r.startDate : '';
+                    e.value = r ? r.endDate : '';
+                    t.dispatchEvent(new Event('change', {
+                        bubbles: true
+                    }));
+                });
+            }
+
+            function normalizeApiRowsPayload(payload) {
+                if (Array.isArray(payload)) return { rows: payload };
+                if (payload && typeof payload === 'object') {
+                    if (Array.isArray(payload.rows)) return { rows: payload.rows };
+                    if (Array.isArray(payload.data)) return { rows: payload.data };
+                    return { rows: Object.values(payload).filter(item => item && typeof item === 'object') };
+                }
+                return { rows: [] };
+            }
+
+function handleData(response) {
+                console.log('Total rows received:', response?.rows?.length);
+
+                if (response.error || !Array.isArray(response.rows)) {
+                    vanDonReportApp.showError('Lỗi hoặc không có dữ liệu: ' + (response.error || 'Định dạng dữ liệu không đúng'));
+                    hideLoader();
+                    return;
+                }
+
+                // LƯU TOÀN BỘ RAW DATA TRƯỚC KHI FILTER
+                rawData = response.rows || [];
+                console.log('✅ Raw data saved:', rawData.length, 'total rows');
+                console.log('🔐 handleData: allowedNames =', allowedNames ? `Set with ${allowedNames.size} names` : 'null');
+
+                // Khớp logic trang vận hành: chỉ xử lý đơn có mã đơn hàng.
+                globalData = response.rows.filter(r => getRowValue(r, 'Mã_đơn_hàng', 'Mã đơn hàng'));
+                console.log('📊 Final globalData length:', globalData.length);
+                console.log('📊 Raw data length:', rawData.length);
+                console.log('🔐 Final allowedNames:', allowedNames ? Array.from(allowedNames) : 'null');
+                hideLoader();
+                vanDonReportApp.populateReportFilters();
+                
+                // Áp dụng phân quyền vào UI (disable các bộ lọc khi có id=)
+                applyAccessControlToUI();
+                
+                vanDonReportApp.applyAllFilters();
+            }
+
+            // Hàm fetch dữ liệu nhân sự từ Firebase
+            async function fetchNhanSuData() {
+                try {
+                    const firebaseUrl = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/Nh%C3%A2ns%E1%BB%B1';
+                    const response = await fetch(firebaseUrl + '.json');
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    
+                    // Chuyển đổi object thành array nếu cần
+                    if (data && typeof data === 'object' && !Array.isArray(data)) {
+                        nhanSuData = Object.values(data).filter(item => item && item["Team"]);
+                    } else if (Array.isArray(data)) {
+                        nhanSuData = data.filter(item => item && item["Team"]);
+                    } else {
+                        nhanSuData = [];
+                    }
+                    
+                    console.log('✅ Nhân sự data loaded from Firebase:', nhanSuData.length, 'records');
+                    return nhanSuData;
+                } catch (error) {
+                    console.error('❌ Lỗi tải dữ liệu nhân sự từ Firebase:', error);
+                    nhanSuData = [];
+                    return [];
+                }
+            }
+
+            function loadData() {
+                showLoader();
+                vanDonReportApp.showError('Đang tải dữ liệu, vui lòng chờ...');
+
+                // Dùng API cũ cho dữ liệu vận đơn
+                const apiUrl = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json';
+
+                // Gọi cả 2 API song song
+                Promise.all([
+                    fetch(apiUrl),
+                    fetchNhanSuData()
+                ])
+                    .then(([vanDonResponse, nhanSuResult]) => {
+                        if (!vanDonResponse.ok) throw new Error(`HTTP error! status: ${vanDonResponse.status}`);
+                        return vanDonResponse.json().then(vanDonData => ({ vanDonData, nhanSuResult }));
+                    })
+                    .then(({ vanDonData, nhanSuResult }) => {
+                        console.log('===== API RESPONSE =====');
+                        console.log('Van don data loaded, rows count:', vanDonData.rows?.length || 0);
+                        console.log('Nhân sự data loaded, records count:', nhanSuData.length || 0);
+                        if (nhanSuData.length > 0) {
+                            console.log('📋 Sample HR data (first 3):', nhanSuData.slice(0, 3).map(r => ({
+                                sid: r['sid'] || r['SID'] || r['Sid'] || 'no sid',
+                                id: r['id'] || r['ID'] || r['Id'] || 'no id',
+                                ten: r['Tên'] || r['Name'] || r['Họ và tên'] || r['Họ Và Tên'] || 'no name',
+                                viTri: r['Vị trí'] || r['Vi_tri'] || r['Position'] || 'no position',
+                                team: r['Team'] || 'no team'
+                            })));
+                        }
+                        console.log('========================');
+
+                        // Tính toán quyền truy cập sau khi load HR data
+                        console.log('🔐 About to call computeAccessScope(), nhanSuData length:', nhanSuData.length);
+                        computeAccessScope();
+                        console.log('🔐 After computeAccessScope(), allowedNames =', allowedNames ? Array.from(allowedNames) : 'null');
+
+                        // Xử lý dữ liệu vận đơn
+                        handleData(normalizeApiRowsPayload(vanDonData));
+                    })
+                    .catch(error => {
+                        console.error('Đã xảy ra lỗi khi tải dữ liệu:', error.message);
+                        let userMessage = 'Tải dữ liệu thất bại. Vui lòng kiểm tra kết nối mạng và địa chỉ API.';
+                        if (error.message.includes('Failed to fetch')) {
+                            userMessage += ' (Lỗi có thể do CORS hoặc mạng không ổn định).';
+                        }
+                        vanDonReportApp.showError(userMessage);
+                        hideLoader();
+                    });
+            }
+
+            const vanDonReportApp = {
+                sortState: null,
+                lastSummaryRows: [],
+                lastGrandTotal: null,
+                columnVisibility: {},
+
+                init: function () {
+                    this.setupControls();
+                    setupQuickDateSelect('quick-date-vandon', 'reportStartDateFilter', 'reportEndDateFilter', 'reportEndDateFilter');
+                    this.setupSummarySorting();
+                    this.setupColumnToggleButton();
+                },
+                showError: function (message) {
+                    const tbody = document.getElementById('summaryTableBody');
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="17" class="no-data">${message}</td></tr>`;
+                    hideLoader();
+                },
+                createEmptyStats: () => ({
+                    "Đã Thanh Toán (có bill)": { count: 0, amount: 0 },
+                    "Bill 1 phần": { count: 0 },
+                    "Tổng đơn lên nội bộ": { count: 0 },
+                    "Tổng đơn đủ đkien đẩy vh": { count: 0 },
+                    "Tổng đơn lên vận hành": { count: 0 },
+                    "Tổng đơn chưa lên vận hành": { count: 0 },
+                    "Đơn Ok chưa đẩy đi": { count: 0 },
+                    "Giao Thành Công": { count: 0 },
+                    "Đang Giao": { count: 0 },
+                    "Chưa Giao": { count: 0 },
+                    "Hoàn": { count: 0 },
+                    "chờ check": { count: 0 },
+                    "Trống trạng thái": { count: 0 },
+                    "Tổng đơn OK": { count: 0 },
+                    "Tổng đơn có dvvc": { count: 0 },
+                    "Tổng đơn có mã tracking": { count: 0 }
+                }),
+                updateDetailedSummaryTable: function (filteredData) {
+                    const tbody = document.getElementById('summaryTableBody');
+                    tbody.innerHTML = '';
+                    if (filteredData.length === 0) {
+                        this.showError('Không có dữ liệu báo cáo khớp với bộ lọc.');
+                        return;
+                    }
+                    this.buildSummaryData(filteredData);
+                    this.renderSummaryTable();
+                },
+
+                buildSummaryData: function (filteredData) {
+                    const staffStats = {};
+                    const grandTotal = this.createEmptyStats();
+                    
+                    // Lấy danh sách nhân sự đã chọn từ bộ lọc (theo rule: Cột Tên NV sẽ đi theo bộ lọc theo NV)
+                    const selectedStaff = new Set(Array.from(document.querySelectorAll('#reportStaffDropdown input:checked:not(#reportStaffSelectAll)')).map(cb => cb.value));
+                    console.log('📋 Nhân sự đã chọn trong bộ lọc:', selectedStaff.size, 'người');
+
+                    // BƯỚC 1: Tính số liệu từ filteredData cho cả 3 loại nhân viên
+                    // CHỈ tính cho nhân viên đã chọn trong filter (theo rule mới)
+                    filteredData.forEach(row => {
+                        const amount = parseFloat(String(getRowValue(row, 'Tổng_tiền_VNĐ', 'Tổng tiền VNĐ') || '0').replace(/[^\d.-]/g, '')) || 0;
+                        const payment = getRowValue(row, 'Trạng_thái_thu_tiền', 'Trạng thái thu tiền') || "";
+                        const delivery = getRowValue(row, 'Trạng_thái_giao_hàng_NB', 'Trạng_thái_giao_hàng', 'Trạng thái giao hàng NB', 'Trạng thái giao hàng') || "";
+                        const ketQuaCheck = (getRowValue(row, 'Kết_quả_Check', 'Kết quả Check') || "").trim().toUpperCase();
+                        const maTracking = (getRowValue(row, 'Mã_Tracking', 'Mã Tracking') || "").trim();
+                        const dvvc = (getRowValue(row, 'Đơn_vị_vận_chuyển', 'Đơn vị vận chuyển') || "").trim();
+
+                        // Thu thập 3 loại nhân viên từ đơn hàng
+                        const nhanVienMarketing = (getRowValue(row, 'Nhân_viên_Marketing', 'Nhân viên Marketing') || "").trim();
+                        const nhanVienSale = (getRowValue(row, 'Nhân_viên_Sale', 'Nhân viên Sale') || "").trim();
+                        const nhanVienVanDon = (getRowValue(row, 'NV_Vận_đơn', 'NV Vận đơn') || "").trim();
+
+                        const staffList = [];
+                        if (nhanVienMarketing) staffList.push({ name: nhanVienMarketing, type: 'Marketing' });
+                        if (nhanVienSale) {
+                            // Kiểm tra xem nhân viên Sale này có phải là CSKH trong selectedStaff không
+                            const isCSKH = selectedStaff.size > 0 && selectedStaff.has(`${nhanVienSale}|||CSKH`);
+                            if (isCSKH) {
+                                // Nếu là CSKH, thêm với type CSKH
+                                staffList.push({ name: nhanVienSale, type: 'CSKH' });
+                            } else {
+                                // Nếu không phải CSKH (hoặc không có filter), thêm với type Sale
+                                staffList.push({ name: nhanVienSale, type: 'Sale' });
+                            }
+                        }
+                        if (nhanVienVanDon) staffList.push({ name: nhanVienVanDon, type: 'Vận đơn' });
+
+                        if (staffList.length === 0) {
+                            staffList.push({ name: 'Chưa có NV', type: 'Chưa xác định' });
+                        }
+
+                        // Tính số liệu cho từng nhân viên tham gia
+                        // Nếu có chọn nhân viên, chỉ tính cho nhân viên đã chọn
+                        // Nếu không chọn nhân viên nào (xóa tất cả), tính cho tất cả
+                        staffList.forEach(staffInfo => {
+                            const key = `${staffInfo.name}|||${staffInfo.type}`;
+                            
+                            // ÁP DỤNG PHÂN QUYỀN - Chỉ xử lý nhân viên trong allowedNames
+                            if (allowedNames && allowedNames.size > 0) {
+                                const staffName = staffInfo.name;
+                                const staffNameNormalized = normalizeName(staffName);
+                                // Kiểm tra xem tên có trong allowedNames không
+                                if (!allowedNames.has(staffName) && !allowedNames.has(staffNameNormalized)) {
+                                    return; // Bỏ qua nhân viên không có quyền xem
+                                }
+                            }
+                            
+                            // Nếu có filter nhân sự, chỉ tính cho nhân sự đã chọn
+                            // Nếu không có filter (selectedStaff.size === 0), tính cho tất cả
+                            if (selectedStaff.size > 0 && !selectedStaff.has(key)) {
+                                return; // Bỏ qua nhân viên không được chọn (chỉ khi có filter)
+                            }
+
+                            if (!staffStats[key]) {
+                                staffStats[key] = this.createEmptyStats();
+                                staffStats[key].staffName = staffInfo.name;
+                                staffStats[key].staffType = staffInfo.type;
+                            }
+
+                            const stats = staffStats[key];
+
+                            stats["Tổng đơn lên nội bộ"].count++;
+                            if (ketQuaCheck === "OK") {
+                                stats["Tổng đơn đủ đkien đẩy vh"].count++;
+                                stats["Tổng đơn OK"].count++;
+                                if (dvvc === "") {
+                                    stats["Đơn Ok chưa đẩy đi"].count++;
+                                }
+                            }
+                            if (maTracking !== "") {
+                                stats["Tổng đơn có mã tracking"].count++;
+                            }
+                            if (dvvc !== "") {
+                                stats["Tổng đơn có dvvc"].count++;
+                            }
+                            if (dvvc !== "") {
+                                stats["Tổng đơn lên vận hành"].count++;
+                            }
+                            if (dvvc !== "" && maTracking === "") {
+                                stats["Tổng đơn chưa lên vận hành"].count++;
+                            }
+                            if (payment.includes("Có bill 1 phần")) {
+                                stats["Bill 1 phần"].count++;
+                            } else if (payment.includes("Có bill")) {
+                                stats["Đã Thanh Toán (có bill)"].count++;
+                                stats["Đã Thanh Toán (có bill)"].amount += amount;
+                            }
+                            if (ketQuaCheck === "OK" && payment === "" && delivery === "") {
+                                stats["Trống trạng thái"].count++;
+                            }
+                            const deliveryLower = delivery.toLowerCase();
+                            if (deliveryLower.includes("giao thành công") || deliveryLower.includes("đơn thành công")) stats["Giao Thành Công"].count++;
+                            else if (delivery.includes("Đang Giao")) stats["Đang Giao"].count++;
+                            else if (delivery.includes("Chưa Giao")) stats["Chưa Giao"].count++;
+                            else if (delivery.includes("Hoàn")) stats["Hoàn"].count++;
+                            else if (delivery.includes("chờ check")) stats["chờ check"].count++;
+                        });
+
+                        // Grand total chỉ tính 1 lần cho mỗi đơn
+                        grandTotal["Tổng đơn lên nội bộ"].count++;
+                        if (ketQuaCheck === "OK") {
+                            grandTotal["Tổng đơn đủ đkien đẩy vh"].count++;
+                            grandTotal["Tổng đơn OK"].count++;
+                            if (dvvc === "") {
+                                grandTotal["Đơn Ok chưa đẩy đi"].count++;
+                            }
+                        }
+                        if (maTracking !== "") {
+                            grandTotal["Tổng đơn có mã tracking"].count++;
+                        }
+                        if (dvvc !== "") {
+                            grandTotal["Tổng đơn có dvvc"].count++;
+                        }
+                        if (dvvc !== "") {
+                            grandTotal["Tổng đơn lên vận hành"].count++;
+                        }
+                        if (dvvc !== "" && maTracking === "") {
+                            grandTotal["Tổng đơn chưa lên vận hành"].count++;
+                        }
+                        if (payment.includes("Có bill 1 phần")) {
+                            grandTotal["Bill 1 phần"].count++;
+                        } else if (payment.includes("Có bill")) {
+                            grandTotal["Đã Thanh Toán (có bill)"].count++;
+                            grandTotal["Đã Thanh Toán (có bill)"].amount += amount;
+                        }
+                        if (ketQuaCheck === "OK" && payment === "" && delivery === "") {
+                            grandTotal["Trống trạng thái"].count++;
+                        }
+                        {
+                            const deliveryLower = delivery.toLowerCase();
+                            if (deliveryLower.includes("giao thành công") || deliveryLower.includes("đơn thành công")) grandTotal["Giao Thành Công"].count++;
+                            else if (delivery.includes("Đang Giao")) grandTotal["Đang Giao"].count++;
+                            else if (delivery.includes("Chưa Giao")) grandTotal["Chưa Giao"].count++;
+                            else if (delivery.includes("Hoàn")) grandTotal["Hoàn"].count++;
+                            else if (delivery.includes("chờ check")) grandTotal["chờ check"].count++;
+                        }
+                    });
+
+                    // BƯỚC 2: Thêm nhân viên chưa có dữ liệu vào bảng
+                    // Lấy danh sách nhân viên đã chọn từ dropdown
+                    const selectedStaffFromDropdown = new Set(
+                        Array.from(document.querySelectorAll('#reportStaffDropdown input:checked:not(#reportStaffSelectAll)')).map(cb => cb.value)
+                    );
+                    
+                    if (selectedStaffFromDropdown.size > 0) {
+                        // Có chọn nhân viên → chỉ thêm nhân viên đã chọn (ngay cả khi chưa có dữ liệu)
+                        console.log('=== STEP 2: Adding selected staff from filter ===');
+                        selectedStaffFromDropdown.forEach(key => {
+                            const [name, type] = key.split('|||');
+                            
+                            // ÁP DỤNG PHÂN QUYỀN - Chỉ thêm nhân viên trong allowedNames
+                            if (allowedNames && allowedNames.size > 0) {
+                                const staffNameNormalized = normalizeName(name);
+                                if (!allowedNames.has(name) && !allowedNames.has(staffNameNormalized)) {
+                                    return; // Bỏ qua nhân viên không có quyền xem
+                                }
+                            }
+                            
+                            if (!staffStats[key]) {
+                                staffStats[key] = this.createEmptyStats();
+                                staffStats[key].staffName = name;
+                                staffStats[key].staffType = type;
+                            }
+                        });
+                        console.log('✅ Added selected staff to table:', Object.keys(staffStats).length);
+                    } else {
+                        // Không chọn nhân viên nào (xóa tất cả) → hiển thị tất cả nhân viên từ dữ liệu
+                        // Thêm tất cả nhân viên có trong filteredData nhưng chưa có trong staffStats
+                        console.log('=== STEP 2: No staff selected, adding all staff from data ===');
+                        const allStaffFromRaw = new Set();
+                        filteredData.forEach(row => {
+                            const marketing = (getRowValue(row, 'Nhân_viên_Marketing', 'Nhân viên Marketing') || "").trim();
+                            const sale = (getRowValue(row, 'Nhân_viên_Sale', 'Nhân viên Sale') || "").trim();
+                            const vandon = (getRowValue(row, 'NV_Vận_đơn', 'NV Vận đơn') || "").trim();
+
+                            // ÁP DỤNG PHÂN QUYỀN khi thu thập danh sách
+                            if (marketing) {
+                                if (!allowedNames || allowedNames.size === 0 || allowedNames.has(marketing) || allowedNames.has(normalizeName(marketing))) {
+                                    allStaffFromRaw.add(`${marketing}|||Marketing`);
+                                }
+                            }
+                            if (sale) {
+                                if (!allowedNames || allowedNames.size === 0 || allowedNames.has(sale) || allowedNames.has(normalizeName(sale))) {
+                                    allStaffFromRaw.add(`${sale}|||Sale`);
+                                }
+                            }
+                            if (vandon) {
+                                if (!allowedNames || allowedNames.size === 0 || allowedNames.has(vandon) || allowedNames.has(normalizeName(vandon))) {
+                                    allStaffFromRaw.add(`${vandon}|||Vận đơn`);
+                                }
+                            }
+                        });
+
+                        // Thêm các nhân viên chưa có với giá trị = 0
+                        allStaffFromRaw.forEach(key => {
+                            if (!staffStats[key]) {
+                                const [name, type] = key.split('|||');
+                                staffStats[key] = this.createEmptyStats();
+                                staffStats[key].staffName = name;
+                                staffStats[key].staffType = type;
+                            }
+                        });
+                        console.log('✅ Added all staff from data:', allStaffFromRaw.size);
+                    }
+
+                    console.log('✅ Total staff in table:', Object.keys(staffStats).length);
+
+                    this.lastSummaryRows = Object.keys(staffStats).map(key => {
+                        const s = staffStats[key];
+                        return {
+                            staff: s.staffName,
+                            staffType: s.staffType,
+                            paidCount: s["Đã Thanh Toán (có bill)"].count,
+                            paidAmount: s["Đã Thanh Toán (có bill)"].amount,
+                            partialCount: s["Bill 1 phần"].count,
+                            totalInternal: s["Tổng đơn lên nội bộ"].count,
+                            eligible: s["Tổng đơn đủ đkien đẩy vh"].count,
+                            hoanVanHanh: s["Hoàn"].count,
+                            shippedTotal: s["Tổng đơn lên vận hành"].count,
+                            notYetShipped: s["Tổng đơn chưa lên vận hành"].count,
+                            okNotPushed: s["Đơn Ok chưa đẩy đi"].count,
+                            success: s["Giao Thành Công"].count,
+                            inTransit: s["Đang Giao"].count,
+                            notShipped: s["Chưa Giao"].count,
+                            returned: s["Hoàn"].count,
+                            pendingCheck: s["chờ check"].count,
+                            emptyStatus: s["Trống trạng thái"].count,
+                            okCount: s["Tổng đơn OK"].count,
+                            shipRate: s["Tổng đơn lên nội bộ"].count > 0 ? (s["Tổng đơn lên vận hành"].count / s["Tổng đơn lên nội bộ"].count * 100) : 0,
+                            paymentRate: s["Giao Thành Công"].count > 0 ? (s["Đã Thanh Toán (có bill)"].count / s["Giao Thành Công"].count * 100) : 0,
+                            ttThanhCongTrenDonTinhPhi: s["Tổng đơn lên vận hành"].count > 0 ? (s["Đã Thanh Toán (có bill)"].count / s["Tổng đơn lên vận hành"].count * 100) : 0,
+                            billOkTrenGiaoThanhCong: s["Giao Thành Công"].count > 0 ? ((s["Đã Thanh Toán (có bill)"].count + s["Bill 1 phần"].count) / s["Giao Thành Công"].count * 100) : 0
+                        };
+                    });
+                    this.lastGrandTotal = grandTotal;
+                },
+
+                renderSummaryTable: function () {
+                    const tbody = document.getElementById('summaryTableBody');
+                    tbody.innerHTML = '';
+                    const g = this.lastGrandTotal;
+                    if (g) {
+                        const tr = document.createElement('tr');
+                        tr.className = 'summary-grand-total total-row';
+                        const tongTyLeDonLenVanHanh = g["Tổng đơn lên nội bộ"].count > 0 ? (g["Tổng đơn lên vận hành"].count / g["Tổng đơn lên nội bộ"].count * 100) : 0;
+                        const tongTyLeTTThanhCong = g["Tổng đơn lên vận hành"].count > 0 ? (g["Đã Thanh Toán (có bill)"].count / g["Tổng đơn lên vận hành"].count * 100) : 0;
+                        const tongTyLeThuTien = g["Giao Thành Công"].count > 0 ? (g["Đã Thanh Toán (có bill)"].count / g["Giao Thành Công"].count * 100) : 0;
+
+                        // ===== START: MODIFICATION (Round amount to nearest thousand) =====
+                        const roundedGrandTotalAmount = Math.round(g["Đã Thanh Toán (có bill)"].amount / 1000) * 1000;
+                        // ===== END: MODIFICATION (Round amount to nearest thousand) =====
+
+                        tr.innerHTML = `<td data-col-id="staff">TỔNG TOÀN BỘ</td>
+                                        <td data-col-id="paidCount">${g["Đã Thanh Toán (có bill)"].count}</td>
+                                        <td data-col-id="paidAmount">${new Intl.NumberFormat('vi-VN').format(roundedGrandTotalAmount)} ₫</td>
+                                        <td data-col-id="partialCount">${g["Bill 1 phần"].count}</td>
+                                        <td data-col-id="totalInternal">${g["Tổng đơn lên nội bộ"].count}</td>
+                                        <td data-col-id="eligible">${g["Tổng đơn đủ đkien đẩy vh"].count}</td>
+                                        <td data-col-id="hoanVanHanh">${g["Hoàn"].count}</td>
+                                        <td data-col-id="notYetShipped">${g["Tổng đơn chưa lên vận hành"].count}</td>
+                                        <td data-col-id="okNotPushed">${g["Đơn Ok chưa đẩy đi"].count}</td>
+                                        <td data-col-id="success">${g["Giao Thành Công"].count}</td>
+                                        <td data-col-id="inTransit">${g["Đang Giao"].count}</td>
+                                        <td data-col-id="notShipped">${g["Chưa Giao"].count}</td>
+                                        <td data-col-id="pendingCheck">${g["chờ check"].count}</td>
+                                        <td data-col-id="emptyStatus">${g["Trống trạng thái"].count}</td>
+                                        <td data-col-id="shipRate">${tongTyLeDonLenVanHanh.toFixed(1)}%</td>
+                                        <td data-col-id="paymentRate">${tongTyLeThuTien.toFixed(1)}%</td>
+                                        <td data-col-id="ttThanhCongTrenDonTinhPhi">${tongTyLeTTThanhCong.toFixed(1)}%</td>`;
+                        tbody.appendChild(tr);
+                    }
+                    let rows = [...this.lastSummaryRows];
+                    console.log('🔍 Total rows to render:', rows.length);
+                    const st = this.sortState || {};
+                    if (st.key) {
+                        rows.sort((a, b) => {
+                            const va = a[st.key], vb = b[st.key];
+                            if (va < vb) return st.dir === 'asc' ? -1 : 1;
+                            if (va > vb) return st.dir === 'asc' ? 1 : -1;
+                            return 0;
+                        });
+                    } else {
+                        rows.sort((a, b) => a.staff.localeCompare(b.staff, 'vi'));
+                    }
+                    console.log('🔍 Rendering', rows.length, 'rows to table');
+                    let renderedCount = 0;
+                    rows.forEach(r => {
+                        const tr = document.createElement('tr');
+                        // Lưu staffType vào data attribute để dùng cho filter
+                        tr.setAttribute('data-staff-type', r.staffType || '');
+
+                        // ===== START: MODIFICATION (Round amount to nearest thousand) =====
+                        const roundedRowAmount = Math.round(r.paidAmount / 1000) * 1000;
+                        // ===== END: MODIFICATION (Round amount to nearest thousand) =====
+
+                        tr.innerHTML = `<td data-col-id="staff">${r.staff}</td>
+                                        <td data-col-id="paidCount">${r.paidCount}</td>
+                                        <td data-col-id="paidAmount">${new Intl.NumberFormat('vi-VN').format(roundedRowAmount)} ₫</td>
+                                        <td data-col-id="partialCount">${r.partialCount}</td>
+                                        <td data-col-id="totalInternal">${r.totalInternal}</td>
+                                        <td data-col-id="eligible">${r.eligible}</td>
+                                        <td data-col-id="hoanVanHanh">${r.hoanVanHanh}</td>
+                                        <td data-col-id="notYetShipped">${r.notYetShipped}</td>
+                                        <td data-col-id="okNotPushed">${r.okNotPushed}</td>
+                                        <td data-col-id="success">${r.success}</td>
+                                        <td data-col-id="inTransit">${r.inTransit}</td>
+                                        <td data-col-id="notShipped">${r.notShipped}</td>
+                                        <td data-col-id="pendingCheck">${r.pendingCheck}</td>
+                                        <td data-col-id="emptyStatus">${r.emptyStatus}</td>
+                                        <td data-col-id="shipRate" class="${r.shipRate > 70 ? 'positive' : 'negative'}">${r.shipRate.toFixed(1)}%</td>
+                                        <td data-col-id="paymentRate" class="${r.paymentRate > 80 ? 'positive' : 'negative'}">${r.paymentRate.toFixed(1)}%</td>
+                                        <td data-col-id="ttThanhCongTrenDonTinhPhi" class="${r.ttThanhCongTrenDonTinhPhi > 70 ? 'positive' : 'negative'}">${r.ttThanhCongTrenDonTinhPhi.toFixed(1)}%</td>`;
+                        tbody.appendChild(tr);
+                        renderedCount++;
+                    });
+                    console.log('✅ Actually rendered', renderedCount, 'rows in DOM');
+
+                    this.applyColumnVisibility();
+                },
+
+                setupSummarySorting: function () {
+                    document.querySelectorAll('.summary-table thead .sortable-header').forEach(th => {
+                        th.addEventListener('click', () => {
+                            const key = th.dataset.colId;
+                            if (!key) return;
+
+                            if (!this.sortState || this.sortState.key !== key) {
+                                this.sortState = { key, dir: 'desc' };
+                            } else {
+                                this.sortState.dir = this.sortState.dir === 'asc' ? 'desc' : 'asc';
+                            }
+                            document.querySelectorAll('.sortable-header').forEach(h => h.classList.remove('sorted-asc', 'sorted-desc'));
+                            th.classList.add(this.sortState.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+                            this.renderSummaryTable();
+                        });
+                    });
+                },
+
+                setupColumnToggleButton: function () {
+                    const dropdown = document.getElementById('columnToggleDropdown');
+                    const headers = document.querySelectorAll('.summary-table thead th[data-col-id]');
+                    let content = '';
+
+                    headers.forEach(th => {
+                        const colId = th.dataset.colId;
+                        const colText = th.textContent.trim();
+                        if (colId === 'staff') return;
+
+                        this.columnVisibility[colId] = true;
+                        content += `<label><input type="checkbox" data-col-id="${colId}" checked> ${colText}</label>`;
+                    });
+
+                    dropdown.innerHTML = content;
+
+                    document.getElementById('columnToggleButton').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        document.querySelectorAll('.checkbox-dropdown.show').forEach(d => d.id !== dropdown.id && d.classList.remove('show'));
+                        dropdown.classList.toggle('show');
+                    });
+
+                    dropdown.addEventListener('change', (e) => {
+                        if (e.target.type === 'checkbox') {
+                            const colId = e.target.dataset.colId;
+                            this.columnVisibility[colId] = e.target.checked;
+                            this.applyColumnVisibility();
+                        }
+                    });
+                },
+
+                applyColumnVisibility: function () {
+                    const table = document.querySelector('.summary-table');
+                    if (!table) return;
+
+                    Object.keys(this.columnVisibility).forEach(colId => {
+                        const shouldShow = this.columnVisibility[colId];
+                        const cells = table.querySelectorAll(`[data-col-id="${colId}"]`);
+                        cells.forEach(cell => {
+                            cell.style.display = shouldShow ? '' : 'none';
+                        });
+                    });
+
+                    const paymentHeader = table.querySelector('th[data-col-group="payment"]');
+                    if (paymentHeader) {
+                        const visibleChildren = ['paidCount', 'paidAmount'].filter(id => this.columnVisibility[id]).length;
+                        paymentHeader.colSpan = Math.max(1, visibleChildren);
+                        paymentHeader.style.display = visibleChildren > 0 ? '' : 'none';
+                    }
+                },
+
+                setupControls: function () {
+                    // Quick date dropdown logic (từ KPisale)
+                    const quickDateWrap = document.getElementById('dd-quickDate');
+                    const quickDateBtn = document.getElementById('btn-quickDate');
+                    const quickDateMenu = document.getElementById('menu-quickDate');
+                    if (quickDateBtn && quickDateWrap) {
+                        quickDateBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const wasOpen = quickDateWrap.classList.contains('open');
+                            closeAllDropdowns();
+                            quickDateWrap.classList.toggle('open', !wasOpen);
+                        });
+                        if (quickDateMenu) {
+                            quickDateMenu.addEventListener('click', (e) => { e.stopPropagation(); });
+                            quickDateMenu.addEventListener('change', (e) => {
+                                if (e.target.type === 'radio' && e.target.checked) {
+                                    const value = e.target.value;
+                                    const today = new Date();
+                                    const startDate = document.getElementById('reportStartDateFilter');
+                                    const endDate = document.getElementById('reportEndDateFilter');
+                                    let start = new Date();
+                                    let end = new Date();
+                                    if (value === 'today') {
+                                        start = new Date(today);
+                                        end = new Date(today);
+                                    } else if (value === 'yesterday') {
+                                        start = new Date(today);
+                                        start.setDate(start.getDate() - 1);
+                                        end = new Date(start);
+                                    } else if (value === 'thisWeek') {
+                                        const dayOfWeek = today.getDay();
+                                        const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                                        start = new Date(today.getFullYear(), today.getMonth(), diff);
+                                        end = new Date(today);
+                                    } else if (value === 'lastWeek') {
+                                        const lastWeekStart = new Date(today);
+                                        const lastWeekDay = today.getDay();
+                                        const lastWeekDiff = today.getDate() - lastWeekDay - 6;
+                                        lastWeekStart.setDate(lastWeekDiff);
+                                        const lastWeekEnd = new Date(lastWeekStart);
+                                        lastWeekEnd.setDate(lastWeekStart.getDate() + 6);
+                                        start = lastWeekStart;
+                                        end = lastWeekEnd;
+                                    } else if (value === 'thisMonth') {
+                                        const year = today.getFullYear();
+                                        const month = today.getMonth();
+                                        start = new Date(year, month, 1);
+                                        end = new Date(year, month + 1, 0);
+                                    } else if (value.startsWith('month')) {
+                                        const month = parseInt(value.replace('month', ''));
+                                        const year = today.getFullYear();
+                                        start = new Date(year, month - 1, 1);
+                                        end = new Date(year, month, 0);
+                                    }
+                                    if (start && end) {
+                                        const startYear = start.getFullYear();
+                                        const startMonth = String(start.getMonth() + 1).padStart(2, '0');
+                                        const startDay = '01';
+                                        startDate.value = `${startYear}-${startMonth}-${startDay}`;
+                                        const endYear = end.getFullYear();
+                                        const endMonth = String(end.getMonth() + 1).padStart(2, '0');
+                                        const endDay = String(end.getDate()).padStart(2, '0');
+                                        endDate.value = `${endYear}-${endMonth}-${endDay}`;
+                                        // Clear quick-date-vandon select
+                                        const quickSelect = document.getElementById('quick-date-vandon');
+                                        if (quickSelect) quickSelect.value = '';
+                                        updateRangeBadge();
+                                        this.applyAllFilters();
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    ['reportStartDateFilter', 'reportEndDateFilter'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) {
+                            el.addEventListener('change', () => {
+                                // Clear quick date selection when manually changing dates
+                                document.querySelectorAll('input[name="quickDate"]').forEach(radio => radio.checked = false);
+                                const quickSelect = document.getElementById('quick-date-vandon');
+                                if (quickSelect) quickSelect.value = '';
+                                updateRangeBadge();
+                                this.applyAllFilters();
+                            });
+                        }
+                    });
+                    document.getElementById('reportClearFilters')?.addEventListener('click', () => {
+                        document.getElementById('reportStartDateFilter').value = '';
+                        document.getElementById('reportEndDateFilter').value = '';
+                        document.getElementById('quick-date-vandon').value = '';
+                        // Clear quick date radio buttons
+                        document.querySelectorAll('input[name="quickDate"]').forEach(radio => radio.checked = false);
+                        updateRangeBadge();
+                        ['reportProductDropdown', 'reportMarketDropdown', 'reportTeamDropdown', 'reportStaffDropdown'].forEach(id => document.getElementById(id)?.querySelectorAll('input').forEach(cb => cb.checked = false));
+                        // Clear staff type filter (không cố định Sale nữa)
+                        document.querySelectorAll('#reportStaffTypeDropdown input').forEach(cb => cb.checked = false);
+                        this.updateProductFilterButtonText();
+                        this.updateMarketFilterButtonText();
+                        this.updateTeamFilterButtonText();
+                        this.updateStaffFilterButtonText();
+                        this.updateStaffTypeFilterButtonText();
+                        this.applyAllFilters();
+                    });
+                    // Dropdown open/close for KPisale style dropdowns
+                    ['reportTeam', 'reportStaff', 'reportProduct', 'reportMarket', 'reportStaffType'].forEach(fid => {
+                        const wrap = document.getElementById(`dd-${fid}`);
+                        const btn = document.getElementById(`btn-${fid}`);
+                        const menu = document.getElementById(`menu-${fid}`);
+                        if (btn && wrap) {
+                            btn.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                const wasOpen = wrap.classList.contains('open');
+                                closeAllDropdowns();
+                                wrap.classList.toggle('open', !wasOpen);
+                                if (!wasOpen && menu) {
+                                    const search = menu.querySelector('.dd-search');
+                                    if (search) setTimeout(() => { try { search.focus(); search.select?.(); } catch(_){} }, 0);
+                                }
+                            });
+                            if (menu) {
+                                menu.addEventListener('click', (e) => { e.stopPropagation(); });
+                                menu.addEventListener('input', (e) => { e.stopPropagation(); });
+                                menu.addEventListener('keydown', (e) => { e.stopPropagation(); });
+                            }
+                            if (menu) {
+                                menu.addEventListener('change', (e) => {
+                                    const tgt = e.target;
+                                    if (tgt && tgt.type === 'checkbox') {
+                                        if (tgt.value === '__ALL__') {
+                                            if (tgt.checked) {
+                                                menu.querySelectorAll('input[type="checkbox"]').forEach(cb => { if (cb !== tgt) cb.checked = false; });
+                                            }
+                                        } else {
+                                            const allCb = menu.querySelector('input[value="__ALL__"]');
+                                            if (allCb) allCb.checked = false;
+                                        }
+                                        // Map back to KPisale filterId for updateDropdownButtonLabel
+                                        const kpisaleIdMap = {
+                                            'reportTeam': 'filterTeam',
+                                            'reportStaff': 'filterName',
+                                            'reportProduct': 'filterProduct',
+                                            'reportMarket': 'filterMarket',
+                                            'reportStaffType': 'filterStaffType'
+                                        };
+                                        const kpisaleId = kpisaleIdMap[fid] || fid;
+                                        updateDropdownButtonLabel(kpisaleId);
+                                        
+                                        // Trigger filter update logic nếu cần
+                                        debouncedApplyFilters();
+                                    }
+                                });
+                            }
+                        }
+                    });
+                    window.addEventListener('click', () => {
+                        closeAllDropdowns();
+                    });
+                },
+                populateReportFilters: function () {
+                    const allProducts = [...new Set(globalData.map(r => getRowValue(r, 'Mặt_hàng', 'Mặt hàng')).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+                    const allMarkets = [...new Set(globalData.map(r => getRowValue(r, 'Khu_vực', 'Khu vực', 'khu vực')).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+                    
+                    // Lấy Team từ dữ liệu nhân sự Firebase, lọc theo "Bộ phận" dựa trên "Loại NV" đã chọn
+                    // Lấy tất cả loại nhân viên đã chọn từ dropdown (không cố định Sale nữa)
+                    const staffTypeFilters = new Set(Array.from(document.querySelectorAll('#reportStaffTypeDropdown input:checked:not(#reportStaffTypeSelectAll)')).map(cb => cb.value));
+                    
+                    // Map loại NV sang Bộ phận
+                    const boPhanMap = {
+                        'Marketing': 'MKT',
+                        'Sale': 'Sale',
+                        'Vận đơn': 'Vận đơn',
+                        'CSKH': 'CSKH'
+                    };
+                    
+                    // Lọc Team từ nhanSuData dựa trên Bộ phận
+                    let filteredTeams = [];
+                    if (staffTypeFilters.size === 0) {
+                        // Nếu không chọn gì, lấy tất cả Team từ nhanSuData
+                        filteredTeams = [...new Set(nhanSuData.map(r => (r["Team"] || '').trim()).filter(Boolean))];
+                    } else {
+                        // Lọc theo Bộ phận tương ứng với Loại NV đã chọn
+                        const boPhanFilters = new Set();
+                        staffTypeFilters.forEach(type => {
+                            if (boPhanMap[type]) {
+                                boPhanFilters.add(boPhanMap[type]);
+                            }
+                        });
+                        
+                        // Lấy Team từ nhanSuData (bao gồm cả Vận đơn)
+                        filteredTeams = [...new Set(
+                            nhanSuData
+                                .filter(r => {
+                                    const boPhan = (r["Bộ phận"] || '').trim();
+                                    return boPhanFilters.has(boPhan);
+                                })
+                                .map(r => (r["Team"] || '').trim())
+                                .filter(Boolean)
+                        )];
+                        
+                        console.log(`📊 Chọn loại NV: ${Array.from(staffTypeFilters).join(', ')} → Lọc Team theo Bộ phận: ${Array.from(boPhanFilters).join(', ')}`);
+                        console.log(`✅ Tìm thấy ${filteredTeams.length} Team`);
+                    }
+                    
+                    const allTeams = filteredTeams.sort((a, b) => a.localeCompare(b, 'vi'));
+
+                    // Thu thập tất cả 3 loại nhân viên từ rawData (TẤT CẢ TEAM)
+                    const staffWithTypes = [];
+                    rawData.forEach(r => {
+                        const marketing = (getRowValue(r, 'Nhân_viên_Marketing', 'Nhân viên Marketing') || '').trim();
+                        const sale = (getRowValue(r, 'Nhân_viên_Sale', 'Nhân viên Sale') || '').trim();
+                        const vandon = (getRowValue(r, 'NV_Vận_đơn', 'NV Vận đơn') || '').trim();
+
+                        if (marketing) staffWithTypes.push({ name: marketing, type: 'Marketing' });
+                        if (sale) staffWithTypes.push({ name: sale, type: 'Sale' });
+                        if (vandon) staffWithTypes.push({ name: vandon, type: 'Vận đơn' });
+                    });
+
+                    // Loại bỏ trùng lặp
+                    const uniqueStaffMap = new Map();
+                    staffWithTypes.forEach(s => {
+                        const key = `${s.name}|||${s.type}`;
+                        if (!uniqueStaffMap.has(key)) {
+                            uniqueStaffMap.set(key, s);
+                        }
+                    });
+
+                    this.allStaffData = Array.from(uniqueStaffMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+                    console.log('✅ Total staff for filter dropdown:', this.allStaffData.length);
+
+                    // Populate KPisale style dropdowns với map filterId
+                    populateDropdown('filterProduct', allProducts);
+                    populateDropdown('filterMarket', allMarkets);
+                    populateDropdown('filterTeam', allTeams);
+                    
+                    // Populate staff dropdown
+                    this.populateStaffDropdownKPisale();
+                    
+                    // Bỏ bộ lọc Tracking - đã ẩn
+
+                    // Setup Staff Type Filter
+                    const staffTypeDropdown = document.getElementById('reportStaffTypeDropdown');
+                    if (staffTypeDropdown) {
+                        staffTypeDropdown.addEventListener('change', e => {
+                            if (e.target.id === 'reportStaffTypeSelectAll') {
+                                staffTypeDropdown.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = e.target.checked);
+                            } else {
+                                const allCb = document.getElementById('reportStaffTypeSelectAll');
+                                if (allCb) allCb.checked = staffTypeDropdown.querySelectorAll(`input:checked:not(#reportStaffTypeSelectAll)`).length === 4;
+                            }
+                            this.updateStaffTypeFilterButtonText();
+                            this.populateReportFilters(); // Cập nhật lại Team filter khi thay đổi loại nhân viên
+                            this.populateStaffDropdown(); // Cập nhật dropdown nhân viên khi thay đổi loại
+                            this.applyStaffTypeFilter();
+                        });
+                    }
+
+                    this.updateStaffFilterButtonText();
+                    this.updateProductFilterButtonText();
+                    this.updateMarketFilterButtonText();
+                    this.updateTeamFilterButtonText();
+                    this.updateStaffTypeFilterButtonText();
+                },
+                populateStaffDropdownKPisale: function () {
+                    // Populate staff dropdown theo KPisale style
+                    const staffNames = (this.allStaffData || []).map(s => s.name);
+                    const uniqueNames = [...new Set(staffNames)].sort((a, b) => a.localeCompare(b, 'vi'));
+                    const menu = document.getElementById('menu-reportStaff');
+                    if (!menu) return;
+                    const makeItem = (value, label) => `<label class="dd-item"><input type="checkbox" value="${value}"> <span>${label}</span></label>`;
+                    const specialsHtml = [
+                        makeItem('__ALL__', '✓ Tất cả'),
+                        makeItem('__EMPTY__', '[ Trống ]')
+                    ].join('');
+                    const regularHtml = uniqueNames.map(v => makeItem(v, v)).join('');
+                    menu.innerHTML = `
+                        <input type="text" class="dd-search" placeholder="Tìm..." aria-label="Tìm nhanh">
+                        ${specialsHtml}
+                        <div class="dd-items">${regularHtml}</div>
+                    `;
+                    console.log(`✅ Populated menu-reportStaff with ${uniqueNames.length} staff names`);
+                },
+                
+                populateStaffDropdown: function () {
+                    // Lấy các loại nhân viên đã chọn từ dropdown (không cố định Sale nữa)
+                    const staffTypeFilters = new Set(Array.from(document.querySelectorAll('#reportStaffTypeDropdown input:checked:not(#reportStaffTypeSelectAll)')).map(cb => cb.value));
+                    
+                    // Lấy danh sách Team đã chọn từ filter
+                    const selectedTeams = new Set(Array.from(document.querySelectorAll('#reportTeamDropdown input:checked:not(#reportTeamSelectAll)')).map(cb => cb.value));
+                    
+                    // Map loại NV sang Bộ phận
+                    const boPhanMap = {
+                        'Marketing': 'MKT',
+                        'Sale': 'Sale',
+                        'Vận đơn': 'Vận đơn',
+                        'CSKH': 'CSKH'
+                    };
+                    
+                    // Lấy nhân sự từ nhanSuData theo Team đã chọn
+                    let staffFromNhanSu = [];
+                    if (selectedTeams.size === 0) {
+                        // Nếu không chọn Team, lấy tất cả nhân sự
+                        staffFromNhanSu = nhanSuData;
+                    } else {
+                        // Chỉ lấy nhân sự từ Team đã chọn
+                        staffFromNhanSu = nhanSuData.filter(r => {
+                            const team = (r["Team"] || '').trim();
+                            return selectedTeams.has(team);
+                        });
+                    }
+                    
+                    // Chuyển đổi sang format {name, type} dựa trên Bộ phận
+                    const staffWithTypes = [];
+                    staffFromNhanSu.forEach(r => {
+                        const ten = (r["Họ Và Tên"] || r["Tên"] || '').trim();
+                        const boPhan = (r["Bộ phận"] || '').trim();
+                        
+                        if (!ten) return;
+                        
+                        // Map Bộ phận sang loại NV
+                        let type = '';
+                        if (boPhan === 'MKT') type = 'Marketing';
+                        else if (boPhan === 'Sale') type = 'Sale';
+                        else if (boPhan === 'Vận đơn') type = 'Vận đơn';
+                        else if (boPhan === 'CSKH') type = 'CSKH';
+                        
+                        if (type) {
+                            staffWithTypes.push({ name: ten, type: type });
+                        }
+                    });
+                    
+                    // Nhân viên Vận đơn đã được lấy từ nhanSuData ở trên, không cần lấy từ rawData nữa
+                    
+                    // Loại bỏ trùng lặp
+                    const uniqueStaffMap = new Map();
+                    staffWithTypes.forEach(s => {
+                        const key = `${s.name}|||${s.type}`;
+                        if (!uniqueStaffMap.has(key)) {
+                            uniqueStaffMap.set(key, s);
+                        }
+                    });
+                    
+                    let filteredStaff = Array.from(uniqueStaffMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+                    
+                    // Lọc theo loại nhân viên đã chọn
+                    if (staffTypeFilters.size > 0 && staffTypeFilters.size < 4) {
+                        filteredStaff = filteredStaff.filter(staff => staffTypeFilters.has(staff.type));
+                    }
+
+                    const staffDropdown = document.getElementById('reportStaffDropdown');
+                    if (staffDropdown) {
+                        // Lưu trạng thái checkbox đã chọn trước đó (TRƯỚC KHI clear innerHTML)
+                        const previouslySelected = new Set(
+                            Array.from(staffDropdown.querySelectorAll('input:checked:not(#reportStaffSelectAll)')).map(cb => cb.value)
+                        );
+                        
+                        // Lấy danh sách nhân viên hiện tại (trước khi rebuild)
+                        const currentStaffValues = new Set(
+                            Array.from(staffDropdown.querySelectorAll('input:not(#reportStaffSelectAll)')).map(cb => cb.value)
+                        );
+                        
+                        // Tạo danh sách giá trị nhân viên mới
+                        const newStaffValues = new Set(filteredStaff.map(s => `${s.name}|||${s.type}`));
+                        
+                        // Kiểm tra xem danh sách có thay đổi không (có team mới được chọn)
+                        const listChanged = currentStaffValues.size !== newStaffValues.size || 
+                                          ![...currentStaffValues].every(v => newStaffValues.has(v));
+                        
+                        console.log('📋 Trạng thái nhân sự trước khi populate:', previouslySelected.size, 'người đã chọn');
+                        console.log('📋 Danh sách nhân viên có thay đổi:', listChanged);
+
+                        // Tự động chọn tất cả nếu:
+                        // 1. Không có nhân sự nào được chọn trước đó, HOẶC
+                        // 2. Danh sách nhân viên thay đổi (có team mới được chọn)
+                        const shouldSelectAll = (previouslySelected.size === 0 || listChanged) && filteredStaff.length > 0;
+                        
+                        if (shouldSelectAll) {
+                            console.log('✅ Tự động chọn tất cả nhân sự (', filteredStaff.length, 'người)');
+                        }
+
+                        staffDropdown.innerHTML = `<label style="font-weight: bold; border-bottom: 1px solid #ccc; padding-bottom: 5px;"><input type="checkbox" id="reportStaffSelectAll" ${shouldSelectAll ? 'checked' : ''}> Chọn tất cả</label>`;
+                        
+                        filteredStaff.forEach(staff => {
+                            const displayText = staff.name; // Chỉ hiển thị tên, bỏ phần trong ngoặc
+                            const value = `${staff.name}|||${staff.type}`;
+                            // Nếu shouldSelectAll = true hoặc (nhân sự này đã được chọn trước đó VÀ danh sách không thay đổi), thì check
+                            const isChecked = shouldSelectAll || (!listChanged && previouslySelected.has(value)) ? 'checked' : '';
+                            staffDropdown.innerHTML += `<label><input type="checkbox" value="${value.replace(/"/g, '&quot;')}" ${isChecked}> ${displayText}</label>`;
+                        });
+                        
+                        // Update "Chọn tất cả" checkbox
+                        const allCb = document.getElementById('reportStaffSelectAll');
+                        if (allCb) {
+                            const checkedCount = staffDropdown.querySelectorAll('input:checked:not(#reportStaffSelectAll)').length;
+                            allCb.checked = checkedCount === filteredStaff.length && filteredStaff.length > 0;
+                        }
+
+                        // Chỉ thêm event listener một lần
+                        if (!staffDropdown.dataset.listenerAttached) {
+                            staffDropdown.addEventListener('change', function(e) {
+                                if (e.target && e.target.type === 'checkbox') {
+                                    const dropdown = document.getElementById('reportStaffDropdown');
+                                    if (!dropdown) return;
+                                    
+                                    if (e.target.id === 'reportStaffSelectAll') {
+                                        dropdown.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = e.target.checked);
+                                    } else {
+                                        const allCb = document.getElementById('reportStaffSelectAll');
+                                        if (allCb) {
+                                            const totalCount = dropdown.querySelectorAll('input:not(#reportStaffSelectAll)').length;
+                                            const checkedCount = dropdown.querySelectorAll('input:checked:not(#reportStaffSelectAll)').length;
+                                            allCb.checked = checkedCount === totalCount && totalCount > 0;
+                                        }
+                                    }
+                                    this.updateStaffFilterButtonText();
+                                    this.applyAllFilters();
+                                }
+                            }.bind(this), false);
+                            staffDropdown.dataset.listenerAttached = 'true';
+                        }
+                        
+                        this.updateStaffFilterButtonText();
+                    }
+                },
+                updateFilterButtonText: function (btnId, dropdownId, selectAllId, defaultText, selectedText) {
+                    const btn = document.getElementById(btnId), dropdown = document.getElementById(dropdownId);
+                    if (!btn || !dropdown) return;
+                    const selectedCount = dropdown.querySelectorAll(`input:checked:not(#${selectAllId})`).length;
+                    const totalCount = dropdown.querySelectorAll(`input:not(#${selectAllId})`).length;
+                    if (selectedCount === 0 || selectedCount === totalCount) btn.textContent = defaultText;
+                    else if (selectedCount === 1) btn.textContent = dropdown.querySelector(`input:checked:not(#${selectAllId})`).value;
+                    else btn.textContent = `${selectedCount} ${selectedText} đã chọn`;
+                },
+                updateProductFilterButtonText: function () { this.updateFilterButtonText('reportProductFilterBtn', 'reportProductDropdown', 'reportProductSelectAll', 'Tất cả sản phẩm', 'sản phẩm'); },
+                updateMarketFilterButtonText: function () { this.updateFilterButtonText('reportMarketFilterBtn', 'reportMarketDropdown', 'reportMarketSelectAll', 'Tất cả khu vực', 'khu vực'); },
+                updateTeamFilterButtonText: function () { this.updateFilterButtonText('reportTeamFilterBtn', 'reportTeamDropdown', 'reportTeamSelectAll', 'Tất cả Team', 'Team'); },
+                updateStaffFilterButtonText: function () { this.updateFilterButtonText('reportStaffFilterBtn', 'reportStaffDropdown', 'reportStaffSelectAll', 'Tất cả Nhân viên', 'NV'); },
+                updateTrackingFilterButtonText: function () { this.updateFilterButtonText('reportTrackingFilterBtn', 'reportTrackingDropdown', 'reportTrackingSelectAll', 'Tất cả mã tracking', 'trạng thái'); },
+                updateStaffTypeFilterButtonText: function () { this.updateFilterButtonText('reportStaffTypeFilterBtn', 'reportStaffTypeDropdown', 'reportStaffTypeSelectAll', 'Tất cả loại NV', 'loại'); },
+
+                applyStaffTypeFilter: function () {
+                    // Lấy các loại nhân viên đã chọn từ dropdown (không cố định Sale nữa)
+                    const staffTypeFilters = new Set(Array.from(document.querySelectorAll('#reportStaffTypeDropdown input:checked:not(#reportStaffTypeSelectAll)')).map(cb => cb.value));
+
+                    // Nếu không chọn gì hoặc chọn tất cả -> hiển thị hết
+                    if (staffTypeFilters.size === 0 || staffTypeFilters.size === 4) {
+                        document.querySelectorAll('#summaryTableBody tr').forEach(tr => {
+                            if (!tr.classList.contains('summary-grand-total')) {
+                                tr.style.display = '';
+                            }
+                        });
+                        return;
+                    }
+
+                    // Lọc theo loại nhân viên được chọn
+                    document.querySelectorAll('#summaryTableBody tr').forEach(tr => {
+                        if (tr.classList.contains('summary-grand-total')) return;
+
+                        // Lấy staffType từ data attribute thay vì parse từ textContent
+                        const staffType = tr.getAttribute('data-staff-type') || '';
+                        
+                        const shouldShow = staffTypeFilters.has(staffType);
+
+                        tr.style.display = shouldShow ? '' : 'none';
+                    });
+                },
+                applyAllFilters: function () {
+                    // BẮT ĐẦU TỪ GLOBALDATA - KHÔNG LỌC PHÂN QUYỀN Ở ĐÂY
+                    let data = [...globalData];
+                    
+                    console.log('🔍 applyAllFilters: Starting with', data.length, 'records from globalData');
+                    console.log('🔐 allowedNames status:', allowedNames ? `Set with ${allowedNames.size} names` : 'null (no restriction)');
+                    
+                    const startValue = document.getElementById('reportStartDateFilter')?.value;
+                    const endValue = document.getElementById('reportEndDateFilter')?.value;
+
+                    let start, end;
+
+                    if (startValue) {
+                        start = new Date(startValue);
+                        start.setHours(0, 0, 0, 0);
+                    }
+
+                    if (endValue) {
+                        end = new Date(endValue);
+                        end.setHours(23, 59, 59, 999);
+                    }
+
+                    if (start) {
+                        data = data.filter(r => {
+                            const ngayLenDon = getRowValue(r, 'Ngày_lên_đơn', 'Ngày lên đơn', 'Thời gian lên đơn');
+                            const ts = parseOrderDateToMs(ngayLenDon);
+                            return Number.isFinite(ts) && ts >= start.getTime();
+                        });
+                    }
+                    if (end) {
+                        data = data.filter(r => {
+                            const ngayLenDon = getRowValue(r, 'Ngày_lên_đơn', 'Ngày lên đơn', 'Thời gian lên đơn');
+                            const ts = parseOrderDateToMs(ngayLenDon);
+                            return Number.isFinite(ts) && ts <= end.getTime();
+                        });
+                    }
+
+                    const getSelected = (selector) => new Set(Array.from(document.querySelectorAll(selector)).map(cb => cb.value));
+                    const products = getSelected('#reportProductDropdown input:checked:not(#reportProductSelectAll)');
+                    const markets = getSelected('#reportMarketDropdown input:checked:not(#reportMarketSelectAll)');
+                    // const teams = getSelected('#reportTeamDropdown input:checked:not(#reportTeamSelectAll)'); // Bỏ lọc theo cột Team trong data, chỉ dùng để lọc list nhân viên
+                    const staffFilters = getSelected('#reportStaffDropdown input:checked:not(#reportStaffSelectAll)');
+
+                    if (products.size) data = data.filter(r => products.has(getRowValue(r, 'Mặt_hàng', 'Mặt hàng')));
+                    if (markets.size) data = data.filter(r => markets.has(getRowValue(r, 'Khu_vực', 'Khu vực', 'khu vực')));
+                    // if (teams.size) data = data.filter(r => teams.has((r["Team"] || '').trim())); // Đã bỏ lọc cứng theo Team
+
+
+                    // Filter theo nhân viên và loại
+                    if (staffFilters.size > 0) {
+                        // Lấy danh sách tên nhân viên CSKH từ staffFilters
+                        const cskhStaffNames = new Set();
+                        staffFilters.forEach(filterValue => {
+                            const [name, type] = filterValue.split('|||');
+                            if (type === 'CSKH') {
+                                cskhStaffNames.add(name);
+                            }
+                        });
+
+                        data = data.filter(r => {
+                            const marketing = (r["Nhân viên Marketing"] || '').trim();
+                            const sale = (r["Nhân viên Sale"] || '').trim();
+                            const vandon = (r["NV Vận đơn"] || '').trim();
+
+                            const hasMarketing = marketing && staffFilters.has(`${marketing}|||Marketing`);
+                            const hasSale = sale && staffFilters.has(`${sale}|||Sale`);
+                            const hasVandon = vandon && staffFilters.has(`${vandon}|||Vận đơn`);
+                            // CSKH khớp với cột "Nhân viên Sale"
+                            const hasCSKH = sale && cskhStaffNames.has(sale);
+
+                            return hasMarketing || hasSale || hasVandon || hasCSKH;
+                        });
+                    }
+                    this.updateDetailedSummaryTable(data);
+                }
+            };
+            vanDonReportApp.init();
+            loadData();
+        });
+    </script>
+</body>
+
+</html>
+
+
+

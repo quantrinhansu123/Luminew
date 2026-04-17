@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giao diện Vận đơn</title>
+    <style>
+        /* CSS cho giao diện tổng thể */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f7f6;
+        }
+
+        /* CSS cho lớp phủ tải trang */
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s;
+        }
+
+        .loading-content .loading-text {
+            font-size: 1.2em;
+            color: #333;
+        }
+
+        /* === THAY ĐỔI MÀU SẮC === */
+
+        /* CSS cho vùng chứa các nút tab */
+        .sub-tab-container {
+            overflow: hidden;
+            border: 1px solid #a5d6a7; /* Viền xanh nhạt */
+            background-color: #f1f1f1;
+            display: flex;
+            flex-wrap: wrap;
+        }
+
+        /* CSS cho các nút tab */
+        .sub-tab-container .sub-tab-btn {
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            font-size: 17px;
+            border-right: 1px solid #a5d6a7; /* Viền xanh nhạt */
+            color: #333; /* Màu chữ mặc định */
+        }
+
+        .sub-tab-container .sub-tab-btn:last-child {
+            border-right: none;
+        }
+
+        /* Thay đổi màu nền khi di chuột qua */
+        .sub-tab-container .sub-tab-btn:hover {
+            background-color: #e8f5e9; /* Màu xanh lá rất nhạt */
+        }
+
+        /* CSS cho nút tab đang được chọn (active) */
+        .sub-tab-container .sub-tab-btn.active {
+            background-color: #4CAF50; /* Màu xanh lá cây đậm */
+            font-weight: bold;
+            color: white; /* Chữ màu trắng để nổi bật */
+        }
+        /* ============================ */
+
+
+        /* CSS cho nội dung của tab */
+        .sub-tab-content {
+            display: none;
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            border-top: none;
+            animation: fadeIn 0.5s;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .sub-tab-content.active {
+            display: block;
+        }
+
+        .iframe-tab {
+            padding: 0;
+            height: 80vh;
+        }
+        
+        /* CSS để thu nhỏ iframe của tab Báo cáo tổng kết */
+        .scaled-iframe-container {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        
+        .scaled-iframe-container iframe {
+            width: 125%; 
+            height: 125%;
+            transform: scale(0.8);
+            transform-origin: 0 0;
+            border: none;
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <div id="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-text">Đang tải dữ liệu...</div>
+        </div>
+    </div>
+
+    <!-- ======================= VẬN ĐƠN COMBINED TAB ======================= -->
+    <div id="VanDonCombinedTab" class="tab-content active">
+        <!-- Các nút để chuyển tab -->
+        <div class="sub-tab-container">
+            <button class="sub-tab-btn active" onclick="openSubTab(event, 'BaocaoVanDonTongKetSub')">Báo cáo tổng kết</button>
+            <button class="sub-tab-btn" onclick="openSubTab(event, 'BaoCaoVanDonCEOSub')">Báo cáo vận đơn CEO</button>
+            <button class="sub-tab-btn" onclick="openSubTab(event, 'ChiTietVanDonSub')">Chi tiết vận đơn</button>
+            <button class="sub-tab-btn" onclick="openSubTab(event, 'VanDonSub')">Báo cáo bộ phận</button>
+            <!-- TAB KPI CEO -->
+            <button class="sub-tab-btn" onclick="openSubTab(event, 'KpiCEOSub')">KPI Vận đơn</button>
+        </div>
+
+        <!-- Nội dung các tab -->
+        <div id="BaocaoVanDonTongKetSub" class="sub-tab-content iframe-tab active">
+            <div class="scaled-iframe-container">
+                <iframe id="baocaovandontongket-iframe"
+                    src="./baocaotongketvandontab1.html"></iframe>
+            </div>
+        </div>
+
+        <div id="BaoCaoVanDonCEOSub" class="sub-tab-content iframe-tab">
+            <iframe id="baocaovandonceo-iframe" style="width: 100%; height: 100%; border: none;"
+                src="./vandonCEO.html"></iframe>
+        </div>
+
+        <div id="ChiTietVanDonSub" class="sub-tab-content iframe-tab">
+            <iframe id="chitietvandon-iframe" style="width: 100%; height: 100%; border: none;"
+                src="./chitietvandon.html"></iframe>
+        </div>
+
+        <div id="VanDonSub" class="sub-tab-content iframe-tab">
+            <iframe id="vandontab3-iframe" style="width: 100%; height: 100%; border: none;"
+                src="./Baocaovandontab3.html"></iframe>
+        </div>
+
+        <!-- NỘI DUNG TAB KPI CEO -->
+        <div id="KpiCEOSub" class="sub-tab-content iframe-tab">
+            <iframe id="ceokpi-iframe" style="width: 100%; height: 100%; border: none;"
+                src="./KPIVandon.html?view=vandon"></iframe>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script>
+        function openSubTab(evt, subTabName) {
+            var i, subTabcontent, subTablinks;
+            subTabcontent = document.querySelectorAll('#VanDonCombinedTab .sub-tab-content');
+            for (i = 0; i < subTabcontent.length; i++) {
+                subTabcontent[i].style.display = "none";
+                subTabcontent[i].classList.remove("active");
+            }
+            subTablinks = document.querySelectorAll('#VanDonCombinedTab .sub-tab-btn');
+            for (i = 0; i < subTablinks.length; i++) {
+                subTablinks[i].className = subTablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(subTabName).style.display = "block";
+            document.getElementById(subTabName).classList.add("active");
+            evt.currentTarget.className += " active";
+            applyUrlParamsToIframes(subTabName);
+        }
+
+        function applyUrlParamsToIframes(activeTabName) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const id = urlParams.get('id');
+            if (!id) return;
+
+            let iframeId;
+            let baseUrl;
+
+            if (activeTabName === 'BaocaoVanDonTongKetSub') {
+                iframeId = 'baocaovandontongket-iframe';
+                baseUrl = './baocaotongketvandontab1.html';
+            } else if (activeTabName === 'BaoCaoVanDonCEOSub') {
+                iframeId = 'baocaovandonceo-iframe';
+                baseUrl = './vandonCEO.html';
+            } else if (activeTabName === 'ChiTietVanDonSub') {
+                iframeId = 'chitietvandon-iframe';
+                baseUrl = './chitietvandon.html';
+            } else if (activeTabName === 'VanDonSub') {
+                iframeId = 'vandontab3-iframe';
+                baseUrl = './Baocaovandontab3.html';
+            } else if (activeTabName === 'KpiCEOSub') {
+                iframeId = 'ceokpi-iframe';
+                // CEO KPI có sẵn query view=vandon
+                baseUrl = './KPIVandon.html?view=vandon';
+            }
+
+            if (iframeId && baseUrl) {
+                const iframe = document.getElementById(iframeId);
+                if (iframe && !iframe.src.includes('id=')) {
+                    const sep = baseUrl.includes('?') ? '&' : '?';
+                    iframe.src = `${baseUrl}${sep}id=${encodeURIComponent(id)}`;
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.style.opacity = '0';
+                setTimeout(() => { loadingOverlay.style.display = 'none'; }, 500);
+            }
+            const activeSubTab = document.querySelector('#VanDonCombinedTab .sub-tab-btn.active');
+            if (activeSubTab) {
+                const subTabName = activeSubTab.getAttribute('onclick').split("'")[1];
+                applyUrlParamsToIframes(subTabName);
+            }
+        });
+    </script>
+</body>
+</html>
+
