@@ -73,6 +73,22 @@ function normalizeCaShiftDisplay(raw) {
     .replace(/\s*,\s*/g, ',');
 }
 
+/** Chuẩn hoá ca đầu vào trước khi lưu DB, không để lọt "Giữa ca" thuần. */
+function normalizeIncomingShiftForSave(rawShift, fallbackDateTime) {
+  const stored = normalizeCaShiftDisplay(rawShift);
+  if (stored) {
+    const n = stored.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    const hasHet = n.includes('het ca');
+    const hasGua = n.includes('giua ca');
+    if (hasGua && !hasHet) return SHIFT_GIUA_CA_HET_CA;
+    if (hasHet && hasGua) return SHIFT_GIUA_CA_HET_CA;
+    if (hasHet) return 'Hết ca';
+  }
+  const inferred = inferCaShiftFromDateTime(fallbackDateTime);
+  if (inferred) return inferred;
+  return SHIFT_GIUA_CA_HET_CA;
+}
+
 /**
  * Suy ca từ datetime khi DB chưa có shift — cùng khung giờ với NhapDonMoi; chỉ khi chuỗi có giờ rõ ràng (tránh date-only → 00:00 sai).
  */
@@ -1241,6 +1257,7 @@ function DanhSachDon({ dataSource = 'default' }) {
           const rawShip = item["Phí ship"] || item["Phí_ship"] || "0";
           const rawGoodsAmount = item["Tiền Hàng"] || item["Tiền_Hàng"] || "0";
           const rawReconciled = item["Tiền Việt đã đối soát"] || item["Tiền_Việt_đã_đối_soát"] || "0";
+          const rawShift = item["Ca"] || item["ca"] || item["Shift"] || item["shift"] || "";
 
           const amount = rawAmount ? (parseFloat(String(rawAmount).replace(/[^0-9.-]+/g, "")) || 0) : 0;
           const ship = rawShip ? (parseFloat(String(rawShip).replace(/[^0-9.-]+/g, "")) || 0) : null;
@@ -1265,6 +1282,7 @@ function DanhSachDon({ dataSource = 'default' }) {
             shipping_fee: ship,
             marketing_staff: item["Nhân viên Marketing"] || item["Nhân_viên_Marketing"] || "",
             sale_staff: item["Nhân viên Sale"] || item["Nhân_viên_Sale"] || "",
+            shift: normalizeIncomingShiftForSave(rawShift, dateRaw || orderDate),
             team: item["Team"] || "",
             delivery_status: item["Trạng thái giao hàng"] || item["Trạng_thái_giao_hàng_NB"] || item["Trạng_thái_giao_hàng"] || "",
             check_result: item["Kết quả Check"] || item["Kết_quả_Check"] || "", // Map vào check_result thay vì payment_status

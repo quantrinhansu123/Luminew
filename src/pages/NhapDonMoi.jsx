@@ -17,6 +17,7 @@ import {
 } from '../utils/orderLogJsonb';
 
 const ADMIN_MAIL = import.meta.env.VITE_ADMIN_MAIL || "admin@marketing.com";
+const SHIFT_GIUA_CA_HET_CA = "Giữa ca,Hết ca";
 
 /**
  * Retry async function with exponential backoff.
@@ -1439,7 +1440,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             const totalMinutes = hour * 60 + minute;
 
             // Logic phân ca:
-            // - 07:30 -> 15:30: "Giữa ca,Hết ca" (Trước đây là "Giữa ca", nay chuyển sang gộp luôn)
+            // - 07:30 -> 15:30: "Giữa ca,Hết ca"
             // - Sau 15:30 đến 23:59: "Giữa ca,Hết ca" (cả hai nhóm)
             // - Còn lại (00:00 -> 07:29): "Hết ca"
             const startGiuaCa = 7 * 60 + 30; // 07:30
@@ -1447,7 +1448,7 @@ export default function NhapDonMoi({ isEdit = false }) {
             const endDay = 23 * 60 + 59; // 23:59
 
             if (totalMinutes >= startGiuaCa && totalMinutes <= endDay) {
-                return "Giữa ca,Hết ca";
+                return SHIFT_GIUA_CA_HET_CA;
             }
             return "Hết ca";
         } catch (error) {
@@ -1620,7 +1621,7 @@ export default function NhapDonMoi({ isEdit = false }) {
                     ? calculatedShift
                     : isEdit
                       ? (existingOrderSnapshot?.shift ?? undefined)
-                      : "Giữa ca";
+                      : SHIFT_GIUA_CA_HET_CA;
 
             const dupCodes = await fetchDuplicateOrderCodesByCustomerOr(
                 supabase,

@@ -25,6 +25,7 @@ export function labelForOrderLogDbKey(dbKey) {
 
 /** Các cột tiền/tổng: null, NaN, rỗng và 0 coi như một khi so sánh nhật ký (tránh spam NaN→0 lặp). */
 const ORDER_LOG_MONEY_EMPTY_EQUIV_KEYS = new Set(["total_amount_vnd"]);
+const SHIFT_GIUA_CA_HET_CA = "Giữa ca,Hết ca";
 
 function moneyEmptyEquivalentToken(v) {
     if (v === undefined || v === null || v === "") return "_empty";
@@ -113,7 +114,7 @@ export function buildTrackedFieldsPayloadForLog({
         page_name: selectedPage,
         marketing_staff: selectedMkt,
         sale_staff: selectedSale,
-        shift: calculatedShift || (isEdit ? undefined : "Giữa ca"),
+        shift: calculatedShift || (isEdit ? undefined : SHIFT_GIUA_CA_HET_CA),
         team: hasRndPermission
             ? "RD"
             : foundBranchCache && String(foundBranchCache).trim()
