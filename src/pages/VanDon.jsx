@@ -57,12 +57,11 @@ const VAN_DON_PENDING_SNAPSHOTS_LS_KEY = 'speegoPendingRowSnapshots_van_don';
 // Columns to always hide (both in table and column settings)
 const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
 
-/** 
+/**
  * Cột chỉ đọc trên lưới Vận đơn.
- * Để cho phép chỉnh sửa trực tiếp các cột như Name*, Mặt hàng, Tổng tiền VNĐ, Hình thức thanh toán,...
- * chúng ta để danh sách này rỗng (mọi cột còn lại sẽ tuân theo EDITABLE_COLS).
+ * "Mã Tracking" bị khóa để tránh sửa trực tiếp/paste nhầm ngay trên bảng.
  */
-const VAN_DON_GRID_READ_ONLY_COLS = [];
+const VAN_DON_GRID_READ_ONLY_COLS = ['Mã Tracking', 'Mã tracking', 'tracking_code'];
 
 const UPDATE_DELAY = 500;
 const BULK_THRESHOLD = 1;
