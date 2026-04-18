@@ -1596,17 +1596,6 @@ function DoiSoatBillCuoc() {
         });
         if (isBillTab) {
           updateObj.ngay_update = today;
-          const row = billData.find((r) => r.id === rowId);
-          const pendingDate = rowChanges.get('ngay_doi_soat');
-          const fromUpdate =
-            pendingDate !== undefined ? pendingDate : undefined;
-          const effective =
-            fromUpdate !== undefined && fromUpdate !== '' && fromUpdate != null
-              ? fromUpdate
-              : row?.ngay_doi_soat;
-          if (effective === undefined || effective === '' || effective === null) {
-            updateObj.ngay_doi_soat = new Date().toISOString().split('T')[0];
-          }
         }
         updates.push(updateObj);
       });
@@ -1743,9 +1732,40 @@ function DoiSoatBillCuoc() {
             .replace(/[\u0300-\u036f]/g, ''); // bỏ dấu tiếng Việt
 
         const exNorm = normalizeLabel(excelLabel);
+
+        // Alias mềm cho các cột có thể có trong file thực tế nhưng không hiển thị trên UI.
+        const importColumnAliases = {
+          'don vi tien': 'don_vi_tien',
+          'đon vi tien': 'don_vi_tien',
+          'donvitien': 'don_vi_tien',
+          'currency': 'don_vi_tien',
+          'ngay update': 'ngay_update',
+          'ngay cap nhat': 'ngay_update',
+          'updated at': 'ngay_update',
+          'update date': 'ngay_update',
+        };
+        if (importColumnAliases[exNorm]) return importColumnAliases[exNorm];
+
         const col = columns.find((c) => !c.computed && normalizeLabel(c.label) === exNorm);
         if (col) return col.key;
         return null;
+      };
+
+      const normalizeCurrencyForImport = (value) => {
+        if (value == null || value === '') return null;
+        const normalized = String(value)
+          .trim()
+          .toUpperCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^A-Z]/g, '');
+
+        if (!normalized) return null;
+        if (normalized === 'CAD' || normalized === 'CANADA') return 'CAD';
+        if (normalized === 'USD') return 'USD';
+        if (normalized === 'AUD' || normalized === 'AUSTRALIA') return 'AUD';
+        if (normalized === 'JPY' || normalized === 'YEN' || normalized === 'JAPAN') return 'YEN';
+        return normalized;
       };
 
       // Map dữ liệu từ Excel vào format database
@@ -1775,6 +1795,12 @@ function DoiSoatBillCuoc() {
               const parsedDate = parseExcelDateToISO(value);
               if (parsedDate) {
                 record[dbKey] = parsedDate;
+                hasData = true;
+              }
+            } else if (dbKey === 'don_vi_tien') {
+              const normalizedCurrency = normalizeCurrencyForImport(value);
+              if (normalizedCurrency) {
+                record[dbKey] = normalizedCurrency;
                 hasData = true;
               }
             } else if (dbKey.includes('tien') || dbKey.includes('so_tien') || dbKey.includes('ty_gia') || dbKey.includes('cuoc') || dbKey === 'stt') {
@@ -2395,15 +2421,6 @@ function DoiSoatBillCuoc() {
                             displayValue = new Date().toISOString();
                           }
 
-                          // Bill: Ngày đối soát luôn hiện today khi chưa có giá trị (khớp import Excel)
-                          if (
-                            (activeTab === 'bill' || activeTab === 'bill_view') &&
-                            col.key === 'ngay_doi_soat' &&
-                            (!displayValue || displayValue === '' || displayValue === null)
-                          ) {
-                            displayValue = new Date().toISOString().split('T')[0];
-                          }
-                          
                           // Format dựa trên loại dữ liệu (chỉ format khi hiển thị, không format khi edit)
                           let formattedValue = displayValue;
                           if (!rowPendingChanges.has(col.key)) {
