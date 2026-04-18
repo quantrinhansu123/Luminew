@@ -583,6 +583,7 @@ function VanDon({ dataSource = 'default' }) {
   const [showExportDateDialog, setShowExportDateDialog] = useState(false);
   const [exportDateFrom, setExportDateFrom] = useState('');
   const [exportDateTo, setExportDateTo] = useState('');
+  const [exportDateType, setExportDateType] = useState('Ngày lên đơn'); // 'Ngày lên đơn' hoặc 'Ngày đẩy đơn'
   const [exportingCustomExcel, setExportingCustomExcel] = useState(false);
 
   const hasUnsavedDraft = () =>
@@ -3030,7 +3031,7 @@ function VanDon({ dataSource = 'default' }) {
   /** Xuất Excel với các cột cố định và bộ lọc ngày lên đơn */
   const handleExportCustomExcel = useCallback(async () => {
     if (!exportDateFrom || !exportDateTo) {
-      addToast('Vui lòng chọn khoảng ngày lên đơn', 'warning');
+      addToast('Vui lòng chọn khoảng ngày', 'warning');
       return;
     }
     
@@ -3040,7 +3041,7 @@ function VanDon({ dataSource = 'default' }) {
     }
     
     setExportingCustomExcel(true);
-    const loadingId = addToast('Đang xuất Excel theo ngày lên đơn…', 'loading', 0);
+    const loadingId = addToast(`Đang xuất Excel theo ${exportDateType}…`, 'loading', 0);
     
     try {
       // Các cột cần xuất theo yêu cầu
@@ -3093,12 +3094,12 @@ function VanDon({ dataSource = 'default' }) {
         'Đơn vị thanh toán'
       ];
       
-      // Tạo bộ lọc tạm thời cho ngày lên đơn
+      // Tạo bộ lọc tạm thời cho ngày đã chọn
       const tempFilters = {
         ...activeFilters,
         dateFrom: exportDateFrom,
         dateTo: exportDateTo,
-        dateType: 'Ngày lên đơn'
+        dateType: exportDateType
       };
       
       // Fetch dữ liệu với bộ lọc ngày
@@ -3128,7 +3129,7 @@ function VanDon({ dataSource = 'default' }) {
           payment_status: tempFilters.payment_status,
           dateFrom: exportDateFrom,
           dateTo: exportDateTo,
-          dateType: 'Ngày lên đơn',
+          dateType: exportDateType,
           allowedStaff: tempFilters.allowedStaff,
           deliveryStaffSelfFilter: tempFilters.deliveryStaffSelfFilter,
           columnFilters: tempFilters.columnFilters || {},
@@ -3169,11 +3170,12 @@ function VanDon({ dataSource = 'default' }) {
       XLSX.utils.book_append_sheet(wb, ws, 'Van_don');
       
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      const fileName = `VanDon_${exportDateFrom}_${exportDateTo}_${stamp}.xlsx`;
+      const dateTypeShort = exportDateType === 'Ngày lên đơn' ? 'LenDon' : 'DayDon';
+      const fileName = `VanDon_${dateTypeShort}_${exportDateFrom}_${exportDateTo}_${stamp}.xlsx`;
       XLSX.writeFile(wb, fileName);
       
       addToast(
-        `Đã xuất ${sourceRows.length.toLocaleString('vi-VN')} dòng từ ${formatDate(exportDateFrom)} đến ${formatDate(exportDateTo)}`,
+        `Đã xuất ${sourceRows.length.toLocaleString('vi-VN')} dòng (${exportDateType}: ${formatDate(exportDateFrom)} - ${formatDate(exportDateTo)})`,
         'success',
         4000
       );
@@ -3189,6 +3191,7 @@ function VanDon({ dataSource = 'default' }) {
   }, [
     exportDateFrom,
     exportDateTo,
+    exportDateType,
     permissionsLoading,
     activeFilters,
     dataSource,
@@ -5796,7 +5799,7 @@ function VanDon({ dataSource = 'default' }) {
             <div className="relative bg-white/95 dark:bg-slate-800/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/20 px-8 py-6 max-w-md w-full mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xl flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-                  <span className="text-2xl">📊</span> Xuất Excel theo Ngày lên đơn
+                  <span className="text-2xl">📊</span> Xuất Excel theo Ngày
                 </h3>
                 {!exportingCustomExcel && (
                   <button
@@ -5809,6 +5812,21 @@ function VanDon({ dataSource = 'default' }) {
               </div>
               
               <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Loại ngày
+                  </label>
+                  <select
+                    value={exportDateType}
+                    onChange={(e) => setExportDateType(e.target.value)}
+                    disabled={exportingCustomExcel}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="Ngày lên đơn">Ngày lên đơn</option>
+                    <option value="Ngày đẩy đơn">Ngày đẩy đơn</option>
+                  </select>
+                </div>
+                
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
                     Từ ngày
@@ -5837,7 +5855,7 @@ function VanDon({ dataSource = 'default' }) {
                 
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                   <p className="text-xs text-blue-800 dark:text-blue-200">
-                    <span className="font-semibold">Lưu ý:</span> Sẽ xuất tất cả các cột cố định theo khoảng ngày lên đơn đã chọn
+                    <span className="font-semibold">Lưu ý:</span> Sẽ xuất tất cả 46 cột cố định theo khoảng {exportDateType.toLowerCase()} đã chọn
                   </p>
                 </div>
               </div>
