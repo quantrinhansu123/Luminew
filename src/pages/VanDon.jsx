@@ -55,7 +55,7 @@ const VAN_DON_PENDING_LS_KEY = 'speegoPendingChanges_van_don';
 const VAN_DON_PENDING_SNAPSHOTS_LS_KEY = 'speegoPendingRowSnapshots_van_don';
 
 // Columns to always hide (both in table and column settings)
-const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng"];
+const HIDDEN_COLUMNS = ["Thuê TK", "Thời gian cutoff", "Tiền Hàng", "Ngày Kế toán đối soát với FFM lần 2"];
 
 /**
  * Cột chỉ đọc trên lưới Vận đơn.

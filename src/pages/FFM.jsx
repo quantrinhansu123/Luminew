@@ -137,6 +137,7 @@ const HIDDEN_FFM_COLUMNS = new Set([
   'Payment Bill',
   'Payment Image',
   'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+  'Ngày Kế toán đối soát với FFM lần 2',
 ]);
 
 /** Xuất Excel: các cột khớp bộ lọc bảng (Mã đơn, Tracking + cột trong UI FFM). */

@@ -2174,7 +2174,7 @@ function DoiSoatBillCuoc() {
                 Xóa tạm
               </button>
             </div>
-            {((activeTab === 'bill' && !lastBillSyncTime) || (activeTab === 'cuoc' && !lastCuocSyncTime)) && (
+            {false && ( // Ẩn nút thêm mã đơn hàng
               <>
                 <button
                   onClick={() => setShowAddModal(true)}
