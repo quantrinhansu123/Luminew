@@ -486,6 +486,8 @@ function FFM({ variant = 'MGT' }) {
   const [ffmTrackingPresence, setFfmTrackingPresence] = useState('all');
   /** FFM T&T / MGT: chỉ hiện dòng trống cột Ngày đối soát kế toán */
   const [ffmEmptyCellsQuickFilter, setFfmEmptyCellsQuickFilter] = useState('off');
+  /** Bộ lọc so sánh hai cột ngày: Ngày Kế toán đối soát với FFM lần 2 và Ngày đẩy đơn */
+  const [ffmDateDiffFilter, setFfmDateDiffFilter] = useState('off');
 
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -1234,6 +1236,7 @@ function FFM({ variant = 'MGT' }) {
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
     setFfmEmptyCellsQuickFilter('off');
+    setFfmDateDiffFilter('off');
     setCurrentPage(1);
     savePendingToLocalStorage(new Map());
     await loadData();
@@ -1616,9 +1619,40 @@ function FFM({ variant = 'MGT' }) {
       data = data.filter((row) => isFfmFilterCellEmpty(getFfmAccountingReconDateNormalizedForFilter(row)));
     }
 
+    // Bộ lọc so sánh hai cột ngày: Ngày Kế toán đối soát với FFM lần 2 và Ngày đẩy đơn
+    if (ffmDateDiffFilter === 'different') {
+      data = data.filter((row) => {
+        const ngayDoiSoatFFM2 = row['Ngày Kế toán đối soát với FFM lần 2'] || row['ngay_doi_soat_ffm_lan_2'] || '';
+        const ngayDayDon = row['Ngày đẩy đơn'] || row['time_dayon'] || row.time_dayon || '';
+        
+        // Chuẩn hóa cả hai giá trị để so sánh
+        const ngayDoiSoatFFM2Normalized = normalizeToYmdForCompare(ngayDoiSoatFFM2);
+        const ngayDayDonNormalized = normalizeToYmdForCompare(ngayDayDon);
+        
+        // Lọc ra những đơn mà hai ngày khác nhau (cả hai đều có giá trị và khác nhau)
+        return ngayDoiSoatFFM2Normalized !== '' && 
+               ngayDayDonNormalized !== '' && 
+               ngayDoiSoatFFM2Normalized !== ngayDayDonNormalized;
+      });
+    } else if (ffmDateDiffFilter === 'same') {
+      data = data.filter((row) => {
+        const ngayDoiSoatFFM2 = row['Ngày Kế toán đối soát với FFM lần 2'] || row['ngay_doi_soat_ffm_lan_2'] || '';
+        const ngayDayDon = row['Ngày đẩy đơn'] || row['time_dayon'] || row.time_dayon || '';
+        
+        // Chuẩn hóa cả hai giá trị để so sánh
+        const ngayDoiSoatFFM2Normalized = normalizeToYmdForCompare(ngayDoiSoatFFM2);
+        const ngayDayDonNormalized = normalizeToYmdForCompare(ngayDayDon);
+        
+        // Lọc ra những đơn mà hai ngày giống nhau (cả hai đều có giá trị và giống nhau)
+        return ngayDoiSoatFFM2Normalized !== '' && 
+               ngayDayDonNormalized !== '' && 
+               ngayDoiSoatFFM2Normalized === ngayDayDonNormalized;
+      });
+    }
+
     // Lọc dựa trên data gốc (không pending), sau đó map sang row có pending để UI thể hiện ngay thay đổi.
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
-  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, ffmEmptyCellsQuickFilter, variant]);
+  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, ffmEmptyCellsQuickFilter, ffmDateDiffFilter, variant]);
 
   const getFilteredData = useMemo(() => {
     return applyFfmFilters(ffmEnrichedRowsForFilter, localFilterValues);
@@ -1665,6 +1699,7 @@ function FFM({ variant = 'MGT' }) {
     setFfmBranchFilter('all');
     setFfmTrackingPresence('all');
     setFfmEmptyCellsQuickFilter('off');
+    setFfmDateDiffFilter('off');
     setOmActiveTeam('all');
     setCurrentPage(1);
     addToast('Đã xóa bộ lọc hiển thị (giữ nguyên dữ liệu đã tải).', 'success', 2500);
@@ -3674,6 +3709,25 @@ function FFM({ variant = 'MGT' }) {
               <option value="any">Chỉ dòng trống</option>
             </select>
           </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <label htmlFor="ffm-date-diff-filter" className="text-xs font-semibold text-gray-600 whitespace-nowrap">
+              So sánh ngày
+            </label>
+            <select
+              id="ffm-date-diff-filter"
+              className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white min-w-[148px]"
+              value={ffmDateDiffFilter}
+              onChange={(e) => {
+                setFfmDateDiffFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              title="So sánh Ngày Kế toán đối soát với FFM lần 2 và Ngày đẩy đơn"
+            >
+              <option value="off">Tất cả</option>
+              <option value="different">Ngày khác nhau</option>
+              <option value="same">Ngày giống nhau</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -3730,6 +3784,22 @@ function FFM({ variant = 'MGT' }) {
                   <option value="all">Tất cả</option>
                   <option value="has">Có mã</option>
                   <option value="no">Chưa có mã</option>
+                </select>
+              </div>
+              <div className="flex-1 flex flex-col gap-1 min-w-[140px]">
+                <label className="text-xs font-semibold text-gray-500">So sánh ngày</label>
+                <select
+                  className="px-2 py-1 border rounded text-xs bg-white"
+                  value={ffmDateDiffFilter}
+                  onChange={(e) => {
+                    setFfmDateDiffFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  title="So sánh Ngày Kế toán đối soát với FFM lần 2 và Ngày đẩy đơn"
+                >
+                  <option value="off">Tất cả</option>
+                  <option value="different">Ngày khác nhau</option>
+                  <option value="same">Ngày giống nhau</option>
                 </select>
               </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
