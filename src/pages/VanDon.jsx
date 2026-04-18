@@ -578,6 +578,12 @@ function VanDon({ dataSource = 'default' }) {
   const [historyLoadingOrderId, setHistoryLoadingOrderId] = useState('');
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
+  
+  // State cho dialog xuất Excel với bộ lọc ngày
+  const [showExportDateDialog, setShowExportDateDialog] = useState(false);
+  const [exportDateFrom, setExportDateFrom] = useState('');
+  const [exportDateTo, setExportDateTo] = useState('');
+  const [exportingCustomExcel, setExportingCustomExcel] = useState(false);
 
   const hasUnsavedDraft = () =>
     pendingChangesRef.current.size > 0 || dbQueueRef.current.length > 0;
@@ -3021,6 +3027,176 @@ function VanDon({ dataSource = 'default' }) {
     sortRowsLikeDataGrid
   ]);
 
+  /** Xuất Excel với các cột cố định và bộ lọc ngày lên đơn */
+  const handleExportCustomExcel = useCallback(async () => {
+    if (!exportDateFrom || !exportDateTo) {
+      addToast('Vui lòng chọn khoảng ngày lên đơn', 'warning');
+      return;
+    }
+    
+    if (permissionsLoading) {
+      addToast('Đang tải quyền, thử lại sau.', 'warning');
+      return;
+    }
+    
+    setExportingCustomExcel(true);
+    const loadingId = addToast('Đang xuất Excel theo ngày lên đơn…', 'loading', 0);
+    
+    try {
+      // Các cột cần xuất theo yêu cầu
+      const exportColumns = [
+        'Mã đơn hàng',
+        'Mã Tracking',
+        'Ngày lên đơn',
+        'Name*',
+        'Phone*',
+        'Add',
+        'City',
+        'State',
+        'Zipcode',
+        'Mặt hàng',
+        'Tên mặt hàng 1',
+        'Số lượng mặt hàng 1',
+        'Tên mặt hàng 2',
+        'Số lượng mặt hàng 2',
+        'Quà tặng',
+        'Số lượng quà kèm',
+        'Giá bán',
+        'Loại tiền thanh toán',
+        'Tổng tiền VNĐ',
+        'Hình thức thanh toán',
+        'Ghi chú',
+        'Nhân viên Sale',
+        'Nhân viên Marketing',
+        'NV Vận đơn',
+        'Kết quả Check',
+        'Trạng thái giao hàng NB',
+        'Lý do',
+        'Đơn vị vận chuyển',
+        'Trạng thái thu tiền',
+        'Ngày hẹn đẩy đơn',
+        'Ngày Kế toán đối soát với FFM lần 2',
+        'Khu vực',
+        'Phí lưu kho',
+        'Team',
+        'Mã check',
+        'Ghi chú của BEE',
+        'Đánh dấu',
+        'Ngày đóng hàng',
+        'Trạng thái giao hàng',
+        'Thời gian giao dự kiến',
+        'Phí ship nội địa Mỹ (usd)',
+        'GHI CHÚ',
+        'Ngày đối soát',
+        'Time kế toán xác nhận',
+        'Ghi chú của VĐ',
+        'Đơn vị thanh toán'
+      ];
+      
+      // Tạo bộ lọc tạm thời cho ngày lên đơn
+      const tempFilters = {
+        ...activeFilters,
+        dateFrom: exportDateFrom,
+        dateTo: exportDateTo,
+        dateType: 'Ngày lên đơn'
+      };
+      
+      // Fetch dữ liệu với bộ lọc ngày
+      let sourceRows = [];
+      const limit = VAN_DON_POSTGREST_MAX_ROWS;
+      let page = 1;
+      const maxPages = 50000;
+      
+      while (page <= maxPages) {
+        const res = await API.fetchVanDon({
+          sourceView: dataSource === 'hcm' ? null : 'van_don_page',
+          sourceTable: dataSource === 'hcm' ? 'order_code_hcm' : 'orders',
+          page,
+          limit,
+          team: tempFilters.team,
+          excludeHcmTeam: dataSource !== 'hcm',
+          hanoiTabSqlScope: tempFilters.tab === 'hanoi' ? 'ffm_queue_admin' : null,
+          market: tempFilters.market,
+          product: tempFilters.product,
+          nv_sale: tempFilters.nv_sale,
+          nv_mkt: tempFilters.nv_mkt,
+          nv_van_don: tempFilters.nv_van_don,
+          shipping_unit: tempFilters.shipping_unit,
+          page_name: tempFilters.page_name,
+          delivery_status: tempFilters.delivery_status,
+          delivery_status_nb: tempFilters.delivery_status_nb,
+          payment_status: tempFilters.payment_status,
+          dateFrom: exportDateFrom,
+          dateTo: exportDateTo,
+          dateType: 'Ngày lên đơn',
+          allowedStaff: tempFilters.allowedStaff,
+          deliveryStaffSelfFilter: tempFilters.deliveryStaffSelfFilter,
+          columnFilters: tempFilters.columnFilters || {},
+          trackingFilter: tempFilters.trackingFilter || null,
+          bulkOrderCodes: tempFilters.bulkOrderCodes || [],
+          customerQuickSearch: tempFilters.customerQuickSearch,
+          canh_bao_filter: tempFilters.canh_bao_filter,
+          vanDonFetchMode: null
+        });
+        
+        const batch = res.data || [];
+        sourceRows.push(...batch);
+        
+        if (batch.length < limit || sourceRows.length >= (res.total || 0)) break;
+        page += 1;
+      }
+      
+      removeToast(loadingId);
+      
+      if (!sourceRows.length) {
+        addToast('Không có dữ liệu trong khoảng ngày đã chọn', 'warning');
+        setShowExportDateDialog(false);
+        return;
+      }
+      
+      // Tạo header và data rows
+      const headerRow = exportColumns;
+      const dataRows = sourceRows.map((row) =>
+        exportColumns.map((col) => {
+          const value = getVanDonGridCellValue(row, col);
+          return sanitizeExcelTsvCell(value);
+        })
+      );
+      
+      // Tạo workbook và export
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Van_don');
+      
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const fileName = `VanDon_${exportDateFrom}_${exportDateTo}_${stamp}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      addToast(
+        `Đã xuất ${sourceRows.length.toLocaleString('vi-VN')} dòng từ ${formatDate(exportDateFrom)} đến ${formatDate(exportDateTo)}`,
+        'success',
+        4000
+      );
+      
+      setShowExportDateDialog(false);
+    } catch (e) {
+      removeToast(loadingId);
+      console.error(e);
+      addToast(e?.message || 'Lỗi xuất Excel', 'error');
+    } finally {
+      setExportingCustomExcel(false);
+    }
+  }, [
+    exportDateFrom,
+    exportDateTo,
+    permissionsLoading,
+    activeFilters,
+    dataSource,
+    addToast,
+    removeToast,
+    formatDate
+  ]);
+
   /** Số cột cố định (ghim) - có thể điều chỉnh bởi người dùng */
   const [numFixedColumns, setNumFixedColumns] = useState(() => {
     const saved = localStorage.getItem('vanDon_numFixedColumns');
@@ -5155,6 +5331,20 @@ function VanDon({ dataSource = 'default' }) {
                 )}
                 {exportingFilteredExcel ? '…' : 'Excel theo lọc'}
               </button>
+              <button
+                type="button"
+                onClick={() => setShowExportDateDialog(true)}
+                disabled={exportingCustomExcel || isQueryLoading || permissionsLoading}
+                className="px-2 py-0.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-[10px] sm:text-[11px] font-bold transition-all disabled:opacity-50 flex items-center gap-0.5 shadow-sm whitespace-nowrap"
+                title="Xuất Excel với các cột cố định theo khoảng ngày lên đơn"
+              >
+                {exportingCustomExcel ? (
+                  <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <span>📊</span>
+                )}
+                {exportingCustomExcel ? '…' : 'Excel theo ngày'}
+              </button>
             </div>
           </div>
         </div>
@@ -5591,6 +5781,92 @@ function VanDon({ dataSource = 'default' }) {
                     Xác nhận đẩy
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Export Date Range Dialog */}
+        {showExportDateDialog && (
+          <div className="fixed inset-0 z-[20000] flex items-center justify-center pointer-events-auto">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300"
+              onClick={() => !exportingCustomExcel && setShowExportDateDialog(false)}
+            ></div>
+            <div className="relative bg-white/95 dark:bg-slate-800/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/20 px-8 py-6 max-w-md w-full mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl flex items-center gap-2 font-bold text-slate-900 dark:text-white">
+                  <span className="text-2xl">📊</span> Xuất Excel theo Ngày lên đơn
+                </h3>
+                {!exportingCustomExcel && (
+                  <button
+                    onClick={() => setShowExportDateDialog(false)}
+                    className="text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    <span className="text-2xl">×</span>
+                  </button>
+                )}
+              </div>
+              
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Từ ngày
+                  </label>
+                  <input
+                    type="date"
+                    value={exportDateFrom}
+                    onChange={(e) => setExportDateFrom(e.target.value)}
+                    disabled={exportingCustomExcel}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Đến ngày
+                  </label>
+                  <input
+                    type="date"
+                    value={exportDateTo}
+                    onChange={(e) => setExportDateTo(e.target.value)}
+                    disabled={exportingCustomExcel}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+                
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <p className="text-xs text-blue-800 dark:text-blue-200">
+                    <span className="font-semibold">Lưu ý:</span> Sẽ xuất tất cả các cột cố định theo khoảng ngày lên đơn đã chọn
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 w-full">
+                <button
+                  onClick={() => setShowExportDateDialog(false)}
+                  disabled={exportingCustomExcel}
+                  className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleExportCustomExcel}
+                  disabled={exportingCustomExcel || !exportDateFrom || !exportDateTo}
+                  className="flex-1 px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold shadow-lg shadow-purple-600/25 transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {exportingCustomExcel ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                      <span>Đang xuất...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>📊</span>
+                      <span>Xuất Excel</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>
