@@ -1066,8 +1066,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             const staffSet = new Set(staffList);
 
             // --- Rule 1: Trong ngày hiện tại — người có đơn mang thu_tu_chia cao nhất (cuối vòng) ---
+            // QUAN TRỌNG: Chỉ đếm đơn trong NGÀY HIỆN TẠI để cân bằng, không đếm tổng đơn từ trước đến nay
             const todayStrForRound = new Date().toISOString().slice(0, 10);
+            
+            console.log(`\n🔍 [${branchName}] ========== BẮT ĐẦU PHÂN TÍCH CHIA ĐƠN ==========`);
+            console.log(`📅 Ngày hiện tại: ${todayStrForRound}`);
+            console.log(`👥 Danh sách nhân viên U1: [${staffList.join(', ')}]`);
 
+            // Lọc các đơn đã được chia trong NGÀY HIỆN TẠI cho nhóm nhân viên này
             const todayAssignedByStt = allDBOrders
                 .filter((o) => {
                     const ds = o.delivery_staff?.toString().trim();
@@ -1090,6 +1096,20 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                     return String(b.order_code || '').localeCompare(String(a.order_code || ''));
                 });
 
+            // Đếm số đơn của từng nhân viên TRONG NGÀY HIỆN TẠI
+            const todayOrderCountByStaff = {};
+            staffList.forEach(name => { todayOrderCountByStaff[name] = 0; });
+            
+            todayAssignedByStt.forEach(order => {
+                const staffName = order.delivery_staff?.toString().trim();
+                if (staffName && todayOrderCountByStaff.hasOwnProperty(staffName)) {
+                    todayOrderCountByStaff[staffName]++;
+                }
+            });
+            
+            console.log(`📊 [${branchName}] Số đơn đã chia TRONG NGÀY ${todayStrForRound}:`, todayOrderCountByStaff);
+            console.log(`📋 [${branchName}] Tổng đơn đã chia trong ngày: ${todayAssignedByStt.length}`);
+
             let lastAssignedPerson = null;
             if (todayAssignedByStt.length > 0) {
                 lastAssignedPerson = todayAssignedByStt[0].delivery_staff?.toString().trim() || null;
@@ -1097,7 +1117,17 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 console.log(
                     `🔍 [${branchName}] Rule 1 — Trong ngày ${todayStrForRound}, STT chia cao nhất=${maxStt} → NV cuối vòng: "${lastAssignedPerson}"`
                 );
+                console.log(`   → Bắt đầu chia từ người tiếp theo sau "${lastAssignedPerson}"`);
             } else {
+                // Nếu chưa có đơn nào được chia trong ngày (ví dụ: phiên chia đầu tiên lúc 1:00 sáng)
+                // thì TẤT CẢ nhân viên đều bắt đầu từ 0 đơn
+                console.log(
+                    `🔍 [${branchName}] Rule 1 — Chưa có đơn nào được chia trong ngày ${todayStrForRound}`
+                );
+                console.log(`   → Đây là phiên chia đầu tiên trong ngày`);
+                console.log(`   → TẤT CẢ nhân viên đều bắt đầu từ 0 đơn (cân bằng hoàn toàn)`);
+                
+                // Fallback: Tìm người được chia gần nhất (từ các ngày trước) để tiếp tục vòng
                 const assignedOrders = allDBOrders
                     .filter((o) => o.delivery_staff && staffSet.has(String(o.delivery_staff).trim()))
                     .sort((a, b) => {
@@ -1109,14 +1139,20 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 lastAssignedPerson =
                     assignedOrders.length > 0 ? String(assignedOrders[0].delivery_staff).trim() : null;
                 console.log(
-                    `🔍 [${branchName}] Rule 1 — Chưa có đơn chia trong ngày ${todayStrForRound}, fallback NV gần nhất (theo DB): "${lastAssignedPerson || '(không có)'}"`
+                    `   → Fallback: Tìm NV được chia gần nhất (từ các ngày trước): "${lastAssignedPerson || '(không có)'}"`
                 );
+                console.log(`   → Sẽ bắt đầu chia từ người tiếp theo sau "${lastAssignedPerson || 'người đầu tiên'}"`);
             }
 
             const lastAssignedIndex = lastAssignedPerson ? staffList.indexOf(lastAssignedPerson) : -1;
-            console.log(
-                `👥 [${branchName}] Nhân viên U1: [${staffList.join(', ')}] — bắt đầu vòng sau index ${lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0}`
-            );
+            const startIndex = lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0;
+            
+            console.log(`\n🔄 [${branchName}] ========== CHUẨN BỊ CHIA ĐƠN ROUND-ROBIN ==========`);
+            console.log(`👥 Danh sách nhân viên U1: [${staffList.join(', ')}]`);
+            console.log(`📍 Người cuối vòng: "${lastAssignedPerson || '(không có)'}" (index: ${lastAssignedIndex})`);
+            console.log(`🎯 Bắt đầu chia từ index: ${startIndex} → "${staffListWithBranch[startIndex]?.name}"`);
+            console.log(`📦 Số đơn cần chia: ${remainingOrders.length}`);
+            console.log(`${'='.repeat(60)}\n`);
 
             const remainingOrders = [...pendingOrders].sort((a, b) => {
                 const ta = a.order_date ? new Date(a.order_date).getTime() : 0;
@@ -1131,10 +1167,10 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 let nextIndex = startIndex;
 
                 console.log(
-                    `🔄 [${branchName}] Round-robin ${remainingOrders.length} đơn, start index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
+                    `🔄 [${branchName}] Bắt đầu round-robin ${remainingOrders.length} đơn từ index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
                 );
 
-                remainingOrders.forEach((order) => {
+                remainingOrders.forEach((order, orderIdx) => {
                     let assigned = false;
                     for (let attempt = 0; attempt < staffListWithBranch.length; attempt++) {
                         const idx = (nextIndex + attempt) % staffListWithBranch.length;
@@ -1142,9 +1178,21 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                         const orderTeam = order.team?.toString().trim() || '';
                         const isMatch = isTeamBranchMatch(orderTeam, staff.chi_nhanh?.toString().trim() || '');
 
+                        // Log chi tiết cho 5 đơn đầu hoặc đơn đặc biệt
+                        if (orderIdx < 5 || order.order_code === TARGET_ORDER_CODE) {
+                            console.log(
+                                `  [Đơn ${orderIdx + 1}/${remainingOrders.length}] ${order.order_code}: ` +
+                                `team="${orderTeam}", thử NV[${idx}]="${staff.name}" (chi_nhanh="${staff.chi_nhanh}"), ` +
+                                `match=${isMatch}`
+                            );
+                        }
+
                         if (order.order_code === TARGET_ORDER_CODE) {
                             console.log(
-                                `\n🔍 [${TARGET_ORDER_CODE}] idx=${idx}, nextIndex=${nextIndex}, isMatch=${isMatch}, team="${orderTeam}", chi_nhanh="${staff.chi_nhanh}"`
+                                `\n🔍 [${TARGET_ORDER_CODE}] Chi tiết chia đơn:` +
+                                `\n  - orderIdx=${orderIdx}, nextIndex=${nextIndex}, attempt=${attempt}, idx=${idx}` +
+                                `\n  - staff="${staff.name}", chi_nhanh="${staff.chi_nhanh}"` +
+                                `\n  - orderTeam="${orderTeam}", isMatch=${isMatch}`
                             );
                         }
 
@@ -1154,6 +1202,12 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                             order_code: order.order_code,
                             delivery_staff: staff.name,
                         });
+                        
+                        // Log khi chia thành công
+                        if (orderIdx < 5 || order.order_code === TARGET_ORDER_CODE) {
+                            console.log(`    ✅ Chia cho: ${staff.name}`);
+                        }
+                        
                         nextIndex = (idx + 1) % staffListWithBranch.length;
                         assigned = true;
                         break;
@@ -1166,14 +1220,24 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                         );
                     }
                 });
-                console.log(`✅ [${branchName}] Đã chia ${result.length} đơn theo vòng (round-robin U1)`);
+                console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${remainingOrders.length} đơn theo vòng (round-robin U1)`);
             }
 
-            // Log tổng kết
+            // Log tổng kết chi tiết
             const finalCount = {};
             staffList.forEach(name => { finalCount[name] = 0; });
             result.forEach(u => { finalCount[u.delivery_staff]++; });
-            console.log(`✅ [${branchName}] Kết quả chia ${result.length} đơn:`, finalCount);
+            
+            console.log(`\n📊 [${branchName}] ========== KẾT QUẢ CHIA ĐƠN ==========`);
+            console.log(`✅ Tổng số đơn đã chia: ${result.length}/${pendingOrders.length}`);
+            console.log(`📋 Phân bổ đơn cho từng nhân viên (trong lần chia này):`);
+            staffList.forEach((name, idx) => {
+                const count = finalCount[name] || 0;
+                const todayTotal = todayOrderCountByStaff[name] || 0;
+                const newTotal = todayTotal + count;
+                console.log(`  ${idx + 1}. ${name}: +${count} đơn (tổng trong ngày: ${todayTotal} → ${newTotal})`);
+            });
+            console.log(`${'='.repeat(60)}\n`);
             
             if (result.length === 0 && pendingOrders.length > 0) {
                 console.warn(`⚠️ [${branchName}] CẢNH BÁO: Có ${pendingOrders.length} đơn cần chia nhưng không chia được!`);

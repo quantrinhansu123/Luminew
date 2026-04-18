@@ -258,6 +258,10 @@ function DoiSoatBillCuoc() {
   
   /** Modal kết quả import Excel - hiển thị dòng trùng hoàn toàn */
   const [importResultData, setImportResultData] = useState(null); // { duplicateRows: [], newRows: [], tableName: '' }
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  
+  /** Tiến độ import */
+  const [importProgress, setImportProgress] = useState(null); // { current: 0, total: 0, status: 'processing' | 'success' | 'error' }
 
   /** Đếm lần thanh toán: cùng Mã Tracking (tracking thật) hoặc cùng Mã đơn (dropoff / trống tracking). */
   const billDataWithTableDemLan = useMemo(() => {
@@ -1745,6 +1749,80 @@ function DoiSoatBillCuoc() {
     }
   };
 
+  // Kiểm tra dòng trùng hoàn toàn trong bảng hiện tại
+  const handleCheckDuplicates = async () => {
+    if (!window.confirm('Kiểm tra dòng trùng hoàn toàn trong bảng hiện tại? Quá trình này có thể mất vài giây.')) {
+      return;
+    }
+    
+    setCheckingDuplicates(true);
+    try {
+      const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
+      const tableName = isBillTab ? 'chi_tiet_bill_tien' : 'chitiet_cuoc';
+      
+      // Tạo key duy nhất cho mỗi dòng để so sánh
+      const createRowKey = (r) => {
+        const maDon = r.ma_don_hang || '';
+        const maTracking = r.ma_tracking || '';
+        const tienViet = r.tien_viet != null ? String(r.tien_viet) : '';
+        const tienUsd = r.tien_usd != null ? String(r.tien_usd) : '';
+        const ngayDoiSoat = r.ngay_doi_soat || r.ngay_doi_soat_cuoc || '';
+        return `${maDon}|${maTracking}|${tienViet}|${tienUsd}|${ngayDoiSoat}`;
+      };
+      
+      // Lấy tất cả dữ liệu từ database
+      const { data: allData, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .order('id', { ascending: true });
+      
+      if (error) throw error;
+      
+      // Tìm các dòng trùng
+      const keyToRows = new Map();
+      (allData || []).forEach((row) => {
+        const key = createRowKey(row);
+        if (!keyToRows.has(key)) {
+          keyToRows.set(key, []);
+        }
+        keyToRows.get(key).push(row);
+      });
+      
+      // Lọc ra các nhóm có từ 2 dòng trở lên (trùng)
+      const duplicateGroups = [];
+      keyToRows.forEach((rows, key) => {
+        if (rows.length > 1) {
+          duplicateGroups.push({ key, rows, count: rows.length });
+        }
+      });
+      
+      if (duplicateGroups.length === 0) {
+        alert('Không tìm thấy dòng trùng hoàn toàn trong bảng!');
+        return;
+      }
+      
+      // Tính tổng số dòng trùng
+      const totalDuplicateRows = duplicateGroups.reduce((sum, g) => sum + g.count, 0);
+      
+      setImportResultData({
+        duplicateRows: duplicateGroups.flatMap(g => g.rows),
+        newRows: [],
+        tableName,
+        totalImported: allData.length,
+        duplicateCount: totalDuplicateRows,
+        newCount: allData.length - totalDuplicateRows,
+        duplicateGroups, // Thêm thông tin nhóm để hiển thị
+        isCheckMode: true // Đánh dấu là chế độ kiểm tra (không phải import)
+      });
+      
+    } catch (error) {
+      console.error('Error checking duplicates:', error);
+      alert('Lỗi khi kiểm tra trùng: ' + error.message);
+    } finally {
+      setCheckingDuplicates(false);
+    }
+  };
+
   // Upload Excel và import dữ liệu
   const handleUploadExcel = async (e) => {
     const file = e.target.files[0];
@@ -2005,92 +2083,130 @@ function DoiSoatBillCuoc() {
         });
       }
 
-      // Kiểm tra dòng trùng hoàn toàn với dữ liệu đã có trong database
-      // Tạo key duy nhất cho mỗi dòng để so sánh
-      const createRowKey = (r) => {
-        const isBill = tableName === 'chi_tiet_bill_tien';
-        const maDon = r.ma_don_hang || '';
-        const maTracking = r.ma_tracking || '';
-        const tienViet = r.tien_viet != null ? String(r.tien_viet) : '';
-        const tienUsd = r.tien_usd != null ? String(r.tien_usd) : '';
-        const ngayDoiSoat = r.ngay_doi_soat || r.ngay_doi_soat_cuoc || '';
-        return `${maDon}|${maTracking}|${tienViet}|${tienUsd}|${ngayDoiSoat}`;
-      };
+      // Insert vào database với batch processing và progress tracking
+      const BATCH_SIZE = 500; // Supabase giới hạn ~1000 rows/request, dùng 500 để an toàn
+      const MAX_RETRIES = 3;
+      const totalRows = rowsToInsert.length;
+      const totalBatches = Math.ceil(totalRows / BATCH_SIZE);
       
-      // Lấy dữ liệu hiện có từ database để so sánh
-      const { data: existingData, error: fetchError } = await supabase
-        .from(tableName)
-        .select('*');
+      let successCount = 0;
+      let failedBatches = [];
       
-      if (fetchError) {
-        console.error('Error fetching existing data:', fetchError);
-        // Nếu lỗi thì vẫn tiếp tục insert
-      } else {
-        // Tạo Set các key đã có trong database
-        const existingKeys = new Set((existingData || []).map(createRowKey));
+      // Hiển thị progress
+      setImportProgress({ current: 0, total: totalBatches, status: 'processing', successRows: 0, totalRows });
+      
+      for (let i = 0; i < totalBatches; i++) {
+        const start = i * BATCH_SIZE;
+        const end = Math.min(start + BATCH_SIZE, totalRows);
+        const batch = rowsToInsert.slice(start, end);
         
-        // Phân chia dòng mới và dòng trùng
-        const duplicateRows = [];
-        const newRows = [];
+        let retries = 0;
+        let batchSuccess = false;
         
-        rowsToInsert.forEach((row) => {
-          const key = createRowKey(row);
-          if (existingKeys.has(key)) {
-            duplicateRows.push(row);
-          } else {
-            newRows.push(row);
+        while (retries < MAX_RETRIES && !batchSuccess) {
+          try {
+            const { data, error } = await supabase
+              .from(tableName)
+              .insert(batch)
+              .select();
+            
+            if (error) {
+              if (error.code === '23505') {
+                // Duplicate key - vẫn coi là thành công
+                console.warn(`Batch ${i + 1}: Một số dữ liệu đã tồn tại`);
+                batchSuccess = true;
+                successCount += batch.length;
+              } else {
+                throw error;
+              }
+            } else {
+              batchSuccess = true;
+              successCount += data?.length || 0;
+            }
+            
+            // Cập nhật progress
+            setImportProgress({
+              current: i + 1,
+              total: totalBatches,
+              status: 'processing',
+              successRows: successCount,
+              totalRows
+            });
+            
+          } catch (error) {
+            retries++;
+            console.error(`Batch ${i + 1} failed (attempt ${retries}/${MAX_RETRIES}):`, error);
+            
+            if (retries >= MAX_RETRIES) {
+              failedBatches.push({ batchIndex: i, start, end, error: error.message });
+              // Cập nhật progress với lỗi
+              setImportProgress({
+                current: i + 1,
+                total: totalBatches,
+                status: 'error',
+                successRows: successCount,
+                totalRows,
+                failedBatches
+              });
+            } else {
+              // Đợi trước khi retry
+              await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+            }
           }
-        });
+        }
         
-        // Nếu có dòng trùng, hiển thị modal kết quả
-        if (duplicateRows.length > 0) {
-          setImportResultData({
-            duplicateRows,
-            newRows,
-            tableName,
-            totalImported: rowsToInsert.length,
-            duplicateCount: duplicateRows.length,
-            newCount: newRows.length
-          });
-          setUploading(false);
-          if (fileInputRef.current) fileInputRef.current.value = '';
-          return; // Dừng lại, chờ người dùng quyết định
+        // Đợi một chút giữa các batch để tránh quá tải
+        if (i < totalBatches - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
-
-      // Insert vào database
-      const { data, error } = await supabase
-        .from(tableName)
-        .insert(rowsToInsert)
-        .select();
-
-      if (error) {
-        if (error.code === '23505') {
-          alert(`Một số dữ liệu đã tồn tại trong hệ thống. Đã thêm ${rowsToInsert.length} bản ghi mới.`);
-        } else {
-          throw error;
-        }
+      
+      // Hoàn thành
+      setImportProgress({
+        current: totalBatches,
+        total: totalBatches,
+        status: failedBatches.length > 0 ? 'partial' : 'success',
+        successRows: successCount,
+        totalRows,
+        failedBatches
+      });
+      
+      // Hiển thị kết quả
+      const billInfoNote =
+        activeTab === 'bill' || activeTab === 'bill_view'
+          ? billImportWithoutOrderCode > 0
+            ? ` (${billImportWithoutOrderCode} dòng chưa có mã đơn trên hệ thống — vẫn đã lưu; có thể gán sau hoặc khi tracking khớp đơn.)`
+            : ''
+          : '';
+      
+      if (failedBatches.length > 0) {
+        const failedRows = failedBatches.reduce((sum, b) => sum + (b.end - b.start), 0);
+        alert(
+          `Đã nhập ${successCount}/${totalRows} bản ghi.\n` +
+          `${failedBatches.length} batch thất bại (${failedRows} dòng).\n` +
+          `Vui lòng kiểm tra console để xem chi tiết lỗi.${billInfoNote}`
+        );
+        console.error('Failed batches:', failedBatches);
       } else {
-        const successCount = data?.length || 0;
-        const billInfoNote =
-          activeTab === 'bill' || activeTab === 'bill_view'
-            ? billImportWithoutOrderCode > 0
-              ? ` (${billImportWithoutOrderCode} dòng chưa có mã đơn trên hệ thống — vẫn đã lưu; có thể gán sau hoặc khi tracking khớp đơn.)`
-              : ''
-            : '';
         alert(`Đã nhập thành công ${successCount} bản ghi từ file Excel!${billInfoNote}`);
-        
-        // Reload data
-        const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
-        if (isBillTab) {
-          await loadBillData();
-        } else {
-          await loadCuocData();
-        }
       }
+      
+      // Reload data
+      const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
+      if (isBillTab) {
+        await loadBillData();
+      } else {
+        await loadCuocData();
+      }
+      
+      // Đợi 3 giây trước khi ẩn progress (để người dùng thấy kết quả)
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      setImportProgress(null);
+      
     } catch (error) {
       console.error('Error uploading Excel:', error);
       alert('Lỗi khi nhập file Excel: ' + error.message);
+      setImportProgress(null);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -2230,6 +2346,24 @@ function DoiSoatBillCuoc() {
                 className="hidden"
               />
             </label>
+            <button
+              onClick={handleCheckDuplicates}
+              disabled={checkingDuplicates || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+              title="Kiểm tra các dòng trùng hoàn toàn trong bảng hiện tại"
+            >
+              {checkingDuplicates ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Đang kiểm tra...
+                </>
+              ) : (
+                <>
+                  <span>🔍</span>
+                  Kiểm tra trùng
+                </>
+              )}
+            </button>
             <div className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-2 py-1">
               <span className="text-[11px] font-medium text-blue-900 px-1 shrink-0">Bill</span>
               <button
@@ -2863,6 +2997,86 @@ function DoiSoatBillCuoc() {
         </div>
       )}
 
+      {/* Progress bar cho import Excel */}
+      {importProgress && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-gray-800">
+              {importProgress.status === 'processing' ? '⏳ Đang nhập dữ liệu...' :
+               importProgress.status === 'success' ? '✅ Hoàn thành!' :
+               importProgress.status === 'partial' ? '⚠️ Hoàn thành một phần' :
+               '❌ Có lỗi xảy ra'}
+            </h3>
+            
+            {/* Progress bar */}
+            <div className="mb-4">
+              <div className="mb-2 flex justify-between text-sm text-gray-600">
+                <span>Batch {importProgress.current}/{importProgress.total}</span>
+                <span>{Math.round((importProgress.current / importProgress.total) * 100)}%</span>
+              </div>
+              <div className="h-3 w-full overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    importProgress.status === 'error' ? 'bg-red-500' :
+                    importProgress.status === 'partial' ? 'bg-yellow-500' :
+                    importProgress.status === 'success' ? 'bg-green-500' :
+                    'bg-blue-500'
+                  }`}
+                  style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+            
+            {/* Thống kê */}
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Tổng số dòng:</span>
+                <span className="font-semibold">{importProgress.totalRows.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Đã nhập thành công:</span>
+                <span className="font-semibold text-green-600">{importProgress.successRows.toLocaleString()}</span>
+              </div>
+              {importProgress.failedBatches && importProgress.failedBatches.length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Batch thất bại:</span>
+                  <span className="font-semibold text-red-600">{importProgress.failedBatches.length}</span>
+                </div>
+              )}
+            </div>
+            
+            {/* Thông báo */}
+            {importProgress.status === 'processing' && (
+              <div className="mt-4 rounded bg-blue-50 p-3 text-xs text-blue-800">
+                <p className="font-semibold">💡 Lưu ý:</p>
+                <p>• Không đóng trình duyệt trong quá trình nhập</p>
+                <p>• Quá trình có thể mất vài phút với file lớn</p>
+              </div>
+            )}
+            
+            {importProgress.status === 'success' && (
+              <div className="mt-4 rounded bg-green-50 p-3 text-xs text-green-800">
+                ✅ Đã nhập thành công tất cả dữ liệu!
+              </div>
+            )}
+            
+            {importProgress.status === 'partial' && importProgress.failedBatches && (
+              <div className="mt-4 rounded bg-yellow-50 p-3 text-xs text-yellow-800">
+                <p className="font-semibold">⚠️ Một số batch thất bại:</p>
+                <ul className="mt-1 list-inside list-disc">
+                  {importProgress.failedBatches.slice(0, 3).map((b, idx) => (
+                    <li key={idx}>Batch {b.batchIndex + 1}: {b.error}</li>
+                  ))}
+                  {importProgress.failedBatches.length > 3 && (
+                    <li>... và {importProgress.failedBatches.length - 3} batch khác</li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Modal kết quả import Excel - hiển thị dòng trùng hoàn toàn */}
       {importResultData && (
         <div
@@ -2877,7 +3091,7 @@ function DoiSoatBillCuoc() {
           >
             <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
               <h2 id="import-result-modal-title" className="text-lg font-semibold text-gray-800">
-                Kết quả nhập dữ liệu từ Excel
+                {importResultData.isCheckMode ? 'Kết quả kiểm tra dòng trùng' : 'Kết quả nhập dữ liệu từ Excel'}
               </h2>
               <button
                 onClick={() => setImportResultData(null)}
@@ -2892,28 +3106,64 @@ function DoiSoatBillCuoc() {
               <div className="mb-4 flex gap-4">
                 <div className="flex-1 rounded-lg bg-blue-50 p-4 text-center">
                   <div className="text-2xl font-bold text-blue-600">{importResultData.totalImported}</div>
-                  <div className="text-sm text-blue-800">Tổng dòng trong file</div>
+                  <div className="text-sm text-blue-800">Tổng dòng trong bảng</div>
                 </div>
-                <div className="flex-1 rounded-lg bg-green-50 p-4 text-center">
-                  <div className="text-2xl font-bold text-green-600">{importResultData.newCount}</div>
-                  <div className="text-sm text-green-800">Dòng mới</div>
-                </div>
+                {!importResultData.isCheckMode && (
+                  <div className="flex-1 rounded-lg bg-green-50 p-4 text-center">
+                    <div className="text-2xl font-bold text-green-600">{importResultData.newCount}</div>
+                    <div className="text-sm text-green-800">Dòng mới</div>
+                  </div>
+                )}
                 <div className="flex-1 rounded-lg bg-red-50 p-4 text-center">
                   <div className="text-2xl font-bold text-red-600">{importResultData.duplicateCount}</div>
                   <div className="text-sm text-red-800">Dòng trùng hoàn toàn</div>
                 </div>
+                {importResultData.isCheckMode && (
+                  <div className="flex-1 rounded-lg bg-yellow-50 p-4 text-center">
+                    <div className="text-2xl font-bold text-yellow-600">
+                      {importResultData.duplicateGroups?.length || 0}
+                    </div>
+                    <div className="text-sm text-yellow-800">Nhóm trùng</div>
+                  </div>
+                )}
               </div>
               
               {/* Danh sách dòng trùng */}
               {importResultData.duplicateCount > 0 && (
                 <div className="rounded-lg border border-red-200">
-                  <div className="bg-red-50 px-4 py-2 font-semibold text-red-800">
-                    Các dòng trùng hoàn toàn với dữ liệu đã có:
+                  <div className="bg-red-50 px-4 py-2 font-semibold text-red-800 flex justify-between items-center">
+                    <span>Các dòng trùng hoàn toàn {importResultData.isCheckMode ? 'trong bảng' : 'với dữ liệu đã có'}:</span>
+                    <button
+                      onClick={() => {
+                        // Xuất Excel các dòng trùng
+                        const wb = XLSX.utils.book_new();
+                        const ws = XLSX.utils.json_to_sheet(
+                          importResultData.duplicateRows.map(row => ({
+                            'ID': row.id,
+                            'Mã đơn hàng': row.ma_don_hang || '',
+                            'Mã Tracking': row.ma_tracking || '',
+                            'Tiền Việt': row.tien_viet || '',
+                            'Tiền USD': row.tien_usd || '',
+                            'Ngày đối soát': row.ngay_doi_soat || row.ngay_doi_soat_cuoc || '',
+                            'Đơn vị tiền': row.don_vi_tien || '',
+                            'Tỷ giá': row.ty_gia || '',
+                          }))
+                        );
+                        XLSX.utils.book_append_sheet(wb, ws, 'Dong_trung');
+                        const fileName = `Dong_trung_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                        XLSX.writeFile(wb, fileName);
+                      }}
+                      className="flex items-center gap-1 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+                    >
+                      <Download className="w-3 h-3" />
+                      Xuất Excel
+                    </button>
                   </div>
                   <div className="max-h-64 overflow-auto">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-gray-100">
                         <tr>
+                          {importResultData.isCheckMode && <th className="px-3 py-2 text-left">ID</th>}
                           <th className="px-3 py-2 text-left">Mã đơn hàng</th>
                           <th className="px-3 py-2 text-left">Mã Tracking</th>
                           <th className="px-3 py-2 text-right">Tiền Việt</th>
@@ -2922,8 +3172,9 @@ function DoiSoatBillCuoc() {
                         </tr>
                       </thead>
                       <tbody>
-                        {importResultData.duplicateRows.slice(0, 50).map((row, idx) => (
+                        {importResultData.duplicateRows.slice(0, 100).map((row, idx) => (
                           <tr key={idx} className="border-t border-gray-100 bg-red-25">
+                            {importResultData.isCheckMode && <td className="px-3 py-2 text-gray-500">{row.id}</td>}
                             <td className="px-3 py-2">{row.ma_don_hang || '-'}</td>
                             <td className="px-3 py-2">{row.ma_tracking || '-'}</td>
                             <td className="px-3 py-2 text-right">{row.tien_viet?.toLocaleString() || '-'}</td>
@@ -2931,10 +3182,10 @@ function DoiSoatBillCuoc() {
                             <td className="px-3 py-2">{row.ngay_doi_soat || row.ngay_doi_soat_cuoc || '-'}</td>
                           </tr>
                         ))}
-                        {importResultData.duplicateCount > 50 && (
+                        {importResultData.duplicateCount > 100 && (
                           <tr>
-                            <td colSpan={5} className="px-3 py-2 text-center text-gray-500">
-                              ... và {importResultData.duplicateCount - 50} dòng khác
+                            <td colSpan={importResultData.isCheckMode ? 6 : 5} className="px-3 py-2 text-center text-gray-500">
+                              ... và {importResultData.duplicateCount - 100} dòng khác
                             </td>
                           </tr>
                         )}
@@ -2951,25 +3202,27 @@ function DoiSoatBillCuoc() {
                 onClick={() => setImportResultData(null)}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
               >
-                Hủy
+                Đóng
               </button>
-              <div className="flex gap-2">
-                {importResultData.duplicateCount > 0 && (
+              {!importResultData.isCheckMode && (
+                <div className="flex gap-2">
+                  {importResultData.duplicateCount > 0 && (
+                    <button
+                      onClick={() => handleConfirmImportResult(false)}
+                      disabled={importResultData.newCount === 0}
+                      className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 disabled:opacity-50"
+                    >
+                      Chỉ lưu {importResultData.newCount} dòng mới
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleConfirmImportResult(false)}
-                    disabled={importResultData.newCount === 0}
-                    className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 disabled:opacity-50"
+                    onClick={() => handleConfirmImportResult(true)}
+                    className="rounded-lg bg-orange-500 px-4 py-2 text-white hover:bg-orange-600"
                   >
-                    Chỉ lưu {importResultData.newCount} dòng mới
+                    Lưu tất cả ({importResultData.totalImported} dòng)
                   </button>
-                )}
-                <button
-                  onClick={() => handleConfirmImportResult(true)}
-                  className="rounded-lg bg-orange-500 px-4 py-2 text-white hover:bg-orange-600"
-                >
-                  Lưu tất cả ({importResultData.totalImported} dòng)
-                </button>
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
