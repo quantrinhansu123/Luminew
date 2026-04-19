@@ -1,7 +1,6 @@
 import { toast } from 'react-toastify';
 
 export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotDividedOrders, setAutoAssignResult }) {
-    const TARGET_ORDER_CODE = 'Kemce7fc5bf';
     const ordersTable = branchFilter === 'HCM' ? 'order_code_hcm' : 'orders';
 
         addLog(`🚀 Bắt đầu quá trình chia đơn vận đơn${branchFilter ? ' cho ' + branchFilter : ''}...`, 'info');
@@ -92,96 +91,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         addLog(`🔍 Đang query từ Supabase: bảng ${ordersTable}...`, 'info');
         console.log(`🔍 [Chia đơn vận đơn] Đang query từ Supabase: bảng ${ordersTable}...`);
         console.log(`📡 [Chia đơn vận đơn] Query: SELECT * FROM ${ordersTable}`);
-        
-        // Query trực tiếp đơn cần kiểm tra trước
-        console.log(`\n${'='.repeat(60)}`);
-        console.log(`🔍 [KIỂM TRA CHI TIẾT ĐƠN ${TARGET_ORDER_CODE}]`);
-        console.log(`${'='.repeat(60)}`);
-        console.log(`Đang query trực tiếp từ bảng ${ordersTable}...`);
-        
-        const { data: targetOrderData, error: targetOrderError } = await supabase
-            .from(ordersTable)
-            .select('*')
-            .eq('order_code', TARGET_ORDER_CODE)
-            .maybeSingle();
-        
-        if (targetOrderError) {
-            console.error(`❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Lỗi query:`, targetOrderError);
-            console.error(`❌ Chi tiết lỗi:`, JSON.stringify(targetOrderError, null, 2));
-        } else if (targetOrderData) {
-            console.log(`✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn TỒN TẠI trong bảng ${ordersTable}`);
-            console.log(`\n📋 Thông tin đơn hàng:`);
-            console.log(`  - order_code: "${targetOrderData.order_code}"`);
-            console.log(`  - id: ${targetOrderData.id || '(null)'}`);
-            console.log(`  - team: "${targetOrderData.team || '(null)'}"`);
-            console.log(`  - country: "${targetOrderData.country || '(null)'}"`);
-            console.log(`  - sale_staff: "${targetOrderData.sale_staff || '(null)'}"`);
-            
-            console.log(`\n🔍 PHÂN TÍCH CHI TIẾT CỘT delivery_staff:`);
-            const ds = targetOrderData.delivery_staff;
-            console.log(`  - Giá trị gốc: "${ds}"`);
-            console.log(`  - Kiểu dữ liệu: ${typeof ds}`);
-            console.log(`  - === null: ${ds === null}`);
-            console.log(`  - === undefined: ${ds === undefined}`);
-            console.log(`  - === '': ${ds === ''}`);
-            console.log(`  - Cột có tồn tại: ${'delivery_staff' in targetOrderData}`);
-            
-            if (ds !== null && ds !== undefined) {
-                const dsStr = String(ds);
-                const dsTrimmed = dsStr.trim();
-                const dsUpper = dsTrimmed.toUpperCase();
-                console.log(`  - Sau String(): "${dsStr}"`);
-                console.log(`  - Sau trim(): "${dsTrimmed}"`);
-                console.log(`  - Sau toUpperCase(): "${dsUpper}"`);
-                console.log(`  - Độ dài sau trim: ${dsTrimmed.length}`);
-                console.log(`  - Có phải empty string: ${dsTrimmed === ''}`);
-                console.log(`  - Có phải 'EMPTY': ${dsUpper === 'EMPTY'}`);
-                console.log(`  - Có phải 'NULL': ${dsUpper === 'NULL'}`);
-                console.log(`  - Có phải 'NONE': ${dsUpper === 'NONE'}`);
-                
-                // Kiểm tra các ký tự đặc biệt
-                console.log(`  - Chứa ký tự đặc biệt: ${/[^\w\s]/.test(dsStr)}`);
-                console.log(`  - Chỉ có khoảng trắng: ${/^\s+$/.test(dsStr)}`);
-                console.log(`  - Hex dump (10 ký tự đầu): ${Array.from(dsStr.slice(0, 10)).map(c => c.charCodeAt(0).toString(16)).join(' ')}`);
-            }
-            
-            // Kết luận
-            console.log(`\n📊 KẾT LUẬN:`);
-            let canBeDivided = false;
-            let reason = '';
-            
-            if (ds === null || ds === undefined) {
-                canBeDivided = true;
-                reason = 'delivery_staff là null/undefined';
-            } else if (!('delivery_staff' in targetOrderData)) {
-                canBeDivided = true;
-                reason = 'Cột delivery_staff không tồn tại';
-            } else {
-                const dsTrimmed = String(ds).trim();
-                if (dsTrimmed === '') {
-                    canBeDivided = true;
-                    reason = 'delivery_staff là empty string';
-                } else {
-                    const dsUpper = dsTrimmed.toUpperCase();
-                    if (dsUpper === 'EMPTY' || dsUpper === 'NULL' || dsUpper === 'NONE') {
-                        canBeDivided = true;
-                        reason = `delivery_staff là "${dsUpper}"`;
-                    } else {
-                        canBeDivided = false;
-                        reason = `delivery_staff có giá trị "${ds}" (không phải null/empty/EMPTY/NULL/NONE)`;
-                    }
-                }
-            }
-            
-            console.log(`  - Có thể chia đơn: ${canBeDivided ? '✅ CÓ' : '❌ KHÔNG'}`);
-            console.log(`  - Lý do: ${reason}`);
-            console.log(`${'='.repeat(60)}\n`);
-        } else {
-            console.log(`❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn KHÔNG TỒN TẠI trong bảng ${ordersTable}!`);
-            console.log(`  - Query trả về null/undefined - đơn không có trong database`);
-            console.log(`  - Vui lòng kiểm tra lại mã đơn hàng hoặc import đơn vào database`);
-            console.log(`${'='.repeat(60)}\n`);
-        }
         
         // Helper function để query với pagination (lấy tất cả rows)
         const queryAllOrders = async (queryBuilder) => {
@@ -320,20 +229,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         console.log(`  - Đơn bị loại trừ (Nhật Bản): ${ordersExcludedJapan.length}`);
         console.log(`  - Tổng tất cả đơn: ${allOrdersArray.length}`);
         console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (bảng ${ordersTable})`);
-        
-        // Kiểm tra đơn đặc biệt trong dữ liệu lấy về
-        const targetInAllOrders = allOrdersArray.find(o => o.order_code === TARGET_ORDER_CODE);
-        if (targetInAllOrders) {
-            console.log(`\n✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn có trong dữ liệu từ bảng ${ordersTable}`);
-            console.log(`  - delivery_staff: "${targetInAllOrders.delivery_staff || '(null)'}"`);
-            console.log(`  - team: "${targetInAllOrders.team || '(null)'}"`);
-            console.log(`  - country: "${targetInAllOrders.country || '(null)'}"`);
-            console.log(`  - sale_staff: "${targetInAllOrders.sale_staff || '(null)'}"`);
-        } else {
-            console.log(`\n❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn KHÔNG có trong dữ liệu từ bảng ${ordersTable}!`);
-            console.log(`  - Đơn không tồn tại trong database hoặc có lỗi khi query`);
-            console.log(`  - Vui lòng kiểm tra xem đơn có tồn tại trong bảng ${ordersTable} không`);
-        }
 
         // Thống kê delivery_staff để debug (tất cả đơn)
         const deliveryStaffStatsAll = {};
@@ -402,26 +297,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 let notFoundCount = 0;
                 
                 ordersNeedTeam.forEach(order => {
-                    // Log đặc biệt cho đơn cần kiểm tra
-                    const isTargetOrder = order.order_code === TARGET_ORDER_CODE;
-                    
                     // Tìm từ sale_staff
                     let foundBranch = null;
                     let foundName = null;
                     const saleStaffName = order.sale_staff?.toString().trim();
                     
-                    if (isTargetOrder) {
-                        console.log(`\n🔍 [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE} - ĐIỀN TEAM]`);
-                        console.log(`  - sale_staff: "${saleStaffName || '(null)'}"`);
-                        console.log(`  - team hiện tại: "${order.team || '(null)'}"`);
-                    }
-                    
                     if (saleStaffName && nameToBranch[saleStaffName]) {
                         foundBranch = nameToBranch[saleStaffName];
                         foundName = saleStaffName;
-                        if (isTargetOrder) {
-                            console.log(`  ✅ Tìm thấy branch: "${foundBranch}" cho sale_staff "${saleStaffName}"`);
-                        }
                     } else {
                         // Thử tìm team từ các đơn khác có cùng sale_staff
                         if (saleStaffName) {
@@ -448,24 +331,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                                 if (teamLower.includes('hcm') || teamLower.includes('hồ chí minh') || teamLower.includes('ho chi minh')) {
                                     foundBranch = 'HCM';
                                     foundName = saleStaffName;
-                                    if (isTargetOrder) {
-                                        console.log(`  ✅ Tìm thấy team từ đơn khác: "${mostCommonTeam}" → HCM (từ ${otherOrdersWithSameSaleStaff.length} đơn khác)`);
-                                    }
                                 } else if (teamLower.includes('hà nội') || teamLower.includes('hanoi') || teamLower.includes('ha noi')) {
                                     foundBranch = 'Hà Nội';
                                     foundName = saleStaffName;
-                                    if (isTargetOrder) {
-                                        console.log(`  ✅ Tìm thấy team từ đơn khác: "${mostCommonTeam}" → Hà Nội (từ ${otherOrdersWithSameSaleStaff.length} đơn khác)`);
-                                    }
                                 } else {
-                                    if (isTargetOrder) {
-                                        console.log(`  ⚠ Team từ đơn khác "${mostCommonTeam}" không phải HCM/Hà Nội`);
-                                    }
+                                    // Team không hợp lệ
                                 }
                             } else {
-                                if (isTargetOrder) {
-                                    console.log(`  ❌ Không tìm thấy đơn khác có cùng sale_staff "${saleStaffName}" với team hợp lệ`);
-                                }
+                                // Không tìm thấy đơn khác
                             }
                         }
                         
@@ -502,37 +375,16 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                                     );
                                     
                                     foundBranch = mostCommonTeam;
-                                    if (isTargetOrder) {
-                                        console.log(`  ✅ Tìm thấy team từ đơn có cùng country "${country}": "${mostCommonTeam}" (từ ${otherOrdersWithSameCountry.length} đơn khác)`);
-                                    }
                                 } else {
-                                    if (isTargetOrder) {
-                                        console.log(`  ⚠ Có ${otherOrdersWithSameCountry.length} đơn khác có cùng country "${country}" nhưng không có team hợp lệ (HCM/Hà Nội)`);
-                                    }
+                                    // Không có team hợp lệ
                                 }
                             } else {
-                                if (isTargetOrder) {
-                                    console.log(`  ⚠ Không tìm thấy đơn khác có cùng country "${country}" với team hợp lệ`);
-                                }
+                                // Không tìm thấy đơn khác có cùng country
                             }
                         }
                         
                         if (!foundBranch) {
-                            if (isTargetOrder) {
-                                if (!saleStaffName) {
-                                    console.log(`  ❌ sale_staff trống/null → Không thể điền team`);
-                                    if (order.country) {
-                                        console.log(`  - Đã thử tìm từ country "${order.country}" nhưng không tìm thấy đơn khác có team hợp lệ`);
-                                    }
-                                } else {
-                                    console.log(`  ❌ Không tìm thấy branch cho sale_staff "${saleStaffName}" trong bảng users và không có đơn khác để tham khảo`);
-                                    console.log(`  - Kiểm tra xem "${saleStaffName}" có trong bảng users không`);
-                                    console.log(`  - Kiểm tra xem "${saleStaffName}" có branch không`);
-                                    if (order.country) {
-                                        console.log(`  - Đã thử tìm từ country "${order.country}" nhưng không tìm thấy đơn khác có team hợp lệ`);
-                                    }
-                                }
-                            }
+                            // Không tìm thấy branch
                         }
                     }
                     
@@ -548,7 +400,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                         } else {
                             // Nếu branch không phải HCM/Hà Nội, bỏ qua
                             notFoundCount++;
-                            if (isTargetOrder || notFoundCount <= 5) {
+                            if (notFoundCount <= 5) {
                                 console.log(`  ⚠ Đơn ${order.order_code}: branch "${foundBranch}" không phải HCM/Hà Nội`);
                             }
                             return;
@@ -561,12 +413,12 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                         // Cập nhật luôn trong array ordersArray để logic phía sau dùng đúng
                         order.team = teamValue;
                         foundCount++;
-                        if (isTargetOrder || foundCount <= 10) {
+                        if (foundCount <= 10) {
                             console.log(`  ✓ [${foundCount}] Điền team "${teamValue}" cho đơn ${order.order_code} (sale_staff: ${foundName}, branch: ${foundBranch})`);
                         }
                     } else {
                         notFoundCount++;
-                        if (isTargetOrder || notFoundCount <= 10) {
+                        if (notFoundCount <= 10) {
                             console.log(`  ✗ Không tìm thấy branch cho đơn ${order.order_code} (sale_staff: "${saleStaffName || '(null)'}")`);
                         }
                     }
@@ -614,14 +466,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                                 order.team = updatedOrder.team;
                                 // Cập nhật toàn bộ thông tin từ DB để đảm bảo đồng bộ
                                 Object.assign(order, updatedOrder);
-                                
-                                // Log đặc biệt cho đơn cần kiểm tra
-                                if (order.order_code === TARGET_ORDER_CODE) {
-                                    console.log(`\n✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE} - SAU KHI RELOAD]`);
-                                    console.log(`  - team cũ: "${oldTeam || '(null)'}"`);
-                                    console.log(`  - team mới: "${order.team || '(null)'}"`);
-                                    console.log(`  - Đơn đã được cập nhật trong ordersArray`);
-                                }
                             }
                         });
                         console.log(`✅ [Chia đơn vận đơn] Đã reload ${reloadedOrders.length} đơn với team mới`);
@@ -630,15 +474,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                         reloadedOrders.slice(0, 5).forEach(o => {
                             console.log(`  ✓ Đơn ${o.order_code}: team="${o.team || '(null)'}"`);
                         });
-                        
-                        // Kiểm tra đơn đặc biệt sau khi reload
-                        const targetAfterReload = ordersArray.find(o => o.order_code === TARGET_ORDER_CODE);
-                        if (targetAfterReload) {
-                            console.log(`\n✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE} - SAU RELOAD]`);
-                            console.log(`  - team trong ordersArray: "${targetAfterReload.team || '(null)'}"`);
-                            console.log(`  - delivery_staff: "${targetAfterReload.delivery_staff || '(null)'}"`);
-                            console.log(`  - country: "${targetAfterReload.country || '(null)'}"`);
-                        }
                     }
                 } else {
                     console.log(`⚠️ [Chia đơn vận đơn] Không tìm được branch cho ${ordersNeedTeam.length} đơn (sale_staff không có trong bảng users hoặc không có branch)`);
@@ -688,14 +523,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             const teamRaw = order.team?.toString() || '';
             const team = teamRaw.trim().toLowerCase();
 
-            // Log đặc biệt cho đơn cần kiểm tra
-            if (order.order_code === TARGET_ORDER_CODE) {
-                console.log(`\n🔍 [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE} - PHÂN LOẠI]`);
-                console.log(`  - team: "${teamRaw}" (normalized: "${team}")`);
-            }
-
             // Debug: Log một vài đơn đầu tiên để kiểm tra
-            if (index < 10 || order.order_code === TARGET_ORDER_CODE) {
+            if (index < 10) {
                 console.log(`  [Đơn ${index + 1}] order_code: ${order.order_code}, team: "${teamRaw}" (normalized: "${team}"), delivery_staff: "${order.delivery_staff || '(null)'}", sale_staff: "${order.sale_staff || '(null)'}"`);
             }
 
@@ -736,24 +565,15 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                            teamClean.includes('hanoi');
             
             // Debug log để kiểm tra
-            if (index < 5 || order.order_code === TARGET_ORDER_CODE) {
+            if (index < 5) {
                 console.log(`  🔍 [Đơn ${index + 1}] order_code=${order.order_code}, team="${teamRaw}" -> normalized="${teamNormalized}" -> lower="${teamLower}" -> clean="${teamClean}" -> isHCM=${isHCM}, isHanoi=${isHanoi}`);
             }
 
             if (isHCM) {
-                if (order.order_code === TARGET_ORDER_CODE) {
-                    console.log(`  ✅ Đơn ${TARGET_ORDER_CODE} được phân loại vào ordersHCM`);
-                }
                 ordersHCM.push(order);
             } else if (isHanoi) {
-                if (order.order_code === TARGET_ORDER_CODE) {
-                    console.log(`  ✅ Đơn ${TARGET_ORDER_CODE} được phân loại vào ordersHaNoi`);
-                }
                 ordersHaNoi.push(order);
             } else {
-                if (order.order_code === TARGET_ORDER_CODE) {
-                    console.log(`  ❌ Đơn ${TARGET_ORDER_CODE} KHÔNG được phân loại: team="${teamRaw}" không phải HCM/Hà Nội`);
-                }
                 ordersWithoutTeam.push({
                     ...order,
                     reason: `team="${teamRaw}" (normalized: "${team}", không phải HCM/Hà Nội)`
@@ -803,132 +623,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         // Loại bỏ các đơn có lý do "Nhật Bản/CĐ Nhật Bản" khỏi danh sách hiển thị
         // (Đơn Nhật Bản đã được loại trừ ở bước phân loại, nên ordersWithoutTeam không chứa đơn Nhật Bản)
         let allNotDividedOrders = [...ordersWithoutTeam];
-
-        // Thu thập lý do cụ thể cho đơn cần kiểm tra
-        let targetOrderReason = null;
-        // Tìm đơn trong allOrdersArray hoặc từ query trực tiếp
-        let targetOrder = allOrdersArray.find(o => o.order_code === TARGET_ORDER_CODE);
-        if (!targetOrder && targetOrderData) {
-            targetOrder = targetOrderData;
-        }
-        
-        if (targetOrder) {
-            const reasons = [];
-            
-            // Kiểm tra delivery_staff
-            const ds = targetOrder.delivery_staff;
-            if (ds !== null && ds !== undefined && ds !== '') {
-                const dsStr = String(ds).trim().toUpperCase();
-                if (dsStr !== 'EMPTY' && dsStr !== 'NULL' && dsStr !== 'NONE') {
-                    reasons.push(`delivery_staff không trống (giá trị: "${ds}") → Đơn bị lọc ra ở bước kiểm tra delivery_staff`);
-                    reasons.push(`  → Đơn chỉ được chia khi delivery_staff là: null, undefined, '', 'EMPTY', 'NULL', hoặc 'NONE'`);
-                }
-            }
-            
-            // Kiểm tra country
-            const country = targetOrder.country?.toString().trim().toLowerCase() || '';
-            const japanKeywords = ['nhật bản', 'nhat ban', 'japan', 'jp'];
-            if (japanKeywords.some(keyword => country.includes(keyword))) {
-                reasons.push(`country = "${targetOrder.country}" (Nhật Bản)`);
-            }
-            
-            // Kiểm tra team
-            const team = targetOrder.team?.toString().trim() || '';
-            const teamLower = team.toLowerCase();
-            const isHCM = teamLower === 'hcm' || teamLower === 'hồ chí minh' || teamLower === 'ho chi minh' || teamLower.includes('hcm');
-            const isHanoi = teamLower === 'hà nội' || teamLower === 'ha noi' || teamLower === 'hanoi' || teamLower.includes('hà nội') || teamLower.includes('hanoi');
-            
-            if (!team) {
-                reasons.push(`team trống/null`);
-            } else if (!isHCM && !isHanoi) {
-                reasons.push(`team = "${team}" (không phải HCM/Hà Nội)`);
-            }
-            
-            // Kiểm tra xem đơn có trong ordersHCM hoặc ordersHaNoi không
-            const inHCM = ordersHCM.find(o => o.order_code === TARGET_ORDER_CODE);
-            const inHaNoi = ordersHaNoi.find(o => o.order_code === TARGET_ORDER_CODE);
-            if (!inHCM && !inHaNoi && (isHCM || isHanoi)) {
-                // Phân tích nguyên nhân chi tiết
-                const orderInArray = ordersArray.find(o => o.order_code === TARGET_ORDER_CODE);
-                let reasonDetail = `đơn có team hợp lệ ("${team}") nhưng không được phân loại vào ordersHCM/ordersHaNoi`;
-                
-                if (!orderInArray) {
-                    const ds = targetOrder.delivery_staff;
-                    let dsInfo = '';
-                    if (ds === null || ds === undefined) {
-                        dsInfo = 'null/undefined';
-                    } else {
-                        const dsTrimmed = String(ds).trim();
-                        if (dsTrimmed === '') {
-                            dsInfo = 'empty string';
-                        } else {
-                            const dsUpper = dsTrimmed.toUpperCase();
-                            if (dsUpper === 'EMPTY' || dsUpper === 'NULL' || dsUpper === 'NONE') {
-                                dsInfo = `"${dsUpper}"`;
-                            } else {
-                                dsInfo = `có giá trị "${ds}"`;
-                            }
-                        }
-                    }
-                    reasonDetail += `\n    → Nguyên nhân: Đơn không có trong ordersArray (bị lọc ở bước kiểm tra delivery_staff)`;
-                    reasonDetail += `\n    → delivery_staff hiện tại: ${dsInfo}`;
-                    reasonDetail += `\n    → Giải pháp: Đơn chỉ được chia khi delivery_staff là: null, undefined, '', 'EMPTY', 'NULL', hoặc 'NONE'`;
-                } else {
-                    // Kiểm tra lại logic phân loại
-                    const teamRawCheck = orderInArray.team?.toString() || '';
-                    const teamNormalizedCheck = teamRawCheck.trim();
-                    const teamLowerCheck = teamNormalizedCheck.toLowerCase();
-                    
-                    const isHCMCheck = teamNormalizedCheck === 'HCM' ||
-                                     teamLowerCheck === 'hcm' ||
-                                     teamLowerCheck === 'hồ chí minh' ||
-                                     teamLowerCheck === 'ho chi minh' ||
-                                     teamLowerCheck.includes('hcm') ||
-                                     teamLowerCheck.includes('hồ chí minh') ||
-                                     teamLowerCheck.includes('ho chi minh');
-                    
-                    const isHanoiCheck = teamNormalizedCheck === 'Hà Nội' ||
-                                       teamLowerCheck === 'hà nội' ||
-                                       teamLowerCheck === 'ha noi' ||
-                                       teamLowerCheck === 'hanoi' ||
-                                       teamLowerCheck.includes('hà nội') ||
-                                       teamLowerCheck.includes('hanoi') ||
-                                       teamLowerCheck.includes('ha noi');
-                    
-                    reasonDetail += `\n    → Kiểm tra lại logic phân loại:`;
-                    reasonDetail += `\n      - teamRaw: "${teamRawCheck}"`;
-                    reasonDetail += `\n      - teamNormalized: "${teamNormalizedCheck}"`;
-                    reasonDetail += `\n      - teamLower: "${teamLowerCheck}"`;
-                    reasonDetail += `\n      - isHCM: ${isHCMCheck}`;
-                    reasonDetail += `\n      - isHanoi: ${isHanoiCheck}`;
-                    
-                    if (!isHCMCheck && !isHanoiCheck) {
-                        reasonDetail += `\n    → Nguyên nhân: Logic phân loại không nhận diện được team "${teamRawCheck}" là HCM hoặc Hà Nội`;
-                        reasonDetail += `\n      (Có thể do format team không khớp với điều kiện kiểm tra)`;
-                    } else {
-                        reasonDetail += `\n    → Nguyên nhân: Logic phân loại nhận diện được nhưng đơn vẫn không được thêm vào ordersHCM/ordersHaNoi`;
-                        reasonDetail += `\n      (Có thể do lỗi trong quá trình push vào array)`;
-                    }
-                }
-                
-                reasons.push(reasonDetail);
-            }
-            
-            // Lưu tạm reasons để kiểm tra sau khi có updates
-            // (sẽ cập nhật lại sau khi chia đơn)
-            if (reasons.length > 0) {
-                targetOrderReason = `Đơn ${TARGET_ORDER_CODE} không được chia vì:\n${reasons.map((r, i) => `  ${i + 1}. ${r}`).join('\n')}`;
-            }
-        } else {
-            // Đơn không tồn tại trong database
-            targetOrderReason = `Đơn ${TARGET_ORDER_CODE} KHÔNG TỒN TẠI trong bảng orders!\n\n` +
-                `Các khả năng:\n` +
-                `  1. Đơn chưa được import vào database\n` +
-                `  2. Đơn đã bị xóa\n` +
-                `  3. Mã đơn hàng không đúng\n` +
-                `  4. Đơn có thể ở bảng khác (không phải bảng orders)\n\n` +
-                `Vui lòng kiểm tra lại mã đơn hàng hoặc import đơn vào database trước khi chia.`;
-        }
 
         if (allNotDividedOrders.length > 0) {
             console.warn(`\n❌ [DANH SÁCH ĐƠN KHÔNG ĐƯỢC CHIA] Tổng: ${allNotDividedOrders.length} đơn`);
@@ -1053,9 +747,9 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             };
 
             // Kiểm tra đơn đặc biệt
-            const targetOrderInPending = pendingOrders.find(o => o.order_code === TARGET_ORDER_CODE);
+            const targetOrderInPending = pendingOrders.find(o => o.order_code === 'DEBUG_ORDER_IF_NEEDED');
             if (targetOrderInPending) {
-                console.log(`\n✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE} - TRONG smartDistribute]`);
+                console.log(`\n✅ [KIỂM TRA ĐƠN DEBUG] Đơn có trong pendingOrders cho ${branchName}`);
                 console.log(`  - Đơn có trong pendingOrders cho ${branchName}`);
                 console.log(`  - team: "${targetOrderInPending.team}"`);
                 console.log(`  - Số nhân viên: ${staffListWithBranch.length}`);
@@ -1147,19 +841,19 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             const lastAssignedIndex = lastAssignedPerson ? staffList.indexOf(lastAssignedPerson) : -1;
             const startIndex = lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0;
             
-            console.log(`\n🔄 [${branchName}] ========== CHUẨN BỊ CHIA ĐƠN ROUND-ROBIN ==========`);
-            console.log(`👥 Danh sách nhân viên U1: [${staffList.join(', ')}]`);
-            console.log(`📍 Người cuối vòng: "${lastAssignedPerson || '(không có)'}" (index: ${lastAssignedIndex})`);
-            console.log(`🎯 Bắt đầu chia từ index: ${startIndex} → "${staffListWithBranch[startIndex]?.name}"`);
-            console.log(`📦 Số đơn cần chia: ${remainingOrders.length}`);
-            console.log(`${'='.repeat(60)}\n`);
-
             const remainingOrders = [...pendingOrders].sort((a, b) => {
                 const ta = a.order_date ? new Date(a.order_date).getTime() : 0;
                 const tb = b.order_date ? new Date(b.order_date).getTime() : 0;
                 if (ta !== tb) return ta - tb;
                 return String(a.order_code || '').localeCompare(String(b.order_code || ''));
             });
+            
+            console.log(`\n🔄 [${branchName}] ========== CHUẨN BỊ CHIA ĐƠN ROUND-ROBIN ==========`);
+            console.log(`👥 Danh sách nhân viên U1: [${staffList.join(', ')}]`);
+            console.log(`📍 Người cuối vòng: "${lastAssignedPerson || '(không có)'}" (index: ${lastAssignedIndex})`);
+            console.log(`🎯 Bắt đầu chia từ index: ${startIndex} → "${staffListWithBranch[startIndex]?.name}"`);
+            console.log(`📦 Số đơn cần chia: ${remainingOrders.length}`);
+            console.log(`${'='.repeat(60)}\n`);
 
             if (remainingOrders.length > 0) {
                 let startIndex =
@@ -1178,21 +872,12 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                         const orderTeam = order.team?.toString().trim() || '';
                         const isMatch = isTeamBranchMatch(orderTeam, staff.chi_nhanh?.toString().trim() || '');
 
-                        // Log chi tiết cho 5 đơn đầu hoặc đơn đặc biệt
-                        if (orderIdx < 5 || order.order_code === TARGET_ORDER_CODE) {
+                        // Log chi tiết cho 5 đơn đầu
+                        if (orderIdx < 5) {
                             console.log(
                                 `  [Đơn ${orderIdx + 1}/${remainingOrders.length}] ${order.order_code}: ` +
                                 `team="${orderTeam}", thử NV[${idx}]="${staff.name}" (chi_nhanh="${staff.chi_nhanh}"), ` +
                                 `match=${isMatch}`
-                            );
-                        }
-
-                        if (order.order_code === TARGET_ORDER_CODE) {
-                            console.log(
-                                `\n🔍 [${TARGET_ORDER_CODE}] Chi tiết chia đơn:` +
-                                `\n  - orderIdx=${orderIdx}, nextIndex=${nextIndex}, attempt=${attempt}, idx=${idx}` +
-                                `\n  - staff="${staff.name}", chi_nhanh="${staff.chi_nhanh}"` +
-                                `\n  - orderTeam="${orderTeam}", isMatch=${isMatch}`
                             );
                         }
 
@@ -1204,7 +889,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                         });
                         
                         // Log khi chia thành công
-                        if (orderIdx < 5 || order.order_code === TARGET_ORDER_CODE) {
+                        if (orderIdx < 5) {
                             console.log(`    ✅ Chia cho: ${staff.name}`);
                         }
                         
@@ -1316,25 +1001,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             });
             console.log(`📋 [Chia đơn vận đơn] Hà Nội - Đơn cần chia: ${ordersHaNoi.length} đơn`);
         
-        // Kiểm tra đơn đặc biệt
-        const targetOrderInHaNoi = ordersHaNoi.find(o => o.order_code === TARGET_ORDER_CODE);
-        if (targetOrderInHaNoi) {
-            console.log(`\n✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn có trong ordersHaNoi!`);
-            console.log(`  - team: "${targetOrderInHaNoi.team}"`);
-            console.log(`  - country: "${targetOrderInHaNoi.country}"`);
-        } else {
-            console.log(`\n❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn KHÔNG có trong ordersHaNoi!`);
-            // Tìm đơn trong ordersArray
-            const targetInArray = ordersArray.find(o => o.order_code === TARGET_ORDER_CODE);
-            if (targetInArray) {
-                console.log(`  - Đơn có trong ordersArray nhưng không được phân loại vào ordersHaNoi`);
-                console.log(`  - team trong ordersArray: "${targetInArray.team || '(null)'}"`);
-                console.log(`  - country: "${targetInArray.country || '(null)'}"`);
-            } else {
-                console.log(`  - Đơn KHÔNG có trong ordersArray (có thể bị lọc ở bước delivery_staff)`);
-            }
-        }
-        
         if (ordersHaNoi.length > 0 && ordersHaNoi.length <= 10) {
             ordersHaNoi.forEach((o, idx) => {
                 console.log(`  ${idx + 1}. ${o.order_code}: team="${o.team || '(null)'}"`);
@@ -1345,14 +1011,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             const hanoiUpdates = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội');
             addLog(`✅ Hà Nội - Kết quả: ${hanoiUpdates.length} đơn được chia`, 'success');
             console.log(`✅ [Chia đơn vận đơn] Hà Nội - Kết quả: ${hanoiUpdates.length} đơn được chia`);
-            
-            // Kiểm tra đơn đặc biệt trong kết quả
-            const targetInUpdates = hanoiUpdates.find(u => u.order_code === TARGET_ORDER_CODE);
-            if (targetInUpdates) {
-                console.log(`\n✅ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn đã được chia cho: ${targetInUpdates.delivery_staff}`);
-            } else {
-                console.log(`\n❌ [KIỂM TRA ĐƠN ${TARGET_ORDER_CODE}] Đơn KHÔNG có trong kết quả chia!`);
-            }
             
             if (hanoiUpdates.length > 0) {
                 console.log(`📋 [Chia đơn vận đơn] Hà Nội - Chi tiết đơn được chia:`);
@@ -1453,33 +1111,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         });
         
         setNotDividedOrders(allNotDividedOrders);
-
-        // Cập nhật lại lý do cho đơn cần kiểm tra sau khi có updates
-        if (targetOrder && targetOrderReason) {
-            const inUpdates = updates.find(u => u.order_code === TARGET_ORDER_CODE);
-            if (!inUpdates) {
-                const inHCM = ordersHCM.find(o => o.order_code === TARGET_ORDER_CODE);
-                const inHaNoi = ordersHaNoi.find(o => o.order_code === TARGET_ORDER_CODE);
-                if (inHCM || inHaNoi) {
-                    const notAssignedOrder = ordersNotAssigned.find(o => o.order_code === TARGET_ORDER_CODE);
-                    if (notAssignedOrder) {
-                        targetOrderReason += `\n  - ${notAssignedOrder.reason}`;
-                    } else {
-                        targetOrderReason += `\n  - Đơn có trong danh sách chia nhưng không được gán cho nhân viên (có thể do không khớp chi_nhanh)`;
-                    }
-                }
-            } else {
-                targetOrderReason = `Đơn ${TARGET_ORDER_CODE} đã được chia thành công cho: ${inUpdates.delivery_staff}`;
-            }
-        }
-
-        // Hiển thị lý do cụ thể cho đơn cần kiểm tra
-        if (targetOrderReason) {
-            console.log(`\n${'='.repeat(60)}`);
-            console.log(`🔍 [LÝ DO ĐƠN ${TARGET_ORDER_CODE} KHÔNG ĐƯỢC CHIA]`);
-            console.log(targetOrderReason);
-            console.log(`${'='.repeat(60)}\n`);
-        }
 
         // Bước 8: Cập nhật database
         if (updates.length > 0) {
@@ -1610,79 +1241,13 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             `- Đơn bị loại trừ do Nhật Bản: ${ordersExcluded.filter(o => o.reason?.includes('Nhật Bản')).length}\n` +
             `- Đơn không có team/team khác: ${ordersWithoutTeam.length}\n`;
         
-        // LUÔN hiển thị lý do cụ thể cho đơn cần kiểm tra ở phần Lỗi
-        // Đảm bảo luôn có thông tin về đơn này
-        let targetOrderInfo = '';
-        
-        if (targetOrderReason) {
-            targetOrderInfo = `\n\n${'='.repeat(60)}\n` +
-                `❌ LỖI: ĐƠN ${TARGET_ORDER_CODE} KHÔNG ĐƯỢC CHIA\n` +
-                `${'='.repeat(60)}\n` +
-                targetOrderReason +
-                `\n${'='.repeat(60)}\n`;
-        } else {
-            // Nếu không có targetOrderReason, vẫn hiển thị thông tin kiểm tra
-            const targetOrder = allOrdersArray.find(o => o.order_code === TARGET_ORDER_CODE);
-            if (!targetOrder && targetOrderData) {
-                targetOrderInfo = `\n\n${'='.repeat(60)}\n` +
-                    `❌ LỖI: ĐƠN ${TARGET_ORDER_CODE} KHÔNG TỒN TẠI\n` +
-                    `${'='.repeat(60)}\n` +
-                    `Đơn ${TARGET_ORDER_CODE} không tìm thấy trong bảng ${ordersTable}!\n` +
-                    `Vui lòng kiểm tra lại mã đơn hàng hoặc import đơn vào database.\n` +
-                    `${'='.repeat(60)}\n`;
-            } else if (targetOrderData) {
-                // Hiển thị thông tin delivery_staff nếu có
-                const ds = targetOrderData.delivery_staff;
-                let dsStatus = '';
-                if (ds === null || ds === undefined) {
-                    dsStatus = 'null/undefined';
-                } else {
-                    const dsTrimmed = String(ds).trim();
-                    if (dsTrimmed === '') {
-                        dsStatus = 'empty string';
-                    } else {
-                        const dsUpper = dsTrimmed.toUpperCase();
-                        if (dsUpper === 'EMPTY' || dsUpper === 'NULL' || dsUpper === 'NONE') {
-                            dsStatus = `"${dsUpper}"`;
-                        } else {
-                            dsStatus = `có giá trị "${ds}"`;
-                        }
-                    }
-                }
-                
-                targetOrderInfo = `\n\n${'='.repeat(60)}\n` +
-                    `❌ LỖI: ĐƠN ${TARGET_ORDER_CODE} KHÔNG ĐƯỢC CHIA\n` +
-                    `${'='.repeat(60)}\n` +
-                    `Thông tin đơn:\n` +
-                    `- delivery_staff: ${dsStatus}\n` +
-                    `- team: "${targetOrderData.team || '(null)'}"\n` +
-                    `- country: "${targetOrderData.country || '(null)'}"\n` +
-                    `- sale_staff: "${targetOrderData.sale_staff || '(null)'}"\n` +
-                    `${'='.repeat(60)}\n`;
-            } else {
-                // Nếu không có targetOrderData, vẫn hiển thị thông báo
-                targetOrderInfo = `\n\n${'='.repeat(60)}\n` +
-                    `❌ LỖI: ĐƠN ${TARGET_ORDER_CODE} KHÔNG TỒN TẠI\n` +
-                    `${'='.repeat(60)}\n` +
-                    `Đơn ${TARGET_ORDER_CODE} không tìm thấy trong database!\n` +
-                    `Vui lòng kiểm tra lại mã đơn hàng.\n` +
-                    `${'='.repeat(60)}\n`;
-            }
-        }
-        
-        // LUÔN thêm thông tin về đơn vào message
-        message += targetOrderInfo;
-        
         message += (ordersNotDivided > 0 ? `\n⚠️ CẢNH BÁO: Có ${ordersNotDivided} đơn có delivery_staff trống nhưng không được chia!\n` +
                 `   (Có thể do: không có team, team khác HCM/Hà Nội, hoặc country = Nhật Bản)\n` : '') +
             (errorCount > 0 ? `\n⚠️ LỖI: Có ${errorCount} đơn không thể cập nhật. Vui lòng kiểm tra Console để xem chi tiết.\n` : '');
 
-        // Luôn hiển thị là lỗi nếu đơn cần kiểm tra không được chia
         const isSuccess = updates.length > 0 && errorCount === 0;
-        const hasTargetOrderIssue = targetOrderReason && !targetOrderReason.includes('đã được chia thành công');
-        const finalSuccess = isSuccess && !hasTargetOrderIssue;
         
-        setAutoAssignResult({ success: finalSuccess, message });
+        setAutoAssignResult({ success: isSuccess, message });
 
         if (updates.length === 0) {
             toast.warning('Không có đơn nào để chia vận đơn!');
