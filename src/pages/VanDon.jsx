@@ -275,7 +275,13 @@ function isVanDonMoneyGridAppKey(colKey) {
   return (
     n === normalizeColHeader('Tổng tiền VNĐ') ||
     n === normalizeColHeader('Tiền đã thanh toán') ||
-    n === normalizeColHeader('Giá bán')
+    n === normalizeColHeader('Giá bán') ||
+    n === normalizeColHeader('Phí ship') ||
+    n === normalizeColHeader('Phí xử lý đơn đóng hàng-Lưu kho(usd)') ||
+    n === normalizeColHeader('Số tiền của đơn hàng đã về TK Cty') ||
+    n === normalizeColHeader('Số lượng mặt hàng 1') ||
+    n === normalizeColHeader('Số lượng mặt hàng 2') ||
+    n === normalizeColHeader('Số lượng quà kèm')
   );
 }
 
@@ -4819,7 +4825,7 @@ function VanDon({ dataSource = 'default' }) {
     val = coalesceVanDonDisplayValue(val);
     const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col)
       ? formatDate(val)
-      : (col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán' || col === 'Giá bán')
+      : isVanDonMoneyGridAppKey(col)
         ? (() => {
           const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
           return n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';
@@ -5498,7 +5504,10 @@ function VanDon({ dataSource = 'default' }) {
               </div>
               <div className="text-right flex flex-col items-end leading-tight">
                 <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
-                <span className="text-xs font-black text-emerald-600">{totalMoney.toLocaleString('vi-VN')} ₫</span>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-xs font-black text-emerald-600">{totalMoney.toLocaleString('vi-VN')} ₫</span>
+                  <span className="text-[10px] font-semibold text-gray-500">≈ ${(totalMoney / 24000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
               </div>
             </div>
           </div>
