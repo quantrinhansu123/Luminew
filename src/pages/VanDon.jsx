@@ -1075,6 +1075,16 @@ function VanDon({ dataSource = 'default' }) {
       if (val == null) return;
       if (Array.isArray(val) && val.length === 0) return;
       if (typeof val === 'string' && val.trim() === '') return;
+      
+      // Chuẩn hóa giá trị cho cột tiền tệ trước khi gửi lên server
+      if (isVanDonMoneyGridAppKey(key) && typeof val === 'string') {
+        const numVal = parseVietnameseMoneyToNumber(val);
+        if (numVal != null && Number.isFinite(numVal)) {
+          out[key] = numVal; // Gửi số thuần túy lên server
+        }
+        return;
+      }
+      
       out[key] = val;
     });
     return out;
@@ -2045,7 +2055,25 @@ function VanDon({ dataSource = 'default' }) {
 
               if (typeof val !== 'string') return true;
               if (!normalizeVanDonFilterWhitespace(val)) return true;
-              return matchesVanDonHeaderSearch(cellValue, val);
+
+              /** Hỗ trợ lọc số: loại bỏ dấu chấm/phẩy nếu là cột tiền tệ/số. */
+              const isMoney = isVanDonMoneyGridAppKey(key);
+              if (isMoney) {
+                // Xử lý filter cho cột tiền: so sánh giá trị số
+                const filterNum = parseVietnameseMoneyToNumber(val);
+                const cellNum = parseVietnameseMoneyToNumber(cellValue);
+                
+                if (filterNum == null) return true; // Filter không hợp lệ -> hiện tất cả
+                if (cellNum == null) return false; // Cell không có giá trị -> ẩn
+                
+                // So sánh số chính xác
+                return cellNum === filterNum;
+              }
+
+              const filterVal = val;
+              if (!filterVal || !normalizeVanDonFilterWhitespace(filterVal)) return true;
+
+              return matchesVanDonHeaderSearch(cellValue, filterVal);
             } catch (err) {
               console.warn(`⚠️ [Filter Error] Lỗi khi filter column "${key}":`, err);
               return true;
@@ -4791,7 +4819,7 @@ function VanDon({ dataSource = 'default' }) {
     val = coalesceVanDonDisplayValue(val);
     const displayVal = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col)
       ? formatDate(val)
-      : col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán'
+      : (col === 'Tổng tiền VNĐ' || col === 'Tiền đã thanh toán' || col === 'Giá bán')
         ? (() => {
           const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
           return n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';

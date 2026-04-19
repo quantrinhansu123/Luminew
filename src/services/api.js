@@ -1382,18 +1382,38 @@ export const fetchVanDon = async (options = {}) => {
                             query = query.eq(dbCol, t);
                         }
                     } else {
-                        /** Hỗ trợ lọc nhiều giá trị (OR) cho ô text nếu phân tách bằng dấu phẩy hoặc xuống dòng. */
-                        const tokens = t.split(/[,\n]/).map(s => normalizeVanDonFilterWhitespace(s)).filter(Boolean);
-                        if (tokens.length > 1) {
-                            const segments = tokens.map(tk => {
-                                const pat = buildVanDonFlexibleIlikePattern(tk);
-                                return `${dbCol}::text.ilike."${String(pat).replace(/"/g, '\\"')}"`;
-                            });
-                            query = query.or(segments.join(','));
+                        /** Hỗ trợ lọc số: loại bỏ dấu chấm/phẩy nếu là cột numeric. */
+                        const isNumericCol = ORDERS_NUMERIC_DB_KEYS.has(dbCol);
+                        const filterVal = isNumericCol ? t.replace(/[.,]/g, '') : t;
+
+                        /** Cột "Giá bán": lọc đồng thời sale_price OR goods_amount để tránh sót dữ liệu cũ. */
+                        if (uiKey === 'Giá bán') {
+                            const flex = buildVanDonFlexibleIlikePattern(filterVal);
+                            if (flex) {
+                                query = query.or(`sale_price::text.ilike.${orEncodeQuoteValue(flex)},goods_amount::text.ilike.${orEncodeQuoteValue(flex)}`);
+                            }
                         } else {
-                            const flex = buildVanDonFlexibleIlikePattern(t);
-                            if (flex) query = query.filter(`${dbCol}::text`, 'ilike', flex);
+                            /** Hỗ trợ lọc nhiều giá trị (OR) cho ô text nếu phân tách bằng dấu phẩy hoặc xuống dòng. */
+                            const tokens = filterVal.split(/[,\n]/).map(s => normalizeVanDonFilterWhitespace(s)).filter(Boolean);
+                            if (tokens.length > 1) {
+                                const segments = tokens.map(tk => {
+                                    const pat = buildVanDonFlexibleIlikePattern(tk);
+                                    return `${dbCol}::text.ilike."${String(pat).replace(/"/g, '\\"')}"`;
+                                });
+                                query = query.or(segments.join(','));
+                            } else {
+                                const flex = buildVanDonFlexibleIlikePattern(filterVal);
+                                if (flex) query = query.filter(`${dbCol}::text`, 'ilike', flex);
+                            }
                         }
+                    }
+                } else if (typeof val === 'number') {
+                    // Xử lý filter số trực tiếp (cho cột tiền tệ)
+                    if (uiKey === 'Giá bán') {
+                        // Lọc đồng thời sale_price OR goods_amount
+                        query = query.or(`sale_price.eq.${val},goods_amount.eq.${val}`);
+                    } else if (ORDERS_NUMERIC_DB_KEYS.has(dbCol)) {
+                        query = query.eq(dbCol, val);
                     }
                 }
             }
