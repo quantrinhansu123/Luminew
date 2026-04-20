@@ -32,7 +32,7 @@ CREATE TRIGGER trigger_update_exchange_rates_updated_at
 
 INSERT INTO public.exchange_rates (ti_gia, gia_tri)
 VALUES
-  ('USD', 25000),
+  ('USD', 24000),
   ('JPY', 180),
   ('CAD', 19000),
   ('AUD', 18000),

@@ -895,6 +895,23 @@ function DanhSachDon({ dataSource = 'default' }) {
       return;
     }
 
+    // Lấy tỷ giá mới nhất từ bảng exchange_rates
+    const { data: exchangeRatesData, error: ratesError } = await supabase
+      .from('exchange_rates')
+      .select('ti_gia, gia_tri');
+
+    if (ratesError) {
+      console.error('Error fetching exchange rates:', ratesError);
+      toast.error('Không thể lấy tỷ giá từ hệ thống');
+      return;
+    }
+
+    // Map tỷ giá theo loại tiền tệ
+    const exchangeRatesMap = {};
+    (exchangeRatesData || []).forEach((rate) => {
+      exchangeRatesMap[rate.ti_gia.toUpperCase()] = rate.gia_tri;
+    });
+
     const rowsToUpdate = rows
       .map((r) => {
         const orderCode = String(r?.['Mã đơn hàng'] ?? '').trim();
@@ -907,10 +924,40 @@ function DanhSachDon({ dataSource = 'default' }) {
         const isZeroLike = cur === null || cur === 0;
         if (!isZeroLike) return null;
 
-        const newTotal = totalAmountVndFromLenDonFormula(r._sale_price, r._exchange_rate);
+        const salePrice = parseFloat(r._sale_price) || 0;
+        if (salePrice <= 0) return null;
+
+        // Lấy loại tiền tệ từ payment_type hoặc payment_currency
+        const paymentType = String(r?.['Hình thức thanh toán'] || r?.payment_type || '').toUpperCase().trim();
+        const paymentCurrency = String(r?.payment_currency || '').toUpperCase().trim();
+        
+        // Xác định loại tiền tệ (USD, AUD, CAD, JPY/YEN, etc.)
+        let currency = null;
+        for (const curr of ['USD', 'AUD', 'CAD', 'JPY', 'YEN', 'GBP', 'KRW']) {
+          if (paymentType.includes(curr) || paymentCurrency.includes(curr)) {
+            currency = curr === 'YEN' ? 'JPY' : curr; // Normalize YEN to JPY
+            break;
+          }
+        }
+
+        // Nếu không phải ngoại tệ, dùng tỷ giá cũ từ DB
+        let newExchangeRate = parseFloat(r._exchange_rate) || 1;
+        
+        // Nếu là ngoại tệ, lấy tỷ giá mới từ exchange_rates
+        if (currency && exchangeRatesMap[currency]) {
+          newExchangeRate = exchangeRatesMap[currency];
+        }
+
+        const newTotal = salePrice * newExchangeRate;
         if (!Number.isFinite(newTotal) || newTotal === 0) return null;
 
-        return { orderCode, newTotal };
+        return { 
+          orderCode, 
+          newTotal, 
+          newExchangeRate,
+          currency,
+          salePrice 
+        };
       })
       .filter(Boolean);
 
@@ -922,12 +969,26 @@ function DanhSachDon({ dataSource = 'default' }) {
       return;
     }
 
+    // Hiển thị thông tin chi tiết về tỷ giá sẽ dùng
+    const currencySummary = rowsToUpdate.reduce((acc, u) => {
+      if (u.currency) {
+        acc[u.currency] = (acc[u.currency] || 0) + 1;
+      }
+      return acc;
+    }, {});
+
+    const currencyInfo = Object.entries(currencySummary)
+      .map(([curr, count]) => `${curr}: ${count} đơn (tỷ giá ${exchangeRatesMap[curr]?.toLocaleString('vi-VN')})`)
+      .join('\n');
+
     if (
       !window.confirm(
-        'Tính lại "Tổng tiền VNĐ" theo công thức lên đơn: Giá bán (ngoại tệ) × Tỷ giá (sale_price × exchange_rate).\n\n' +
+        'Tính lại "Tổng tiền VNĐ" theo công thức lên đơn: Giá bán (ngoại tệ) × Tỷ giá MỚI NHẤT.\n\n' +
           'Chỉ cập nhật các đơn đang hiển thị có Tổng tiền VNĐ = 0 hoặc trống.\n' +
           'Đơn đã có tổng tiền khác 0 sẽ không bị thay đổi.\n\n' +
-          `Số đơn sẽ cập nhật: ${rowsToUpdate.length}`
+          `Số đơn sẽ cập nhật: ${rowsToUpdate.length}\n\n` +
+          (currencyInfo ? `Tỷ giá sẽ áp dụng:\n${currencyInfo}\n\n` : '') +
+          'Lưu ý: Cả exchange_rate và total_amount_vnd sẽ được cập nhật.'
       )
     ) {
       return;
@@ -943,7 +1004,12 @@ function DanhSachDon({ dataSource = 'default' }) {
           chunk.map(async (u) => {
             const { error } = await supabase
               .from(ordersTableName)
-              .update({ total_amount_vnd: u.newTotal })
+              .update({ 
+                total_amount_vnd: u.newTotal,
+                exchange_rate: u.newExchangeRate,
+                total_vnd: u.newTotal,
+                tong_tien_vnd: u.newTotal
+              })
               .eq('order_code', u.orderCode);
             if (!error) success++;
           })
@@ -960,7 +1026,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         })
       );
 
-      toast.success(`Đã tính lại Tổng tiền VNĐ: ${success}/${rowsToUpdate.length} đơn`, {
+      toast.success(`Đã tính lại Tổng tiền VNĐ với tỷ giá mới: ${success}/${rowsToUpdate.length} đơn`, {
         autoClose: 2500,
         hideProgressBar: true,
       });
