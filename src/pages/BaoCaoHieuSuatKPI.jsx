@@ -428,7 +428,18 @@ export default function BaoCaoHieuSuatKPI() {
               }
 
               const ngayLenDonRaw = order["Ngày lên đơn"];
-              const ngay = ngayLenDonRaw ? new Date(ngayLenDonRaw) : new Date();
+              let ngay = null;
+              if (ngayLenDonRaw) {
+                ngay = new Date(ngayLenDonRaw);
+                // Kiểm tra ngày hợp lệ
+                if (isNaN(ngay.getTime())) {
+                  ngay = null;
+                }
+              }
+              // Nếu không có ngày hoặc ngày không hợp lệ, bỏ qua record này trong filter
+              if (!ngay) {
+                ngay = new Date(); // Fallback để không bị lỗi, nhưng sẽ bị filter loại bỏ nếu có date filter
+              }
               const sanPham = order["Mặt hàng"] || "N/A";
               const thiTruong = order["Khu vực"] || "N/A";
               const ketQuaCheck = order["Kết quả Check"] || "";
@@ -608,15 +619,23 @@ export default function BaoCaoHieuSuatKPI() {
       filtered = filtered.filter((report) => {
         if (!report.ngay) return false;
         const reportDate = new Date(report.ngay);
+        
+        // Kiểm tra ngày hợp lệ
+        if (isNaN(reportDate.getTime())) return false;
+        
+        // Chuẩn hóa ngày về 00:00:00 để so sánh chính xác
+        reportDate.setHours(0, 0, 0, 0);
 
         if (filters.startDate) {
           const start = new Date(filters.startDate);
+          if (isNaN(start.getTime())) return true; // Bỏ qua filter nếu ngày không hợp lệ
           start.setHours(0, 0, 0, 0);
           if (reportDate < start) return false;
         }
 
         if (filters.endDate) {
           const end = new Date(filters.endDate);
+          if (isNaN(end.getTime())) return true; // Bỏ qua filter nếu ngày không hợp lệ
           end.setHours(23, 59, 59, 999);
           if (reportDate > end) return false;
         }
