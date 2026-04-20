@@ -14,8 +14,10 @@ const BILL_TIEN_COLUMNS = [
   { key: 'so_tien_doi_soat', label: 'Số tiền đối soát' },
   { key: 'ty_gia', label: 'Tỷ giá' },
   { key: 'tien_viet', label: 'Tiền Việt' },
+  { key: 'accountant_confirm', label: 'Kế toán xác nhận' },
   { key: 'dem_lan_thanh_toan', label: 'Đếm lần thanh toán', computed: true },
 ];
+
 
 // Cước: theo mẫu — bỏ Tiền cước / Đơn vị tiền / Tỷ giá / Thị trường (không nhập, không import Excel)
 // Đếm lần thanh toán: số dòng cùng mã đơn trên bảng (pending), giống quy tắc Bill; ô đỏ nếu > 1
@@ -265,6 +267,12 @@ function DoiSoatBillCuoc() {
 
   /** Chế độ đồng bộ Bill: 'tracking' (theo tracking, fallback mã đơn) hoặc 'order_code' (chỉ theo mã đơn). */
   const [billSyncMode, setBillSyncMode] = useState('tracking');
+
+  /** Chọn hàng loạt */
+  const [selectedRows, setSelectedRows] = useState(new Set()); // Set of row.id
+  const [bulkAccountantConfirm, setBulkAccountantConfirm] = useState('');
+  const [showBulkDropdown, setShowBulkDropdown] = useState(false);
+  const accountantOptions = ["", "Đã thu tiền", "Chưa thu tiền", "Treo", "Hủy", "Khác"];
 
 
   /** Đếm lần thanh toán: cùng Mã Tracking (tracking thật) hoặc cùng Mã đơn (dropoff / trống tracking). */
@@ -1141,43 +1149,62 @@ function DoiSoatBillCuoc() {
           row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
         const mdh =
           row.ma_don_hang != null && row.ma_don_hang !== '' ? String(row.ma_don_hang).trim() : '';
+        
+        // Lấy accountant_confirm từ bảng tạm nếu có, nếu không mặc định 'Đã thu tiền'
+        const accConfirmValue = row.accountant_confirm || 'Đã thu tiền';
 
         // Nếu chế độ là order_code HOẶC không có tracking HOẶC tracking là placeholder -> gom theo mã đơn
         if (billSyncMode === 'order_code' || !tk || isBillTrackingDropoffPlaceholder(tk)) {
           if (!mdh) continue;
-          vndByOrderFromDropoff.set(mdh, (vndByOrderFromDropoff.get(mdh) || 0) + num);
+          
+          if (!vndByOrderFromDropoff.has(mdh)) {
+            vndByOrderFromDropoff.set(mdh, { sum: 0, acc: accConfirmValue });
+          }
+          const item = vndByOrderFromDropoff.get(mdh);
+          item.sum += num;
         } else {
-          vndByTracking.set(tk, (vndByTracking.get(tk) || 0) + num);
+          if (!vndByTracking.has(tk)) {
+            vndByTracking.set(tk, { sum: 0, acc: accConfirmValue });
+          }
+          const item = vndByTracking.get(tk);
+          item.sum += num;
         }
       }
 
+      const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, Array.from(vndByTracking.keys()));
 
-      const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, vndByTracking.keys());
-
-      const totalVndMap = new Map();
+      const finalUpdateMap = new Map(); // Map<orderCode, { total_vnd, acc_confirm }>
       let trackingsKhongCoDon = 0;
-      for (const [tk, sumVnd] of vndByTracking) {
+
+      for (const [tk, info] of vndByTracking) {
         const ocs = trackingToOrders.get(tk);
         if (!ocs || ocs.length === 0) {
           trackingsKhongCoDon += 1;
           continue;
         }
-        const perOrder = sumVnd / ocs.length;
+        const perOrder = info.sum / ocs.length;
         for (const ocRaw of ocs) {
           const oc = syncOrderKeyForScope(ocRaw);
           if (!oc) continue;
-          totalVndMap.set(oc, (totalVndMap.get(oc) || 0) + perOrder);
+          if (!finalUpdateMap.has(oc)) {
+            finalUpdateMap.set(oc, { total_vnd: 0, acc_confirm: info.acc });
+          }
+          finalUpdateMap.get(oc).total_vnd += perOrder;
         }
       }
 
-      for (const [oc, sumVnd] of vndByOrderFromDropoff) {
+      for (const [oc, info] of vndByOrderFromDropoff) {
         const k = syncOrderKeyForScope(oc);
         if (!k) continue;
-        totalVndMap.set(k, (totalVndMap.get(k) || 0) + sumVnd);
+        if (!finalUpdateMap.has(k)) {
+          finalUpdateMap.set(k, { total_vnd: 0, acc_confirm: info.acc });
+        }
+        finalUpdateMap.get(k).total_vnd += info.sum;
       }
 
-      const allOrderCodes = [...totalVndMap.keys()];
+      const allOrderCodes = [...finalUpdateMap.keys()];
       const billRowCount = billData?.length ?? 0;
+
 
       if (allOrderCodes.length === 0) {
         const hint = billSyncMode === 'tracking' 
@@ -1207,9 +1234,14 @@ function DoiSoatBillCuoc() {
           console.warn(`Đồng bộ Bill: bỏ qua — không có order_code="${orderCode}" trong orders`);
           continue;
         }
-        const tv = totalVndMap.get(orderCode);
-        const updateData = { total_vnd: tv };
-        /** Không dùng .select() sau update — RLS thường chặn RETURNING nhưng vẫn ghi được total_vnd. */
+        const info = finalUpdateMap.get(orderCode);
+        const updateData = { 
+          total_vnd: info.total_vnd,
+          reconciled_vnd: info.total_vnd,
+          accountant_confirm: info.acc_confirm
+        };
+
+        /** Không dùng .select() sau update — RLS thường chặn RETURNING nhưng vẫn ghi được tiền. */
         const { error: updateError } = await supabase
           .from('orders')
           .update(updateData)
@@ -1408,7 +1440,47 @@ function DoiSoatBillCuoc() {
     }
   };
 
+  // --- Bulk Selection Handlers ---
+  const toggleSelectAll = (e) => {
+    if (e.target.checked) {
+      const allIds = paginatedData().map(r => r.id).filter(Boolean);
+      setSelectedRows(new Set(allIds));
+    } else {
+      setSelectedRows(new Set());
+    }
+  };
+
+  const toggleRowSelect = (id) => {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkUpdate = () => {
+    if (selectedRows.size === 0) return;
+    if (!bulkAccountantConfirm && !window.confirm('Xóa trạng thái xác nhận của các hàng đã chọn?')) return;
+    
+    setPendingChanges(prev => {
+      const next = new Map(prev);
+      selectedRows.forEach(id => {
+        if (!next.has(id)) next.set(id, new Map());
+        next.get(id).set('accountant_confirm', bulkAccountantConfirm);
+      });
+      return next;
+    });
+    
+    // Clear selection after update
+    setSelectedRows(new Set());
+    setBulkAccountantConfirm('');
+    setShowBulkDropdown(false);
+    alert(`Đã cập nhật trạng thái cho ${selectedRows.size} hàng.`);
+  };
+
   // Parse mã đơn hàng từ text input
+
   const parseOrderCodes = (text) => {
     return text
       .split(/\r\n?|\n/)
@@ -2559,7 +2631,7 @@ function DoiSoatBillCuoc() {
         {/* Summary */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex-1">
               <p className="text-sm text-gray-500">
                 {activeTab === 'bill' || activeTab === 'bill_view'
                   ? 'Dữ liệu từ bảng chi_tiet_bill_tien'
@@ -2568,23 +2640,91 @@ function DoiSoatBillCuoc() {
               <p className="text-lg font-semibold text-gray-800 mt-1">
                 Tổng số bản ghi: {getCurrentData().length}
               </p>
-              {(activeTab === 'bill' || activeTab === 'bill_view') && (
-                <p className="text-sm text-gray-600 mt-2 max-w-4xl">
-                  Bill: <strong>ưu tiên Mã Tracking</strong> để gán đơn và đồng bộ Tiền Việt; với{' '}
-                  <strong>Drop off / DROPP OFF / trống tracking</strong> thì gán đơn, đồng bộ và đếm lần thanh toán theo{' '}
-                  <strong>Mã đơn hàng</strong> trên dòng.
-                  Đơn vị tiền không hiện trên bảng — hệ thống gán theo đơn hàng khi khớp tracking/đơn. Đếm lần thanh toán: số lần cùng Mã Tracking trong bảng đang hiện; bấm số để xem các dòng. Nhập Excel: Ngày đối soát tự gán today.
-                </p>
-              )}
-              {(activeTab === 'cuoc' || activeTab === 'cuoc_view') && (
-                <p className="text-sm text-gray-600 mt-2 max-w-4xl">
-                  Cước: chỉ nhập Mã đơn hàng, Ngày đối soát cước, Tiền ship (Vnđ). Không dùng Excel cho Tiền cước / Đơn vị tiền /
-                  Tỷ giá / Thị trường. Đếm lần thanh toán: số lần cùng mã đơn trong bảng đang hiện (gồm chỉnh sửa chưa lưu); ô đỏ khi từ hai dòng trở lên cùng mã; bấm số để xem chi tiết và xóa dòng. Chi nhánh: lấy từ đơn hàng.
-                </p>
-              )}
             </div>
+
+            {/* Bulk actions - Only for Bill tabs */}
+            {(activeTab === 'bill' || activeTab === 'bill_view') && selectedRows.size > 0 && (
+              <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 px-4 py-2 rounded-xl animate-in fade-in slide-in-from-top-2">
+                <span className="text-sm font-semibold text-blue-700">Đã chọn: {selectedRows.size}</span>
+                <div className="h-6 w-px bg-blue-200 mx-1"></div>
+                
+                <div className="relative group">
+                   <div className="flex items-center bg-white border border-blue-300 rounded-lg shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
+                      <input
+                        type="text"
+                        placeholder="Tìm trạng thái..."
+                        value={bulkAccountantConfirm}
+                        onChange={(e) => {
+                          setBulkAccountantConfirm(e.target.value);
+                          setShowBulkDropdown(true);
+                        }}
+                        onFocus={() => setShowBulkDropdown(true)}
+                        className="px-3 py-1.5 text-xs outline-none w-48 font-medium"
+                      />
+                      <button 
+                        onClick={() => setShowBulkDropdown(!showBulkDropdown)}
+                        className="px-2 border-l border-blue-100 hover:bg-blue-50"
+                      >
+                        <RotateCw className={`w-3 h-3 transition-transform ${showBulkDropdown ? 'rotate-180' : ''}`} />
+                      </button>
+                   </div>
+
+                   {showBulkDropdown && (
+                    <>
+                      <div className="fixed inset-0 z-[60]" onClick={() => setShowBulkDropdown(false)}></div>
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-[70] max-h-48 overflow-y-auto">
+                        {accountantOptions
+                          .filter(opt => (opt || 'Trống').toLowerCase().includes(bulkAccountantConfirm.toLowerCase()))
+                          .map((opt, i) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                setBulkAccountantConfirm(opt);
+                                setShowBulkDropdown(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-none"
+                            >
+                              {opt || <span className="text-gray-400 italic">(Trống)</span>}
+                            </button>
+                          ))
+                        }
+                      </div>
+                    </>
+                   )}
+                </div>
+
+                <button
+                  onClick={handleBulkUpdate}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-md transition-all active:scale-95"
+                >
+                  Cập nhật hàng loạt
+                </button>
+                <button
+                  onClick={() => setSelectedRows(new Set())}
+                  className="text-gray-500 hover:text-red-500 p-1 transition-colors"
+                  title="Bỏ chọn tất cả"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
+          
+          {(activeTab === 'bill' || activeTab === 'bill_view') && (
+            <p className="text-sm text-gray-600 mt-2 max-w-4xl">
+              Bill: <strong>ưu tiên Mã Tracking</strong> để gán đơn và đồng bộ Tiền Việt; với{' '}
+              <strong>Drop off / DROPP OFF / trống tracking</strong> thì gán đơn, đồng bộ và đếm lần thanh toán theo{' '}
+              <strong>Mã đơn hàng</strong> trên dòng.
+              Đếm lần thanh toán: số lần cùng Mã Tracking; bấm số để xem chi tiết.
+            </p>
+          )}
+          {(activeTab === 'cuoc' || activeTab === 'cuoc_view') && (
+            <p className="text-sm text-gray-600 mt-2 max-w-4xl">
+              Cước: chỉ nhập Mã đơn hàng, Ngày đối soát cước, Tiền ship (Vnđ). Chi nhánh: lấy từ đơn hàng.
+            </p>
+          )}
         </div>
+
 
         {/* Table */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
@@ -2592,6 +2732,16 @@ function DoiSoatBillCuoc() {
             <table className="w-full border-collapse">
               <thead className="bg-gray-100">
                 <tr>
+                  {(activeTab === 'bill' || activeTab === 'bill_view') && (
+                    <th className="px-4 py-3 border-b border-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={selectedRows.size > 0 && selectedRows.size === paginatedData().length}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                      />
+                    </th>
+                  )}
                   {getCurrentColumns().map((col) => (
                     <th
                       key={col.key}
@@ -2602,6 +2752,7 @@ function DoiSoatBillCuoc() {
                   ))}
                 </tr>
               </thead>
+
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading ? (
                   <tr>
@@ -2638,8 +2789,20 @@ function DoiSoatBillCuoc() {
                         key={rowId || rowIdx}
                         className={`hover:bg-gray-50 ${
                           hasPendingChanges ? 'bg-yellow-50' : isCuocDup ? 'bg-red-50' : ''
-                        }`}
+                        } ${selectedRows.has(rowId) ? 'bg-blue-50/50' : ''}`}
                       >
+                        {(activeTab === 'bill' || activeTab === 'bill_view') && (
+                          <td className="px-4 py-3 border-b border-gray-100 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedRows.has(rowId)}
+                              onChange={() => toggleRowSelect(rowId)}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                            />
+                          </td>
+                        )}
+
                         {columns.map((col, colIdx) => {
                           const isViewMode = activeTab === 'bill_view' || activeTab === 'cuoc_view';
                           const isReadOnly =
