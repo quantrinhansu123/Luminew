@@ -759,84 +759,53 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             const staffList = staffListWithBranch.map((s) => s.name);
             const staffSet = new Set(staffList);
 
-            // --- Rule 1: Trong ngày hiện tại — người có đơn mang thu_tu_chia cao nhất (cuối vòng) ---
-            // QUAN TRỌNG: Chỉ đếm đơn trong NGÀY HIỆN TẠI để cân bằng, không đếm tổng đơn từ trước đến nay
-            const todayStrForRound = new Date().toISOString().slice(0, 10);
-            
-            console.log(`\n🔍 [${branchName}] ========== BẮT ĐẦU PHÂN TÍCH CHIA ĐƠN ==========`);
-            console.log(`📅 Ngày hiện tại: ${todayStrForRound}`);
+            // --- Rule: Tìm người nhận đơn cuối cùng trong lịch sử để tiếp tục vòng (Carry-over) ---
+            console.log(`\n🔍 [${branchName}] ========== BẮT ĐẦU PHÂN TÍCH CHIA ĐƠN (CARRY-OVER) ==========`);
             console.log(`👥 Danh sách nhân viên U1: [${staffList.join(', ')}]`);
 
-            // Lọc các đơn đã được chia trong NGÀY HIỆN TẠI cho nhóm nhân viên này
-            const todayAssignedByStt = allDBOrders
+            // Tìm đơn hàng được chia gần đây nhất trên TOÀN BỘ hệ thống để xác định người cuối vòng
+            const globalLastAssigned = allDBOrders
                 .filter((o) => {
                     const ds = o.delivery_staff?.toString().trim();
-                    const ngayChia = o.ngay_chia_van_don?.toString().slice(0, 10);
-                    const thuTu = o.thu_tu_chia;
-                    return (
-                        ds &&
-                        staffSet.has(ds) &&
-                        ngayChia === todayStrForRound &&
-                        thuTu !== null &&
-                        thuTu !== undefined &&
-                        Number(thuTu) > 0
-                    );
+                    return ds && staffSet.has(ds);
                 })
                 .sort((a, b) => {
-                    const aVal = Number(a.thu_tu_chia) || 0;
-                    const bVal = Number(b.thu_tu_chia) || 0;
-                    if (bVal !== aVal) return bVal - aVal;
-                    if (a.id != null && b.id != null) return b.id - a.id;
-                    return String(b.order_code || '').localeCompare(String(a.order_code || ''));
+                    // Sắp xếp theo ngày chia (giảm dần)
+                    const dateA = a.ngay_chia_van_don ? new Date(a.ngay_chia_van_don) : new Date(0);
+                    const dateB = b.ngay_chia_van_don ? new Date(b.ngay_chia_van_don) : new Date(0);
+                    if (dateB.getTime() !== dateA.getTime()) return dateB.getTime() - dateA.getTime();
+                    
+                    // Nếu cùng ngày, xếp theo thứ tự chia (giảm dần)
+                    const sttA = Number(a.thu_tu_chia) || 0;
+                    const sttB = Number(b.thu_tu_chia) || 0;
+                    if (sttB !== sttA) return sttB - sttA;
+                    
+                    // Fallback cuối cùng theo ID
+                    return (Number(b.id) || 0) - (Number(a.id) || 0);
                 });
 
-            // Đếm số đơn của từng nhân viên TRONG NGÀY HIỆN TẠI
+            let lastAssignedPerson = null;
+            if (globalLastAssigned.length > 0) {
+                lastAssignedPerson = globalLastAssigned[0].delivery_staff?.toString().trim() || null;
+                console.log(`🔍 [${branchName}] Người nhận đơn cuối cùng gần nhất: "${lastAssignedPerson}" (Ngày: ${globalLastAssigned[0].ngay_chia_van_don}, STT: ${globalLastAssigned[0].thu_tu_chia})`);
+            } else {
+                console.log(`🔍 [${branchName}] Chưa có lịch sử chia đơn trước đó. Sẽ bắt đầu từ người đầu tiên.`);
+            }
+
+            // Đếm số đơn đã chia trong ngày hôm nay (chỉ để hiển thị báo cáo cho người dùng)
+            const todayStrForReport = new Date().toISOString().slice(0, 10);
             const todayOrderCountByStaff = {};
             staffList.forEach(name => { todayOrderCountByStaff[name] = 0; });
             
-            todayAssignedByStt.forEach(order => {
-                const staffName = order.delivery_staff?.toString().trim();
-                if (staffName && todayOrderCountByStaff.hasOwnProperty(staffName)) {
-                    todayOrderCountByStaff[staffName]++;
+            allDBOrders.forEach(o => {
+                const ds = o.delivery_staff?.toString().trim();
+                const ngay = o.ngay_chia_van_don?.toString().slice(0, 10);
+                if (ds && staffSet.has(ds) && ngay === todayStrForReport) {
+                    todayOrderCountByStaff[ds]++;
                 }
             });
-            
-            console.log(`📊 [${branchName}] Số đơn đã chia TRONG NGÀY ${todayStrForRound}:`, todayOrderCountByStaff);
-            console.log(`📋 [${branchName}] Tổng đơn đã chia trong ngày: ${todayAssignedByStt.length}`);
+            console.log(`📊 [${branchName}] Thống kê đơn đã nhận trong ngày hôm nay:`, todayOrderCountByStaff);
 
-            let lastAssignedPerson = null;
-            if (todayAssignedByStt.length > 0) {
-                lastAssignedPerson = todayAssignedByStt[0].delivery_staff?.toString().trim() || null;
-                const maxStt = todayAssignedByStt[0].thu_tu_chia;
-                console.log(
-                    `🔍 [${branchName}] Rule 1 — Trong ngày ${todayStrForRound}, STT chia cao nhất=${maxStt} → NV cuối vòng: "${lastAssignedPerson}"`
-                );
-                console.log(`   → Bắt đầu chia từ người tiếp theo sau "${lastAssignedPerson}"`);
-            } else {
-                // Nếu chưa có đơn nào được chia trong ngày (ví dụ: phiên chia đầu tiên lúc 1:00 sáng)
-                // thì TẤT CẢ nhân viên đều bắt đầu từ 0 đơn
-                console.log(
-                    `🔍 [${branchName}] Rule 1 — Chưa có đơn nào được chia trong ngày ${todayStrForRound}`
-                );
-                console.log(`   → Đây là phiên chia đầu tiên trong ngày`);
-                console.log(`   → TẤT CẢ nhân viên đều bắt đầu từ 0 đơn (cân bằng hoàn toàn)`);
-                
-                // Fallback: Tìm người được chia gần nhất (từ các ngày trước) để tiếp tục vòng
-                const assignedOrders = allDBOrders
-                    .filter((o) => o.delivery_staff && staffSet.has(String(o.delivery_staff).trim()))
-                    .sort((a, b) => {
-                        if (a.id != null && b.id != null) return b.id - a.id;
-                        const dateA = a.order_date ? new Date(a.order_date) : new Date(0);
-                        const dateB = b.order_date ? new Date(b.order_date) : new Date(0);
-                        return dateB - dateA;
-                    });
-                lastAssignedPerson =
-                    assignedOrders.length > 0 ? String(assignedOrders[0].delivery_staff).trim() : null;
-                console.log(
-                    `   → Fallback: Tìm NV được chia gần nhất (từ các ngày trước): "${lastAssignedPerson || '(không có)'}"`
-                );
-                console.log(`   → Sẽ bắt đầu chia từ người tiếp theo sau "${lastAssignedPerson || 'người đầu tiên'}"`);
-            }
 
             const lastAssignedIndex = lastAssignedPerson ? staffList.indexOf(lastAssignedPerson) : -1;
             const startIndex = lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0;
