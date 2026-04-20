@@ -18,6 +18,8 @@ import {
 } from '../utils/vanDonDeliveryStatusDisplay';
 import { isVanDonSemanticEmpty } from '../utils/vanDonSemanticEmpty';
 import { matchesVanDonHeaderSearch, normalizeVanDonFilterWhitespace } from '../utils/vanDonFilterNormalize';
+import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
+
 
 import {
   BILL_LADING_COLUMNS, COLUMN_MAPPING,
@@ -3681,49 +3683,68 @@ function VanDon({ dataSource = 'default' }) {
       // Lấy danh sách các đơn hàng bị ảnh hưởng
       const affectedOrderIds = [...new Set(batchChanges.map(c => normalizeVanDonOrderIdKey(c.orderId)).filter(Boolean))];
 
-      // Lấy thông tin ngày, nhân viên, sản phẩm, thị trường từ các đơn bị ảnh hưởng
+      // Lấy thông tin từ các đơn bị ảnh hưởng để xác định các key báo cáo cần cập nhật
       const affectedOrders = allData.filter(row =>
         affectedOrderIds.includes(getVanDonRowOrderId(row))
       );
 
       if (affectedOrders.length === 0) return;
 
-      // Gom nhóm theo ngày + nhân viên để trigger recalc báo cáo
-      const recalcGroups = new Map();
+      // Gom nhóm unique (Ngày, Tên MKT, Sản phẩm, Thị trường) để trigger recalc
+      const exactKeys = [];
+      const seenKeys = new Set();
+
       affectedOrders.forEach(order => {
-        const ngay = order['Ngày lên đơn'] || order.order_date || '';
-        const nhanVien = order['NV Vận đơn'] || order.delivery_staff || '';
-        const sanPham = order['Mặt hàng'] || order.product || '';
-        const thiTruong = order['Khu vực'] || order.country || '';
+        const date = order['Ngày lên đơn'] || order.order_date || '';
+        const name = order['Nhân viên MKT'] || order.marketing_staff || '';
+        const product = order['Mặt hàng'] || order.product || '';
+        const market = order['Khu vực'] || order.country || '';
 
-        if (!ngay || !nhanVien) return;
+        if (!date || !name) return;
 
-        const key = `${ngay}|${nhanVien}|${sanPham}|${thiTruong}`;
-        if (!recalcGroups.has(key)) {
-          recalcGroups.set(key, { ngay, nhanVien, sanPham, thiTruong, count: 0 });
+        const key = `${date}|${name}|${product}|${market}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          exactKeys.push({ date, name, product, market });
         }
-        recalcGroups.get(key).count++;
       });
 
-      console.log(`📊 Cần cập nhật ${recalcGroups.size} nhóm báo cáo (ngày + nhân viên + sản phẩm + thị trường)`);
+      if (exactKeys.length === 0) return;
 
-      // Gọi API hoặc trigger để cập nhật báo cáo
-      // Ở đây bạn có thể:
-      // 1. Gọi stored procedure trong database
-      // 2. Gọi API endpoint để recalc
-      // 3. Hoặc invalidate cache của báo cáo để force reload
+      console.log(`📊 Tự động cập nhật ${exactKeys.length} nhóm báo cáo MKT...`);
 
-      // Ví dụ: Invalidate cache báo cáo
+      // Xác định bảng đích dựa trên dataSource
+      const reportsTableName = dataSource === 'hcm' ? 'marketing_report_hcm' : 'detail_reports';
+      const ordersSupabaseTable = dataSource === 'hcm' ? 'order_code_hcm' : 'orders';
+
+      // Gọi service tính toán thực tế
+      const result = await recalcMktSoDonThucTeFromOrders({
+        startDate: exactKeys[0].date, // Lấy ngày đầu tiên làm base, exactKeys sẽ lo phần còn lại
+        endDate: exactKeys[exactKeys.length - 1].date,
+        createMissingRows: true, // Tạo dòng nếu chưa có (theo yêu cầu nghiệp vụ)
+        exactKeys: exactKeys,
+        reportsTableName,
+        ordersSupabaseTable
+      });
+
+      console.log('✅ Kết quả cập nhật báo cáo:', result);
+
+      // Invalidate cache báo cáo để UI cập nhật
       queryClient.invalidateQueries({ queryKey: ['baoCaoVanDon'] });
       queryClient.invalidateQueries({ queryKey: ['baoCaoTayMKT'] });
+      queryClient.invalidateQueries({ queryKey: ['marketing_report_hcm'] });
+      queryClient.invalidateQueries({ queryKey: ['detail_reports'] });
 
-      addToast(`✅ Đã kích hoạt cập nhật báo cáo cho ${affectedOrderIds.length} đơn hàng`, 'success', 3000);
+      const nUpd = result.updatedExisting ?? 0;
+      const nNew = result.createdMissing ?? 0;
+      addToast(`✅ Tự động cập nhật báo cáo MKT: ${nUpd} dòng updated, ${nNew} dòng mới.`, 'success', 4000);
 
     } catch (error) {
       console.error('❌ Lỗi khi kích hoạt công thức báo cáo:', error);
-      addToast('⚠️ Không thể cập nhật báo cáo tự động', 'warning', 3000);
+      addToast('⚠️ Không thể cập nhật báo cáo tự động: ' + (error.message || String(error)), 'warning', 5000);
     }
-  }, [allData, queryClient, addToast]);
+  }, [allData, queryClient, addToast, dataSource]);
+
 
   // --- Change Management (Shared) ---
   const processDbQueue = useCallback(async () => {
