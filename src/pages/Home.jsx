@@ -704,8 +704,7 @@ function Home() {
           id: "finance-f3",
           label: "Dữ liệu F3",
           icon: <Menu className="w-4 h-4" />,
-          path: "https://lumi-finance-manager.vercel.app/#/f3-datasheet",
-          isExternal: true,
+          path: "/du-lieu-f3",
           permission: 'FINANCE_DASHBOARD',
         },
         {
@@ -1507,9 +1506,8 @@ function Home() {
           title: "Dữ liệu F3",
           icon: <Menu className="w-8 h-8" />,
           color: "bg-indigo-600",
-          path: "https://lumi-finance-manager.vercel.app/#/f3-datasheet",
+          path: "/du-lieu-f3",
           status: "Mở ứng dụng",
-          isExternal: true,
           permission: 'FINANCE_ACCESS',
         },
         {

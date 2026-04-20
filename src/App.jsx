@@ -36,6 +36,7 @@ import DanhSachPageRnD from './pages/DanhSachPageRnD';
 import DonChiaCSKH from './pages/DonChiaCSKH';
 import ExternalView from './pages/ExternalView';
 import F3Report from './pages/F3Report';
+import F3DataSheet from './pages/F3DataSheet';
 import FFM from './pages/FFM';
 import FFMMgtHcm from './pages/FFMMgtHcm';
 import DienBill from './pages/DienBill';
@@ -159,6 +160,7 @@ function AppShell() {
               }
             />
             <Route path="/bao-cao-f3" element={<ProtectedRoute><F3Report /></ProtectedRoute>} />
+            <Route path="/du-lieu-f3" element={<ProtectedRoute><F3DataSheet /></ProtectedRoute>} />
             <Route path="/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
             <Route path="/embed/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
             <Route path="/nhan-su" element={<ProtectedRoute><NhanSu /></ProtectedRoute>} />
