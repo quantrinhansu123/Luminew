@@ -1027,6 +1027,13 @@ const VAN_DON_ILIKE_EXACT_DB_COLS = new Set([
     'payment_bill',
     'note_caps',
     'vandon_note',
+    'sale_staff',
+    'marketing_staff',
+    'delivery_staff',
+    'country',
+    'product',
+    'page_name',
+    'shipping_unit',
 ]);
 
 /** Escape giá trị trong PostgREST `in.(...)` hoặc `ilike."..."` khi ghép vào `.or(...)`. */
@@ -1037,7 +1044,9 @@ const quotePostgrestOrIlikePattern = (pat) => orEncodeQuoteValue(pat);
 
 /** Ghép điều kiện `col.ilike.val` cho `.or()` (PostgREST). */
 function buildVanDonOrIlikeExact(field, values) {
-    if (field === 'tracking_code') {
+    const isFlexField = ['sale_staff', 'marketing_staff', 'delivery_staff', 'country', 'product', 'page_name', 'shipping_unit'].includes(field);
+
+    if (field === 'tracking_code' || isFlexField) {
         return values
             .map((v) => {
                 const norm = normalizeVanDonFilterWhitespace(String(v));

@@ -71,11 +71,8 @@ const MultiSelect = ({
 
     const handleOptionChange = (value) => {
         if (value === ALL_OPTION) {
-            if (selected.length === options.length) {
-                onChange([]);
-            } else {
-                onChange([...options]);
-            }
+            // "Tất cả" results in empty array (No filter)
+            onChange([]);
         } else {
             if (selected.includes(value)) {
                 onChange(selected.filter(item => item !== value));
@@ -85,11 +82,11 @@ const MultiSelect = ({
         }
     };
 
-    const isAllSelected = selected.length === options.length && options.length > 0;
+    const isAllSelected = selected.length === 0 || (selected.length === options.length && options.length > 0);
 
     let displayText = placeholder;
-    if (selected.length === options.length && options.length > 0) {
-        displayText = mainFilter ? placeholder : 'Tất cả'; // For table filters, show "Filter [Col]" usually
+    if (selected.length === 0 || (selected.length === options.length && options.length > 0)) {
+        displayText = mainFilter ? placeholder : 'Tất cả';
     } else if (selected.length > 0) {
         if (selected.length === 1) displayText = selected[0];
         else displayText = `${selected.length} đã chọn`;

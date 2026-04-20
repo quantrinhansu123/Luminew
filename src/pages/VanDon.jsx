@@ -1844,9 +1844,29 @@ function VanDon({ dataSource = 'default' }) {
                 }
                 case 'nv_sale': {
                   const o = getPendingOriginal(orderId, 'Nhân viên Sale', 'sale_staff');
-                  const v = o !== undefined ? strNorm(o) : strNorm(row.sale_staff || row['Nhân viên Sale'] || '');
+                  const rawValue = o !== undefined ? o : (row.sale_staff || row['Nhân viên Sale'] || '');
+                  const v = strNorm(rawValue);
+                  
+                  // Nếu filter chứa "Trống" và giá trị rỗng -> match
                   if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
-                  return !isVanDonSemanticEmpty(v) && filter.values.has(v);
+                  
+                  // Nếu giá trị rỗng nhưng filter không chứa "Trống" -> không match
+                  if (isVanDonSemanticEmpty(v)) return false;
+                  
+                  // Kiểm tra exact match hoặc partial match (case-insensitive)
+                  if (filter.values.has(v)) return true;
+                  
+                  // Kiểm tra partial match với các giá trị trong filter
+                  const vLower = v.toLowerCase();
+                  for (const filterVal of filter.values) {
+                    if (filterVal === 'Trống' || filterVal === '__EMPTY__') continue;
+                    const filterLower = String(filterVal).toLowerCase();
+                    if (vLower.includes(filterLower) || filterLower.includes(vLower)) {
+                      return true;
+                    }
+                  }
+                  
+                  return false;
                 }
                 case 'nv_mkt': {
                   const o = getPendingOriginal(orderId, 'Nhân viên MKT', 'marketing_staff');
