@@ -263,6 +263,10 @@ function DoiSoatBillCuoc() {
   /** Tiến độ import */
   const [importProgress, setImportProgress] = useState(null); // { current: 0, total: 0, status: 'processing' | 'success' | 'error' }
 
+  /** Chế độ đồng bộ Bill: 'tracking' (theo tracking, fallback mã đơn) hoặc 'order_code' (chỉ theo mã đơn). */
+  const [billSyncMode, setBillSyncMode] = useState('tracking');
+
+
   /** Đếm lần thanh toán: cùng Mã Tracking (tracking thật) hoặc cùng Mã đơn (dropoff / trống tracking). */
   const billDataWithTableDemLan = useMemo(() => {
     const rows = billData || [];
@@ -1106,13 +1110,15 @@ function DoiSoatBillCuoc() {
 
   /** Chỉ ghi total_vnd từ chi_tiet_bill_tien → orders */
   const handleSyncBill = async () => {
+    const modeLabel = billSyncMode === 'tracking' ? 'Theo Mã Tracking (gom tiền theo tracking; Dropoff/trống dùng Mã đơn)' : 'Theo Mã đơn hàng (gom tiền theo Mã đơn trên dòng bill)';
     if (
       !window.confirm(
-        'Đồng bộ Bill: ghi tổng Tiền Việt lên orders. Theo Mã Tracking: gom tiền theo tracking; mọi đơn cùng tracking_code được cập nhật (nhiều đơn trùng tracking thì chia đều). Dòng Drop off / DROPP OFF / trống tracking: gom theo Mã đơn hàng trên dòng bill (một đơn một tổng). Tiếp tục?'
+        `Đồng bộ Bill: ${modeLabel}. Hệ thống sẽ ghi tổng Tiền Việt lên bảng orders. Tiếp tục?`
       )
     ) {
       return;
     }
+
 
     setSyncing(true);
     try {
@@ -1136,13 +1142,15 @@ function DoiSoatBillCuoc() {
         const mdh =
           row.ma_don_hang != null && row.ma_don_hang !== '' ? String(row.ma_don_hang).trim() : '';
 
-        if (!tk || isBillTrackingDropoffPlaceholder(tk)) {
+        // Nếu chế độ là order_code HOẶC không có tracking HOẶC tracking là placeholder -> gom theo mã đơn
+        if (billSyncMode === 'order_code' || !tk || isBillTrackingDropoffPlaceholder(tk)) {
           if (!mdh) continue;
           vndByOrderFromDropoff.set(mdh, (vndByOrderFromDropoff.get(mdh) || 0) + num);
-          continue;
+        } else {
+          vndByTracking.set(tk, (vndByTracking.get(tk) || 0) + num);
         }
-        vndByTracking.set(tk, (vndByTracking.get(tk) || 0) + num);
       }
+
 
       const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, vndByTracking.keys());
 
@@ -1172,15 +1180,19 @@ function DoiSoatBillCuoc() {
       const billRowCount = billData?.length ?? 0;
 
       if (allOrderCodes.length === 0) {
+        const hint = billSyncMode === 'tracking' 
+          ? 'cần Tiền Việt và (Mã Tracking khớp đơn, hoặc Dropoff/trống tracking kèm Mã đơn hàng)'
+          : 'cần Tiền Việt và Mã đơn hàng đúng định dạng';
         alert(
-          `Không có đơn nào đủ điều kiện đồng bộ: cần Tiền Việt và (Mã Tracking khớp đơn, hoặc Dropoff/trống tracking kèm Mã đơn hàng).\n` +
+          `Không có đơn nào đủ điều kiện đồng bộ: ${hint}.\n` +
             `• Dòng bill: ${billRowCount}\n` +
             `• Mã tracking (gom theo tracking): ${vndByTracking.size}\n` +
-            `• Mã đơn (gom Dropoff/trống tracking): ${vndByOrderFromDropoff.size}\n` +
+            `• Mã đơn (gom theo Mã đơn): ${vndByOrderFromDropoff.size}\n` +
             `• Tracking không tìm thấy đơn: ${trackingsKhongCoDon}`
         );
         return;
       }
+
 
       const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, allOrderCodes);
       const missingInOrders = allOrderCodes.filter((c) => !existingOrderCodes.has(c));
@@ -1234,8 +1246,9 @@ function DoiSoatBillCuoc() {
             (missingInOrders.length
               ? `• Không có trong orders (${Math.min(missingInOrders.length, 8)}/${missingInOrders.length} ví dụ): ${sample}${missingInOrders.length > 8 ? '…' : ''}\n`
               : '') +
-            `Gợi ý: Tracking thật phải khớp tracking_code trên đơn; Dropoff/trống tracking cần Mã đơn hàng đúng orders.`
+            (billSyncMode === 'tracking' ? 'Gợi ý: Tracking thật phải khớp tracking_code trên đơn; Dropoff/trống tracking cần Mã đơn hàng đúng orders.' : 'Gợi ý: Cần Mã đơn hàng (order_code) chính xác tồn tại trong hệ thống.')
         );
+
       } else {
         alert(
           `Đã đồng bộ Bill: ${updateCount} đơn.\n` +
@@ -2365,53 +2378,73 @@ function DoiSoatBillCuoc() {
               )}
             </button>
             <div className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-2 py-1">
-              <span className="text-[11px] font-medium text-blue-900 px-1 shrink-0">Bill</span>
-              <button
-                type="button"
-                onClick={handleSyncBill}
-                disabled={syncing}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium transition disabled:opacity-50"
-              >
-                {syncing ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RotateCw className="w-3.5 h-3.5" />
-                )}
-                Đồng bộ
-              </button>
-              <button
-                type="button"
-                onClick={handleClearAllBillTemp}
-                disabled={loading || syncing}
-                className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium transition disabled:opacity-50"
-              >
-                Xóa tạm
-              </button>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] font-bold text-blue-900 px-1 uppercase tracking-wider">Đồng bộ Bill</span>
+                <select
+                  value={billSyncMode}
+                  onChange={(e) => setBillSyncMode(e.target.value)}
+                  className="bg-transparent border-none text-[10px] text-blue-700 outline-none cursor-pointer font-medium focus:ring-0 py-0"
+                >
+                  <option value="tracking">Theo Mã Tracking</option>
+                  <option value="order_code">Theo Mã đơn hàng</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleSyncBill}
+                  disabled={syncing}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                  title={billSyncMode === 'tracking' ? 'Đồng bộ dựa trên Mã Tracking (khớp tracking_code)' : 'Đồng bộ dựa trên Mã đơn hàng (khớp order_code)'}
+                >
+                  {syncing ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RotateCw className="w-3.5 h-3.5" />
+                  )}
+                  Đồng bộ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearAllBillTemp}
+                  disabled={loading || syncing}
+                  className="px-2.5 py-1.5 bg-white border border-red-200 text-red-600 hover:bg-red-50 rounded-md text-xs font-medium transition disabled:opacity-50"
+                >
+                  Xóa
+                </button>
+              </div>
             </div>
+
             <div className="flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50/80 px-2 py-1">
-              <span className="text-[11px] font-medium text-teal-900 px-1 shrink-0">Cước</span>
-              <button
-                type="button"
-                onClick={handleSyncCuoc}
-                disabled={syncing}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-md text-xs font-medium transition disabled:opacity-50"
-              >
-                {syncing ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RotateCw className="w-3.5 h-3.5" />
-                )}
-                Đồng bộ
-              </button>
-              <button
-                type="button"
-                onClick={handleClearAllCuocTemp}
-                disabled={loading || syncing}
-                className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium transition disabled:opacity-50"
-              >
-                Xóa tạm
-              </button>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] font-bold text-teal-900 px-1 uppercase tracking-wider">Đồng bộ Cước</span>
+                <span className="text-[10px] text-teal-700 px-1 font-medium">Theo Mã đơn hàng</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleSyncCuoc}
+                  disabled={syncing}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-md text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                >
+                  {syncing ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RotateCw className="w-3.5 h-3.5" />
+                  )}
+                  Đồng bộ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearAllCuocTemp}
+                  disabled={loading || syncing}
+                  className="px-2.5 py-1.5 bg-white border border-red-100 text-red-600 hover:bg-red-50 rounded-md text-xs font-medium transition disabled:opacity-50"
+                >
+                  Xóa
+                </button>
+              </div>
             </div>
+
             {false && ( // Ẩn nút thêm mã đơn hàng
               <>
                 <button
