@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
@@ -244,6 +244,11 @@ const AdminTools = () => {
     });
     const [chiaDonViewLoading, setChiaDonViewLoading] = useState(false);
     const [chiaDonViewOrders, setChiaDonViewOrders] = useState([]);
+    const [historyChiaDon, setHistoryChiaDon] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyStartDate, setHistoryStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().slice(0, 10)); // Mặc định 7 ngày trước
+    const [historyEndDate, setHistoryEndDate] = useState(new Date().toISOString().slice(0, 10));
+    const [staffStatsReport, setStaffStatsReport] = useState({});
 
     // --- CLEAR NV VẬN ĐƠN THEO ORDER_DATE ---
     const [clearOrderDate, setClearOrderDate] = useState('');
@@ -2399,6 +2404,38 @@ const AdminTools = () => {
         } catch (err) {
             console.error('❌ [Clear NV vận đơn theo order_date] Exception:', err);
             toast.error('Có lỗi xảy ra khi xóa NV vận đơn theo order_date đã chọn');
+        }
+    };
+
+    // --- LOAD LỊCH SỬ CHIA ĐƠN TỪ BẢNG history_chia_don ---
+    const handleLoadHistoryChiaDon = async () => {
+        setHistoryLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('history_chia_don')
+                .select('*')
+                .gte('created_at', `${historyStartDate}T00:00:00Z`)
+                .lte('created_at', `${historyEndDate}T23:59:59Z`)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            setHistoryChiaDon(data || []);
+            
+            // Tính toán thống kê nhân viên gộp từ tất cả các phiên
+            const totalStats = {};
+            data?.forEach(session => {
+                const stats = session.staff_stats || {};
+                Object.entries(stats).forEach(([name, count]) => {
+                    totalStats[name] = (totalStats[name] || 0) + count;
+                });
+            });
+            setStaffStatsReport(totalStats);
+        } catch (err) {
+            console.error('❌ [Lịch sử chia đơn] Lỗi:', err);
+            toast.error('Lỗi khi tải lịch sử chia đơn');
+        } finally {
+            setHistoryLoading(false);
         }
     };
 
@@ -4649,19 +4686,16 @@ const AdminTools = () => {
                                 </div>
 
                                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                                    <p className="text-xs text-gray-700 mb-2"><strong>Logic chia đơn vận đơn:</strong></p>
+                                    <p className="text-xs text-gray-700 mb-2"><strong>Logic chia đơn vận đơn (Đã cập nhật: Chia tiếp sức xuyên suốt):</strong></p>
                                     <ol className="list-decimal list-inside space-y-1 text-xs text-gray-600">
                                         <li>Lọc nhân viên có trạng thái "U1" từ danh sách vận đơn</li>
                                         <li>Phân loại theo chi nhánh (HCM và Hà Nội)</li>
                                         <li>
-                                            Chia theo vòng (round-robin): trong ngày chạy, tìm đơn có{' '}
-                                            <code className="text-[10px] bg-white px-0.5 rounded">thu_tu_chia</code> cao nhất (
-                                            <code className="text-[10px] bg-white px-0.5 rounded">ngay_chia_van_don</code> = hôm nay)
-                                            → NV đó là cuối vòng; đơn tiếp theo gán cho NV kế trong danh sách U1
+                                            <strong>Chia tiếp sức (Carry-over):</strong> Hệ thống tìm người nhận đơn cuối cùng trong lịch sử (không phân biệt ngày) để gán đơn mới cho người kế tiếp. Đảm bảo công bằng tuyệt đối.
                                         </li>
                                         <li>Lọc đơn: delivery_staff trống, loại trừ "Nhật Bản" và "CĐ Nhật Bản"</li>
                                         <li>Chỉ gán khi team đơn khớp chi nhánh của NV U1</li>
-                                        <li>STT chia lưu ở cột thu_tu_chia (thứ tự trong ngày khi ghi DB)</li>
+                                        <li>Tự động dò tìm Team dựa trên Sale Staff nếu đơn trống thông tin Team</li>
                                     </ol>
                                 </div>
                                 <div className="space-y-3">
@@ -4871,6 +4905,99 @@ const AdminTools = () => {
                                                 </p>
                                             )
                                         )}
+                                    </div>
+                                </div>
+
+                                {/* --- NÂNG CẤP: THỐNG KÊ LỊCH SỬ CHIA ĐƠN --- */}
+                                <div className="mt-6 p-4 rounded-lg border bg-blue-50 border-blue-200">
+                                    <h4 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                                        <BarChart3 className="w-5 h-5" />
+                                        Thống kê & Lịch sử phiên chia đơn
+                                    </h4>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                        <div>
+                                            <label className="block text-[10px] font-medium text-gray-600 mb-1">Từ ngày</label>
+                                            <input 
+                                                type="date" 
+                                                value={historyStartDate}
+                                                onChange={(e) => setHistoryStartDate(e.target.value)}
+                                                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-medium text-gray-600 mb-1">Đến ngày</label>
+                                            <input 
+                                                type="date" 
+                                                value={historyEndDate}
+                                                onChange={(e) => setHistoryEndDate(e.target.value)}
+                                                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                                            />
+                                        </div>
+                                        <div className="flex items-end">
+                                            <button 
+                                                onClick={handleLoadHistoryChiaDon}
+                                                disabled={historyLoading}
+                                                className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-1.5 text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                {historyLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                                                Tải thống kê
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {Object.keys(staffStatsReport).length > 0 && (
+                                        <div className="mb-4 bg-white rounded border p-3 shadow-sm">
+                                            <p className="text-xs font-bold text-gray-700 mb-2">Thống kê tổng hợp theo nhân viên:</p>
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                                                {Object.entries(staffStatsReport)
+                                                    .sort((a, b) => b[1] - a[1])
+                                                    .map(([name, count]) => (
+                                                    <div key={name} className="bg-gray-50 border rounded p-2 flex flex-col items-center">
+                                                        <span className="text-[10px] text-gray-500 text-center leading-tight mb-1">{name}</span>
+                                                        <span className="text-sm font-bold text-blue-700">{count} đơn</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="max-h-60 overflow-y-auto bg-white rounded border shadow-inner">
+                                        <table className="w-full text-left text-[11px]">
+                                            <thead className="bg-gray-100 sticky top-0 shadow-sm z-10">
+                                                <tr>
+                                                    <th className="p-2 border-b">Thời gian</th>
+                                                    <th className="p-2 border-b">Chi nhánh</th>
+                                                    <th className="p-2 border-b">SL</th>
+                                                    <th className="p-2 border-b">Người chạy</th>
+                                                    <th className="p-2 border-b">Kết quả</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {historyChiaDon.length > 0 ? historyChiaDon.map((h) => (
+                                                    <tr key={h.id} className="hover:bg-blue-50 transition-colors">
+                                                        <td className="p-2 border-b text-gray-500">
+                                                            {new Date(h.created_at).toLocaleString('vi-VN', { 
+                                                                day: '2-digit', month: '2-digit', year: '2-digit',
+                                                                hour: '2-digit', minute: '2-digit'
+                                                            })}
+                                                        </td>
+                                                        <td className="p-2 border-b font-medium">{h.branch}</td>
+                                                        <td className="p-2 border-b text-blue-600 font-bold">{h.total_orders}</td>
+                                                        <td className="p-2 border-b">{h.performed_by || 'Admin'}</td>
+                                                        <td className="p-2 border-b text-[10px] text-gray-600 truncate max-w-[150px]" title={h.logs}>
+                                                            {h.logs}
+                                                        </td>
+                                                    </tr>
+                                                )) : (
+                                                    <tr>
+                                                        <td colSpan="5" className="p-4 text-center text-gray-400 italic">
+                                                            Chưa có lịch sử hoặc bấm "Tải thống kê" để xem
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
                                     </div>
                                 </div>
 

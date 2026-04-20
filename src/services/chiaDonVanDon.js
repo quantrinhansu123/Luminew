@@ -1215,6 +1215,26 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             (errorCount > 0 ? `\n⚠️ LỖI: Có ${errorCount} đơn không thể cập nhật. Vui lòng kiểm tra Console để xem chi tiết.\n` : '');
 
         const isSuccess = updates.length > 0 && errorCount === 0;
+
+        // --- Bước bổ sung: Lưu lịch sử vào bảng history_chia_don ---
+        try {
+            const staffStats = {};
+            updates.forEach(u => {
+                staffStats[u.delivery_staff] = (staffStats[u.delivery_staff] || 0) + 1;
+            });
+            const performer = localStorage.getItem('user_name') || 'Admin';
+            await supabase.from('history_chia_don').insert([{
+                performed_by: performer,
+                branch: branchFilter || 'Tất cả',
+                total_orders: updates.length,
+                staff_stats: staffStats,
+                status: isSuccess ? 'success' : (errorCount > 0 ? 'warning' : 'success'),
+                logs: `Chia thành công ${successCount}/${updates.length} đơn. Bị bỏ qua (loại trừ/không team): ${allNotDividedOrders.length} đơn.`
+            }]);
+            console.log('✅ Đã lưu lịch sử chia đơn vào database');
+        } catch (hErr) {
+            console.error('❌ Lỗi khi thực hiện lưu lịch sử:', hErr);
+        }
         
         setAutoAssignResult({ success: isSuccess, message });
 
