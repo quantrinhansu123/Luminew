@@ -1116,64 +1116,55 @@ function DoiSoatBillCuoc() {
           return v.toString(16);
         });
 
-  /** Chỉ ghi total_vnd từ chi_tiet_bill_tien → orders */
+  /** Chỉ ghi reconciled_vnd từ chi_tiet_bill_tien → orders */
   const handleSyncBill = async () => {
     const modeLabel = billSyncMode === 'tracking' ? 'Theo Mã Tracking (gom tiền theo tracking; Dropoff/trống dùng Mã đơn)' : 'Theo Mã đơn hàng (gom tiền theo Mã đơn trên dòng bill)';
-    if (
-      !window.confirm(
-        `Đồng bộ Bill: ${modeLabel}. Hệ thống sẽ ghi tổng Tiền Việt lên bảng orders. Tiếp tục?`
-      )
-    ) {
-      return;
-    }
-
-
+    
     setSyncing(true);
     try {
+      // 1. Lấy dữ liệu từ bảng tạm
       const { data: billData, error: billError } = await supabase
         .from('chi_tiet_bill_tien')
-        .select('ma_don_hang, ma_tracking, tien_viet');
+        .select('ma_don_hang, ma_tracking, tien_viet, accountant_confirm');
 
       if (billError) throw billError;
 
-      /** Gom Tiền Việt theo tracking thật; dropoff/trống tracking → theo mã đơn trên dòng. */
+      if (!billData || billData.length === 0) {
+        alert('Không có dữ liệu trong bảng tạm để đồng bộ.');
+        setSyncing(false);
+        return;
+      }
+
+      // 2. Gom tiền theo logic tracking/mã đơn
       const vndByTracking = new Map();
       const vndByOrderFromDropoff = new Map();
-      for (const row of billData || []) {
+      for (const row of billData) {
         if (row.tien_viet === null || row.tien_viet === undefined || row.tien_viet === '') continue;
         const raw = String(row.tien_viet).replace(/,/g, '');
         const num = parseFloat(raw);
         if (isNaN(num)) continue;
 
-        const tk =
-          row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
-        const mdh =
-          row.ma_don_hang != null && row.ma_don_hang !== '' ? String(row.ma_don_hang).trim() : '';
-        
-        // Lấy accountant_confirm từ bảng tạm nếu có, nếu không mặc định 'Đã thu tiền'
+        const tk = row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
+        const mdh = row.ma_don_hang != null && row.ma_don_hang !== '' ? String(row.ma_don_hang).trim() : '';
         const accConfirmValue = row.accountant_confirm || 'Đã thu tiền';
 
-        // Nếu chế độ là order_code HOẶC không có tracking HOẶC tracking là placeholder -> gom theo mã đơn
         if (billSyncMode === 'order_code' || !tk || isBillTrackingDropoffPlaceholder(tk)) {
           if (!mdh) continue;
-          
           if (!vndByOrderFromDropoff.has(mdh)) {
             vndByOrderFromDropoff.set(mdh, { sum: 0, acc: accConfirmValue });
           }
-          const item = vndByOrderFromDropoff.get(mdh);
-          item.sum += num;
+          vndByOrderFromDropoff.get(mdh).sum += num;
         } else {
           if (!vndByTracking.has(tk)) {
             vndByTracking.set(tk, { sum: 0, acc: accConfirmValue });
           }
-          const item = vndByTracking.get(tk);
-          item.sum += num;
+          vndByTracking.get(tk).sum += num;
         }
       }
 
+      // 3. Map tracking sang order code
       const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, Array.from(vndByTracking.keys()));
-
-      const finalUpdateMap = new Map(); // Map<orderCode, { total_vnd, acc_confirm }>
+      const finalUpdateMap = new Map();
       let trackingsKhongCoDon = 0;
 
       for (const [tk, info] of vndByTracking) {
@@ -1203,45 +1194,47 @@ function DoiSoatBillCuoc() {
       }
 
       const allOrderCodes = [...finalUpdateMap.keys()];
-      const billRowCount = billData?.length ?? 0;
-
-
       if (allOrderCodes.length === 0) {
-        const hint = billSyncMode === 'tracking' 
-          ? 'cần Tiền Việt và (Mã Tracking khớp đơn, hoặc Dropoff/trống tracking kèm Mã đơn hàng)'
-          : 'cần Tiền Việt và Mã đơn hàng đúng định dạng';
-        alert(
-          `Không có đơn nào đủ điều kiện đồng bộ: ${hint}.\n` +
-            `• Dòng bill: ${billRowCount}\n` +
-            `• Mã tracking (gom theo tracking): ${vndByTracking.size}\n` +
-            `• Mã đơn (gom theo Mã đơn): ${vndByOrderFromDropoff.size}\n` +
-            `• Tracking không tìm thấy đơn: ${trackingsKhongCoDon}`
-        );
+        alert('Không tìm thấy mã đơn nào hợp lệ từ dữ liệu đối soát.');
+        setSyncing(false);
         return;
       }
 
-
+      // 4. Kiểm tra sự tồn tại trên hệ thống (orders)
       const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, allOrderCodes);
       const missingInOrders = allOrderCodes.filter((c) => !existingOrderCodes.has(c));
+      const foundCount = existingOrderCodes.size;
 
+      // 5. HIỂN THỊ THÔNG BÁO XÁC NHẬN (Kiểm tra trước khi lưu)
+      const confirmMsg = 
+        `Đồng bộ Bill: ${modeLabel}.\n\n` +
+        `Kế quả kiểm tra:\n` +
+        `• Tổng số đơn tính toán được: ${allOrderCodes.length}\n` +
+        `• Số đơn TÌM THẤY trên hệ thống: ${foundCount}\n` +
+        `• Số đơn KHÔNG TÌM THẤY: ${missingInOrders.length}\n` +
+        (trackingsKhongCoDon > 0 ? `• Mã tracking không có đơn: ${trackingsKhongCoDon}\n` : '') +
+        `\nHệ thống sẽ ghi tổng Tiền Việt lên cột đối soát (reconciled_vnd) trên bảng orders cho ${foundCount} đơn này. Tiếp tục?`;
+
+      if (!window.confirm(confirmMsg)) {
+        setSyncing(false);
+        return;
+      }
+
+      // 6. Tiến hành lưu dữ liệu
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
       const syncRows = [];
 
       for (const orderCode of allOrderCodes) {
-        if (!existingOrderCodes.has(orderCode)) {
-          console.warn(`Đồng bộ Bill: bỏ qua — không có order_code="${orderCode}" trong orders`);
-          continue;
-        }
+        if (!existingOrderCodes.has(orderCode)) continue;
+        
         const info = finalUpdateMap.get(orderCode);
         const updateData = { 
-          total_vnd: info.total_vnd,
           reconciled_vnd: info.total_vnd,
           accountant_confirm: info.acc_confirm
         };
 
-        /** Không dùng .select() sau update — RLS thường chặn RETURNING nhưng vẫn ghi được tiền. */
         const { error: updateError } = await supabase
           .from('orders')
           .update(updateData)
@@ -1256,44 +1249,18 @@ function DoiSoatBillCuoc() {
             synced_at: syncTime,
             order_code: orderCode,
             shipping_cost: null,
-            total_vnd: tv ?? null,
-            revenue_actual: tv ?? null,
+            total_vnd: null,
+            revenue_actual: info.total_vnd ?? null,
             order_count_actual: null,
           });
         }
       }
 
       if (syncRows.length > 0) {
-        const { error: syncLogError } = await supabase.from('bill_sync_results').insert(syncRows);
-        if (syncLogError) console.error('Error inserting bill_sync_results:', syncLogError);
+        await supabase.from('bill_sync_results').insert(syncRows);
       }
 
-      if (updateCount === 0) {
-        const sample = missingInOrders.slice(0, 8).join(', ');
-        alert(
-          `Không cập nhật được đơn nào từ Bill.\n` +
-            `• Dòng bill: ${billRowCount}\n` +
-            `• Số mã đơn khác nhau (sau khi gom tiền): ${allOrderCodes.length}\n` +
-            `• Có trong orders: ${existingOrderCodes.size}\n` +
-            (missingInOrders.length
-              ? `• Không có trong orders (${Math.min(missingInOrders.length, 8)}/${missingInOrders.length} ví dụ): ${sample}${missingInOrders.length > 8 ? '…' : ''}\n`
-              : '') +
-            (billSyncMode === 'tracking' ? 'Gợi ý: Tracking thật phải khớp tracking_code trên đơn; Dropoff/trống tracking cần Mã đơn hàng đúng orders.' : 'Gợi ý: Cần Mã đơn hàng (order_code) chính xác tồn tại trong hệ thống.')
-        );
-
-      } else {
-        alert(
-          `Đã đồng bộ Bill: ${updateCount} đơn.\n` +
-            `${billRowCount} dòng bill; ${vndByTracking.size} mã tracking gom tiền; ${vndByOrderFromDropoff.size} mã đơn (Dropoff/trống tracking).` +
-            (trackingsKhongCoDon > 0
-              ? `\nLưu ý: ${trackingsKhongCoDon} mã tracking trên bill chưa có đơn tương ứng — không ghi được.`
-              : '') +
-            (missingInOrders.length > 0
-              ? `\n${missingInOrders.length} mã tính được nhưng không đọc được trong orders (kiểm tra quyền/RLS).`
-              : '')
-        );
-      }
-
+      alert(`Đã đồng bộ thành công ${updateCount} đơn.`);
       setLastBillSyncTime(syncTime);
       setActiveTab('bill_view');
       await loadBillData(syncTime);
