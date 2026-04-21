@@ -21,6 +21,8 @@ import {
   normalizePhoneDigits,
 } from '../utils/customerDuplicateCanhBao';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
+import { F3SummaryTab } from '../components/tabs/F3SummaryTab';
+import { F3_STATIC_DATA } from '../data/f3_static_data';
 
 /**
  * PostgREST thường bị giới hạn ~1000 dòng / request.
@@ -352,10 +354,10 @@ function DanhSachDon({ dataSource = 'default' }) {
   const searchParams = new URLSearchParams(location.search);
   const teamFilter = searchParams.get('team'); // e.g. 'RD'
   
-  // State để chuyển đổi giữa 2 bảng
-  const [selectedDataSource, setSelectedDataSource] = useState(dataSource);
-  const isHcmView = selectedDataSource === 'hcm';
-  const ordersTableName = selectedDataSource === 'hcm' ? 'order_code_hcm' : 'orders';
+  // State để chuyển đổi giữa các tab
+  const [activeTab, setActiveTab] = useState(dataSource === 'hcm' ? 'hcm' : 'rd'); // rd, hcm, f3_summary
+  const isHcmView = activeTab === 'hcm';
+  const ordersTableName = activeTab === 'hcm' ? 'order_code_hcm' : 'orders';
   
   // Cache để tránh load lại khi chuyển đổi
   const [dataCache, setDataCache] = useState({
@@ -400,7 +402,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   const orderListAccessCodes =
     teamFilter === 'RD'
       ? ORDER_LIST_ACCESS_RD
-      : selectedDataSource === 'hcm'
+      : activeTab === 'hcm'
         ? ORDER_LIST_ACCESS_SALE_HCM
         : ORDER_LIST_ACCESS_SALE_DEFAULT;
 
@@ -729,6 +731,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
     "Trạng thái thu tiền": item.payment_status_detail,
     "Lý do": item.reason,
+    "Phí ship": item.shipping_cost || item.shipping_fee,
     "Page": item.page_name, // Map Page Name
     "Ca": (() => {
       const stored = normalizeCaShiftDisplay(item.shift ?? item.ca ?? '');
@@ -738,6 +741,10 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Payment Bill": item.payment_bill, // Trạng thái bill
     "Payment Image": item.payment_image, // Link hình ảnh bill
     "Cảnh báo trùng": item.canh_bao || '',
+    reconciled_vnd: item.reconciled_vnd,
+    shipping_cost: item.shipping_cost,
+    shipping_fee: item.shipping_fee,
+    total_amount_vnd: item.total_amount_vnd,
     _id: item.id,
     _log: item.log ?? null,
     // Note: _id and technical keys excluded from column picker via allAvailableColumns filter
@@ -1297,12 +1304,14 @@ function DanhSachDon({ dataSource = 'default' }) {
   
   // Reload khi chuyển đổi bảng (sử dụng cache nếu có)
   useEffect(() => {
+    if (activeTab === 'f3_summary') return; // Không load orders cho tab summary
+    
     if (dataCache[ordersTableName]) {
       setAllData(dataCache[ordersTableName]);
     } else {
       loadData();
     }
-  }, [selectedDataSource]);
+  }, [activeTab]);
 
   // Get unique values for filters - Bao gồm cả giá trị trống
   const uniqueMarkets = useMemo(() => {
@@ -3077,7 +3086,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'TheoBoLoc');
     const stamp = new Date().toISOString().slice(0, 10);
-    const suffix = selectedDataSource === 'hcm' ? '_HCM' : '';
+    const suffix = activeTab === 'hcm' ? '_HCM' : '';
     XLSX.writeFile(wb, `DanhSachDon_theo_luoi_hien_thi${suffix}_${stamp}.xlsx`);
     toast.success(
       `Đã tải Excel: ${exportRows.length} dòng, ${cols.length} cột (theo bộ lọc và cột đang hiển thị).`,
@@ -3175,6 +3184,66 @@ function DanhSachDon({ dataSource = 'default' }) {
     );
   }
 
+  // --- F3 SUMMARY CALCULATION (DYNAMIC) ---
+  const f3SummaryData = useMemo(() => {
+    if (activeTab !== 'f3_summary') return null;
+
+    const stats = {
+      mkt: {},
+      sales: {},
+      delivery: {}
+    };
+
+    allData.forEach(row => {
+      const mktStaff = rowDisplayMktStaff(row);
+      const saleStaff = rowDisplaySaleStaff(row);
+      const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || row.delivery_staff || "").trim();
+
+      const tienVe = parseFloat(String(row["Tiền Việt đã đối soát"] || row["Tiền đã thanh toán"] || row.reconciled_vnd || 0).replace(/[^\d.-]/g, '')) || 0;
+      const ship = parseFloat(String(row["Phí ship"] || row.shipping_cost || 0).replace(/[^\d.-]/g, '')) || 0;
+      
+      const hasTracking = String(row["Mã Tracking"] || row.tracking_code || "").trim() !== "";
+      const dsDi = hasTracking ? (parseFloat(String(row["Tổng tiền VNĐ"] || row.total_amount_vnd || 0).replace(/[^\d.-]/g, '')) || 0) : 0;
+
+      const updateStats = (dept, name) => {
+        if (!name) return;
+        if (!stats[dept][name]) {
+          stats[dept][name] = { name, tienVe: 0, ship: 0, dsDi: 0 };
+        }
+        stats[dept][name].tienVe += tienVe;
+        stats[dept][name].ship += ship;
+        stats[dept][name].dsDi += dsDi;
+      };
+
+      updateStats('mkt', mktStaff);
+      updateStats('sales', saleStaff);
+      updateStats('delivery', deliveryStaff);
+    });
+
+    const formatList = (deptStats) => {
+      return Object.values(deptStats)
+        .sort((a, b) => b.tienVe - a.tienVe)
+        .map(s => ({
+          ...s,
+          dsSauShip: s.dsDi - s.ship,
+          tile: s.dsDi > 0 ? ((s.tienVe / s.dsDi) * 100).toFixed(2) + '%' : '0%'
+        }));
+    };
+
+    const result = {
+      mkt: formatList(stats.mkt),
+      sales: formatList(stats.sales),
+      delivery: formatList(stats.delivery),
+      totals: {
+        mkt: Object.values(stats.mkt).reduce((acc, curr) => { acc.tienVe += curr.tienVe; acc.ship += curr.ship; acc.dsDi += curr.dsDi; return acc; }, { tienVe: 0, ship: 0, dsDi: 0 }),
+        sales: Object.values(stats.sales).reduce((acc, curr) => { acc.tienVe += curr.tienVe; acc.ship += curr.ship; acc.dsDi += curr.dsDi; return acc; }, { tienVe: 0, ship: 0, dsDi: 0 }),
+        delivery: Object.values(stats.delivery).reduce((acc, curr) => { acc.tienVe += curr.tienVe; acc.ship += curr.ship; acc.dsDi += curr.dsDi; return acc; }, { tienVe: 0, ship: 0, dsDi: 0 })
+      }
+    };
+
+    return result;
+  }, [allData, activeTab]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -3188,20 +3257,38 @@ function DanhSachDon({ dataSource = 'default' }) {
                 <p className="text-xs text-gray-500">Dữ liệu từ Database</p>
               </div>
               
-              {/* Bộ lọc chuyển đổi bảng */}
-              <div className="flex items-center gap-2 ml-4">
-                <label className="text-sm font-medium text-gray-700">Nguồn dữ liệu:</label>
-                <select
-                  value={selectedDataSource}
-                  onChange={(e) => {
-                    setSelectedDataSource(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+              {/* Hệ thống Tab */}
+              <div className="flex bg-gray-100 p-1 rounded-xl ml-4">
+                <button
+                  onClick={() => setActiveTab('rd')}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                    activeTab === 'rd'
+                      ? 'bg-white text-[#F37021] shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
                 >
-                  <option value="default">Bảng orders (Hà Nội)</option>
-                  <option value="hcm">Bảng order_code_hcm (HCM)</option>
-                </select>
+                  Dữ liệu RD
+                </button>
+                <button
+                  onClick={() => setActiveTab('hcm')}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                    activeTab === 'hcm'
+                      ? 'bg-white text-[#F37021] shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Dữ liệu HCM
+                </button>
+                <button
+                  onClick={() => setActiveTab('f3_summary')}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                    activeTab === 'f3_summary'
+                      ? 'bg-white text-[#F37021] shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                   📦 Tổng hợp F3
+                </button>
               </div>
             </div>
 
@@ -3381,8 +3468,17 @@ function DanhSachDon({ dataSource = 'default' }) {
 
       {/* Main Content */}
       <div className="max-w-full mx-auto px-6 py-6">
-        {/* Filters */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+        {activeTab === 'f3_summary' ? (
+          <F3SummaryTab 
+            data={f3SummaryData} 
+            startDate={startDate} 
+            endDate={endDate} 
+          />
+        ) : (
+          <>
+            {/* Filters */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+              {/* filters content... */}
           <div className="flex flex-wrap items-end gap-4">
             {/* Search */}
             <div className="flex-1 min-w-[200px]">
@@ -4391,7 +4487,9 @@ function DanhSachDon({ dataSource = 'default' }) {
             </div>
           </div>
         </div>
-      </div>
+      </>
+    )}
+  </div>
 
       {/* Sửa NV vận đơn (can thiệp delivery_staff) */}
       {showEditNvVanDonModal && editNvVanDonRow && (
