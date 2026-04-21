@@ -17,11 +17,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
 
         // Bước 2: Lọc nhân viên có trạng thái = "U1"
         addLog('📋 Bước 1: Lấy danh sách nhân viên vận đơn từ bảng danh_sach_van_don', 'info');
-        const nhanVienU1 = vanDonList.filter(item => item.trang_thai_chia === 'U1');
+        const nhanVienU1 = vanDonList.filter(item => {
+            const status = String(item.trang_thai_chia || '').trim().toUpperCase();
+            return status === 'U1';
+        });
 
         addLog(`👥 Tổng số nhân viên U1 tìm được: ${nhanVienU1.length}`, 'info');
-        addLog(`👥 Danh sách nhân viên U1: ${nhanVienU1.map(u => u.ho_va_ten).join(', ')}`, 'info');
-        console.log(`👥 [Chia đơn vận đơn] Danh sách nhân viên U1:`, nhanVienU1.map(u => u.ho_va_ten));
+        addLog(`👥 Danh sách nhân viên U1: ${nhanVienU1.map(u => String(u.ho_va_ten || '').trim()).join(', ')}`, 'info');
+        console.log(`👥 [Chia đơn vận đơn] Danh sách nhân viên U1:`, nhanVienU1.map(u => String(u.ho_va_ten || '').trim()));
 
         if (nhanVienU1.length === 0) {
             addLog('❌ Không có nhân viên nào có trạng thái U1', 'error');
@@ -34,7 +37,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         const nhanVienHaNoi = [];
 
         nhanVienU1.forEach(item => {
-            const name = item.ho_va_ten;
+            const name = String(item.ho_va_ten || '').trim();
             const chiNhanhRaw = item.chi_nhanh || '';
             const chiNhanh = chiNhanhRaw.toString().trim();
             const chiNhanhLower = chiNhanh.toLowerCase();
@@ -756,7 +759,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             }
 
             const result = [];
-            const staffList = staffListWithBranch.map((s) => s.name);
+            const staffList = staffListWithBranch.map((s) => String(s.name || '').trim());
             const staffSet = new Set(staffList);
 
             // --- Rule: Tìm người nhận đơn cuối cùng trong lịch sử để tiếp tục vòng (Carry-over) ---
