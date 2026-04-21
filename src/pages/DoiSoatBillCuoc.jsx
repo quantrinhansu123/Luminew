@@ -274,6 +274,16 @@ function DoiSoatBillCuoc() {
   const [showBulkDropdown, setShowBulkDropdown] = useState(false);
   const accountantOptions = ["", "Đã thu tiền", "Chưa thu tiền", "Treo", "Hủy", "Khác"];
 
+  /** Modal đồng bộ tùy chỉnh (Premium) */
+  const [showSyncConfirmModal, setShowSyncConfirmModal] = useState(false);
+  const [syncConfirmData, setSyncConfirmData] = useState({
+    title: '',
+    modeLabel: '',
+    stats: { total: 0, found: 0, missing: 0 },
+    errorList: [], // { label, items }
+    onConfirm: () => {}
+  });
+
   /** Tiến độ đồng bộ */
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0, active: false });
 
@@ -1176,12 +1186,12 @@ function DoiSoatBillCuoc() {
       // 3. Map tracking sang order code
       const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, Array.from(vndByTracking.keys()));
       const finalUpdateMap = new Map();
-      let trackingsKhongCoDon = 0;
+      const trackingsKhongCoDon = [];
 
       for (const [tk, info] of vndByTracking) {
         const ocs = trackingToOrders.get(tk);
         if (!ocs || ocs.length === 0) {
-          trackingsKhongCoDon += 1;
+          trackingsKhongCoDon.push(tk);
           continue;
         }
         const perOrder = info.sum / ocs.length;
@@ -1216,28 +1226,53 @@ function DoiSoatBillCuoc() {
       const missingInOrders = allOrderCodes.filter((c) => !existingOrderCodes.has(c));
       const foundCount = existingOrderCodes.size;
 
-      // 5. HIỂN THỊ THÔNG BÁO XÁC NHẬN (Kiểm tra trước khi lưu)
-      const confirmMsg = 
-        `Đồng bộ Bill: ${modeLabel}.\n\n` +
-        `Kế quả kiểm tra:\n` +
-        `• Tổng số đơn tính toán được: ${allOrderCodes.length}\n` +
-        `• Số đơn TÌM THẤY trên hệ thống: ${foundCount}\n` +
-        `• Số đơn KHÔNG TÌM THẤY: ${missingInOrders.length}\n` +
-        (trackingsKhongCoDon > 0 ? `• Mã tracking không có đơn: ${trackingsKhongCoDon}\n` : '') +
-        `\nHệ thống sẽ ghi tổng Tiền Việt lên cột đối soát (reconciled_vnd) trên bảng orders cho ${foundCount} đơn này. Tiếp tục?`;
-
-      if (!window.confirm(confirmMsg)) {
-        setSyncing(false);
-        return;
+      // 5. Chuẩn bị Modal xác nhận
+      const errorList = [];
+      if (trackingsKhongCoDon.length > 0) {
+        errorList.push({ 
+          label: 'Mã Tracking không tìm thấy đơn tương ứng trên hệ thống', 
+          items: trackingsKhongCoDon 
+        });
+      }
+      if (missingInOrders.length > 0) {
+        errorList.push({ 
+          label: 'Mã đơn hàng không tồn tại trong CSDL orders', 
+          items: missingInOrders 
+        });
       }
 
-      // 6. Tiến hành lưu dữ liệu THEO LÔ (Batch Update)
+      setSyncConfirmData({
+        title: 'Đồng bộ Bill',
+        modeLabel: modeLabel,
+        stats: {
+          total: allOrderCodes.length, // Số mã đơn duy nhất
+          found: foundCount,
+          missing: missingInOrders.length,
+          rawRows: billData.length // Số dòng gốc từ Excel/DB
+        },
+        errorList,
+        onConfirm: async () => {
+          setShowSyncConfirmModal(false);
+          await executeSyncBillBatch(finalUpdateMap, allOrderCodes, existingOrderCodes, missingInOrders);
+        }
+      });
+      setShowSyncConfirmModal(true);
+      setSyncing(false);
+    } catch (error) {
+      console.error('Error syncing bill:', error);
+      alert('Lỗi khi đồng bộ Bill: ' + error.message);
+      setSyncing(false);
+    }
+  };
+
+  /** Thực thi đồng bộ Bill theo lô */
+  const executeSyncBillBatch = async (finalUpdateMap, allOrderCodes, existingOrderCodes, missingInOrders) => {
+    setSyncing(true);
+    try {
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
       const syncLogRows = [];
-      
-      const missingOrderCodes = Array.from(allOrderCodes).filter(oc => !existingOrderCodes.has(oc));
       
       const ordersToUpdate = allOrderCodes
         .filter(oc => existingOrderCodes.has(oc))
@@ -1252,20 +1287,15 @@ function DoiSoatBillCuoc() {
 
       setSyncProgress({ current: 0, total: ordersToUpdate.length, active: true });
       
-      const chunks = chunkArray(ordersToUpdate, 50); // Lô 50 đơn
+      const chunks = chunkArray(ordersToUpdate, 50);
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        
-        // Cập nhật lên bảng orders dùng upsert (nhanh hơn update từng dòng)
-        const { error: updateError } = await supabase
-          .from('orders')
-          .upsert(chunk, { onConflict: 'order_code' });
+        const { error: updateError } = await supabase.from('orders').upsert(chunk, { onConflict: 'order_code' });
 
         if (updateError) {
           console.error(`Error batch updating orders (chunk ${i}):`, updateError);
         } else {
           updateCount += chunk.length;
-          // Chuẩn bị dữ liệu log
           chunk.forEach(item => {
             syncLogRows.push({
               sync_batch_id: syncBatchId,
@@ -1278,7 +1308,6 @@ function DoiSoatBillCuoc() {
             });
           });
         }
-        
         setSyncProgress(prev => ({ ...prev, current: updateCount }));
       }
 
@@ -1286,24 +1315,19 @@ function DoiSoatBillCuoc() {
         await supabase.from('bill_sync_results').insert(syncLogRows);
       }
 
-      let alertMsg = `Đã đồng bộ thành công ${updateCount} đơn.`;
-      if (missingOrderCodes.length > 0) {
-        alertMsg += `\n\n⚠️ Có ${missingOrderCodes.length} mã đơn KHÔNG TÌM THẤY trong hệ thống (đã bỏ qua):`;
-        alertMsg += `\n${missingOrderCodes.slice(0, 50).join(', ')}${missingOrderCodes.length > 50 ? '...' : ''}`;
-      }
-      alert(alertMsg);
-
+      alert(`Đã đồng bộ thành công ${updateCount} đơn.`);
       setLastBillSyncTime(syncTime);
       setActiveTab('bill_view');
       await loadBillData(syncTime);
     } catch (error) {
-      console.error('Error syncing bill:', error);
-      alert('Lỗi khi đồng bộ Bill: ' + error.message);
+      console.error('Error in executeSyncBillBatch:', error);
+      alert('Lỗi khi thực thi đồng bộ Bill: ' + error.message);
     } finally {
       setSyncing(false);
       setSyncProgress({ current: 0, total: 0, active: false });
     }
   };
+
 
   /** Chỉ ghi shipping_cost + order_count_actual từ chitiet_cuoc → orders */
   const handleSyncCuoc = async () => {
@@ -1314,7 +1338,6 @@ function DoiSoatBillCuoc() {
 
       if (cuocError) throw cuocError;
 
-      const cuocRowCount = cuocData?.length || 0;
       const shippingCostMap = new Map();
       const orderCountMap = new Map();
       if (cuocData) {
@@ -1347,15 +1370,34 @@ function DoiSoatBillCuoc() {
       const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, orderCodeList);
       
       const missingOrderCodes = orderCodeList.filter(oc => !existingOrderCodes.has(oc));
-      
       const validOrderCodes = orderCodeList.filter(oc => existingOrderCodes.has(oc));
-      const missingCount = orderCodeList.length - validOrderCodes.length;
 
-      if (!window.confirm(`Đồng bộ Cước: cập nhật shipping_cost và order_count_actual lên bảng orders cho ${validOrderCodes.length} đơn. Tiếp tục?`)) {
-        return;
-      }
+      // HIỂN THỊ MODAL BÁO CÁO TRƯỚC KHI ĐỒNG BỘ
+      setSyncConfirmData({
+        title: 'Đồng bộ Cước',
+        modeLabel: 'Cập nhật tiền ship & số lượng thực tế',
+        stats: {
+          total: orderCodeList.length,
+          found: validOrderCodes.length,
+          missing: missingOrderCodes.length
+        },
+        errorList: missingOrderCodes.length > 0 ? [{ label: 'Mã đơn hàng không tìm thấy trên hệ thống', items: missingOrderCodes }] : [],
+        onConfirm: async () => {
+          setShowSyncConfirmModal(false);
+          await executeSyncCuocBatch(validOrderCodes, shippingCostMap, orderCountMap, missingOrderCodes, orderCodeList.length);
+        }
+      });
+      setShowSyncConfirmModal(true);
+    } catch (error) {
+      console.error('Error syncing cuoc:', error);
+      alert('Lỗi khi chuẩn bị đồng bộ Cước: ' + error.message);
+    }
+  };
 
-      setSyncing(true);
+  /** Thực thi đồng bộ Cước theo lô */
+  const executeSyncCuocBatch = async (validOrderCodes, shippingCostMap, orderCountMap, missingOrderCodes, totalInputCount) => {
+    setSyncing(true);
+    try {
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
@@ -3634,9 +3676,117 @@ function DoiSoatBillCuoc() {
           </div>
         </div>
       )}
+      {/* Custom Sync Confirmation Modal (Premium) */}
+      {showSyncConfirmModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-[0_20px_70px_rgba(0,0,0,0.3)] w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden border border-white/20">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 p-6 text-white relative">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+                    <RotateCw className="w-5 h-5 animate-spin-slow" />
+                    {syncConfirmData.title}
+                  </h3>
+                  <p className="text-blue-100 text-xs mt-1 font-medium italic opacity-90">
+                    {syncConfirmData.modeLabel}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setShowSyncConfirmModal(false)}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                <div className="bg-gray-50 border border-gray-100 p-3 rounded-2xl text-center">
+                  <div className="text-[9px] uppercase font-bold text-gray-400 mb-1">Số dòng bill</div>
+                  <div className="text-xl font-black text-gray-600 leading-none">{syncConfirmData.stats.rawRows || 0}</div>
+                </div>
+                <div className="bg-blue-50 border border-blue-100 p-3 rounded-2xl text-center">
+                  <div className="text-[9px] uppercase font-bold text-blue-400 mb-1">Mã đơn duy nhất</div>
+                  <div className="text-xl font-black text-blue-700 leading-none">{syncConfirmData.stats.total}</div>
+                </div>
+                <div className="bg-green-50 border border-green-100 p-3 rounded-2xl text-center">
+                  <div className="text-[9px] uppercase font-bold text-green-400 mb-1">Khớp hệ thống</div>
+                  <div className="text-xl font-black text-green-700 leading-none">{syncConfirmData.stats.found}</div>
+                </div>
+                <div className="bg-red-50 border border-red-100 p-3 rounded-2xl text-center">
+                  <div className="text-[9px] uppercase font-bold text-red-400 mb-1">Bị bỏ qua</div>
+                  <div className="text-xl font-black text-red-700 leading-none">{syncConfirmData.stats.missing}</div>
+                </div>
+              </div>
+
+              {/* Notice */}
+              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-r-xl mb-6">
+                <div className="flex gap-3">
+                  <span className="text-xl">💡</span>
+                  <p className="text-xs text-yellow-800 leading-relaxed font-medium">
+                    Hệ thống sẽ cập nhật dữ liệu cho <strong className="text-yellow-900 font-bold">{syncConfirmData.stats.found} đơn hàng</strong> đã khớp được mã. Các đơn hàng không tìm thấy sẽ được giữ nguyên trạng thái cũ.
+                  </p>
+                </div>
+              </div>
+
+              {/* Error List Sections */}
+              {syncConfirmData.errorList && syncConfirmData.errorList.length > 0 && (
+                <div className="space-y-4">
+                  <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                    <span className="w-1.5 h-4 bg-red-500 rounded-full"></span>
+                    Danh sách đơn bị bỏ qua ({syncConfirmData.errorList.reduce((acc, cur) => acc + cur.items.length, 0)})
+                  </h4>
+                  {syncConfirmData.errorList.map((err, idx) => (
+                    <div key={idx} className="bg-gray-50 rounded-xl border border-gray-100 p-4">
+                      <div className="text-[11px] font-bold text-gray-500 mb-2 uppercase tracking-wide flex items-center justify-between">
+                        {err.label}
+                        <span className="bg-gray-200 text-gray-600 px-2 py-0.5 rounded-md">{err.items.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
+                        {err.items.map((item, i) => (
+                          <span key={i} className="text-[10px] font-bold bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded-md shadow-sm">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 bg-gray-50 border-t border-gray-100 flex gap-3">
+              <button
+                disabled={syncing}
+                onClick={() => setShowSyncConfirmModal(false)}
+                className="flex-1 px-4 py-3 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-bold hover:bg-gray-50 transition-all disabled:opacity-50"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                disabled={syncing}
+                onClick={() => {
+                  syncConfirmData.onConfirm();
+                }}
+                className="flex-[2] px-4 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {syncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+                {syncing ? 'Đang xử lý...' : 'Xác nhận đồng bộ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Progress Bar Overlay when Syncing */}
       {syncProgress.active && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-md px-4">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[11000] w-full max-w-md px-4">
+
           <div className="bg-white rounded-2xl shadow-[0_10px_50px_rgba(0,0,0,0.15)] border border-blue-100 p-5 overflow-hidden relative">
             {/* Glossy edge effect */}
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500" />
