@@ -253,6 +253,9 @@ const AdminTools = () => {
     const [historyStartDate, setHistoryStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().slice(0, 10)); // Mặc định 7 ngày trước
     const [historyEndDate, setHistoryEndDate] = useState(new Date().toISOString().slice(0, 10));
     const [staffStatsReport, setStaffStatsReport] = useState({});
+    const [staffStatsReportByBranch, setStaffStatsReportByBranch] = useState({ HCM: {}, 'Hà Nội': {} });
+    const [successSessionCountByBranch, setSuccessSessionCountByBranch] = useState({ HCM: 0, 'Hà Nội': 0 });
+    const [successTotalOrdersByBranch, setSuccessTotalOrdersByBranch] = useState({ HCM: 0, 'Hà Nội': 0 });
 
     // --- CLEAR NV VẬN ĐƠN THEO ORDER_DATE ---
     const [clearOrderDate, setClearOrderDate] = useState('');
@@ -2477,6 +2480,32 @@ const AdminTools = () => {
                 });
             });
             setStaffStatsReport(totalStats);
+
+            // --- THỐNG KÊ TÁCH RIÊNG HCM / HÀ NỘI ---
+            const isSuccess = (raw) => String(raw || '').trim().toLowerCase() === 'success';
+
+            const byBranch = { HCM: {}, 'Hà Nội': {} };
+            const sessionCount = { HCM: 0, 'Hà Nội': 0 };
+            const totalOrders = { HCM: 0, 'Hà Nội': 0 };
+
+            (data || [])
+                .filter((s) => isSuccess(s.status))
+                .forEach((session) => {
+                    const br = normalizeHistoryBranchKey(session.branch);
+                    if (!br) return; // bỏ qua "Tất cả" / không xác định vì không tách được
+
+                    sessionCount[br] += 1;
+                    totalOrders[br] += Number(session.total_orders) || 0;
+
+                    const stats = session.staff_stats || {};
+                    Object.entries(stats).forEach(([name, count]) => {
+                        byBranch[br][name] = (byBranch[br][name] || 0) + (Number(count) || 0);
+                    });
+                });
+
+            setStaffStatsReportByBranch(byBranch);
+            setSuccessSessionCountByBranch(sessionCount);
+            setSuccessTotalOrdersByBranch(totalOrders);
         } catch (err) {
             console.error('❌ [Lịch sử chia đơn] Lỗi:', err);
             toast.error('Lỗi khi tải lịch sử chia đơn');
@@ -2534,6 +2563,14 @@ const AdminTools = () => {
     const normalizeStr = (str) => {
         if (!str) return '';
         return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
+    const normalizeHistoryBranchKey = (raw) => {
+        const s = String(raw || '').trim().toLowerCase();
+        if (!s) return null;
+        if (s.includes('hcm') || s.includes('hồ chí minh') || s.includes('ho chi minh') || s.includes('tp.hcm')) return 'HCM';
+        if (s.includes('hà nội') || s.includes('ha noi') || s.includes('hanoi') || s === 'hn') return 'Hà Nội';
+        return null;
     };
 
     // Xóa toàn bộ dữ liệu trong cột CSKH
@@ -5046,134 +5083,164 @@ const AdminTools = () => {
                                             
                                             {/* CỘT TỔNG HỢP (Layout Table như Excel) */}
                                             <div className="lg:col-span-4 space-y-4">
-                                                <div className="bg-white rounded-xl border border-blue-100 shadow-sm overflow-hidden">
-                                                    <div className="bg-blue-600 px-4 py-3">
-                                                        <p className="text-white text-sm font-bold flex items-center gap-2">
-                                                            <UserCheck className="w-5 h-5" />
-                                                            BẢNG TỔNG HỢP SẢN LƯỢNG
-                                                        </p>
-                                                    </div>
-                                                    <table className="w-full text-left text-xs">
-                                                        <thead className="bg-gray-50 border-b">
-                                                            <tr>
-                                                                <th className="px-4 py-3 font-bold text-gray-600">Nhân sự</th>
-                                                                <th className="px-4 py-3 font-bold text-gray-600 text-right">Tổng đơn đã nhận</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {Object.keys(staffStatsReport).length > 0 ? (
-                                                                Object.entries(staffStatsReport)
-                                                                    .sort((a, b) => b[1] - a[1])
-                                                                    .map(([name, count], idx) => (
-                                                                        <tr key={name} className="hover:bg-blue-50 border-b last:border-0 transition-colors">
-                                                                            <td className="px-4 py-3">
-                                                                                <div className="flex items-center gap-3">
-                                                                                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
-                                                                                        {idx + 1}
+                                                {[
+                                                    { key: 'HCM', title: 'HCM', headerClass: 'bg-orange-600', badgeClass: 'bg-orange-100 text-orange-700' },
+                                                    { key: 'Hà Nội', title: 'Hà Nội', headerClass: 'bg-indigo-600', badgeClass: 'bg-indigo-100 text-indigo-700' }
+                                                ].map((b) => {
+                                                    const statsObj = staffStatsReportByBranch?.[b.key] || {};
+                                                    const rows = Object.entries(statsObj).sort((a, c) => (Number(c[1]) || 0) - (Number(a[1]) || 0));
+                                                    const sessionCount = successSessionCountByBranch?.[b.key] || 0;
+                                                    const totalOrders = successTotalOrdersByBranch?.[b.key] || 0;
+                                                    return (
+                                                        <div key={b.key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                                            <div className={`${b.headerClass} px-4 py-3`}>
+                                                                <p className="text-white text-sm font-bold flex items-center justify-between gap-2">
+                                                                    <span className="flex items-center gap-2">
+                                                                        <UserCheck className="w-5 h-5" />
+                                                                        TỔNG HỢP SẢN LƯỢNG — {b.title}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-semibold bg-white/15 px-2 py-1 rounded">
+                                                                        {sessionCount} lần · {totalOrders} đơn
+                                                                    </span>
+                                                                </p>
+                                                            </div>
+                                                            <table className="w-full text-left text-xs">
+                                                                <thead className="bg-gray-50 border-b">
+                                                                    <tr>
+                                                                        <th className="px-4 py-3 font-bold text-gray-600">Nhân sự</th>
+                                                                        <th className="px-4 py-3 font-bold text-gray-600 text-right">Tổng đơn đã nhận</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {rows.length > 0 ? (
+                                                                        rows.map(([name, count], idx) => (
+                                                                            <tr key={`${b.key}-${name}`} className="hover:bg-gray-50 border-b last:border-0 transition-colors">
+                                                                                <td className="px-4 py-3">
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                                                            {idx + 1}
+                                                                                        </span>
+                                                                                        <span className="font-semibold text-gray-800">{name}</span>
+                                                                                    </div>
+                                                                                </td>
+                                                                                <td className="px-4 py-3 text-right">
+                                                                                    <span className={`${b.badgeClass} px-3 py-1 rounded-lg font-bold text-sm`}>
+                                                                                        {count}
                                                                                     </span>
-                                                                                    <span className="font-semibold text-gray-800">{name}</span>
-                                                                                </div>
-                                                                            </td>
-                                                                            <td className="px-4 py-3 text-right">
-                                                                                <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-lg font-bold text-sm">
-                                                                                    {count}
-                                                                                </span>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))
+                                                                    ) : (
+                                                                        <tr>
+                                                                            <td colSpan="2" className="p-6 text-center text-gray-400 italic">
+                                                                                Chưa có dữ liệu (chỉ tính các phiên <strong>thành công</strong>)
                                                                             </td>
                                                                         </tr>
-                                                                    ))
-                                                            ) : (
-                                                                <tr>
-                                                                    <td colSpan="2" className="p-8 text-center text-gray-400 italic">Chưa có dữ liệu thống kê</td>
-                                                                </tr>
-                                                            )}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                                                    )}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    );
+                                                })}
                                                 
                                                 <div className="p-4 bg-orange-50 rounded-xl border border-orange-100">
                                                     <p className="text-xs text-orange-800 leading-relaxed">
-                                                        <strong>* Lưu ý:</strong> Số liệu trên được tính dựa trên các phiên chia đơn thành công. Đơn hàng bị lỗi hoặc chưa gán nhân sự sẽ không được tính vào tổng này.
+                                                        <strong>* Lưu ý:</strong> “Số lần” và tổng sản lượng bên trái chỉ tính các phiên chia đơn <strong>thành công</strong> và được tách riêng theo <strong>HCM</strong> / <strong>Hà Nội</strong>.
                                                     </p>
                                                 </div>
                                             </div>
 
                                             {/* CỘT CHI TIẾT (Layout Table như Excel) */}
-                                            <div className="lg:col-span-8">
-                                                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                                                    <div className="bg-gray-800 px-4 py-3">
-                                                        <p className="text-white text-sm font-bold flex items-center gap-2">
-                                                            <List className="w-5 h-5" />
-                                                            NHẬT KÝ CHI TIẾT TỪNG PHIÊN
-                                                        </p>
-                                                    </div>
-                                                    <div className="overflow-x-auto">
-                                                        <table className="w-full text-left text-xs border-collapse">
-                                                            <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
-                                                                <tr>
-                                                                    <th className="px-4 py-3 border-b font-bold text-gray-600">Lần chia / Thời gian</th>
-                                                                    <th className="px-4 py-3 border-b font-bold text-gray-600">Chi nhánh</th>
-                                                                    <th className="px-4 py-3 border-b font-bold text-gray-600">Nhân sự thực hiện</th>
-                                                                    <th className="px-4 py-3 border-b font-bold text-gray-600 text-center">Số đơn gán</th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody>
-                                                                {historyChiaDon.length > 0 ? (
-                                                                    historyChiaDon.map((h, hIdx) => {
-                                                                        const stats = h.staff_stats || {};
-                                                                        const staffEntries = Object.entries(stats);
-                                                                        const timeStr = new Date(h.created_at).toLocaleString('vi-VN', { 
-                                                                            day: '2-digit', month: '2-digit', year: 'numeric', 
-                                                                            hour: '2-digit', minute: '2-digit'
-                                                                        });
+                                            <div className="lg:col-span-8 space-y-4">
+                                                {[
+                                                    { key: 'HCM', title: 'NHẬT KÝ — HCM', headClass: 'bg-orange-700', rowHover: 'hover:bg-orange-50/50', badgeClass: 'bg-orange-100 text-orange-700' },
+                                                    { key: 'Hà Nội', title: 'NHẬT KÝ — HÀ NỘI', headClass: 'bg-indigo-700', rowHover: 'hover:bg-indigo-50/50', badgeClass: 'bg-indigo-100 text-indigo-700' }
+                                                ].map((b) => {
+                                                    const list = (historyChiaDon || [])
+                                                        .filter((h) => normalizeHistoryBranchKey(h.branch) === b.key)
+                                                        // Ẩn các phiên không có đơn để chia / không có staff_stats
+                                                        .filter((h) => {
+                                                            const totalOrders = Number(h?.total_orders) || 0;
+                                                            const stats = h?.staff_stats || {};
+                                                            const hasStats = Object.keys(stats).length > 0;
+                                                            return totalOrders > 0 && hasStats;
+                                                        });
+                                                    const total = list.length;
+                                                    return (
+                                                        <div key={b.key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                                            <div className={`${b.headClass} px-4 py-3`}>
+                                                                <p className="text-white text-sm font-bold flex items-center justify-between gap-2">
+                                                                    <span className="flex items-center gap-2">
+                                                                        <List className="w-5 h-5" />
+                                                                        {b.title}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-semibold bg-white/15 px-2 py-1 rounded">
+                                                                        {total} phiên
+                                                                    </span>
+                                                                </p>
+                                                            </div>
+                                                            <div className="overflow-x-auto">
+                                                                <table className="w-full text-left text-xs border-collapse">
+                                                                    <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
+                                                                        <tr>
+                                                                            <th className="px-4 py-3 border-b font-bold text-gray-600">Lần chia / Thời gian</th>
+                                                                            <th className="px-4 py-3 border-b font-bold text-gray-600">Nhân sự thực hiện</th>
+                                                                            <th className="px-4 py-3 border-b font-bold text-gray-600 text-center">Số đơn gán</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {total > 0 ? (
+                                                                            list.map((h, hIdx) => {
+                                                                                const stats = h.staff_stats || {};
+                                                                                const staffEntries = Object.entries(stats);
+                                                                                const timeStr = new Date(h.created_at).toLocaleString('vi-VN', {
+                                                                                    day: '2-digit',
+                                                                                    month: '2-digit',
+                                                                                    year: 'numeric',
+                                                                                    hour: '2-digit',
+                                                                                    minute: '2-digit',
+                                                                                });
 
-                                                                        if (staffEntries.length === 0) {
-                                                                            return (
-                                                                                <tr key={h.id} className="border-b bg-gray-50/50">
-                                                                                    <td className="px-4 py-3 text-gray-500 font-mono">{timeStr}</td>
-                                                                                    <td className="px-4 py-3 font-medium">{h.branch}</td>
-                                                                                    <td className="px-4 py-3 italic text-gray-400" colSpan="2">
-                                                                                        {h.total_orders === 0 ? "Không có đơn để chia" : `Log: ${h.logs}`}
-                                                                                    </td>
-                                                                                </tr>
-                                                                            );
-                                                                        }
+                                                                                // Đánh số "Lần" theo từng chi nhánh riêng
+                                                                                const sessionNo = total - hIdx;
 
-                                                                        return staffEntries.map(([name, count], sIdx) => (
-                                                                            <tr key={`${h.id}-${name}`} className={`border-b hover:bg-orange-50/50 transition-colors ${sIdx === 0 && hIdx !== 0 ? 'border-t-4 border-t-gray-50' : ''}`}>
-                                                                                <td className="px-4 py-3">
-                                                                                    {sIdx === 0 ? (
-                                                                                        <div className="flex flex-col">
-                                                                                            <span className="text-gray-900 font-bold">Lần {historyChiaDon.length - hIdx}</span>
-                                                                                            <span className="text-[10px] text-gray-400 font-mono">{timeStr}</span>
-                                                                                        </div>
-                                                                                    ) : ""}
-                                                                                </td>
-                                                                                <td className="px-4 py-3 font-medium">{sIdx === 0 ? h.branch : ""}</td>
-                                                                                <td className="px-4 py-3">
-                                                                                    <span className="font-bold text-gray-900">{name}</span>
-                                                                                </td>
-                                                                                <td className="px-4 py-3 text-center">
-                                                                                    <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-lg font-bold text-sm">
-                                                                                        {count}
-                                                                                    </span>
+                                                                                return staffEntries.map(([name, count], sIdx) => (
+                                                                                    <tr
+                                                                                        key={`${h.id}-${name}`}
+                                                                                        className={`border-b ${b.rowHover} transition-colors ${sIdx === 0 && hIdx !== 0 ? 'border-t-4 border-t-gray-50' : ''}`}
+                                                                                    >
+                                                                                        <td className="px-4 py-3">
+                                                                                            {sIdx === 0 ? (
+                                                                                                <div className="flex flex-col">
+                                                                                                    <span className="text-gray-900 font-bold">Lần {sessionNo}</span>
+                                                                                                    <span className="text-[10px] text-gray-400 font-mono">{timeStr}</span>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                ''
+                                                                                            )}
+                                                                                        </td>
+                                                                                        <td className="px-4 py-3">
+                                                                                            <span className="font-bold text-gray-900">{name}</span>
+                                                                                        </td>
+                                                                                        <td className="px-4 py-3 text-center">
+                                                                                            <span className={`${b.badgeClass} px-3 py-1 rounded-lg font-bold text-sm`}>{count}</span>
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ));
+                                                                            })
+                                                                        ) : (
+                                                                            <tr>
+                                                                                <td colSpan="3" className="p-10 text-center text-gray-400 italic">
+                                                                                    Không có phiên nào (có phát sinh đơn) cho {b.key} trong khoảng thời gian đã chọn.
                                                                                 </td>
                                                                             </tr>
-                                                                        ));
-                                                                    })
-                                                                ) : (
-                                                                    <tr>
-                                                                        <td colSpan="4" className="p-12 text-center text-gray-400 italic">
-                                                                            <div className="flex flex-col items-center gap-3">
-                                                                                <Package className="w-12 h-12 opacity-10" />
-                                                                                <p className="text-sm">Vui lòng bấm "Cập nhật dữ liệu" để tải báo cáo</p>
-                                                                            </div>
-                                                                        </td>
-                                                                    </tr>
-                                                                )}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
-                                                </div>
+                                                                        )}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     </div>

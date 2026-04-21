@@ -10,8 +10,34 @@ export const MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
 /** postMessage từ host → iframe HCM (sessionStorage iframe thường không chia sẻ với parent). */
 export const MKT_HCM_PERSONNEL_MSG_TYPE = 'MKT_HCM_PERSONNEL_SCOPE';
 
+/** postMessage từ iframe → host: cảnh báo KPI theo nhân sự (để header hiển thị chuông). */
+export const MKT_ALERTS_MSG_TYPE = 'LUMINEW_MKT_ALERTS';
+export const MKT_ALERTS_STORAGE_KEY = 'luminew.mktAlerts.v1';
+
 /** Team HCM — Đức Anh (khớp cột `Team` trên detail_reports). */
 export const XEM_BAO_CAO_MKT_HCM_TEAM = 'MKT - Đức Anh';
+
+function parseDdMmYyyyToMs(label) {
+  const m = String(label || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const d = Number(m[1]);
+  const mo = Number(m[2]);
+  const y = Number(m[3]);
+  if (!Number.isFinite(d) || !Number.isFinite(mo) || !Number.isFinite(y)) return null;
+  const dt = new Date(y, mo - 1, d, 0, 0, 0, 0);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function readJsonSafe(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * @param {object} props
@@ -36,6 +62,75 @@ export default function XemBaoCaoMKTLegacy({
 
   const [hcmPersonnelGate, setHcmPersonnelGate] = useState(() => !usesIframeTeamFilter);
   const hcmScopePayloadRef = useRef(null);
+
+  // Nhận cảnh báo từ iframe, lưu localStorage để Header đọc.
+  useEffect(() => {
+    const onMessage = (event) => {
+      const msg = event?.data;
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type !== MKT_ALERTS_MSG_TYPE) return;
+      if (msg.source !== 'luminew-mkt-iframe') return;
+
+      const now = Date.now();
+      const incomingAlerts = Array.isArray(msg.alerts) ? msg.alerts : [];
+
+      // Mở rộng: lưu lịch sử ~1 tháng, không ghi đè khi user đổi filter.
+      const prev = readJsonSafe(MKT_ALERTS_STORAGE_KEY, { v: 1, ts: 0, page: 'xem-bao-cao-mkt', alerts: [] });
+      const prevAlerts = Array.isArray(prev?.alerts) ? prev.alerts : [];
+
+      const byId = new Map();
+      prevAlerts.forEach((a) => {
+        const id = String(a?.id || '').trim();
+        if (!id) return;
+        byId.set(id, a);
+      });
+
+      incomingAlerts.forEach((a) => {
+        const id = String(a?.id || '').trim();
+        if (!id) return;
+        // Bổ sung reportDateMs nếu có dateLabel dạng dd/mm/yyyy
+        const dateLabel = String(a?.dateLabel || '').trim();
+        const reportDateMs = parseDdMmYyyyToMs(dateLabel);
+        byId.set(id, {
+          ...a,
+          id,
+          dateLabel,
+          reportDateMs: Number(a?.reportDateMs) || reportDateMs || null,
+          receivedAt: now,
+        });
+      });
+
+      const monthAgo = now - 31 * 24 * 60 * 60 * 1000;
+      const merged = Array.from(byId.values()).filter((a) => {
+        const reportMs = Number(a?.reportDateMs) || null;
+        const ts = Number(a?.ts) || 0;
+        const receivedAt = Number(a?.receivedAt) || 0;
+        // Giữ nếu reportDate còn trong 31 ngày; fallback theo ts/receivedAt.
+        if (reportMs != null) return reportMs >= monthAgo;
+        if (ts) return ts >= monthAgo;
+        return receivedAt >= monthAgo;
+      });
+
+      // Giới hạn để localStorage không phình (ưu tiên mới nhất theo receivedAt/ts)
+      merged.sort((a, b) => (Number(b?.receivedAt) || Number(b?.ts) || 0) - (Number(a?.receivedAt) || Number(a?.ts) || 0));
+      const capped = merged.slice(0, 2500);
+
+      const payload = {
+        v: 1,
+        ts: Number(msg.ts) || now,
+        page: String(msg.page || prev?.page || 'xem-bao-cao-mkt'),
+        alerts: capped,
+      };
+      try {
+        localStorage.setItem(MKT_ALERTS_STORAGE_KEY, JSON.stringify(payload));
+      } catch (e) {
+        console.error('[XemBaoCaoMKTLegacy] store alerts:', e);
+      }
+    };
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
 
   useEffect(() => {
     if (!usesIframeTeamFilter) {

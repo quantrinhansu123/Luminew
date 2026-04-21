@@ -818,7 +818,6 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             });
             console.log(`📊 [${branchName}] Thống kê đơn đã nhận trong ngày hôm nay:`, todayOrderCountByStaff);
 
-
             const lastAssignedIndex = lastAssignedPerson ? staffList.indexOf(lastAssignedPerson) : -1;
             const startIndex = lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0;
             
@@ -837,56 +836,172 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             console.log(`${'='.repeat(60)}\n`);
 
             if (remainingOrders.length > 0) {
-                let startIndex =
-                    lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0;
+                // ============================================================
+                // THỐNG KÊ ELIGIBLE STAFF PER ORDER/TEAM (debug lệch do dữ liệu)
+                // - eligible=0: đơn chắc chắn không chia được (mismatch team/chi nhánh)
+                // - eligible=1: đơn dễ gây "lệch" vì chỉ có 1 người nhận được
+                // ============================================================
+                const eligibleCountHistogram = {};
+                const eligibleByTeamStats = {};
+                const eligibleProblems = []; // { order_code, team, eligibleCount, eligibleStaff }
+
+                const normalizeTeamLabel = (raw) => {
+                    const t = String(raw || '').trim();
+                    const low = t.toLowerCase();
+                    if (!t) return '(null/empty)';
+                    if (low.includes('hcm') || low.includes('hồ chí minh') || low.includes('ho chi minh')) return 'HCM';
+                    if (low.includes('hà nội') || low.includes('hanoi') || low.includes('ha noi') || low === 'hn') return 'Hà Nội';
+                    return t;
+                };
+
+                remainingOrders.forEach((order) => {
+                    const orderTeam = order.team?.toString().trim() || '';
+                    const teamLabel = normalizeTeamLabel(orderTeam);
+
+                    const eligibleStaff = [];
+                    // Duyệt theo đúng thứ tự vòng để log/tie-break nhất quán
+                    for (let attempt = 0; attempt < staffListWithBranch.length; attempt++) {
+                        const idx = (startIndex + attempt) % staffListWithBranch.length;
+                        const staff = staffListWithBranch[idx];
+                        const isMatch = isTeamBranchMatch(orderTeam, staff.chi_nhanh?.toString().trim() || '');
+                        if (isMatch) eligibleStaff.push(String(staff.name || '').trim());
+                    }
+
+                    const c = eligibleStaff.length;
+                    eligibleCountHistogram[c] = (eligibleCountHistogram[c] || 0) + 1;
+
+                    if (!eligibleByTeamStats[teamLabel]) {
+                        eligibleByTeamStats[teamLabel] = { totalOrders: 0, eligible0: 0, eligible1: 0, eligibleMany: 0 };
+                    }
+                    eligibleByTeamStats[teamLabel].totalOrders += 1;
+                    if (c === 0) eligibleByTeamStats[teamLabel].eligible0 += 1;
+                    else if (c === 1) eligibleByTeamStats[teamLabel].eligible1 += 1;
+                    else eligibleByTeamStats[teamLabel].eligibleMany += 1;
+
+                    if (c <= 1) {
+                        eligibleProblems.push({
+                            order_code: order.order_code,
+                            team: orderTeam || '(null/empty)',
+                            teamLabel,
+                            eligibleCount: c,
+                            eligibleStaff,
+                        });
+                    }
+                });
+
+                console.log(`\n📊 [${branchName}] ========== THỐNG KÊ ELIGIBLE STAFF (THEO ĐƠN/TEAM) ==========`);                
+                console.log(`👥 Số nhân viên U1 đang dùng: ${staffListWithBranch.length}`);
+                console.log(`📦 Số đơn cần chia: ${remainingOrders.length}`);
+                console.log(`📈 Histogram eligibleCount (số NV match / 1 đơn):`, eligibleCountHistogram);
+                console.log(`📍 Theo team:`, eligibleByTeamStats);
+
+                const showLimit = 30;
+                const problems0 = eligibleProblems.filter((x) => x.eligibleCount === 0);
+                const problems1 = eligibleProblems.filter((x) => x.eligibleCount === 1);
+                if (problems0.length > 0) {
+                    console.warn(`\n❌ [${branchName}] Đơn eligible=0 (KHÔNG chia được): ${problems0.length} đơn. Hiển thị ${Math.min(showLimit, problems0.length)} đơn đầu.`);
+                    console.table(
+                        problems0.slice(0, showLimit).map((x) => ({
+                            order_code: x.order_code,
+                            team: x.team,
+                            teamLabel: x.teamLabel,
+                            eligibleCount: x.eligibleCount,
+                            eligibleStaff: x.eligibleStaff.join(', '),
+                        }))
+                    );
+                }
+                if (problems1.length > 0) {
+                    console.warn(`\n⚠️ [${branchName}] Đơn eligible=1 (dễ gây lệch): ${problems1.length} đơn. Hiển thị ${Math.min(showLimit, problems1.length)} đơn đầu.`);
+                    console.table(
+                        problems1.slice(0, showLimit).map((x) => ({
+                            order_code: x.order_code,
+                            team: x.team,
+                            teamLabel: x.teamLabel,
+                            eligibleCount: x.eligibleCount,
+                            eligibleStaff: x.eligibleStaff.join(', '),
+                        }))
+                    );
+                }
+                console.log(`${'='.repeat(60)}\n`);
+
+                // nextIndex dùng làm tie-break theo vòng để vẫn "công bằng theo thời gian"
                 let nextIndex = startIndex;
+                // Đếm số đơn được gán trong lần chạy này (để cân bằng tổng trong ngày)
+                const assignedThisRunByStaff = {};
+                staffList.forEach((name) => {
+                    assignedThisRunByStaff[name] = 0;
+                });
 
                 console.log(
-                    `🔄 [${branchName}] Bắt đầu round-robin ${remainingOrders.length} đơn từ index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
+                    `⚖️ [${branchName}] Bắt đầu chia theo cân bằng tải (${remainingOrders.length} đơn) từ index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
                 );
 
                 remainingOrders.forEach((order, orderIdx) => {
-                    let assigned = false;
+                    const orderTeam = order.team?.toString().trim() || '';
+
+                    // Lọc nhân viên phù hợp chi nhánh/team
+                    const eligible = [];
                     for (let attempt = 0; attempt < staffListWithBranch.length; attempt++) {
                         const idx = (nextIndex + attempt) % staffListWithBranch.length;
                         const staff = staffListWithBranch[idx];
-                        const orderTeam = order.team?.toString().trim() || '';
                         const isMatch = isTeamBranchMatch(orderTeam, staff.chi_nhanh?.toString().trim() || '');
-
-                        // Log chi tiết cho 5 đơn đầu
-                        if (orderIdx < 5) {
-                            console.log(
-                                `  [Đơn ${orderIdx + 1}/${remainingOrders.length}] ${order.order_code}: ` +
-                                `team="${orderTeam}", thử NV[${idx}]="${staff.name}" (chi_nhanh="${staff.chi_nhanh}"), ` +
-                                `match=${isMatch}`
-                            );
+                        if (isMatch) {
+                            eligible.push({ idx, staff });
                         }
-
-                        if (!isMatch) continue;
-
-                        result.push({
-                            order_code: order.order_code,
-                            delivery_staff: staff.name,
-                        });
-                        
-                        // Log khi chia thành công
-                        if (orderIdx < 5) {
-                            console.log(`    ✅ Chia cho: ${staff.name}`);
-                        }
-                        
-                        nextIndex = (idx + 1) % staffListWithBranch.length;
-                        assigned = true;
-                        break;
                     }
 
-                    if (!assigned) {
+                    if (eligible.length === 0) {
                         const orderTeam = order.team?.toString().trim() || '';
                         console.warn(
                             `⚠️ [${branchName}] Bỏ qua đơn ${order.order_code}: không có NV U1 khớp team="${orderTeam}"`
                         );
+                        return;
                     }
+
+                    // Chọn nhân viên có "tổng đơn trong ngày" thấp nhất: today + assignedThisRun
+                    let best = null;
+                    let bestScore = Infinity;
+                    eligible.forEach(({ idx, staff }) => {
+                        const name = String(staff.name || '').trim();
+                        const today = Number(todayOrderCountByStaff[name]) || 0;
+                        const added = Number(assignedThisRunByStaff[name]) || 0;
+                        const score = today + added;
+                        if (score < bestScore) {
+                            bestScore = score;
+                            best = { idx, staff, score, today, added };
+                        }
+                    });
+
+                    // Tie-break: nếu nhiều người cùng score, ưu tiên theo vòng (eligible đang được duyệt từ nextIndex)
+                    const bestCandidates = eligible.filter(({ staff }) => {
+                        const name = String(staff.name || '').trim();
+                        const today = Number(todayOrderCountByStaff[name]) || 0;
+                        const added = Number(assignedThisRunByStaff[name]) || 0;
+                        return today + added === bestScore;
+                    });
+                    const chosen = bestCandidates[0] || best;
+                    const chosenName = String(chosen.staff.name || '').trim();
+
+                    result.push({
+                        order_code: order.order_code,
+                        delivery_staff: chosenName,
+                    });
+                    assignedThisRunByStaff[chosenName] = (assignedThisRunByStaff[chosenName] || 0) + 1;
+
+                    // Log chi tiết cho 5 đơn đầu
+                    if (orderIdx < 5) {
+                        const today = Number(todayOrderCountByStaff[chosenName]) || 0;
+                        const added = Number(assignedThisRunByStaff[chosenName]) || 0;
+                        console.log(
+                            `  [Đơn ${orderIdx + 1}/${remainingOrders.length}] ${order.order_code}: ` +
+                            `team="${orderTeam}" -> ✅ ${chosenName} (tổng hôm nay: ${today} + mới gán: ${added} = ${today + added})`
+                        );
+                    }
+
+                    // Cập nhật nextIndex: bắt đầu tie-break từ người sau người vừa được chọn
+                    nextIndex = (chosen.idx + 1) % staffListWithBranch.length;
                 });
-                console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${remainingOrders.length} đơn theo vòng (round-robin U1)`);
+                console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${remainingOrders.length} đơn theo cân bằng tải (ưu tiên người ít đơn trong ngày)`);
             }
 
             // Log tổng kết chi tiết
@@ -938,7 +1053,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         });
 
         // Chia đơn HCM
-        addLog('📋 Bước 7: Chia đơn theo vòng (U1) — round-robin', 'info');
+        addLog('📋 Bước 7: Chia đơn theo cân bằng tải (U1) — ưu tiên người ít đơn trong ngày', 'info');
         if (!branchFilter || branchFilter === 'HCM') {
             addLog(`📋 Chia đơn HCM - Nhân viên: ${nhanVienHCM.length} người, Đơn cần chia: ${ordersHCM.length} đơn`, 'info');
             console.log(`\n📋 [Chia đơn vận đơn] ========== BẮT ĐẦU CHIA ĐƠN HCM ==========`);
