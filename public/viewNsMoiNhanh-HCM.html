@@ -1794,7 +1794,7 @@
       if (endDate) endDate.setHours(23, 59, 59, 999);
 
 
-      if ((startDate && isNaN(startDate)) || (endDate && isNaN(endDate))) return [];
+      if ((startDate && isNaN(startDate.getTime())) || (endDate && isNaN(endDate.getTime()))) return [];
 
       let selectedProducts, selectedMarkets, selectedCas, selectedTeams;
       if (isMktTab) {
@@ -2502,6 +2502,7 @@
         const dayDetailTotals = sumDetailTotalsFromRows(dayRaw);
         let dailyList = generateSummaryTableData(dayRaw);
         sortList(dailyList, { column: null, direction: 'asc' }, summaryColumnSortKeys, { prop: 'team', type: 'string' });
+        window.__LUMI_MKT_ALERT_DATE_LABEL = date;
         const { bodyHtml, footHtml } = generateSummaryTableHTML(dailyList, selectedMarkets, dayDetailTotals);
         return `<h3>${date}</h3><div class="table-responsive-container"><table class="sortable-table daily-summary-table" data-date="${date}">
         <thead><tr>
@@ -2618,6 +2619,13 @@
             <td class="total-value">${formatPercent(tPc)}</td>
             <td class="total-value">${formatCurrency(tPdt)}</td>
         </tr>`;
+      try {
+        const dateLabel = String(window.__LUMI_MKT_ALERT_DATE_LABEL || '').trim() || 'Tổng hợp';
+        const alerts = buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets);
+        safePostMktAlerts(alerts);
+      } catch {
+        // ignore
+      }
       return { bodyHtml: bodyRowsHtml, footHtml: totalRowHtml };
     }
 
@@ -2889,6 +2897,169 @@
     function formatPercent(v) {
       if (!isFinite(v)) return '0.00%';
       return `${(Number(v || 0) * 100).toFixed(2)}%`;
+    }
+
+    // =================================================================================
+    // --- XI. CẢNH BÁO KPI (postMessage → host React) ---
+    // =================================================================================
+    const LUMI_MKT_ALERTS_MSG_TYPE = 'LUMINEW_MKT_ALERTS';
+    function safePostMktAlerts(alerts) {
+      try {
+        const payload = {
+          source: 'luminew-mkt-iframe',
+          type: LUMI_MKT_ALERTS_MSG_TYPE,
+          v: 1,
+          ts: Date.now(),
+          page: 'xem-bao-cao-mkt',
+          alerts: Array.isArray(alerts) ? alerts : [],
+        };
+        window.parent && window.parent.postMessage(payload, '*');
+      } catch (e) {
+        // ignore
+      }
+    }
+    function buildAlertId(parts) {
+      return parts.map((x) => String(x ?? '').trim()).join('\u0000');
+    }
+    function parseDdMmYyyyToMs(label) {
+      const m = String(label || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (!m) return null;
+      const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+      if (!isFinite(d) || !isFinite(mo) || !isFinite(y)) return null;
+      const ms = new Date(y, mo - 1, d, 0, 0, 0, 0).getTime();
+      return isFinite(ms) ? ms : null;
+    }
+    function buildMktKpiAlertsForSummaryRows(dateLabel, dataList, selectedMarkets) {
+      const alerts = [];
+      const now = Date.now();
+      const reportDateMs = parseDdMmYyyyToMs(dateLabel);
+      (dataList || []).forEach((s) => {
+        const employeeName = String(s?.name || '').trim();
+        const team = String(s?.team || '').trim();
+        if (!employeeName) return;
+
+        const mess = Number(s?.mess) || 0;
+        const don = Number(s?.don) || 0;
+        const donThucTe = Number(s?.donThucTe) || 0;
+        const chot = Number(s?.chot) || 0;
+        const cpqc = Number(s?.cpqc) || 0;
+
+        const tiLeChot = mess ? don / mess : 0;
+        const tiLeChotTT = mess ? donThucTe / mess : 0;
+        const giaMess = mess ? cpqc / mess : 0;
+        const cps = don ? cpqc / don : 0;
+        const cpds = chot ? cpqc / chot : 0;
+
+        if (tiLeChot <= 0.05) {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'ti_le_chot', 'critical']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `Tỉ lệ chốt thấp: ${formatPercent(tiLeChot)}`,
+            cause: 'Ngưỡng cảnh báo: <= 5%',
+            severity: 'critical',
+          });
+        } else if (tiLeChot <= 0.1) {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'ti_le_chot', 'warning']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `Tỉ lệ chốt chạm ngưỡng: ${formatPercent(tiLeChot)}`,
+            cause: 'Ngưỡng theo bảng: 5%–10%',
+            severity: 'warning',
+          });
+        }
+
+        if (tiLeChotTT <= 0.05) {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'ti_le_chot_tt', 'critical']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `Tỉ lệ chốt (TT) thấp: ${formatPercent(tiLeChotTT)}`,
+            cause: 'Ngưỡng cảnh báo: <= 5%',
+            severity: 'critical',
+          });
+        } else if (tiLeChotTT <= 0.1) {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'ti_le_chot_tt', 'warning']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `Tỉ lệ chốt (TT) chạm ngưỡng: ${formatPercent(tiLeChotTT)}`,
+            cause: 'Ngưỡng theo bảng: 5%–10%',
+            severity: 'warning',
+          });
+        }
+
+        const cpsClass = getCpsCellStyle(cps, selectedMarkets || []);
+        if (cpsClass === 'bg-lightred') {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'cps', 'critical']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `CPS vượt ngưỡng đỏ: ${formatCurrency(cps)}`,
+            cause:
+              'Ngưỡng CPS đỏ theo nhóm thị trường (Châu Á > 1,000,000 hoặc Ngoài Châu Á > 1,500,000)',
+            severity: 'critical',
+          });
+        } else if (cpsClass === 'bg-yellow') {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'cps', 'warning']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `CPS chạm ngưỡng: ${formatCurrency(cps)}`,
+            cause:
+              'Ngưỡng CPS vàng theo nhóm thị trường (Châu Á > 700,000 hoặc Ngoài Châu Á > 1,000,000)',
+            severity: 'warning',
+          });
+        }
+
+        if (cpds > 0.33) {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'cpds', 'warning']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `%CP/DS cao: ${formatPercent(cpds)}`,
+            cause: 'Ngưỡng theo bảng: > 33%',
+            severity: 'warning',
+          });
+        }
+
+        if (giaMess > 0 && giaMess >= 2e6) {
+          alerts.push({
+            id: buildAlertId([dateLabel, employeeName, 'gia_mess', 'info']),
+            ts: now,
+            dateLabel,
+            reportDateMs,
+            employeeName,
+            team,
+            content: `Giá Mess cao bất thường: ${formatCurrency(giaMess)}`,
+            cause: 'Kiểm tra lại Mess/Cmt hoặc CPQC (ngưỡng kỹ thuật >= 2,000,000)',
+            severity: 'info',
+          });
+        }
+      });
+      return alerts;
     }
     function getCpsCellStyle(cps, selectedMarkets) {
       const hasAsia = selectedMarkets.some(m => m === 'Châu Á' || MARKET_GROUPS['Châu Á'].includes(m));
