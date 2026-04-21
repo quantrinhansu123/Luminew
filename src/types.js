@@ -46,7 +46,7 @@ export const BILL_LADING_COLUMNS = [
 export const DEFAULT_BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add", "City", "State",
     "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
-    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT", "Page", "Lịch sử thay đổi"
+    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT", "Page", "Nhật ký", "Lịch sử thay đổi"
 ];
 
 /**

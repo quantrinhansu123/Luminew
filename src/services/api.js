@@ -5,6 +5,7 @@ import {
     formatOrderLogJsonbForDisplay,
     labelForOrderLogDbKey,
     mergeOrderLogJsonb,
+    ORDER_LOG_TRACKED_DB_KEYS,
     parseOrderLogJsonb,
 } from '../utils/orderLogJsonb';
 import {
@@ -872,13 +873,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                 const prev = parseOrderLogJsonb(dbRow?.log);
                 const ts = new Date().toISOString();
                 const nv = String(modifiedBy || '').trim() || 'hệ thống';
-                const LOG_TRACKED_DB_KEYS = new Set([
-                    'check_result',
-                    'delivery_status_nb',
-                    'payment_status',
-                    'tracking_code',
-                    'delivery_staff',
-                ]);
+                const LOG_TRACKED_DB_KEYS = new Set(ORDER_LOG_TRACKED_DB_KEYS);
                 const entries = trail
                         .map((ch) => {
                             const dbK = resolveAppKeyToDbKey(ch.colKey);
