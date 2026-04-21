@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   Award,
   BarChart3,
   CalendarCheck,
@@ -729,6 +730,12 @@ function Home() {
           label: "Công cụ quản trị & Chốt ca",
           icon: <Settings className="w-4 h-4" />,
           path: "/admin-tools",
+        },
+        {
+          id: "mkt-alerts-admin",
+          label: "Quản lý cảnh báo MKT",
+          icon: <AlertTriangle className="w-4 h-4" />,
+          path: "/admin/mkt-alerts",
         },
         {
           id: "change-logs",
@@ -1529,6 +1536,14 @@ function Home() {
           icon: <Settings className="w-8 h-8" />,
           color: "bg-gray-600",
           path: "/admin-tools",
+          status: "Mở ứng dụng",
+          adminOnly: true,
+        },
+        {
+          title: "Quản lý cảnh báo MKT",
+          icon: <AlertTriangle className="w-8 h-8" />,
+          color: "bg-orange-600",
+          path: "/admin/mkt-alerts",
           status: "Mở ứng dụng",
           adminOnly: true,
         },

@@ -2919,7 +2919,7 @@
       }
     }
     function buildAlertId(parts) {
-      return parts.map((x) => String(x ?? '').trim()).join('\u0000');
+      return parts.map((x) => String(x ?? '').trim()).join('|');
     }
     function parseDdMmYyyyToMs(label) {
       const m = String(label || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);

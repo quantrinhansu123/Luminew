@@ -63,6 +63,7 @@ import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
 import DashboardQuanTri from './pages/DashboardQuanTri';
 import XemBaoCaoMKTLegacy, { XEM_BAO_CAO_MKT_HCM_TEAM } from './pages/XemBaoCaoMKTLegacy';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
+import MktKpiAlertsAdmin from './pages/MktKpiAlertsAdmin';
 import TestMKT from './pages/TestMKT.jsx';
 import TestBaoCaoOrders from './pages/TestBaoCaoOrders.jsx';
 
@@ -334,6 +335,7 @@ function AppShell() {
 
             {/* Admin Tools & System — cần đăng nhập + quyền ADMIN_TOOLS (xem trong AdminTools.jsx) */}
             <Route path="/admin-tools" element={<ProtectedRoute><AdminTools /></ProtectedRoute>} />
+            <Route path="/admin/mkt-alerts" element={<ProtectedRoute><MktKpiAlertsAdmin /></ProtectedRoute>} />
             <Route path="/admin" element={<Navigate to="/admin-tools" replace />} />
 
             <Route path="/news/:id" element={<ProtectedRoute><NewsDetail /></ProtectedRoute>} />

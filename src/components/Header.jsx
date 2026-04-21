@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { submitMktKpiAlertExplanation } from "../services/mktKpiAlertsService";
 
 const MKT_ALERTS_STORAGE_KEY = "luminew.mktAlerts.v1";
 const MKT_ALERTS_READ_KEY = "luminew.mktAlerts.read.v1";
@@ -37,6 +38,11 @@ export default function Header() {
     return new Set(ids.map((x) => String(x)));
   });
   const [open, setOpen] = useState(false);
+  const [explainOpen, setExplainOpen] = useState(false);
+  const [activeAlert, setActiveAlert] = useState(null);
+  const [explanation, setExplanation] = useState("");
+  const [solution, setSolution] = useState("");
+  const [savingExplain, setSavingExplain] = useState(false);
   const popoverRef = useRef(null);
 
   const handleLogout = () => {
@@ -95,6 +101,8 @@ export default function Header() {
     const fromObj = userObj?.Name ?? userObj?.name ?? userObj?.["Họ và Tên"] ?? userObj?.["Họ_và_tên"] ?? "";
     return String(fromUserName || fromObj || username || "").trim();
   }, [username]);
+
+  const userEmail = useMemo(() => String(localStorage.getItem("userEmail") || "").trim(), []);
 
   const visibleAlerts = useMemo(() => {
     const all = Array.isArray(alertsPayload?.alerts) ? alertsPayload.alerts : [];
@@ -233,25 +241,9 @@ export default function Header() {
                           const content = String(a?.content || a?.noiDung || "").trim();
                           const cause = String(a?.cause || a?.nguyenNhan || "").trim();
                           return (
-                            <button
+                            <div
                               key={id || `${employee}-${ts}-${content}`}
-                              type="button"
-                              onClick={() => {
-                                if (id) {
-                                  const next = new Set(readIds);
-                                  next.add(id);
-                                  setReadIds(next);
-                                  try {
-                                    localStorage.setItem(
-                                      MKT_ALERTS_READ_KEY,
-                                      JSON.stringify({ v: 1, ids: Array.from(next) })
-                                    );
-                                  } catch {
-                                    /* ignore */
-                                  }
-                                }
-                              }}
-                              className={`w-full text-left px-3 py-2 border-b border-gray-100 hover:bg-gray-50 ${
+                              className={`px-3 py-2 border-b border-gray-100 ${
                                 unread ? "bg-red-50" : "bg-white"
                               }`}
                             >
@@ -263,7 +255,43 @@ export default function Header() {
                               </div>
                               <div className="text-xs text-gray-800 mt-0.5">{content}</div>
                               {cause && <div className="text-[11px] text-gray-600 mt-0.5">Nguyên nhân: {cause}</div>}
-                            </button>
+
+                              <div className="mt-2 flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (id) {
+                                      const next = new Set(readIds);
+                                      next.add(id);
+                                      setReadIds(next);
+                                      try {
+                                        localStorage.setItem(
+                                          MKT_ALERTS_READ_KEY,
+                                          JSON.stringify({ v: 1, ids: Array.from(next) })
+                                        );
+                                      } catch {
+                                        /* ignore */
+                                      }
+                                    }
+                                  }}
+                                  className="text-xs font-semibold px-2 py-1 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+                                >
+                                  Đã đọc
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveAlert(a);
+                                    setExplanation("");
+                                    setSolution("");
+                                    setExplainOpen(true);
+                                  }}
+                                  className="text-xs font-semibold px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                                >
+                                  Giải trình
+                                </button>
+                              </div>
+                            </div>
                           );
                         })
                       )}
@@ -319,6 +347,85 @@ export default function Header() {
           </div>
         </div>
       </div>
+
+      {explainOpen && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/40 p-3">
+          <div className="w-full max-w-xl rounded-lg bg-white shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+              <div className="text-sm font-bold text-gray-800">Giải trình cảnh báo</div>
+              <button
+                type="button"
+                onClick={() => !savingExplain && setExplainOpen(false)}
+                className="text-xs font-semibold px-2 py-1 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+              >
+                Đóng
+              </button>
+            </div>
+
+            <div className="px-4 py-3">
+              <div className="text-sm font-semibold text-gray-900">
+                {String(activeAlert?.content || activeAlert?.noiDung || "").trim() || "Cảnh báo"}
+              </div>
+              {String(activeAlert?.cause || activeAlert?.nguyenNhan || "").trim() && (
+                <div className="text-xs text-gray-600 mt-1">
+                  Nguyên nhân: {String(activeAlert?.cause || activeAlert?.nguyenNhan || "").trim()}
+                </div>
+              )}
+
+              <div className="mt-4">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Giải trình</label>
+                <textarea
+                  value={explanation}
+                  onChange={(e) => setExplanation(e.target.value)}
+                  rows={4}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                  placeholder="Nhập giải trình…"
+                />
+              </div>
+
+              <div className="mt-3">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Giải pháp</label>
+                <textarea
+                  value={solution}
+                  onChange={(e) => setSolution(e.target.value)}
+                  rows={3}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                  placeholder="Đề xuất giải pháp…"
+                />
+              </div>
+            </div>
+
+            <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={savingExplain}
+                onClick={async () => {
+                  const alertId = String(activeAlert?.id || "").trim();
+                  if (!alertId) return;
+                  setSavingExplain(true);
+                  try {
+                    await submitMktKpiAlertExplanation({
+                      alertId,
+                      explanation,
+                      solution,
+                      byEmail: userEmail,
+                      byName: currentUserName,
+                    });
+                    setExplainOpen(false);
+                  } catch (e) {
+                    alert(e?.message || String(e));
+                  } finally {
+                    setSavingExplain(false);
+                  }
+                }}
+                className="text-xs font-semibold px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-400"
+              >
+                {savingExplain ? "Đang lưu..." : "Gửi giải trình"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

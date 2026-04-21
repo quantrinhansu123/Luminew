@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 
 import usePermissions from '../hooks/usePermissions';
 import * as rbacService from '../services/rbacService';
+import { upsertMktKpiAlerts } from '../services/mktKpiAlertsService';
 
 /** Khớp iframe `viewNsMoiNhanh-HCM.html` — phạm vi nhân sự (email/username → users.selected_personnel qua getSelectedPersonnelForLogin). */
 export const MKT_HCM_LEGACY_PERSONNEL_SCOPE_KEY = 'luminew.mktHcmLegacy.scope';
@@ -62,6 +63,8 @@ export default function XemBaoCaoMKTLegacy({
 
   const [hcmPersonnelGate, setHcmPersonnelGate] = useState(() => !usesIframeTeamFilter);
   const hcmScopePayloadRef = useRef(null);
+  const pendingSyncRef = useRef([]);
+  const syncTimerRef = useRef(null);
 
   // Nhận cảnh báo từ iframe, lưu localStorage để Header đọc.
   useEffect(() => {
@@ -126,10 +129,38 @@ export default function XemBaoCaoMKTLegacy({
       } catch (e) {
         console.error('[XemBaoCaoMKTLegacy] store alerts:', e);
       }
+
+      // Đồng bộ DB: debounce theo batch để tránh spam khi iframe render nhiều ngày.
+      try {
+        const incomingForDb = Array.isArray(msg.alerts) ? msg.alerts : [];
+        if (incomingForDb.length > 0) {
+          pendingSyncRef.current = [...pendingSyncRef.current, ...incomingForDb];
+          if (syncTimerRef.current) {
+            clearTimeout(syncTimerRef.current);
+          }
+          syncTimerRef.current = setTimeout(async () => {
+            const batch = pendingSyncRef.current;
+            pendingSyncRef.current = [];
+            syncTimerRef.current = null;
+            console.log('[XemBaoCaoMKTLegacy] 🔄 Syncing', batch.length, 'alerts to database...');
+            try {
+              const result = await upsertMktKpiAlerts(batch, { sourcePage: payload.page });
+              console.log('[XemBaoCaoMKTLegacy] ✅ Sync completed:', result);
+            } catch (err) {
+              console.error('[XemBaoCaoMKTLegacy] ❌ sync mkt_kpi_alerts error:', err);
+            }
+          }, 800);
+        }
+      } catch (err) {
+        console.error('[XemBaoCaoMKTLegacy] schedule sync:', err);
+      }
     };
 
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
