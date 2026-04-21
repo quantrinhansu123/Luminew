@@ -35,51 +35,60 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         // Lưu cả name và chi_nhanh để khớp với team của đơn
         const nhanVienHCM = [];
         const nhanVienHaNoi = [];
+        const nhanVienSkipped = [];
+
+        // Helper chuẩn hóa để so khớp chi nhánh (xóa dấu, xóa khoảng trắng, chữ thường)
+        const ultraNormalize = (s) => {
+            return String(s || '')
+                .trim()
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '') // Xóa dấu
+                .replace(/[.\-_/]/g, ' ')       // Thay ký tự đặc biệt bằng dấu cách
+                .replace(/\s+/g, '')            // Xóa mọi khoảng trắng
+                .trim();
+        };
 
         nhanVienU1.forEach(item => {
             const name = String(item.ho_va_ten || '').trim();
             const chiNhanhRaw = item.chi_nhanh || '';
-            const chiNhanh = chiNhanhRaw.toString().trim();
-            const chiNhanhLower = chiNhanh.toLowerCase();
-            const chiNhanhClean = chiNhanhLower.replace(/[^\w\sàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi, '').replace(/\s+/g, ' ').trim();
+            const normalizedBranch = ultraNormalize(chiNhanhRaw);
             
-            // Kiểm tra HCM - nhận diện nhiều biến thể
-            const isHCM = chiNhanh === 'HCM' ||
-                         chiNhanhLower === 'hcm' ||
-                         chiNhanhClean === 'hcm' ||
-                         chiNhanhLower === 'hồ chí minh' ||
-                         chiNhanhLower === 'ho chi minh' ||
-                         chiNhanhClean === 'hochiminh' ||
-                         chiNhanhLower.includes('hcm') ||
-                         chiNhanhLower.includes('hồ chí minh') ||
-                         chiNhanhLower.includes('ho chi minh') ||
-                         chiNhanhClean.includes('hcm') ||
-                         chiNhanhClean.includes('hochiminh');
-            
-            // Kiểm tra Hà Nội - nhận diện nhiều biến thể
-            const isHanoi = chiNhanh === 'Hà Nội' ||
-                           chiNhanhLower === 'hà nội' ||
-                           chiNhanhClean === 'hanoi' ||
-                           chiNhanhClean === 'ha noi' ||
-                           chiNhanhLower === 'ha noi' ||
-                           chiNhanhLower === 'hanoi' ||
-                           chiNhanhLower.includes('hà nội') ||
-                           chiNhanhLower.includes('hanoi') ||
-                           chiNhanhLower.includes('ha noi') ||
-                           chiNhanhClean.includes('hanoi');
+            // Log chi tiết để debug nếu cần
+            console.log(`Checking staff: ${name} | Branch: ${chiNhanhRaw} | Normalized: ${normalizedBranch}`);
+
+            const isHCM = normalizedBranch === 'hcm' || 
+                         normalizedBranch === 'tphcm' || 
+                         normalizedBranch === 'hochiminh' || 
+                         normalizedBranch.includes('hcm');
+
+            const isHanoi = normalizedBranch === 'hanoi' || 
+                           normalizedBranch === 'hn' ||
+                           normalizedBranch.includes('hanoi');
             
             if (isHCM) {
-                nhanVienHCM.push({ name, chi_nhanh: 'HCM' }); // Chuẩn hóa về 'HCM'
-            } else if (isHanoi) {
-                nhanVienHaNoi.push({ name, chi_nhanh: 'Hà Nội' }); // Chuẩn hóa về 'Hà Nội'
-            } else if (chiNhanh) {
-                console.warn(`⚠️ [Chia đơn vận đơn] Nhân viên "${name}" có chi_nhanh="${chiNhanh}" không phải HCM/Hà Nội, bỏ qua`);
+                nhanVienHCM.push({ name, chi_nhanh: 'HCM' });
+            } else if (isHanoi || normalizedBranch === 'hanoi') {
+                nhanVienHaNoi.push({ name, chi_nhanh: 'Hà Nội' });
+            } else {
+                nhanVienSkipped.push({ 
+                    name, 
+                    reason: chiNhanhRaw ? `Chi nhánh "${chiNhanhRaw}" không khớp (Hà Nội/HCM)` : 'Thiếu thông tin Chi nhánh' 
+                });
+                console.warn(`⚠️ [Chia đơn vận đơn] Nhân viên "${name}" bị bỏ qua: chi_nhanh="${chiNhanhRaw}"`);
             }
         });
 
         addLog('📋 Bước 2: Phân loại nhân viên theo chi nhánh', 'info');
-        addLog(`📍 HCM: ${nhanVienHCM.length} nhân viên (${nhanVienHCM.map(s => s.name).join(', ')})`, 'info');
-        addLog(`📍 Hà Nội: ${nhanVienHaNoi.length} nhân viên (${nhanVienHaNoi.map(s => s.name).join(', ')})`, 'info');
+        addLog(`📍 HCM: ${nhanVienHCM.length} nhân viên`, 'info');
+        addLog(`📍 Hà Nội: ${nhanVienHaNoi.length} nhân viên`, 'info');
+        
+        if (nhanVienSkipped.length > 0) {
+            addLog(`⚠️ CẢNH BÁO: Có ${nhanVienSkipped.length} nhân sự U1 bị loại bỏ:`, 'warning');
+            nhanVienSkipped.forEach(s => {
+                addLog(`   - ${s.name}: ${s.reason}`, 'warning');
+            });
+        }
         console.log(`📍 [Chia đơn vận đơn] Phân loại nhân viên theo chi nhánh:`);
         console.log(`  - HCM: ${nhanVienHCM.length} nhân viên`, nhanVienHCM.map(s => s.name));
         console.log(`  - Hà Nội: ${nhanVienHaNoi.length} nhân viên`, nhanVienHaNoi.map(s => s.name));

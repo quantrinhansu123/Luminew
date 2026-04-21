@@ -237,6 +237,9 @@ const AdminTools = () => {
     });
     const [lastAutoChiaHour, setLastAutoChiaHour] = useState(null); // Lưu giờ cuối cùng đã chạy
     const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+    const [activeStaffPreview, setActiveStaffPreview] = useState([]);
+    const [isPreviewStaffLoading, setIsPreviewStaffLoading] = useState(false);
+    const [showStaffPreviewModal, setShowStaffPreviewModal] = useState(false);
 
     // --- VIEW CHIA ĐƠN VẬN ĐƠN ---
     const [chiaDonViewDate, setChiaDonViewDate] = useState(() => {
@@ -1825,16 +1828,58 @@ const AdminTools = () => {
         }
     };
 
-    const handleSwitchToProd = () => {
-        if (!window.confirm("Bạn có chắc muốn chuyển hệ thống sang chế độ PRODUCTION (Dữ liệu thật)?")) return;
-        setSettings(prev => ({ ...prev, dataSource: 'prod' }));
-        // Also save immediately
-        const newSettings = { ...settings, dataSource: 'prod' };
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-        toast.success("Đã chuyển sang chế độ PRODUCTION!");
-        // We should probably save to DB too? But this is System Settings managed in localStorage (and synced to DB via another effect maybe).
-        // For now localstorage update. 'handleSaveSettings' does DB save.
-        handleSaveSettings(newSettings);
+    const handleUpdateActiveTab = (tab) => {
+        setActiveTab(tab);
+    };
+
+    // --- HÀM XEM TRƯỚC NHÂN SỰ ĐI LÀM ---
+    const handlePreviewActiveStaff = async () => {
+        setIsPreviewStaffLoading(true);
+        setShowStaffPreviewModal(true);
+        try {
+            const { data, error } = await supabase
+                .from('danh_sach_van_don')
+                .select('ho_va_ten, chi_nhanh, trang_thai_chia');
+            
+            if (error) throw error;
+
+            const ultraNormalize = (s) => {
+                return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[.\-_/]/g, ' ').replace(/\s+/g, '').trim();
+            };
+
+            const processed = (data || []).map(item => {
+                const status = String(item.trang_thai_chia || '').trim().toUpperCase();
+                const branchRaw = String(item.chi_nhanh || '').trim();
+                const norm = ultraNormalize(branchRaw);
+                
+                let detectedBranch = 'Không xác định';
+                let isValid = false;
+
+                if (norm === 'hcm' || norm === 'tphcm' || norm === 'hochiminh' || norm.includes('hcm')) {
+                    detectedBranch = 'HCM';
+                    isValid = true;
+                } else if (norm === 'hanoi' || norm === 'hn' || norm.includes('hanoi')) {
+                    detectedBranch = 'Hà Nội';
+                    isValid = true;
+                }
+
+                return {
+                    name: item.ho_va_ten,
+                    status: status,
+                    rawBranch: branchRaw,
+                    detectedBranch: detectedBranch,
+                    isU1: status === 'U1',
+                    isValid: isValid && status === 'U1'
+                };
+            }).filter(p => p.isU1); // Chỉ xem những người đang để U1
+
+            setActiveStaffPreview(processed);
+        } catch (err) {
+            console.error(err);
+            toast.error('Không thể tải danh sách nhân sự: ' + err.message);
+        } finally {
+            setIsPreviewStaffLoading(false);
+        }
     };
 
     // --- AUTO ASSIGN FUNCTIONS ---
@@ -4735,6 +4780,13 @@ const AdminTools = () => {
                                                 </>
                                             )}
                                         </button>
+                                        <button
+                                            onClick={handlePreviewActiveStaff}
+                                            className="w-full mt-2 bg-white border border-blue-600 text-blue-600 hover:bg-blue-50 rounded-lg px-4 py-2 text-xs font-bold transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <Users className="w-4 h-4" />
+                                            Kiểm tra danh sách U1 đang đi làm
+                                        </button>
                                     </div>
 
                                     {/* View danh sách đơn đã chia vận đơn theo ngày */}
@@ -5265,6 +5317,72 @@ const AdminTools = () => {
                                 )}
                             </div>
                         </div>
+
+                        {/* --- MODAL XEM TRƯỚC NHÂN SỰ U1 --- */}
+                        {showStaffPreviewModal && (
+                            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                                <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+                                    <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
+                                        <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                                            <Users className="w-5 h-5 text-blue-600" />
+                                            Danh sách nhân sự U1 đang đi làm
+                                        </h3>
+                                        <button onClick={() => setShowStaffPreviewModal(false)} className="p-1 hover:bg-gray-200 rounded-full transition-colors">
+                                            <X className="w-6 h-6 text-gray-400" />
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="p-6 overflow-y-auto max-h-[60vh]">
+                                        {isPreviewStaffLoading ? (
+                                            <div className="py-12 flex flex-col items-center justify-center gap-3 text-gray-400">
+                                                <RefreshCw className="w-8 h-8 animate-spin" />
+                                                <p>Đang kiểm tra dữ liệu...</p>
+                                            </div>
+                                        ) : activeStaffPreview.length > 0 ? (
+                                            <div className="space-y-3">
+                                                <div className="grid grid-cols-12 gap-2 px-2 text-[10px] font-bold text-gray-400 uppercase">
+                                                    <div className="col-span-5">Họ và tên</div>
+                                                    <div className="col-span-4">Chi nhánh (Gốc / Máy hiểu)</div>
+                                                    <div className="col-span-3 text-right">Trạng thái</div>
+                                                </div>
+                                                {activeStaffPreview.map((p, i) => (
+                                                    <div key={i} className={`grid grid-cols-12 items-center gap-2 p-3 rounded-xl border ${p.isValid ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
+                                                        <div className="col-span-5">
+                                                            <p className="font-bold text-gray-800">{p.name}</p>
+                                                            {!p.isValid && <p className="text-[10px] text-red-600 font-medium">Bị loại: {p.detectedBranch === 'Không xác định' ? 'Sai chi nhánh' : 'Lỗi hệ thống'}</p>}
+                                                        </div>
+                                                        <div className="col-span-4 text-xs">
+                                                            <span className="text-gray-400 italic">{p.rawBranch || '(Trống)'}</span>
+                                                            <span className="mx-1 text-gray-300">→</span>
+                                                            <span className={`font-bold ${p.detectedBranch === 'Không xác định' ? 'text-red-500' : 'text-blue-600'}`}>
+                                                                {p.detectedBranch}
+                                                            </span>
+                                                        </div>
+                                                        <div className="col-span-3 text-right">
+                                                            <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-[10px] font-bold">U1</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="py-12 text-center text-gray-400 italic">
+                                                Không tìm thấy nhân sự nào đang để trạng thái U1.
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    <div className="p-4 bg-blue-50 text-[11px] text-blue-700 leading-relaxed border-t">
+                                        💡 <strong>Mẹo:</strong> Nếu nhân sự không có tên ở đây, hãy kiểm tra cột "Trạng thái chia" trong bảng vận đơn. Nếu tên hiển thị đỏ, hãy sửa lại cột "Chi nhánh" cho đúng (Hà Nội hoặc HCM).
+                                    </div>
+                                    
+                                    <div className="p-4 flex justify-end">
+                                        <button onClick={() => setShowStaffPreviewModal(false)} className="px-6 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-colors">
+                                            Đã hiểu
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
