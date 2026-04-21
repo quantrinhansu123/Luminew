@@ -274,6 +274,17 @@ function DoiSoatBillCuoc() {
   const [showBulkDropdown, setShowBulkDropdown] = useState(false);
   const accountantOptions = ["", "Đã thu tiền", "Chưa thu tiền", "Treo", "Hủy", "Khác"];
 
+  /** Tiến độ đồng bộ */
+  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0, active: false });
+
+  // Helper chia mảng thành các lô nhỏ (chunks)
+  const chunkArray = (array, size) => {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  };
 
   /** Đếm lần thanh toán: cùng Mã Tracking (tracking thật) hoặc cùng Mã đơn (dropoff / trống tracking). */
   const billDataWithTableDemLan = useMemo(() => {
@@ -1220,44 +1231,57 @@ function DoiSoatBillCuoc() {
         return;
       }
 
-      // 6. Tiến hành lưu dữ liệu
+      // 6. Tiến hành lưu dữ liệu THEO LÔ (Batch Update)
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
-      const syncRows = [];
+      const syncLogRows = [];
+      
+      const ordersToUpdate = allOrderCodes
+        .filter(oc => existingOrderCodes.has(oc))
+        .map(oc => {
+          const info = finalUpdateMap.get(oc);
+          return {
+            order_code: oc,
+            reconciled_vnd: info.total_vnd,
+            accountant_confirm: info.acc_confirm
+          };
+        });
 
-      for (const orderCode of allOrderCodes) {
-        if (!existingOrderCodes.has(orderCode)) continue;
+      setSyncProgress({ current: 0, total: ordersToUpdate.length, active: true });
+      
+      const chunks = chunkArray(ordersToUpdate, 50); // Lô 50 đơn
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
         
-        const info = finalUpdateMap.get(orderCode);
-        const updateData = { 
-          reconciled_vnd: info.total_vnd,
-          accountant_confirm: info.acc_confirm
-        };
-
+        // Cập nhật lên bảng orders dùng upsert (nhanh hơn update từng dòng)
         const { error: updateError } = await supabase
           .from('orders')
-          .update(updateData)
-          .eq('order_code', orderCode);
+          .upsert(chunk, { onConflict: 'order_code' });
 
         if (updateError) {
-          console.error(`Error updating order ${orderCode}:`, updateError);
+          console.error(`Error batch updating orders (chunk ${i}):`, updateError);
         } else {
-          updateCount++;
-          syncRows.push({
-            sync_batch_id: syncBatchId,
-            synced_at: syncTime,
-            order_code: orderCode,
-            shipping_cost: null,
-            total_vnd: null,
-            revenue_actual: info.total_vnd ?? null,
-            order_count_actual: null,
+          updateCount += chunk.length;
+          // Chuẩn bị dữ liệu log
+          chunk.forEach(item => {
+            syncLogRows.push({
+              sync_batch_id: syncBatchId,
+              synced_at: syncTime,
+              order_code: item.order_code,
+              shipping_cost: null,
+              total_vnd: null,
+              revenue_actual: item.reconciled_vnd ?? null,
+              order_count_actual: null,
+            });
           });
         }
+        
+        setSyncProgress(prev => ({ ...prev, current: updateCount }));
       }
 
-      if (syncRows.length > 0) {
-        await supabase.from('bill_sync_results').insert(syncRows);
+      if (syncLogRows.length > 0) {
+        await supabase.from('bill_sync_results').insert(syncLogRows);
       }
 
       alert(`Đã đồng bộ thành công ${updateCount} đơn.`);
@@ -1269,20 +1293,12 @@ function DoiSoatBillCuoc() {
       alert('Lỗi khi đồng bộ Bill: ' + error.message);
     } finally {
       setSyncing(false);
+      setSyncProgress({ current: 0, total: 0, active: false });
     }
   };
 
   /** Chỉ ghi shipping_cost + order_count_actual từ chitiet_cuoc → orders */
   const handleSyncCuoc = async () => {
-    if (
-      !window.confirm(
-        'Đồng bộ Cước: cập nhật shipping_cost và order_count_actual lên bảng orders từ chitiet_cuoc. Tiếp tục?'
-      )
-    ) {
-      return;
-    }
-
-    setSyncing(true);
     try {
       const { data: cuocData, error: cuocError } = await supabase
         .from('chitiet_cuoc')
@@ -1290,6 +1306,7 @@ function DoiSoatBillCuoc() {
 
       if (cuocError) throw cuocError;
 
+      const cuocRowCount = cuocData?.length || 0;
       const shippingCostMap = new Map();
       const orderCountMap = new Map();
       if (cuocData) {
@@ -1317,84 +1334,68 @@ function DoiSoatBillCuoc() {
         ...Array.from(shippingCostMap.keys()),
         ...Array.from(orderCountMap.keys()),
       ]);
-      const cuocRowCount = cuocData?.length ?? 0;
+      
+      const orderCodeList = [...allOrderCodes];
+      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, orderCodeList);
+      
+      const validOrderCodes = orderCodeList.filter(oc => existingOrderCodes.has(oc));
+      const missingCount = orderCodeList.length - validOrderCodes.length;
 
-      if (allOrderCodes.size === 0) {
-        alert(`Không có dòng cước nào có mã đơn hợp lệ để đồng bộ. (chitiet_cuoc: ${cuocRowCount} dòng)`);
+      if (!window.confirm(`Đồng bộ Cước: cập nhật shipping_cost và order_count_actual lên bảng orders cho ${validOrderCodes.length} đơn. Tiếp tục?`)) {
         return;
       }
 
-      const orderCodeList = [...allOrderCodes];
-      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, orderCodeList);
-      const missingInOrders = orderCodeList.filter((c) => !existingOrderCodes.has(c));
-
+      setSyncing(true);
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
-      const syncRows = [];
+      const syncLogRows = [];
 
-      for (const orderCode of allOrderCodes) {
-        if (!existingOrderCodes.has(orderCode)) {
-          console.warn(`Đồng bộ Cước: bỏ qua — không có order_code="${orderCode}" trong orders`);
-          continue;
+      const ordersToUpdate = validOrderCodes.map(oc => {
+        const updateData = { order_code: oc };
+        if (shippingCostMap.has(oc)) {
+          updateData.shipping_cost = shippingCostMap.get(oc);
         }
-        const updateData = {};
-        if (shippingCostMap.has(orderCode)) {
-          updateData.shipping_cost = shippingCostMap.get(orderCode);
+        if (orderCountMap.has(oc)) {
+          updateData.order_count_actual = orderCountMap.get(oc);
         }
-        if (orderCountMap.has(orderCode)) {
-          updateData.order_count_actual = orderCountMap.get(orderCode);
-        }
+        return updateData;
+      });
 
-        if (Object.keys(updateData).length > 0) {
-          const { error: updateError } = await supabase
-            .from('orders')
-            .update(updateData)
-            .eq('order_code', orderCode);
+      setSyncProgress({ current: 0, total: ordersToUpdate.length, active: true });
 
-          if (updateError) {
-            console.error(`Error updating order ${orderCode}:`, updateError);
-          } else {
-            updateCount++;
-            syncRows.push({
+      const chunks = chunkArray(ordersToUpdate, 50);
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        
+        const { error: updateError } = await supabase
+          .from('orders')
+          .upsert(chunk, { onConflict: 'order_code' });
+
+        if (updateError) {
+          console.error(`Error batch updating orders (cuoc chunk ${i}):`, updateError);
+        } else {
+          updateCount += chunk.length;
+          chunk.forEach(item => {
+            syncLogRows.push({
               sync_batch_id: syncBatchId,
               synced_at: syncTime,
-              order_code: orderCode,
-              shipping_cost: updateData.shipping_cost ?? null,
+              order_code: item.order_code,
+              shipping_cost: item.shipping_cost ?? null,
               total_vnd: null,
               revenue_actual: null,
-              order_count_actual: updateData.order_count_actual ?? null,
+              order_count_actual: item.order_count_actual ?? null,
             });
-          }
+          });
         }
+        setSyncProgress(prev => ({ ...prev, current: updateCount }));
       }
 
-      if (syncRows.length > 0) {
-        const { error: syncLogError } = await supabase.from('bill_sync_results').insert(syncRows);
-        if (syncLogError) console.error('Error inserting bill_sync_results:', syncLogError);
+      if (syncLogRows.length > 0) {
+        await supabase.from('bill_sync_results').insert(syncLogRows);
       }
 
-      if (updateCount === 0) {
-        const sample = missingInOrders.slice(0, 8).join(', ');
-        alert(
-          `Không cập nhật được đơn nào từ Cước.\n` +
-            `• Dòng cước: ${cuocRowCount}\n` +
-            `• Mã gom được: ${allOrderCodes.size}\n` +
-            `• Có trong orders: ${existingOrderCodes.size}\n` +
-            (missingInOrders.length
-              ? `• Không có trong orders (ví dụ): ${sample}${missingInOrders.length > 8 ? '…' : ''}\n`
-              : '') +
-            `Kiểm tra cột Mã đơn hàng trên cước có trùng order_code trên hệ thống.`
-        );
-      } else {
-        alert(
-          `Đã đồng bộ Cước: ${updateCount} đơn.\n` +
-            `Dòng cước: ${cuocRowCount}; mã gom: ${allOrderCodes.size}.` +
-            (missingInOrders.length > 0
-              ? `\nLưu ý: ${missingInOrders.length} mã không có trong orders — đã bỏ qua.`
-              : '')
-        );
-      }
+      alert(`Đã đồng bộ Cước thành công ${updateCount} đơn.` + (missingCount > 0 ? `\n(Bỏ qua ${missingCount} mã đơn không tìm thấy)` : ''));
 
       setLastCuocSyncTime(syncTime);
       setActiveTab('cuoc_view');
@@ -1404,6 +1405,7 @@ function DoiSoatBillCuoc() {
       alert('Lỗi khi đồng bộ Cước: ' + error.message);
     } finally {
       setSyncing(false);
+      setSyncProgress({ current: 0, total: 0, active: false });
     }
   };
 
@@ -3617,6 +3619,53 @@ function DoiSoatBillCuoc() {
           </div>
         </div>
       )}
+      {/* Progress Bar Overlay when Syncing */}
+      {syncProgress.active && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-md px-4">
+          <div className="bg-white rounded-2xl shadow-[0_10px_50px_rgba(0,0,0,0.15)] border border-blue-100 p-5 overflow-hidden relative">
+            {/* Glossy edge effect */}
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500" />
+            
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex space-x-1">
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <span className="text-xs font-bold text-gray-800 uppercase tracking-widest">Đang đồng bộ dữ liệu</span>
+              </div>
+              <span className="text-xs font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
+                {Math.round((syncProgress.current / syncProgress.total) * 100)}%
+              </span>
+            </div>
+            
+            <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden border border-gray-50 shadow-inner">
+              <div 
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full transition-all duration-500 ease-out relative"
+                style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}
+              >
+                {/* Shine effect */}
+                <div className="absolute inset-0 bg-white/20 skew-x-[45deg] translate-x-[-100%] animate-[shine_2s_infinite]" />
+              </div>
+            </div>
+            
+            <div className="mt-3 flex justify-between items-center">
+              <span className="text-[10px] text-gray-400 font-medium italic">Vui lòng không đóng tab...</span>
+              <span className="text-[10px] font-bold text-gray-500 tabular-nums">
+                {syncProgress.current.toLocaleString()} / {syncProgress.total.toLocaleString()} đơn
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes shine {
+          0% { transform: translateX(-200%) skewX(-45deg); }
+          100% { transform: translateX(200%) skewX(-45deg); }
+        }
+      `}} />
     </div>
   );
 }

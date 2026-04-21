@@ -159,7 +159,7 @@ const MultiSelect = ({
                         >
                             <input
                                 type="checkbox"
-                                checked={selected.includes(option)}
+                                checked={selected.length === 0 || selected.includes(option)}
                                 readOnly
                                 className="mr-2 h-[13px] w-[13px] text-primary focus:ring-primary border-gray-300 rounded"
                             />
