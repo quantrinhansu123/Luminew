@@ -149,29 +149,6 @@ export function F3SummaryTab({ data, startDate, endDate }) {
         />
       </div>
 
-      <div className="bg-blue-600 rounded-3xl p-8 text-white shadow-2xl relative overflow-hidden group">
-        <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
-          <Users className="w-32 h-32" />
-        </div>
-        <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div>
-            <h4 className="text-lg font-black uppercase tracking-widest opacity-80">Tổng Toàn Dự Án</h4>
-            <div className="text-4xl font-black mt-1">
-              {formatCurrency(data.totals.mkt.tienVe + data.totals.sales.tienVe + data.totals.delivery.tienVe)} ₫
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-8 border-l border-white/20 pl-8">
-            <div>
-              <div className="text-[10px] font-bold uppercase opacity-60">Tổng Phí Ship</div>
-              <div className="text-xl font-bold">{formatCurrency(data.totals.mkt.ship + data.totals.sales.ship + data.totals.delivery.ship)} ₫</div>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase opacity-60">Tổng DS Đi</div>
-              <div className="text-xl font-bold">{formatCurrency(data.totals.mkt.dsDi + data.totals.sales.dsDi + data.totals.delivery.dsDi)} ₫</div>
-            </div>
-          </div>
-        </div>
-      </div>
       <p className="text-[10px] text-gray-400 text-center font-medium italic mt-6">
         * Dữ liệu được tính toán dựa trên các đơn có Mã Đơn Hàng hợp lệ. DS Đi là tổng doanh số của các đơn đã có Mã Tracking (đơn đi hàng). Tiền về là số tiền thực nhận đã được Kế toán xác nhận.
       </p>

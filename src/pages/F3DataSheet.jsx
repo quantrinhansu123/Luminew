@@ -3205,8 +3205,8 @@ function DanhSachDon({ dataSource = 'default' }) {
       const hasTracking = String(row["Mã Tracking"] || row.tracking_code || "").trim() !== "";
       const dsDi = hasTracking ? (parseFloat(String(row["Tổng tiền VNĐ"] || row.total_amount_vnd || 0).replace(/[^\d.-]/g, '')) || 0) : 0;
 
-      const updateStats = (dept, name) => {
-        if (!name) return;
+      const updateStats = (dept, rawName) => {
+        const name = String(rawName || "").trim() || "Trống";
         if (!stats[dept][name]) {
           stats[dept][name] = { name, tienVe: 0, ship: 0, dsDi: 0 };
         }
@@ -3468,66 +3468,61 @@ function DanhSachDon({ dataSource = 'default' }) {
 
       {/* Main Content */}
       <div className="max-w-full mx-auto px-6 py-6">
-        {activeTab === 'f3_summary' ? (
-          <F3SummaryTab 
-            data={f3SummaryData} 
-            startDate={startDate} 
-            endDate={endDate} 
-          />
-        ) : (
-          <>
-            {/* Filters */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-              {/* filters content... */}
+        {/* Filters Area - Always Visible */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <div className="flex flex-wrap items-end gap-4">
-            {/* Search */}
-            <div className="flex-1 min-w-[200px]">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tìm kiếm</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm: mã đơn, tên KH, tên NV, SĐT, địa chỉ, tracking..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                />
-              </div>
-            </div>
+            {activeTab !== 'f3_summary' && (
+              <>
+                {/* Search */}
+                <div className="flex-1 min-w-[200px]">
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tìm kiếm</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm: mã đơn, tên KH, tên NV, SĐT, địa chỉ, tracking..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                      value={searchText}
+                      onChange={(e) => setSearchText(e.target.value)}
+                    />
+                  </div>
+                </div>
 
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trùng Name / Phone / Add</label>
-              <button
-                type="button"
-                onClick={() => setHighlightDupNamePhoneAdd((v) => !v)}
-                className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors flex items-center gap-2 whitespace-nowrap ${
-                  highlightDupNamePhoneAdd
-                    ? 'bg-red-100 border-red-400 text-red-800'
-                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-                title="Bật: tô đỏ cả dòng khi có ít nhất 2 đơn trong bộ lọc hiện tại trùng Name*, Phone* và Add (đã chuẩn hóa)"
-              >
-                <Layers className="w-4 h-4 shrink-0" />
-                {highlightDupNamePhoneAdd ? 'Đang bật lọc trùng' : 'Lọc trùng'}
-              </button>
-            </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trùng Name / Phone / Add</label>
+                  <button
+                    type="button"
+                    onClick={() => setHighlightDupNamePhoneAdd((v) => !v)}
+                    className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors flex items-center gap-2 whitespace-nowrap ${
+                      highlightDupNamePhoneAdd
+                        ? 'bg-red-100 border-red-400 text-red-800'
+                        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}
+                    title="Bật: tô đỏ cả dòng khi có ít nhất 2 đơn trong bộ lọc hiện tại trùng Name*, Phone* và Add (đã chuẩn hóa)"
+                  >
+                    <Layers className="w-4 h-4 shrink-0" />
+                    {highlightDupNamePhoneAdd ? 'Đang bật lọc trùng' : 'Lọc trùng'}
+                  </button>
+                </div>
 
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Xuất file</label>
-              <button
-                type="button"
-                onClick={handleExportExcelMaDonNamePhoneAdd}
-                disabled={loading || (filteredData || []).length === 0}
-                className="px-3 py-2 rounded-lg text-sm font-semibold border border-[#F37021] text-[#F37021] bg-white hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 whitespace-nowrap"
-                title="Tải Excel: đủ các cột đang hiển thị trên bảng (Cài đặt cột) — theo bộ lọc hiện tại"
-              >
-                <Download className="w-4 h-4 shrink-0" />
-                Tải Excel (theo lưới)
-              </button>
-            </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Xuất file</label>
+                  <button
+                    type="button"
+                    onClick={handleExportExcelMaDonNamePhoneAdd}
+                    disabled={loading || (filteredData || []).length === 0}
+                    className="px-3 py-2 rounded-lg text-sm font-semibold border border-[#F37021] text-[#F37021] bg-white hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 whitespace-nowrap"
+                    title="Tải Excel: đủ các cột đang hiển thị trên bảng (Cài đặt cột) — theo bộ lọc hiện tại"
+                  >
+                    <Download className="w-4 h-4 shrink-0" />
+                    Tải Excel (theo lưới)
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Date Range Filter */}
-            <div className="flex gap-2">
+            <div className={`flex gap-2 ${activeTab === 'f3_summary' ? 'flex-1' : ''}`}>
               <div>
                 <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Từ ngày</label>
                 <input
@@ -3548,7 +3543,10 @@ function DanhSachDon({ dataSource = 'default' }) {
               </div>
             </div>
 
-            {/* Market Filter - Multi-select với checkbox */}
+            {activeTab !== 'f3_summary' && (
+              <>
+                {/* Filters Content Placeholder */}
+                <div className="flex flex-wrap items-end gap-4 w-full">
             <div className="min-w-[200px] relative">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Khu vực</label>
               <div className="relative">
@@ -4273,81 +4271,82 @@ function DanhSachDon({ dataSource = 'default' }) {
                 <div className="fixed inset-0 z-40" onClick={() => setShowDeliveryStaffFilter(false)} />
               )}
             </div>
-
-            {/* Settings Button - Tất cả người dùng đều có thể sử dụng */}
-            <button
-              onClick={() => setShowColumnSettings(true)}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
-            >
-              <Settings className="w-4 h-4" />
-              Cài đặt cột
-            </button>
-
+                </div>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Table */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left">
-                    <input
-                      type="checkbox"
-                      checked={selectedRows.size === filteredData.length && filteredData.length > 0}
-                      onChange={(e) => handleSelectAll(e.target.checked)}
-                      className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                    />
-                  </th>
-                  {displayColumns.map((col) => (
-                    <th
-                      key={col}
-                      className={`px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${
-                        col === 'Loại tiền thanh toán' ? 'whitespace-nowrap w-[150px]' : ''
-                      }`}
-                      onClick={() => handleSort(col)}
-                    >
-                      <div className="flex items-center gap-2">
-                        {col}
-                        {sortColumn === col && (
-                          <span className="text-[#F37021]">
-                            {sortDirection === 'asc' ? '↑' : '↓'}
-                          </span>
-                        )}
-                      </div>
+        {/* Tab Content */}
+        {activeTab === 'f3_summary' ? (
+          <F3SummaryTab 
+            data={f3SummaryData} 
+            startDate={startDate} 
+            endDate={endDate} 
+          />
+        ) : (
+          <>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={selectedRows.size === filteredData.length && filteredData.length > 0}
+                        onChange={(e) => handleSelectAll(e.target.checked)}
+                        className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                      />
                     </th>
-
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="animate-spin h-5 w-5 border-2 border-[#F37021] border-t-transparent rounded-full"></div>
-                        Đang tải dữ liệu...
-                      </div>
-                    </td>
+                    {displayColumns.map((col) => (
+                      <th
+                        key={col}
+                        className={`px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${
+                          col === 'Loại tiền thanh toán' ? 'whitespace-nowrap w-[150px]' : ''
+                        }`}
+                        onClick={() => handleSort(col)}
+                      >
+                        <div className="flex items-center gap-2">
+                          {col}
+                          {sortColumn === col && (
+                            <span className="text-[#F37021]">
+                              {sortDirection === 'asc' ? '↑' : '↓'}
+                            </span>
+                          )}
+                        </div>
+                      </th>
+  
+                    ))}
                   </tr>
-                ) : paginatedData.length === 0 ? (
-                  <tr>
-                    <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
-                      Không có dữ liệu phù hợp
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedData.map((row, index) => {
-                    const rowIndexFiltered = (currentPage - 1) * rowsPerPage + index;
-                    const tKey = tripleNamePhoneAddKey(row);
-                    const isDupRow =
-                      highlightDupNamePhoneAdd && tKey && duplicateTripleKeysInFilter.has(tKey);
-                    const isSelected = selectedRowId === rowIndexFiltered;
-                    let trClass = 'cursor-pointer transition-colors ';
-                    if (isDupRow && isSelected) {
-                      trClass += 'bg-red-200 ring-2 ring-inset ring-blue-500 hover:bg-red-200';
-                    } else if (isDupRow) {
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="animate-spin h-5 w-5 border-2 border-[#F37021] border-t-transparent rounded-full"></div>
+                          Đang tải dữ liệu...
+                        </div>
+                      </td>
+                    </tr>
+                  ) : paginatedData.length === 0 ? (
+                    <tr>
+                      <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
+                        Không có dữ liệu phù hợp
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedData.map((row, index) => {
+                      const rowIndexFiltered = (currentPage - 1) * rowsPerPage + index;
+                      const tKey = tripleNamePhoneAddKey(row);
+                      const isDupRow =
+                        highlightDupNamePhoneAdd && tKey && duplicateTripleKeysInFilter.has(tKey);
+                      const isSelected = selectedRowId === rowIndexFiltered;
+                      let trClass = 'cursor-pointer transition-colors ';
+                      if (isDupRow && isSelected) {
+                        trClass += 'bg-red-200 ring-2 ring-inset ring-blue-500 hover:bg-red-200';
+                      } else if (isDupRow) {
                       trClass += 'bg-red-100 hover:bg-red-50';
                     } else if (isSelected) {
                       trClass += 'bg-blue-100 hover:bg-blue-200';
@@ -4487,9 +4486,9 @@ function DanhSachDon({ dataSource = 'default' }) {
             </div>
           </div>
         </div>
-      </>
-    )}
-  </div>
+          </>
+        )}
+      </div>
 
       {/* Sửa NV vận đơn (can thiệp delivery_staff) */}
       {showEditNvVanDonModal && editNvVanDonRow && (
@@ -4871,7 +4870,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         defaultColumns={defaultColumns}
         hiddenColumns={HIDDEN_COLUMNS}
       />
-    </div >
+    </div>
   );
 }
 
