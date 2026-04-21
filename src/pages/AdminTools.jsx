@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, Users, X } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
@@ -236,6 +236,7 @@ const AdminTools = () => {
         return saved === 'true';
     });
     const [lastAutoChiaHour, setLastAutoChiaHour] = useState(null); // Lưu giờ cuối cùng đã chạy
+    const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
 
     // --- VIEW CHIA ĐƠN VẬN ĐƠN ---
     const [chiaDonViewDate, setChiaDonViewDate] = useState(() => {
@@ -4908,98 +4909,236 @@ const AdminTools = () => {
                                     </div>
                                 </div>
 
-                                {/* --- NÂNG CẤP: THỐNG KÊ LỊCH SỬ CHIA ĐƠN --- */}
-                                <div className="mt-6 p-4 rounded-lg border bg-blue-50 border-blue-200">
-                                    <h4 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
-                                        <BarChart3 className="w-5 h-5" />
-                                        Thống kê & Lịch sử phiên chia đơn
-                                    </h4>
-                                    
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                                        <div>
-                                            <label className="block text-[10px] font-medium text-gray-600 mb-1">Từ ngày</label>
-                                            <input 
-                                                type="date" 
-                                                value={historyStartDate}
-                                                onChange={(e) => setHistoryStartDate(e.target.value)}
-                                                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
-                                            />
+                                {/* --- NÂNG CẤP: NÚT MỞ MODAL BÁO CÁO --- */}
+                                <div className="mt-6 flex justify-center">
+                                    <button
+                                        onClick={() => {
+                                            setIsStatsModalOpen(true);
+                                            if (historyChiaDon.length === 0) handleLoadHistoryChiaDon();
+                                        }}
+                                        className="group flex items-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all hover:scale-105 active:scale-95"
+                                    >
+                                        <div className="bg-white/20 p-2 rounded-xl">
+                                            <BarChart3 className="w-6 h-6" />
                                         </div>
-                                        <div>
-                                            <label className="block text-[10px] font-medium text-gray-600 mb-1">Đến ngày</label>
-                                            <input 
-                                                type="date" 
-                                                value={historyEndDate}
-                                                onChange={(e) => setHistoryEndDate(e.target.value)}
-                                                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
-                                            />
+                                        <div className="text-left">
+                                            <p className="text-sm">Xem Thống kê &</p>
+                                            <p className="text-lg leading-tight">Báo cáo Chia đơn Chi tiết</p>
                                         </div>
-                                        <div className="flex items-end">
+                                        <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />
+                                    </button>
+                                </div>
+
+                        {/* --- MODAL BÁO CÁO CHI TIẾT (FULL SCREEN WIDTH) --- */}
+                        {isStatsModalOpen && (
+                            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                                <div className="bg-gray-50 w-full max-w-7xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300">
+                                    {/* Header Modal */}
+                                    <div className="bg-white border-b px-6 py-4 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-blue-100 rounded-lg">
+                                                <BarChart3 className="w-6 h-6 text-blue-600" />
+                                            </div>
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-900">Báo cáo Phân bổ Đơn hàng</h3>
+                                                <p className="text-xs text-gray-500">Chi tiết phiên chia đơn & Tổng hợp sản lượng nhân sự</p>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => setIsStatsModalOpen(false)}
+                                            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                                        >
+                                            <X className="w-6 h-6 text-gray-400" />
+                                        </button>
+                                    </div>
+
+                                    {/* Bộ lọc trong Modal */}
+                                    <div className="bg-white border-b px-6 py-4">
+                                        <div className="flex flex-wrap items-end gap-4">
+                                            <div className="w-44">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Từ ngày</label>
+                                                <input 
+                                                    type="date" 
+                                                    value={historyStartDate}
+                                                    onChange={(e) => setHistoryStartDate(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </div>
+                                            <div className="w-44">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Đến ngày</label>
+                                                <input 
+                                                    type="date" 
+                                                    value={historyEndDate}
+                                                    onChange={(e) => setHistoryEndDate(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </div>
                                             <button 
                                                 onClick={handleLoadHistoryChiaDon}
                                                 disabled={historyLoading}
-                                                className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-1.5 text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                                                className="bg-gray-900 hover:bg-black text-white rounded-lg px-6 py-2 text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-50"
                                             >
                                                 {historyLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                                                Tải thống kê
+                                                Cập nhật dữ liệu
                                             </button>
-                                        </div>
-                                    </div>
-
-                                    {Object.keys(staffStatsReport).length > 0 && (
-                                        <div className="mb-4 bg-white rounded border p-3 shadow-sm">
-                                            <p className="text-xs font-bold text-gray-700 mb-2">Thống kê tổng hợp theo nhân viên:</p>
-                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-                                                {Object.entries(staffStatsReport)
-                                                    .sort((a, b) => b[1] - a[1])
-                                                    .map(([name, count]) => (
-                                                    <div key={name} className="bg-gray-50 border rounded p-2 flex flex-col items-center">
-                                                        <span className="text-[10px] text-gray-500 text-center leading-tight mb-1">{name}</span>
-                                                        <span className="text-sm font-bold text-blue-700">{count} đơn</span>
-                                                    </div>
-                                                ))}
+                                            
+                                            <div className="ml-auto text-right">
+                                                <p className="text-xs text-gray-400 italic">Dữ liệu được cập nhật thời gian thực từ Database</p>
                                             </div>
                                         </div>
-                                    )}
+                                    </div>
 
-                                    <div className="max-h-60 overflow-y-auto bg-white rounded border shadow-inner">
-                                        <table className="w-full text-left text-[11px]">
-                                            <thead className="bg-gray-100 sticky top-0 shadow-sm z-10">
-                                                <tr>
-                                                    <th className="p-2 border-b">Thời gian</th>
-                                                    <th className="p-2 border-b">Chi nhánh</th>
-                                                    <th className="p-2 border-b">SL</th>
-                                                    <th className="p-2 border-b">Người chạy</th>
-                                                    <th className="p-2 border-b">Kết quả</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {historyChiaDon.length > 0 ? historyChiaDon.map((h) => (
-                                                    <tr key={h.id} className="hover:bg-blue-50 transition-colors">
-                                                        <td className="p-2 border-b text-gray-500">
-                                                            {new Date(h.created_at).toLocaleString('vi-VN', { 
-                                                                day: '2-digit', month: '2-digit', year: '2-digit',
-                                                                hour: '2-digit', minute: '2-digit'
-                                                            })}
-                                                        </td>
-                                                        <td className="p-2 border-b font-medium">{h.branch}</td>
-                                                        <td className="p-2 border-b text-blue-600 font-bold">{h.total_orders}</td>
-                                                        <td className="p-2 border-b">{h.performed_by || 'Admin'}</td>
-                                                        <td className="p-2 border-b text-[10px] text-gray-600 truncate max-w-[150px]" title={h.logs}>
-                                                            {h.logs}
-                                                        </td>
-                                                    </tr>
-                                                )) : (
-                                                    <tr>
-                                                        <td colSpan="5" className="p-4 text-center text-gray-400 italic">
-                                                            Chưa có lịch sử hoặc bấm "Tải thống kê" để xem
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </tbody>
-                                        </table>
+                                    {/* Nội dung Modal (Scrollable) */}
+                                    <div className="flex-1 overflow-y-auto p-6">
+                                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                                            
+                                            {/* CỘT TỔNG HỢP (Layout Table như Excel) */}
+                                            <div className="lg:col-span-4 space-y-4">
+                                                <div className="bg-white rounded-xl border border-blue-100 shadow-sm overflow-hidden">
+                                                    <div className="bg-blue-600 px-4 py-3">
+                                                        <p className="text-white text-sm font-bold flex items-center gap-2">
+                                                            <UserCheck className="w-5 h-5" />
+                                                            BẢNG TỔNG HỢP SẢN LƯỢNG
+                                                        </p>
+                                                    </div>
+                                                    <table className="w-full text-left text-xs">
+                                                        <thead className="bg-gray-50 border-b">
+                                                            <tr>
+                                                                <th className="px-4 py-3 font-bold text-gray-600">Nhân sự</th>
+                                                                <th className="px-4 py-3 font-bold text-gray-600 text-right">Tổng đơn đã nhận</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {Object.keys(staffStatsReport).length > 0 ? (
+                                                                Object.entries(staffStatsReport)
+                                                                    .sort((a, b) => b[1] - a[1])
+                                                                    .map(([name, count], idx) => (
+                                                                        <tr key={name} className="hover:bg-blue-50 border-b last:border-0 transition-colors">
+                                                                            <td className="px-4 py-3">
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                                                        {idx + 1}
+                                                                                    </span>
+                                                                                    <span className="font-semibold text-gray-800">{name}</span>
+                                                                                </div>
+                                                                            </td>
+                                                                            <td className="px-4 py-3 text-right">
+                                                                                <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-lg font-bold text-sm">
+                                                                                    {count}
+                                                                                </span>
+                                                                            </td>
+                                                                        </tr>
+                                                                    ))
+                                                            ) : (
+                                                                <tr>
+                                                                    <td colSpan="2" className="p-8 text-center text-gray-400 italic">Chưa có dữ liệu thống kê</td>
+                                                                </tr>
+                                                            )}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                
+                                                <div className="p-4 bg-orange-50 rounded-xl border border-orange-100">
+                                                    <p className="text-xs text-orange-800 leading-relaxed">
+                                                        <strong>* Lưu ý:</strong> Số liệu trên được tính dựa trên các phiên chia đơn thành công. Đơn hàng bị lỗi hoặc chưa gán nhân sự sẽ không được tính vào tổng này.
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* CỘT CHI TIẾT (Layout Table như Excel) */}
+                                            <div className="lg:col-span-8">
+                                                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                                    <div className="bg-gray-800 px-4 py-3">
+                                                        <p className="text-white text-sm font-bold flex items-center gap-2">
+                                                            <List className="w-5 h-5" />
+                                                            NHẬT KÝ CHI TIẾT TỪNG PHIÊN
+                                                        </p>
+                                                    </div>
+                                                    <div className="overflow-x-auto">
+                                                        <table className="w-full text-left text-xs border-collapse">
+                                                            <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
+                                                                <tr>
+                                                                    <th className="px-4 py-3 border-b font-bold text-gray-600">Lần chia / Thời gian</th>
+                                                                    <th className="px-4 py-3 border-b font-bold text-gray-600">Chi nhánh</th>
+                                                                    <th className="px-4 py-3 border-b font-bold text-gray-600">Nhân sự thực hiện</th>
+                                                                    <th className="px-4 py-3 border-b font-bold text-gray-600 text-center">Số đơn gán</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {historyChiaDon.length > 0 ? (
+                                                                    historyChiaDon.map((h, hIdx) => {
+                                                                        const stats = h.staff_stats || {};
+                                                                        const staffEntries = Object.entries(stats);
+                                                                        const timeStr = new Date(h.created_at).toLocaleString('vi-VN', { 
+                                                                            day: '2-digit', month: '2-digit', year: 'numeric', 
+                                                                            hour: '2-digit', minute: '2-digit'
+                                                                        });
+
+                                                                        if (staffEntries.length === 0) {
+                                                                            return (
+                                                                                <tr key={h.id} className="border-b bg-gray-50/50">
+                                                                                    <td className="px-4 py-3 text-gray-500 font-mono">{timeStr}</td>
+                                                                                    <td className="px-4 py-3 font-medium">{h.branch}</td>
+                                                                                    <td className="px-4 py-3 italic text-gray-400" colSpan="2">
+                                                                                        {h.total_orders === 0 ? "Không có đơn để chia" : `Log: ${h.logs}`}
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        }
+
+                                                                        return staffEntries.map(([name, count], sIdx) => (
+                                                                            <tr key={`${h.id}-${name}`} className={`border-b hover:bg-orange-50/50 transition-colors ${sIdx === 0 && hIdx !== 0 ? 'border-t-4 border-t-gray-50' : ''}`}>
+                                                                                <td className="px-4 py-3">
+                                                                                    {sIdx === 0 ? (
+                                                                                        <div className="flex flex-col">
+                                                                                            <span className="text-gray-900 font-bold">Lần {historyChiaDon.length - hIdx}</span>
+                                                                                            <span className="text-[10px] text-gray-400 font-mono">{timeStr}</span>
+                                                                                        </div>
+                                                                                    ) : ""}
+                                                                                </td>
+                                                                                <td className="px-4 py-3 font-medium">{sIdx === 0 ? h.branch : ""}</td>
+                                                                                <td className="px-4 py-3">
+                                                                                    <span className="font-bold text-gray-900">{name}</span>
+                                                                                </td>
+                                                                                <td className="px-4 py-3 text-center">
+                                                                                    <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-lg font-bold text-sm">
+                                                                                        {count}
+                                                                                    </span>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ));
+                                                                    })
+                                                                ) : (
+                                                                    <tr>
+                                                                        <td colSpan="4" className="p-12 text-center text-gray-400 italic">
+                                                                            <div className="flex flex-col items-center gap-3">
+                                                                                <Package className="w-12 h-12 opacity-10" />
+                                                                                <p className="text-sm">Vui lòng bấm "Cập nhật dữ liệu" để tải báo cáo</p>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Footer Modal */}
+                                    <div className="bg-white border-t px-6 py-4 flex justify-between items-center text-xs text-gray-500">
+                                        <p>Hệ thống tự động cập nhật mỗi khi có phiên chia đơn mới.</p>
+                                        <button 
+                                            onClick={() => setIsStatsModalOpen(false)}
+                                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2 rounded-lg font-bold transition-all"
+                                        >
+                                            Đóng báo cáo
+                                        </button>
                                     </div>
                                 </div>
+                            </div>
+                        )}
 
                                 {/* Hiển thị log từng bước */}
                                 {stepLogs.length > 0 && (
