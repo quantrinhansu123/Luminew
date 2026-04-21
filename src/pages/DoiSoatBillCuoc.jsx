@@ -1237,6 +1237,8 @@ function DoiSoatBillCuoc() {
       const syncTime = new Date().toISOString();
       const syncLogRows = [];
       
+      const missingOrderCodes = Array.from(allOrderCodes).filter(oc => !existingOrderCodes.has(oc));
+      
       const ordersToUpdate = allOrderCodes
         .filter(oc => existingOrderCodes.has(oc))
         .map(oc => {
@@ -1284,7 +1286,13 @@ function DoiSoatBillCuoc() {
         await supabase.from('bill_sync_results').insert(syncLogRows);
       }
 
-      alert(`Đã đồng bộ thành công ${updateCount} đơn.`);
+      let alertMsg = `Đã đồng bộ thành công ${updateCount} đơn.`;
+      if (missingOrderCodes.length > 0) {
+        alertMsg += `\n\n⚠️ Có ${missingOrderCodes.length} mã đơn KHÔNG TÌM THẤY trong hệ thống (đã bỏ qua):`;
+        alertMsg += `\n${missingOrderCodes.slice(0, 50).join(', ')}${missingOrderCodes.length > 50 ? '...' : ''}`;
+      }
+      alert(alertMsg);
+
       setLastBillSyncTime(syncTime);
       setActiveTab('bill_view');
       await loadBillData(syncTime);
@@ -1337,6 +1345,8 @@ function DoiSoatBillCuoc() {
       
       const orderCodeList = [...allOrderCodes];
       const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, orderCodeList);
+      
+      const missingOrderCodes = orderCodeList.filter(oc => !existingOrderCodes.has(oc));
       
       const validOrderCodes = orderCodeList.filter(oc => existingOrderCodes.has(oc));
       const missingCount = orderCodeList.length - validOrderCodes.length;
@@ -1395,7 +1405,12 @@ function DoiSoatBillCuoc() {
         await supabase.from('bill_sync_results').insert(syncLogRows);
       }
 
-      alert(`Đã đồng bộ Cước thành công ${updateCount} đơn.` + (missingCount > 0 ? `\n(Bỏ qua ${missingCount} mã đơn không tìm thấy)` : ''));
+      let alertMsg = `Đã đồng bộ Cước thành công ${updateCount} đơn.`;
+      if (missingOrderCodes.length > 0) {
+        alertMsg += `\n\n⚠️ Có ${missingOrderCodes.length} mã đơn KHÔNG TÌM THẤY trong hệ thống (đã bỏ qua):`;
+        alertMsg += `\n${missingOrderCodes.slice(0, 50).join(', ')}${missingOrderCodes.length > 50 ? '...' : ''}`;
+      }
+      alert(alertMsg);
 
       setLastCuocSyncTime(syncTime);
       setActiveTab('cuoc_view');
