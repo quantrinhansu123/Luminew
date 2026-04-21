@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { ArrowLeft, RefreshCw, Plus, X, RotateCw, Download, Upload, Trash2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Plus, X, RotateCw, Download, Upload, Trash2, History, Search, FileDown, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabase/config';
 import * as XLSX from 'xlsx';
@@ -87,6 +87,25 @@ function toIsoDateString(date) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+function getVanDonSessionDisplayName() {
+  try {
+    const userJson = localStorage.getItem('user');
+    const user = userJson ? JSON.parse(userJson) : null;
+    const parts = [
+      localStorage.getItem('username'),
+      user?.['Họ_và_tên'],
+      user?.['Họ và tên'],
+      user?.['Họ Và Tên'],
+      user?.full_name,
+      user?.name,
+      localStorage.getItem('user_full_name')
+    ];
+    return parts.map((v) => String(v || '').trim()).find(Boolean) || 'Hệ thống';
+  } catch (e) {
+    return 'Hệ thống';
+  }
 }
 
 function parseExcelDateToISO(rawValue) {
@@ -279,13 +298,74 @@ function DoiSoatBillCuoc() {
   const [syncConfirmData, setSyncConfirmData] = useState({
     title: '',
     modeLabel: '',
-    stats: { total: 0, found: 0, missing: 0 },
+    stats: { total: 0, found: 0, missing: 0, rawRows: 0 },
     errorList: [], // { label, items }
     onConfirm: () => {}
   });
 
+  /** Modal Lịch sử */
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyLogs, setHistoryLogs] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState({ type: 'all', search: '', date: '' });
+
   /** Tiến độ đồng bộ */
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0, active: false });
+
+  const fetchSyncHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      let query = supabase
+        .from('sync_history_log')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      const { data, error } = await query;
+      if (error) throw error;
+      setHistoryLogs(data || []);
+    } catch (err) {
+      console.error('Error fetching history:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleExportHistoryExcel = () => {
+    if (!historyLogs.length) return;
+    const exportData = historyLogs.map(log => ({
+      'ID': log.id,
+      'Thời gian': new Date(log.created_at).toLocaleString('vi-VN'),
+      'Người thực hiện': log.performed_by,
+      'Loại': log.sync_type,
+      'Chế độ': log.mode_label,
+      'Tổng dòng thô': log.total_input_rows,
+      'Mã đơn duy nhất': log.unique_orders_count,
+      'Thành công': log.success_count,
+      'Thất bại/Bỏ qua': log.missing_count
+    }));
+    
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Lịch sử đồng bộ");
+    XLSX.writeFile(wb, `LichSuDongBo_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  const saveSyncHistory = async (stats) => {
+    try {
+      const performedBy = getVanDonSessionDisplayName();
+      await supabase.from('sync_history_log').insert([{
+        performed_by: performedBy,
+        sync_type: stats.syncType,
+        mode_label: stats.modeLabel,
+        total_input_rows: stats.totalInputRows,
+        unique_orders_count: stats.uniqueOrdersCount,
+        success_count: stats.successCount,
+        missing_count: stats.missingCount
+      }]);
+    } catch (err) {
+      console.error('Error saving sync history:', err);
+    }
+  };
 
   // Helper chia mảng thành các lô nhỏ (chunks)
   const chunkArray = (array, size) => {
@@ -1167,7 +1247,7 @@ function DoiSoatBillCuoc() {
 
         const tk = row.ma_tracking != null && row.ma_tracking !== '' ? String(row.ma_tracking).trim() : '';
         const mdh = row.ma_don_hang != null && row.ma_don_hang !== '' ? String(row.ma_don_hang).trim() : '';
-        const accConfirmValue = row.accountant_confirm || 'Đã thu tiền';
+        const accConfirmValue = row.accountant_confirm || null;
 
         if (billSyncMode === 'order_code' || !tk || isBillTrackingDropoffPlaceholder(tk)) {
           if (!mdh) continue;
@@ -1316,7 +1396,19 @@ function DoiSoatBillCuoc() {
       }
 
       alert(`Đã đồng bộ thành công ${updateCount} đơn.`);
+      
+      // Lưu lịch sử
+      await saveSyncHistory({
+        syncType: 'Bill',
+        modeLabel: modeLabel,
+        totalInputRows: syncConfirmData.stats.rawRows,
+        uniqueOrdersCount: allOrderCodes.length,
+        successCount: updateCount,
+        missingCount: missingInOrders.length
+      });
+
       setLastBillSyncTime(syncTime);
+
       setActiveTab('bill_view');
       await loadBillData(syncTime);
     } catch (error) {
@@ -1453,6 +1545,16 @@ function DoiSoatBillCuoc() {
         alertMsg += `\n${missingOrderCodes.slice(0, 50).join(', ')}${missingOrderCodes.length > 50 ? '...' : ''}`;
       }
       alert(alertMsg);
+
+      // Lưu lịch sử
+      await saveSyncHistory({
+        syncType: 'Cước',
+        modeLabel: 'Cập nhật tiền ship & số lượng thực tế',
+        totalInputRows: totalInputCount,
+        uniqueOrdersCount: validOrderCodes.length + missingOrderCodes.length,
+        successCount: updateCount,
+        missingCount: missingOrderCodes.length
+      });
 
       setLastCuocSyncTime(syncTime);
       setActiveTab('cuoc_view');
@@ -2438,6 +2540,16 @@ function DoiSoatBillCuoc() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                fetchSyncHistory();
+                setShowHistoryModal(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg text-sm font-medium transition shadow-sm"
+            >
+              <History className="w-4 h-4 text-indigo-500" />
+              Lịch sử
+            </button>
             <button
               onClick={handleDownloadTemplate}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition"
@@ -3829,6 +3941,163 @@ function DoiSoatBillCuoc() {
         @keyframes shine {
           0% { transform: translateX(-200%) skewX(-45deg); }
           100% { transform: translateX(200%) skewX(-45deg); }
+        }
+      `}} />
+
+      {/* Sync History Modal (Premium) */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-[0_20px_70px_rgba(0,0,0,0.3)] w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-white/20">
+            {/* Header */}
+            <div className="bg-white border-b border-gray-100 p-6 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-indigo-50 rounded-2xl">
+                  <History className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">Lịch sử đồng bộ</h3>
+                  <p className="text-xs text-gray-500 font-medium">Theo dõi hoạt động cập nhật dữ liệu của quản trị viên</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={handleExportHistoryExcel}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-green-100 transition-all hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  <FileDown className="w-4 h-4" />
+                  Xuất Excel
+                </button>
+                <button 
+                  onClick={() => setShowHistoryModal(false)}
+                  className="p-2.5 hover:bg-gray-100 text-gray-400 hover:text-gray-600 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* Filters Bar */}
+            <div className="bg-gray-50/50 border-b border-gray-100 px-6 py-4 flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
+                <Search className="w-4 h-4 text-gray-400" />
+                <input 
+                  type="text" 
+                  placeholder="Tìm người thực hiện..." 
+                  className="text-sm outline-none w-40"
+                  value={historyFilter.search}
+                  onChange={(e) => setHistoryFilter({...historyFilter, search: e.target.value})}
+                />
+              </div>
+              <select 
+                className="bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-medium shadow-sm outline-none"
+                value={historyFilter.type}
+                onChange={(e) => setHistoryFilter({...historyFilter, type: e.target.value})}
+              >
+                <option value="all">Tất cả loại</option>
+                <option value="Bill">Đồng bộ Bill</option>
+                <option value="Cước">Đồng bộ Cước</option>
+              </select>
+              <input 
+                type="date" 
+                className="bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-medium shadow-sm outline-none"
+                value={historyFilter.date}
+                onChange={(e) => setHistoryFilter({...historyFilter, date: e.target.value})}
+              />
+            </div>
+
+            {/* Table Content */}
+            <div className="flex-1 overflow-auto p-0 scrollbar-thin bg-gray-50/30">
+              {loadingHistory ? (
+                <div className="h-full flex flex-col items-center justify-center gap-4">
+                  <RefreshCw className="w-10 h-10 text-indigo-500 animate-spin" />
+                  <p className="text-gray-500 font-bold animate-pulse">Đang tải lịch sử...</p>
+                </div>
+              ) : (
+                <table className="w-full border-collapse">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-white shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Thời gian</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Người thực hiện</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Loại đồng bộ</th>
+                      <th className="px-6 py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Dòng thô</th>
+                      <th className="px-6 py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Mã duy nhất</th>
+                      <th className="px-6 py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Thành công</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {historyLogs
+                      .filter(log => {
+                        const matchType = historyFilter.type === 'all' || log.sync_type === historyFilter.type;
+                        const matchSearch = (log.performed_by || '').toLowerCase().includes(historyFilter.search.toLowerCase());
+                        const matchDate = !historyFilter.date || log.created_at.startsWith(historyFilter.date);
+                        return matchType && matchSearch && matchDate;
+                      })
+                      .map((log) => (
+                      <tr key={log.id} className="bg-white hover:bg-blue-50/40 transition-colors group">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-bold text-gray-800">
+                            {new Date(log.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                          <div className="text-[10px] font-medium text-gray-400">
+                            {new Date(log.created_at).toLocaleDateString('vi-VN')}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white text-[10px] font-black shadow-lg shadow-indigo-100">
+                              {(log.performed_by || 'A')[0].toUpperCase()}
+                            </div>
+                            <span className="text-sm font-bold text-gray-700">{log.performed_by}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-tight ${
+                            log.sync_type === 'Bill' 
+                              ? 'bg-blue-50 text-blue-600 border border-blue-100' 
+                              : 'bg-teal-50 text-teal-600 border border-teal-100'
+                          }`}>
+                            {log.sync_type}
+                          </span>
+                          <div className="text-[10px] text-gray-400 mt-1 italic font-medium">{log.mode_label}</div>
+                        </td>
+                        <td className="px-6 py-4 text-center whitespace-nowrap">
+                          <span className="text-sm font-black text-gray-500">{log.total_input_rows?.toLocaleString()}</span>
+                        </td>
+                        <td className="px-6 py-4 text-center whitespace-nowrap">
+                          <span className="text-sm font-black text-indigo-600">{log.unique_orders_count?.toLocaleString()}</span>
+                        </td>
+                        <td className="px-6 py-4 text-center whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-black ring-1 ring-green-100 shadow-sm shadow-green-50">
+                            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                            {log.success_count?.toLocaleString()}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-white border-t border-gray-100 text-center">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Hệ thống ghi nhận lịch sử đồng bộ tự động</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+       <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes shine {
+          0% { transform: translateX(-200%) skewX(-45deg); }
+          100% { transform: translateX(200%) skewX(-45deg); }
+        }
+        .animate-spin-slow {
+          animation: spin 3s linear infinite;
+        }
+         @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       `}} />
     </div>
