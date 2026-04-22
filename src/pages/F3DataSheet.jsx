@@ -215,31 +215,29 @@ async function fetchDanhSachDonMergedRawOrders({
 
   const applyTeamAndPersonnel = (q) => {
     let query = q;
-    // Bỏ filter Team=HCM để lấy toàn bộ dữ liệu
-    // if (!skipImplicitFilters && ordersTableName === 'orders') {
-    //   query = query.or('team.is.null,team.neq.HCM');
-    // }
+    // Áp dụng bộ lọc Team nếu có
+    if (!skipImplicitFilters && teamFilter) {
+      query = query.eq('team', teamFilter);
+    } else if (!skipImplicitFilters && ordersTableName === 'orders') {
+      // Mặc định cho phép Admin xem toàn bộ, hoặc nếu không có teamFilter cụ thể
+      // Không ép lọc "neq.HCM" ở tầng query trừ khi database yêu cầu tách biệt hoàn toàn
+    }
 
-    // Bỏ filter theo user để Admin và User đều xem toàn bộ
-    // if (!isAdmin) {
-    //   if (selectedPersonnelNames.length > 0) {
-    //     const allNames = [...new Set([...selectedPersonnelNames, userName].filter(Boolean))];
-    //     const orConditions = allNames.flatMap((name) => {
-    //       const normalizedName = normalizeNameForQuery(name);
-    //       return [
-    //         `sale_staff.ilike.%${normalizedName}%`,
-    //         `marketing_staff.ilike.%${normalizedName}%`,
-    //         `delivery_staff.ilike.%${normalizedName}%`,
-    //       ];
-    //     });
-    //     query = query.or(orConditions.join(','));
-    //   } else if (userName) {
-    //     const normalizedUserName = normalizeNameForQuery(userName);
-    //     query = query.or(
-    //       `sale_staff.ilike.%${normalizedUserName}%,marketing_staff.ilike.%${normalizedUserName}%,delivery_staff.ilike.%${normalizedUserName}%`
-    //     );
-    //   }
-    // }
+    // Áp dụng bộ lọc nhân sự nếu không phải Admin
+    if (!isAdmin && !skipImplicitFilters) {
+      const allNames = [...new Set([...(selectedPersonnelNames || []), userName].filter(Boolean))];
+      if (allNames.length > 0) {
+        const orConditions = allNames.flatMap((name) => {
+          const normalizedName = normalizeNameForQuery(name);
+          return [
+            `sale_staff.ilike.%${normalizedName}%`,
+            `marketing_staff.ilike.%${normalizedName}%`,
+            `delivery_staff.ilike.%${normalizedName}%`,
+          ];
+        });
+        query = query.or(orConditions.join(','));
+      }
+    }
     return query;
   };
 
@@ -253,11 +251,11 @@ async function fetchDanhSachDonMergedRawOrders({
       let query = supabaseClient.from(ordersTableName).select(selectColumns);
       query = applyTeamAndPersonnel(query);
 
-      // Bỏ filter theo ngày để lấy toàn bộ dữ liệu
-      // if (!skipImplicitFilters) {
-      //   if (startDate) query = query.gte('order_date', startDate);
-      //   if (endDate) query = query.lte('order_date', endDate);
-      // }
+      // Áp dụng filter theo ngày tại Database level
+      if (!skipImplicitFilters) {
+        if (startDate) query = query.gte('order_date', startDate);
+        if (endDate) query = query.lte('order_date', endDate);
+      }
 
       query = query
         .order(orderField, { ascending: false })
@@ -757,10 +755,13 @@ function DanhSachDon({ dataSource = 'default' }) {
     try {
       console.log(`Loading data from ${ordersTableName}...`);
 
-      // Kiểm tra cache trước
-      if (!forceReload && dataCache[ordersTableName]) {
-        console.log(`✅ Sử dụng cache cho ${ordersTableName}`);
-        setAllData(dataCache[ordersTableName]);
+      // Cache key phải bao gồm cả ngày tháng và nhân sự để đảm bảo tính chính xác
+      const cacheKey = `${ordersTableName}_${startDate}_${endDate}_${selectedPersonnelNames.join(',')}`;
+
+      // Kiểm tra cache trước - Cache key phải bao gồm cả ngày tháng và nhân sự để đảm bảo tính chính xác
+      if (!forceReload && dataCache[cacheKey]) {
+        console.log(`✅ Sử dụng cache cho ${cacheKey}`);
+        setAllData(dataCache[cacheKey]);
         setLoading(false);
         return;
       }
@@ -869,7 +870,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       // Lưu vào cache
       setDataCache(prev => ({
         ...prev,
-        [ordersTableName]: supaMapped
+        [cacheKey]: supaMapped
       }));
 
       setAllData(supaMapped);
@@ -2721,13 +2722,13 @@ function DanhSachDon({ dataSource = 'default' }) {
   const filteredData = useMemo(() => {
     let data = [...allData];
 
-    if (!isHcmView) {
-      // View mặc định chỉ hiển thị dữ liệu chi nhánh Hà Nội.
-      data = data.filter((row) => {
-        const raw = String(row["Team"] ?? row["Chi nhánh"] ?? '').trim().toLowerCase();
-        return raw === 'hà nội' || raw === 'ha noi' || raw === 'hanoi';
-      });
-    }
+    // Bỏ bộ lọc cứng "Hà Nội" để hiển thị đầy đủ data từ các team khác (RD, MKT, ...)
+    // if (!isHcmView) {
+    //   data = data.filter((row) => {
+    //     const raw = String(row["Team"] ?? row["Chi nhánh"] ?? '').trim().toLowerCase();
+    //     return raw === 'hà nội' || raw === 'ha noi' || raw === 'hanoi';
+    //   });
+    // }
 
     // Filter by selected personnel (nếu có)
     // Admin KHÔNG bị filter, luôn xem tất cả đơn
