@@ -663,7 +663,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Mã Tracking": item.tracking_code,
     "Nhân viên Marketing": item.marketing_staff || item.marketingStaff || '',
     "Nhân viên Sale": item.sale_staff || item.saleStaff || '',
-    "Đội/Team": item.team,
+    "Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
     /** Cột DB `check_result` — dùng cho bộ lọc Kết quả Check (không gộp payment_status). */
     check_result: String(item.check_result ?? '').trim(),
