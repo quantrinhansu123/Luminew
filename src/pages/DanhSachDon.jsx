@@ -181,7 +181,6 @@ async function fetchVanDonStaffNameList(supabaseClient) {
 const HIDDEN_COLUMNS = [
   'Phí Chung',
   'Phí bay',
-  'Phí ship',
   'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
   'Thuê TK',
   'Thời gian cutoff',
@@ -474,6 +473,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Ca',
     'Mã Tracking',
     'Trạng thái giao hàng',
+    'Phí ship',
     'Tổng tiền VNĐ',
   ];
 
@@ -675,6 +675,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
     "Trạng thái thu tiền": item.payment_status_detail,
     "Lý do": item.reason,
+    "Phí ship": item.shipping_cost || item.shipping_fee || 0,
     "Page": item.page_name, // Map Page Name
     "Ca": (() => {
       const stored = normalizeCaShiftDisplay(item.shift ?? item.ca ?? '');
@@ -2806,7 +2807,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         value = formatDate(value);
       }
 
-      if (col === 'Tổng tiền VNĐ') {
+      if (col === 'Tổng tiền VNĐ' || col === 'Phí ship') {
         const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
         value = num.toLocaleString('vi-VN') + ' ₫';
       }
