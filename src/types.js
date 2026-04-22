@@ -113,14 +113,19 @@ export const COLUMN_MAPPING = {
     "Ghi chú vận đơn": "Ghi chú của VĐ",
     "Kết quả check": "Kết quả Check",
     "khu vực": "Khu vực",
-    "Payment Bill": "payment_bill",
-    "Payment Image": "payment_image",
     "Ngày up bill": "ngayupbill",
     "Nhân viên Sale": "sale_staff",
     "Nhân viên MKT": "marketing_staff",
-    "Page": "page_name",
+    "Tên Page": "page_name",
     "Tiền đã thanh toán": "reconciled_vnd",
-    "Trạng thái thu tiền": "payment_status"
+    "Trạng thái thu tiền": "payment_status",
+    "Đội/Team": "team",
+    "Địa chỉ": "customer_address",
+    "Thành phố": "city",
+    "Tỉnh/Bang": "state",
+    "Mã bưu điện": "zipcode",
+    "Trạng thái Bill": "payment_bill",
+    "Ảnh thanh toán": "payment_image"
 };
 
 // Columns used by Quick Add modal in FFM (single source of truth).

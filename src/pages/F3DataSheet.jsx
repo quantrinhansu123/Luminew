@@ -740,8 +740,8 @@ function DanhSachDon({ dataSource = 'default' }) {
       if (stored) return stored;
       return inferCaShiftFromDateTime(item.created_at || item.order_date);
     })(),
-    "Payment Bill": item.payment_bill, // Trạng thái bill
-    "Payment Image": item.payment_image, // Link hình ảnh bill
+    "Trạng thái Bill": item.payment_bill, // Trạng thái bill
+    "Ảnh thanh toán": item.payment_image, // Link hình ảnh bill
     "Cảnh báo trùng": item.canh_bao || '',
     _id: item.id,
     _log: item.log ?? null,
