@@ -498,15 +498,17 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Phone*',
     'Địa chỉ',
     'Khu vực',
-    'Mặt hàng',
+    'Tên mặt hàng 1',
     'Số lượng mặt hàng 1',
-    'Số lượng mặt hàng 2',
     'Loại tiền thanh toán',
     'Ca',
     'Mã Tracking',
+    'Đội/Team',
     'Trạng thái giao hàng',
+    'Trạng thái giao hàng NB',
     'Phí ship',
     'Trạng thái thu tiền',
+    'Trạng thái thanh toán',
     'Tiền Việt đã đối soát',
     'Tổng tiền VNĐ',
   ];
@@ -722,6 +724,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Nhân viên Sale": item.sale_staff || item.saleStaff || '',
     "Đội/Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
+    "Trạng thái giao hàng NB": item.delivery_status_nb,
     /** Cột DB `check_result` — dùng cho bộ lọc Kết quả Check (không gộp payment_status). */
     check_result: String(item.check_result ?? '').trim(),
     "Kết quả Check": item.check_result || item.payment_status, // Hiển thị lưới: ưu tiên check_result, fallback payment_status
@@ -732,6 +735,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
     "Trạng thái thu tiền": item.payment_status_detail,
+    "Trạng thái thanh toán": item.payment_status,
     "Lý do": item.reason,
     "Phí ship": item.shipping_cost || item.shipping_fee,
     "Tên Page": item.page_name, // Map Page Name

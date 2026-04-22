@@ -125,7 +125,9 @@ export const COLUMN_MAPPING = {
     "Tỉnh/Bang": "state",
     "Mã bưu điện": "zipcode",
     "Trạng thái Bill": "payment_bill",
-    "Ảnh thanh toán": "payment_image"
+    "Ảnh thanh toán": "payment_image",
+    "Trạng thái giao hàng NB": "delivery_status_nb",
+    "Trạng thái thanh toán": "payment_status"
 };
 
 // Columns used by Quick Add modal in FFM (single source of truth).
