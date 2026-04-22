@@ -504,6 +504,9 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Ca',
     'Mã Tracking',
     'Trạng thái giao hàng',
+    'Phí ship',
+    'Trạng thái thu tiền',
+    'Tiền Việt đã đối soát',
     'Tổng tiền VNĐ',
   ];
 
@@ -3533,16 +3536,28 @@ function DanhSachDon({ dataSource = 'default' }) {
 
                 <div>
                   <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Xuất file</label>
-                  <button
-                    type="button"
-                    onClick={handleExportExcelMaDonNamePhoneAdd}
-                    disabled={loading || (filteredData || []).length === 0}
-                    className="px-3 py-2 rounded-lg text-sm font-semibold border border-[#F37021] text-[#F37021] bg-white hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 whitespace-nowrap"
-                    title="Tải Excel: đủ các cột đang hiển thị trên bảng (Cài đặt cột) — theo bộ lọc hiện tại"
-                  >
-                    <Download className="w-4 h-4 shrink-0" />
-                    Tải Excel (theo lưới)
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleExportExcelMaDonNamePhoneAdd}
+                      disabled={loading || (filteredData || []).length === 0}
+                      className="px-3 py-2 rounded-lg text-sm font-semibold border border-[#F37021] text-[#F37021] bg-white hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 whitespace-nowrap"
+                      title="Tải Excel: đủ các cột đang hiển thị trên bảng (Cài đặt cột) — theo bộ lọc hiện tại"
+                    >
+                      <Download className="w-4 h-4 shrink-0" />
+                      Tải Excel (theo lưới)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowColumnSettings(true)}
+                      className="px-3 py-2 rounded-lg text-sm font-semibold border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors flex items-center gap-2 whitespace-nowrap"
+                      title="Cài đặt các cột hiển thị trên bảng"
+                    >
+                      <Settings className="w-4 h-4 shrink-0" />
+                      Cài đặt cột
+                    </button>
+                  </div>
                 </div>
               </>
             )}

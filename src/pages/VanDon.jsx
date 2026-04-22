@@ -2311,6 +2311,8 @@ function VanDon({ dataSource = 'default' }) {
   const getVanDonClipboardCellText = useCallback(
     (rData, rowIdxInView, colName, opts) => {
       let out;
+      const isExcel = opts?.isExcel || opts?.exportFullList; // exportFullList is used for Excel export
+
       if (colName === 'STT') {
         if (opts?.exportFullList) {
           out = String(rowIdxInView + 1);
@@ -2340,12 +2342,16 @@ function VanDon({ dataSource = 'default' }) {
         ].includes(colName)
       ) {
         out = String(formatDate(val));
-      } else if (colName === 'Tổng tiền VNĐ' || colName === 'Tiền đã thanh toán') {
+      } else if (colName === 'Tổng tiền VNĐ' || colName === 'Tiền đã thanh toán' || colName === 'Phí ship') {
         const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
+        if (isExcel) return n != null && Number.isFinite(n) ? n : 0;
         out = n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';
       } else if (val === undefined || val == null) {
         out = '';
-      } else if (typeof val === 'number' || typeof val === 'boolean') {
+      } else if (typeof val === 'number') {
+        if (isExcel) return val;
+        out = String(val);
+      } else if (typeof val === 'boolean') {
         out = String(val);
       } else {
         out = String(val);
