@@ -573,6 +573,14 @@ function VanDon({ dataSource = 'default' }) {
   /** Bản ghi đầy đủ (đã merge pending) cho mỗi mã đơn — dùng khi đổi lọc khiến API không trả lại dòng đó. */
   const pendingRowSnapshotsRef = useRef(new Map());
 
+  const totalPendingCount = useMemo(() => {
+    let count = 0;
+    pendingChanges.forEach((innerMap) => {
+      count += innerMap.size;
+    });
+    return count;
+  }, [pendingChanges]);
+
   const savePendingToLocalStorage = useCallback((newPending) => {
     // BỎ localStorage - Không lưu pending changes nữa
     // Lý do: localStorage không đồng bộ giữa nhiều người, gây xung đột
@@ -4095,6 +4103,35 @@ function VanDon({ dataSource = 'default' }) {
     }
   }, []);
 
+  const handleDiscardRowChange = useCallback((orderId, colKey) => {
+    setPendingChanges(prev => {
+      const next = new Map(prev);
+      const inner = next.get(orderId);
+      if (inner) {
+        const newInner = new Map(inner);
+        newInner.delete(colKey);
+        if (newInner.size === 0) {
+          next.delete(orderId);
+          pendingRowSnapshotsRef.current.delete(orderId);
+        } else {
+          next.set(orderId, newInner);
+          // Cập nhật lại snapshot cho hàng này với các thay đổi còn lại
+          upsertPendingRowSnapshot(orderId, next, allData);
+        }
+      }
+      
+      // Đồng bộ lại queue
+      dbQueueRef.current = dbQueueRef.current.filter(q => !(q.orderId === orderId && q.colKey === colKey));
+      
+      // Nếu không còn thay đổi nào, đóng popover
+      if (next.size === 0 && syncPopoverOpen) {
+        setSyncPopoverOpen(false);
+      }
+      
+      return next;
+    });
+  }, [allData, upsertPendingRowSnapshot, syncPopoverOpen]);
+
   const handleUpdateAll = async () => {
     setSyncPopoverOpen(false);
 
@@ -5478,23 +5515,33 @@ function VanDon({ dataSource = 'default' }) {
               <div className="h-3 w-px bg-gray-300 mx-0.5"></div>
               <button
                 onClick={() => setSyncPopoverOpen(true)}
-                className="p-0.5 px-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-bold transition-all flex items-center gap-1 relative border border-blue-100"
+                className={`p-0.5 px-1.5 rounded text-[11px] font-bold transition-all flex items-center gap-1 relative border ${
+                  totalPendingCount > 0 
+                  ? 'bg-orange-50 border-orange-200 text-orange-700 animate-pulse' 
+                  : 'bg-blue-50 border-blue-100 text-blue-700'
+                }`}
+                title="Xem chi tiết các thay đổi chưa lưu"
               >
                 🔄 Trạng thái
+                {totalPendingCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-orange-600 text-white text-[9px] min-w-[16px] h-4 flex items-center justify-center rounded-full px-1 shadow-md border border-white font-black">
+                    {totalPendingCount}
+                  </span>
+                )}
               </button>
               <button
                 onClick={handleUpdateAll}
                 disabled={isReadonlyEditTab}
-                className={`p-0.5 px-1.5 rounded text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${pendingChanges.size > 0
+                className={`p-0.5 px-1.5 rounded text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${totalPendingCount > 0
                     ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse ring-2 ring-red-300 ring-offset-1'
                     : 'bg-[#F37021] hover:bg-[#e55f1a] text-white'
                   }`}
                 title={isReadonlyEditTab ? 'Tab chỉ xem: không cho cập nhật/chỉnh sửa' : 'Ghi các thay đổi đang chờ xuống CSDL'}
               >
                 ✅ Xác nhận lưu
-                {(pendingChanges.size > 0 || dbQueueRef.current.length > 0) && (
+                {totalPendingCount > 0 && (
                   <span className="bg-white text-red-600 font-black px-1.5 py-0.25 rounded-sm shadow-inner text-[10px]">
-                    {pendingChanges.size} Chưa lưu!
+                    {totalPendingCount} thay đổi
                   </span>
                 )}
               </button>
@@ -5832,6 +5879,7 @@ function VanDon({ dataSource = 'default' }) {
           pendingChanges={pendingChanges}
           legacyChanges={new Map()}
           onApply={handleUpdateAll}
+          onDiscardRow={handleDiscardRowChange}
           applyButtonLabel="Xác nhận lưu"
           onDiscard={() => {
             if (!window.confirm('Hủy bỏ tất cả thay đổi chưa lưu?')) return;
