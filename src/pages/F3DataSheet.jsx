@@ -219,7 +219,7 @@ async function fetchDanhSachDonMergedRawOrders({
     // if (!skipImplicitFilters && ordersTableName === 'orders') {
     //   query = query.or('team.is.null,team.neq.HCM');
     // }
-    
+
     // Bỏ filter theo user để Admin và User đều xem toàn bộ
     // if (!isAdmin) {
     //   if (selectedPersonnelNames.length > 0) {
@@ -247,43 +247,43 @@ async function fetchDanhSachDonMergedRawOrders({
     const all = [];
     let from = 0;
     const maxPages = 100;
-    
+
     for (let page = 0; page < maxPages; page++) {
       // Tạo query mới cho mỗi page
       let query = supabaseClient.from(ordersTableName).select(selectColumns);
       query = applyTeamAndPersonnel(query);
-      
+
       // Bỏ filter theo ngày để lấy toàn bộ dữ liệu
       // if (!skipImplicitFilters) {
       //   if (startDate) query = query.gte('order_date', startDate);
       //   if (endDate) query = query.lte('order_date', endDate);
       // }
-      
+
       query = query
         .order(orderField, { ascending: false })
         .order('order_code', { ascending: false })
         .range(from, from + ORDERS_PAGE_SIZE - 1);
-        
+
       const { data, error } = await query;
-      
+
       if (error) {
         console.error(`❌ Lỗi tải page ${page + 1}:`, error);
         throw error;
       }
-      
+
       const chunk = data || [];
       all.push(...chunk);
-      
+
       console.log(`📦 Page ${page + 1}: +${chunk.length} đơn. Tổng: ${all.length}`);
-      
+
       if (chunk.length < ORDERS_PAGE_SIZE) {
         console.log(`✅ Hoàn tất: ${all.length} đơn từ ${page + 1} pages`);
         break;
       }
-      
+
       from += ORDERS_PAGE_SIZE;
     }
-    
+
     return all;
   };
 
@@ -353,12 +353,12 @@ function DanhSachDon({ dataSource = 'default' }) {
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const teamFilter = searchParams.get('team'); // e.g. 'RD'
-  
+
   // State để chuyển đổi giữa các tab
   const [activeTab, setActiveTab] = useState(dataSource === 'hcm' ? 'hcm' : 'rd'); // rd, hcm, f3_summary
   const isHcmView = activeTab === 'hcm';
   const ordersTableName = activeTab === 'hcm' ? 'order_code_hcm' : 'orders';
-  
+
   // Cache để tránh load lại khi chuyển đổi
   const [dataCache, setDataCache] = useState({
     orders: null,
@@ -676,9 +676,9 @@ function DanhSachDon({ dataSource = 'default' }) {
           .select('accountant_confirm')
           .not('accountant_confirm', 'is', null)
           .neq('accountant_confirm', '');
-        
+
         if (error) throw error;
-        
+
         const uniqueValues = [...new Set((data || []).map(r => r.accountant_confirm).filter(Boolean))];
         if (!cancelled) setAccountantOptions(uniqueValues.sort());
       } catch (e) {
@@ -865,13 +865,13 @@ function DanhSachDon({ dataSource = 'default' }) {
       setLoadingProgress(95);
 
       console.log(`✅ Loaded: ${supaMapped.length} orders from ${ordersTableName}`);
-      
+
       // Lưu vào cache
       setDataCache(prev => ({
         ...prev,
         [ordersTableName]: supaMapped
       }));
-      
+
       setAllData(supaMapped);
       setLoadingProgress(100);
 
@@ -1017,7 +1017,7 @@ function DanhSachDon({ dataSource = 'default' }) {
         // Lấy loại tiền tệ từ payment_type hoặc payment_currency
         const paymentType = String(r?.['Hình thức thanh toán'] || r?.payment_type || '').toUpperCase().trim();
         const paymentCurrency = String(r?.payment_currency || '').toUpperCase().trim();
-        
+
         // Xác định loại tiền tệ (USD, AUD, CAD, JPY/YEN, etc.)
         let currency = null;
         for (const curr of ['USD', 'AUD', 'CAD', 'JPY', 'YEN', 'GBP', 'KRW']) {
@@ -1029,7 +1029,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
         // Nếu không phải ngoại tệ, dùng tỷ giá cũ từ DB
         let newExchangeRate = parseFloat(r._exchange_rate) || 1;
-        
+
         // Nếu là ngoại tệ, lấy tỷ giá mới từ exchange_rates
         if (currency && exchangeRatesMap[currency]) {
           newExchangeRate = exchangeRatesMap[currency];
@@ -1038,12 +1038,12 @@ function DanhSachDon({ dataSource = 'default' }) {
         const newTotal = salePrice * newExchangeRate;
         if (!Number.isFinite(newTotal) || newTotal === 0) return null;
 
-        return { 
-          orderCode, 
-          newTotal, 
+        return {
+          orderCode,
+          newTotal,
           newExchangeRate,
           currency,
-          salePrice 
+          salePrice
         };
       })
       .filter(Boolean);
@@ -1071,11 +1071,11 @@ function DanhSachDon({ dataSource = 'default' }) {
     if (
       !window.confirm(
         'Tính lại "Tổng tiền VNĐ" theo công thức lên đơn: Giá bán (ngoại tệ) × Tỷ giá MỚI NHẤT.\n\n' +
-          'Chỉ cập nhật các đơn đang hiển thị có Tổng tiền VNĐ = 0 hoặc trống.\n' +
-          'Đơn đã có tổng tiền khác 0 sẽ không bị thay đổi.\n\n' +
-          `Số đơn sẽ cập nhật: ${rowsToUpdate.length}\n\n` +
-          (currencyInfo ? `Tỷ giá sẽ áp dụng:\n${currencyInfo}\n\n` : '') +
-          'Lưu ý: Cả exchange_rate và total_amount_vnd sẽ được cập nhật.'
+        'Chỉ cập nhật các đơn đang hiển thị có Tổng tiền VNĐ = 0 hoặc trống.\n' +
+        'Đơn đã có tổng tiền khác 0 sẽ không bị thay đổi.\n\n' +
+        `Số đơn sẽ cập nhật: ${rowsToUpdate.length}\n\n` +
+        (currencyInfo ? `Tỷ giá sẽ áp dụng:\n${currencyInfo}\n\n` : '') +
+        'Lưu ý: Cả exchange_rate và total_amount_vnd sẽ được cập nhật.'
       )
     ) {
       return;
@@ -1091,7 +1091,7 @@ function DanhSachDon({ dataSource = 'default' }) {
           chunk.map(async (u) => {
             const { error } = await supabase
               .from(ordersTableName)
-              .update({ 
+              .update({
                 total_amount_vnd: u.newTotal,
                 exchange_rate: u.newExchangeRate,
                 total_vnd: u.newTotal,
@@ -1156,12 +1156,12 @@ function DanhSachDon({ dataSource = 'default' }) {
     if (
       !window.confirm(
         'Áp dụng cảnh báo trùng vào cột canh_bao (Cảnh báo trùng) trên database?\n\n' +
-          '• Phạm vi: cùng Từ/Đến ngày và cùng bộ lọc team/nhân sự như khi tải danh sách.\n' +
-          '• Rule trùng: cùng SĐT HOẶC cùng tên HOẶC cùng địa chỉ (chuẩn hóa giống trang nhập đơn).\n' +
-          '• Thứ tự: Ngày lên đơn (order_date) sớm hơn = lần 1; cùng ngày thì created_at sớm hơn = lần 1.\n' +
-          '• Chỉ các đơn từ lần 2 trở đi trong nhóm được ghi canh_bao (danh sách mã đơn trước đó trong nội dung).\n' +
-          '• Đơn “lần 1” không bị xóa/ghi đè canh_bao bởi thao tác này.\n\n' +
-          'Tiếp tục?'
+        '• Phạm vi: cùng Từ/Đến ngày và cùng bộ lọc team/nhân sự như khi tải danh sách.\n' +
+        '• Rule trùng: cùng SĐT HOẶC cùng tên HOẶC cùng địa chỉ (chuẩn hóa giống trang nhập đơn).\n' +
+        '• Thứ tự: Ngày lên đơn (order_date) sớm hơn = lần 1; cùng ngày thì created_at sớm hơn = lần 1.\n' +
+        '• Chỉ các đơn từ lần 2 trở đi trong nhóm được ghi canh_bao (danh sách mã đơn trước đó trong nội dung).\n' +
+        '• Đơn “lần 1” không bị xóa/ghi đè canh_bao bởi thao tác này.\n\n' +
+        'Tiếp tục?'
       )
     ) {
       return;
@@ -1301,11 +1301,11 @@ function DanhSachDon({ dataSource = 'default' }) {
   useEffect(() => {
     loadData();
   }, [startDate, endDate, role]); // Bỏ selectedDataSource vì đã có cache
-  
+
   // Reload khi chuyển đổi bảng (sử dụng cache nếu có)
   useEffect(() => {
     if (activeTab === 'f3_summary') return; // Không load orders cho tab summary
-    
+
     if (dataCache[ordersTableName]) {
       setAllData(dataCache[ordersTableName]);
     } else {
@@ -1575,8 +1575,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     if (
       !window.confirm(
         "Bạn có muốn tự động sửa Team và Nhân viên Sale cho các đơn đang thiếu Team không?\n\n" +
-          "• Team: khớp tên sale trên đơn với users.name → ghi users.team; nếu trống thì users.branch (không dùng team cũ trên đơn).\n" +
-          "• Nhân viên Sale: ghi đúng users.name (chuẩn master), không giữ biến thể tên từ đơn."
+        "• Team: khớp tên sale trên đơn với users.name → ghi users.team; nếu trống thì users.branch (không dùng team cũ trên đơn).\n" +
+        "• Nhân viên Sale: ghi đúng users.name (chuẩn master), không giữ biến thể tên từ đơn."
       )
     )
       return;
@@ -1666,9 +1666,9 @@ function DanhSachDon({ dataSource = 'default' }) {
 
       alert(
         `✅ Đã cập nhật xong!\n` +
-          `- Tìm thấy: ${ordersMissing.length} đơn thiếu Team.\n` +
-          `- Cập nhật Team + Nhân viên Sale (theo users): ${success} đơn.\n` +
-          `- Không khớp user / thiếu team+branch trên user: ${ordersMissing.length - success} đơn.`
+        `- Tìm thấy: ${ordersMissing.length} đơn thiếu Team.\n` +
+        `- Cập nhật Team + Nhân viên Sale (theo users): ${success} đơn.\n` +
+        `- Không khớp user / thiếu team+branch trên user: ${ordersMissing.length - success} đơn.`
       );
     } catch (err) {
       console.error('Error fixing teams:', err);
@@ -1785,9 +1785,9 @@ function DanhSachDon({ dataSource = 'default' }) {
     if (
       !window.confirm(
         'Chuyển các dòng đang xem từ bảng orders sang order_code_hcm?\n\n' +
-          '• Trùng Mã đơn hàng đã có trên order_code_hcm → không chèn, nhưng vẫn xóa dòng đó ở orders.\n' +
-          '• Trùng id trên HCM (mã không trùng như vậy) → không chèn, giữ orders.\n' +
-          '• Chèn mới thành công → xóa khỏi orders.'
+        '• Trùng Mã đơn hàng đã có trên order_code_hcm → không chèn, nhưng vẫn xóa dòng đó ở orders.\n' +
+        '• Trùng id trên HCM (mã không trùng như vậy) → không chèn, giữ orders.\n' +
+        '• Chèn mới thành công → xóa khỏi orders.'
       )
     ) {
       return;
@@ -2329,7 +2329,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   const saveBulkAccountant = async () => {
     const valueToSave = bulkAccountantValue.trim();
-    
+
     if (!valueToSave) {
       toast.warning('Vui lòng chọn hoặc nhập giá trị Kế toán xác nhận');
       return;
@@ -3196,7 +3196,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
       const tienVe = parseFloat(String(row["Tiền Việt đã đối soát"] || row["Tiền đã thanh toán"] || row.reconciled_vnd || 0).replace(/[^\d.-]/g, '')) || 0;
       const ship = parseFloat(String(row["Phí ship"] || row.shipping_cost || 0).replace(/[^\d.-]/g, '')) || 0;
-      
+
       const hasTracking = String(row["Mã Tracking"] || row.tracking_code || "").trim() !== "";
       const dsDi = hasTracking ? (parseFloat(String(row["Tổng tiền VNĐ"] || row.total_amount_vnd || 0).replace(/[^\d.-]/g, '')) || 0) : 0;
 
@@ -3260,20 +3260,19 @@ function DanhSachDon({ dataSource = 'default' }) {
                 <h1 className="text-xl font-bold text-gray-800">DANH SÁCH ĐƠN HÀNG</h1>
                 <p className="text-xs text-gray-500">Dữ liệu từ Database</p>
               </div>
-              
+
               {/* Hệ thống Tab */}
               <div className="flex bg-gray-100 p-1 rounded-xl ml-4">
                 <button
                   onClick={() => setActiveTab('rd')}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                    activeTab === 'rd'
+                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'rd'
                       ? 'bg-white text-[#F37021] shadow-sm'
                       : 'text-gray-500 hover:text-gray-700'
-                  }`}
+                    }`}
                 >
                   Dữ liệu RD
                 </button>
-                <button
+                {/* <button
                   onClick={() => setActiveTab('hcm')}
                   className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
                     activeTab === 'hcm'
@@ -3282,16 +3281,15 @@ function DanhSachDon({ dataSource = 'default' }) {
                   }`}
                 >
                   Dữ liệu HCM
-                </button>
+                </button> */}
                 <button
                   onClick={() => setActiveTab('f3_summary')}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                    activeTab === 'f3_summary'
+                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'f3_summary'
                       ? 'bg-white text-[#F37021] shadow-sm'
                       : 'text-gray-500 hover:text-gray-700'
-                  }`}
+                    }`}
                 >
-                   📦 Tổng hợp F3
+                  📦 Tổng hợp F3
                 </button>
               </div>
             </div>
@@ -3300,7 +3298,7 @@ function DanhSachDon({ dataSource = 'default' }) {
               {loading && loadingProgress > 0 && loadingProgress < 100 && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-lg border border-blue-200">
                   <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
-                    <div 
+                    <div
                       className="h-full bg-blue-500 transition-all duration-300"
                       style={{ width: `${loadingProgress}%` }}
                     />
@@ -3345,7 +3343,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                   )}
                 </button>
               )}
-              
+
               {selectedRows.size > 0 && (
                 <button
                   onClick={handleBulkUpdateAccountant}
@@ -3357,7 +3355,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                   Cập nhật KT ({selectedRows.size})
                 </button>
               )}
-              
+
               <button
                 onClick={() => loadData(true)}
                 disabled={loading}
@@ -3497,11 +3495,10 @@ function DanhSachDon({ dataSource = 'default' }) {
                   <button
                     type="button"
                     onClick={() => setHighlightDupNamePhoneAdd((v) => !v)}
-                    className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors flex items-center gap-2 whitespace-nowrap ${
-                      highlightDupNamePhoneAdd
+                    className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors flex items-center gap-2 whitespace-nowrap ${highlightDupNamePhoneAdd
                         ? 'bg-red-100 border-red-400 text-red-800'
                         : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
+                      }`}
                     title="Bật: tô đỏ cả dòng khi có ít nhất 2 đơn trong bộ lọc hiện tại trùng Name*, Phone* và Add (đã chuẩn hóa)"
                   >
                     <Layers className="w-4 h-4 shrink-0" />
@@ -3551,730 +3548,730 @@ function DanhSachDon({ dataSource = 'default' }) {
               <>
                 {/* Filters Content Placeholder */}
                 <div className="flex flex-wrap items-end gap-4 w-full">
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Khu vực</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowMarketFilter(!showMarketFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterMarket.length === 0
-                      ? 'Tất cả'
-                      : filterMarket.length === 1
-                        ? filterMarket[0]
-                        : `Đã chọn ${filterMarket.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Khu vực</label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowMarketFilter(!showMarketFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterMarket.length === 0
+                            ? 'Tất cả'
+                            : filterMarket.length === 1
+                              ? filterMarket[0]
+                              : `Đã chọn ${filterMarket.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
 
-                {showMarketFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn khu vực:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFilterMarket([]);
-                            setShowMarketFilter(false);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Bỏ chọn tất cả
-                        </button>
-                      </div>
-                      {uniqueMarkets.map(market => {
-                        const isChecked = filterMarket.includes(market);
-                        return (
-                          <label
-                            key={market}
-                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFilterMarket([...filterMarket, market]);
-                                } else {
-                                  setFilterMarket(filterMarket.filter(m => m !== market));
-                                }
-                              }}
-                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{market}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Click outside to close */}
-              {showMarketFilter && (
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowMarketFilter(false)}
-                />
-              )}
-            </div>
-
-            {/* Product Filter - Multi-select với checkbox */}
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Mặt hàng</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowProductFilter(!showProductFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterProduct.length === 0
-                      ? 'Tất cả'
-                      : filterProduct.length === 1
-                        ? filterProduct[0]
-                        : `Đã chọn ${filterProduct.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
-
-                {showProductFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn mặt hàng:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFilterProduct([]);
-                            setShowProductFilter(false);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Bỏ chọn tất cả
-                        </button>
-                      </div>
-                      {uniqueProducts.map(product => {
-                        const isChecked = filterProduct.includes(product);
-                        return (
-                          <label
-                            key={product}
-                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFilterProduct([...filterProduct, product]);
-                                } else {
-                                  setFilterProduct(filterProduct.filter(p => p !== product));
-                                }
-                              }}
-                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{product}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {showProductFilter && (
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowProductFilter(false)}
-                />
-              )}
-            </div>
-
-            {/* Status Filter - Multi-select với checkbox */}
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowStatusFilter(!showStatusFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterStatus.length === 0
-                      ? 'Tất cả'
-                      : filterStatus.length === 1
-                        ? filterStatus[0]
-                        : `Đã chọn ${filterStatus.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
-
-                {showStatusFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn trạng thái:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFilterStatus([]);
-                            setShowStatusFilter(false);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Bỏ chọn tất cả
-                        </button>
-                      </div>
-                      {uniqueStatuses.map(status => {
-                        const isChecked = filterStatus.includes(status);
-                        return (
-                          <label
-                            key={status}
-                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFilterStatus([...filterStatus, status]);
-                                } else {
-                                  setFilterStatus(filterStatus.filter(s => s !== status));
-                                }
-                              }}
-                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{status}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {showStatusFilter && (
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowStatusFilter(false)}
-                />
-              )}
-            </div>
-
-            {/* Check Result Filter - Multi-select với checkbox */}
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Kết quả Check</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowCheckResultFilter(!showCheckResultFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterCheckResult.length === 0
-                      ? 'Tất cả'
-                      : filterCheckResult.length === 1
-                        ? filterCheckResult[0]
-                        : `Đã chọn ${filterCheckResult.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
-
-                {showCheckResultFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn kết quả check:</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = Array.from(new Set([...(filterCheckResult || []), ...filteredCheckResults]));
-                              setFilterCheckResult(next);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Chọn tất cả
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilterCheckResult([]);
-                              setShowCheckResultFilter(false);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Bỏ chọn tất cả
-                          </button>
-                        </div>
-                      </div>
-                      <div className="mb-2">
-                        <input
-                          type="text"
-                          value={checkResultFilterSearchText}
-                          onChange={(e) => setCheckResultFilterSearchText(e.target.value)}
-                          placeholder="Gõ để tìm nhanh..."
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                        />
-                      </div>
-                      {filteredCheckResults.map(checkResult => {
-                        const isChecked = filterCheckResult.includes(checkResult);
-                        return (
-                          <label
-                            key={checkResult}
-                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFilterCheckResult([...filterCheckResult, checkResult]);
-                                } else {
-                                  setFilterCheckResult(filterCheckResult.filter(c => c !== checkResult));
-                                }
-                              }}
-                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{checkResult}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {showCheckResultFilter && (
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowCheckResultFilter(false)}
-                />
-              )}
-            </div>
-
-            {/* Page — checkbox + gõ tìm (page_name) */}
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Page</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowPageFilter(!showPageFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterPageNames.length === 0
-                      ? 'Tất cả'
-                      : filterPageNames.length === 1
-                        ? filterPageNames[0]
-                        : `Đã chọn ${filterPageNames.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
-
-                {showPageFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn Page:</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = Array.from(
-                                new Set([...(filterPageNames || []), ...filteredPageNames])
+                      {showMarketFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn khu vực:</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFilterMarket([]);
+                                  setShowMarketFilter(false);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800"
+                              >
+                                Bỏ chọn tất cả
+                              </button>
+                            </div>
+                            {uniqueMarkets.map(market => {
+                              const isChecked = filterMarket.includes(market);
+                              return (
+                                <label
+                                  key={market}
+                                  className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setFilterMarket([...filterMarket, market]);
+                                      } else {
+                                        setFilterMarket(filterMarket.filter(m => m !== market));
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                  />
+                                  <span className="ml-2 text-sm text-gray-700">{market}</span>
+                                </label>
                               );
-                              setFilterPageNames(next);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Chọn tất cả
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilterPageNames([]);
-                              setShowPageFilter(false);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Bỏ chọn tất cả
-                          </button>
+                            })}
+                          </div>
                         </div>
-                      </div>
-                      <div className="mb-2">
-                        <input
-                          type="text"
-                          value={pageFilterSearchText}
-                          onChange={(e) => setPageFilterSearchText(e.target.value)}
-                          placeholder="Gõ để tìm nhanh..."
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                        />
-                      </div>
-                      {filteredPageNames.map((pageName) => {
-                        const isChecked = filterPageNames.includes(pageName);
-                        return (
-                          <label
-                            key={pageName}
-                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFilterPageNames([...filterPageNames, pageName]);
-                                } else {
-                                  setFilterPageNames(filterPageNames.filter((p) => p !== pageName));
-                                }
-                              }}
-                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{pageName}</span>
-                          </label>
-                        );
-                      })}
+                      )}
                     </div>
+
+                    {/* Click outside to close */}
+                    {showMarketFilter && (
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowMarketFilter(false)}
+                      />
+                    )}
                   </div>
-                )}
-              </div>
 
-              {showPageFilter && (
-                <div className="fixed inset-0 z-40" onClick={() => setShowPageFilter(false)} />
-              )}
-            </div>
+                  {/* Product Filter - Multi-select với checkbox */}
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Mặt hàng</label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowProductFilter(!showProductFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterProduct.length === 0
+                            ? 'Tất cả'
+                            : filterProduct.length === 1
+                              ? filterProduct[0]
+                              : `Đã chọn ${filterProduct.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
 
-            {/* Trạng thái thu tiền (payment_status_detail) */}
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
-                Trạng thái thu tiền
-              </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowPaymentCollectionFilter(!showPaymentCollectionFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterPaymentCollectionStatus.length === 0
-                      ? 'Tất cả'
-                      : filterPaymentCollectionStatus.length === 1
-                        ? filterPaymentCollectionStatus[0]
-                        : `Đã chọn ${filterPaymentCollectionStatus.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
-
-                {showPaymentCollectionFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn trạng thái thu tiền:</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = Array.from(
-                                new Set([
-                                  ...(filterPaymentCollectionStatus || []),
-                                  ...filteredPaymentCollectionStatuses,
-                                ])
+                      {showProductFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn mặt hàng:</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFilterProduct([]);
+                                  setShowProductFilter(false);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800"
+                              >
+                                Bỏ chọn tất cả
+                              </button>
+                            </div>
+                            {uniqueProducts.map(product => {
+                              const isChecked = filterProduct.includes(product);
+                              return (
+                                <label
+                                  key={product}
+                                  className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setFilterProduct([...filterProduct, product]);
+                                      } else {
+                                        setFilterProduct(filterProduct.filter(p => p !== product));
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                  />
+                                  <span className="ml-2 text-sm text-gray-700">{product}</span>
+                                </label>
                               );
-                              setFilterPaymentCollectionStatus(next);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Chọn tất cả
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilterPaymentCollectionStatus([]);
-                              setShowPaymentCollectionFilter(false);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Bỏ chọn tất cả
-                          </button>
+                            })}
+                          </div>
                         </div>
-                      </div>
-                      <div className="mb-2">
-                        <input
-                          type="text"
-                          value={paymentCollectionFilterSearchText}
-                          onChange={(e) => setPaymentCollectionFilterSearchText(e.target.value)}
-                          placeholder="Gõ để tìm nhanh..."
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                        />
-                      </div>
-                      {filteredPaymentCollectionStatuses.map((st) => {
-                        const isChecked = filterPaymentCollectionStatus.includes(st);
-                        return (
-                          <label
-                            key={st}
-                            className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFilterPaymentCollectionStatus([
-                                    ...filterPaymentCollectionStatus,
-                                    st,
-                                  ]);
-                                } else {
-                                  setFilterPaymentCollectionStatus(
-                                    filterPaymentCollectionStatus.filter((x) => x !== st)
-                                  );
-                                }
-                              }}
-                              className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">{st}</span>
-                          </label>
-                        );
-                      })}
+                      )}
                     </div>
+
+                    {showProductFilter && (
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowProductFilter(false)}
+                      />
+                    )}
                   </div>
-                )}
-              </div>
 
-              {showPaymentCollectionFilter && (
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowPaymentCollectionFilter(false)}
-                />
-              )}
-            </div>
+                  {/* Status Filter - Multi-select với checkbox */}
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái</label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowStatusFilter(!showStatusFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterStatus.length === 0
+                            ? 'Tất cả'
+                            : filterStatus.length === 1
+                              ? filterStatus[0]
+                              : `Đã chọn ${filterStatus.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
 
-            {/* Sale Staff Filter */}
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên Sale</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowSaleStaffFilter(!showSaleStaffFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterSaleStaff.length === 0
-                      ? 'Tất cả'
-                      : filterSaleStaff.length === 1
-                        ? filterSaleStaff[0]
-                        : `Đã chọn ${filterSaleStaff.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
-                {showSaleStaffFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn NV Sale:</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = Array.from(new Set([...(filterSaleStaff || []), ...filteredSaleStaff]));
-                              setFilterSaleStaff(next);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Chọn tất cả
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setFilterSaleStaff([]); setShowSaleStaffFilter(false); }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Bỏ chọn tất cả
-                          </button>
+                      {showStatusFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn trạng thái:</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFilterStatus([]);
+                                  setShowStatusFilter(false);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800"
+                              >
+                                Bỏ chọn tất cả
+                              </button>
+                            </div>
+                            {uniqueStatuses.map(status => {
+                              const isChecked = filterStatus.includes(status);
+                              return (
+                                <label
+                                  key={status}
+                                  className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setFilterStatus([...filterStatus, status]);
+                                      } else {
+                                        setFilterStatus(filterStatus.filter(s => s !== status));
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                  />
+                                  <span className="ml-2 text-sm text-gray-700">{status}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                      <div className="mb-2">
-                        <input
-                          type="text"
-                          value={saleStaffFilterSearchText}
-                          onChange={(e) => setSaleStaffFilterSearchText(e.target.value)}
-                          placeholder="Gõ để tìm nhanh..."
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                        />
-                      </div>
-                      {filteredSaleStaff.map(name => (
-                        <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={filterSaleStaff.includes(name)}
-                            onChange={(e) => {
-                              if (e.target.checked) setFilterSaleStaff([...filterSaleStaff, name]);
-                              else setFilterSaleStaff(filterSaleStaff.filter(v => v !== name));
-                            }}
-                            className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">{name}</span>
-                        </label>
-                      ))}
+                      )}
                     </div>
-                  </div>
-                )}
-              </div>
-              {showSaleStaffFilter && (
-                <div className="fixed inset-0 z-40" onClick={() => setShowSaleStaffFilter(false)} />
-              )}
-            </div>
 
-            {/* MKT Staff Filter */}
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên MKT</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowMktStaffFilter(!showMktStaffFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterMktStaff.length === 0
-                      ? 'Tất cả'
-                      : filterMktStaff.length === 1
-                        ? filterMktStaff[0]
-                        : `Đã chọn ${filterMktStaff.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
-                {showMktStaffFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn NV MKT:</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = Array.from(new Set([...(filterMktStaff || []), ...filteredMktStaff]));
-                              setFilterMktStaff(next);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Chọn tất cả
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setFilterMktStaff([]); setShowMktStaffFilter(false); }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Bỏ chọn tất cả
-                          </button>
-                        </div>
-                      </div>
-                      <div className="mb-2">
-                        <input
-                          type="text"
-                          value={mktStaffFilterSearchText}
-                          onChange={(e) => setMktStaffFilterSearchText(e.target.value)}
-                          placeholder="Gõ để tìm nhanh..."
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                        />
-                      </div>
-                      {filteredMktStaff.map(name => (
-                        <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={filterMktStaff.includes(name)}
-                            onChange={(e) => {
-                              if (e.target.checked) setFilterMktStaff([...filterMktStaff, name]);
-                              else setFilterMktStaff(filterMktStaff.filter(v => v !== name));
-                            }}
-                            className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">{name}</span>
-                        </label>
-                      ))}
-                    </div>
+                    {showStatusFilter && (
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowStatusFilter(false)}
+                      />
+                    )}
                   </div>
-                )}
-              </div>
-              {showMktStaffFilter && (
-                <div className="fixed inset-0 z-40" onClick={() => setShowMktStaffFilter(false)} />
-              )}
-            </div>
 
-            {/* Delivery Staff Filter */}
-            <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên vận đơn</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowDeliveryStaffFilter(!showDeliveryStaffFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {filterDeliveryStaff.length === 0
-                      ? 'Tất cả'
-                      : filterDeliveryStaff.length === 1
-                        ? filterDeliveryStaff[0]
-                        : `Đã chọn ${filterDeliveryStaff.length}`}
-                  </span>
-                  <span className="ml-2">▼</span>
-                </button>
-                {showDeliveryStaffFilter && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                        <span className="text-xs font-semibold text-gray-700">Chọn NV vận đơn:</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = Array.from(new Set([...(filterDeliveryStaff || []), ...filteredDeliveryStaff]));
-                              setFilterDeliveryStaff(next);
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Chọn tất cả
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setFilterDeliveryStaff([]); setShowDeliveryStaffFilter(false); }}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            Bỏ chọn tất cả
-                          </button>
+                  {/* Check Result Filter - Multi-select với checkbox */}
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Kết quả Check</label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowCheckResultFilter(!showCheckResultFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterCheckResult.length === 0
+                            ? 'Tất cả'
+                            : filterCheckResult.length === 1
+                              ? filterCheckResult[0]
+                              : `Đã chọn ${filterCheckResult.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
+
+                      {showCheckResultFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn kết quả check:</span>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = Array.from(new Set([...(filterCheckResult || []), ...filteredCheckResults]));
+                                    setFilterCheckResult(next);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Chọn tất cả
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFilterCheckResult([]);
+                                    setShowCheckResultFilter(false);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Bỏ chọn tất cả
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mb-2">
+                              <input
+                                type="text"
+                                value={checkResultFilterSearchText}
+                                onChange={(e) => setCheckResultFilterSearchText(e.target.value)}
+                                placeholder="Gõ để tìm nhanh..."
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                              />
+                            </div>
+                            {filteredCheckResults.map(checkResult => {
+                              const isChecked = filterCheckResult.includes(checkResult);
+                              return (
+                                <label
+                                  key={checkResult}
+                                  className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setFilterCheckResult([...filterCheckResult, checkResult]);
+                                      } else {
+                                        setFilterCheckResult(filterCheckResult.filter(c => c !== checkResult));
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                  />
+                                  <span className="ml-2 text-sm text-gray-700">{checkResult}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                      <div className="mb-2">
-                        <input
-                          type="text"
-                          value={deliveryStaffFilterSearchText}
-                          onChange={(e) => setDeliveryStaffFilterSearchText(e.target.value)}
-                          placeholder="Gõ để tìm nhanh..."
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                        />
-                      </div>
-                      {filteredDeliveryStaff.map(name => (
-                        <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={filterDeliveryStaff.includes(name)}
-                            onChange={(e) => {
-                              if (e.target.checked) setFilterDeliveryStaff([...filterDeliveryStaff, name]);
-                              else setFilterDeliveryStaff(filterDeliveryStaff.filter(v => v !== name));
-                            }}
-                            className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">{name}</span>
-                        </label>
-                      ))}
+                      )}
                     </div>
+
+                    {showCheckResultFilter && (
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowCheckResultFilter(false)}
+                      />
+                    )}
                   </div>
-                )}
-              </div>
-              {showDeliveryStaffFilter && (
-                <div className="fixed inset-0 z-40" onClick={() => setShowDeliveryStaffFilter(false)} />
-              )}
-            </div>
+
+                  {/* Page — checkbox + gõ tìm (page_name) */}
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Page</label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowPageFilter(!showPageFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterPageNames.length === 0
+                            ? 'Tất cả'
+                            : filterPageNames.length === 1
+                              ? filterPageNames[0]
+                              : `Đã chọn ${filterPageNames.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
+
+                      {showPageFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn Page:</span>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = Array.from(
+                                      new Set([...(filterPageNames || []), ...filteredPageNames])
+                                    );
+                                    setFilterPageNames(next);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Chọn tất cả
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFilterPageNames([]);
+                                    setShowPageFilter(false);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Bỏ chọn tất cả
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mb-2">
+                              <input
+                                type="text"
+                                value={pageFilterSearchText}
+                                onChange={(e) => setPageFilterSearchText(e.target.value)}
+                                placeholder="Gõ để tìm nhanh..."
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                              />
+                            </div>
+                            {filteredPageNames.map((pageName) => {
+                              const isChecked = filterPageNames.includes(pageName);
+                              return (
+                                <label
+                                  key={pageName}
+                                  className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setFilterPageNames([...filterPageNames, pageName]);
+                                      } else {
+                                        setFilterPageNames(filterPageNames.filter((p) => p !== pageName));
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                  />
+                                  <span className="ml-2 text-sm text-gray-700">{pageName}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {showPageFilter && (
+                      <div className="fixed inset-0 z-40" onClick={() => setShowPageFilter(false)} />
+                    )}
+                  </div>
+
+                  {/* Trạng thái thu tiền (payment_status_detail) */}
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
+                      Trạng thái thu tiền
+                    </label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowPaymentCollectionFilter(!showPaymentCollectionFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterPaymentCollectionStatus.length === 0
+                            ? 'Tất cả'
+                            : filterPaymentCollectionStatus.length === 1
+                              ? filterPaymentCollectionStatus[0]
+                              : `Đã chọn ${filterPaymentCollectionStatus.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
+
+                      {showPaymentCollectionFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn trạng thái thu tiền:</span>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = Array.from(
+                                      new Set([
+                                        ...(filterPaymentCollectionStatus || []),
+                                        ...filteredPaymentCollectionStatuses,
+                                      ])
+                                    );
+                                    setFilterPaymentCollectionStatus(next);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Chọn tất cả
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFilterPaymentCollectionStatus([]);
+                                    setShowPaymentCollectionFilter(false);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Bỏ chọn tất cả
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mb-2">
+                              <input
+                                type="text"
+                                value={paymentCollectionFilterSearchText}
+                                onChange={(e) => setPaymentCollectionFilterSearchText(e.target.value)}
+                                placeholder="Gõ để tìm nhanh..."
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                              />
+                            </div>
+                            {filteredPaymentCollectionStatuses.map((st) => {
+                              const isChecked = filterPaymentCollectionStatus.includes(st);
+                              return (
+                                <label
+                                  key={st}
+                                  className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setFilterPaymentCollectionStatus([
+                                          ...filterPaymentCollectionStatus,
+                                          st,
+                                        ]);
+                                      } else {
+                                        setFilterPaymentCollectionStatus(
+                                          filterPaymentCollectionStatus.filter((x) => x !== st)
+                                        );
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                  />
+                                  <span className="ml-2 text-sm text-gray-700">{st}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {showPaymentCollectionFilter && (
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowPaymentCollectionFilter(false)}
+                      />
+                    )}
+                  </div>
+
+                  {/* Sale Staff Filter */}
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên Sale</label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowSaleStaffFilter(!showSaleStaffFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterSaleStaff.length === 0
+                            ? 'Tất cả'
+                            : filterSaleStaff.length === 1
+                              ? filterSaleStaff[0]
+                              : `Đã chọn ${filterSaleStaff.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
+                      {showSaleStaffFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn NV Sale:</span>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = Array.from(new Set([...(filterSaleStaff || []), ...filteredSaleStaff]));
+                                    setFilterSaleStaff(next);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Chọn tất cả
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setFilterSaleStaff([]); setShowSaleStaffFilter(false); }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Bỏ chọn tất cả
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mb-2">
+                              <input
+                                type="text"
+                                value={saleStaffFilterSearchText}
+                                onChange={(e) => setSaleStaffFilterSearchText(e.target.value)}
+                                placeholder="Gõ để tìm nhanh..."
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                              />
+                            </div>
+                            {filteredSaleStaff.map(name => (
+                              <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={filterSaleStaff.includes(name)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setFilterSaleStaff([...filterSaleStaff, name]);
+                                    else setFilterSaleStaff(filterSaleStaff.filter(v => v !== name));
+                                  }}
+                                  className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                />
+                                <span className="ml-2 text-sm text-gray-700">{name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {showSaleStaffFilter && (
+                      <div className="fixed inset-0 z-40" onClick={() => setShowSaleStaffFilter(false)} />
+                    )}
+                  </div>
+
+                  {/* MKT Staff Filter */}
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên MKT</label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowMktStaffFilter(!showMktStaffFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterMktStaff.length === 0
+                            ? 'Tất cả'
+                            : filterMktStaff.length === 1
+                              ? filterMktStaff[0]
+                              : `Đã chọn ${filterMktStaff.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
+                      {showMktStaffFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn NV MKT:</span>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = Array.from(new Set([...(filterMktStaff || []), ...filteredMktStaff]));
+                                    setFilterMktStaff(next);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Chọn tất cả
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setFilterMktStaff([]); setShowMktStaffFilter(false); }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Bỏ chọn tất cả
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mb-2">
+                              <input
+                                type="text"
+                                value={mktStaffFilterSearchText}
+                                onChange={(e) => setMktStaffFilterSearchText(e.target.value)}
+                                placeholder="Gõ để tìm nhanh..."
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                              />
+                            </div>
+                            {filteredMktStaff.map(name => (
+                              <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={filterMktStaff.includes(name)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setFilterMktStaff([...filterMktStaff, name]);
+                                    else setFilterMktStaff(filterMktStaff.filter(v => v !== name));
+                                  }}
+                                  className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                />
+                                <span className="ml-2 text-sm text-gray-700">{name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {showMktStaffFilter && (
+                      <div className="fixed inset-0 z-40" onClick={() => setShowMktStaffFilter(false)} />
+                    )}
+                  </div>
+
+                  {/* Delivery Staff Filter */}
+                  <div className="min-w-[200px] relative">
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên vận đơn</label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowDeliveryStaffFilter(!showDeliveryStaffFilter)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                      >
+                        <span className="truncate">
+                          {filterDeliveryStaff.length === 0
+                            ? 'Tất cả'
+                            : filterDeliveryStaff.length === 1
+                              ? filterDeliveryStaff[0]
+                              : `Đã chọn ${filterDeliveryStaff.length}`}
+                        </span>
+                        <span className="ml-2">▼</span>
+                      </button>
+                      {showDeliveryStaffFilter && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                              <span className="text-xs font-semibold text-gray-700">Chọn NV vận đơn:</span>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = Array.from(new Set([...(filterDeliveryStaff || []), ...filteredDeliveryStaff]));
+                                    setFilterDeliveryStaff(next);
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Chọn tất cả
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setFilterDeliveryStaff([]); setShowDeliveryStaffFilter(false); }}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Bỏ chọn tất cả
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mb-2">
+                              <input
+                                type="text"
+                                value={deliveryStaffFilterSearchText}
+                                onChange={(e) => setDeliveryStaffFilterSearchText(e.target.value)}
+                                placeholder="Gõ để tìm nhanh..."
+                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                              />
+                            </div>
+                            {filteredDeliveryStaff.map(name => (
+                              <label key={name} className="flex items-center px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={filterDeliveryStaff.includes(name)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setFilterDeliveryStaff([...filterDeliveryStaff, name]);
+                                    else setFilterDeliveryStaff(filterDeliveryStaff.filter(v => v !== name));
+                                  }}
+                                  className="w-4 h-4 ml-1 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                                />
+                                <span className="ml-2 text-sm text-gray-700">{name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {showDeliveryStaffFilter && (
+                      <div className="fixed inset-0 z-40" onClick={() => setShowDeliveryStaffFilter(false)} />
+                    )}
+                  </div>
                 </div>
               </>
             )}
@@ -4283,213 +4280,211 @@ function DanhSachDon({ dataSource = 'default' }) {
 
         {/* Tab Content */}
         {activeTab === 'f3_summary' ? (
-          <F3SummaryTab 
-            data={f3SummaryData} 
-            startDate={startDate} 
-            endDate={endDate} 
+          <F3SummaryTab
+            data={f3SummaryData}
+            startDate={startDate}
+            endDate={endDate}
           />
         ) : (
           <>
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-4 py-3 text-left">
-                      <input
-                        type="checkbox"
-                        checked={selectedRows.size === filteredData.length && filteredData.length > 0}
-                        onChange={(e) => handleSelectAll(e.target.checked)}
-                        className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
-                      />
-                    </th>
-                    {displayColumns.map((col) => (
-                      <th
-                        key={col}
-                        className={`px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${
-                          col === 'Loại tiền thanh toán' ? 'whitespace-nowrap w-[150px]' : ''
-                        }`}
-                        onClick={() => handleSort(col)}
-                      >
-                        <div className="flex items-center gap-2">
-                          {col}
-                          {sortColumn === col && (
-                            <span className="text-[#F37021]">
-                              {sortDirection === 'asc' ? '↑' : '↓'}
-                            </span>
-                          )}
-                        </div>
-                      </th>
-  
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {loading ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
-                        <div className="flex items-center justify-center gap-2">
-                          <div className="animate-spin h-5 w-5 border-2 border-[#F37021] border-t-transparent rounded-full"></div>
-                          Đang tải dữ liệu...
-                        </div>
-                      </td>
-                    </tr>
-                  ) : paginatedData.length === 0 ? (
-                    <tr>
-                      <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
-                        Không có dữ liệu phù hợp
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedData.map((row, index) => {
-                      const rowIndexFiltered = (currentPage - 1) * rowsPerPage + index;
-                      const tKey = tripleNamePhoneAddKey(row);
-                      const isDupRow =
-                        highlightDupNamePhoneAdd && tKey && duplicateTripleKeysInFilter.has(tKey);
-                      const isSelected = selectedRowId === rowIndexFiltered;
-                      let trClass = 'cursor-pointer transition-colors ';
-                      if (isDupRow && isSelected) {
-                        trClass += 'bg-red-200 ring-2 ring-inset ring-blue-500 hover:bg-red-200';
-                      } else if (isDupRow) {
-                      trClass += 'bg-red-100 hover:bg-red-50';
-                    } else if (isSelected) {
-                      trClass += 'bg-blue-100 hover:bg-blue-200';
-                    } else {
-                      trClass += 'hover:bg-gray-50';
-                    }
-                    return (
-                    <tr
-                      key={row[PRIMARY_KEY_COLUMN] || index}
-                      onClick={() => setSelectedRowId(rowIndexFiltered)}
-                      className={trClass}
-                    >
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <th className="px-4 py-3 text-left">
                         <input
                           type="checkbox"
-                          checked={selectedRows.has(rowIndexFiltered)}
-                          onChange={(e) => handleSelectRow(rowIndexFiltered, e.target.checked)}
+                          checked={selectedRows.size === filteredData.length && filteredData.length > 0}
+                          onChange={(e) => handleSelectAll(e.target.checked)}
                           className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
                         />
-                      </td>
-                      {displayColumns.map((col) => {
-                        let value = getCellDisplayValueForRow(row, col);
-
-                        // Special rendering for Payment Bill and Payment Image
-                        if (col === 'Payment Bill') {
-                          return (
-                            <td
-                              key={col}
-                              className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <select
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                value={value || ''}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  // Handle update if needed
-                                  const newValue = e.target.value;
-                                  if (newValue !== value) {
-                                    // TODO: Add update logic here if needed
-                                    console.log('Update Payment Bill:', row['Mã đơn hàng'], newValue);
-                                  }
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <option value="">-- Chọn --</option>
-                                <option value="Có bill">Có bill</option>
-                                <option value="Bill một phần">Bill một phần</option>
-                              </select>
-                            </td>
-                          );
-                        }
-
-                        if (col === 'Payment Image') {
-                          return (
-                            <td
-                              key={col}
-                              className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Suspense fallback={<span className="text-gray-400">...</span>}>
-                                <BillImageViewer 
-                                  paymentImage={value || row['Payment Image'] || row.payment_image || ''}
-                                  orderCode={row['Mã đơn hàng'] || row.order_code || ''}
-                                />
-                              </Suspense>
-                            </td>
-                          );
-                        }
-
-                        return (
-                          <td
-                            key={col}
-                            className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50 transition-colors ${
-                              col === 'Loại tiền thanh toán' ? 'w-[150px]' : ''
+                      </th>
+                      {displayColumns.map((col) => (
+                        <th
+                          key={col}
+                          className={`px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${col === 'Loại tiền thanh toán' ? 'whitespace-nowrap w-[150px]' : ''
                             }`}
-                            title={`${value || '-'} (Click để copy)`}
-                            onClick={(e) => {
-                              e.stopPropagation(); // Ngăn chặn select row khi click vào ô
-                              handleCellClick(e, value);
-                            }}
-                          >
-                            {value || '-'}
-                          </td>
-                        );
-                      })}
+                          onClick={() => handleSort(col)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {col}
+                            {sortColumn === col && (
+                              <span className="text-[#F37021]">
+                                {sortDirection === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </div>
+                        </th>
 
+                      ))}
                     </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {loading ? (
+                      <tr>
+                        <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="animate-spin h-5 w-5 border-2 border-[#F37021] border-t-transparent rounded-full"></div>
+                            Đang tải dữ liệu...
+                          </div>
+                        </td>
+                      </tr>
+                    ) : paginatedData.length === 0 ? (
+                      <tr>
+                        <td colSpan={displayColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
+                          Không có dữ liệu phù hợp
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedData.map((row, index) => {
+                        const rowIndexFiltered = (currentPage - 1) * rowsPerPage + index;
+                        const tKey = tripleNamePhoneAddKey(row);
+                        const isDupRow =
+                          highlightDupNamePhoneAdd && tKey && duplicateTripleKeysInFilter.has(tKey);
+                        const isSelected = selectedRowId === rowIndexFiltered;
+                        let trClass = 'cursor-pointer transition-colors ';
+                        if (isDupRow && isSelected) {
+                          trClass += 'bg-red-200 ring-2 ring-inset ring-blue-500 hover:bg-red-200';
+                        } else if (isDupRow) {
+                          trClass += 'bg-red-100 hover:bg-red-50';
+                        } else if (isSelected) {
+                          trClass += 'bg-blue-100 hover:bg-blue-200';
+                        } else {
+                          trClass += 'hover:bg-gray-50';
+                        }
+                        return (
+                          <tr
+                            key={row[PRIMARY_KEY_COLUMN] || index}
+                            onClick={() => setSelectedRowId(rowIndexFiltered)}
+                            className={trClass}
+                          >
+                            <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={selectedRows.has(rowIndexFiltered)}
+                                onChange={(e) => handleSelectRow(rowIndexFiltered, e.target.checked)}
+                                className="w-4 h-4 text-[#F37021] border-gray-300 rounded focus:ring-[#F37021]"
+                              />
+                            </td>
+                            {displayColumns.map((col) => {
+                              let value = getCellDisplayValueForRow(row, col);
 
-        {/* Pagination */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mt-6">
-          <div className="flex justify-between items-center flex-wrap gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Số dòng/trang:</label>
-              <select
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
-                value={rowsPerPage}
-                onChange={(e) => {
-                  setRowsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-              >
-                <option value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-                <option value="200">200</option>
-              </select>
-            </div>
+                              // Special rendering for Payment Bill and Payment Image
+                              if (col === 'Payment Bill') {
+                                return (
+                                  <td
+                                    key={col}
+                                    className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <select
+                                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      value={value || ''}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        // Handle update if needed
+                                        const newValue = e.target.value;
+                                        if (newValue !== value) {
+                                          // TODO: Add update logic here if needed
+                                          console.log('Update Payment Bill:', row['Mã đơn hàng'], newValue);
+                                        }
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <option value="">-- Chọn --</option>
+                                      <option value="Có bill">Có bill</option>
+                                      <option value="Bill một phần">Bill một phần</option>
+                                    </select>
+                                  </td>
+                                );
+                              }
 
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-700">
-                Trang <span className="font-bold text-[#F37021]">{currentPage}</span> / {totalPages || 1}
-              </span>
-              <div className="flex gap-2">
-                <button
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage(p => p - 1)}
-                  className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium transition-colors shadow-sm"
-                >
-                  ← Trước
-                </button>
-                <button
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage(p => p + 1)}
-                  className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium transition-colors shadow-sm"
-                >
-                  Sau →
-                </button>
+                              if (col === 'Payment Image') {
+                                return (
+                                  <td
+                                    key={col}
+                                    className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Suspense fallback={<span className="text-gray-400">...</span>}>
+                                      <BillImageViewer
+                                        paymentImage={value || row['Payment Image'] || row.payment_image || ''}
+                                        orderCode={row['Mã đơn hàng'] || row.order_code || ''}
+                                      />
+                                    </Suspense>
+                                  </td>
+                                );
+                              }
+
+                              return (
+                                <td
+                                  key={col}
+                                  className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap cursor-copy hover:bg-blue-50 transition-colors ${col === 'Loại tiền thanh toán' ? 'w-[150px]' : ''
+                                    }`}
+                                  title={`${value || '-'} (Click để copy)`}
+                                  onClick={(e) => {
+                                    e.stopPropagation(); // Ngăn chặn select row khi click vào ô
+                                    handleCellClick(e, value);
+                                  }}
+                                >
+                                  {value || '-'}
+                                </td>
+                              );
+                            })}
+
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
-          </div>
-        </div>
+
+            {/* Pagination */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mt-6">
+              <div className="flex justify-between items-center flex-wrap gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600">Số dòng/trang:</label>
+                  <select
+                    className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white"
+                    value={rowsPerPage}
+                    onChange={(e) => {
+                      setRowsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <span className="text-sm text-gray-700">
+                    Trang <span className="font-bold text-[#F37021]">{currentPage}</span> / {totalPages || 1}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage(p => p - 1)}
+                      className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium transition-colors shadow-sm"
+                    >
+                      ← Trước
+                    </button>
+                    <button
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage(p => p + 1)}
+                      className="px-4 py-2 bg-[#F37021] hover:bg-[#e55f1a] text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium transition-colors shadow-sm"
+                    >
+                      Sau →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </>
         )}
       </div>
@@ -4620,7 +4615,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                 <X className="w-6 h-6" />
               </button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {/* Left: Selected orders list */}
@@ -4640,7 +4635,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                           const orderCode = row?.['Mã đơn hàng'];
                           const customerName = row?.['Name*'] || row?.['Name'];
                           const currentAccountant = row?.['Kế toán xác nhận thu tiền về'];
-                          
+
                           return (
                             <div key={idx} className="p-3 hover:bg-white transition-colors">
                               <div className="flex items-start justify-between gap-2">
@@ -4682,7 +4677,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                   <h3 className="text-sm font-semibold text-gray-700 mb-3">
                     Chọn giá trị mới
                   </h3>
-                  
+
                   {/* Search input */}
                   <div className="mb-3">
                     <input
@@ -4747,7 +4742,7 @@ function DanhSachDon({ dataSource = 'default' }) {
                 </div>
               </div>
             </div>
-            
+
             <div className="flex items-center justify-end gap-2 p-5 border-t border-gray-200 shrink-0">
               <button
                 type="button"
