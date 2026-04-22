@@ -5,7 +5,11 @@ import {
     formatOrderLogJsonbForDisplay,
     labelForOrderLogDbKey,
     mergeOrderLogJsonb,
+    ORDER_LOG_TAC_NHAN_HE_THONG,
+    ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
     ORDER_LOG_TRACKED_DB_KEYS,
+    labelOrderLogTacNhan,
+    normalizeOrderLogTacNhan,
     parseOrderLogJsonb,
 } from '../utils/orderLogJsonb';
 import {
@@ -70,6 +74,8 @@ export const DB_TO_APP_MAPPING = {
     "reconciled_vnd": "Tiền đã thanh toán",
     "cskh_status": "Trạng thái cskh",
     "log": "Nhật ký",
+    /** Nhật ký riêng trang FFM (jsonb) — không dùng chung cột `log` của Vận đơn. */
+    "ffm_log": "Lịch sử FFM",
     "canh_bao": "Cảnh báo trùng",
     "thu_tu_chia": "Thứ tự chia",
     "ngay_chia_van_don": "Ngày chia vận đơn",
@@ -130,6 +136,7 @@ const resolveAppKeyToDbKey = (appKey) => {
     if (appKey === 'Ngày đẩy đơn') return 'accounting_check_date';
     /** Cột Nhật ký: fallback nếu nhãn lệch Unicode / mapping */
     if (nfc === 'Nhật ký'.normalize('NFC') || nfc === 'log' || appKey === 'log') return 'log';
+    if (appKey === 'ffm_log' || nfc === 'ffm_log'.normalize('NFC')) return 'ffm_log';
     if (nfc === 'Cảnh báo trùng'.normalize('NFC') || appKey === 'canh_bao') return 'canh_bao';
     /** Dữ liệu cũ / pending lưu tay vẫn có thể dùng khóa cột cũ */
     if (appKey === 'estimated_delivery_date' || nfc === 'estimated_delivery_date') return 'thoigiangiaohangffm';
@@ -800,14 +807,21 @@ export const fetchFFMOrders = async ({ ordersTable = 'orders' } = {}) => {
  * @param {Array<Record<string, unknown>>} rows — mỗi phần tử có PRIMARY_KEY + các cột app đã đổi
  * @param {string} [modifiedBy]
  * @param {Array<{ orderId: string, colKey: string, originalValue?: string, newValue?: string }>} [changeLog] — trang /van-don: mỗi ô sửa → một dòng ghi vào orders.log (jsonb)
- * @param {{ sourceTable?: string }} [options]
+ * @param {{ sourceTable?: string, activityLogTarget?: 'log' | 'ffm_log', changeActorKind?: 'user' | 'system' }} [options]
+ *        `activityLogTarget`: `'log'` (mặc định, Vận đơn) hoặc `'ffm_log'` (chỉ trang FFM).
+ *        `changeActorKind`: với `ffm_log`, `'system'` → tac_nhan hệ thống; mặc định `'user'` (người thao tác).
  */
 export const updateBatch = async (rows, modifiedBy, changeLog = null, options = {}) => {
     try {
         console.log(`Supabase Batch Update: ${rows.length} rows`);
 
         const sourceTable = String(options?.sourceTable || 'orders').trim() || 'orders';
-        /** Cùng cột `log` (jsonb) trên `orders` và `order_code_hcm` — mọi ô sửa (Kết quả Check, NB, thu tiền, Tracking, …) đều append vào log. */
+        const activityLogTarget = options?.activityLogTarget === 'ffm_log' ? 'ffm_log' : 'log';
+        const ffmTacNhan =
+            options?.changeActorKind === 'system'
+                ? ORDER_LOG_TAC_NHAN_HE_THONG
+                : ORDER_LOG_TAC_NHAN_NGUOI_DUNG;
+        /** `log`: Vận đơn / Nhập đơn. `ffm_log`: chỉ FFM — tách khỏi nhật ký vận đơn. */
         const supportsActivityLog = sourceTable === 'orders' || sourceTable === 'order_code_hcm';
         const useActivityLog = supportsActivityLog && Array.isArray(changeLog) && changeLog.length > 0;
 
@@ -824,13 +838,13 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                 if (appKey === PRIMARY_KEY_COLUMN) return;
                 const dbKey = resolveAppKeyToDbKey(appKey);
                 if (!dbKey) return;
-                if (useActivityLog && dbKey === 'log') {
+                if (useActivityLog && (dbKey === 'log' || dbKey === 'ffm_log')) {
                     return;
                 }
-                if (!supportsActivityLog && dbKey === 'log') {
+                if (!supportsActivityLog && (dbKey === 'log' || dbKey === 'ffm_log')) {
                     return;
                 }
-                if (dbKey === 'log') {
+                if (dbKey === 'log' || dbKey === 'ffm_log') {
                     updatePayload[dbKey] = row[appKey];
                 } else {
                     updatePayload[dbKey] = prepareValueForDB(dbKey, row[appKey]);
@@ -859,7 +873,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
             if (useActivityLog && trail.length > 0) {
                 const { data: logRow, error: logErr } = await supabase
                     .from(sourceTable)
-                    .select('log')
+                    .select(activityLogTarget)
                     .eq('order_code', oc)
                     .maybeSingle();
                     
@@ -870,7 +884,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
 
             // Cập nhật Log nếu có hỗ trợ
             if (useActivityLog && trail.length > 0 && dbRow) {
-                const prev = parseOrderLogJsonb(dbRow?.log);
+                const prev = parseOrderLogJsonb(dbRow?.[activityLogTarget]);
                 const ts = new Date().toISOString();
                 const nv = String(modifiedBy || '').trim() || 'hệ thống';
                 const LOG_TRACKED_DB_KEYS = new Set(ORDER_LOG_TRACKED_DB_KEYS);
@@ -883,7 +897,7 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                             const moiRaw = ch.newValue != null ? String(ch.newValue) : '';
                             const cu = normalizeVanDonLogDisplayText(cuRaw);
                             const moi = normalizeVanDonLogDisplayText(moiRaw);
-                            return {
+                            const base = {
                                 thoi_gian: ts,
                                 nhan_vien: nv,
                                 cot,
@@ -891,10 +905,14 @@ export const updateBatch = async (rows, modifiedBy, changeLog = null, options = 
                                 gia_tri_cu: cu.trim() === '' ? null : cu,
                                 gia_tri_moi: moi.trim() === '' ? null : moi,
                             };
+                            if (activityLogTarget === 'ffm_log') {
+                                base.tac_nhan = ffmTacNhan;
+                            }
+                            return base;
                         })
                         .filter(Boolean);
                 if (entries.length > 0) {
-                    payload.log = sanitizeLogJsonbForSupabase(mergeOrderLogJsonb(prev, entries));
+                    payload[activityLogTarget] = sanitizeLogJsonbForSupabase(mergeOrderLogJsonb(prev, entries));
                 }
             } else if (Object.prototype.hasOwnProperty.call(payload, 'log')) {
                 const rawLog = payload.log;
@@ -1768,6 +1786,42 @@ export const fetchOrderChangeHistory = async ({ orderCode, sourceTable = 'orders
             id: `log-${i}-${String(e.thoi_gian ?? i)}`,
             changed_at: e.thoi_gian,
             changed_by: e.nhan_vien != null ? String(e.nhan_vien) : 'hệ thống',
+            changed_fields: {
+                [label]: {
+                    old: e.gia_tri_cu !== undefined ? e.gia_tri_cu : null,
+                    new: e.gia_tri_moi !== undefined ? e.gia_tri_moi : null,
+                },
+            },
+        };
+    });
+    rows.sort((a, b) => {
+        const ta = new Date(a.changed_at || 0).getTime();
+        const tb = new Date(b.changed_at || 0).getTime();
+        return tb - ta;
+    });
+    return rows;
+};
+
+/**
+ * Lịch sử chỉ cho FFM: đọc cột `ffm_log` (jsonb) trên `orders` / `order_code_hcm`.
+ * Không dùng chung `log` (Vận đơn). Cùng shape trả về như `fetchOrderChangeHistory` để dùng chung modal.
+ */
+export const fetchFfmOrderChangeHistory = async ({ orderCode, sourceTable = 'orders' } = {}) => {
+    const oc = String(orderCode || '').trim();
+    if (!oc) return [];
+    const st = String(sourceTable || 'orders').trim() || 'orders';
+    const { data, error } = await supabase.from(st).select('ffm_log').eq('order_code', oc).maybeSingle();
+    if (error) throw error;
+    const entries = parseOrderLogJsonb(data?.ffm_log);
+    const rows = entries.map((e, i) => {
+        const label = String(e.cot || e.cot_db || 'Thay đổi').trim() || 'Thay đổi';
+        const tacNhan = normalizeOrderLogTacNhan(e);
+        return {
+            id: `ffm-log-${i}-${String(e.thoi_gian ?? i)}`,
+            changed_at: e.thoi_gian,
+            changed_by: e.nhan_vien != null ? String(e.nhan_vien) : 'hệ thống',
+            tac_nhan: tacNhan,
+            tac_nhan_label: labelOrderLogTacNhan(tacNhan),
             changed_fields: {
                 [label]: {
                     old: e.gia_tri_cu !== undefined ? e.gia_tri_cu : null,

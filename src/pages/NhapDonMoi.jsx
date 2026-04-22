@@ -11,6 +11,7 @@ import {
     buildOrderLogDiffEntries,
     buildTrackedFieldsPayloadForLog,
     mergeOrderLogJsonb,
+    ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
     parseOrderLogJsonb,
     pickTrackedFieldsFromOrderRow,
     pickTrackedFieldsFromPayload,
@@ -1719,6 +1720,23 @@ export default function NhapDonMoi({ isEdit = false }) {
             const mergedLog = mergeOrderLogJsonb(logDbArrayRef.current, saveLogTail);
             orderPayload.log = mergedLog;
             orderPayload.canh_bao = canh_bao;
+
+            /** Nhật ký riêng FFM (`ffm_log`): khởi tạo + mọi thay đổi tracked (tách khỏi `log` Vận đơn). */
+            const prevFfmLog = isEdit ? parseOrderLogJsonb(existingOrderSnapshot?.ffm_log) : [];
+            const ffmInitEntries = !isEdit
+                ? [
+                    {
+                        thoi_gian: new Date().toISOString(),
+                        nhan_vien: actor,
+                        tac_nhan: ORDER_LOG_TAC_NHAN_NGUOI_DUNG,
+                        cot: 'Khởi tạo đơn (FFM)',
+                        cot_db: '__ffm_init__',
+                        gia_tri_cu: null,
+                        gia_tri_moi: `Tạo mới · ${ordersTableName}`,
+                    },
+                ]
+                : [];
+            orderPayload.ffm_log = mergeOrderLogJsonb(mergeOrderLogJsonb(prevFfmLog, ffmInitEntries), saveLogTail);
 
             // Log payload để debug
             console.log("📦 Update payload:", {

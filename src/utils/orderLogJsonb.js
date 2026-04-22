@@ -1,7 +1,30 @@
 /**
  * Nhật ký đơn (cột orders.log) — JSONB mảng bản ghi thay đổi.
  * Mỗi phần tử: thoi_gian, nhan_vien, cot, cot_db?, gia_tri_cu, gia_tri_moi
+ * — tùy chọn tac_nhan: 'nguoi_dung' | 'he_thong' (FFM / phân biệt người vs hệ thống).
  */
+
+export const ORDER_LOG_TAC_NHAN_NGUOI_DUNG = "nguoi_dung";
+export const ORDER_LOG_TAC_NHAN_HE_THONG = "he_thong";
+
+/** Nhãn hiển thị cho tac_nhan trong log / modal FFM. */
+export function labelOrderLogTacNhan(raw) {
+    if (raw === ORDER_LOG_TAC_NHAN_HE_THONG) return "Hệ thống";
+    if (raw === ORDER_LOG_TAC_NHAN_NGUOI_DUNG) return "Người dùng";
+    return "Người dùng";
+}
+
+/** Chuẩn hoá tac_nhan từ một bản ghi log (tương thích bản ghi cũ không có trường). */
+export function normalizeOrderLogTacNhan(entry) {
+    if (!entry || typeof entry !== "object") return ORDER_LOG_TAC_NHAN_NGUOI_DUNG;
+    if (entry.tac_nhan === ORDER_LOG_TAC_NHAN_HE_THONG) return ORDER_LOG_TAC_NHAN_HE_THONG;
+    if (entry.tac_nhan === ORDER_LOG_TAC_NHAN_NGUOI_DUNG) return ORDER_LOG_TAC_NHAN_NGUOI_DUNG;
+    const nv = String(entry.nhan_vien ?? "")
+        .trim()
+        .toLowerCase();
+    if (nv === "hệ thống" || nv === "he thong" || nv === "system") return ORDER_LOG_TAC_NHAN_HE_THONG;
+    return ORDER_LOG_TAC_NHAN_NGUOI_DUNG;
+}
 
 export const ORDER_LOG_TRACKED_DB_KEYS = [
     "check_result",
@@ -239,9 +262,15 @@ export function buildTrackedFieldsPayloadForLog({
 /**
  * So sánh baseline → current (một lần thay đổi), dùng cho auto-log và phần cuối khi Lưu.
  */
-export function buildOrderLogDiffEntries({ baseline, current, actor }) {
+export function buildOrderLogDiffEntries({ baseline, current, actor, tacNhan }) {
     const ts = new Date().toISOString();
     const nhan_vien = String(actor || "").trim() || "hệ thống";
+    let resolvedTacNhan = ORDER_LOG_TAC_NHAN_NGUOI_DUNG;
+    if (tacNhan === ORDER_LOG_TAC_NHAN_HE_THONG || tacNhan === ORDER_LOG_TAC_NHAN_NGUOI_DUNG) {
+        resolvedTacNhan = tacNhan;
+    } else if (nhan_vien === "hệ thống") {
+        resolvedTacNhan = ORDER_LOG_TAC_NHAN_HE_THONG;
+    }
     const snap = baseline && typeof baseline === "object" ? baseline : {};
     const cur = current && typeof current === "object" ? current : {};
     const entries = [];
@@ -253,6 +282,7 @@ export function buildOrderLogDiffEntries({ baseline, current, actor }) {
             entries.push({
                 thoi_gian: ts,
                 nhan_vien,
+                tac_nhan: resolvedTacNhan,
                 cot: labelForOrderLogDbKey(key),
                 cot_db: key,
                 gia_tri_cu: isEmptyLogScalar(oldV) ? null : formatOrderLogValue(oldV),

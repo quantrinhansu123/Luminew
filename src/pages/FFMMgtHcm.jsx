@@ -15,6 +15,12 @@ import {
   TEAM_COLUMN_NAME
 } from '../types';
 import { rafThrottle } from '../utils/throttle';
+import {
+  formatFfmOrderHistoryAuditColumnName,
+  formatFfmOrderHistoryAuditValueForUi,
+  formatFfmOrderHistoryDateTime,
+  getFfmOrderHistoryYmdFromTs,
+} from '../utils/ffmOrderHistoryUi';
 import * as XLSX from 'xlsx';
 
 /** Trang FFM MGT HCM: đọc/ghi Supabase `order_code_hcm` (cùng schema map như `orders`). */
@@ -355,6 +361,10 @@ function FFMMgtHcm() {
   const [syncPopoverOpen, setSyncPopoverOpen] = useState(false);
   const [quickAddModalOpen, setQuickAddModalOpen] = useState(false);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [historyModalData, setHistoryModalData] = useState(null);
+  const [historyLoadingOrderId, setHistoryLoadingOrderId] = useState('');
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
 
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -1410,6 +1420,29 @@ function FFMMgtHcm() {
   };
 
 
+  const openFfmOrderHistoryModal = useCallback(
+    async (orderId) => {
+      const oid = String(orderId ?? '').trim();
+      if (!oid) return;
+      try {
+        setHistoryLoadingOrderId(oid);
+        const rows = await API.fetchFfmOrderChangeHistory({
+          orderCode: oid,
+          sourceTable: FFM_HCM_SUPABASE_TABLE,
+        });
+        setHistoryDateFrom('');
+        setHistoryDateTo('');
+        setHistoryModalData({ orderId: oid, rows: Array.isArray(rows) ? rows : [] });
+      } catch (e) {
+        console.error(e);
+        addToast(e?.message || 'Không tải được lịch sử thay đổi', 'error');
+      } finally {
+        setHistoryLoadingOrderId('');
+      }
+    },
+    [addToast]
+  );
+
   const processDbQueue = useCallback(async () => {
     if (!manualSaveRequestedRef.current) return;
     if (isProcessingQueue.current) return;
@@ -1420,6 +1453,13 @@ function FFMMgtHcm() {
       while (dbQueueRef.current.length > 0) {
         // Take everything currently in queue as a single batch
         const batchToProcess = dbQueueRef.current.splice(0, dbQueueRef.current.length);
+
+        const changeLogTrail = batchToProcess.map(({ orderId, colKey, newValue, originalValue }) => ({
+          orderId: String(orderId ?? '').trim(),
+          colKey,
+          newValue,
+          originalValue,
+        }));
 
         const rowsObjMap = new Map();
         batchToProcess.forEach(({ orderId, colKey, newValue }) => {
@@ -1433,32 +1473,17 @@ function FFMMgtHcm() {
         const currentUsername = localStorage.getItem('username') || 'Unknown';
         let success = false;
 
-        if (rowsToUpdate.length === 1 && Object.keys(rowsToUpdate[0]).length === 2) {
-          const row = rowsToUpdate[0];
-          const col = Object.keys(row).find(k => k !== PRIMARY_KEY_COLUMN);
-          const toastId = addToast('Đang cập nhật...', 'loading', 0);
-          try {
-            await API.updateSingleCell(row[PRIMARY_KEY_COLUMN], col, row[col], currentUsername, {
-              sourceTable: FFM_HCM_SUPABASE_TABLE
-            });
-            success = true;
-          } catch (e) {
-            addToast(e.message, 'error');
-          } finally {
-            removeToast(toastId);
-          }
-        } else {
-          const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
-          try {
-            const res = await API.updateBatch(rowsToUpdate, currentUsername, null, {
-              sourceTable: FFM_HCM_SUPABASE_TABLE
-            });
-            if (res.success) success = true;
-          } catch (e) {
-            addToast(e.message, 'error');
-          } finally {
-            removeToast(toastId);
-          }
+        const toastId = addToast(`Đang cập nhật ${rowsToUpdate.length} đơn hàng...`, 'loading', 0);
+        try {
+          const res = await API.updateBatch(rowsToUpdate, currentUsername, changeLogTrail, {
+            sourceTable: FFM_HCM_SUPABASE_TABLE,
+            activityLogTarget: 'ffm_log',
+          });
+          if (res.success) success = true;
+        } catch (e) {
+          addToast(e.message, 'error');
+        } finally {
+          removeToast(toastId);
         }
 
         if (success) {
@@ -2907,6 +2932,9 @@ function FFMMgtHcm() {
     if (col === 'STT') {
       return <div className="text-xs text-gray-400">-</div>;
     }
+    if (col === 'Lịch sử thay đổi') {
+      return <div className="text-xs text-gray-400">-</div>;
+    }
     if (col === PRIMARY_KEY_COLUMN) {
       return (
         <FfmFilterTextCommitOnEnter
@@ -3097,6 +3125,19 @@ function FFMMgtHcm() {
       >
         {col === 'STT' ? (
           row['rowIndex'] || (currentPage - 1) * rowsPerPage + rIdx + 1
+        ) : col === 'Lịch sử thay đổi' ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openFfmOrderHistoryModal(orderId);
+            }}
+            disabled={!orderId || historyLoadingOrderId === orderId}
+            className="text-xs px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            title="Xem lịch sử thay đổi của đơn (cột Log trên Supabase)"
+          >
+            {historyLoadingOrderId === orderId ? 'Đang tải...' : 'Xem'}
+          </button>
         ) : DROPDOWN_OPTIONS[col] ? (
           <select
             className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
@@ -3808,6 +3849,195 @@ function FFMMgtHcm() {
           defaultColumns={ffmColumns}
         />
       </Suspense>
+
+      {historyModalData && (
+        (() => {
+          const filteredHistoryRows = (historyModalData.rows || []).filter((row) => {
+            const hasDateRange = Boolean(historyDateFrom || historyDateTo);
+            const ymd = getFfmOrderHistoryYmdFromTs(row?.changed_at);
+            if (hasDateRange) {
+              if (!ymd) return false;
+              if (historyDateFrom && ymd < historyDateFrom) return false;
+              if (historyDateTo && ymd > historyDateTo) return false;
+            }
+            return true;
+          });
+          return (
+            <div className="fixed inset-0 z-[21000] flex items-center justify-center pointer-events-auto">
+              <div
+                className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+                onClick={() => setHistoryModalData(null)}
+              ></div>
+              <div className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 px-6 py-5 max-w-5xl w-full mx-4 max-h-[85vh] overflow-hidden">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-bold text-slate-900">
+                    Lịch sử thay đổi - {historyModalData.orderId}
+                  </h3>
+                  <button
+                    onClick={() => setHistoryModalData(null)}
+                    className="text-gray-500 hover:text-gray-900 font-bold text-xl"
+                    aria-label="Đóng"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="text-xs text-gray-500 mb-3">
+                  Nguồn: cột <code className="bg-gray-100 px-1 rounded">ffm_log</code> (jsonb) — chỉ luồng FFM + Nhập đơn; không dùng chung <code className="bg-gray-100 px-1 rounded">log</code> Vận đơn. Cột <strong>Tác nhân</strong>: Người dùng / Hệ thống (<code className="bg-gray-100 px-1 rounded">tac_nhan</code>).
+                </div>
+                <div className="flex flex-wrap items-end gap-3 mb-3">
+                  <div>
+                    <label className="block text-[11px] text-gray-600 mb-1">Từ ngày thao tác</label>
+                    <input
+                      type="date"
+                      value={historyDateFrom}
+                      onChange={(e) => setHistoryDateFrom(e.target.value)}
+                      className="border rounded px-2 py-1 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-gray-600 mb-1">Đến ngày thao tác</label>
+                    <input
+                      type="date"
+                      value={historyDateTo}
+                      onChange={(e) => setHistoryDateTo(e.target.value)}
+                      className="border rounded px-2 py-1 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryDateFrom('');
+                      setHistoryDateTo('');
+                    }}
+                    className="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  >
+                    Xóa lọc ngày
+                  </button>
+                  <div className="text-xs text-gray-500">
+                    Hiển thị {filteredHistoryRows.length}/{historyModalData.rows.length} lần thao tác
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const exportRows = [];
+                      filteredHistoryRows.forEach((row) => {
+                        const fields =
+                          row?.changed_fields && typeof row.changed_fields === 'object' ? row.changed_fields : {};
+                        const entries = Object.entries(fields);
+                        if (entries.length === 0) {
+                          exportRows.push({
+                            'Mã đơn hàng': historyModalData.orderId,
+                            'Thời gian thao tác': formatFfmOrderHistoryDateTime(row?.changed_at),
+                            'Người thao tác': String(row?.changed_by || 'hệ thống'),
+                            'Tác nhân': row?.tac_nhan_label || 'Người dùng',
+                            'Cột thay đổi': '',
+                            'Giá trị cũ': '',
+                            'Giá trị mới': '',
+                          });
+                          return;
+                        }
+                        entries.forEach(([colName, diff]) => {
+                          exportRows.push({
+                            'Mã đơn hàng': historyModalData.orderId,
+                            'Thời gian thao tác': formatFfmOrderHistoryDateTime(row?.changed_at),
+                            'Người thao tác': String(row?.changed_by || 'hệ thống'),
+                            'Tác nhân': row?.tac_nhan_label || 'Người dùng',
+                            'Cột thay đổi': formatFfmOrderHistoryAuditColumnName(colName),
+                            'Giá trị cũ': formatFfmOrderHistoryAuditValueForUi(diff?.old),
+                            'Giá trị mới': formatFfmOrderHistoryAuditValueForUi(diff?.new),
+                          });
+                        });
+                      });
+                      if (exportRows.length === 0) {
+                        addToast('Không có dữ liệu lịch sử theo bộ lọc để xuất Excel.', 'error');
+                        return;
+                      }
+                      const wb = XLSX.utils.book_new();
+                      const ws = XLSX.utils.json_to_sheet(exportRows);
+                      XLSX.utils.book_append_sheet(wb, ws, 'Lich_su_thay_doi');
+                      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+                      XLSX.writeFile(wb, `LichSuThayDoi_${historyModalData.orderId}_${stamp}.xlsx`);
+                      addToast(`Đã xuất ${exportRows.length} dòng lịch sử.`, 'success');
+                    }}
+                    className="px-3 py-1.5 text-xs rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                  >
+                    Xuất Excel theo bộ lọc ngày
+                  </button>
+                </div>
+                <div className="border rounded-xl overflow-auto max-h-[65vh]">
+                  <table className="w-full text-sm border-collapse">
+                    <thead className="sticky top-0 bg-slate-50 border-b">
+                      <tr>
+                        <th className="text-left px-3 py-2 w-48">Thời gian</th>
+                        <th className="text-left px-3 py-2 w-40">Người sửa</th>
+                        <th className="text-left px-3 py-2 w-36">Tác nhân</th>
+                        <th className="text-left px-3 py-2 w-44">Cột</th>
+                        <th className="text-left px-3 py-2">Giá trị cũ</th>
+                        <th className="text-left px-3 py-2">Giá trị mới</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredHistoryRows.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-6 text-center text-gray-500" colSpan={6}>
+                            Không có lịch sử thay đổi theo bộ lọc ngày thao tác.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredHistoryRows.map((row) => {
+                          const fields =
+                            row?.changed_fields && typeof row.changed_fields === 'object' ? row.changed_fields : {};
+                          const entries = Object.entries(fields);
+                          if (entries.length === 0) {
+                            return (
+                              <tr key={row.id} className="border-b last:border-b-0">
+                                <td className="px-3 py-2 align-top">{formatFfmOrderHistoryDateTime(row.changed_at)}</td>
+                                <td className="px-3 py-2 align-top">{String(row.changed_by || 'hệ thống')}</td>
+                                <td className="px-3 py-2 align-top font-medium text-slate-700">
+                                  {row.tac_nhan_label || 'Người dùng'}
+                                </td>
+                                <td className="px-3 py-2 align-top text-gray-400" colSpan={3}>
+                                  Không có chi tiết cột đổi
+                                </td>
+                              </tr>
+                            );
+                          }
+                          return entries.map(([colName, diff], idx) => (
+                            <tr key={`${row.id}-${colName}`} className="border-b last:border-b-0">
+                              {idx === 0 ? (
+                                <>
+                                  <td className="px-3 py-2 align-top" rowSpan={entries.length}>
+                                    {formatFfmOrderHistoryDateTime(row.changed_at)}
+                                  </td>
+                                  <td className="px-3 py-2 align-top" rowSpan={entries.length}>
+                                    {String(row.changed_by || 'hệ thống')}
+                                  </td>
+                                  <td className="px-3 py-2 align-top font-medium text-slate-700" rowSpan={entries.length}>
+                                    {row.tac_nhan_label || 'Người dùng'}
+                                  </td>
+                                </>
+                              ) : null}
+                              <td className="px-3 py-2 align-top font-medium">
+                                {formatFfmOrderHistoryAuditColumnName(colName)}
+                              </td>
+                              <td className="px-3 py-2 align-top text-rose-700 whitespace-pre-wrap break-words">
+                                {formatFfmOrderHistoryAuditValueForUi(diff?.old)}
+                              </td>
+                              <td className="px-3 py-2 align-top text-emerald-700 whitespace-pre-wrap break-words">
+                                {formatFfmOrderHistoryAuditValueForUi(diff?.new)}
+                              </td>
+                            </tr>
+                          ));
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        })()
+      )}
     </div>
   );
 }
