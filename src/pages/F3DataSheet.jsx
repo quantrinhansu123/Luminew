@@ -496,6 +496,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Ngày lên đơn',
     'Name*',
     'Phone*',
+    'Địa chỉ',
     'Khu vực',
     'Mặt hàng',
     'Số lượng mặt hàng 1',
@@ -697,11 +698,11 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Ngày lên đơn": item.order_date || item.created_at?.split('T')[0],
     "Name*": item.customer_name,
     "Phone*": item.customer_phone,
-    "Add": item.customer_address,
-    "City": item.city,
-    "State": item.state,
+    "Địa chỉ": item.customer_address,
+    "Thành phố": item.city,
+    "Tỉnh/Bang": item.state,
     "Khu vực": item.country, // Lấy từ country
-    "Zipcode": item.zipcode,
+    "Mã bưu điện": item.zipcode,
     "Mặt hàng": item.product,
     /** Chuẩn DB: payment_currency; fallback payment_type (dữ liệu cũ) — cùng quy tắc NhapDonMoi.readPaymentCurrencyFromOrderRow */
     "Loại tiền thanh toán": String(
@@ -719,7 +720,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Mã Tracking": item.tracking_code,
     "Nhân viên Marketing": item.marketing_staff || item.marketingStaff || '',
     "Nhân viên Sale": item.sale_staff || item.saleStaff || '',
-    "Team": item.team,
+    "Đội/Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
     /** Cột DB `check_result` — dùng cho bộ lọc Kết quả Check (không gộp payment_status). */
     check_result: String(item.check_result ?? '').trim(),
@@ -733,7 +734,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Trạng thái thu tiền": item.payment_status_detail,
     "Lý do": item.reason,
     "Phí ship": item.shipping_cost || item.shipping_fee,
-    "Page": item.page_name, // Map Page Name
+    "Tên Page": item.page_name, // Map Page Name
     "Ca": (() => {
       const stored = normalizeCaShiftDisplay(item.shift ?? item.ca ?? '');
       if (stored) return stored;
@@ -742,10 +743,6 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Payment Bill": item.payment_bill, // Trạng thái bill
     "Payment Image": item.payment_image, // Link hình ảnh bill
     "Cảnh báo trùng": item.canh_bao || '',
-    reconciled_vnd: item.reconciled_vnd,
-    shipping_cost: item.shipping_cost,
-    shipping_fee: item.shipping_fee,
-    total_amount_vnd: item.total_amount_vnd,
     _id: item.id,
     _log: item.log ?? null,
     // Note: _id and technical keys excluded from column picker via allAvailableColumns filter
