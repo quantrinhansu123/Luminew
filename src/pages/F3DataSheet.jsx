@@ -3175,14 +3175,6 @@ function DanhSachDon({ dataSource = 'default' }) {
     setVisibleColumns(defaultCols);
   };
 
-  if (!hasOrderListAccess) {
-    return (
-      <div className="p-8 text-center text-red-600 font-bold">
-        Bạn không có quyền truy cập trang này. Cần quyền xem ít nhất một mã:{' '}
-        {orderListAccessCodes.join(', ')}.
-      </div>
-    );
-  }
 
   // --- F3 SUMMARY CALCULATION (DYNAMIC) ---
   const f3SummaryData = useMemo(() => {
@@ -3246,6 +3238,15 @@ function DanhSachDon({ dataSource = 'default' }) {
 
     return result;
   }, [allData, activeTab]);
+
+  if (!hasOrderListAccess) {
+    return (
+      <div className="p-8 text-center text-red-600 font-bold">
+        Bạn không có quyền truy cập trang này. Cần quyền xem ít nhất một mã:{' '}
+        {orderListAccessCodes.join(', ')}.
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
