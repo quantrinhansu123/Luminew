@@ -667,7 +667,7 @@ function Home() {
           icon: <DollarSign className="w-4 h-4" />,
           path: "https://lumi-finance-manager.vercel.app/#/master-data",
           isExternal: true,
-          permission: 'FINANCE_DASHBOARD',
+          permissionAny: ['FINANCE_DASHBOARD', 'FINANCE_MASTER'],
         },
         {
           id: "finance-revenue",
@@ -675,7 +675,7 @@ function Home() {
           icon: <TrendingUp className="w-4 h-4" />,
           path: "https://lumi-finance-manager.vercel.app/#/revenue",
           isExternal: true,
-          permission: 'FINANCE_DASHBOARD',
+          permissionAny: ['FINANCE_DASHBOARD', 'FINANCE_REVENUE'],
         },
         {
           id: "finance-cost",
@@ -683,7 +683,7 @@ function Home() {
           icon: <DollarSign className="w-4 h-4" />,
           path: "https://lumi-finance-manager.vercel.app/#/cost",
           isExternal: true,
-          permission: 'FINANCE_DASHBOARD',
+          permissionAny: ['FINANCE_DASHBOARD', 'FINANCE_COST'],
         },
         {
           id: "finance-ledger",
@@ -691,7 +691,7 @@ function Home() {
           icon: <DollarSign className="w-4 h-4" />,
           path: "https://lumi-finance-manager.vercel.app/#/ledger",
           isExternal: true,
-          permission: 'FINANCE_DASHBOARD',
+          permissionAny: ['FINANCE_DASHBOARD', 'FINANCE_LEDGER'],
         },
         {
           id: "finance-reports",
@@ -699,14 +699,14 @@ function Home() {
           icon: <BarChart3 className="w-4 h-4" />,
           path: "https://lumi-finance-manager.vercel.app/#/management-reports",
           isExternal: true,
-          permission: 'FINANCE_DASHBOARD',
+          permissionAny: ['FINANCE_DASHBOARD', 'FINANCE_REPORTS'],
         },
         {
           id: "finance-f3",
           label: "Dữ liệu F3",
           icon: <Menu className="w-4 h-4" />,
           path: "/du-lieu-f3",
-          permission: 'FINANCE_DASHBOARD',
+          permissionAny: ['FINANCE_DASHBOARD', 'FINANCE_F3'],
         },
         {
           id: "finance-doi-soat",
@@ -1471,7 +1471,7 @@ function Home() {
           path: "https://lumi-finance-manager.vercel.app/#/master-data",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'FINANCE_ACCESS',
+          permissionAny: ['FINANCE_ACCESS', 'FINANCE_MASTER'],
         },
         {
           title: "Quản lý thu",
@@ -1480,7 +1480,7 @@ function Home() {
           path: "https://lumi-finance-manager.vercel.app/#/revenue",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'FINANCE_ACCESS',
+          permissionAny: ['FINANCE_ACCESS', 'FINANCE_REVENUE'],
         },
         {
           title: "Quản lý chi",
@@ -1489,7 +1489,7 @@ function Home() {
           path: "https://lumi-finance-manager.vercel.app/#/cash-balance",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'FINANCE_ACCESS',
+          permissionAny: ['FINANCE_ACCESS', 'FINANCE_COST'],
         },
         {
           title: "Sổ quỹ & Dòng tiền",
@@ -1498,7 +1498,7 @@ function Home() {
           path: "https://lumi-finance-manager.vercel.app/#/report",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'FINANCE_ACCESS',
+          permissionAny: ['FINANCE_ACCESS', 'FINANCE_LEDGER'],
         },
         {
           title: "Báo cáo tài chính quản trị",
@@ -1507,7 +1507,7 @@ function Home() {
           path: "https://lumi-finance-manager.vercel.app/#/management-reports",
           status: "Mở ứng dụng",
           isExternal: true,
-          permission: 'FINANCE_ACCESS',
+          permissionAny: ['FINANCE_ACCESS', 'FINANCE_REPORTS'],
         },
         {
           title: "Dữ liệu F3",
@@ -1515,7 +1515,7 @@ function Home() {
           color: "bg-indigo-600",
           path: "/du-lieu-f3",
           status: "Mở ứng dụng",
-          permission: 'FINANCE_ACCESS',
+          permissionAny: ['FINANCE_ACCESS', 'FINANCE_F3'],
         },
         {
           title: "Đối soát bill cước",

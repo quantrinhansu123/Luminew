@@ -916,6 +916,12 @@ export const MODULE_PAGES = {
         pages: [
             { code: 'FINANCE_ACCESS', name: 'Truy cập module tài chính (menu mobile)', path: '/finance-dashboard' },
             { code: 'FINANCE_DASHBOARD', name: 'Finance Dashboard', path: '/finance-dashboard' },
+            { code: 'FINANCE_MASTER', name: 'Tài chính nền tảng', path: 'https://lumi-finance-manager.vercel.app/#/master-data' },
+            { code: 'FINANCE_REVENUE', name: 'Quản lý thu', path: 'https://lumi-finance-manager.vercel.app/#/revenue' },
+            { code: 'FINANCE_COST', name: 'Quản lý chi', path: 'https://lumi-finance-manager.vercel.app/#/cost' },
+            { code: 'FINANCE_LEDGER', name: 'Sổ quỹ & Dòng tiền', path: 'https://lumi-finance-manager.vercel.app/#/ledger' },
+            { code: 'FINANCE_REPORTS', name: 'Báo cáo quản trị', path: 'https://lumi-finance-manager.vercel.app/#/management-reports' },
+            { code: 'FINANCE_F3', name: 'Dữ liệu F3', path: '/du-lieu-f3' },
             { code: 'FINANCE_KPI', name: 'Báo cáo KPI', path: '/bao-cao-kpi' },
             { code: 'FINANCE_DOI_SOAT_BILL', name: 'Đối soát bill cước', path: '/doi-soat-bill-cuoc' }
         ]

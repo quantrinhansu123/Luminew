@@ -3195,6 +3195,9 @@ function DanhSachDon({ dataSource = 'default' }) {
     };
 
     allData.forEach(row => {
+      const teamVal = String(row.Team || row.team || '').trim().toUpperCase();
+      // Loại bỏ các đơn có team là HCM vì chúng thuộc nhánh HCM
+      if (teamVal === 'HCM' || teamVal.includes('HCM')) return;
       const mktStaff = rowDisplayMktStaff(row);
       const saleStaff = rowDisplaySaleStaff(row);
       const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || row.delivery_staff || "").trim();
