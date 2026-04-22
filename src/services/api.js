@@ -2152,19 +2152,19 @@ function resolveFfmSyncOrdersTable(ordersTable) {
     return t;
 }
 
-/** Đọc `ffm_push_logs` hoặc `ffm_push_logs_hcm` (đối soát đẩy FFM). */
-export const fetchFfmPushLogsForReconciliation = async ({ limit = 10000, logsTable } = {}) => {
+/** Đọc toàn bộ `ffm_push_logs` hoặc `ffm_push_logs_hcm` (đối soát đẩy FFM). */
+export const fetchFfmPushLogsForReconciliation = async ({ logsTable } = {}) => {
     const table = resolveFfmPushLogsTable(logsTable);
     
     let allRows = [];
     const pageSize = 1000;
     let from = 0;
 
-    console.log(`[fetchFfmPushLogsForReconciliation] Fetching logs from ${table} (limit=${limit})...`);
+    console.log(`[fetchFfmPushLogsForReconciliation] Fetching all logs from ${table}...`);
 
     try {
-        while (allRows.length < limit) {
-            const to = Math.min(from + pageSize - 1, limit - 1);
+        while (true) {
+            const to = from + pageSize - 1;
             const { data, error } = await supabase
                 .from(table)
                 .select('*')

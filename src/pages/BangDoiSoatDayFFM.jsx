@@ -1,11 +1,10 @@
-import { ChevronDown, Database, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "react-toastify";
 import usePermissions from "../hooks/usePermissions";
 import * as API from "../services/api";
 
 /** Không hiển thị (theo yêu cầu đối soát). */
-const HIDDEN_COLUMNS = new Set(["id", "batch_id", "order_code"]);
+const HIDDEN_COLUMNS = new Set(["id", "batch_id"]);
 
 const FFM_PUSH_LOG_LABELS = {
   carrier: "Đơn vị FFM",
@@ -19,6 +18,7 @@ const FFM_PUSH_LOG_LABELS = {
   country: "Thị trường",
   chi_nhanh: "Chi nhánh",
   shipping_unit: "Đơn vị vận chuyển",
+  order_code: "Mã đơn hàng",
   total_amount_vnd: "Tổng tiền VNĐ",
   "Mặt hàng": "Mặt hàng",
   "Khu vực": "Thị trường",
@@ -73,7 +73,29 @@ function getMarket(row) {
 
 function getShipping(row) {
   return String(
-    row?.shipping_unit ?? row?.["Đơn vị vận chuyển"] ?? row?.don_vi_van_chuyen ?? row?.["Đơn_vị_vận_chuyển"] ?? ""
+    row?.shipping_unit ??
+      row?.shippingUnit ??
+      row?.shipping_carrier ??
+      row?.carrier ??
+      row?.ffm ??
+      row?.["Đơn vị vận chuyển"] ??
+      row?.["Đơn vị Vận chuyển"] ??
+      row?.don_vi_van_chuyen ??
+      row?.["Đơn_vị_vận_chuyển"] ??
+      row?.["Don vi van chuyen"] ??
+      ""
+  ).trim();
+}
+
+function getBranch(row) {
+  return String(
+    row?.chi_nhanh ??
+      row?.team ??
+      row?.branch ??
+      row?.["Chi nhánh"] ??
+      row?.["Chi Nhanh"] ??
+      row?.chiNhanh ??
+      ""
   ).trim();
 }
 
@@ -272,10 +294,8 @@ function FilterCheckboxDropdown({ label, options, value, onChange, menuKey, open
 
 function BangDoiSoatDayFFMInner({
   logsTable = "ffm_push_logs",
-  ordersTable = "orders",
   pageTitle = "Bảng đối soát đẩy FFM",
   sourceTableLabel = "ffm_push_logs",
-  ordersTableLabel = "orders",
   /** Một mã quyền (mặc định) */
   permissionCode = "ORDERS_LIST",
   /** Nếu có: đủ một trong các mã là được (ưu tiên hơn `permissionCode` khi length > 0) */
@@ -297,7 +317,7 @@ function BangDoiSoatDayFFMInner({
   const [selProduct, setSelProduct] = useState([]);
   const [selMarket, setSelMarket] = useState([]);
   const [selShipping, setSelShipping] = useState([]);
-  const [syncing, setSyncing] = useState(false);
+  const [selBranch, setSelBranch] = useState([]);
   const [openFilterMenu, setOpenFilterMenu] = useState(null);
 
   const load = useCallback(async () => {
@@ -319,35 +339,12 @@ function BangDoiSoatDayFFMInner({
     load();
   }, [load]);
 
-  const handleSyncFromOrders = useCallback(async () => {
-    setSyncing(true);
-    try {
-      const r = await API.syncFfmPushLogsFromOrders({ logsTable, ordersTable });
-      const parts = [
-        `Đã quét ${r.scanned} dòng log`,
-        r.needCount === 0
-          ? "— không có dòng thiếu snapshot."
-          : `— ${r.needCount} dòng thiếu dữ liệu`,
-        r.updated > 0 ? `Cập nhật ${r.updated} dòng từ bảng orders.` : "",
-        r.missingOrder > 0 ? `Không tìm thấy đơn: ${r.missingOrder} dòng.` : "",
-        r.skippedNoPatch > 0 ? `Bỏ qua ${r.skippedNoPatch} (orders không có giá trị tương ứng).` : "",
-        r.failed > 0 ? `Lỗi cập nhật: ${r.failed}.` : "",
-      ].filter(Boolean);
-      toast.success(parts.join(" "), { position: "top-right", autoClose: 6000 });
-      await load();
-    } catch (e) {
-      console.error(e);
-      toast.error("Đồng bộ thất bại: " + (e?.message || ""), { position: "top-right", autoClose: 5000 });
-    } finally {
-      setSyncing(false);
-    }
-  }, [load, logsTable, ordersTable]);
-
   const filterOptions = useMemo(
     () => ({
       products: distinctOptions(rows, getProduct),
       markets: distinctOptions(rows, getMarket),
       shippings: distinctOptions(rows, getShipping),
+      branches: distinctOptions(rows, getBranch),
     }),
     [rows]
   );
@@ -374,11 +371,12 @@ function BangDoiSoatDayFFMInner({
     data = data.filter((r) => rowMatchesMultiSelect(selProduct, () => getProduct(r)));
     data = data.filter((r) => rowMatchesMultiSelect(selMarket, () => getMarket(r)));
     data = data.filter((r) => rowMatchesMultiSelect(selShipping, () => getShipping(r)));
+    data = data.filter((r) => rowMatchesMultiSelect(selBranch, () => getBranch(r)));
     return data;
-  }, [rows, search, dateFrom, dateTo, selProduct, selMarket, selShipping]);
+  }, [rows, search, dateFrom, dateTo, selProduct, selMarket, selShipping, selBranch]);
 
   const checkboxFilterActive =
-    selProduct.length > 0 || selMarket.length > 0 || selShipping.length > 0;
+    selProduct.length > 0 || selMarket.length > 0 || selShipping.length > 0 || selBranch.length > 0;
 
   const pivotMatrix = useMemo(() => {
     if (!checkboxFilterActive || filteredRows.length === 0) return null;
@@ -419,6 +417,7 @@ function BangDoiSoatDayFFMInner({
     setSelProduct([]);
     setSelMarket([]);
     setSelShipping([]);
+    setSelBranch([]);
     setSearch("");
     setOpenFilterMenu(null);
   };
@@ -460,16 +459,6 @@ function BangDoiSoatDayFFMInner({
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
                 Làm mới
-              </button>
-              <button
-                type="button"
-                onClick={handleSyncFromOrders}
-                disabled={loading || syncing}
-                title={`Điền Sản phẩm, Thị trường, Chi nhánh, Tổng tiền VNĐ từ bảng ${ordersTableLabel} theo order_code (chỉ ô đang trống)`}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
-              >
-                <Database className={`w-4 h-4 ${syncing ? "animate-pulse" : ""}`} />
-                {syncing ? "Đang đồng bộ…" : "Đồng bộ từ đơn hàng"}
               </button>
             </div>
           </div>
@@ -526,6 +515,15 @@ function BangDoiSoatDayFFMInner({
               openMenu={openFilterMenu}
               setOpenMenu={setOpenFilterMenu}
             />
+            <FilterCheckboxDropdown
+              label="Chi nhánh"
+              options={filterOptions.branches}
+              value={selBranch}
+              onChange={setSelBranch}
+              menuKey="branch"
+              openMenu={openFilterMenu}
+              setOpenMenu={setOpenFilterMenu}
+            />
             <button
               type="button"
               onClick={resetFilters}
@@ -534,7 +532,7 @@ function BangDoiSoatDayFFMInner({
               Xóa lọc
             </button>
             <p className="w-full text-[11px] text-gray-400 m-0 basis-full">
-              Sản phẩm, Thị trường, ĐVC: bấm sổ xuống và tick chọn (để trống = tất cả). Khi đã tick ít nhất một mục, bảng tổng hợp Thị trường × Sản phẩm × ngày hiện bên dưới.
+              Sản phẩm, Thị trường, ĐVC, Chi nhánh: bấm sổ xuống và tick chọn (để trống = tất cả). Khi đã tick ít nhất một mục, bảng tổng hợp Thị trường × Sản phẩm × ngày hiện bên dưới.
             </p>
           </div>
 
@@ -549,14 +547,9 @@ function BangDoiSoatDayFFMInner({
             </div>
             <p className="text-xs text-gray-500 w-full m-0">
               Nguồn: <code className="bg-gray-100 px-1 rounded">{sourceTableLabel}</code>
-              {ordersTableLabel !== sourceTableLabel && (
-                <span className="ml-1">
-                  · Đồng bộ snapshot từ <code className="bg-gray-100 px-1 rounded">{ordersTableLabel}</code>
-                </span>
-              )}
               {rows.length > 0 && (
                 <span className="ml-2">
-                  · Đã tải {rows.length} dòng · Hiển thị theo nhóm ngày (ẩn cột ID, mã lô, mã đơn)
+                  · Đã tải {rows.length} dòng · Hiển thị theo nhóm ngày (ẩn cột ID, mã lô)
                 </span>
               )}
             </p>
@@ -732,10 +725,8 @@ export function BangDoiSoatDayFFMHcm() {
   return (
     <BangDoiSoatDayFFMInner
       logsTable="ffm_push_logs_hcm"
-      ordersTable="order_code_hcm"
       pageTitle="Bảng đối soát đẩy FFM (HCM)"
       sourceTableLabel="ffm_push_logs_hcm"
-      ordersTableLabel="order_code_hcm"
       permissionCodes={[
         "ORDERS_FFM_RECONCILE_HCM",
         "ORDERS_FFM_RECONCILE",
