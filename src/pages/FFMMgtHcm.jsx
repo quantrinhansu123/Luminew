@@ -21,6 +21,12 @@ import {
   formatFfmOrderHistoryDateTime,
   getFfmOrderHistoryYmdFromTs,
 } from '../utils/ffmOrderHistoryUi';
+import { ffmPendingColKeyLabel } from '../utils/ffmPendingChangeLabels';
+import {
+  ffmOrderMgmtDeliveryStatusesMatch,
+  getFfmDeliveryStatusFilterDropdownOptions,
+  getFfmOrderMgmtDeliveryStatusForRow,
+} from '../utils/ffmDeliveryStatusFilter';
 import * as XLSX from 'xlsx';
 
 /** Trang FFM MGT HCM: đọc/ghi Supabase `order_code_hcm` (cùng schema map như `orders`). */
@@ -130,6 +136,22 @@ const FFM_ALLOWED_EDIT_COLUMNS = new Set([
   'GHI CHÚ',
   'Thời gian giao dự kiến',
   'Ngày đối soát kế toán',
+]);
+
+const FFM_ALLOWED_CHANGE_KEYS = new Set([
+  'Kết quả Check',
+  'delivery_status',
+  'Mã Tracking',
+  'tracking_code',
+  'Ngày đóng hàng',
+  'ngaydonghang',
+  'GHI CHÚ',
+  'note_caps',
+  'Thời gian giao dự kiến',
+  'thoigiangiaohangffm',
+  'estimated_delivery_date',
+  'Ngày đối soát kế toán',
+  'luu_kho_usd',
 ]);
 
 const FFM_ORDER_MGMT_DELIVERY_STATUS_KEY = 'delivery_status';
@@ -998,22 +1020,32 @@ function FFMMgtHcm() {
     }
   }, [visibleColumns, visibleColumnsStorageKey]);
 
-  /** Dữ liệu nền cho FILTER: chỉ dùng dữ liệu gốc + cột ngày suy ra (không trộn pending). */
+  /** Dữ liệu nền cho FILTER: trộn pending (khớp ô đang thấy) + cột ngày suy ra. */
   const ffmEnrichedRowsForFilter = useMemo(() => {
     const n = allData.length;
     const out = new Array(n);
     for (let i = 0; i < n; i++) {
       const row = allData[i];
+      const orderId = row[PRIMARY_KEY_COLUMN];
       const rowCopy = { ...row };
 
-      rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(row['time_dayon'] || row.time_dayon || row['Ngày Kế toán đối soát với FFM lần 2']);
+      const pending = orderId ? pendingChanges.get(orderId) : undefined;
+      if (pending) {
+        pending.forEach((info, key) => {
+          rowCopy[key] = info.newValue;
+        });
+      }
 
-      const rawTrackingDate = getTrackingDateRawFFM(row);
+      rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(
+        rowCopy['time_dayon'] || rowCopy.time_dayon || rowCopy['Ngày Kế toán đối soát với FFM lần 2']
+      );
+
+      const rawTrackingDate = getTrackingDateRawFFM(rowCopy);
       rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(rawTrackingDate);
       out[i] = rowCopy;
     }
     return out;
-  }, [allData]);
+  }, [allData, pendingChanges]);
 
   /** Dữ liệu nền cho RENDER: có trộn pending để thể hiện ngay thay đổi (Thêm nhanh / Cập nhật hàng loạt). */
   const ffmEnrichedRowsForRender = useMemo(() => {
@@ -1125,13 +1157,26 @@ function FFMMgtHcm() {
       // MultiSelect (dạng mảng) phải match đúng theo danh sách đã chọn,
       // tránh rơi vào nhánh substring và dẫn đến cảm giác "lọc tự ý".
       if (Array.isArray(val)) {
+        const isFfmDeliveryStatusCol = key === 'Trạng thái giao hàng' || dataKey === 'delivery_status';
         data = data.filter((row) => {
-          let cellValue =
-            row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
-          cellValue = String(cellValue).trim();
+          let cellValue = isFfmDeliveryStatusCol
+            ? getFfmOrderMgmtDeliveryStatusForRow(row)
+            : String(
+                row[dataKey] ??
+                  row[key] ??
+                  row[key.replace(/ /g, '_')] ??
+                  row[dataKey.replace(/ /g, '_')] ??
+                  ''
+              ).trim();
+          if (!isFfmDeliveryStatusCol) cellValue = String(cellValue).trim();
           const selected = val;
           if (selected.length === 0) return true;
           if (cellValue === '' && selected.includes('__EMPTY__')) return true;
+          if (isFfmDeliveryStatusCol) {
+            return selected.some(
+              (s) => s && s !== '__EMPTY__' && ffmOrderMgmtDeliveryStatusesMatch(cellValue, s)
+            );
+          }
           return selected.includes(cellValue);
         });
         return;
@@ -1202,13 +1247,13 @@ function FFMMgtHcm() {
       const status = fv.delivery_status_filter;
       const search = fv.delivery_status_search ? String(fv.delivery_status_search).trim().toLowerCase() : '';
 
-      data = data.filter(row => {
-        const val = String(row.delivery_status ?? '').trim();
+      data = data.filter((row) => {
+        const val = getFfmOrderMgmtDeliveryStatusForRow(row);
         if (status === 'Trống') return val === '' || val === 'null';
         if (status === 'Tìm kiếm...') {
           return search ? val.toLowerCase().includes(search) : true;
         }
-        return val === status;
+        return ffmOrderMgmtDeliveryStatusesMatch(val, status);
       });
     }
 
@@ -1301,7 +1346,7 @@ function FFMMgtHcm() {
       });
     }
 
-    // Lọc dựa trên data gốc (không pending), sau đó map sang row có pending để UI thể hiện ngay thay đổi.
+    // Lọc trên bản đã trộn pending (ffmEnrichedRowsForFilter); map sang render row để đồng bộ derived fields.
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
   }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant]);
 
@@ -1378,7 +1423,7 @@ function FFMMgtHcm() {
     const values = new Set();
     if (key === 'Trạng thái giao hàng') {
       allData.forEach((row) => {
-        const val = String(row.delivery_status ?? '').trim();
+        const val = getFfmOrderMgmtDeliveryStatusForRow(row);
         if (val) values.add(val);
       });
       return Array.from(values).sort();
@@ -1617,6 +1662,7 @@ function FFMMgtHcm() {
   }, [addToast, deepCloneMapOfMaps]);
 
   const handleCellChange = useCallback((orderId, colKey, newValue) => {
+    if (!FFM_ALLOWED_CHANGE_KEYS.has(colKey)) return;
     const originalRow = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
     const baseValue = originalRow ? String(originalRow[colKey] ?? '') : '';
 
@@ -1711,6 +1757,41 @@ function FFMMgtHcm() {
     manualSaveRequestedRef.current = true;
     processDbQueue();
   }, [pendingChanges, addToast, processDbQueue]);
+
+  const handleOpenSaveConfirm = useCallback(() => {
+    if (pendingChanges.size === 0) {
+      addToast('Không có thay đổi cần lưu', 'info');
+      return;
+    }
+    setSyncPopoverOpen(true);
+  }, [pendingChanges, addToast]);
+
+  const handleDiscardAllPending = useCallback(() => {
+    const revertEntries = [];
+    pendingChanges.forEach((cols, orderId) => {
+      cols.forEach(({ originalValue }, colKey) => {
+        revertEntries.push({ orderId, colKey, originalValue });
+      });
+    });
+
+    setAllData((prevData) => {
+      const next = [...prevData];
+      revertEntries.forEach(({ orderId, colKey, originalValue }) => {
+        const idx = next.findIndex((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+        if (idx > -1) {
+          next[idx] = { ...next[idx], [colKey]: originalValue };
+        }
+      });
+      return next;
+    });
+
+    setPendingChanges(new Map());
+    savePendingToLocalStorage(new Map());
+    localStorage.removeItem(FFM_HCM_PENDING_LS_KEY);
+    changeHistoryRef.current = [];
+    historyIndexRef.current = -1;
+    setSyncPopoverOpen(false);
+  }, [pendingChanges]);
   const handleQuickSync = (rows, options = {}) => {
     const changesArray = [];
     const COL_KEYS = FFM_QUICK_ADD_COLUMNS;
@@ -2471,6 +2552,8 @@ function FFMMgtHcm() {
             }
             setSelection({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
           }
+        } else {
+          return;
         }
       }
 
@@ -2926,6 +3009,11 @@ function FFMMgtHcm() {
 
   const tableClassName = 'border-separate border-spacing-0 text-sm table-auto';
 
+  const ffmDeliveryStatusHeaderFilterOptions = useMemo(
+    () => getFfmDeliveryStatusFilterDropdownOptions(ffmEnrichedRowsForFilter),
+    [ffmEnrichedRowsForFilter]
+  );
+
   const renderColumnFilterEditor = (col) => {
     const key = COLUMN_MAPPING[col] || col;
     const filterKey = col;
@@ -3006,16 +3094,24 @@ function FFMMgtHcm() {
       );
     }
     if (col === 'Trạng thái giao hàng') {
+      const dsReserved = new Set(['Tất cả', 'Trống', 'Tìm kiếm...']);
+      const dsCur = localFilterValues.delivery_status_filter || 'Tất cả';
+      const dsOpts = ffmDeliveryStatusHeaderFilterOptions;
+      const dsPatched =
+        dsCur && !dsReserved.has(dsCur) && !dsOpts.includes(dsCur) ? [...dsOpts, dsCur] : dsOpts;
       return (
         <div className="flex flex-col gap-1.5 relative">
           <select
             className="w-full text-[13px] px-1 py-1 border rounded bg-white font-medium text-gray-700 shadow-sm"
             value={localFilterValues.delivery_status_filter || 'Tất cả'}
             onChange={(e) => setLocalFilterValues((p) => ({ ...p, delivery_status_filter: e.target.value }))}
+            title="Gồm preset và mọi trạng thái đang có trong dữ liệu đã tải (đúng chữ trong ô)"
           >
             <option value="Tất cả">Tất cả</option>
-            {DROPDOWN_OPTIONS['Trạng thái giao hàng']?.filter((o) => o).map((o) => (
-              <option key={o} value={o}>{o}</option>
+            {dsPatched.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
             ))}
             <option value="Trống">Trống</option>
             <option value="Tìm kiếm...">Tìm kiếm...</option>
@@ -3112,13 +3208,14 @@ function FFMMgtHcm() {
             : val;
 
     const className = getCellClass(row, col, String(displayVal), rIdx, cIdx);
+    const cellEditable = isEditableColFFM(col);
 
     return (
       <td
         key={`${orderId}-${col}`}
         data-ffm-r={rIdx}
         data-ffm-c={cIdx}
-        className={`${className}${isEditableColFFM(col) ? ' relative group' : ''}`}
+        className={`${className}${cellEditable ? ' relative group' : ''}`}
         style={cellStyle}
         onMouseDownCapture={(e) => handleMouseDown(rIdx, cIdx, e)}
         onMouseEnter={() => handleMouseEnter(rIdx, cIdx)}
@@ -3138,7 +3235,7 @@ function FFMMgtHcm() {
           >
             {historyLoadingOrderId === orderId ? 'Đang tải...' : 'Xem'}
           </button>
-        ) : DROPDOWN_OPTIONS[col] ? (
+        ) : cellEditable && DROPDOWN_OPTIONS[col] ? (
           <select
             className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
             value={String(val)}
@@ -3150,19 +3247,7 @@ function FFMMgtHcm() {
               </option>
             ))}
           </select>
-        ) : col === 'Kết quả Check' || col === 'Trạng thái giao hàng' ? (
-          <select
-            className="w-full bg-transparent border-none outline-none text-sm p-0 m-0"
-            value={String(val)}
-            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
-          >
-            {getMultiSelectOptions(col)
-              .filter((o) => o !== '__EMPTY__')
-              .map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-          </select>
-        ) : col === 'Payment Bill' ? (
+        ) : cellEditable && col === 'Payment Bill' ? (
           <select
             className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
             value={String(val)}
@@ -3185,7 +3270,7 @@ function FFMMgtHcm() {
               orderCode={orderId}
             />
           </Suspense>
-        ) : isEditableColFFM(col) ? (
+        ) : cellEditable ? (
           <input
             type="text"
             inputMode="text"
@@ -3219,7 +3304,7 @@ function FFMMgtHcm() {
         ) : (
           displayVal
         )}
-        {isEditableColFFM(col) && (
+        {cellEditable && (
           <div
             data-ffm-fill-handle
             role="presentation"
@@ -3426,8 +3511,8 @@ function FFMMgtHcm() {
             </button>
             <button
               type="button"
-              onClick={handleUpdateAll}
-              title="Gửi các thay đổi đã sửa trên bảng (và dán) lên server"
+              onClick={handleOpenSaveConfirm}
+              title="Xem danh sách thay đổi, rồi xác nhận lưu lên server hoặc hủy"
               className={`px-2.5 py-1 rounded text-xs font-medium text-white transition ${pendingChanges.size > 0 ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-300' : 'bg-blue-500 hover:bg-blue-600'}`}
             >
               Xác nhận lưu
@@ -3782,35 +3867,9 @@ function FFMMgtHcm() {
           onClose={() => setSyncPopoverOpen(false)}
           pendingChanges={pendingChanges}
           applyButtonLabel="Xác nhận lưu"
+          formatColumnLabel={ffmPendingColKeyLabel}
           onApply={handleUpdateAll}
-          onDiscard={() => {
-            if (confirm('Hủy bỏ tất cả thay đổi?')) {
-              // Không re-fetch toàn bộ danh sách.
-              // Hoàn tác đúng các cột đã thay đổi về lại `originalValue` đang nằm trong pendingChanges.
-              const revertEntries = [];
-              pendingChanges.forEach((cols, orderId) => {
-                cols.forEach(({ originalValue }, colKey) => {
-                  revertEntries.push({ orderId, colKey, originalValue });
-                });
-              });
-
-              setAllData((prevData) => {
-                const next = [...prevData];
-                revertEntries.forEach(({ orderId, colKey, originalValue }) => {
-                  const idx = next.findIndex((r) => r[PRIMARY_KEY_COLUMN] === orderId);
-                  if (idx > -1) {
-                    next[idx] = { ...next[idx], [colKey]: originalValue };
-                  }
-                });
-                return next;
-              });
-
-              setPendingChanges(new Map());
-              savePendingToLocalStorage(new Map());
-              localStorage.removeItem(FFM_HCM_PENDING_LS_KEY);
-              setSyncPopoverOpen(false);
-            }
-          }}
+          onDiscard={handleDiscardAllPending}
         />
       </Suspense>
 

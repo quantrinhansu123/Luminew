@@ -8,7 +8,9 @@ const SyncPopover = ({
     onApply,
     onDiscard,
     onDiscardRow,
-    applyButtonLabel = 'Lưu tất cả'
+    applyButtonLabel = 'Lưu tất cả',
+    /** (colKey) => string — nhãn hiển thị thay cho khóa kỹ thuật */
+    formatColumnLabel = (colKey) => String(colKey ?? ''),
 }) => {
     if (!isOpen) return null;
 
@@ -25,11 +27,14 @@ const SyncPopover = ({
         const rows = [];
         changes.forEach((colChanges, orderId) => {
             colChanges.forEach((info, colName) => {
+                const colLabel = formatColumnLabel(colName);
                 rows.push(
                     <tr key={`${orderId}-${colName}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors group">
                         <td className="p-3 font-medium text-slate-700">{orderId}</td>
                         <td className="p-3 text-slate-600">
-                            <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-semibold uppercase">{colName}</span>
+                            <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-semibold" title={String(colName)}>
+                                {colLabel}
+                            </span>
                         </td>
                         <td className="p-3">
                             <div className="flex flex-col gap-1">
@@ -122,12 +127,14 @@ const SyncPopover = ({
                     </div>
                     <div className="flex gap-3 w-full sm:w-auto">
                         <button
+                            type="button"
                             onClick={onDiscard}
                             className="flex-1 sm:flex-none px-6 py-2.5 bg-white border border-rose-200 text-rose-600 rounded-xl hover:bg-rose-50 font-bold transition-all active:scale-[0.98] shadow-sm"
                         >
-                            Hủy bỏ tất cả
+                            Bỏ thay đổi
                         </button>
                         <button
+                            type="button"
                             onClick={onApply}
                             className="flex-1 sm:flex-none px-8 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold shadow-lg shadow-blue-600/20 transition-all active:scale-[0.98]"
                         >

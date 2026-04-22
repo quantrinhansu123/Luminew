@@ -4498,17 +4498,14 @@ function VanDon({ dataSource = 'default' }) {
 
 
       const active = document.activeElement;
-      // If focusing a filter input in header, allow normal paste
+      // Ô lọc trong <th> hoặc input/textarea/select ngoài ô lưới (vd. «Mã đơn» dán hàng loạt): để trình duyệt dán
       if (active && active.closest('th')) return;
-      // If focusing input in cell, handle carefully? simpler to just override or let it be.
-      // Google sheets allows pasting into cell edit mode.
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
-        // return; // Let browser handle it? 
-        // But if we want multi-cell paste support, we need to intercept if not editing.
-        if (active.closest('td')) {
-          // Find which cell
-          // Logic to determine if we should handle multi-cell paste
-        }
+      if (
+        active &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT') &&
+        !active.closest('td')
+      ) {
+        return;
       }
 
       if (selection.startRow === null) return;

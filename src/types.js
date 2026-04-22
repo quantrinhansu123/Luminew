@@ -16,15 +16,20 @@ export const ORDER_MGMT_COLUMNS = [
 ];
 
 /**
- * Cột được sửa / dán / fill trên lưới FFM (MGT, T&T, MGT HCM): toàn bộ cột quản lý đơn có thể map xuống DB,
- * trừ STT, mã đơn (không đổi khóa dòng), «Lịch sử thay đổi» (chỉ đọc). Thêm alias «Kết quả check».
+ * Cột được sửa / dán / fill trên lưới FFM (MGT, T&T, MGT HCM): chỉ các cột vận hành —
+ * Kết quả Check, Mã Tracking, Ngày đóng hàng, Trạng thái giao hàng, GHI CHÚ,
+ * Thời gian giao dự kiến, Ngày đối soát kế toán (+ alias chữ hoa/thường).
  */
 export const FFM_GRID_EDITABLE_COLUMNS = new Set([
-    ...ORDER_MGMT_COLUMNS.filter(
-        (c) => c !== "STT" && c !== PRIMARY_KEY_COLUMN && c !== "Lịch sử thay đổi"
-    ),
+    "Kết quả Check",
     "Kết quả check",
     "Kết quả",
+    "Mã Tracking",
+    "Ngày đóng hàng",
+    "Trạng thái giao hàng",
+    "GHI CHÚ",
+    "Thời gian giao dự kiến",
+    "Ngày đối soát kế toán",
 ]);
 
 // --- VIEW 2: BILL OF LADING COLUMNS (New) ---
