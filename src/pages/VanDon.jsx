@@ -4025,12 +4025,37 @@ function VanDon({ dataSource = 'default' }) {
     } else if (String(newValue) === String(stepOriginalValue)) return;
 
     // BỎ baseValue - Không cần kiểm tra xung đột nữa
-    pushChange([{
+    const changes = [{
       orderId: oid,
       colKey,
       originalValue: String(stepOriginalValue),
       newValue: String(newValue)
-    }]);
+    }];
+
+    // Tự động nhảy trạng thái giao hàng NB khi chọn đơn vị vận chuyển là ffm
+    const isShippingUnitCol = colKey === 'Đơn vị vận chuyển' || colKey === 'shipping_unit';
+    if (isShippingUnitCol && String(newValue).trim().toLowerCase() === 'ffm') {
+      const nbKey = 'Trạng thái giao hàng NB';
+      const nbDbKey = 'delivery_status_nb';
+      
+      // Kiểm tra trạng thái hiện tại (ưu tiên pending)
+      const pendingNb = pendingChanges.get(oid)?.get(nbKey) || pendingChanges.get(oid)?.get(nbDbKey);
+      const currentNbValue = pendingNb 
+        ? pendingNb.newValue 
+        : String(originalRow?.[nbKey] ?? originalRow?.[nbDbKey] ?? '').trim();
+
+      // Nếu chưa là "Chưa Giao", tự động thêm vào danh sách thay đổi
+      if (currentNbValue.toLowerCase() !== 'chưa giao') {
+        changes.push({
+          orderId: oid,
+          colKey: nbKey,
+          originalValue: currentNbValue,
+          newValue: 'Chưa Giao'
+        });
+      }
+    }
+
+    pushChange(changes);
   }, [allData, pendingChanges, pushChange, isReadonlyEditTab]);
 
   // Hàm đồng bộ queue từ pendingChanges (tự động phục hồi)

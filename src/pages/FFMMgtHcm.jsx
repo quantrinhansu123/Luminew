@@ -1641,6 +1641,25 @@ function FFMMgtHcm() {
         });
       }
     }
+    
+    // Tự động nhảy trạng thái giao hàng NB khi chọn đơn vị vận chuyển là ffm
+    const isShippingUnitCol = colKey === 'Đơn vị vận chuyển' || colKey === 'shipping_unit';
+    if (isShippingUnitCol && nextValue.toLowerCase() === 'ffm') {
+      const nbKey = 'delivery_status_nb';
+      const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
+      const currentNb = pendingNb
+        ? pendingNb.newValue
+        : String(originalRow?.delivery_status_nb ?? originalRow?.['Trạng thái giao hàng NB'] ?? '').trim();
+      
+      if (currentNb.toLowerCase() !== 'chưa giao') {
+        changes.push({
+          orderId,
+          colKey: nbKey,
+          originalValue: currentNb,
+          newValue: 'Chưa Giao'
+        });
+      }
+    }
 
 
     pushChange(changes, { deferDbSave: true });
