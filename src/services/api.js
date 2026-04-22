@@ -2035,14 +2035,30 @@ export const fetchVanDonDistinctFilterOptions = async ({ sourceTable = 'orders' 
                     // HCM: bổ sung danh mục sản phẩm từ bảng báo cáo MKT `marketing_report_hcm` (cột 'Sản_phẩm')
                     if (sourceTable !== 'orders' && dbCol === 'product') {
                         try {
-                            const { data: mktData, error: mktErr } = await supabase
-                                .from('marketing_report_hcm')
-                                .select('Sản_phẩm')
-                                .not('Sản_phẩm', 'is', null)
-                                .neq('Sản_phẩm', '')
-                                .limit(20000);
-                            if (!mktErr) {
-                                const moreProducts = (mktData || [])
+                            let mktData = [];
+                            let from = 0;
+                            const pageSize = 1000;
+                            const limit = 20000;
+
+                            while (mktData.length < limit) {
+                                const to = Math.min(from + pageSize - 1, limit - 1);
+                                const { data: batch, error: mktErr } = await supabase
+                                    .from('marketing_report_hcm')
+                                    .select('Sản_phẩm')
+                                    .not('Sản_phẩm', 'is', null)
+                                    .neq('Sản_phẩm', '')
+                                    .range(from, to);
+                                
+                                if (mktErr) throw mktErr;
+                                if (!batch || batch.length === 0) break;
+                                
+                                mktData = mktData.concat(batch);
+                                if (batch.length < pageSize) break;
+                                from += pageSize;
+                            }
+
+                            if (mktData.length > 0) {
+                                const moreProducts = mktData
                                     .map((row) => (row && row['Sản_phẩm'] != null ? String(row['Sản_phẩm']).trim() : ''))
                                     .filter(Boolean)
                                     .filter((v) => v !== '__EMPTY__' && !isVanDonSemanticEmpty(v));
@@ -2137,21 +2153,46 @@ function resolveFfmSyncOrdersTable(ordersTable) {
 }
 
 /** Đọc `ffm_push_logs` hoặc `ffm_push_logs_hcm` (đối soát đẩy FFM). */
-export const fetchFfmPushLogsForReconciliation = async ({ limit = 8000, logsTable } = {}) => {
+export const fetchFfmPushLogsForReconciliation = async ({ limit = 10000, logsTable } = {}) => {
     const table = resolveFfmPushLogsTable(logsTable);
-    const { data, error } = await supabase.from(table).select('*').limit(limit);
-    if (error) {
+    
+    let allRows = [];
+    const pageSize = 1000;
+    let from = 0;
+
+    console.log(`[fetchFfmPushLogsForReconciliation] Fetching logs from ${table} (limit=${limit})...`);
+
+    try {
+        while (allRows.length < limit) {
+            const to = Math.min(from + pageSize - 1, limit - 1);
+            const { data, error } = await supabase
+                .from(table)
+                .select('*')
+                .order('id', { ascending: false })
+                .range(from, to);
+
+            if (error) throw error;
+            if (!data || data.length === 0) break;
+
+            allRows = allRows.concat(data);
+            if (data.length < pageSize) break;
+            from += pageSize;
+        }
+
+        console.log(`[fetchFfmPushLogsForReconciliation] Loaded ${allRows.length} rows.`);
+
+        const time = (r) => {
+            const t = r?.pushed_at ?? r?.created_at ?? r?.inserted_at ?? r?.updated_at ?? null;
+            if (t) return new Date(t).getTime();
+            return 0;
+        };
+        // Re-sort client side just in case timestamps are cleaner than IDs for recent orders
+        allRows.sort((a, b) => time(b) - time(a));
+        return allRows;
+    } catch (error) {
         console.error('fetchFfmPushLogsForReconciliation:', error);
         throw error;
     }
-    const rows = Array.isArray(data) ? data : [];
-    const time = (r) => {
-        const t = r?.pushed_at ?? r?.created_at ?? r?.inserted_at ?? r?.updated_at ?? null;
-        if (t) return new Date(t).getTime();
-        return 0;
-    };
-    rows.sort((a, b) => time(b) - time(a));
-    return rows;
 };
 
 function isEmptyFfmSnapshotText(val) {
@@ -2178,20 +2219,37 @@ function needsFfmLogSnapshotFill(row) {
  * @param {{ scanLimit?: number, logsTable?: 'ffm_push_logs' | 'ffm_push_logs_hcm', ordersTable?: 'orders' | 'order_code_hcm' }} [opts]
  */
 export const syncFfmPushLogsFromOrders = async ({
-    scanLimit = 12000,
+    scanLimit = 15000,
     logsTable,
     ordersTable,
 } = {}) => {
     const logsTbl = resolveFfmPushLogsTable(logsTable);
     const ordersTbl = resolveFfmSyncOrdersTable(ordersTable);
-    const { data: logs, error: logErr } = await supabase
-        .from(logsTbl)
-        .select('id, order_code, product, country, chi_nhanh, total_amount_vnd')
-        .not('order_code', 'is', null)
-        .limit(scanLimit);
-    if (logErr) throw logErr;
 
-    const rows = Array.isArray(logs) ? logs : [];
+    let allLogs = [];
+    const pageSize = 1000;
+    let from = 0;
+
+    console.log(`[syncFfmPushLogsFromOrders] Scanning logs from ${logsTbl} (limit=${scanLimit})...`);
+
+    while (allLogs.length < scanLimit) {
+        const to = Math.min(from + pageSize - 1, scanLimit - 1);
+        const { data: logs, error: logErr } = await supabase
+            .from(logsTbl)
+            .select('id, order_code, product, country, chi_nhanh, total_amount_vnd')
+            .not('order_code', 'is', null)
+            .order('id', { ascending: false })
+            .range(from, to);
+
+        if (logErr) throw logErr;
+        if (!logs || logs.length === 0) break;
+
+        allLogs = allLogs.concat(logs);
+        if (logs.length < pageSize) break;
+        from += pageSize;
+    }
+
+    const rows = allLogs;
     const needs = rows.filter(needsFfmLogSnapshotFill);
     if (needs.length === 0) {
         return {
