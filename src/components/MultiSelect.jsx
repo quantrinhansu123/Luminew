@@ -69,24 +69,54 @@ const MultiSelect = ({
 
     const handleToggle = () => setIsOpen(!isOpen);
 
+    const isAllSelected = selected.length === 0 || (selected.length === options.length && options.length > 0);
+    const isNoneSelected = selected.length === 1 && selected[0] === '__NONE__';
+
     const handleOptionChange = (value) => {
         if (value === ALL_OPTION) {
-            // "Tất cả" results in empty array (No filter)
-            onChange([]);
-        } else {
-            if (selected.includes(value)) {
-                onChange(selected.filter(item => item !== value));
+            if (isAllSelected) {
+                // If all selected, and user clicks "All" again, unselect everything
+                onChange(['__NONE__']);
             } else {
-                onChange([...selected, value]);
+                // If not all selected (some or none), click "All" to select everything
+                onChange([]);
+            }
+        } else {
+            let nextSelected = selected.filter(v => v !== '__NONE__');
+            
+            // If it was "All Selected" (empty array), and user clicks an option,
+            // we want to select ONLY that option (common behavior in this app)
+            // or should we unselect that one? 
+            // In the current logic of VanDon, if selected is empty, it means 'No filter'.
+            // If I click 'A', I probably want to filter by 'A'.
+            
+            if (selected.length === 0) {
+                // Starting from "All", clicking an option means we only want that one
+                onChange([value]);
+            } else {
+                if (nextSelected.includes(value)) {
+                    nextSelected = nextSelected.filter(item => item !== value);
+                } else {
+                    nextSelected.push(value);
+                }
+                
+                if (nextSelected.length === 0) {
+                    onChange(['__NONE__']);
+                } else if (nextSelected.length === options.length && options.length > 0) {
+                    // If everything was manually selected, clear filter to mean "All"
+                    onChange([]);
+                } else {
+                    onChange(nextSelected);
+                }
             }
         }
     };
 
-    const isAllSelected = selected.length === 0 || (selected.length === options.length && options.length > 0);
-
     let displayText = placeholder;
-    if (selected.length === 0 || (selected.length === options.length && options.length > 0)) {
+    if (isAllSelected) {
         displayText = mainFilter ? placeholder : 'Tất cả';
+    } else if (isNoneSelected) {
+        displayText = 'Chọn lọc...';
     } else if (selected.length > 0) {
         if (selected.length === 1) displayText = selected[0];
         else displayText = `${selected.length} đã chọn`;
