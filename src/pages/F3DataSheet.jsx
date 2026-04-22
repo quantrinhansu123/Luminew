@@ -2988,17 +2988,39 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   /** Giá trị ô như trên lưới / Ctrl+C — dùng cho xuất Excel để khớp giao diện. */
   const getCellDisplayValueForRow = useCallback(
-    (row, col) => {
+    (row, col, isExcel = false) => {
       const key = COLUMN_MAPPING[col] || col;
       let value = row[key] ?? row[col] ?? '';
 
       if (col.includes('Ngày')) {
-        value = formatDate(value);
+        return formatDate(value);
       }
 
-      if (col === 'Tổng tiền VNĐ') {
-        const num = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
-        value = num.toLocaleString('vi-VN') + ' ₫';
+      // Danh sách các cột chứa dữ liệu số (Tiền, Số lượng) để xuất Excel dạng số
+      const numericColumns = [
+        'Tổng tiền VNĐ',
+        'Phí ship',
+        'Tiền Việt đã đối soát',
+        'Phí Chung',
+        'Phí bay',
+        'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
+        'Thuê TK',
+        'Tiền Hàng',
+        'Số lượng mặt hàng 1',
+        'Số lượng mặt hàng 2',
+        'reconciled_vnd',
+        'total_amount_vnd'
+      ];
+
+      const isNumeric = numericColumns.includes(col);
+
+      if (isNumeric) {
+        const numValue = parseFloat(String(value).replace(/[^\d.-]/g, '')) || 0;
+        if (isExcel) return numValue; // Trả về số thực cho Excel
+        
+        // Trình bày cho Grid UI
+        if (col.includes('Số lượng')) return numValue;
+        return numValue.toLocaleString('vi-VN') + ' ₫';
       }
 
       if (col === 'Payment Image') {
@@ -3079,7 +3101,9 @@ function DanhSachDon({ dataSource = 'default' }) {
     const exportRows = rows.map((row) => {
       const obj = {};
       for (const col of cols) {
-        obj[col] = getCellDisplayValueForRow(row, col);
+        // null value: pass as null so Excel shows it as empty
+        const val = getCellDisplayValueForRow(row, col, true);
+        obj[col] = val;
       }
       return obj;
     });
