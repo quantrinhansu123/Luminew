@@ -49,3 +49,33 @@ export function getFfmDeliveryStatusFilterDropdownOptions(rows) {
   extras.sort((a, b) => String(a).localeCompare(String(b), 'vi'));
   return [...ordered, ...extras];
 }
+
+/**
+ * `<select>` trong ô lưới «Trạng thái giao hàng»: preset (có ô trống) + mọi giá trị trong tập đã tải + đảm bảo `currentVal`.
+ */
+export function ffmGridDeliveryStatusSelectOptions(enrichedRows, currentVal) {
+  const preset = DROPDOWN_OPTIONS['Trạng thái giao hàng'] || [];
+  const fromData = new Set();
+  for (const row of enrichedRows || []) {
+    const v = getFfmOrderMgmtDeliveryStatusForRow(row);
+    if (v) fromData.add(v);
+  }
+  const ordered = [];
+  const seen = new Set();
+  const add = (p) => {
+    if (p === undefined) return;
+    const key = p === '' ? '__empty__' : String(p);
+    if (seen.has(key)) return;
+    seen.add(key);
+    ordered.push(p);
+  };
+  for (const p of preset) add(p);
+  const extras = [...fromData].filter((v) => {
+    const k = v === '' ? '__empty__' : String(v);
+    return !seen.has(k);
+  });
+  extras.sort((a, b) => String(a).localeCompare(String(b), 'vi'));
+  for (const v of extras) add(v);
+  add(currentVal == null ? '' : currentVal);
+  return ordered;
+}
