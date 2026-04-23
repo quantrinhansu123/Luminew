@@ -45,6 +45,21 @@ export function getFfmOrderMgmtDeliveryStatusForRow(row) {
   return String(v ?? '').trim();
 }
 
+/**
+ * Giá trị dùng để **lọc** theo «Trạng thái giao hàng»: nếu có `delivery_status` trong pending (chưa lưu),
+ * dùng `originalValue` để dòng vẫn khớp bộ lọc đang bật cho đến khi Xác nhận lưu.
+ */
+export function getFfmOrderMgmtDeliveryStatusForFilter(row, orderId, pendingChanges) {
+  const oid = orderId != null && String(orderId).trim() !== '' ? String(orderId) : null;
+  if (oid && pendingChanges && typeof pendingChanges.get === 'function') {
+    const pend = pendingChanges.get(oid)?.get('delivery_status');
+    if (pend) {
+      return String(pend.originalValue ?? '').trim();
+    }
+  }
+  return getFfmOrderMgmtDeliveryStatusForRow(row);
+}
+
 /** So khớp lọc dropdown / MultiSelect (tránh lệch NHẬN vs Nhận, v.v.). */
 export function ffmOrderMgmtDeliveryStatusesMatch(cellVal, filterVal) {
   const a = String(cellVal ?? '').trim();
@@ -60,12 +75,13 @@ export function ffmOrderMgmtDeliveryStatusesMatch(cellVal, filterVal) {
 }
 
 /**
- * Dropdown lọc tiêu đề cột: preset chuẩn + mọi giá trị đang có trong dữ liệu (đúng chuỗi, vd. NHẬN).
- * `rows` nên là `ffmEnrichedRowsForFilter` (đã trộn pending) để khớp ô trên lưới.
+ * Dropdown lọc tiêu đề cột «Trạng thái giao hàng»: cùng tập ẩn với ô lưới / Thêm nhanh
+ * (không liệt kê preset & giá trị distinct đã ẩn). Giá trị đang chọn trong lọc vẫn hiện nhờ patch ở FFM.
+ * `rows` nên là `ffmEnrichedRowsForFilter` (đã trộn pending).
  */
 export function getFfmDeliveryStatusFilterDropdownOptions(rows) {
   const preset = (DROPDOWN_OPTIONS['Trạng thái giao hàng'] || []).filter(
-    (o) => o != null && String(o).trim() !== ''
+    (o) => o != null && String(o).trim() !== '' && !isFfmGridDeliveryStatusHiddenOption(o)
   );
   const fromData = new Set();
   for (const row of rows || []) {
@@ -80,7 +96,7 @@ export function getFfmDeliveryStatusFilterDropdownOptions(rows) {
       ordered.push(p);
     }
   }
-  const extras = [...fromData].filter((v) => !seen.has(v));
+  const extras = [...fromData].filter((v) => !seen.has(v) && !isFfmGridDeliveryStatusHiddenOption(v));
   extras.sort((a, b) => String(a).localeCompare(String(b), 'vi'));
   return [...ordered, ...extras];
 }

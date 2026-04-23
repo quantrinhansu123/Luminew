@@ -26,6 +26,7 @@ import {
   ffmGridDeliveryStatusSelectOptions,
   ffmOrderMgmtDeliveryStatusesMatch,
   getFfmDeliveryStatusFilterDropdownOptions,
+  getFfmOrderMgmtDeliveryStatusForFilter,
   getFfmOrderMgmtDeliveryStatusForRow,
 } from '../utils/ffmDeliveryStatusFilter';
 import * as XLSX from 'xlsx';
@@ -1249,7 +1250,8 @@ function FFMMgtHcm() {
       const search = fv.delivery_status_search ? String(fv.delivery_status_search).trim().toLowerCase() : '';
 
       data = data.filter((row) => {
-        const val = getFfmOrderMgmtDeliveryStatusForRow(row);
+        const orderId = row[PRIMARY_KEY_COLUMN];
+        const val = getFfmOrderMgmtDeliveryStatusForFilter(row, orderId, pendingChanges);
         if (status === 'Trống') return val === '' || val === 'null';
         if (status === 'Tìm kiếm...') {
           return search ? val.toLowerCase().includes(search) : true;
@@ -1349,7 +1351,7 @@ function FFMMgtHcm() {
 
     // Lọc trên bản đã trộn pending (ffmEnrichedRowsForFilter); map sang render row để đồng bộ derived fields.
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
-  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant]);
+  }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, variant, pendingChanges]);
 
   const getFilteredData = useMemo(() => {
     return applyFfmFilters(ffmEnrichedRowsForFilter, localFilterValues);
