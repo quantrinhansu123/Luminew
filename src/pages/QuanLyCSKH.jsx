@@ -54,6 +54,8 @@ function mapOrderRowToFriendlyCSKH(item) {
     check_result: String(item.check_result ?? '').trim(),
     "Kết quả Check": item.check_result,
     "Ghi chú": item.note,
+    "Phản hồi tích cực": item.feedback_pos,
+    "Phản hồi tiêu cực": item.feedback_neg,
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount,
@@ -62,6 +64,8 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Trạng thái thu tiền": resolveTrangThaiThuTienFromOrder(item),
     "Lý do": item.reason,
     "Page": item.page_name,
+    feedback_pos: item.feedback_pos,
+    feedback_neg: item.feedback_neg,
   };
 }
 
@@ -1404,6 +1408,8 @@ function QuanLyCSKH({
           customer_address: editingOrder.customer_address,
           country: editingOrder.country || editingOrder["Khu vực"], // Khu vực
           note: editingOrder.note,
+          feedback_pos: editingOrder.feedback_pos || editingOrder["Phản hồi tích cực"] || '',
+          feedback_neg: editingOrder.feedback_neg || editingOrder["Phản hồi tiêu cực"] || '',
 
           // Extended fields
           product: editingOrder.product,
@@ -2753,6 +2759,35 @@ function QuanLyCSKH({
                   className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
                   placeholder="Nhập ghi chú..."
                 />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-green-700 mb-1">Phản hồi tích cực</label>
+                  <textarea
+                    name="feedback_pos"
+                    rows={3}
+                    value={editingOrder.feedback_pos || editingOrder["Phản hồi tích cực"] || ''}
+                    onChange={handleEditChange}
+                    readOnly={isViewing}
+                    disabled={isViewing}
+                    className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                    placeholder="Khách hài lòng về điều gì..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-red-700 mb-1">Phản hồi tiêu cực</label>
+                  <textarea
+                    name="feedback_neg"
+                    rows={3}
+                    value={editingOrder.feedback_neg || editingOrder["Phản hồi tiêu cực"] || ''}
+                    onChange={handleEditChange}
+                    readOnly={isViewing}
+                    disabled={isViewing}
+                    className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 ${isViewing ? 'bg-gray-100' : ''}`}
+                    placeholder="Vấn đề khách đang gặp..."
+                  />
+                </div>
               </div>
             </div>
 

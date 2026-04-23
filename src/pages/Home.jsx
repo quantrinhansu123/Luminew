@@ -475,6 +475,13 @@ function Home() {
           permission: 'MKT_VIEW_HCM',
         },
         {
+          id: "mkt-view-rd",
+          label: "Xem báo cáo MKT R&D",
+          icon: <BarChart3 className="w-4 h-4" />,
+          path: "/xem-bao-cao-mkt-rd",
+          permission: 'MKT_VIEW',
+        },
+        {
           id: "mkt-detail",
           label: "Báo cáo chi tiết đơn",
           icon: <ClipboardList className="w-4 h-4" />,
@@ -529,6 +536,13 @@ function Home() {
           label: "Xem báo cáo R&D",
           icon: <BarChart3 className="w-4 h-4" />,
           path: "/xem-bao-cao-rd",
+          permission: 'RND_VIEW',
+        },
+        {
+          id: "rnd-view-mkt",
+          label: "Xem báo cáo MKT R&D",
+          icon: <BarChart3 className="w-4 h-4" />,
+          path: "/xem-bao-cao-mkt-rd",
           permission: 'RND_VIEW',
         },
         {
@@ -1214,6 +1228,14 @@ function Home() {
           status: "marketing_report_hcm",
           permission: 'MKT_MANUAL_HCM',
         },
+        {
+          title: "Xem báo cáo MKT R&D",
+          icon: <BarChart3 className="w-8 h-8" />,
+          color: "bg-indigo-600",
+          path: "/xem-bao-cao-mkt-rd",
+          status: "Mở ứng dụng",
+          permission: 'MKT_VIEW',
+        },
       ],
     },
     {
@@ -1233,6 +1255,14 @@ function Home() {
           icon: <BarChart3 className="w-7 h-7" />,
           color: "bg-gradient-to-br from-pink-500 to-rose-600",
           path: "/xem-bao-cao-rd",
+          status: "Mở ứng dụng",
+          permission: 'RND_VIEW',
+        },
+        {
+          title: "Xem báo cáo MKT R&D",
+          icon: <BarChart3 className="w-7 h-7" />,
+          color: "bg-gradient-to-br from-pink-500 to-rose-600",
+          path: "/xem-bao-cao-mkt-rd",
           status: "Mở ứng dụng",
           permission: 'RND_VIEW',
         },

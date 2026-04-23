@@ -839,6 +839,7 @@ export const MODULE_PAGES = {
         pages: [
             { code: 'RND_INPUT', name: 'Nhập báo cáo', path: '/bao-cao-rd' },
             { code: 'RND_VIEW', name: 'Xem báo cáo R&D', path: '/xem-bao-cao-rd' },
+            { code: 'RND_VIEW', name: 'Xem báo cáo MKT R&D', path: '/xem-bao-cao-mkt-rd' },
             { code: 'RND_ORDERS', name: 'Danh sách đơn', path: '/bao-cao-chi-tiet-rd' },
             { code: 'RND_PAGES', name: 'Danh sách Page', path: '/danh-sach-page-rd' },
             { code: 'RND_MANUAL', name: 'Ds báo cáo tay', path: '/danh-sach-bao-cao-tay-rd' },

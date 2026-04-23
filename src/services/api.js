@@ -42,6 +42,8 @@ export const DB_TO_APP_MAPPING = {
     "delivery_status": "Trạng thái giao hàng",
     "payment_status": "Trạng thái thu tiền",
     "note": "Ghi chú",
+    "feedback_pos": "Phản hồi tích cực",
+    "feedback_neg": "Phản hồi tiêu cực",
     "lydo": "Lý do",
     "order_date": "Ngày lên đơn",
     "sale_price": "Giá bán",

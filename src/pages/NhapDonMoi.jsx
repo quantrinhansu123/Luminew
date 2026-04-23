@@ -468,6 +468,8 @@ export default function NhapDonMoi({ isEdit = false }) {
         "base_price": 0, "reconciled_vnd": 0,
 
         "note_sale": "",
+        "ph-tc": "",
+        "ph-tn": "",
         "team": "",
         "creator_name": "",
     });
@@ -1377,6 +1379,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                 "reconciled_vnd": data.reconciled_vnd || 0,
 
                 "note_sale": data.note ? data.note.split('\nRef:')[0] : "",
+                "ph-tc": data.feedback_pos || "",
+                "ph-tn": data.feedback_neg || "",
                 "team": data.team || "",
                 "creator_name": data.created_by || "",
             });
@@ -1702,6 +1706,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                             : undefined)),
 
                 note: formData["note_sale"] || "",
+                feedback_pos: formData["ph-tc"] || "",
+                feedback_neg: formData["ph-tn"] || "",
             };
 
             // Remove undefined keys và null values (giữ lại empty string và 0)
@@ -1988,6 +1994,8 @@ export default function NhapDonMoi({ isEdit = false }) {
             "shipping_fee": 0, "shipping_cost": 0,
             "base_price": 0, "reconciled_vnd": 0,
             "note_sale": "",
+            "ph-tc": "",
+            "ph-tn": "",
             "team": "",
             "creator_name": "",
         });

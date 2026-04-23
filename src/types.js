@@ -38,7 +38,7 @@ export const BILL_LADING_COLUMNS = [
     "Trạng thái thu tiền", "Ghi chú của VĐ", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add",
     "City", "State", "Khu vực", "Zipcode", "Mặt hàng", "Tên mặt hàng 1", "Số lượng mặt hàng 1",
     "Tên mặt hàng 2", "Số lượng mặt hàng 2", "Quà tặng", "Số lượng quà kèm", "Giá bán",
-    "Loại tiền thanh toán", "Tổng tiền VNĐ", "Hình thức thanh toán", "Ghi chú",
+    "Loại tiền thanh toán", "Tổng tiền VNĐ", "Hình thức thanh toán", "Ghi chú", "Phản hồi tích cực", "Phản hồi tiêu cực",
     "Mã Tracking", "Ngày đóng hàng", "Trạng thái giao hàng", "Thời gian giao dự kiến",
     "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
     "Nhân viên Sale", "Nhân viên MKT", "Page", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
@@ -51,7 +51,7 @@ export const BILL_LADING_COLUMNS = [
 export const DEFAULT_BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add", "City", "State",
     "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
-    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Nhân viên MKT", "Page", "Nhật ký", "Lịch sử thay đổi"
+    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Phản hồi tích cực", "Phản hồi tiêu cực", "Nhân viên MKT", "Page", "Nhật ký", "Lịch sử thay đổi"
 ];
 
 /**

@@ -46,12 +46,14 @@ function readJsonSafe(key, fallback) {
  * @param {string} [props.legacyHtmlPath] — đường dẫn file legacy trong public (vd. `/viewNsMoiNhanh-HCM.html`)
  * @param {string[] | null} [props.iframeAllowedTeams] — nếu có: iframe kèm ?allowedTeams=... (không ghép location.search)
  * @param {string} [props.iframeTitle]
+ * @param {string} [props.accessPermissionCode] — override quyền truy cập (mặc định MKT_VIEW / MKT_VIEW_HCM)
  */
 export default function XemBaoCaoMKTLegacy({
   embedded = false,
   legacyHtmlPath = '/viewNsMoiNhanh.html',
   iframeAllowedTeams = null,
   iframeTitle = 'Xem báo cáo MKT (viewNsMoiNhanh.html)',
+  accessPermissionCode,
 } = {}) {
   const location = useLocation();
   const { canView, role } = usePermissions();
@@ -59,7 +61,9 @@ export default function XemBaoCaoMKTLegacy({
   const usesIframeTeamFilter =
     iframeAllowedTeams != null && Array.isArray(iframeAllowedTeams) && iframeAllowedTeams.length > 0;
 
-  const hasAccess = usesIframeTeamFilter ? canView('MKT_VIEW_HCM') : canView('MKT_VIEW');
+  const requiredPermissionCode =
+    accessPermissionCode || (usesIframeTeamFilter ? 'MKT_VIEW_HCM' : 'MKT_VIEW');
+  const hasAccess = canView(requiredPermissionCode);
 
   const [hcmPersonnelGate, setHcmPersonnelGate] = useState(() => !usesIframeTeamFilter);
   const hcmScopePayloadRef = useRef(null);
@@ -260,7 +264,7 @@ export default function XemBaoCaoMKTLegacy({
   }, [iframeAllowedTeams, legacyHtmlPath, location.search, usesIframeTeamFilter]);
 
   if (!hasAccess) {
-    const codes = usesIframeTeamFilter ? 'MKT_VIEW_HCM' : 'MKT_VIEW';
+    const codes = requiredPermissionCode;
     return (
       <div className="p-8 text-center text-red-600 font-bold">
         Bạn không có quyền truy cập trang này ({codes}).

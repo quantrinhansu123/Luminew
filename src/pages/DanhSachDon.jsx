@@ -474,6 +474,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Ca',
     'Mã Tracking',
     'Trạng thái giao hàng',
+    'Phản hồi tích cực',
+    'Phản hồi tiêu cực',
     'Phí ship',
     'Tổng tiền VNĐ',
   ];
@@ -669,6 +671,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     check_result: String(item.check_result ?? '').trim(),
     "Kết quả Check": item.check_result || item.payment_status, // Hiển thị lưới: ưu tiên check_result, fallback payment_status
     "Ghi chú": item.note,
+    "Phản hồi tích cực": item.feedback_pos || '',
+    "Phản hồi tiêu cực": item.feedback_neg || '',
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
@@ -1356,6 +1360,8 @@ function DanhSachDon({ dataSource = 'default' }) {
             check_result: item["Kết quả Check"] || item["Kết_quả_Check"] || "", // Map vào check_result thay vì payment_status
             payment_status: item["Kết quả Check"] || item["Kết_quả_Check"] || "", // Giữ lại để backward compatibility
             note: item["Ghi chú"] || item["Ghi_chú"] || "",
+            feedback_pos: item["Phản hồi tích cực"] || item["Phản_hồi_tích_cực"] || "",
+            feedback_neg: item["Phản hồi tiêu cực"] || item["Phản_hồi_tiêu_cực"] || "",
 
             // New extended columns
             cskh: item["CSKH"] || "",

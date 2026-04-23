@@ -62,6 +62,7 @@ import DanhSachVanDon from './pages/DanhSachVanDon';
 import DanhSachBaoCaoVanDon from './pages/DanhSachBaoCaoVanDon';
 import DashboardQuanTri from './pages/DashboardQuanTri';
 import XemBaoCaoMKTLegacy, { XEM_BAO_CAO_MKT_HCM_TEAM } from './pages/XemBaoCaoMKTLegacy';
+import XemBaoCaoMKTRnD from './pages/XemBaoCaoMKTRnD';
 import XemBaoCaoRnD from './pages/XemBaoCaoRnD';
 import MktKpiAlertsAdmin from './pages/MktKpiAlertsAdmin';
 import TestMKT from './pages/TestMKT.jsx';
@@ -297,6 +298,7 @@ function AppShell() {
                 </ProtectedRoute>
               }
             />
+            <Route path="/xem-bao-cao-mkt-rd" element={<ProtectedRoute><XemBaoCaoMKTRnD /></ProtectedRoute>} />
             <Route path="/danh-sach-bao-cao-tay-mkt" element={<ProtectedRoute><DanhSachBaoCaoTayMKT /></ProtectedRoute>} />
             <Route
               path="/danh-sach-bao-cao-tay-mkt-hcm"
