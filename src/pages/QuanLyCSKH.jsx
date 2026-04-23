@@ -15,6 +15,10 @@ import {
 import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
 
+/** Sau migration order_code_hcm feedback + env VITE_ORDER_CODE_HCM_HAS_FEEDBACK=true */
+const ORDER_CODE_HCM_HAS_FEEDBACK_COLUMNS =
+  import.meta.env.VITE_ORDER_CODE_HCM_HAS_FEEDBACK === 'true';
+
 const QUICK_FILTER_OPTIONS = [
   { value: 'today', label: 'Hôm nay' },
   { value: 'yesterday', label: 'Hôm qua' },
@@ -1400,26 +1404,29 @@ function QuanLyCSKH({
 
     setIsUpdating(true);
     try {
-      const { error } = await supabase
-        .from(ordersTableName)
-        .update({
-          customer_name: editingOrder.customer_name,
-          customer_phone: editingOrder.customer_phone,
-          customer_address: editingOrder.customer_address,
-          country: editingOrder.country || editingOrder["Khu vực"], // Khu vực
-          note: editingOrder.note,
-          feedback_pos: editingOrder.feedback_pos || editingOrder["Phản hồi tích cực"] || '',
-          feedback_neg: editingOrder.feedback_neg || editingOrder["Phản hồi tiêu cực"] || '',
+      const updatePayload = {
+        customer_name: editingOrder.customer_name,
+        customer_phone: editingOrder.customer_phone,
+        customer_address: editingOrder.customer_address,
+        country: editingOrder.country || editingOrder["Khu vực"], // Khu vực
+        note: editingOrder.note,
 
-          // Extended fields
-          product: editingOrder.product,
-          payment_method: editingOrder.payment_method, // or payment_method_text if needed, check schema
-          delivery_status: editingOrder.delivery_status,
-          total_amount_vnd: parseFloat(editingOrder.total_amount_vnd) || 0,
-          tracking_code: editingOrder.tracking_code,
-          // Add others if necessary based on schema
-        })
-        .eq('id', editingOrder.id);
+        // Extended fields
+        product: editingOrder.product,
+        payment_method: editingOrder.payment_method, // or payment_method_text if needed, check schema
+        delivery_status: editingOrder.delivery_status,
+        total_amount_vnd: parseFloat(editingOrder.total_amount_vnd) || 0,
+        tracking_code: editingOrder.tracking_code,
+        // Add others if necessary based on schema
+      };
+      if (ordersTableName === 'orders' || (ordersTableName === 'order_code_hcm' && ORDER_CODE_HCM_HAS_FEEDBACK_COLUMNS)) {
+        updatePayload.feedback_pos =
+          editingOrder.feedback_pos || editingOrder["Phản hồi tích cực"] || '';
+        updatePayload.feedback_neg =
+          editingOrder.feedback_neg || editingOrder["Phản hồi tiêu cực"] || '';
+      }
+
+      const { error } = await supabase.from(ordersTableName).update(updatePayload).eq('id', editingOrder.id);
 
       if (error) throw error;
 
