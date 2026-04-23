@@ -18,9 +18,8 @@ import {
 } from '../utils/orderLogJsonb';
 
 const ADMIN_MAIL = import.meta.env.VITE_ADMIN_MAIL || "admin@marketing.com";
-/** Sau migration `20260423180000_order_code_hcm_feedback_columns.sql`, bật trên build: VITE_ORDER_CODE_HCM_HAS_FEEDBACK=true */
-const ORDER_CODE_HCM_HAS_FEEDBACK_COLUMNS =
-    import.meta.env.VITE_ORDER_CODE_HCM_HAS_FEEDBACK === 'true';
+/** Hotfix: chỉ bật gửi feedback_* khi DB production đã sẵn sàng cho cả orders + order_code_hcm */
+const FEEDBACK_COLUMNS_ENABLED = import.meta.env.VITE_ENABLE_FEEDBACK_COLUMNS === 'true';
 const SHIFT_GIUA_CA_HET_CA = "Giữa ca,Hết ca";
 
 /**
@@ -1709,8 +1708,8 @@ export default function NhapDonMoi({ isEdit = false }) {
                             : undefined)),
 
                 note: formData["note_sale"] || "",
-                // order_code_hcm: chỉ gửi feedback khi DB đã có cột (migration + env) hoặc đang lưu orders
-                ...(!isHcmView || ORDER_CODE_HCM_HAS_FEEDBACK_COLUMNS
+                // Hotfix: tạm ngưng gửi feedback_* cho tới khi DB đã có cột đồng bộ
+                ...(FEEDBACK_COLUMNS_ENABLED
                     ? {
                           feedback_pos: formData["ph-tc"] || "",
                           feedback_neg: formData["ph-tn"] || "",

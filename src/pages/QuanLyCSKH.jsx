@@ -15,9 +15,8 @@ import {
 import { resolveTrackingFromOrder, resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
 
-/** Sau migration order_code_hcm feedback + env VITE_ORDER_CODE_HCM_HAS_FEEDBACK=true */
-const ORDER_CODE_HCM_HAS_FEEDBACK_COLUMNS =
-  import.meta.env.VITE_ORDER_CODE_HCM_HAS_FEEDBACK === 'true';
+/** Hotfix: chỉ bật gửi feedback_* khi DB production đã sẵn sàng cho cả orders + order_code_hcm */
+const FEEDBACK_COLUMNS_ENABLED = import.meta.env.VITE_ENABLE_FEEDBACK_COLUMNS === 'true';
 
 const QUICK_FILTER_OPTIONS = [
   { value: 'today', label: 'Hôm nay' },
@@ -1419,7 +1418,7 @@ function QuanLyCSKH({
         tracking_code: editingOrder.tracking_code,
         // Add others if necessary based on schema
       };
-      if (ordersTableName === 'orders' || (ordersTableName === 'order_code_hcm' && ORDER_CODE_HCM_HAS_FEEDBACK_COLUMNS)) {
+      if (FEEDBACK_COLUMNS_ENABLED) {
         updatePayload.feedback_pos =
           editingOrder.feedback_pos || editingOrder["Phản hồi tích cực"] || '';
         updatePayload.feedback_neg =
