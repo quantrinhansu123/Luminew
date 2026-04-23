@@ -1803,21 +1803,17 @@ export const fetchOrderChangeHistory = async ({ orderCode, sourceTable = 'orders
 };
 
 /**
- * Lịch sử chỉ cho FFM: đọc cột `ffm_log` (jsonb) trên `orders` / `order_code_hcm`.
- * Không dùng chung `log` (Vận đơn). Cùng shape trả về như `fetchOrderChangeHistory` để dùng chung modal.
+ * Một cột `ffm_log` (jsonb) → các dòng lịch sử (shape modal FFM). `orderId` luôn có để dùng tổng hợp nhiều đơn.
  */
-export const fetchFfmOrderChangeHistory = async ({ orderCode, sourceTable = 'orders' } = {}) => {
+export const mapFfmLogJsonbToHistoryRows = (orderCode, ffmLogRaw) => {
     const oc = String(orderCode || '').trim();
-    if (!oc) return [];
-    const st = String(sourceTable || 'orders').trim() || 'orders';
-    const { data, error } = await supabase.from(st).select('ffm_log').eq('order_code', oc).maybeSingle();
-    if (error) throw error;
-    const entries = parseOrderLogJsonb(data?.ffm_log);
-    const rows = entries.map((e, i) => {
+    const entries = parseOrderLogJsonb(ffmLogRaw);
+    return entries.map((e, i) => {
         const label = String(e.cot || e.cot_db || 'Thay đổi').trim() || 'Thay đổi';
         const tacNhan = normalizeOrderLogTacNhan(e);
         return {
-            id: `ffm-log-${i}-${String(e.thoi_gian ?? i)}`,
+            id: `ffm-log-${oc}-${i}-${String(e.thoi_gian ?? i)}`,
+            orderId: oc,
             changed_at: e.thoi_gian,
             changed_by: e.nhan_vien != null ? String(e.nhan_vien) : 'hệ thống',
             tac_nhan: tacNhan,
@@ -1830,12 +1826,61 @@ export const fetchFfmOrderChangeHistory = async ({ orderCode, sourceTable = 'ord
             },
         };
     });
+};
+
+/**
+ * Lịch sử chỉ cho FFM: đọc cột `ffm_log` (jsonb) trên `orders` / `order_code_hcm`.
+ * Không dùng chung `log` (Vận đơn). Cùng shape trả về như `fetchOrderChangeHistory` để dùng chung modal.
+ */
+export const fetchFfmOrderChangeHistory = async ({ orderCode, sourceTable = 'orders' } = {}) => {
+    const oc = String(orderCode || '').trim();
+    if (!oc) return [];
+    const st = String(sourceTable || 'orders').trim() || 'orders';
+    const { data, error } = await supabase.from(st).select('ffm_log').eq('order_code', oc).maybeSingle();
+    if (error) throw error;
+    const rows = mapFfmLogJsonbToHistoryRows(oc, data?.ffm_log);
     rows.sort((a, b) => {
         const ta = new Date(a.changed_at || 0).getTime();
         const tb = new Date(b.changed_at || 0).getTime();
         return tb - ta;
     });
     return rows;
+};
+
+const FFM_LOG_BULK_CHUNK = 120;
+
+/**
+ * Gom `ffm_log` cho nhiều đơn (theo danh sách đã tải trên lưới). Mỗi phần tử: { orderCode, sourceTable: 'orders' | 'order_code_hcm' }.
+ */
+export const fetchFfmOrderChangeHistoryBulk = async ({ entries } = {}) => {
+    const byTable = new Map();
+    for (const e of entries || []) {
+        const oc = String(e?.orderCode || '').trim();
+        if (!oc) continue;
+        const st = e?.sourceTable === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
+        if (!byTable.has(st)) byTable.set(st, new Set());
+        byTable.get(st).add(oc);
+    }
+    const all = [];
+    for (const [table, codeSet] of byTable) {
+        const codes = [...codeSet];
+        for (let i = 0; i < codes.length; i += FFM_LOG_BULK_CHUNK) {
+            const chunk = codes.slice(i, i + FFM_LOG_BULK_CHUNK);
+            const { data, error } = await supabase.from(table).select('order_code, ffm_log').in('order_code', chunk);
+            if (error) throw error;
+            for (const dr of data || []) {
+                const oc = String(dr?.order_code || '').trim();
+                if (!oc) continue;
+                all.push(...mapFfmLogJsonbToHistoryRows(oc, dr?.ffm_log));
+            }
+        }
+    }
+    all.sort((a, b) => {
+        const ta = new Date(a.changed_at || 0).getTime();
+        const tb = new Date(b.changed_at || 0).getTime();
+        return tb - ta;
+    });
+    return all;
 };
 
 /** Khớp `DanhSachVanDon.jsx` — chi nhánh HCM (users.branch / HR «chi nhánh»). */

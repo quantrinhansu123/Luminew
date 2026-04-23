@@ -29,6 +29,7 @@ import {
   getFfmOrderMgmtDeliveryStatusForRow,
 } from '../utils/ffmDeliveryStatusFilter';
 import * as XLSX from 'xlsx';
+import FfmAggregateHistoryModal from '../components/FfmAggregateHistoryModal';
 
 const FFM_HCM_SUPABASE_TABLE = 'order_code_hcm';
 const FFM_ROW_SOURCE_TABLE_KEY = '__ffmSourceTable';
@@ -418,6 +419,10 @@ function FfmFilterTextCommitOnEnter({ committed, onCommit, placeholder, classNam
   );
 }
 
+function ffmLocalYmd(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function FFM({ variant = 'MGT' }) {
   const { canView } = usePermissions();
   const visibleColumnsStorageKey =
@@ -442,6 +447,15 @@ function FFM({ variant = 'MGT' }) {
   const [historyLoadingOrderId, setHistoryLoadingOrderId] = useState('');
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
+  const [aggHistoryOpen, setAggHistoryOpen] = useState(false);
+  const [aggHistoryLoading, setAggHistoryLoading] = useState(false);
+  const [aggHistoryRows, setAggHistoryRows] = useState([]);
+  const [aggHistoryDateFrom, setAggHistoryDateFrom] = useState('');
+  const [aggHistoryDateTo, setAggHistoryDateTo] = useState('');
+  const [aggHistoryStaff, setAggHistoryStaff] = useState('');
+  const [aggHistoryOrder, setAggHistoryOrder] = useState('');
+  const [aggHistoryColumn, setAggHistoryColumn] = useState('');
+  const [aggHistoryTacNhan, setAggHistoryTacNhan] = useState('all');
 
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -1856,6 +1870,48 @@ function FFM({ variant = 'MGT' }) {
     },
     [addToast, getSourceTableByOrderId]
   );
+
+  const resetAggHistoryFiltersToDefaults = useCallback(() => {
+    const t = ffmLocalYmd();
+    setAggHistoryDateFrom(t);
+    setAggHistoryDateTo(t);
+    setAggHistoryStaff((localStorage.getItem('username') || '').trim());
+    setAggHistoryOrder('');
+    setAggHistoryColumn('');
+    setAggHistoryTacNhan('all');
+  }, []);
+
+  const openFfmAggregateHistory = useCallback(async () => {
+    resetAggHistoryFiltersToDefaults();
+    setAggHistoryOpen(true);
+    setAggHistoryLoading(true);
+    setAggHistoryRows([]);
+    const dedupe = new Map();
+    for (const row of allData) {
+      const oid = String(row?.[PRIMARY_KEY_COLUMN] ?? '').trim();
+      if (!oid) continue;
+      const rawSource = String(row?.[FFM_ROW_SOURCE_TABLE_KEY] ?? '').trim();
+      const sourceTable = rawSource === 'order_code_hcm' ? 'order_code_hcm' : 'orders';
+      const key = `${sourceTable}::${oid}`;
+      if (!dedupe.has(key)) dedupe.set(key, { orderCode: oid, sourceTable });
+    }
+    const entries = [...dedupe.values()];
+    if (entries.length === 0) {
+      addToast('Chưa có đơn trên lưới để tổng hợp lịch sử.', 'info');
+      setAggHistoryLoading(false);
+      return;
+    }
+    try {
+      const rows = await API.fetchFfmOrderChangeHistoryBulk({ entries });
+      setAggHistoryRows(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      console.error(e);
+      addToast(e?.message || 'Không tải lịch sử tổng hợp', 'error');
+      setAggHistoryRows([]);
+    } finally {
+      setAggHistoryLoading(false);
+    }
+  }, [allData, addToast, resetAggHistoryFiltersToDefaults]);
 
   const processDbQueue = useCallback(async () => {
     if (!manualSaveRequestedRef.current) return;
@@ -4090,6 +4146,14 @@ function FFM({ variant = 'MGT' }) {
             </button>
             <button
               type="button"
+              onClick={openFfmAggregateHistory}
+              title="Gộp ffm_log của mọi đơn đang có trên lưới. Mặc định: hôm nay & người đăng nhập — có thể đổi bộ lọc."
+              className="bg-violet-600 hover:bg-violet-700 text-white px-2.5 py-1 rounded text-xs font-medium"
+            >
+              📜 Lịch sử tổng hợp
+            </button>
+            <button
+              type="button"
               onClick={handleClearSelection}
               disabled={selection.startRow === null}
               title="Xóa nội dung các ô đã bôi đen (cùng Delete/Backspace). Chỉ ô được phép sửa; bấm «Xác nhận lưu» để ghi DB."
@@ -4667,6 +4731,27 @@ function FFM({ variant = 'MGT' }) {
           );
         })()
       )}
+
+      <FfmAggregateHistoryModal
+        isOpen={aggHistoryOpen}
+        onClose={() => setAggHistoryOpen(false)}
+        rows={aggHistoryRows}
+        loading={aggHistoryLoading}
+        dateFrom={aggHistoryDateFrom}
+        dateTo={aggHistoryDateTo}
+        onDateFrom={setAggHistoryDateFrom}
+        onDateTo={setAggHistoryDateTo}
+        staffFilter={aggHistoryStaff}
+        onStaffFilter={setAggHistoryStaff}
+        orderFilter={aggHistoryOrder}
+        onOrderFilter={setAggHistoryOrder}
+        columnFilter={aggHistoryColumn}
+        onColumnFilter={setAggHistoryColumn}
+        tacNhanFilter={aggHistoryTacNhan}
+        onTacNhanFilter={setAggHistoryTacNhan}
+        onResetToDefaults={resetAggHistoryFiltersToDefaults}
+        addToast={addToast}
+      />
     </div>
   );
 }
