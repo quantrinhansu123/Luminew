@@ -87,6 +87,16 @@ function getTrackingCodeFFM(row) {
   return String(row.tracking_code ?? row['Mã Tracking'] ?? row['tracking_code'] ?? '').trim();
 }
 
+function normalizeBulkTrackingCode(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/^["']+|["']+$/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/^[,;\s]+|[,;\s]+$/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toLowerCase();
+}
+
 /** Sắp theo Ngày lên đơn giảm dần + gán rowIndex (khớp sort trong getFilteredData). */
 function assignRowIndexByOrderDate(rows) {
   const sorted = [...rows].sort((a, b) => {
@@ -111,6 +121,7 @@ const FFM_FILTER_SKIP_KEYS = new Set([
   'market', 'product', 'tracking_include', 'tracking_exclude', 'tracking_status',
   'packing_date_status', 'delivery_status_filter', 'delivery_status_search',
   'us_shipping_fee_search',
+  'tracking_bulk_codes',
   FFM_ORDER_CODE_FILTER_KEY,
 ]);
 const HIDDEN_FFM_COLUMNS = new Set([
@@ -446,7 +457,8 @@ function FFMMgtHcm() {
     packing_date_status: 'Tất cả',
     delivery_status_filter: 'Tất cả',
     delivery_status_search: '',
-    us_shipping_fee_search: ''
+    us_shipping_fee_search: '',
+    tracking_bulk_codes: ''
   });
   const [localFilterValues, setLocalFilterValues] = useState(filterValues);
 
@@ -978,7 +990,8 @@ function FFMMgtHcm() {
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
       delivery_status_search: '',
-      us_shipping_fee_search: ''
+      us_shipping_fee_search: '',
+      tracking_bulk_codes: ''
     };
     setFilterValues(defaultFilters);
     setLocalFilterValues(defaultFilters);
@@ -1295,7 +1308,41 @@ function FFMMgtHcm() {
       });
     }
 
-    if (fv.tracking_status || fv.tracking_include || fv.tracking_exclude) {
+    const bulkTrackingRaw = String(fv.tracking_bulk_codes || '').trim();
+    const bulkCodesList = bulkTrackingRaw
+      ? bulkTrackingRaw
+          .split(/\r?\n+/g)
+          .map((line) => line.trim())
+          .map((code) => normalizeBulkTrackingCode(code))
+          .filter(Boolean)
+      : [];
+    const bulkCodesSet = bulkCodesList.length > 0 ? new Set(bulkCodesList) : null;
+    const hasBulkTrackingFilter = !!bulkCodesSet && bulkCodesSet.size > 0;
+    const bulkPasteOrderIndex = new Map();
+    if (hasBulkTrackingFilter) {
+      bulkCodesList.forEach((code, i) => {
+        if (!bulkPasteOrderIndex.has(code)) bulkPasteOrderIndex.set(code, i);
+      });
+    }
+
+    if (hasBulkTrackingFilter) {
+      data = data.filter((row) => {
+        const orderNorm = normalizeBulkTrackingCode(row?.[PRIMARY_KEY_COLUMN] ?? row?.order_code ?? '');
+        return bulkCodesSet.has(orderNorm);
+      });
+      data.sort((a, b) => {
+        const ia = bulkPasteOrderIndex.get(
+          normalizeBulkTrackingCode(a?.[PRIMARY_KEY_COLUMN] ?? a?.order_code ?? '')
+        );
+        const ib = bulkPasteOrderIndex.get(
+          normalizeBulkTrackingCode(b?.[PRIMARY_KEY_COLUMN] ?? b?.order_code ?? '')
+        );
+        const na = ia === undefined ? Number.MAX_SAFE_INTEGER : ia;
+        const nb = ib === undefined ? Number.MAX_SAFE_INTEGER : ib;
+        if (na !== nb) return na - nb;
+        return 0;
+      });
+    } else if (fv.tracking_status || fv.tracking_include || fv.tracking_exclude) {
       const inc = fv.tracking_include ? String(fv.tracking_include).trim().toLowerCase() : '';
       const exc = fv.tracking_exclude ? String(fv.tracking_exclude).trim().toLowerCase() : '';
       const status = fv.tracking_status || 'Tình trạng mã';
@@ -1384,7 +1431,8 @@ function FFMMgtHcm() {
       packing_date_status: 'Tất cả',
       delivery_status_filter: 'Tất cả',
       delivery_status_search: '',
-      us_shipping_fee_search: ''
+      us_shipping_fee_search: '',
+      tracking_bulk_codes: ''
     };
     ffmColumns.forEach((col) => {
       if (col === 'STT') return;
@@ -2368,9 +2416,7 @@ function FFMMgtHcm() {
         const movedEnough = Math.hypot(dx, dy) >= DRAG_FOCUS_THRESHOLD_PX;
         const multiCell = sr !== er || sc !== ec;
         setIsDraggingSelection(false);
-        startTransition(() => {
-          setSelection({ startRow: sr, startCol: sc, endRow: er, endCol: ec });
-        });
+        setSelection({ startRow: sr, startCol: sc, endRow: er, endCol: ec });
         if (!movedEnough && !multiCell) {
           requestAnimationFrame(() => {
             const root = document.querySelector('[data-ffm-grid-root]');
@@ -2399,11 +2445,27 @@ function FFMMgtHcm() {
 
   const getSelectionBounds = useCallback(() => selectionBounds, [selectionBounds]);
 
-  const handleCopy = useCallback(() => {
-    if (selection.startRow === null) return;
+  /** Khi đang kéo chọn, React `selection` có thể chưa khớp vùng tô — dùng ref; sau mouseup bỏ startTransition để state khớp ngay. */
+  const getBoundsForCopy = useCallback(() => {
+    if (isSelecting.current) {
+      const sr = dragAnchorRef.current.r;
+      const sc = dragAnchorRef.current.c;
+      const er = dragEndRef.current.r;
+      const ec = dragEndRef.current.c;
+      return {
+        minRow: Math.min(sr, er),
+        maxRow: Math.max(sr, er),
+        minCol: Math.min(sc, ec),
+        maxCol: Math.max(sc, ec)
+      };
+    }
+    if (selection.startRow === null) return null;
+    return selectionBounds;
+  }, [selection.startRow, selectionBounds]);
 
-    const bounds = selectionBounds;
-    if (!bounds) return;
+  const buildCopyPayload = useCallback(() => {
+    const bounds = getBoundsForCopy();
+    if (!bounds) return null;
 
     const viewData = paginatedData;
     const copiedRows = [];
@@ -2425,17 +2487,8 @@ function FFMMgtHcm() {
     }
 
     const text = copiedRows.map((row) => row.join('\t')).join('\n');
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        setCopiedData(copiedRows);
-        setCopiedSelection({ ...selection });
-        addToast(`📋 Đã copy ${bounds.maxRow - bounds.minRow + 1} hàng × ${bounds.maxCol - bounds.minCol + 1} cột`, 'info', 2000);
-      })
-      .catch(() => {
-        addToast('Không thể copy vào clipboard', 'error');
-      });
-  }, [selection, paginatedData, currentColumns, selectionBounds]);
+    return { text, copiedRows, bounds };
+  }, [getBoundsForCopy, paginatedData, currentColumns]);
 
   const handleClearSelection = useCallback(() => {
     if (selection.startRow === null) return;
@@ -2495,26 +2548,59 @@ function FFMMgtHcm() {
   }, [selection, selectionBounds, paginatedData, currentColumns, pendingChanges, pushChange, addToast]);
 
   useEffect(() => {
+    const onCopy = (e) => {
+      if (quickAddModalOpen) return;
+      const active = document.activeElement;
+      const isInInput =
+        active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+      if (isInInput && active && !active.closest('td') && !active.closest('th')) {
+        return;
+      }
+      if (selection.startRow === null && !isSelecting.current) return;
+      const bounds = getBoundsForCopy();
+      if (!bounds) return;
+
+      const isSingleCell = bounds.minRow === bounds.maxRow && bounds.minCol === bounds.maxCol;
+      if (isInInput && isSingleCell && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+        const selStart = active.selectionStart ?? 0;
+        const selEnd = active.selectionEnd ?? 0;
+        if (selStart !== selEnd && selEnd - selStart < String(active.value ?? '').length) {
+          return;
+        }
+      }
+
+      const payload = buildCopyPayload();
+      if (!payload) return;
+
+      try {
+        e.preventDefault();
+        e.clipboardData.setData('text/plain', payload.text);
+      } catch {
+        addToast('Không thể copy vào clipboard', 'error');
+        return;
+      }
+      setCopiedData(payload.copiedRows);
+      setCopiedSelection({
+        startRow: payload.bounds.minRow,
+        startCol: payload.bounds.minCol,
+        endRow: payload.bounds.maxRow,
+        endCol: payload.bounds.maxCol
+      });
+      addToast(
+        `📋 Đã copy ${payload.bounds.maxRow - payload.bounds.minRow + 1} hàng × ${payload.bounds.maxCol - payload.bounds.minCol + 1} cột`,
+        'info',
+        2000
+      );
+    };
+    document.addEventListener('copy', onCopy, true);
+    return () => document.removeEventListener('copy', onCopy, true);
+  }, [quickAddModalOpen, selection.startRow, getBoundsForCopy, buildCopyPayload, addToast]);
+
+  useEffect(() => {
     const handleKeyDown = (e) => {
       if (quickAddModalOpen) return;
       const active = document.activeElement;
       const isInInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
-
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-        const bounds = getSelectionBounds();
-        if (!bounds) return;
-
-        // If focusing an input AND has a partial text selection inside it, let browser handle it
-        const isSingleCell = bounds.minRow === bounds.maxRow && bounds.minCol === bounds.maxCol;
-        if (isInInput && isSingleCell && active.selectionStart !== active.selectionEnd &&
-          (active.selectionEnd - active.selectionStart) < active.value.length) {
-          return; // Let browser handle partial copy
-        }
-
-        e.preventDefault();
-        handleCopy();
-        return;
-      }
 
       if (e.key === 'Escape') {
         setSelection({ startRow: null, startCol: null, endRow: null, endCol: null });
@@ -2611,7 +2697,7 @@ function FFMMgtHcm() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selection, quickAddModalOpen, handleCopy, handleClearSelection, getSelectionBounds, paginatedData.length, currentColumns.length, handleUndo, handleRedo, paginatedData, currentColumns]);
+  }, [selection, quickAddModalOpen, handleClearSelection, getSelectionBounds, paginatedData.length, currentColumns.length, handleUndo, handleRedo, paginatedData, currentColumns]);
 
   useEffect(() => {
     const handlePaste = (e) => {
@@ -3469,6 +3555,17 @@ function FFMMgtHcm() {
         {showFilters && (
           <div className="px-3 pb-2 border-t border-gray-200">
             <div className="flex flex-wrap items-end gap-2 pt-2">
+              <div className="flex-[2] flex flex-col gap-1 min-w-[260px]">
+                <label className="text-xs font-semibold text-gray-500">Dán nhiều Mã đơn hàng</label>
+                <textarea
+                  className="px-2 py-1 border rounded text-xs bg-white min-h-[62px]"
+                  placeholder="Mỗi dòng 1 mã — bảng hiển thị đúng thứ tự dòng đã dán:&#10;Fit87d8a7454&#10;Fit3f482a4d"
+                  value={localFilterValues.tracking_bulk_codes || ''}
+                  onChange={(e) =>
+                    setLocalFilterValues((prev) => ({ ...prev, tracking_bulk_codes: e.target.value }))
+                  }
+                />
+              </div>
               <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
                 <label className="text-xs font-semibold text-gray-500">Chi nhánh</label>
                 <select

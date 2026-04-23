@@ -2124,23 +2124,36 @@ function VanDon({ dataSource = 'default' }) {
     // Tracking filter cũng chạy ở client để ghép chính xác cùng các cột header khác.
     try {
       const bulkRaw = String(appliedFilterValues.tracking_bulk_codes || '').trim();
-      const bulkCodesSet = bulkRaw
-        ? new Set(
-          bulkRaw
+      const bulkCodesList = bulkRaw
+        ? bulkRaw
             .split(/\r?\n+/g)
             .map((line) => normalizeVanDonBulkOrderCode(line))
             .filter(Boolean)
-        )
-        : null;
+        : [];
+      const bulkCodesSet = bulkCodesList.length > 0 ? new Set(bulkCodesList) : null;
       const hasBulkCodes =
         (bolActiveTab === 'hanoi' || bolActiveTab === 'readonly_all') &&
         !!bulkCodesSet &&
         bulkCodesSet.size > 0;
+      const bulkPasteOrderIndex = new Map();
+      if (hasBulkCodes) {
+        bulkCodesList.forEach((code, i) => {
+          if (!bulkPasteOrderIndex.has(code)) bulkPasteOrderIndex.set(code, i);
+        });
+      }
 
       if (hasBulkCodes) {
         data = data.filter((row) => {
           const orderId = getVanDonRowOrderId(row);
           return bulkCodesSet.has(normalizeVanDonBulkOrderCode(orderId));
+        });
+        data.sort((a, b) => {
+          const ia = bulkPasteOrderIndex.get(normalizeVanDonBulkOrderCode(getVanDonRowOrderId(a)));
+          const ib = bulkPasteOrderIndex.get(normalizeVanDonBulkOrderCode(getVanDonRowOrderId(b)));
+          const na = ia === undefined ? Number.MAX_SAFE_INTEGER : ia;
+          const nb = ib === undefined ? Number.MAX_SAFE_INTEGER : ib;
+          if (na !== nb) return na - nb;
+          return 0;
         });
       } else if (
         appliedFilterValues.tracking_status ||
@@ -5368,10 +5381,10 @@ function VanDon({ dataSource = 'default' }) {
                       <span className="text-[10px] font-semibold text-gray-700 whitespace-nowrap mt-1">📌 Mã đơn</span>
                       <textarea
                         className="text-[10px] px-1.5 py-0.5 border border-gray-300 rounded bg-white leading-tight min-h-[42px] w-[200px] resize-y"
-                        placeholder={"Mỗi dòng 1 mã đơn\nFit87d8a7454\nFit3f482a4d"}
+                        placeholder={"Mỗi dòng 1 mã — bảng theo đúng thứ tự dán:\nFit87d8a7454\nFit3f482a4d"}
                         value={filterValues.tracking_bulk_codes || ''}
                         onChange={(e) => setFilterValues((prev) => ({ ...prev, tracking_bulk_codes: e.target.value }))}
-                        title="Dán nhiều mã đơn hàng, mỗi dòng 1 mã (nhấn Enter để áp dụng)"
+                        title="Dán nhiều mã đơn (mỗi dòng 1 mã). Thứ tự hàng trên lưới = thứ tự dòng đã dán."
                       />
                     </div>
                     <div className="h-4 w-px bg-slate-200 shrink-0 self-center" aria-hidden />
