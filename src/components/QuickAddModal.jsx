@@ -11,7 +11,15 @@ const normOrderId = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
 
 const buildEmptyRow = () => Array(COLUMNS.length).fill("");
 
-const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {}, visibleColumns = {} }) => {
+const QuickAddModal = ({
+    isOpen,
+    onClose,
+    onSync,
+    existingTrackingOwnerMap = {},
+    visibleColumns = {},
+    /** Cùng tập lựa chọn với `<select>` ô «Trạng thái giao hàng» trên lưới FFM (preset đã lọc + giá trị từ dữ liệu). */
+    ffmDeliveryStatusDatalistOptions = null,
+}) => {
     const [rows, setRows] = useState([]);
     const [columnVisibility, setColumnVisibility] = useState({});
     const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -486,7 +494,10 @@ const QuickAddModal = ({ isOpen, onClose, onSync, existingTrackingOwnerMap = {},
         // Dropdown (kể cả «Trạng thái giao hàng»): input + datalist để dán tự do, không mất nội dung như <select>.
         if (DROPDOWN_OPTIONS[col]) {
             // Sử dụng input với datalist để cho phép paste và tự do nhập
-            const options = DROPDOWN_OPTIONS[col] || [];
+            const options =
+                col === 'Trạng thái giao hàng' && Array.isArray(ffmDeliveryStatusDatalistOptions)
+                    ? ffmDeliveryStatusDatalistOptions
+                    : DROPDOWN_OPTIONS[col] || [];
             const listId = `datalist-${actualColIdx}-${rowIdx}`;
             
             return (

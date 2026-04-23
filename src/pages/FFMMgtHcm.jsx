@@ -3046,6 +3046,11 @@ function FFMMgtHcm() {
     [ffmEnrichedRowsForFilter]
   );
 
+  const ffmQuickAddDeliveryStatusOptions = useMemo(
+    () => ffmGridDeliveryStatusSelectOptions(ffmEnrichedRowsForFilter, ''),
+    [ffmEnrichedRowsForFilter]
+  );
+
   const renderColumnFilterEditor = (col) => {
     const key = COLUMN_MAPPING[col] || col;
     const filterKey = col;
@@ -3916,6 +3921,7 @@ function FFMMgtHcm() {
           onSync={handleQuickSync}
           existingTrackingOwnerMap={existingTrackingOwnerMap}
           visibleColumns={visibleColumns}
+          ffmDeliveryStatusDatalistOptions={ffmQuickAddDeliveryStatusOptions}
         />
       </Suspense>
 
