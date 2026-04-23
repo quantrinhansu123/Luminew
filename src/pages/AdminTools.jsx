@@ -236,6 +236,8 @@ const AdminTools = () => {
         return saved === 'true';
     });
     const [lastAutoChiaHour, setLastAutoChiaHour] = useState(null); // Lưu giờ cuối cùng đã chạy
+    /** Tránh chạy trùng trong cùng một khung giờ (YYYY-MM-DDTHH) khi poll nhiều lần tại phút :00 */
+    const lastAutoChiaSlotRef = useRef(null);
     const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
     const [activeStaffPreview, setActiveStaffPreview] = useState([]);
     const [isPreviewStaffLoading, setIsPreviewStaffLoading] = useState(false);
@@ -381,50 +383,50 @@ const AdminTools = () => {
         }
     }, [activeTab]);
 
-    // --- TỰ ĐỘNG CHIA ĐƠN VẬN ĐƠN VÀO GIỜ CHẴN ---
+    // --- TỰ ĐỘNG CHIA ĐƠN VẬN ĐƠN VÀO ĐẦU MỖI GIỜ (phút :00 theo đồng hồ máy) ---
+    // Lưu ý: chỉ chạy khi trang Admin Tools còn mở trong tab trình duyệt (không có cron server).
+    // Trước đây dùng setInterval(60s) lệch so với biên phút nên gần như không bao giờ trùng currentMinute===0.
     useEffect(() => {
         if (!autoChiaDonEnabled) return;
 
+        const slotKey = (d) =>
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}`;
+
         const checkAndRunAutoChia = () => {
             const now = new Date();
-            const currentHour = now.getHours();
-            const currentMinute = now.getMinutes();
+            if (now.getMinutes() !== 0) return;
 
-            // Chỉ chạy vào phút 0 của mỗi giờ (ví dụ: 1:00, 2:00, 3:00...)
-            if (currentMinute === 0) {
-                setLastAutoChiaHour(prev => {
-                    // Chỉ chạy nếu chưa chạy trong giờ này
-                    if (prev !== currentHour) {
-                        console.log(`🕐 [Tự động chia đơn] Đến giờ ${currentHour}:00, bắt đầu chia đơn vận đơn...`);
-                        
-                        // Chạy chia đơn cho cả HCM và Hà Nội
-                        // Chạy tuần tự để tránh conflict
-                        handleChiaDonVanDon('HCM').then(() => {
-                            // Đợi 2 giây trước khi chạy Hà Nội
-                            setTimeout(() => {
-                                handleChiaDonVanDon('Hà Nội').catch(err => {
-                                    console.error('❌ [Tự động chia đơn] Lỗi khi chia đơn Hà Nội:', err);
-                                });
-                            }, 2000);
-                        }).catch(err => {
-                            console.error('❌ [Tự động chia đơn] Lỗi khi chia đơn HCM:', err);
+            const sk = slotKey(now);
+            if (lastAutoChiaSlotRef.current === sk) return;
+            lastAutoChiaSlotRef.current = sk;
+
+            console.log(`🕐 [Tự động chia đơn] Đến giờ ${now.getHours()}:00, bắt đầu chia đơn vận đơn...`);
+            setLastAutoChiaHour(now.getHours());
+
+            handleChiaDonVanDon('HCM')
+                .then(() => {
+                    setTimeout(() => {
+                        handleChiaDonVanDon('Hà Nội').catch((err) => {
+                            console.error('❌ [Tự động chia đơn] Lỗi khi chia đơn Hà Nội:', err);
                         });
-                        
-                        return currentHour;
-                    }
-                    return prev;
+                    }, 2000);
+                })
+                .catch((err) => {
+                    console.error('❌ [Tự động chia đơn] Lỗi khi chia đơn HCM:', err);
                 });
-            }
         };
 
-        // Kiểm tra ngay lập tức
         checkAndRunAutoChia();
-
-        // Kiểm tra mỗi phút
-        const interval = setInterval(checkAndRunAutoChia, 60000); // 60000ms = 1 phút
+        const interval = setInterval(checkAndRunAutoChia, 30_000);
 
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [autoChiaDonEnabled]);
+
+    useEffect(() => {
+        if (!autoChiaDonEnabled) {
+            lastAutoChiaSlotRef.current = null;
+        }
     }, [autoChiaDonEnabled]);
 
     // Lưu trạng thái autoChiaDonEnabled vào localStorage
@@ -4739,7 +4741,9 @@ const AdminTools = () => {
                                             <div>
                                                 <p className="text-sm font-semibold text-gray-800">Tự động chia đơn vào giờ chẵn</p>
                                                 <p className="text-xs text-gray-600 mt-1">
-                                                    Tự động chạy chia đơn HCM và Hà Nội vào các giờ: 1h, 2h, 3h, 4h, 5h...
+                                                    Vào phút :00 mỗi giờ (theo giờ máy tính), chạy lần lượt HCM rồi Hà Nội. Cần{' '}
+                                                    <strong>giữ mở tab Admin Tools</strong> — trình duyệt tắt hoặc chuyển trang thì không
+                                                    chạy nền.
                                                 </p>
                                             </div>
                                         </div>
@@ -4754,6 +4758,7 @@ const AdminTools = () => {
                                                     } else {
                                                         toast.info('Đã tắt tự động chia đơn');
                                                         setLastAutoChiaHour(null);
+                                                        lastAutoChiaSlotRef.current = null;
                                                     }
                                                 }}
                                                 className="sr-only peer"
