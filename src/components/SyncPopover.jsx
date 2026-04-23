@@ -46,7 +46,7 @@ const SyncPopover = ({
                             <td className="p-3 text-right">
                                 <button 
                                     onClick={() => onDiscardRow(orderId, colName)}
-                                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all opacity-70 group-hover:opacity-100 focus:opacity-100"
                                     title="Hủy bỏ thay đổi này"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

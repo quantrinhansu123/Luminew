@@ -22,6 +22,7 @@ import {
 } from '../utils/ffmOrderHistoryUi';
 import { ffmPendingColKeyLabel } from '../utils/ffmPendingChangeLabels';
 import {
+  ffmGridDeliveryStatusSelectOptions,
   ffmOrderMgmtDeliveryStatusesMatch,
   getFfmDeliveryStatusFilterDropdownOptions,
   getFfmOrderMgmtDeliveryStatusForRow,
@@ -2181,6 +2182,37 @@ function FFM({ variant = 'MGT' }) {
     historyIndexRef.current = -1;
     setSyncPopoverOpen(false);
   }, [pendingChanges]);
+
+  const handleDiscardPendingRow = useCallback(
+    (orderId, colKey) => {
+      setPendingChanges((prev) => {
+        const entry = prev.get(orderId)?.get(colKey);
+        if (!entry) return prev;
+
+        const { originalValue } = entry;
+
+        setAllData((prevData) => {
+          const next = [...prevData];
+          const idx = next.findIndex((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+          if (idx > -1) {
+            next[idx] = { ...next[idx], [colKey]: originalValue };
+          }
+          return next;
+        });
+
+        const next = deepCloneMapOfMaps(prev);
+        const inner = next.get(orderId);
+        inner.delete(colKey);
+        if (inner.size === 0) {
+          next.delete(orderId);
+        }
+        savePendingToLocalStorage(next);
+        return next;
+      });
+    },
+    [deepCloneMapOfMaps]
+  );
+
   const handleQuickSync = (rows, options = {}) => {
     const changesArray = [];
     const COL_KEYS = FFM_QUICK_ADD_COLUMNS;
@@ -3708,7 +3740,10 @@ function FFM({ variant = 'MGT' }) {
             value={String(val)}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
-            {ffmSelectOptionsWithCurrentValue(col, val).map((o) => (
+            {(col === 'Trạng thái giao hàng'
+              ? ffmGridDeliveryStatusSelectOptions(ffmEnrichedRowsForFilter, val)
+              : ffmSelectOptionsWithCurrentValue(col, val)
+            ).map((o) => (
               <option key={o === '' ? '__empty__' : String(o)} value={o}>
                 {o}
               </option>
@@ -4396,6 +4431,7 @@ function FFM({ variant = 'MGT' }) {
           formatColumnLabel={ffmPendingColKeyLabel}
           onApply={handleUpdateAll}
           onDiscard={handleDiscardAllPending}
+          onDiscardRow={handleDiscardPendingRow}
         />
       </Suspense>
 
