@@ -17,7 +17,6 @@ function ffmGridDeliveryStatusNormKey(s) {
  */
 const FFM_GRID_DELIVERY_STATUS_HIDDEN = new Set(
   [
-    'Đang Giao',
     'Chưa Giao',
     'Hủy',
     'chờ check',
@@ -75,13 +74,13 @@ export function ffmOrderMgmtDeliveryStatusesMatch(cellVal, filterVal) {
 }
 
 /**
- * Dropdown lọc tiêu đề cột «Trạng thái giao hàng»: cùng tập ẩn với ô lưới / Thêm nhanh
- * (không liệt kê preset & giá trị distinct đã ẩn). Giá trị đang chọn trong lọc vẫn hiện nhờ patch ở FFM.
+ * Dropdown lọc tiêu đề cột «Trạng thái giao hàng»: hiển thị đầy đủ giá trị
+ * (preset + mọi distinct trong dữ liệu), KHÔNG áp tập ẩn của ô edit.
  * `rows` nên là `ffmEnrichedRowsForFilter` (đã trộn pending).
  */
 export function getFfmDeliveryStatusFilterDropdownOptions(rows) {
   const preset = (DROPDOWN_OPTIONS['Trạng thái giao hàng'] || []).filter(
-    (o) => o != null && String(o).trim() !== '' && !isFfmGridDeliveryStatusHiddenOption(o)
+    (o) => o != null && String(o).trim() !== ''
   );
   const fromData = new Set();
   for (const row of rows || []) {
@@ -96,7 +95,7 @@ export function getFfmDeliveryStatusFilterDropdownOptions(rows) {
       ordered.push(p);
     }
   }
-  const extras = [...fromData].filter((v) => !seen.has(v) && !isFfmGridDeliveryStatusHiddenOption(v));
+  const extras = [...fromData].filter((v) => !seen.has(v));
   extras.sort((a, b) => String(a).localeCompare(String(b), 'vi'));
   return [...ordered, ...extras];
 }

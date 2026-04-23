@@ -1848,6 +1848,32 @@ export const fetchFfmOrderChangeHistory = async ({ orderCode, sourceTable = 'ord
 };
 
 const FFM_LOG_BULK_CHUNK = 120;
+const FFM_LOG_BULK_CONCURRENCY = 6;
+
+async function runWithConcurrency(taskFactories, concurrency = 4) {
+    const size = Math.max(1, Number(concurrency) || 1);
+    const results = [];
+    let cursor = 0;
+
+    const worker = async () => {
+        while (true) {
+            const idx = cursor;
+            cursor += 1;
+            if (idx >= taskFactories.length) return;
+            const out = await taskFactories[idx]();
+            if (Array.isArray(out) && out.length > 0) {
+                results.push(...out);
+            }
+        }
+    };
+
+    const workers = [];
+    for (let i = 0; i < Math.min(size, taskFactories.length); i += 1) {
+        workers.push(worker());
+    }
+    await Promise.all(workers);
+    return results;
+}
 
 /**
  * Gom `ffm_log` cho nhiều đơn (theo danh sách đã tải trên lưới). Mỗi phần tử: { orderCode, sourceTable: 'orders' | 'order_code_hcm' }.
@@ -1861,20 +1887,26 @@ export const fetchFfmOrderChangeHistoryBulk = async ({ entries } = {}) => {
         if (!byTable.has(st)) byTable.set(st, new Set());
         byTable.get(st).add(oc);
     }
-    const all = [];
+    const tasks = [];
     for (const [table, codeSet] of byTable) {
         const codes = [...codeSet];
         for (let i = 0; i < codes.length; i += FFM_LOG_BULK_CHUNK) {
             const chunk = codes.slice(i, i + FFM_LOG_BULK_CHUNK);
-            const { data, error } = await supabase.from(table).select('order_code, ffm_log').in('order_code', chunk);
-            if (error) throw error;
-            for (const dr of data || []) {
-                const oc = String(dr?.order_code || '').trim();
-                if (!oc) continue;
-                all.push(...mapFfmLogJsonbToHistoryRows(oc, dr?.ffm_log));
-            }
+            tasks.push(async () => {
+                const { data, error } = await supabase.from(table).select('order_code, ffm_log').in('order_code', chunk);
+                if (error) throw error;
+                const rows = [];
+                for (const dr of data || []) {
+                    const oc = String(dr?.order_code || '').trim();
+                    if (!oc) continue;
+                    if (!dr?.ffm_log) continue;
+                    rows.push(...mapFfmLogJsonbToHistoryRows(oc, dr.ffm_log));
+                }
+                return rows;
+            });
         }
     }
+    const all = await runWithConcurrency(tasks, FFM_LOG_BULK_CONCURRENCY);
     all.sort((a, b) => {
         const ta = new Date(a.changed_at || 0).getTime();
         const tb = new Date(b.changed_at || 0).getTime();
