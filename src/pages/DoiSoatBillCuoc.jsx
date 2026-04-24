@@ -15,6 +15,7 @@ const BILL_TIEN_COLUMNS = [
   { key: 'ty_gia', label: 'Tỷ giá' },
   { key: 'tien_viet', label: 'Tiền Việt' },
   { key: 'accountant_confirm', label: 'Kế toán xác nhận' },
+  { key: 'sync_batch_label', label: 'Đợt đồng bộ', computed: true },
   { key: 'dem_lan_thanh_toan', label: 'Đếm lần thanh toán', computed: true },
 ];
 
@@ -26,6 +27,7 @@ const CUOC_COLUMNS = [
   { key: 'ma_don_hang', label: 'Mã đơn hàng' },
   { key: 'ngay_doi_soat_cuoc', label: 'Ngày đối soát cước' },
   { key: 'tien_ship_vnd', label: 'Tiền ship (Vnđ)' },
+  { key: 'sync_batch_label', label: 'Đợt đồng bộ', computed: true },
   { key: 'dem_lan_thanh_toan', label: 'Đếm lần thanh toán', computed: true },
   { key: 'chi_nhanh', label: 'Chi nhánh', computed: true },
 ];
@@ -325,6 +327,7 @@ function DoiSoatBillCuoc() {
       setHistoryLogs(data || []);
     } catch (err) {
       console.error('Error fetching history:', err);
+      alert(`Không tải được lịch sử đồng bộ: ${err?.message || String(err)}`);
     } finally {
       setLoadingHistory(false);
     }
@@ -353,7 +356,7 @@ function DoiSoatBillCuoc() {
   const saveSyncHistory = async (stats) => {
     try {
       const performedBy = getVanDonSessionDisplayName();
-      await supabase.from('sync_history_log').insert([{
+      const { error } = await supabase.from('sync_history_log').insert([{
         performed_by: performedBy,
         sync_type: stats.syncType,
         mode_label: stats.modeLabel,
@@ -362,8 +365,15 @@ function DoiSoatBillCuoc() {
         success_count: stats.successCount,
         missing_count: stats.missingCount
       }]);
+      if (error) throw error;
+      return true;
     } catch (err) {
       console.error('Error saving sync history:', err);
+      alert(
+        `Đồng bộ đã chạy nhưng KHÔNG lưu được lịch sử: ${err?.message || String(err)}\n` +
+        'Vui lòng kiểm tra bảng sync_history_log và quyền RLS/GRANT.'
+      );
+      return false;
     }
   };
 
@@ -563,6 +573,41 @@ function DoiSoatBillCuoc() {
     }
   };
 
+  // Load dữ liệu tab Bill đã tải lên từ bảng lịch sử đã đồng bộ
+  const loadBillUploadedHistoryData = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('bill_uploaded_history')
+        .select('*')
+        .order('synced_at', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const rows = (data || []).map((item) => {
+        const sourceRow =
+          item?.source_row && typeof item.source_row === 'object' && !Array.isArray(item.source_row)
+            ? item.source_row
+            : {};
+        return {
+          ...sourceRow,
+          id: `history-${item.id}`,
+          sync_batch_label: item.sync_batch_label || '',
+          synced_at: item.synced_at || null,
+          synced_by: item.performed_by || '',
+        };
+      });
+
+      setBillData(rows);
+    } catch (error) {
+      console.error('Error loading bill uploaded history data:', error);
+      alert('Lỗi khi tải dữ liệu Bill đã tải lên: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Load data từ chitiet_cuoc — syncCutoff tương tự loadBillData
   const loadCuocData = async (syncCutoff) => {
     setLoading(true);
@@ -632,6 +677,41 @@ function DoiSoatBillCuoc() {
     }
   };
 
+  // Load dữ liệu tab Cước đã tải lên từ bảng lịch sử đã đồng bộ
+  const loadCuocUploadedHistoryData = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('cuoc_uploaded_history')
+        .select('*')
+        .order('synced_at', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const rows = (data || []).map((item) => {
+        const sourceRow =
+          item?.source_row && typeof item.source_row === 'object' && !Array.isArray(item.source_row)
+            ? item.source_row
+            : {};
+        return {
+          ...sourceRow,
+          id: `cuoc-history-${item.id}`,
+          sync_batch_label: item.sync_batch_label || '',
+          synced_at: item.synced_at || null,
+          synced_by: item.performed_by || '',
+        };
+      });
+
+      setCuocData(rows);
+    } catch (error) {
+      console.error('Error loading cuoc uploaded history data:', error);
+      alert('Lỗi khi tải dữ liệu Cước đã tải lên: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Load exchange rates from database (schema mới: ti_gia, gia_tri)
   useEffect(() => {
     const loadExchangeRates = async () => {
@@ -683,9 +763,12 @@ function DoiSoatBillCuoc() {
 
   // Reload data when exchange rates change
   useEffect(() => {
-    const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
-    if (isBillTab) {
+    if (activeTab === 'bill') {
       loadBillData();
+    } else if (activeTab === 'bill_view') {
+      loadBillUploadedHistoryData();
+    } else if (activeTab === 'cuoc_view') {
+      loadCuocUploadedHistoryData();
     } else {
       loadCuocData();
     }
@@ -1084,9 +1167,12 @@ function DoiSoatBillCuoc() {
   }, [handlePaste]);
 
   const handleRefresh = () => {
-    const isBillTab = activeTab === 'bill' || activeTab === 'bill_view';
-    if (isBillTab) {
+    if (activeTab === 'bill') {
       loadBillData();
+    } else if (activeTab === 'bill_view') {
+      loadBillUploadedHistoryData();
+    } else if (activeTab === 'cuoc_view') {
+      loadCuocUploadedHistoryData();
     } else {
       loadCuocData();
     }
@@ -1395,22 +1481,53 @@ function DoiSoatBillCuoc() {
         await supabase.from('bill_sync_results').insert(syncLogRows);
       }
 
+      // Lưu snapshot toàn bộ dữ liệu Nhập bill vào bảng lịch sử theo từng đợt đồng bộ
+      const performedBy = getVanDonSessionDisplayName();
+      const syncBatchLabel = `Đợt ${new Date(syncTime).toLocaleString('vi-VN')}`;
+      const { data: tempRows, error: tempRowsError } = await supabase
+        .from('chi_tiet_bill_tien')
+        .select('*');
+      if (tempRowsError) throw tempRowsError;
+
+      if ((tempRows || []).length > 0) {
+        const historyRows = tempRows.map((row) => ({
+          sync_batch_id: syncBatchId,
+          sync_batch_label: syncBatchLabel,
+          synced_at: syncTime,
+          performed_by: performedBy,
+          source_row: row,
+        }));
+        const historyChunks = chunkArray(historyRows, 200);
+        for (const hChunk of historyChunks) {
+          const { error: historyError } = await supabase.from('bill_uploaded_history').insert(hChunk);
+          if (historyError) throw historyError;
+        }
+      }
+
+      // Sau khi đồng bộ thành công, xóa dữ liệu khỏi bảng nhập bill tạm
+      const { error: clearTempError } = await supabase.from('chi_tiet_bill_tien').delete().neq('id', 0);
+      if (clearTempError) throw clearTempError;
+      setBillData([]);
+
       alert(`Đã đồng bộ thành công ${updateCount} đơn.`);
       
       // Lưu lịch sử
-      await saveSyncHistory({
+      const historySaved = await saveSyncHistory({
         syncType: 'Bill',
-        modeLabel: modeLabel,
+        modeLabel: syncConfirmData?.modeLabel || (billSyncMode === 'order_code' ? 'Theo Mã đơn hàng' : 'Theo Mã Tracking'),
         totalInputRows: syncConfirmData.stats.rawRows,
         uniqueOrdersCount: allOrderCodes.length,
         successCount: updateCount,
         missingCount: missingInOrders.length
       });
+      if (historySaved) {
+        await fetchSyncHistory();
+      }
 
       setLastBillSyncTime(syncTime);
 
       setActiveTab('bill_view');
-      await loadBillData(syncTime);
+      await loadBillUploadedHistoryData();
     } catch (error) {
       console.error('Error in executeSyncBillBatch:', error);
       alert('Lỗi khi thực thi đồng bộ Bill: ' + error.message);
@@ -1539,6 +1656,34 @@ function DoiSoatBillCuoc() {
         await supabase.from('bill_sync_results').insert(syncLogRows);
       }
 
+      // Lưu snapshot toàn bộ dữ liệu Nhập cước vào bảng lịch sử theo từng đợt đồng bộ
+      const performedBy = getVanDonSessionDisplayName();
+      const syncBatchLabel = `Đợt ${new Date(syncTime).toLocaleString('vi-VN')}`;
+      const { data: tempRows, error: tempRowsError } = await supabase
+        .from('chitiet_cuoc')
+        .select('*');
+      if (tempRowsError) throw tempRowsError;
+
+      if ((tempRows || []).length > 0) {
+        const historyRows = tempRows.map((row) => ({
+          sync_batch_id: syncBatchId,
+          sync_batch_label: syncBatchLabel,
+          synced_at: syncTime,
+          performed_by: performedBy,
+          source_row: row,
+        }));
+        const historyChunks = chunkArray(historyRows, 200);
+        for (const hChunk of historyChunks) {
+          const { error: historyError } = await supabase.from('cuoc_uploaded_history').insert(hChunk);
+          if (historyError) throw historyError;
+        }
+      }
+
+      // Sau khi đồng bộ thành công, xóa dữ liệu khỏi bảng nhập cước tạm
+      const { error: clearTempError } = await supabase.from('chitiet_cuoc').delete().neq('id', 0);
+      if (clearTempError) throw clearTempError;
+      setCuocData([]);
+
       let alertMsg = `Đã đồng bộ Cước thành công ${updateCount} đơn.`;
       if (missingOrderCodes.length > 0) {
         alertMsg += `\n\n⚠️ Có ${missingOrderCodes.length} mã đơn KHÔNG TÌM THẤY trong hệ thống (đã bỏ qua):`;
@@ -1547,7 +1692,7 @@ function DoiSoatBillCuoc() {
       alert(alertMsg);
 
       // Lưu lịch sử
-      await saveSyncHistory({
+      const historySaved = await saveSyncHistory({
         syncType: 'Cước',
         modeLabel: 'Cập nhật tiền ship & số lượng thực tế',
         totalInputRows: totalInputCount,
@@ -1555,10 +1700,13 @@ function DoiSoatBillCuoc() {
         successCount: updateCount,
         missingCount: missingOrderCodes.length
       });
+      if (historySaved) {
+        await fetchSyncHistory();
+      }
 
       setLastCuocSyncTime(syncTime);
       setActiveTab('cuoc_view');
-      await loadCuocData(syncTime);
+      await loadCuocUploadedHistoryData();
     } catch (error) {
       console.error('Error syncing cuoc:', error);
       alert('Lỗi khi đồng bộ Cước: ' + error.message);
@@ -2041,7 +2189,18 @@ function DoiSoatBillCuoc() {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!window.confirm(`Bạn có chắc chắn muốn nhập dữ liệu từ file Excel này? Dữ liệu sẽ được thêm vào bảng ${(activeTab === 'bill' || activeTab === 'bill_view') ? 'chi_tiet_bill_tien' : 'chitiet_cuoc'}.`)) {
+    if (activeTab === 'bill_view') {
+      alert('Tab "Bill đã tải lên" là lịch sử. Vui lòng chuyển sang tab "Nhập bill" để tải file.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    if (activeTab === 'cuoc_view') {
+      alert('Tab "Cước đã tải lên" là lịch sử. Vui lòng chuyển sang tab "Nhập Cước" để tải file.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (!window.confirm(`Bạn có chắc chắn muốn nhập dữ liệu từ file Excel này? Dữ liệu sẽ được thêm vào bảng ${activeTab === 'bill' ? 'chi_tiet_bill_tien' : 'chitiet_cuoc'}.`)) {
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -2052,7 +2211,7 @@ function DoiSoatBillCuoc() {
       const arrayBuffer = await file.arrayBuffer();
       const wb = XLSX.read(arrayBuffer);
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const isBillImport = activeTab === 'bill' || activeTab === 'bill_view';
+      const isBillImport = activeTab === 'bill';
       const jsonData = isBillImport ? XLSX.utils.sheet_to_json(ws) : sheetToJsonCuocImport(ws);
 
       if (jsonData.length === 0) {
@@ -2063,7 +2222,7 @@ function DoiSoatBillCuoc() {
       }
 
       const columns = getCurrentColumns();
-      const tableName = (activeTab === 'bill' || activeTab === 'bill_view') ? 'chi_tiet_bill_tien' : 'chitiet_cuoc';
+      const tableName = activeTab === 'bill' ? 'chi_tiet_bill_tien' : 'chitiet_cuoc';
       
       const getColumnKey = (excelLabel) => {
         const normalizeLabel = (s) =>
@@ -2771,9 +2930,13 @@ function DoiSoatBillCuoc() {
           <div className="flex items-center justify-between">
             <div className="flex-1">
               <p className="text-sm text-gray-500">
-                {activeTab === 'bill' || activeTab === 'bill_view'
+                {activeTab === 'bill'
                   ? 'Dữ liệu từ bảng chi_tiet_bill_tien'
-                  : 'Dữ liệu từ bảng chitiet_cuoc'}
+                  : activeTab === 'bill_view'
+                    ? 'Dữ liệu lịch sử từ bảng bill_uploaded_history'
+                    : activeTab === 'cuoc_view'
+                      ? 'Dữ liệu lịch sử từ bảng cuoc_uploaded_history'
+                      : 'Dữ liệu từ bảng chitiet_cuoc'}
               </p>
               <p className="text-lg font-semibold text-gray-800 mt-1">
                 Tổng số bản ghi: {getCurrentData().length}
