@@ -306,15 +306,6 @@ export default function Header() {
             >
               Trang chủ
             </Link>
-            {isAuthenticated && (
-              <Link
-                to="/xem-bao-cao-mkt-rd"
-                className={`text-white hover:bg-green-700 rounded-md font-medium transition ${compact ? "px-2 py-1 text-xs" : "px-3 py-2 text-sm"}`}
-              >
-                MKT R&D
-              </Link>
-            )}
-
             {/* <Link
               to="/bang-bao-cao"
               className="text-white hover:bg-green-700 px-3 py-2 rounded-md text-sm font-medium transition"

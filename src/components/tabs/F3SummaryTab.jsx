@@ -150,7 +150,7 @@ export function F3SummaryTab({ data, startDate, endDate }) {
       </div>
 
       <p className="text-[10px] text-gray-400 text-center font-medium italic mt-6">
-        * Dữ liệu được tính toán dựa trên các đơn có Mã Đơn Hàng hợp lệ. DS Đi là tổng doanh số của các đơn đã có Mã Tracking (đơn đi hàng). Tiền về là số tiền thực nhận đã được Kế toán xác nhận. Tiền về sau ship = Tiền về − Phí ship.
+        * Dữ liệu được tính toán dựa trên các đơn có Mã Đơn Hàng hợp lệ. DS Đi là tổng doanh số của các đơn đã có Mã Tracking (đơn đi hàng). Tiền về là số tiền thực nhận đã được Kế toán xác nhận. Phí ship chỉ cộng trên nhóm đơn đã có tiền về. Tiền về sau ship = Tiền về − Phí ship.
       </p>
     </div>
   );

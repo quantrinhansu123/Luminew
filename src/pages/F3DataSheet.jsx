@@ -29,7 +29,9 @@ import { F3_STATIC_DATA } from '../data/f3_static_data';
  * Vì vậy phải fetch theo trang bằng range().
  * Tăng lên 2000 để giảm số lần request
  */
-const ORDERS_PAGE_SIZE = 2000;
+// Supabase/PostgREST thường trả tối đa 1000 dòng mỗi request theo project setting.
+// Dùng đúng ngưỡng này để điều kiện phân trang không bị dừng sớm ở page 1.
+const ORDERS_PAGE_SIZE = 1000;
 
 function chunkArray(arr, size) {
   const a = arr || [];
@@ -241,7 +243,7 @@ async function fetchDanhSachDonMergedRawOrders({
     return query;
   };
 
-  const fetchAllPages = async (orderField) => {
+  const fetchAllPages = async ({ orderField = 'order_date', includeOrderDateRange = true, extraQueryBuilder = null }) => {
     const all = [];
     let from = 0;
     const maxPages = 100;
@@ -252,9 +254,12 @@ async function fetchDanhSachDonMergedRawOrders({
       query = applyTeamAndPersonnel(query);
 
       // Áp dụng filter theo ngày tại Database level
-      if (!skipImplicitFilters) {
+      if (!skipImplicitFilters && includeOrderDateRange) {
         if (startDate) query = query.gte('order_date', startDate);
         if (endDate) query = query.lte('order_date', endDate);
+      }
+      if (typeof extraQueryBuilder === 'function') {
+        query = extraQueryBuilder(query);
       }
 
       query = query
@@ -285,29 +290,24 @@ async function fetchDanhSachDonMergedRawOrders({
     return all;
   };
 
-  const supaData = await fetchAllPages('order_date');
+  const supaData = await fetchAllPages({ orderField: 'order_date' });
 
   let mergedRaw = [...(supaData || [])];
-  // Bỏ phần gộp đơn order_date null theo khoảng ngày
-  // if (!skipImplicitFilters && startDate && endDate) {
-  //   const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
-  //   let qNull = applyTeamAndPersonnel(supabaseClient.from(ordersTableName).select(selectColumns));
-  //   qNull = qNull.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd);
-  //   try {
-  //     const extraRows = await fetchAllPages(qNull, 'created_at');
-  //     if (extraRows?.length) {
-  //       const seen = new Set(mergedRaw.map((r) => r.order_code));
-  //       for (const row of extraRows) {
-  //         if (row.order_code && !seen.has(row.order_code)) {
-  //           mergedRaw.push(row);
-  //           seen.add(row.order_code);
-  //         }
-  //       }
-  //     }
-  //   } catch (e) {
-  //     console.warn('⚠️ [DanhSachDon] Không gộp được đơn order_date null:', e?.message || String(e));
-  //   }
-  // }
+  if (!skipImplicitFilters && startDate && endDate) {
+    const { start: cStart, end: cEnd } = orderRangeToCreatedAtIsoBounds(startDate, endDate);
+    try {
+      const extraRows = await fetchAllPages({
+        orderField: 'created_at',
+        includeOrderDateRange: false,
+        extraQueryBuilder: (q) => q.is('order_date', null).gte('created_at', cStart).lte('created_at', cEnd),
+      });
+      if (extraRows?.length) {
+        mergedRaw.push(...extraRows);
+      }
+    } catch (e) {
+      console.warn('⚠️ [DanhSachDon] Không gộp được đơn order_date null:', e?.message || String(e));
+    }
+  }
 
   // Trùng order_code (dữ liệu DB / gộp) → chỉ giữ một bản ghi, ưu tiên dòng có order_date.
   const byKey = new Map();
@@ -3224,7 +3224,9 @@ function DanhSachDon({ dataSource = 'default' }) {
       const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || row.delivery_staff || "").trim();
 
       const tienVe = parseFloat(String(row["Tiền Việt đã đối soát"] || row["Tiền đã thanh toán"] || row.reconciled_vnd || 0).replace(/[^\d.-]/g, '')) || 0;
-      const ship = parseFloat(String(row["Phí ship"] || row.shipping_cost || 0).replace(/[^\d.-]/g, '')) || 0;
+      const shipRaw = parseFloat(String(row["Phí ship"] || row.shipping_cost || 0).replace(/[^\d.-]/g, '')) || 0;
+      // So sánh cùng mẫu dữ liệu: chỉ tính ship cho các đơn đã có tiền về/đối soát.
+      const ship = tienVe > 0 ? shipRaw : 0;
 
       const hasTracking = String(row["Mã Tracking"] || row.tracking_code || "").trim() !== "";
       const dsDi = hasTracking ? (parseFloat(String(row["Tổng tiền VNĐ"] || row.total_amount_vnd || 0).replace(/[^\d.-]/g, '')) || 0) : 0;
