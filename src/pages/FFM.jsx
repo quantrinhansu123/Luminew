@@ -1355,6 +1355,28 @@ function FFM({ variant = 'MGT' }) {
     return out;
   }, [allData, pendingChanges]);
 
+  /**
+   * Nền cho **so khớp bộ lọc** (không trộn pending): tránh dòng biến mất khi sửa ô trong lúc đang lọc.
+   * Hiển thị ô vẫn lấy từ `ffmRenderRowMap` (có pending). Trạng thái giao hàng: `getFfmOrderMgmtDeliveryStatusForFilter` vẫn dùng originalValue khi có pending.
+   */
+  const ffmRowsForFilterMatch = useMemo(() => {
+    const n = allData.length;
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const row = allData[i];
+      const rowCopy = { ...row };
+
+      rowCopy['Ngày đẩy đơn'] = extractDateFromDateTime(
+        rowCopy['time_dayon'] || rowCopy.time_dayon || rowCopy['Ngày Kế toán đối soát với FFM lần 2']
+      );
+
+      const rawTrackingDate = getTrackingDateRawFFM(rowCopy);
+      rowCopy['Ngày có mã tracking'] = extractDateFromDateTime(rawTrackingDate);
+      out[i] = rowCopy;
+    }
+    return out;
+  }, [allData]);
+
   /** Dữ liệu nền cho RENDER: có trộn pending để thể hiện ngay thay đổi (Thêm nhanh / Cập nhật hàng loạt). */
   const ffmEnrichedRowsForRender = useMemo(() => {
     const n = allData.length;
@@ -1470,7 +1492,7 @@ function FFM({ variant = 'MGT' }) {
         const isFfmDeliveryStatusCol = key === 'Trạng thái giao hàng' || dataKey === 'delivery_status';
         data = data.filter((row) => {
           let cellValue = isFfmDeliveryStatusCol
-            ? getFfmOrderMgmtDeliveryStatusForRow(row)
+            ? getFfmOrderMgmtDeliveryStatusForFilter(row, row[PRIMARY_KEY_COLUMN], pendingChanges)
             : String(
                 row[dataKey] ??
                   row[key] ??
@@ -1733,13 +1755,13 @@ function FFM({ variant = 'MGT' }) {
       });
     }
 
-    // Lọc trên bản đã trộn pending (ffmEnrichedRowsForFilter); map sang render row để đồng bộ derived fields.
+    // So khớp lọc trên bản không pending; map sang bản render (có pending + cột suy ra).
     return data.map((row) => ffmRenderRowMap.get(row[PRIMARY_KEY_COLUMN]) || row);
   }, [ffmRenderRowMap, omActiveTeam, omDateType, dateFrom, dateTo, mgtNoiBoOrder, ffmBranchFilter, ffmTrackingPresence, ffmEmptyCellsQuickFilter, ffmDateDiffFilter, variant, pendingChanges]);
 
   const getFilteredData = useMemo(() => {
-    return applyFfmFilters(ffmEnrichedRowsForFilter, localFilterValues);
-  }, [applyFfmFilters, ffmEnrichedRowsForFilter, localFilterValues]);
+    return applyFfmFilters(ffmRowsForFilterMatch, localFilterValues);
+  }, [applyFfmFilters, ffmRowsForFilterMatch, localFilterValues]);
 
   /** Xóa mọi lọc hiển thị (ô dưới tiêu đề cột, Từ/Tới ngày, bộ lọc nhanh) — không tải lại DB, không xóa thay đổi chưa lưu. */
   const clearFfmDisplayFilters = useCallback(() => {
@@ -1789,7 +1811,7 @@ function FFM({ variant = 'MGT' }) {
   }, [ffmColumns, addToast]);
 
   const handleExportFilteredExcel = useCallback(() => {
-    const rows = applyFfmFilters(ffmEnrichedRowsForFilter, localFilterValues);
+    const rows = applyFfmFilters(ffmRowsForFilterMatch, localFilterValues);
     if (!rows.length) {
       addToast('Không có dữ liệu phù hợp bộ lọc để xuất.', 'error');
       return;
@@ -1808,7 +1830,7 @@ function FFM({ variant = 'MGT' }) {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     XLSX.writeFile(wb, `${sheetTag}_loc_${stamp}.xlsx`);
     addToast(`Đã xuất ${rows.length} dòng ra Excel.`, 'success');
-  }, [applyFfmFilters, ffmEnrichedRowsForFilter, localFilterValues, getFfmExportCellValue, addToast, variant]);
+  }, [applyFfmFilters, ffmRowsForFilterMatch, localFilterValues, getFfmExportCellValue, addToast, variant]);
 
   const getUniqueValues = useMemo(() => (key) => {
     const values = new Set();
