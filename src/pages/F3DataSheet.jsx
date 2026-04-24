@@ -3249,7 +3249,8 @@ function DanhSachDon({ dataSource = 'default' }) {
         .sort((a, b) => b.tienVe - a.tienVe)
         .map(s => ({
           ...s,
-          dsSauShip: s.dsDi - s.ship,
+          // Tiền về sau ship = tiền đã đối soát / thực nhận trừ phí ship (không phải DS đi − ship)
+          dsSauShip: s.tienVe - s.ship,
           tile: s.dsDi > 0 ? ((s.tienVe / s.dsDi) * 100).toFixed(2) + '%' : '0%'
         }));
     };

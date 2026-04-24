@@ -23,7 +23,7 @@ export function F3SummaryTab({ data, startDate, endDate }) {
     // Chuyển đổi object sang AOAs cho excel
     const aoa = [
       ["PHÒNG MARKETING", "", "", "", "", "", "PHÒNG SALES", "", "", "", "", "", "BỘ PHẬN VẬN ĐƠN"],
-      ["Nhân viên", "Tiền về", "Ship", "DS sau ship", "DS đi", "Tỉ lệ", "Nhân viên", "Tiền về", "Ship", "DS sau ship", "DS đi", "Tỉ lệ", "Nhân viên", "Tiền về", "Ship", "DS sau ship", "DS đi", "Tỉ lệ"]
+      ["Nhân viên", "Tiền về", "Ship", "Tiền về sau ship", "DS đi", "Tỉ lệ", "Nhân viên", "Tiền về", "Ship", "Tiền về sau ship", "DS đi", "Tỉ lệ", "Nhân viên", "Tiền về", "Ship", "Tiền về sau ship", "DS đi", "Tỉ lệ"]
     ];
 
     const maxRows = Math.max(data.mkt.length, data.sales.length, data.delivery.length);
@@ -44,7 +44,7 @@ export function F3SummaryTab({ data, startDate, endDate }) {
     ['mkt', 'sales', 'delivery'].forEach(dept => {
       const t = data.totals[dept];
       const tile = t.dsDi > 0 ? ((t.tienVe / t.dsDi) * 100).toFixed(2) + '%' : '0%';
-      totalRow.push("TỔNG CỘNG", t.tienVe, t.ship, t.dsDi - t.ship, t.dsDi, tile);
+      totalRow.push("TỔNG CỘNG", t.tienVe, t.ship, t.tienVe - t.ship, t.dsDi, tile);
     });
     aoa.push(totalRow);
 
@@ -69,7 +69,7 @@ export function F3SummaryTab({ data, startDate, endDate }) {
               <th className="px-3 py-3 text-left">Nhân viên</th>
               <th className="px-3 py-3 text-right">Tiền về</th>
               <th className="px-3 py-3 text-right">Ship</th>
-              <th className="px-3 py-3 text-right">Sau Ship</th>
+              <th className="px-3 py-3 text-right">Tiền về sau ship</th>
               <th className="px-3 py-3 text-right">DS Đi</th>
               <th className="px-3 py-3 text-right">Tỉ lệ</th>
             </tr>
@@ -91,7 +91,7 @@ export function F3SummaryTab({ data, startDate, endDate }) {
               <td className="px-3 py-3 bg-gray-800">TỔNG CỘNG</td>
               <td className="px-3 py-3 text-right text-orange-400">{formatCurrency(total.tienVe)}</td>
               <td className="px-3 py-3 text-right text-gray-400">{formatCurrency(total.ship)}</td>
-              <td className="px-3 py-3 text-right text-white">{formatCurrency(total.dsDi - total.ship)}</td>
+              <td className="px-3 py-3 text-right text-white">{formatCurrency(total.tienVe - total.ship)}</td>
               <td className="px-3 py-3 text-right text-white">{formatCurrency(total.dsDi)}</td>
               <td className={`px-3 py-3 text-right ${textClass}`}>
                 {total.dsDi > 0 ? ((total.tienVe / total.dsDi) * 100).toFixed(2) + '%' : '0%'}
@@ -150,7 +150,7 @@ export function F3SummaryTab({ data, startDate, endDate }) {
       </div>
 
       <p className="text-[10px] text-gray-400 text-center font-medium italic mt-6">
-        * Dữ liệu được tính toán dựa trên các đơn có Mã Đơn Hàng hợp lệ. DS Đi là tổng doanh số của các đơn đã có Mã Tracking (đơn đi hàng). Tiền về là số tiền thực nhận đã được Kế toán xác nhận.
+        * Dữ liệu được tính toán dựa trên các đơn có Mã Đơn Hàng hợp lệ. DS Đi là tổng doanh số của các đơn đã có Mã Tracking (đơn đi hàng). Tiền về là số tiền thực nhận đã được Kế toán xác nhận. Tiền về sau ship = Tiền về − Phí ship.
       </p>
     </div>
   );
