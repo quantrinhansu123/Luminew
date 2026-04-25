@@ -276,6 +276,7 @@ function isVanDonMoneyGridAppKey(colKey) {
   const n = normalizeColHeader(colKey);
   return (
     n === normalizeColHeader('Tổng tiền VNĐ') ||
+    n === normalizeColHeader('Tiền Việt đã đối soát') ||
     n === normalizeColHeader('Tiền đã thanh toán') ||
     n === normalizeColHeader('Giá bán') ||
     n === normalizeColHeader('Phí ship') ||
@@ -2227,7 +2228,7 @@ function VanDon({ dataSource = 'default' }) {
     const col = sortColumn;
     const dir = sortDirection === 'desc' ? -1 : 1;
     const isDateCol = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col);
-    const isMoneyCol = ['Tổng tiền VNĐ', 'Tiền đã thanh toán'].includes(col);
+    const isMoneyCol = ['Tổng tiền VNĐ', 'Tiền Việt đã đối soát', 'Tiền đã thanh toán'].includes(col);
     const isStt = col === 'STT';
     if (isStt) return rows;
 
@@ -2280,7 +2281,7 @@ function VanDon({ dataSource = 'default' }) {
       const col = sortColumn;
       const dir = sortDirection === 'desc' ? -1 : 1;
       const isDateCol = ['Ngày lên đơn', 'Ngày đóng hàng', 'Ngày đẩy đơn', 'Ngày có mã tracking', 'Ngày Kế toán đối soát với FFM lần 2', 'Ngày up bill'].includes(col);
-      const isMoneyCol = ['Tổng tiền VNĐ', 'Tiền đã thanh toán'].includes(col);
+      const isMoneyCol = ['Tổng tiền VNĐ', 'Tiền Việt đã đối soát', 'Tiền đã thanh toán'].includes(col);
       if (col === 'STT') return base;
 
       const toComparable = (row) => {
@@ -2348,7 +2349,7 @@ function VanDon({ dataSource = 'default' }) {
       if (!val && colName === 'Ngày up bill') {
         val = rData.ngayupbill ?? rData.ngay_up_bill ?? '';
       }
-      if (!val && colName === 'Tiền đã thanh toán') {
+      if (!val && (colName === 'Tiền Việt đã đối soát' || colName === 'Tiền đã thanh toán')) {
         val = rData.reconciled_vnd ?? '';
       }
       val = coalesceVanDonDisplayValue(val);
@@ -2363,7 +2364,12 @@ function VanDon({ dataSource = 'default' }) {
         ].includes(colName)
       ) {
         out = String(formatDate(val));
-      } else if (colName === 'Tổng tiền VNĐ' || colName === 'Tiền đã thanh toán' || colName === 'Phí ship') {
+      } else if (
+        colName === 'Tổng tiền VNĐ' ||
+        colName === 'Tiền Việt đã đối soát' ||
+        colName === 'Tiền đã thanh toán' ||
+        colName === 'Phí ship'
+      ) {
         const n = parseVietnameseMoneyToNumber(val === '' || val == null ? null : val);
         if (isExcel) return n != null && Number.isFinite(n) ? n : 0;
         out = n != null && Number.isFinite(n) ? n.toLocaleString('vi-VN') : '';
@@ -4934,7 +4940,7 @@ function VanDon({ dataSource = 'default' }) {
     if (!val && col === 'Ngày up bill') {
       val = row.ngayupbill ?? row.ngay_up_bill ?? '';
     }
-    if (!val && col === 'Tiền đã thanh toán') {
+    if (!val && (col === 'Tiền Việt đã đối soát' || col === 'Tiền đã thanh toán')) {
       val = row.reconciled_vnd ?? '';
     }
     const pendingInfo = pendingChanges.get(orderId)?.get(pendingDisplayKey);

@@ -43,7 +43,7 @@ export const BILL_LADING_COLUMNS = [
     "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
     "Nhân viên Sale", "Nhân viên MKT", "Page", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
-    "Ngày up bill", "Tiền đã thanh toán", "Ngày đối soát bill", "Ngày đối soát cước",
+    "Ngày up bill", "Tiền Việt đã đối soát", "Ngày đối soát bill", "Ngày đối soát cước",
     "Nhật ký", "Lịch sử thay đổi"
 ];
 
@@ -124,6 +124,7 @@ export const COLUMN_MAPPING = {
     "Nhân viên Sale": "sale_staff",
     "Nhân viên MKT": "marketing_staff",
     "Tên Page": "page_name",
+    "Tiền Việt đã đối soát": "reconciled_vnd",
     "Tiền đã thanh toán": "reconciled_vnd",
     "Trạng thái thu tiền": "payment_status",
     "Đội/Team": "team",

@@ -73,7 +73,7 @@ export const DB_TO_APP_MAPPING = {
     "payment_bill": "Payment Bill",
     "payment_image": "Payment Image",
     "ngayupbill": "Ngày up bill",
-    "reconciled_vnd": "Tiền đã thanh toán",
+    "reconciled_vnd": "Tiền Việt đã đối soát",
     "ngay_doi_soat_bill": "Ngày đối soát bill",
     "ngay_doi_soat_cuoc": "Ngày đối soát cước",
     "cskh_status": "Trạng thái cskh",
@@ -236,6 +236,8 @@ export const mapSupabaseOrderToApp = (sOrder) => {
     }
     if (sOrder.reconciled_vnd !== undefined && sOrder.reconciled_vnd !== null) {
         appOrder["reconciled_vnd"] = sOrder.reconciled_vnd;
+        appOrder["Tiền Việt đã đối soát"] = sOrder.reconciled_vnd;
+        // Giữ alias cũ để không vỡ dữ liệu cài đặt/lọc cột đã lưu trước đây.
         appOrder["Tiền đã thanh toán"] = sOrder.reconciled_vnd;
     }
     // Ngày đối soát kế toán: ưu tiên luu_kho_usd (text); fallback warehouse_fee/shipping_fee (schema cũ hoặc nhầm cột).

@@ -510,6 +510,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Trạng thái thu tiền',
     'Trạng thái thanh toán',
     'Tiền Việt đã đối soát',
+    'Ngày đối soát bill',
+    'Ngày đối soát cước',
     'Tổng tiền VNĐ',
   ];
 
@@ -732,6 +734,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
+    "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
+    "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
     "Trạng thái thu tiền": item.payment_status_detail,
