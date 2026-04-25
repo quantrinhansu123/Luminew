@@ -106,6 +106,13 @@ function getRevenue(row) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function isCancelStatusRow(row) {
+  const raw = row?.status ?? row?.delivery_status ?? row?.["Trạng thái"] ?? "";
+  const s = String(raw).trim().toLowerCase();
+  if (!s) return false;
+  return s === "cancel" || s === "cancelled" || s === "canceled";
+}
+
 function formatMoneyVnd(n) {
   return `${Math.round(n).toLocaleString("vi-VN")} ₫`;
 }
@@ -189,7 +196,8 @@ function formatPivotDayHeader(dayKey) {
 function buildPivotMatrix(rows) {
   const datesSet = new Set();
   const tree = new Map();
-  rows.forEach((r) => {
+  const pivotRows = (rows || []).filter((r) => !isCancelStatusRow(r));
+  pivotRows.forEach((r) => {
     const m = getMarket(r) || "(Trống)";
     const p = getProduct(r) || "(Trống)";
     const d = getRowDayKey(r) || "_unknown";
@@ -207,7 +215,7 @@ function buildPivotMatrix(rows) {
   });
   const colTotals = {};
   dates.forEach((day) => {
-    colTotals[day] = rows.filter((r) => (getRowDayKey(r) || "_unknown") === day).length;
+    colTotals[day] = pivotRows.filter((r) => (getRowDayKey(r) || "_unknown") === day).length;
   });
   const markets = [...tree.keys()].sort((a, b) => a.localeCompare(b, "vi"));
   const marketGroups = markets.map((market) => {
