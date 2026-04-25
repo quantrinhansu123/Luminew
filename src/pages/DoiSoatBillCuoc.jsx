@@ -1438,6 +1438,7 @@ function DoiSoatBillCuoc() {
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
+      const syncDateToday = toIsoDateString(new Date()) || syncTime.slice(0, 10);
       const syncLogRows = [];
       
       const ordersToUpdate = allOrderCodes
@@ -1447,7 +1448,8 @@ function DoiSoatBillCuoc() {
           return {
             order_code: oc,
             reconciled_vnd: info.total_vnd,
-            accountant_confirm: info.acc_confirm
+            accountant_confirm: info.acc_confirm,
+            ngay_doi_soat_bill: syncDateToday,
           };
         });
 
@@ -1610,6 +1612,7 @@ function DoiSoatBillCuoc() {
       let updateCount = 0;
       const syncBatchId = makeSyncBatchId();
       const syncTime = new Date().toISOString();
+      const syncDateToday = toIsoDateString(new Date()) || syncTime.slice(0, 10);
       const syncLogRows = [];
 
       const ordersToUpdate = validOrderCodes.map(oc => {
@@ -1620,6 +1623,7 @@ function DoiSoatBillCuoc() {
         if (orderCountMap.has(oc)) {
           updateData.order_count_actual = orderCountMap.get(oc);
         }
+        updateData.ngay_doi_soat_cuoc = syncDateToday;
         return updateData;
       });
 

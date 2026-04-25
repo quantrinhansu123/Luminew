@@ -11,7 +11,7 @@ export const ORDER_MGMT_COLUMNS = [
     "Ghi chú vận đơn", "Kết quả Check", "Mã Tracking", "Ngày đóng hàng",
     "Trạng thái giao hàng", "GHI CHÚ", "Thời gian giao dự kiến",
     "Ngày Kế toán đối soát với FFM lần 2", "Ngày đẩy đơn", "Ngày có mã tracking",
-    "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
+    "Ngày đối soát kế toán", "Ngày đối soát bill", "Ngày đối soát cước", "Phí xử lý đơn đóng hàng-Lưu kho(usd)",
     "Payment Bill", "Payment Image", "Lịch sử thay đổi"
 ];
 
@@ -43,7 +43,7 @@ export const BILL_LADING_COLUMNS = [
     "Ngày đối soát kế toán", "Phí xử lý đơn đóng hàng-Lưu kho(usd)", "GHI CHÚ",
     "Nhân viên Sale", "Nhân viên MKT", "Page", "NV Vận đơn", "Đơn vị vận chuyển", "Số tiền của đơn hàng đã về TK Cty",
     "Kế toán xác nhận thu tiền về", "Ngày Kế toán đối soát với FFM lần 2",
-    "Ngày up bill", "Tiền đã thanh toán",
+    "Ngày up bill", "Tiền đã thanh toán", "Ngày đối soát bill", "Ngày đối soát cước",
     "Nhật ký", "Lịch sử thay đổi"
 ];
 
@@ -51,7 +51,7 @@ export const BILL_LADING_COLUMNS = [
 export const DEFAULT_BILL_LADING_COLUMNS = [
     "Mã đơn hàng", "Kết quả Check", "Ngày lên đơn", "Cảnh báo trùng", "Name*", "Phone*", "Add", "City", "State",
     "Mặt hàng", "Tổng tiền VNĐ", "Trạng thái giao hàng NB",
-    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Phản hồi tích cực", "Phản hồi tiêu cực", "Nhân viên MKT", "Page", "Nhật ký", "Lịch sử thay đổi"
+    "Mã Tracking", "Lý do", "Ghi chú của VĐ", "Trạng thái thu tiền", "Ngày đối soát bill", "Ngày đối soát cước", "Phản hồi tích cực", "Phản hồi tiêu cực", "Nhân viên MKT", "Page", "Nhật ký", "Lịch sử thay đổi"
 ];
 
 /**
@@ -119,6 +119,8 @@ export const COLUMN_MAPPING = {
     "Kết quả check": "Kết quả Check",
     "khu vực": "Khu vực",
     "Ngày up bill": "ngayupbill",
+    "Ngày đối soát bill": "ngay_doi_soat_bill",
+    "Ngày đối soát cước": "ngay_doi_soat_cuoc",
     "Nhân viên Sale": "sale_staff",
     "Nhân viên MKT": "marketing_staff",
     "Tên Page": "page_name",

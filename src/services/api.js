@@ -74,6 +74,8 @@ export const DB_TO_APP_MAPPING = {
     "payment_image": "Payment Image",
     "ngayupbill": "Ngày up bill",
     "reconciled_vnd": "Tiền đã thanh toán",
+    "ngay_doi_soat_bill": "Ngày đối soát bill",
+    "ngay_doi_soat_cuoc": "Ngày đối soát cước",
     "cskh_status": "Trạng thái cskh",
     "log": "Nhật ký",
     /** Nhật ký riêng trang FFM (jsonb) — không dùng chung cột `log` của Vận đơn. */
@@ -978,7 +980,7 @@ export const VAN_DON_PAGE_COLUMN_LIST = [
     'check_result', 'vandon_note', 'product_name_1', 'quantity_1', 'product_name_2', 'quantity_2', 'gift', 'gift_item', 'gift_quantity', 'gift_qty',
     'delivery_status_nb', 'payment_currency', 'estimated_delivery_date', 'thoigiangiaohangffm', 'warehouse_fee', 'luu_kho_usd',
     'note_caps', 'accounting_check_date', 'tracking_check_date', 'reconciled_amount', 'payment_bill', 'payment_image',
-    'ngayupbill', 'reconciled_vnd', 'cskh_status', 'log', 'canh_bao'
+    'ngayupbill', 'reconciled_vnd', 'ngay_doi_soat_bill', 'ngay_doi_soat_cuoc', 'cskh_status', 'log', 'canh_bao'
 ];
 
 const VAN_DON_SELECT_QUERY = VAN_DON_PAGE_COLUMN_LIST.join(',');
