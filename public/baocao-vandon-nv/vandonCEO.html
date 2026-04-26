@@ -1486,8 +1486,8 @@ function handleData(response) {
             // Hàm fetch dữ liệu nhân sự từ Firebase
             async function fetchNhanSuData() {
                 try {
-                    const firebaseUrl = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/Nh%C3%A2ns%E1%BB%B1';
-                    const response = await fetch(firebaseUrl + '.json');
+                    const firebaseUrl = '/api/baocao-vandon-nv-data?kind=hr';
+                    const response = await fetch(firebaseUrl);
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const data = await response.json();
                     
@@ -1500,10 +1500,10 @@ function handleData(response) {
                         nhanSuData = [];
                     }
                     
-                    console.log('✅ Nhân sự data loaded from Firebase:', nhanSuData.length, 'records');
+                    console.log('✅ Nhân sự data loaded from API:', nhanSuData.length, 'records');
                     return nhanSuData;
                 } catch (error) {
-                    console.error('❌ Lỗi tải dữ liệu nhân sự từ Firebase:', error);
+                    console.error('❌ Lỗi tải dữ liệu nhân sự từ API:', error);
                     nhanSuData = [];
                     return [];
                 }
@@ -1514,7 +1514,7 @@ function handleData(response) {
                 vanDonReportApp.showError('Đang tải dữ liệu, vui lòng chờ...');
 
                 // Dùng API cũ cho dữ liệu vận đơn
-                const apiUrl = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json';
+                const apiUrl = '/api/baocao-vandon-nv-data?kind=f3';
 
                 // Gọi cả 2 API song song
                 Promise.all([

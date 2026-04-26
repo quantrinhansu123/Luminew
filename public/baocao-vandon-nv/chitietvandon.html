@@ -665,7 +665,7 @@ function handleData(response) {
 
             function loadData() {
                 showLoader();
-                const apiUrl = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json';
+                const apiUrl = '/api/baocao-vandon-nv-data?kind=f3';
 
                 fetch(apiUrl)
                     .then(response => response.json())

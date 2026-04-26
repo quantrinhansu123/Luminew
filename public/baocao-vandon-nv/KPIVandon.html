@@ -498,9 +498,9 @@
   </div>
 
   <script>
-    const F3_URL = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3';
-    const BAO_CAO_MKT_URL = 'https://n-api-gamma.vercel.app/report/generate?tableName=' + encodeURIComponent('Báo cáo MKT');
-    const HR_URL = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/Nh%C3%A2ns%E1%BB%B1';
+    const F3_URL = '/api/baocao-vandon-nv-data?kind=f3';
+    const BAO_CAO_MKT_URL = '/api/baocao-vandon-nv-data?kind=mkt';
+    const HR_URL = '/api/baocao-vandon-nv-data?kind=hr';
     // Fallback sample (user-provided) to display when network fails
     const F3_SAMPLE = {
       "0": {
@@ -599,13 +599,13 @@
       toggleLoading(true);
       try {
         console.log('🔄 Bắt đầu load dữ liệu...');
-        console.log('📡 F3_URL:', F3_URL + '.json');
-        console.log('📡 HR_URL:', HR_URL + '.json');
+        console.log('📡 F3_URL:', F3_URL);
+        console.log('📡 HR_URL:', HR_URL);
         
         const [dataF3, dataMkt, dataHr] = await Promise.all([
-          fetchWithRetry(F3_URL + '.json', { retries: 3, delayMs: 800 }),
+          fetchWithRetry(F3_URL, { retries: 3, delayMs: 800 }),
           fetchWithRetry(BAO_CAO_MKT_URL, { retries: 3, delayMs: 800 }).catch(() => null),
-          fetchWithRetry(HR_URL + '.json', { retries: 3, delayMs: 800 }).catch(() => null)
+          fetchWithRetry(HR_URL, { retries: 3, delayMs: 800 }).catch(() => null)
         ]);
         
         console.log('📥 Đã nhận dữ liệu F3, kiểu:', typeof dataF3, Array.isArray(dataF3) ? 'Array' : 'Object');
@@ -641,7 +641,7 @@
           }
         } else {
           hrRows = [];
-          console.warn('⚠️ No HR data loaded from Firebase');
+          console.warn('⚠️ No HR data loaded from API');
         }
         
         // Debug: Kiểm tra dữ liệu F3
