@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   fetchF3LegacyMapped,
   fetchHrLegacyMapped,
-  proxyMktReport,
+  fetchMktForKpiOrEmpty,
 } from './api/baocaoVandonNvData.js';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
@@ -494,7 +494,7 @@ app.get('/api/baocaoVandonNvData', async (req, res) => {
   const kind = (req.query.kind || 'f3').toString().toLowerCase();
   try {
     if (kind === 'mkt') {
-      const body = await proxyMktReport();
+      const body = await fetchMktForKpiOrEmpty();
       res.setHeader('Cache-Control', 'public, max-age=60');
       return res.json(body);
     }
@@ -514,8 +514,9 @@ app.get('/api/baocaoVandonNvData', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=30');
     return res.json(mapped);
   } catch (e) {
-    console.error('❌ /api/baocaoVandonNvData:', kind, e);
-    res.status(500).json({ error: e.message || 'Server error', kind });
+    const msg = e && e.message ? String(e.message) : 'Server error';
+    console.error('[baocaoVandonNvData]', kind, msg);
+    res.status(500).json({ error: msg, kind });
   }
 });
 

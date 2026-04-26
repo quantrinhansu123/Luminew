@@ -223,7 +223,7 @@ export function mapOrderDbRowToLegacyF3(sOrder) {
 
 export function mapUserRowToLegacyNhanSu(u) {
   if (!u || typeof u !== 'object') return null;
-  const name = [u.name, u.user_name, u.username].find((x) => x && String(x).trim());
+  const name = [u.name, u.username, u.user_name].find((x) => x && String(x).trim());
   const displayName = name ? String(name).trim() : '';
   const team = (u.team || u.branch || '').toString().trim();
   const idStr = u.id != null ? String(u.id).trim() : '';
@@ -271,7 +271,7 @@ export async function fetchF3LegacyMapped(supabase, opts = {}) {
 export async function fetchHrLegacyMapped(supabase) {
   const { data, error } = await supabase
     .from('users')
-    .select('id,name,user_name,username,team,branch,position');
+    .select('id,name,username,team,branch,position');
   if (error) throw error;
   const list = (data || []).map(mapUserRowToLegacyNhanSu).filter(Boolean);
   return list.filter((r) => r.Team);
@@ -295,6 +295,17 @@ export async function proxyMktReport(env = process.env) {
     return await r.json();
   } finally {
     clearTimeout(t);
+  }
+}
+
+/** KPI iframe: nếu n-api / Google sheet lỗi (invalid_grant, …) trả JSON rỗng thay vì 500. */
+export async function fetchMktForKpiOrEmpty() {
+  try {
+    return await proxyMktReport();
+  } catch (e) {
+    const msg = e && e.message ? String(e.message).split('\n')[0].slice(0, 160) : 'unknown';
+    console.warn('[baocaoVandonNvData] MKT upstream unavailable, using empty payload:', msg);
+    return { data: [], rows: [] };
   }
 }
 
@@ -335,7 +346,7 @@ export default async function handler(req, res) {
 
   try {
     if (kind === 'mkt') {
-      const body = await proxyMktReport();
+      const body = await fetchMktForKpiOrEmpty();
       res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
       res.status(200).json(body);
       return;
@@ -358,10 +369,8 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
     res.status(200).json(mapped);
   } catch (e) {
-    console.error('[baocaoVandonNvData]', kind, e);
-    res.status(500).json({
-      error: e.message || 'Server error',
-      kind,
-    });
+    const msg = e && e.message ? String(e.message) : 'Server error';
+    console.error('[baocaoVandonNvData]', kind, msg);
+    res.status(500).json({ error: msg, kind });
   }
 }
