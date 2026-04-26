@@ -371,7 +371,8 @@ function Home() {
           id: "delivery-report-legacy-tabs",
           label: "Báo cáo vận đơn nhân viên",
           icon: <Table2 className="w-4 h-4" />,
-          path: "/bao-cao-van-don-nhan-vien",
+          path: "/baocao-vandon-nv/index.html",
+          isExternal: true,
           permission: 'ORDERS_REPORT',
         },
         {
@@ -1070,11 +1071,12 @@ function Home() {
           permission: 'ORDERS_REPORT',
         },
         {
-          title: "Báo cáo vận đơn nhân viên",
+          title: "Báo cáo vận đơn (tab cũ)",
           icon: <Table2 className="w-8 h-8" />,
           color: "bg-cyan-700",
-          path: "/bao-cao-van-don-nhan-vien",
-          status: "Theo đơn (F3-style)",
+          path: "/baocao-vandon-nv/index.html",
+          status: "Mở ứng dụng",
+          isExternal: true,
           permission: 'ORDERS_REPORT',
         },
         {
