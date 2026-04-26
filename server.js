@@ -18,7 +18,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = 3001; // Backend port (khác với Vite dev server port 3000)
+/** Cổng API backend — tránh trùng Vite (vite.config.js server.port, mặc định 3001). */
+const PORT = Number(process.env.SERVER_PORT || process.env.PORT || 3002);
 
 // Middleware
 app.use(cors());

@@ -1,9 +1,16 @@
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
+
+// Express (server.js) mặc định cổng 3002 — không trùng Vite 3001.
+// Ghi đè: VITE_DEV_API_PROXY=http://127.0.0.1:9999 npm run dev
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const apiTarget = env.VITE_DEV_API_PROXY || 'http://127.0.0.1:3002';
+
+  return {
   plugins: [react()],
   resolve: {
     alias: {
@@ -16,7 +23,7 @@ export default defineConfig({
     open: true,
     proxy: {
       '/api/van-don': {
-        target: 'http://localhost:3001',
+        target: apiTarget,
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, ''),
@@ -33,7 +40,7 @@ export default defineConfig({
         },
       },
       '/api/sync-mkt': {
-        target: 'http://localhost:3001',
+        target: apiTarget,
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path, // Keep /api/sync-mkt as is
@@ -44,13 +51,24 @@ export default defineConfig({
         },
       },
       '/api/fetch-detail-reports': {
-        target: 'http://localhost:3001',
+        target: apiTarget,
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path, // Keep /api/fetch-detail-reports as is
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
             console.log('proxy error', err);
+          });
+        },
+      },
+      '/api/baocaoVandonNvData': {
+        target: apiTarget,
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('baocaoVandonNvData proxy error (chạy `npm run server` trên cổng 3002?)', err);
           });
         },
       },
@@ -68,4 +86,5 @@ export default defineConfig({
       }
     }
   }
+};
 })
