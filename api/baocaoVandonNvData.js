@@ -1,11 +1,8 @@
-/**
- * Map một dòng `public.orders` (Supabase) sang shape gần giống sheet F3 / Firebase
- * để các file static trong public/baocao-vandon-nv không đổi logic.
- *
- * Giữ đồng bộ với src/services/api.js (DB_TO_APP_MAPPING + mapSupabaseOrderToApp).
- */
+import { createClient } from '@supabase/supabase-js';
 
-export const DB_TO_APP_MAPPING = {
+const PAGE = 800;
+
+const DB_TO_APP_MAPPING = {
   order_code: 'Mã đơn hàng',
   customer_name: 'Name*',
   customer_phone: 'Phone*',
@@ -71,7 +68,7 @@ export const DB_TO_APP_MAPPING = {
   estimated_delivery_date: 'Thời gian giao dự kiến (cũ)',
 };
 
-export function normalizeNgayDoiSoatKeToanText(v) {
+function normalizeNgayDoiSoatKeToanText(v) {
   if (v === undefined || v === null) return '';
   const s = String(v).trim();
   if (s === '') return '';
@@ -243,4 +240,128 @@ export function mapUserRowToLegacyNhanSu(u) {
     Vi_tri: (u.position || '').toString().trim(),
     Position: (u.position || '').toString().trim(),
   };
+}
+
+export async function fetchF3LegacyMapped(supabase, opts = {}) {
+  const { startDate = '', endDate = '', maxRows } = opts;
+  const cap = Math.min(Number(maxRows) || 80000, 150000);
+  const rows = [];
+  let from = 0;
+
+  while (rows.length < cap) {
+    let q = supabase.from('orders').select('*');
+    if (startDate) q = q.gte('order_date', startDate);
+    if (endDate) q = q.lte('order_date', endDate);
+    q = q
+      .order('order_date', { ascending: false, nullsFirst: false })
+      .order('order_code', { ascending: false })
+      .range(from, from + PAGE - 1);
+
+    const { data, error } = await q;
+    if (error) throw error;
+    const chunk = data || [];
+    rows.push(...chunk);
+    if (chunk.length < PAGE) break;
+    from += PAGE;
+  }
+
+  return rows.slice(0, cap).map(mapOrderDbRowToLegacyF3);
+}
+
+export async function fetchHrLegacyMapped(supabase) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id,name,user_name,username,team,branch,position');
+  if (error) throw error;
+  const list = (data || []).map(mapUserRowToLegacyNhanSu).filter(Boolean);
+  return list.filter((r) => r.Team);
+}
+
+export async function proxyMktReport(env = process.env) {
+  const base =
+    env.MKT_REPORT_API_BASE || 'https://n-api-gamma.vercel.app/report/generate';
+  const url = `${base}?tableName=${encodeURIComponent('Báo cáo MKT')}`;
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 25000);
+  try {
+    const r = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`MKT proxy ${r.status}: ${text.slice(0, 200)}`);
+    }
+    return await r.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function getSupabase() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    throw new Error('Thiếu SUPABASE_URL/VITE_SUPABASE_URL hoặc key Supabase trên server');
+  }
+  return createClient(url, key);
+}
+
+function cors(res) {
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-Requested-With, Accept, Content-Type'
+  );
+}
+
+export default async function handler(req, res) {
+  cors(res);
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const kind = (req.query.kind || 'f3').toString().toLowerCase();
+
+  try {
+    if (kind === 'mkt') {
+      const body = await proxyMktReport();
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+      res.status(200).json(body);
+      return;
+    }
+
+    const client = getSupabase();
+
+    if (kind === 'hr' || kind === 'nhan-su' || kind === 'nhansu') {
+      const hr = await fetchHrLegacyMapped(client);
+      res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=240');
+      res.status(200).json(hr);
+      return;
+    }
+
+    const startDate = req.query.start_date ? String(req.query.start_date).trim() : '';
+    const endDate = req.query.end_date ? String(req.query.end_date).trim() : '';
+    const maxRows = req.query.max_rows ? Number(req.query.max_rows) : undefined;
+
+    const mapped = await fetchF3LegacyMapped(client, { startDate, endDate, maxRows });
+    res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+    res.status(200).json(mapped);
+  } catch (e) {
+    console.error('[baocaoVandonNvData]', kind, e);
+    res.status(500).json({
+      error: e.message || 'Server error',
+      kind,
+    });
+  }
 }

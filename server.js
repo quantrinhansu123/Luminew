@@ -3,7 +3,7 @@ import {
   fetchF3LegacyMapped,
   fetchHrLegacyMapped,
   proxyMktReport,
-} from './api/lib/baocaoVandonNvCore.js';
+} from './api/baocaoVandonNvData.js';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
@@ -487,8 +487,8 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
   }
 });
 
-// Báo cáo vận đơn NV (static HTML) — cùng nguồn Supabase + proxy MKT như Vercel /api/baocao-vandon-nv-data
-app.get('/api/baocao-vandon-nv-data', async (req, res) => {
+// Báo cáo vận đơn NV (static HTML) — cùng nguồn Supabase + proxy MKT như Vercel /api/baocaoVandonNvData
+app.get('/api/baocaoVandonNvData', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const kind = (req.query.kind || 'f3').toString().toLowerCase();
   try {
@@ -513,7 +513,7 @@ app.get('/api/baocao-vandon-nv-data', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=30');
     return res.json(mapped);
   } catch (e) {
-    console.error('❌ /api/baocao-vandon-nv-data:', kind, e);
+    console.error('❌ /api/baocaoVandonNvData:', kind, e);
     res.status(500).json({ error: e.message || 'Server error', kind });
   }
 });
@@ -529,6 +529,6 @@ app.listen(PORT, () => {
   console.log(`📡 API endpoint: http://localhost:${PORT}/van-don`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/sync-mkt`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/fetch-detail-reports`);
-  console.log(`📡 API endpoint: http://localhost:${PORT}/api/baocao-vandon-nv-data`);
+  console.log(`📡 API endpoint: http://localhost:${PORT}/api/baocaoVandonNvData`);
 });
 

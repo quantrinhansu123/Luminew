@@ -1486,7 +1486,7 @@ function handleData(response) {
             // Hàm fetch dữ liệu nhân sự từ Firebase
             async function fetchNhanSuData() {
                 try {
-                    const firebaseUrl = '/api/baocao-vandon-nv-data?kind=hr';
+                    const firebaseUrl = '/api/baocaoVandonNvData?kind=hr';
                     const response = await fetch(firebaseUrl);
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const data = await response.json();
@@ -1514,7 +1514,7 @@ function handleData(response) {
                 vanDonReportApp.showError('Đang tải dữ liệu, vui lòng chờ...');
 
                 // Dùng API cũ cho dữ liệu vận đơn
-                const apiUrl = '/api/baocao-vandon-nv-data?kind=f3';
+                const apiUrl = '/api/baocaoVandonNvData?kind=f3';
 
                 // Gọi cả 2 API song song
                 Promise.all([
