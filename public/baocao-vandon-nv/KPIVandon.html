@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Chỉ số vận đơn của Team Vận đơn</title>
+  <script src="./regionScope.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -628,13 +629,17 @@
           mktRows = [];
           console.warn('⚠️ No MKT report data loaded - CPQC will be 0 for all staff');
         }
-        // Load HR data giống như vandonCEO.html: chỉ lấy record có Team
+        // HR: cần Team hoặc Bộ phận (Supabase users.department) — chỉ Team sẽ loại hết NV có department chưa nhập team
         if (dataHr) {
           const normalized = normalizeF3(dataHr);
           console.log('📊 HR data normalized:', normalized.length, 'records');
-          // Lọc chỉ lấy những record có Team (giống vandonCEO.html)
-          hrRows = normalized.filter(item => item && item["Team"]);
-          console.log('✅ HR data loaded:', hrRows.length, 'records with Team');
+          hrRows = normalized.filter(item => {
+            if (!item) return false;
+            const tm = (item['Team'] || '').toString().trim();
+            const bp = (item['Bộ phận'] || item['Bo_phan'] || '').toString().trim();
+            return !!(tm || bp);
+          });
+          console.log('✅ HR data loaded:', hrRows.length, 'records with Team or Bộ phận');
           if (hrRows.length > 0) {
             console.log('📌 Sample HR record:', hrRows[0]);
             console.log('📋 HR record keys:', Object.keys(hrRows[0]));
@@ -642,6 +647,15 @@
         } else {
           hrRows = [];
           console.warn('⚠️ No HR data loaded from API');
+        }
+
+        if (window.VandonNvRegion) {
+          const reg = window.VandonNvRegion.get();
+          rawOrders = rawOrders.filter((r) => window.VandonNvRegion.rowMatches(r, reg));
+          mktRows = mktRows.filter((r) => window.VandonNvRegion.rowMatches(r, reg));
+          hrRows = hrRows.filter((r) =>
+            window.VandonNvRegion.rowMatches({ Team: r.Team || r.team }, reg)
+          );
         }
         
         // Debug: Kiểm tra dữ liệu F3
@@ -884,7 +898,7 @@
          hrRows.forEach(r => {
              const bp = (r['Bộ phận'] || r['Bo_phan'] || '').toString().trim();
              const bpUpper = bp.toUpperCase();
-             const tm = (r['Team'] || '').toString().trim();
+             const tm = (r['Team'] || r['branch'] || r['Chi nhánh'] || '').toString().trim();
              if (!tm) return;
              
              // Nếu không chọn loại NV nào (hoặc chọn Tất cả), lấy hết Team có trong HR

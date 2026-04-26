@@ -221,13 +221,34 @@ export function mapOrderDbRowToLegacyF3(sOrder) {
   return appOrder;
 }
 
+/** Khi `users.department` trống (nhiều bản ghi HR chỉ có Team + Vị trí) — KPI lọc theo Bộ phận = "Vận đơn" sẽ ra 0 dòng. */
+function inferBoPhanFromUserFields(u) {
+  if (!u || typeof u !== 'object') return '';
+  const pos = (u.position || '').toString();
+  const role = (u.role || '').toString();
+  const team = (u.team || u.branch || '').toString();
+  const blob = `${pos} ${role} ${team}`.toLowerCase();
+  if (/marketing|(^|\s)mkt(\s|$)|quảng cáo|qc marketing|\bads\b/.test(blob)) return 'MKT';
+  if (/\bsale\b|telesale|kinh doanh|sale[-_]/.test(blob)) return 'Sale';
+  if (
+    /vận đơn|van don|vận_đơn|nv\s*vận|nvvd|shipper|giao hàng|đóng hàng|\bffm\b|warehouse|kho hàng|\bvđ\b|[-_/]vd(?:\b|[-_/]|$)|^vd[-_/]/.test(
+      blob
+    )
+  ) {
+    return 'Vận đơn';
+  }
+  return '';
+}
+
 export function mapUserRowToLegacyNhanSu(u) {
   if (!u || typeof u !== 'object') return null;
-  const name = [u.name, u.username, u.user_name].find((x) => x && String(x).trim());
+  const name = [u.name, u.username].find((x) => x && String(x).trim());
   const displayName = name ? String(name).trim() : '';
   const team = (u.team || u.branch || '').toString().trim();
+  let deptRaw = (u.department || u.dept || '').toString().trim();
+  if (!deptRaw) deptRaw = inferBoPhanFromUserFields(u);
   const idStr = u.id != null ? String(u.id).trim() : '';
-  return {
+  const row = {
     id: idStr,
     ID: idStr,
     Team: team,
@@ -240,6 +261,39 @@ export function mapUserRowToLegacyNhanSu(u) {
     Vi_tri: (u.position || '').toString().trim(),
     Position: (u.position || '').toString().trim(),
   };
+  if (deptRaw) {
+    row['Bộ phận'] = deptRaw;
+    row.Bo_phan = deptRaw;
+  }
+  return row;
+}
+
+/**
+ * Khi n-api Google Sheet lỗi (invalid_grant / 500), lấy báo cáo MKT đã sync trên Supabase
+ * (cùng nguồn viewNsMoiNhanh / detail_reports) để KPIVandon vẫn có CPQC.
+ */
+async function fetchMktFromDetailReports(supabase) {
+  if (!supabase) return [];
+  const cap = 25000;
+  const page = PAGE;
+  const rows = [];
+  let from = 0;
+  while (rows.length < cap) {
+    const base = () =>
+      supabase.from('detail_reports').select('*').order('id', { ascending: true }).range(from, from + page - 1);
+    let { data, error } = await base().or('department.eq.MKT,department.is.null');
+    if (error && /department|column|42703/i.test(String(error.message || error.code || ''))) {
+      ({ data, error } = await base());
+    }
+    if (error) throw error;
+    const chunk = data || [];
+    for (const r of chunk) {
+      if (r && r.department !== 'RD') rows.push(r);
+    }
+    if (chunk.length < page) break;
+    from += page;
+  }
+  return rows.slice(0, cap);
 }
 
 export async function fetchF3LegacyMapped(supabase, opts = {}) {
@@ -268,16 +322,61 @@ export async function fetchF3LegacyMapped(supabase, opts = {}) {
   return rows.slice(0, cap).map(mapOrderDbRowToLegacyF3);
 }
 
+/**
+ * Không dùng select('*'). Thử lần lượt bộ cột hẹp dần — DB cũ có thể thiếu email/username.
+ * Lỗi "user_name does not exist" thường do process server cũ vẫn gọi select('*') hoặc DB thiếu migration;
+ * chạy migration `20260426120000_users_add_user_name_if_missing.sql` trên Supabase nếu cần.
+ */
+const HR_SELECT_ATTEMPTS = [
+  'id,email,username,name,role,team,branch,department,position',
+  'id,username,name,role,team,branch,department,position',
+  'id,name,role,team,branch,department,position',
+  'id,name,team,branch,department,position',
+];
+
 export async function fetchHrLegacyMapped(supabase) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('id,name,username,team,branch,position');
+  let data = null;
+  let error = null;
+  for (let i = 0; i < HR_SELECT_ATTEMPTS.length; i++) {
+    const cols = HR_SELECT_ATTEMPTS[i];
+    const res = await supabase.from('users').select(cols);
+    data = res.data;
+    error = res.error;
+    if (!error) break;
+    console.warn(
+      `[baocaoVandonNvData] HR select attempt ${i + 1}/${HR_SELECT_ATTEMPTS.length} failed (${cols.slice(0, 40)}…):`,
+      error.code || '',
+      error.message || error
+    );
+  }
   if (error) throw error;
   const list = (data || []).map(mapUserRowToLegacyNhanSu).filter(Boolean);
-  return list.filter((r) => r.Team);
+  /** KPI cần Team hoặc Bộ phận để gán loại NV; chỉ lọc theo Team sẽ mất nhân sự có department nhưng chưa nhập team. */
+  return list.filter((r) => {
+    const tm = (r.Team || '').toString().trim();
+    const bp = (r['Bộ phận'] || r.Bo_phan || '').toString().trim();
+    return !!(tm || bp);
+  });
 }
 
-export async function proxyMktReport(env = process.env) {
+/** KPI: không làm vỡ tab khi users/RLS/Schema lỗi — trả []. */
+export async function fetchHrForKpiOrEmpty(supabase) {
+  try {
+    return await fetchHrLegacyMapped(supabase);
+  } catch (e) {
+    const msg =
+      e && e.message
+        ? String(e.message)
+        : e && e.code
+          ? String(e.code)
+          : 'unknown';
+    console.warn('[baocaoVandonNvData] HR users unavailable, using []:', msg);
+    return [];
+  }
+}
+
+/** Một lần gọi n-api; KPI dùng kết quả mềm, proxyMktReport ném lỗi nếu cần báo cứng. */
+async function fetchMktReportUpstream(env = process.env) {
   const base =
     env.MKT_REPORT_API_BASE || 'https://n-api-gamma.vercel.app/report/generate';
   const url = `${base}?tableName=${encodeURIComponent('Báo cáo MKT')}`;
@@ -288,25 +387,74 @@ export async function proxyMktReport(env = process.env) {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     });
+    const text = await r.text();
     if (!r.ok) {
-      const text = await r.text();
-      throw new Error(`MKT proxy ${r.status}: ${text.slice(0, 200)}`);
+      return {
+        ok: false,
+        reason: 'http',
+        status: r.status,
+        snippet: text.slice(0, 220),
+      };
     }
-    return await r.json();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return { ok: false, reason: 'parse', snippet: text.slice(0, 120) };
+    }
+    if (json && json.success === false) {
+      return {
+        ok: false,
+        reason: 'report',
+        snippet: String(json.message || '').slice(0, 200),
+      };
+    }
+    return { ok: true, json };
+  } catch (e) {
+    const msg = e && e.message ? String(e.message).split('\n')[0].slice(0, 160) : 'unknown';
+    return { ok: false, reason: 'network', snippet: msg };
   } finally {
     clearTimeout(t);
   }
 }
 
-/** KPI iframe: nếu n-api / Google sheet lỗi (invalid_grant, …) trả JSON rỗng thay vì 500. */
-export async function fetchMktForKpiOrEmpty() {
-  try {
-    return await proxyMktReport();
-  } catch (e) {
-    const msg = e && e.message ? String(e.message).split('\n')[0].slice(0, 160) : 'unknown';
-    console.warn('[baocaoVandonNvData] MKT upstream unavailable, using empty payload:', msg);
-    return { data: [], rows: [] };
+/** Gọi n-api MKT; lỗi mạng/HTTP/JSON → throw (dùng khi cần fail cứng). */
+export async function proxyMktReport(env = process.env) {
+  const r = await fetchMktReportUpstream(env);
+  if (!r.ok) {
+    const detail =
+      r.reason === 'http'
+        ? `MKT proxy ${r.status}: ${r.snippet}`
+        : `MKT ${r.reason}: ${r.snippet}`;
+    throw new Error(detail);
   }
+  return r.json;
+}
+
+/**
+ * KPI: không throw. Thứ tự: n-api → nếu lỗi thì detail_reports (Supabase) → rỗng.
+ * @param {import('@supabase/supabase-js').SupabaseClient | null} supabaseClient — bắt buộc trên server để fallback DB
+ */
+export async function fetchMktForKpiOrEmpty(env = process.env, supabaseClient = null) {
+  const r = await fetchMktReportUpstream(env);
+  if (r.ok) return r.json;
+  console.warn('[baocaoVandonNvData] MKT n-api unavailable:', r.reason, (r.snippet || '').slice(0, 120));
+  if (supabaseClient) {
+    try {
+      const fallbackRows = await fetchMktFromDetailReports(supabaseClient);
+      if (fallbackRows.length) {
+        console.warn(
+          '[baocaoVandonNvData] MKT using detail_reports fallback:',
+          fallbackRows.length,
+          'rows'
+        );
+        return { data: fallbackRows, rows: fallbackRows };
+      }
+    } catch (e) {
+      console.warn('[baocaoVandonNvData] detail_reports MKT fallback failed:', e && e.message);
+    }
+  }
+  return { data: [], rows: [] };
 }
 
 function getSupabase() {
@@ -346,18 +494,34 @@ export default async function handler(req, res) {
 
   try {
     if (kind === 'mkt') {
-      const body = await fetchMktForKpiOrEmpty();
       res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
-      res.status(200).json(body);
+      let sb = null;
+      try {
+        sb = getSupabase();
+      } catch (_) {
+        /* chỉ n-api, không có fallback DB */
+      }
+      try {
+        const body = await fetchMktForKpiOrEmpty(process.env, sb);
+        res.status(200).json(body && typeof body === 'object' ? body : { data: [], rows: [] });
+      } catch (e) {
+        console.warn('[baocaoVandonNvData] kind=mkt handler fallback:', e && e.message);
+        res.status(200).json({ data: [], rows: [] });
+      }
       return;
     }
 
     const client = getSupabase();
 
     if (kind === 'hr' || kind === 'nhan-su' || kind === 'nhansu') {
-      const hr = await fetchHrLegacyMapped(client);
       res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=240');
-      res.status(200).json(hr);
+      try {
+        const hr = await fetchHrForKpiOrEmpty(client);
+        res.status(200).json(Array.isArray(hr) ? hr : []);
+      } catch (e) {
+        console.warn('[baocaoVandonNvData] kind=hr handler fallback:', e && e.message);
+        res.status(200).json([]);
+      }
       return;
     }
 

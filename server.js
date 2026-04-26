@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   fetchF3LegacyMapped,
-  fetchHrLegacyMapped,
+  fetchHrForKpiOrEmpty,
   fetchMktForKpiOrEmpty,
 } from './api/baocaoVandonNvData.js';
 import cors from 'cors';
@@ -489,19 +489,31 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
 });
 
 // Báo cáo vận đơn NV (static HTML) — cùng nguồn Supabase + proxy MKT như Vercel /api/baocaoVandonNvData
+// kind=hr|mkt: luôn 200 (dữ liệu rỗng khi lỗi) để KPI iframe không chết; xem log server cho chi tiết.
 app.get('/api/baocaoVandonNvData', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const kind = (req.query.kind || 'f3').toString().toLowerCase();
   try {
     if (kind === 'mkt') {
-      const body = await fetchMktForKpiOrEmpty();
       res.setHeader('Cache-Control', 'public, max-age=60');
-      return res.json(body);
+      const emptyMkt = { data: [], rows: [] };
+      try {
+        const body = await fetchMktForKpiOrEmpty(process.env, supabaseAdmin);
+        return res.status(200).json(body && typeof body === 'object' ? body : emptyMkt);
+      } catch (e) {
+        console.warn('[baocaoVandonNvData] kind=mkt fallback:', e && e.message);
+        return res.status(200).json(emptyMkt);
+      }
     }
     if (kind === 'hr' || kind === 'nhan-su' || kind === 'nhansu') {
-      const hr = await fetchHrLegacyMapped(supabaseAdmin);
       res.setHeader('Cache-Control', 'public, max-age=120');
-      return res.json(hr);
+      try {
+        const hr = await fetchHrForKpiOrEmpty(supabaseAdmin);
+        return res.status(200).json(Array.isArray(hr) ? hr : []);
+      } catch (e) {
+        console.warn('[baocaoVandonNvData] kind=hr fallback:', e && e.message);
+        return res.status(200).json([]);
+      }
     }
     const startDate = req.query.start_date ? String(req.query.start_date).trim() : '';
     const endDate = req.query.end_date ? String(req.query.end_date).trim() : '';
@@ -532,5 +544,8 @@ app.listen(PORT, () => {
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/sync-mkt`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/fetch-detail-reports`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/baocaoVandonNvData`);
+  console.log(
+    'ℹ️  baocaoVandonNvData: HR = nhiều tầng select (không dùng *); MKT lỗi OAuth → JSON rỗng. dev:full dùng server:watch để tự nạp lại server.js.'
+  );
 });
 

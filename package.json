@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "vercel-dev": "vercel dev",
     "server": "node server.js",
-    "dev:full": "concurrently \"npm run server\" \"npm run dev\""
+    "server:watch": "node --watch server.js",
+    "dev:full": "concurrently \"npm run server:watch\" \"npm run dev\""
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",

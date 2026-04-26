@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Báo cáo Vận đơn - Tổng kết</title>
+    <script src="./regionScope.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -1471,6 +1472,11 @@ function handleData(response) {
 
                 // Khớp logic trang vận hành: chỉ xử lý đơn có mã đơn hàng.
                 globalData = response.rows.filter(r => getRowValue(r, 'Mã_đơn_hàng', 'Mã đơn hàng'));
+                if (window.VandonNvRegion) {
+                    const reg = window.VandonNvRegion.get();
+                    rawData = window.VandonNvRegion.filterRows(rawData, reg);
+                    globalData = window.VandonNvRegion.filterRows(globalData, reg);
+                }
                 console.log('📊 Final globalData length:', globalData.length);
                 console.log('📊 Raw data length:', rawData.length);
                 console.log('🔐 Final allowedNames:', allowedNames ? Array.from(allowedNames) : 'null');

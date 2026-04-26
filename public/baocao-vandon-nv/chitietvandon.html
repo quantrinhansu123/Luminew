@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Chi tiết Vận đơn</title>
+    <script src="./regionScope.js"></script>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -466,6 +467,7 @@
                 </div>
                 <input type="text" id="detailNameFilter" placeholder="Tìm theo Tên, SĐT, Mã đơn..." />
                 <button id="detailClearFilters" class="clear-filter-btn">Xóa lọc</button>
+                <button type="button" id="detailLoadFullBtn" class="clear-filter-btn" title="Tải mọi đơn từ máy chủ — có thể rất chậm">Tải toàn bộ</button>
             </div>
         </div>
 
@@ -490,6 +492,24 @@
             const showLoader = () => loader.classList.add('visible');
             const hideLoader = () => loader.classList.remove('visible');
             let globalData = []; // Lưu trữ toàn bộ dữ liệu
+            let loadDataDebounce = null;
+            const DETAIL_RANGE_DAYS = 45;
+
+            function setDefaultDetailDateRange() {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(start.getDate() - (DETAIL_RANGE_DAYS - 1));
+                const fmt = (d) => d.toISOString().slice(0, 10);
+                const sEl = document.getElementById('detailStartDateFilter');
+                const eEl = document.getElementById('detailEndDateFilter');
+                if (sEl) sEl.value = fmt(start);
+                if (eEl) eEl.value = fmt(end);
+            }
+
+            function scheduleReloadFromApi() {
+                clearTimeout(loadDataDebounce);
+                loadDataDebounce = setTimeout(() => loadData({}), 400);
+            }
 
             // ===================================================================
             // SỬA LỖI: CÁC HÀM CHUẨN HÓA VÀ XỬ LÝ DỮ LIỆU ĐA DẠNG
@@ -659,13 +679,24 @@ function handleData(response) {
                 globalData = response.rows
                     .map(normalizeSourceRow)
                     .filter(r => getRowValue(r, "Mã đơn hàng", "Mã_đơn_hàng"));
+                if (window.VandonNvRegion) {
+                    globalData = window.VandonNvRegion.filterRows(globalData, window.VandonNvRegion.get());
+                }
                 detailApp.populateFilters();
                 detailApp.applyFilters();
             }
 
-            function loadData() {
+            function loadData(opts) {
+                const options = opts || {};
                 showLoader();
-                const apiUrl = '/api/baocaoVandonNvData?kind=f3';
+                const params = new URLSearchParams({ kind: 'f3' });
+                if (!options.full) {
+                    const start = document.getElementById('detailStartDateFilter')?.value || '';
+                    const end = document.getElementById('detailEndDateFilter')?.value || '';
+                    if (start) params.set('start_date', start);
+                    if (end) params.set('end_date', end);
+                }
+                const apiUrl = '/api/baocaoVandonNvData?' + params.toString();
 
                 fetch(apiUrl)
                     .then(response => response.json())
@@ -802,8 +833,8 @@ function handleData(response) {
                 setupControls: function () {
                     const apply = this.applyFilters.bind(this);
                     
-                    document.getElementById('detailStartDateFilter')?.addEventListener('change', apply);
-                    document.getElementById('detailEndDateFilter')?.addEventListener('change', apply);
+                    document.getElementById('detailStartDateFilter')?.addEventListener('change', scheduleReloadFromApi);
+                    document.getElementById('detailEndDateFilter')?.addEventListener('change', scheduleReloadFromApi);
                     document.getElementById('detailNameFilter')?.addEventListener('input', apply);
 
                     this.setupMultiSelectDropdown('detailStaffFilterBtn', 'detailStaffDropdown');
@@ -816,9 +847,15 @@ function handleData(response) {
                     this.setupMultiSelectDropdown('detailTrackingFilterBtn', 'detailTrackingDropdown');
                     this.setupMultiSelectDropdown('detailShippingUnitFilterBtn', 'detailShippingUnitDropdown');
 
-                    document.getElementById('detailClearFilters')?.addEventListener('click', () => {
+                    document.getElementById('detailLoadFullBtn')?.addEventListener('click', () => {
+                        if (!confirm('Tải toàn bộ đơn có thể rất chậm và nặng trình duyệt. Tiếp tục?')) return;
                         document.getElementById('detailStartDateFilter').value = '';
                         document.getElementById('detailEndDateFilter').value = '';
+                        loadData({ full: true });
+                    });
+
+                    document.getElementById('detailClearFilters')?.addEventListener('click', () => {
+                        setDefaultDetailDateRange();
                         document.getElementById('detailNameFilter').value = '';
                         
                         document.querySelectorAll('#DonChiTiet .filter-row .column-filter').forEach(element => {
@@ -848,7 +885,7 @@ function handleData(response) {
                                 this.updateFilterButtonText(`detail${config.type}FilterBtn`, `detail${config.type}Dropdown`, `detail${config.type}SelectAll`, config.prefix);
                             }
                         });
-                        this.applyFilters();
+                        loadData({});
                     });
 
                     window.addEventListener('click', () => {
@@ -1187,37 +1224,40 @@ function handleData(response) {
                     tbody.innerHTML = '';
 
                     const colMap = { "Nhân sự Marketing": "Nhân viên Marketing", "Nhân sự Sale": "Nhân viên Sale" };
-                    const frag = document.createDocumentFragment();
+                    const CHUNK = 120;
+                    let idx = 0;
 
-                    data.forEach(row => {
-                        const tr = document.createElement('tr');
-
-                        headers.forEach(header => {
-                        const td = document.createElement('td');
-                        let value = row[colMap[header] || header] || '';
-
-                        if (header === "Ngày lên đơn") {
-                            const ymd = normalizeDateToYMD(row["Ngày lên đơn"]);
-                            if (ymd) {
-                                const [y,m,d] = ymd.split('-');
-                                td.textContent = `${d}/${m}/${y}`; // Hiển thị dd/mm/yyyy
-                            } else {
-                                td.textContent = ''; // Hoặc giá trị gốc: value
-                            }
-                        } else if (header === "Tổng tiền VNĐ") {
-                            const num = parseMoneyToNumber(value);
-                            td.textContent = isNaN(num) ? '0 ₫' : new Intl.NumberFormat('vi-VN').format(num) + ' ₫';
-                        } else {
-                            td.textContent = value;
+                    function appendChunk() {
+                        const end = Math.min(idx + CHUNK, data.length);
+                        const frag = document.createDocumentFragment();
+                        for (; idx < end; idx++) {
+                            const row = data[idx];
+                            const tr = document.createElement('tr');
+                            headers.forEach(header => {
+                                const td = document.createElement('td');
+                                let value = row[colMap[header] || header] || '';
+                                if (header === "Ngày lên đơn") {
+                                    const ymd = normalizeDateToYMD(row["Ngày lên đơn"]);
+                                    if (ymd) {
+                                        const [y, m, d] = ymd.split('-');
+                                        td.textContent = `${d}/${m}/${y}`;
+                                    } else {
+                                        td.textContent = '';
+                                    }
+                                } else if (header === "Tổng tiền VNĐ") {
+                                    const num = parseMoneyToNumber(value);
+                                    td.textContent = isNaN(num) ? '0 ₫' : new Intl.NumberFormat('vi-VN').format(num) + ' ₫';
+                                } else {
+                                    td.textContent = value;
+                                }
+                                tr.appendChild(td);
+                            });
+                            frag.appendChild(tr);
                         }
-
-                        tr.appendChild(td);
-                        });
-
-                        frag.appendChild(tr);
-                    });
-
-                    tbody.appendChild(frag);
+                        tbody.appendChild(frag);
+                        if (idx < data.length) requestAnimationFrame(appendChunk);
+                    }
+                    if (data.length) requestAnimationFrame(appendChunk);
                 },
                 createColumnMultiSelect: function(header, items) {
                     const container = document.createElement('div');
@@ -1263,8 +1303,9 @@ function handleData(response) {
             };
 
             // --- KHỞI TẠO ỨNG DỤNG ---
+            setDefaultDetailDateRange();
             detailApp.init();
-            loadData();
+            loadData({});
         });
     </script>
 </body>

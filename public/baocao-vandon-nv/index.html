@@ -141,34 +141,70 @@
         <!-- Nội dung các tab -->
         <div id="BaocaoVanDonTongKetSub" class="sub-tab-content iframe-tab active">
             <div class="scaled-iframe-container">
+                <!-- Không gán src ở đây — chỉ load khi tab này được kích hoạt (mặc định lúc vào trang) -->
                 <iframe id="baocaovandontongket-iframe"
-                    src="./baocaotongketvandontab1.html"></iframe>
+                    data-src="./baocaotongketvandontab1.html"></iframe>
             </div>
         </div>
 
         <div id="BaoCaoVanDonCEOSub" class="sub-tab-content iframe-tab">
+            <!-- lazy: chỉ gán src khi mở tab — tránh 5 iframe cùng tải F3/API -->
             <iframe id="baocaovandonceo-iframe" style="width: 100%; height: 100%; border: none;"
-                src="./vandonCEO.html"></iframe>
+                data-src="./vandonCEO.html"></iframe>
         </div>
 
         <div id="ChiTietVanDonSub" class="sub-tab-content iframe-tab">
             <iframe id="chitietvandon-iframe" style="width: 100%; height: 100%; border: none;"
-                src="./chitietvandon.html"></iframe>
+                data-src="./chitietvandon.html"></iframe>
         </div>
 
         <div id="VanDonSub" class="sub-tab-content iframe-tab">
             <iframe id="vandontab3-iframe" style="width: 100%; height: 100%; border: none;"
-                src="./Baocaovandontab3.html"></iframe>
+                data-src="./Baocaovandontab3.html"></iframe>
         </div>
 
         <!-- NỘI DUNG TAB KPI CEO -->
         <div id="KpiCEOSub" class="sub-tab-content iframe-tab">
             <iframe id="ceokpi-iframe" style="width: 100%; height: 100%; border: none;"
-                src="./KPIVandon.html?view=vandon"></iframe>
+                data-src="./KPIVandon.html?view=vandon"></iframe>
         </div>
     </div>
 
     <script>
+        function getParentRegionParam() {
+            try {
+                var p = new URLSearchParams(window.location.search);
+                var r = (p.get('region') || '').toString().toLowerCase();
+                return r === 'hcm' ? 'hcm' : 'hn';
+            } catch (e) {
+                return 'hn';
+            }
+        }
+
+        function withRegionQuery(url) {
+            var region = getParentRegionParam();
+            var sep = url.indexOf('?') >= 0 ? '&' : '?';
+            return url + sep + 'region=' + encodeURIComponent(region);
+        }
+
+        function ensureIframeLoaded(subTabName) {
+            var map = {
+                'BaocaoVanDonTongKetSub': { id: 'baocaovandontongket-iframe', base: './baocaotongketvandontab1.html' },
+                'BaoCaoVanDonCEOSub': { id: 'baocaovandonceo-iframe', base: './vandonCEO.html' },
+                'ChiTietVanDonSub': { id: 'chitietvandon-iframe', base: './chitietvandon.html' },
+                'VanDonSub': { id: 'vandontab3-iframe', base: './Baocaovandontab3.html' },
+                'KpiCEOSub': { id: 'ceokpi-iframe', base: './KPIVandon.html?view=vandon' }
+            };
+            var c = map[subTabName];
+            if (!c) return;
+            var el = document.getElementById(c.id);
+            if (!el) return;
+            var ds = el.getAttribute('data-src');
+            if (ds && !el.getAttribute('src')) {
+                el.src = withRegionQuery(ds);
+            }
+        }
+
         function openSubTab(evt, subTabName) {
             var i, subTabcontent, subTablinks;
             subTabcontent = document.querySelectorAll('#VanDonCombinedTab .sub-tab-content');
@@ -183,6 +219,7 @@
             document.getElementById(subTabName).style.display = "block";
             document.getElementById(subTabName).classList.add("active");
             evt.currentTarget.className += " active";
+            ensureIframeLoaded(subTabName);
             applyUrlParamsToIframes(subTabName);
         }
 
@@ -214,9 +251,15 @@
 
             if (iframeId && baseUrl) {
                 const iframe = document.getElementById(iframeId);
-                if (iframe && !iframe.src.includes('id=')) {
-                    const sep = baseUrl.includes('?') ? '&' : '?';
-                    iframe.src = `${baseUrl}${sep}id=${encodeURIComponent(id)}`;
+                if (!iframe) return;
+                const ds = iframe.getAttribute('data-src');
+                if (ds && !iframe.getAttribute('src')) {
+                    iframe.src = withRegionQuery(ds);
+                }
+                let cur = iframe.src || '';
+                if (cur && !cur.includes('id=')) {
+                    const sep = cur.includes('?') ? '&' : '?';
+                    iframe.src = cur + sep + 'id=' + encodeURIComponent(id);
                 }
             }
         }
@@ -230,6 +273,8 @@
             const activeSubTab = document.querySelector('#VanDonCombinedTab .sub-tab-btn.active');
             if (activeSubTab) {
                 const subTabName = activeSubTab.getAttribute('onclick').split("'")[1];
+                /* Chỉ iframe của tab đang mở (mặc định: Báo cáo tổng kết) được gán src — các tab khác vẫn trống. */
+                ensureIframeLoaded(subTabName);
                 applyUrlParamsToIframes(subTabName);
             }
         });

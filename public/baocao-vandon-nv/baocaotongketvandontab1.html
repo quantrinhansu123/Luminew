@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="./regionScope.js"></script>
     <style>
         :root {
             --primary-color: #2980b9;
@@ -807,6 +808,9 @@ function handleData(response) {
                 globalData = response.rows
                     .map(normalizeSourceRow)
                     .filter(r => getRowValue(r, "Mã đơn hàng", "Mã_đơn_hàng"));
+                if (window.VandonNvRegion) {
+                    globalData = window.VandonNvRegion.filterRows(globalData, window.VandonNvRegion.get());
+                }
                 vanDonReportApp.populateReportFilters();
                 vanDonReportApp.applyAllFilters();
             }
