@@ -1,4 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  fetchF3LegacyMapped,
+  fetchHrLegacyMapped,
+  proxyMktReport,
+} from './api/lib/baocaoVandonNvCore.js';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
@@ -482,6 +487,37 @@ app.get('/api/fetch-detail-reports', async (req, res) => {
   }
 });
 
+// Báo cáo vận đơn NV (static HTML) — cùng nguồn Supabase + proxy MKT như Vercel /api/baocao-vandon-nv-data
+app.get('/api/baocao-vandon-nv-data', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const kind = (req.query.kind || 'f3').toString().toLowerCase();
+  try {
+    if (kind === 'mkt') {
+      const body = await proxyMktReport();
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      return res.json(body);
+    }
+    if (kind === 'hr' || kind === 'nhan-su' || kind === 'nhansu') {
+      const hr = await fetchHrLegacyMapped(supabaseAdmin);
+      res.setHeader('Cache-Control', 'public, max-age=120');
+      return res.json(hr);
+    }
+    const startDate = req.query.start_date ? String(req.query.start_date).trim() : '';
+    const endDate = req.query.end_date ? String(req.query.end_date).trim() : '';
+    const maxRows = req.query.max_rows ? Number(req.query.max_rows) : undefined;
+    const mapped = await fetchF3LegacyMapped(supabaseAdmin, {
+      startDate,
+      endDate,
+      maxRows,
+    });
+    res.setHeader('Cache-Control', 'public, max-age=30');
+    return res.json(mapped);
+  } catch (e) {
+    console.error('❌ /api/baocao-vandon-nv-data:', kind, e);
+    res.status(500).json({ error: e.message || 'Server error', kind });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -493,5 +529,6 @@ app.listen(PORT, () => {
   console.log(`📡 API endpoint: http://localhost:${PORT}/van-don`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/sync-mkt`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/fetch-detail-reports`);
+  console.log(`📡 API endpoint: http://localhost:${PORT}/api/baocao-vandon-nv-data`);
 });
 
