@@ -354,6 +354,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   // State để chuyển đổi giữa các tab
   const [activeTab, setActiveTab] = useState(dataSource === 'hcm' ? 'hcm' : 'rd'); // rd, hcm, f3_summary
+  const isHcmDataSource = dataSource === 'hcm';
   const isHcmView = activeTab === 'hcm';
   const ordersTableName = activeTab === 'hcm' ? 'order_code_hcm' : 'orders';
 
@@ -3220,20 +3221,26 @@ function DanhSachDon({ dataSource = 'default' }) {
     };
 
     allData.forEach(row => {
-      const teamVal = String(row.Team || row.team || '').trim().toUpperCase();
-      // Loại bỏ các đơn có team là HCM vì chúng thuộc nhánh HCM
-      if (teamVal === 'HCM' || teamVal.includes('HCM')) return;
+      const teamVal = String(row["Đội/Team"] || row.Team || row.team || '').trim().toUpperCase();
+      // Trang mặc định loại HCM để không lẫn nhánh; trang HCM thì giữ dữ liệu theo nguồn hiện tại.
+      if (!isHcmDataSource && (teamVal === 'HCM' || teamVal.includes('HCM'))) return;
       const mktStaff = rowDisplayMktStaff(row);
       const saleStaff = rowDisplaySaleStaff(row);
       const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || row.delivery_staff || "").trim();
 
-      const tienVe = parseFloat(String(row["Tiền Việt đã đối soát"] || row["Tiền đã thanh toán"] || row.reconciled_vnd || 0).replace(/[^\d.-]/g, '')) || 0;
-      const shipRaw = parseFloat(String(row["Phí ship"] || row.shipping_cost || 0).replace(/[^\d.-]/g, '')) || 0;
+      const tienVe = parseVietnameseMoneyToNumber(
+        row["Tiền Việt đã đối soát"] ?? row["Tiền đã thanh toán"] ?? row.reconciled_vnd ?? 0
+      ) || 0;
+      const shipRaw = parseVietnameseMoneyToNumber(
+        row["Phí ship"] ?? row.shipping_cost ?? 0
+      ) || 0;
       // So sánh cùng mẫu dữ liệu: chỉ tính ship cho các đơn đã có tiền về/đối soát.
       const ship = tienVe > 0 ? shipRaw : 0;
 
       const hasTracking = String(row["Mã Tracking"] || row.tracking_code || "").trim() !== "";
-      const dsDi = hasTracking ? (parseFloat(String(row["Tổng tiền VNĐ"] || row.total_amount_vnd || 0).replace(/[^\d.-]/g, '')) || 0) : 0;
+      const dsDi = hasTracking
+        ? (parseVietnameseMoneyToNumber(row["Tổng tiền VNĐ"] ?? row.total_amount_vnd ?? 0) || 0)
+        : 0;
 
       const updateStats = (dept, rawName) => {
         const name = String(rawName || "").trim() || "Trống";
@@ -3273,7 +3280,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     };
 
     return result;
-  }, [allData, activeTab]);
+  }, [allData, activeTab, isHcmDataSource]);
 
   if (!hasOrderListAccess) {
     return (
