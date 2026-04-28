@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Tự động tính lại MKT khi thay đổi Kết quả check",
+  "description": "Tự động kích hoạt tính toán lại báo cáo MKT từ thao tác vận đơn theo key khi cột \"Kết quả check\" thay đổi",
+  "version": "1",
+  "when": {
+    "type": "postToolUse",
+    "toolTypes": [
+      ".*updateSingleCell.*|.*updateBatch.*"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Kiểm tra xem có thay đổi cột \"Kết quả check\" không. Nếu có, hãy gọi hàm recalcMktSoDonAfterOrderSave để tự động tính toán lại báo cáo MKT cho đơn hàng đã thay đổi. Sử dụng thông tin từ tool execution để xác định order_code, ngày đơn hàng, và các thông tin cần thiết để tạo key cho việc tính toán lại."
+  }
+}
