@@ -2203,7 +2203,7 @@ function FFM({ variant = 'MGT' }) {
     }
 
     const isShippingUnitCol = colKey === 'Đơn vị vận chuyển' || colKey === 'shipping_unit';
-    if (isShippingUnitCol && nextValue.toLowerCase() === 'ffm') {
+    if (isShippingUnitCol) {
       const nbKey = 'delivery_status_nb';
       const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
       const currentNb = pendingNb
@@ -2377,18 +2377,18 @@ function FFM({ variant = 'MGT' }) {
           }
 
           const isShippingUnit = dataKey === 'Đơn vị vận chuyển' || dataKey === 'shipping_unit';
-          if (isShippingUnit && valStr.trim() !== '') {
+          if (isShippingUnit) {
             const nbKey = 'delivery_status_nb';
             const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
             const currentNb = pendingNb
               ? pendingNb.newValue
               : String(originalRow?.delivery_status_nb ?? originalRow?.['Trạng thái giao hàng NB'] ?? '').trim();
-            if (!currentNb) {
+            if (String(currentNb).trim().toLowerCase() !== 'chưa giao') {
               changesArray.push({
                 orderId,
                 colKey: nbKey,
-                originalValue: currentNb,
-                newValue: 'Chưa giao'
+                originalValue: String(currentNb),
+                newValue: 'Chưa Giao'
               });
             }
           }

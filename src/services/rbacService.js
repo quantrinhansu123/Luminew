@@ -566,8 +566,8 @@ export const getSubstitutePersonnel = async (username) => {
 
 /**
  * Tên NV vận đơn được xem trên trang /van-don (theo `danh_sach_van_don`):
- * - Nếu tên user nằm trong `nguoi_sua_ho`: chỉ lấy danh sách tên trong `nguoi_sua_ho`.
- * - Nếu user là chủ dòng (`ho_va_ten`): lấy chủ dòng + mọi tên trong `nguoi_sua_ho`.
+ * - Nếu user là chủ dòng (`ho_va_ten`): lấy chủ + mọi tên trong `nguoi_sua_ho` (chủ «nhìn» được cả nhóm sửa hộ).
+ * - Nếu tên user nằm trong `nguoi_sua_ho`: chỉ lấy đúng (các) tên khớp user — không gộp cả danh sách người sửa hộ.
  */
 export const getVanDonVisibleNames = async ({ userName, userNames, userEmail } = {}) => {
     const normKey = (s) =>
@@ -632,9 +632,10 @@ export const getVanDonVisibleNames = async ({ userName, userNames, userEmail } =
             const matchesOwner = matchesAnyTarget(ownerName);
             const matchesHelper = helpers.some((h) => matchesAnyTarget(h));
 
-            // Nếu tên user xuất hiện trong cột "Người sửa hộ", chỉ lấy các tên trong cột đó.
+            // User là một người trong cột "Người sửa hộ": chỉ thêm đúng tên khớp phiên (không lấy cả nhóm).
             if (matchesHelper) {
                 for (const h of helpers) {
+                    if (!matchesAnyTarget(h)) continue;
                     const t = String(h || '').trim();
                     if (t) allowedNames.add(t);
                 }

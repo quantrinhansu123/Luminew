@@ -4065,9 +4065,9 @@ function VanDon({ dataSource = 'default' }) {
       newValue: String(newValue)
     }];
 
-    // Tự động nhảy trạng thái giao hàng NB khi chọn đơn vị vận chuyển là ffm
+    // Tự động nhảy trạng thái giao hàng NB khi thay đổi đơn vị vận chuyển
     const isShippingUnitCol = colKey === 'Đơn vị vận chuyển' || colKey === 'shipping_unit';
-    if (isShippingUnitCol && String(newValue).trim().toLowerCase() === 'ffm') {
+    if (isShippingUnitCol) {
       const nbKey = 'Trạng thái giao hàng NB';
       const nbDbKey = 'delivery_status_nb';
       
@@ -4081,7 +4081,7 @@ function VanDon({ dataSource = 'default' }) {
       if (currentNbValue.toLowerCase() !== 'chưa giao') {
         changes.push({
           orderId: oid,
-          colKey: nbKey,
+          colKey: nbDbKey,
           originalValue: currentNbValue,
           newValue: 'Chưa Giao'
         });

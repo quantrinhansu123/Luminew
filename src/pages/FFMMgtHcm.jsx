@@ -1840,9 +1840,9 @@ function FFMMgtHcm() {
       }
     }
     
-    // Tự động nhảy trạng thái giao hàng NB khi chọn đơn vị vận chuyển là ffm
+    // Tự động nhảy trạng thái giao hàng NB khi thay đổi đơn vị vận chuyển
     const isShippingUnitCol = colKey === 'Đơn vị vận chuyển' || colKey === 'shipping_unit';
-    if (isShippingUnitCol && nextValue.toLowerCase() === 'ffm') {
+    if (isShippingUnitCol) {
       const nbKey = 'delivery_status_nb';
       const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
       const currentNb = pendingNb
@@ -2009,6 +2009,23 @@ function FFMMgtHcm() {
                 colKey: uiCol,
                 originalValue: String(currentUiValTracking),
                 newValue: todayStr
+              });
+            }
+          }
+
+          const isShippingUnit = dataKey === 'Đơn vị vận chuyển' || dataKey === 'shipping_unit';
+          if (isShippingUnit) {
+            const nbKey = 'delivery_status_nb';
+            const pendingNb = pendingChanges.get(orderId)?.get(nbKey);
+            const currentNb = pendingNb
+              ? pendingNb.newValue
+              : String(originalRow?.delivery_status_nb ?? originalRow?.['Trạng thái giao hàng NB'] ?? '').trim();
+            if (String(currentNb).trim().toLowerCase() !== 'chưa giao') {
+              changesArray.push({
+                orderId,
+                colKey: nbKey,
+                originalValue: String(currentNb),
+                newValue: 'Chưa Giao'
               });
             }
           }
