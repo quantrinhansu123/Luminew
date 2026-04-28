@@ -223,6 +223,8 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     const [userBranchMap, setUserBranchMap] = useState({});
     const [selectedPersonnelNames, setSelectedPersonnelNames] = useState([]);
     const [selectedPersonnelReady, setSelectedPersonnelReady] = useState(false);
+    const [rdProducts, setRdProducts] = useState([]);
+    const [rdProductsReady, setRdProductsReady] = useState(teamFilter !== 'RD');
 
     const [currentPage, setCurrentPage] = useState(1);
     const [rowsPerPage, setRowsPerPage] = useState(50);
@@ -258,6 +260,38 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         loadSelectedPersonnel();
     }, [user?.email]);
 
+    useEffect(() => {
+        if (teamFilter !== 'RD') {
+            setRdProducts([]);
+            setRdProductsReady(true);
+            return;
+        }
+        let cancelled = false;
+        setRdProductsReady(false);
+        (async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('system_settings')
+                    .select('name')
+                    .eq('type', 'test')
+                    .order('name', { ascending: true });
+                if (error) throw error;
+                const names = (data || [])
+                    .map((r) => String(r?.name || '').trim())
+                    .filter(Boolean);
+                if (!cancelled) setRdProducts(names);
+            } catch (e) {
+                console.error('[BaoCaoChiTiet] load RD products:', e);
+                if (!cancelled) setRdProducts([]);
+            } finally {
+                if (!cancelled) setRdProductsReady(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [teamFilter]);
+
     // List of columns that should be hidden/removed (no longer in mapSupabaseToUI)
     const REMOVED_COLUMNS = [
         'Phí ship',
@@ -280,6 +314,8 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         'Mặt hàng',
         'Mã Tracking',
         'Trạng thái giao hàng',
+        'Ngày đối soát bill',
+        'Ngày đối soát cước',
         'Tổng tiền VNĐ',
         'Page'
     ];
@@ -433,6 +469,8 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
         "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
         "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
         "Kế toán xác nhận thu tiền về": item.accountant_confirm,
+        "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
+        "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
         "Trạng thái thu tiền": item.payment_status_detail,
         "Lý do": item.reason,
         "Page": item.page_name // Map Page Name
@@ -442,6 +480,7 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
     // Load data from Supabase only
     const loadData = async () => {
         if (!selectedPersonnelReady) return;
+        if (teamFilter === 'RD' && !rdProductsReady) return;
         setLoading(true);
         try {
             console.log(`Loading MKT Detail data from Supabase (${ordersTableName})...`);
@@ -486,7 +525,13 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
             if (supaError) throw supaError;
 
             // 2. Process Supabase Data
-            const supaMapped = (supaData || []).map(mapSupabaseToUI);
+            let supaMapped = (supaData || []).map(mapSupabaseToUI);
+            if (teamFilter === 'RD') {
+                const rdSet = new Set(rdProducts.map((p) => p.toLowerCase()));
+                supaMapped = supaMapped.filter((row) =>
+                    rdSet.has(String(row['Mặt hàng'] || '').trim().toLowerCase())
+                );
+            }
 
             console.log(`Loaded: ${supaMapped.length} rows from ${ordersTableName}.`);
             setAllData(supaMapped);
@@ -501,9 +546,10 @@ function BaoCaoChiTiet({ dataSource = 'default' }) {
 
     useEffect(() => {
         if (permissionsLoading || !selectedPersonnelReady) return;
+        if (teamFilter === 'RD' && !rdProductsReady) return;
         loadData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startDate, endDate, role, userName, permissionsLoading, ordersTableName, selectedPersonnelReady, selectedPersonnelNames]);
+    }, [startDate, endDate, role, userName, permissionsLoading, ordersTableName, selectedPersonnelReady, selectedPersonnelNames, teamFilter, rdProductsReady, rdProducts]);
 
     // Fetch user branch mapping
     useEffect(() => {

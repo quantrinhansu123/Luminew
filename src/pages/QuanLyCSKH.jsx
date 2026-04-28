@@ -67,6 +67,8 @@ function mapOrderRowToFriendlyCSKH(item) {
     "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount,
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier,
     "Kế toán xác nhận thu tiền về": item.accountant_confirm,
+    "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
+    "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
     "Trạng thái thu tiền": resolveTrangThaiThuTienFromOrder(item),
     "Lý do": item.reason,
     "Page": item.page_name,
@@ -430,6 +432,8 @@ function QuanLyCSKH({
     'Kết quả Check',
     'CSKH',
     'Trạng thái giao hàng',
+    'Ngày đối soát bill',
+    'Ngày đối soát cước',
     'Tổng tiền VNĐ',
   ];
 
@@ -483,6 +487,8 @@ function QuanLyCSKH({
     'reconciled_vnd': 'Tiền Việt đã đối soát',
     'reconciled_amount': 'Tiền Việt đã đối soát',
     'accountant_confirm': 'Kế toán xác nhận thu tiền về',
+    'ngay_doi_soat_bill': 'Ngày đối soát bill',
+    'ngay_doi_soat_cuoc': 'Ngày đối soát cước',
     'page_name': 'Page',
     'shift': 'Ca',
     'created_at': 'Ngày tạo',

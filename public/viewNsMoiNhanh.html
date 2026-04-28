@@ -838,6 +838,14 @@
       return ['HN-MKT', 'Team Test'];
     }
     const MKT_ALLOWED_TEAMS = getMktAllowedTeamsFromPage();
+    const RD_PRODUCTS_ONLY = (() => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('rdProductsOnly') === '1';
+      } catch {
+        return false;
+      }
+    })();
 
     function applyMktTeamFilterToQuery(q) {
       if (!MKT_ALLOWED_TEAMS || MKT_ALLOWED_TEAMS.length === 0) return q;
@@ -1257,6 +1265,18 @@
       return await fetchAllMktDetailReportRowsByRange(dateRange);
     }
 
+    async function fetchRdTestProductsFromSettings() {
+      const supabase = await getSupabaseClient();
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('name')
+        .eq('type', 'test');
+      if (error) throw error;
+      return (data || [])
+        .map((r) => String(r?.name || '').trim().toLowerCase())
+        .filter(Boolean);
+    }
+
     /** detail_reports không có employeeData — suy ra từ các dòng báo cáo */
     function buildEmployeesFromDetailRows(rowsNorm) {
       const map = new Map();
@@ -1585,6 +1605,16 @@
         const rawRows = extractDetailReportsRows(resultMKT);
         const rowsNorm = rawRows.map(normalizeDetailReportRow);
         const rowsDeduped = dedupeMktDetailReportRows(rowsNorm);
+        let rdProductsSet = null;
+        if (RD_PRODUCTS_ONLY) {
+          try {
+            const rdProducts = await fetchRdTestProductsFromSettings();
+            rdProductsSet = new Set(rdProducts);
+          } catch (e) {
+            console.error('Lỗi tải danh mục SP Test (R&D):', e);
+            rdProductsSet = new Set();
+          }
+        }
 
         const employeeDataMKT = Array.isArray(resultMKT.employeeData) && resultMKT.employeeData.length
           ? await fetchEmployeeData(resultMKT.employeeData)
@@ -1602,6 +1632,11 @@
             if (!allowedSet) return true;
             const t = String(r['Team'] || '').trim();
             return allowedSet.has(t);
+          })
+          .filter((r) => {
+            if (!rdProductsSet) return true;
+            const p = String(r['Sản_phẩm'] || '').trim().toLowerCase();
+            return p && rdProductsSet.has(p);
           })
           .map(r => {
             const dsChotTT = Number(r["Doanh số TT"] ?? r.doanh_so_tt) || 0;

@@ -27,8 +27,37 @@ export default function DanhSachBaoCaoTayRnD() {
     const [editingReport, setEditingReport] = useState(null);
     const [editForm, setEditForm] = useState({});
     const [saving, setSaving] = useState(false);
+    const [rdProducts, setRdProducts] = useState([]);
+    const [rdProductsReady, setRdProductsReady] = useState(false);
 
     const { canView } = usePermissions();
+
+    useEffect(() => {
+        let cancelled = false;
+        setRdProductsReady(false);
+        (async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('system_settings')
+                    .select('name')
+                    .eq('type', 'test')
+                    .order('name', { ascending: true });
+                if (error) throw error;
+                const names = (data || [])
+                    .map((r) => String(r?.name || '').trim())
+                    .filter(Boolean);
+                if (!cancelled) setRdProducts(names);
+            } catch (e) {
+                console.error('Error loading R&D products:', e);
+                if (!cancelled) setRdProducts([]);
+            } finally {
+                if (!cancelled) setRdProductsReady(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     // Initialize Dates
     useEffect(() => {
@@ -45,7 +74,7 @@ export default function DanhSachBaoCaoTayRnD() {
 
     // Fetch Data
     const fetchData = async () => {
-        if (!filters.startDate || !filters.endDate) return;
+        if (!filters.startDate || !filters.endDate || !rdProductsReady) return;
         setLoading(true);
         try {
             const { data, error } = await supabase
@@ -57,7 +86,11 @@ export default function DanhSachBaoCaoTayRnD() {
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            setManualReports(data || []);
+            const rdSet = new Set(rdProducts.map((p) => p.toLowerCase()));
+            const filtered = (data || []).filter((row) =>
+                rdSet.has(String(row?.product || '').trim().toLowerCase())
+            );
+            setManualReports(filtered);
         } catch (error) {
             console.error('Error fetching R&D manual reports:', error);
         } finally {
@@ -67,7 +100,7 @@ export default function DanhSachBaoCaoTayRnD() {
 
     useEffect(() => {
         fetchData();
-    }, [filters.startDate, filters.endDate]);
+    }, [filters.startDate, filters.endDate, rdProductsReady, rdProducts]);
 
     if (!canView('RND_MANUAL')) {
         return <div className="p-8 text-center text-red-600 font-bold">Bạn không có quyền truy cập trang này (RND_MANUAL).</div>;

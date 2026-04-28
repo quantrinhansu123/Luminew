@@ -266,23 +266,26 @@ export default function BaoCaoMarketing({
     marketList: ['Nhật Bản', 'Hàn Quốc', 'Canada', 'US', 'Úc', 'Anh', 'CĐ Nhật Bản'],
   });
 
-  // Load products from system_settings (type <> 'test')
+  // team=RD: chỉ lấy SP Test (R&D); các team khác: loại SP Test.
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('system_settings')
           .select('name')
-          .neq('type', 'test')
           .order('name', { ascending: true });
+        query = teamFilter === 'RD' ? query.eq('type', 'test') : query.neq('type', 'test');
+        const { data, error } = await query;
 
-        if (!error && data && data.length > 0) {
-          const products = data.map(item => item.name).filter(Boolean);
+        if (!error && data) {
+          const products = data.map(item => String(item?.name || '').trim()).filter(Boolean);
           setAppData(prev => ({
             ...prev,
-            productList: products.length > 0 ? products : prev.productList
+            productList: products
           }));
-          console.log(`✅ Loaded ${products.length} products from system_settings (excluding test)`);
+          console.log(
+            `✅ Loaded ${products.length} products from system_settings (${teamFilter === 'RD' ? 'type=test' : 'type!=test'})`
+          );
         }
       } catch (err) {
         console.error('Error fetching products from system_settings:', err);
@@ -290,7 +293,7 @@ export default function BaoCaoMarketing({
     };
 
     fetchProducts();
-  }, []);
+  }, [teamFilter]);
 
   const [tableHeaders, setTableHeaders] = useState([]);
   const [tableRows, setTableRows] = useState([]);
