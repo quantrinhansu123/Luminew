@@ -734,7 +734,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Ghi chú": item.note,
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
-    "Tiền Việt đã đối soát": item.reconciled_vnd || item.reconciled_amount, // reconciled_vnd new
+    "Tiền Việt đã đối soát": item.reconciled_vnd ?? item.reconciled_amount, // reconciled_vnd new
     "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
     "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
@@ -742,7 +742,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Trạng thái thu tiền": item.payment_status_detail,
     "Trạng thái thanh toán": item.payment_status,
     "Lý do": item.reason,
-    "Phí ship": item.shipping_cost || item.shipping_fee,
+    "Phí ship": item.shipping_cost ?? item.shipping_fee,
     "Tên Page": item.page_name, // Map Page Name
     "Ca": (() => {
       const stored = normalizeCaShiftDisplay(item.shift ?? item.ca ?? '');
