@@ -200,7 +200,7 @@ function getBillDemLanDetailId(row, pendingChanges) {
 }
 
 /** Mã đơn có thật trong bảng orders (batch), tránh đếm sai khi UPDATE không trả dòng do RLS. */
-async function fetchExistingOrderCodesSet(supabaseClient, orderCodes) {
+async function fetchExistingOrderCodesSet(supabaseClient, orderCodes, ordersTable = 'orders') {
   const set = new Set();
   const list = [...orderCodes]
     .map((c) => (c == null ? '' : String(c).trim()))
@@ -209,7 +209,7 @@ async function fetchExistingOrderCodesSet(supabaseClient, orderCodes) {
   const BATCH = 500;
   for (let i = 0; i < list.length; i += BATCH) {
     const batch = list.slice(i, i + BATCH);
-    const { data, error } = await supabaseClient.from('orders').select('order_code').in('order_code', batch);
+    const { data, error } = await supabaseClient.from(ordersTable).select('order_code').in('order_code', batch);
     if (error) throw error;
     for (const r of data || []) {
       if (r?.order_code != null) set.add(String(r.order_code).trim());
@@ -219,7 +219,7 @@ async function fetchExistingOrderCodesSet(supabaseClient, orderCodes) {
 }
 
 /** Mã tracking (trim) → các order_code có đúng tracking_code đó (đồng bộ hết, kể cả nhiều đơn trùng tracking). */
-async function fetchOrderCodesByTrackingMap(supabaseClient, trackingKeys) {
+async function fetchOrderCodesByTrackingMap(supabaseClient, trackingKeys, ordersTable = 'orders') {
   const map = new Map();
   const unique = [
     ...new Set([...trackingKeys].map((t) => (t == null ? '' : String(t).trim())).filter(Boolean)),
@@ -229,7 +229,7 @@ async function fetchOrderCodesByTrackingMap(supabaseClient, trackingKeys) {
   for (let i = 0; i < unique.length; i += BATCH) {
     const batch = unique.slice(i, i + BATCH);
     const { data, error } = await supabaseClient
-      .from('orders')
+      .from(ordersTable)
       .select('order_code, tracking_code')
       .in('tracking_code', batch);
     if (error) throw error;
@@ -260,7 +260,7 @@ function isHcmTeam(team) {
   return v === 'HCM' || v.includes('HCM');
 }
 
-async function fetchScopedOrderCodesSet(supabaseClient, orderCodes, isHcmScope) {
+async function fetchScopedOrderCodesSet(supabaseClient, orderCodes, isHcmScope, ordersTable = 'orders') {
   const list = [...new Set((orderCodes || []).map((c) => String(c ?? '').trim()).filter(Boolean))];
   const out = new Set();
   if (list.length === 0) return out;
@@ -268,14 +268,14 @@ async function fetchScopedOrderCodesSet(supabaseClient, orderCodes, isHcmScope) 
   for (let i = 0; i < list.length; i += BATCH) {
     const batch = list.slice(i, i + BATCH);
     const { data, error } = await supabaseClient
-      .from('orders')
+      .from(ordersTable)
       .select('order_code, team')
       .in('order_code', batch);
     if (error) throw error;
     for (const row of data || []) {
       const code = String(row?.order_code ?? '').trim();
       if (!code) continue;
-      if (!isHcmScope || isHcmTeam(row?.team)) {
+      if (!isHcmScope || ordersTable !== 'orders' || isHcmTeam(row?.team)) {
         out.add(code);
       }
     }
@@ -285,6 +285,7 @@ async function fetchScopedOrderCodesSet(supabaseClient, orderCodes, isHcmScope) 
 
 function DoiSoatBillCuoc({ dataScope = 'default' }) {
   const isHcmScope = dataScope === 'hcm';
+  const ordersTableName = isHcmScope ? 'order_code_hcm' : 'orders';
   const [activeTab, setActiveTab] = useState('bill'); // 'bill' or 'cuoc'
   const [billData, setBillData] = useState([]);
   const [cuocData, setCuocData] = useState([]);
@@ -346,6 +347,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
   /** Tiến độ đồng bộ */
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0, active: false });
+  const [backfillingHcm, setBackfillingHcm] = useState(false);
 
   const fetchSyncHistory = async () => {
     setLoadingHistory(true);
@@ -486,7 +488,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         for (let i = 0; i < orderCodes.length; i += batchSize) {
           const batch = orderCodes.slice(i, i + batchSize);
           const { data: ordersData, error: ordersError } = await supabase
-            .from('orders')
+            .from(ordersTableName)
             .select('order_code, shipping_unit, payment_type, team')
             .in('order_code', batch);
 
@@ -511,7 +513,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         for (let i = 0; i < trackingCodes.length; i += batchSize) {
           const batch = trackingCodes.slice(i, i + batchSize);
           const { data: byTracking, error: trErr } = await supabase
-            .from('orders')
+            .from(ordersTableName)
             .select('order_code, shipping_unit, payment_type, tracking_code, team')
             .in('tracking_code', batch);
 
@@ -643,7 +645,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         setBillData(rows);
       } else {
         const orderCodes = [...new Set(rows.map((r) => String(r?.ma_don_hang ?? '').trim()).filter(Boolean))];
-        const scopedCodes = await fetchScopedOrderCodesSet(supabase, orderCodes, true);
+        const scopedCodes = await fetchScopedOrderCodesSet(supabase, orderCodes, true, ordersTableName);
         setBillData(rows.filter((r) => {
           const oc = String(r?.ma_don_hang ?? '').trim();
           return oc && scopedCodes.has(oc);
@@ -680,7 +682,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         for (let i = 0; i < orderCodes.length; i += batchSize) {
           const batch = orderCodes.slice(i, i + batchSize);
           const { data: ordersData, error: ordersError } = await supabase
-            .from('orders')
+            .from(ordersTableName)
             .select('order_code, team')
             .in('order_code', batch);
           
@@ -757,7 +759,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         setCuocData(rows);
       } else {
         const orderCodes = [...new Set(rows.map((r) => String(r?.ma_don_hang ?? '').trim()).filter(Boolean))];
-        const scopedCodes = await fetchScopedOrderCodesSet(supabase, orderCodes, true);
+        const scopedCodes = await fetchScopedOrderCodesSet(supabase, orderCodes, true, ordersTableName);
         setCuocData(rows.filter((r) => {
           const oc = String(r?.ma_don_hang ?? '').trim();
           return oc && scopedCodes.has(oc);
@@ -1409,7 +1411,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       }
 
       // 3. Map tracking sang order code
-      const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, Array.from(vndByTracking.keys()));
+      const trackingToOrders = await fetchOrderCodesByTrackingMap(supabase, Array.from(vndByTracking.keys()), ordersTableName);
       const finalUpdateMap = new Map();
       const trackingsKhongCoDon = [];
 
@@ -1447,8 +1449,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       }
 
       // 4. Kiểm tra sự tồn tại trên hệ thống (orders)
-      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, allOrderCodes);
-      const scopedOrderCodes = await fetchScopedOrderCodesSet(supabase, allOrderCodes, isHcmScope);
+      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, allOrderCodes, ordersTableName);
+      const scopedOrderCodes = await fetchScopedOrderCodesSet(supabase, allOrderCodes, isHcmScope, ordersTableName);
       const validOrderCodes = new Set([...existingOrderCodes].filter((c) => scopedOrderCodes.has(c)));
       const missingInOrders = allOrderCodes.filter((c) => !validOrderCodes.has(c));
       const foundCount = validOrderCodes.size;
@@ -1519,7 +1521,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       const chunks = chunkArray(ordersToUpdate, 50);
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        const { error: updateError } = await supabase.from('orders').upsert(chunk, { onConflict: 'order_code' });
+        const { error: updateError } = await supabase.from(ordersTableName).upsert(chunk, { onConflict: 'order_code' });
 
         if (updateError) {
           console.error(`Error batch updating orders (chunk ${i}):`, updateError);
@@ -1639,8 +1641,8 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       ]);
       
       const orderCodeList = [...allOrderCodes];
-      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, orderCodeList);
-      const scopedOrderCodes = await fetchScopedOrderCodesSet(supabase, orderCodeList, isHcmScope);
+      const existingOrderCodes = await fetchExistingOrderCodesSet(supabase, orderCodeList, ordersTableName);
+      const scopedOrderCodes = await fetchScopedOrderCodesSet(supabase, orderCodeList, isHcmScope, ordersTableName);
 
       const missingOrderCodes = orderCodeList.filter(oc => !existingOrderCodes.has(oc) || !scopedOrderCodes.has(oc));
       const validOrderCodes = orderCodeList.filter(oc => existingOrderCodes.has(oc) && scopedOrderCodes.has(oc));
@@ -1696,7 +1698,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         const chunk = chunks[i];
         
         const { error: updateError } = await supabase
-          .from('orders')
+          .from(ordersTableName)
           .upsert(chunk, { onConflict: 'order_code' });
 
         if (updateError) {
@@ -1835,7 +1837,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     if (!orderCode) return null;
     try {
       const { data, error } = await supabase
-        .from('orders')
+        .from(ordersTableName)
         .select('team')
         .eq('order_code', orderCode)
         .single();
@@ -1853,7 +1855,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
     if (!t) return null;
     try {
       const { data, error } = await supabase
-        .from('orders')
+        .from(ordersTableName)
         .select('order_code, shipping_unit, payment_type')
         .eq('tracking_code', t)
         .limit(1);
@@ -1971,7 +1973,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
 
     if ((activeTab === 'bill' || activeTab === 'bill_view') && columnKey === 'ma_don_hang' && newValue) {
       supabase
-        .from('orders')
+        .from(ordersTableName)
         .select('order_code, shipping_unit, payment_type')
         .eq('order_code', newValue)
         .maybeSingle()
@@ -1990,7 +1992,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
         const mdh = mdhRaw != null && String(mdhRaw).trim() !== '' ? String(mdhRaw).trim() : '';
         if (mdh) {
           supabase
-            .from('orders')
+            .from(ordersTableName)
             .select('order_code, shipping_unit, payment_type')
             .eq('order_code', mdh)
             .maybeSingle()
@@ -2464,7 +2466,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
               .filter((tk) => tk && !isBillTrackingDropoffPlaceholder(tk))
           ),
         ];
-        const trackingToOrdersImport = await fetchOrderCodesByTrackingMap(supabase, trackingNeed);
+        const trackingToOrdersImport = await fetchOrderCodesByTrackingMap(supabase, trackingNeed, ordersTableName);
 
         for (const r of recordsToInsert) {
           const tk = r.ma_tracking != null ? String(r.ma_tracking).trim() : '';
@@ -2678,7 +2680,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
           for (let i = 0; i < codes.length; i += bs) {
             const batch = codes.slice(i, i + bs);
             const { data: hitByTr, error: e2 } = await supabase
-              .from('orders')
+              .from(ordersTableName)
               .select('order_code, tracking_code')
               .in('tracking_code', batch);
             if (e2) throw e2;
@@ -2691,7 +2693,7 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
           }
         }
 
-        const { data: hitByCode, error: e1 } = await supabase.from('orders').select('order_code').in('order_code', codes);
+        const { data: hitByCode, error: e1 } = await supabase.from(ordersTableName).select('order_code').in('order_code', codes);
         if (e1) throw e1;
         const asOrder = new Set((hitByCode || []).map((o) => o.order_code));
 
@@ -2744,6 +2746,74 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       alert('Lỗi khi thêm mã đơn hàng: ' + error.message);
     } finally {
       setAdding(false);
+    }
+  };
+
+  const handleBackfillHcmFromOrders = async () => {
+    if (!isHcmScope) return;
+    const ok = window.confirm(
+      'Backfill dữ liệu đối soát từ bảng orders sang order_code_hcm cho các mã đơn đang có trên HCM?\n\n' +
+        'Sẽ cập nhật: reconciled_vnd, shipping_cost, order_count_actual, ngay_doi_soat_bill, ngay_doi_soat_cuoc.'
+    );
+    if (!ok) return;
+
+    setBackfillingHcm(true);
+    try {
+      const PAGE = 1000;
+      let from = 0;
+      const hcmCodes = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from('order_code_hcm')
+          .select('order_code')
+          .order('order_code', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const chunk = (data || []).map((r) => String(r?.order_code ?? '').trim()).filter(Boolean);
+        hcmCodes.push(...chunk);
+        if (chunk.length < PAGE) break;
+        from += PAGE;
+      }
+
+      const uniqCodes = [...new Set(hcmCodes)];
+      if (uniqCodes.length === 0) {
+        alert('Không có mã đơn nào trên order_code_hcm để backfill.');
+        return;
+      }
+
+      const BATCH = 500;
+      let updated = 0;
+      for (let i = 0; i < uniqCodes.length; i += BATCH) {
+        const batch = uniqCodes.slice(i, i + BATCH);
+        const { data: srcRows, error: srcErr } = await supabase
+          .from('orders')
+          .select('order_code, reconciled_vnd, shipping_cost, order_count_actual, ngay_doi_soat_bill, ngay_doi_soat_cuoc')
+          .in('order_code', batch);
+        if (srcErr) throw srcErr;
+
+        const payload = (srcRows || []).map((r) => ({
+          order_code: r.order_code,
+          reconciled_vnd: r.reconciled_vnd ?? null,
+          shipping_cost: r.shipping_cost ?? null,
+          order_count_actual: r.order_count_actual ?? null,
+          ngay_doi_soat_bill: r.ngay_doi_soat_bill ?? null,
+          ngay_doi_soat_cuoc: r.ngay_doi_soat_cuoc ?? null,
+        }));
+        if (!payload.length) continue;
+
+        const { error: upErr } = await supabase
+          .from('order_code_hcm')
+          .upsert(payload, { onConflict: 'order_code' });
+        if (upErr) throw upErr;
+        updated += payload.length;
+      }
+
+      alert(`Đã backfill thành công ${updated} mã đơn từ orders sang order_code_hcm.`);
+    } catch (err) {
+      console.error('Backfill HCM failed:', err);
+      alert(`Lỗi backfill HCM: ${err?.message || String(err)}`);
+    } finally {
+      setBackfillingHcm(false);
     }
   };
 
@@ -2812,6 +2882,17 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
                 </>
               )}
             </button>
+            {isHcmScope && (
+              <button
+                onClick={handleBackfillHcmFromOrders}
+                disabled={backfillingHcm || syncing || loading}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+                title="Kéo dữ liệu đối soát cũ từ orders sang order_code_hcm"
+              >
+                {backfillingHcm ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
+                {backfillingHcm ? 'Đang backfill...' : 'Backfill HCM'}
+              </button>
+            )}
             <div className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-2 py-1">
               <div className="flex flex-col gap-0.5">
                 <span className="text-[10px] font-bold text-blue-900 px-1 uppercase tracking-wider">Đồng bộ Bill</span>
