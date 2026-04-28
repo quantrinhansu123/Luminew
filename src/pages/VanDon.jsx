@@ -2775,6 +2775,7 @@ function VanDon({ dataSource = 'default' }) {
     const { batchId, carrier, orderIds, logsTable } = confirmPushData;
     const carrierKey = 'Đơn vị vận chuyển';
     const accountingDateKey = 'Ngày Kế toán đối soát với FFM lần 2';
+    const nbStatusKey = 'delivery_status_nb';
     const now = new Date().toISOString();
 
     const historyChanges = [];
@@ -2798,6 +2799,19 @@ function VanDon({ dataSource = 'default' }) {
         originalValue: originalDateValue,
         newValue: now
       });
+
+      // Khi tick đẩy FFM: luôn đưa trạng thái giao hàng NB về "Chưa Giao"
+      const originalNbValue = originalRow
+        ? String(originalRow['Trạng thái giao hàng NB'] ?? originalRow[nbStatusKey] ?? '').trim()
+        : '';
+      if (originalNbValue.toLowerCase() !== 'chưa giao') {
+        historyChanges.push({
+          orderId,
+          colKey: nbStatusKey,
+          originalValue: originalNbValue,
+          newValue: 'Chưa Giao'
+        });
+      }
     });
 
     try {

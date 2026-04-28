@@ -346,6 +346,28 @@ function rowDisplayMktStaff(row) {
   return String(row?.['Nhân viên Marketing'] ?? row?.marketing_staff ?? row?.marketingStaff ?? '').trim();
 }
 
+/**
+ * Tiền về cho F3 Summary:
+ * - Ưu tiên reconciled_vnd (chuẩn mới)
+ * - Fallback reconciled_amount cho dữ liệu legacy
+ * - Nếu reconciled_vnd rất nhỏ nhưng reconciled_amount lớn bất thường, coi như dữ liệu vnd đã bị cụt và dùng legacy
+ */
+function resolveTienVeForSummary(row) {
+  const vnd = parseVietnameseMoneyToNumber(
+    row?.["Tiền Việt đã đối soát"] ?? row?.reconciled_vnd ?? 0
+  ) || 0;
+  const legacy = parseVietnameseMoneyToNumber(
+    row?.["Số tiền của đơn hàng đã về TK Cty"] ?? row?.reconciled_amount ?? 0
+  ) || 0;
+
+  if (vnd <= 0 && legacy > 0) return legacy;
+  if (vnd > 0 && legacy > 0) {
+    // Heuristic cho dữ liệu bị parse cụt kiểu 4.725 thay vì 4.725.000
+    if (vnd < 1000 && legacy >= 100000) return legacy;
+  }
+  return vnd;
+}
+
 function DanhSachDon({ dataSource = 'default' }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -356,6 +378,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [activeTab, setActiveTab] = useState(dataSource === 'hcm' ? 'hcm' : 'rd'); // rd, hcm, f3_summary
   const isHcmDataSource = dataSource === 'hcm';
   const isHcmView = activeTab === 'hcm';
+  const baseSourceTable = isHcmDataSource ? 'order_code_hcm' : 'orders';
   const ordersTableName = activeTab === 'hcm' ? 'order_code_hcm' : 'orders';
 
   // Cache để tránh load lại khi chuyển đổi
@@ -737,6 +760,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "NV Vận đơn": item.delivery_staff,
     // F3 summary phải bám đúng số đối soát VNĐ; không fallback reconciled_amount để tránh lấy nhầm số cũ.
     "Tiền Việt đã đối soát": item.reconciled_vnd ?? 0,
+    "Số tiền của đơn hàng đã về TK Cty": item.reconciled_amount ?? 0,
     "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
     "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
@@ -847,17 +871,23 @@ function DanhSachDon({ dataSource = 'default' }) {
 
       setLoadingProgress(20);
 
+      // Giữ scope dữ liệu nhất quán với /van-don:
+      // - HCM: chỉ lấy team HCM (tránh lẫn dữ liệu nhánh khác)
+      // - Mặc định: dùng teamFilter hiện tại (nếu có)
+      const effectiveTeamFilter = isHcmView ? 'HCM' : teamFilter;
+
       const mergedRaw = await fetchDanhSachDonMergedRawOrders({
         supabaseClient: supabase,
         ordersTableName,
         startDate,
         endDate,
-        teamFilter,
+        teamFilter: effectiveTeamFilter,
         isAdmin,
         selectedPersonnelNames,
         userName,
         selectColumns: '*',
-        skipImplicitFilters: isHcmView,
+        // Không bỏ implicit filters ở HCM để vẫn áp ngày + scope team đúng nguồn
+        skipImplicitFilters: false,
       });
 
       setLoadingProgress(70);
@@ -881,7 +911,9 @@ function DanhSachDon({ dataSource = 'default' }) {
       // Lưu vào cache
       setDataCache(prev => ({
         ...prev,
-        [cacheKey]: supaMapped
+        [cacheKey]: supaMapped,
+        // Giữ thêm cache theo tên bảng để tab Tổng hợp luôn lấy đúng nhánh dữ liệu.
+        [ordersTableName]: supaMapped,
       }));
 
       setAllData(supaMapped);
@@ -1319,7 +1351,15 @@ function DanhSachDon({ dataSource = 'default' }) {
     if (dataCache[ordersTableName]) {
       setAllData(dataCache[ordersTableName]);
     }
-  }, [activeTab, selectedPersonnelLoaded]);
+  }, [activeTab, selectedPersonnelLoaded, dataCache, ordersTableName]);
+
+  // Route /du-lieu-f3-hcm chỉ dùng nguồn HCM, không cho drift sang RD.
+  useEffect(() => {
+    if (!isHcmDataSource) return;
+    if (activeTab === 'rd') {
+      setActiveTab('hcm');
+    }
+  }, [activeTab, isHcmDataSource]);
 
   // Get unique values for filters - Bao gồm cả giá trị trống
   const uniqueMarkets = useMemo(() => {
@@ -3211,6 +3251,9 @@ function DanhSachDon({ dataSource = 'default' }) {
   // --- F3 SUMMARY CALCULATION (DYNAMIC) ---
   const f3SummaryData = useMemo(() => {
     if (activeTab !== 'f3_summary') return null;
+    // Tổng hợp phải bám theo nhánh màn hình hiện tại (HCM/HN), không phụ thuộc tab vừa xem trước đó.
+    const cachedRows = Array.isArray(dataCache?.[baseSourceTable]) ? dataCache[baseSourceTable] : null;
+    const summaryRows = cachedRows ?? (ordersTableName === baseSourceTable ? allData : []);
 
     const stats = {
       mkt: {},
@@ -3218,7 +3261,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       delivery: {}
     };
 
-    allData.forEach(row => {
+    summaryRows.forEach(row => {
       const teamVal = String(row["Đội/Team"] || row.Team || row.team || '').trim().toUpperCase();
       // Trang mặc định loại HCM để không lẫn nhánh; trang HCM thì giữ dữ liệu theo nguồn hiện tại.
       if (!isHcmDataSource && (teamVal === 'HCM' || teamVal.includes('HCM'))) return;
@@ -3226,9 +3269,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       const saleStaff = rowDisplaySaleStaff(row);
       const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || row.delivery_staff || "").trim();
 
-      const tienVe = parseVietnameseMoneyToNumber(
-        row["Tiền Việt đã đối soát"] ?? row.reconciled_vnd ?? 0
-      ) || 0;
+      const tienVe = resolveTienVeForSummary(row);
       const shipRaw = parseVietnameseMoneyToNumber(
         row["Phí ship"] ?? row.shipping_cost ?? 0
       ) || 0;
@@ -3278,7 +3319,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     };
 
     return result;
-  }, [allData, activeTab, isHcmDataSource]);
+  }, [allData, activeTab, dataCache, baseSourceTable, ordersTableName]);
 
   if (!hasOrderListAccess) {
     return (
@@ -3305,13 +3346,13 @@ function DanhSachDon({ dataSource = 'default' }) {
               {/* Hệ thống Tab */}
               <div className="flex bg-gray-100 p-1 rounded-xl ml-4">
                 <button
-                  onClick={() => setActiveTab('rd')}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'rd'
+                  onClick={() => setActiveTab(isHcmDataSource ? 'hcm' : 'rd')}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${(isHcmDataSource ? activeTab === 'hcm' : activeTab === 'rd')
                       ? 'bg-white text-[#F37021] shadow-sm'
                       : 'text-gray-500 hover:text-gray-700'
                     }`}
                 >
-                  Dữ liệu RD
+                  {isHcmDataSource ? 'Dữ liệu HCM' : 'Dữ liệu RD'}
                 </button>
                 {/* <button
                   onClick={() => setActiveTab('hcm')}
