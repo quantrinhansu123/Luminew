@@ -1885,9 +1885,27 @@ function VanDon({ dataSource = 'default' }) {
                 }
                 case 'nv_van_don': {
                   const o = getPendingOriginal(orderId, 'NV Vận đơn', 'Nhân viên Vận đơn', 'delivery_staff');
-                  const v = o !== undefined ? strNorm(o) : strNorm(row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '');
+                  const rawValue = o !== undefined ? o : (row.delivery_staff || row['NV Vận đơn'] || row['Nhân viên Vận đơn'] || '');
+                  const v = strNorm(rawValue);
+
                   if ((filter.values.has('Trống') || filter.values.has('__EMPTY__')) && isVanDonSemanticEmpty(v)) return true;
-                  return !isVanDonSemanticEmpty(v) && filter.values.has(v);
+                  if (isVanDonSemanticEmpty(v)) return false;
+
+                  // Ưu tiên khớp chính xác như cũ.
+                  if (filter.values.has(v)) return true;
+
+                  // Fallback: cho phép khớp chuỗi con (case-insensitive) để xử lý
+                  // tên lưu theo định dạng "A, B" hoặc lệch hoa/thường nhỏ.
+                  const vLower = v.toLowerCase();
+                  for (const filterVal of filter.values) {
+                    if (filterVal === 'Trống' || filterVal === '__EMPTY__') continue;
+                    const filterLower = String(filterVal).toLowerCase();
+                    if (vLower.includes(filterLower) || filterLower.includes(vLower)) {
+                      return true;
+                    }
+                  }
+
+                  return false;
                 }
                 case 'shipping_unit': {
                   const o = getPendingOriginal(orderId, 'Đơn vị vận chuyển', 'Đơn vị Vận chuyển', 'Đơn_vị_vận_chuyển');
