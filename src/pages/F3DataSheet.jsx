@@ -734,7 +734,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Ghi chú": item.note,
     "CSKH": item.cskh,
     "NV Vận đơn": item.delivery_staff,
-    "Tiền Việt đã đối soát": item.reconciled_vnd ?? item.reconciled_amount, // reconciled_vnd new
+    // F3 summary phải bám đúng số đối soát VNĐ; không fallback reconciled_amount để tránh lấy nhầm số cũ.
+    "Tiền Việt đã đối soát": item.reconciled_vnd ?? 0,
     "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
     "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
     "Đơn vị vận chuyển": item.shipping_unit || item.shipping_carrier, // shipping_carrier might be new?
@@ -3229,7 +3230,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       const deliveryStaff = String(row["NV Vận đơn"] || row["Nhân viên Vận đơn"] || row.delivery_staff || "").trim();
 
       const tienVe = parseVietnameseMoneyToNumber(
-        row["Tiền Việt đã đối soát"] ?? row["Tiền đã thanh toán"] ?? row.reconciled_vnd ?? 0
+        row["Tiền Việt đã đối soát"] ?? row.reconciled_vnd ?? 0
       ) || 0;
       const shipRaw = parseVietnameseMoneyToNumber(
         row["Phí ship"] ?? row.shipping_cost ?? 0
