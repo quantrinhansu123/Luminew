@@ -476,6 +476,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Trạng thái giao hàng',
     'Phản hồi tích cực',
     'Phản hồi tiêu cực',
+    'Ngày đối soát bill',
+    'Ngày đối soát cước',
     'Phí ship',
     'Tổng tiền VNĐ',
   ];
@@ -689,6 +691,8 @@ function DanhSachDon({ dataSource = 'default' }) {
     })(),
     "Trạng thái Bill": item.payment_bill, // Trạng thái bill
     "Ảnh thanh toán": item.payment_image, // Link hình ảnh bill
+    "Ngày đối soát bill": item.ngay_doi_soat_bill || '',
+    "Ngày đối soát cước": item.ngay_doi_soat_cuoc || '',
     "Cảnh báo trùng": item.canh_bao || '',
     _id: item.id,
     _log: item.log ?? null,

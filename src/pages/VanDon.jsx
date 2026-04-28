@@ -2872,6 +2872,54 @@ function VanDon({ dataSource = 'default' }) {
     setSelectedRows(new Set());
   };
 
+  const ffmPushPreview = useMemo(() => {
+    if (!confirmPushData) return null;
+    const targetCarrier = String(confirmPushData.carrier || '').trim();
+    const ids = Array.isArray(confirmPushData.orderIds) ? confirmPushData.orderIds : [];
+    const emptyCounts = {
+      carrierWillChange: 0,
+      carrierAlreadyTarget: 0,
+      nbWillChange: 0,
+      nbAlreadyChuaGiao: 0,
+    };
+    if (!targetCarrier || ids.length === 0) return emptyCounts;
+
+    return ids.reduce((acc, orderId) => {
+      const row = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+      if (!row) return acc;
+
+      const currentCarrier = String(row['Đơn vị vận chuyển'] ?? row.shipping_unit ?? '').trim();
+      if (currentCarrier.toLowerCase() === targetCarrier.toLowerCase()) acc.carrierAlreadyTarget += 1;
+      else acc.carrierWillChange += 1;
+
+      const currentNb = String(row['Trạng thái giao hàng NB'] ?? row.delivery_status_nb ?? '').trim();
+      if (currentNb.toLowerCase() === 'chưa giao') acc.nbAlreadyChuaGiao += 1;
+      else acc.nbWillChange += 1;
+
+      return acc;
+    }, { ...emptyCounts });
+  }, [confirmPushData, allData]);
+
+  const ffmPushPreviewRows = useMemo(() => {
+    if (!confirmPushData) return [];
+    const targetCarrier = String(confirmPushData.carrier || '').trim();
+    const ids = Array.isArray(confirmPushData.orderIds) ? confirmPushData.orderIds : [];
+    if (!targetCarrier || ids.length === 0) return [];
+
+    return ids.map((orderId) => {
+      const row = allData.find((r) => r[PRIMARY_KEY_COLUMN] === orderId);
+      const beforeCarrier = String(row?.['Đơn vị vận chuyển'] ?? row?.shipping_unit ?? '').trim();
+      const beforeNb = String(row?.['Trạng thái giao hàng NB'] ?? row?.delivery_status_nb ?? '').trim();
+      return {
+        orderId,
+        beforeCarrier: beforeCarrier || '(trống)',
+        afterCarrier: targetCarrier,
+        beforeNb: beforeNb || '(trống)',
+        afterNb: 'Chưa Giao',
+      };
+    });
+  }, [confirmPushData, allData]);
+
   const getSelectionBounds = useCallback(() => {
     if (selection.startRow === null || selection.startCol === null) return null;
     return {
@@ -5956,6 +6004,62 @@ function VanDon({ dataSource = 'default' }) {
                     sang đơn vị vận chuyển <span className="font-bold px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-slate-900 dark:text-slate-200">{confirmPushData.carrier}</span>?
                   </p>
                 </div>
+
+                {ffmPushPreview && (
+                  <div className="w-full text-left rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">
+                      Kết quả sau khi xác nhận
+                    </p>
+                    <div className="space-y-1 text-sm text-slate-700 dark:text-slate-200">
+                      <p>
+                        <span className="font-semibold">Đơn vị giao:</span>{' '}
+                        {ffmPushPreview.carrierWillChange} đơn sẽ đổi sang <span className="font-semibold">{confirmPushData.carrier}</span>,
+                        {' '}{ffmPushPreview.carrierAlreadyTarget} đơn đã là {confirmPushData.carrier}.
+                      </p>
+                      <p>
+                        <span className="font-semibold">Trạng thái giao hàng NB:</span>{' '}
+                        {ffmPushPreview.nbWillChange} đơn sẽ đổi thành <span className="font-semibold">Chưa Giao</span>,
+                        {' '}{ffmPushPreview.nbAlreadyChuaGiao} đơn giữ nguyên Chưa Giao.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {ffmPushPreviewRows.length > 0 && (
+                  <div className="w-full text-left rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">
+                      Chi tiết từng đơn (trước → sau)
+                    </p>
+                    <div className="max-h-56 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0">
+                          <tr className="text-slate-600 dark:text-slate-300">
+                            <th className="px-2 py-1 text-left">Mã đơn</th>
+                            <th className="px-2 py-1 text-left">Đơn vị giao</th>
+                            <th className="px-2 py-1 text-left">Trạng thái NB</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ffmPushPreviewRows.map((r) => (
+                            <tr key={r.orderId} className="border-t border-slate-100 dark:border-slate-700 text-slate-700 dark:text-slate-200">
+                              <td className="px-2 py-1 font-semibold">{r.orderId}</td>
+                              <td className="px-2 py-1">
+                                <span>{r.beforeCarrier}</span>
+                                <span className="mx-1 text-slate-400">→</span>
+                                <span className="font-semibold">{r.afterCarrier}</span>
+                              </td>
+                              <td className="px-2 py-1">
+                                <span>{r.beforeNb}</span>
+                                <span className="mx-1 text-slate-400">→</span>
+                                <span className="font-semibold">{r.afterNb}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-col sm:flex-row gap-3 w-full">
                   <button
