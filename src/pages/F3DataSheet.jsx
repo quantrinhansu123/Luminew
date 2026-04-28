@@ -364,6 +364,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     order_code_hcm: null
   });
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [selectedPersonnelLoaded, setSelectedPersonnelLoaded] = useState(false);
 
   // Permission Logic
   const { canView, canEdit, canDelete, role } = usePermissions();
@@ -1255,6 +1256,7 @@ function DanhSachDon({ dataSource = 'default' }) {
           setSelectedPersonnelEmails([]);
           setSelectedPersonnelNames([]);
           setPersonnelEmailToNameMap({});
+          setSelectedPersonnelLoaded(true);
           return;
         }
 
@@ -1273,6 +1275,7 @@ function DanhSachDon({ dataSource = 'default' }) {
           setSelectedPersonnelEmails([]);
           setSelectedPersonnelNames([]);
           setPersonnelEmailToNameMap({});
+          setSelectedPersonnelLoaded(true);
           return;
         }
 
@@ -1289,40 +1292,34 @@ function DanhSachDon({ dataSource = 'default' }) {
         setSelectedPersonnelEmails([]); // Không dùng email nữa
         setSelectedPersonnelNames(validNames);
         setPersonnelEmailToNameMap({}); // Không cần map nữa
+        setSelectedPersonnelLoaded(true);
       } catch (error) {
         console.error('❌ Error loading selected personnel:', error);
         setSelectedPersonnelEmails([]);
         setSelectedPersonnelNames([]);
         setPersonnelEmailToNameMap({});
+        setSelectedPersonnelLoaded(true);
       }
     };
 
     loadSelectedPersonnel();
   }, []); // Load once on mount
 
-  // Reload data when selectedPersonnelNames changes (để áp dụng filter mới ở DB level)
   useEffect(() => {
-    if (selectedPersonnelNames.length >= 0) {
-      // Reload data khi selectedPersonnelNames thay đổi
-      console.log('🔄 Reloading data due to selectedPersonnelNames change:', selectedPersonnelNames.length);
-      loadData();
-    }
-  }, [selectedPersonnelNames.length]); // Chỉ reload khi số lượng thay đổi
-
-  useEffect(() => {
+    if (!selectedPersonnelLoaded) return;
+    if (activeTab === 'f3_summary') return;
     loadData();
-  }, [startDate, endDate, role]); // Bỏ selectedDataSource vì đã có cache
+  }, [startDate, endDate, role, selectedPersonnelNames.join('|'), selectedPersonnelLoaded, activeTab]); // reload khi filter nhân sự đổi
 
   // Reload khi chuyển đổi bảng (sử dụng cache nếu có)
   useEffect(() => {
     if (activeTab === 'f3_summary') return; // Không load orders cho tab summary
+    if (!selectedPersonnelLoaded) return;
 
     if (dataCache[ordersTableName]) {
       setAllData(dataCache[ordersTableName]);
-    } else {
-      loadData();
     }
-  }, [activeTab]);
+  }, [activeTab, selectedPersonnelLoaded]);
 
   // Get unique values for filters - Bao gồm cả giá trị trống
   const uniqueMarkets = useMemo(() => {
@@ -1434,10 +1431,10 @@ function DanhSachDon({ dataSource = 'default' }) {
           const rawReconciled = item["Tiền Việt đã đối soát"] || item["Tiền_Việt_đã_đối_soát"] || "0";
           const rawShift = item["Ca"] || item["ca"] || item["Shift"] || item["shift"] || "";
 
-          const amount = rawAmount ? (parseFloat(String(rawAmount).replace(/[^0-9.-]+/g, "")) || 0) : 0;
-          const ship = rawShip ? (parseFloat(String(rawShip).replace(/[^0-9.-]+/g, "")) || 0) : null;
-          const goodsAmount = rawGoodsAmount ? (parseFloat(String(rawGoodsAmount).replace(/[^0-9.-]+/g, "")) || 0) : 0;
-          const reconciled = rawReconciled ? (parseFloat(String(rawReconciled).replace(/[^0-9.-]+/g, "")) || 0) : 0;
+          const amount = parseVietnameseMoneyToNumber(rawAmount) || 0;
+          const ship = parseVietnameseMoneyToNumber(rawShip);
+          const goodsAmount = parseVietnameseMoneyToNumber(rawGoodsAmount) || 0;
+          const reconciled = parseVietnameseMoneyToNumber(rawReconciled) || 0;
 
           return {
             order_code: item["Mã đơn hàng"] || item["Mã_đơn_hàng"] || `UNK-${Date.now()}-${i + index}`,
@@ -1468,10 +1465,10 @@ function DanhSachDon({ dataSource = 'default' }) {
             cskh: item["CSKH"] || "",
             delivery_staff: item["NV_Vận_đơn"] || item["NV Vận đơn"] || "",
             goods_amount: goodsAmount,
-            reconciled_amount: reconciled,
-            general_fee: parseFloat(String(item["Phí_Chung"] || item["Phí Chung"] || "0").replace(/[^0-9.-]+/g, "")) || 0,
-            flight_fee: parseFloat(String(item["Phí_bay"] || item["Phí bay"] || "0").replace(/[^0-9.-]+/g, "")) || 0,
-            account_rental_fee: parseFloat(String(item["Thuê_TK"] || item["Thuê TK"] || "0").replace(/[^0-9.-]+/g, "")) || 0,
+            reconciled_vnd: reconciled,
+            general_fee: parseVietnameseMoneyToNumber(item["Phí_Chung"] || item["Phí Chung"] || "0") || 0,
+            flight_fee: parseVietnameseMoneyToNumber(item["Phí_bay"] || item["Phí bay"] || "0") || 0,
+            account_rental_fee: parseVietnameseMoneyToNumber(item["Thuê_TK"] || item["Thuê TK"] || "0") || 0,
             cutoff_time: item["Thời_gian_cutoff"] || item["Thời gian cutoff"] || "",
             shipping_unit: item["Đơn_vị_vận_chuyển"] || item["Đơn vị vận chuyển"] || "",
             accountant_confirm: item["Kế_toán_xác_nhận_thu_tiền_về"] || item["Kế toán xác nhận thu tiền về"] || "",
