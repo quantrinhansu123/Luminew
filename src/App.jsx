@@ -163,6 +163,7 @@ function AppShell() {
             />
             <Route path="/bao-cao-f3" element={<ProtectedRoute><F3Report /></ProtectedRoute>} />
             <Route path="/du-lieu-f3" element={<ProtectedRoute><F3DataSheet /></ProtectedRoute>} />
+            <Route path="/du-lieu-f3-hcm" element={<ProtectedRoute><F3DataSheet dataSource="hcm" /></ProtectedRoute>} />
             <Route path="/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
             <Route path="/embed/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
             <Route path="/nhan-su" element={<ProtectedRoute><NhanSu /></ProtectedRoute>} />
@@ -319,6 +320,7 @@ function AppShell() {
             <Route path="/ffm" element={<Navigate to="/ffm_MGT" replace />} />
             <Route path="/dien-bill" element={<ProtectedRoute><DienBill /></ProtectedRoute>} />
             <Route path="/doi-soat-bill-cuoc" element={<ProtectedRoute><DoiSoatBillCuoc /></ProtectedRoute>} />
+            <Route path="/doi-soat-bill-cuoc-hcm" element={<ProtectedRoute><DoiSoatBillCuoc dataScope="hcm" /></ProtectedRoute>} />
             <Route path="/quan-ly-ty-gia" element={<ProtectedRoute><QuanLyTyGia /></ProtectedRoute>} />
             <Route path="/lenh-san-xuat" element={<ProtectedRoute><LenHSanXuat /></ProtectedRoute>} />
 
