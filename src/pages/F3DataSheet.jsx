@@ -3670,8 +3670,10 @@ function DanhSachDon({ dataSource = 'default' }) {
               </div>
             </div>
 
-            {activeTab !== 'f3_summary' && (
-              <div className="flex flex-wrap items-end gap-2">
+            <div className="flex flex-wrap items-end gap-2 border border-orange-200 bg-orange-50/40 rounded-lg px-3 py-2">
+              <div className="w-full text-xs font-bold text-orange-700">
+                Lọc ngày đồng bộ bill/cước
+              </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Đồng bộ bill từ</label>
                   <input
@@ -3709,8 +3711,22 @@ function DanhSachDon({ dataSource = 'default' }) {
                     onChange={(e) => setCuocSyncEndDate(e.target.value)}
                   />
                 </div>
-              </div>
-            )}
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Thao tác</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBillSyncStartDate('');
+                      setBillSyncEndDate('');
+                      setCuocSyncStartDate('');
+                      setCuocSyncEndDate('');
+                    }}
+                    className="px-3 py-2 rounded-lg text-sm font-semibold border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                  >
+                    Xóa lọc sync
+                  </button>
+                </div>
+            </div>
 
             {activeTab !== 'f3_summary' && (
               <>
