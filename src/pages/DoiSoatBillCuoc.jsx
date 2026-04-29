@@ -304,6 +304,11 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
   // Đồng bộ bill / cước tách riêng: mỗi bên có mốc thời gian để ẩn bản ghi đã sync khỏi view
   const [lastBillSyncTime, setLastBillSyncTime] = useState(null);
   const [lastCuocSyncTime, setLastCuocSyncTime] = useState(null);
+  // Lọc theo ngày đồng bộ (synced_at) cho các tab "đã tải lên"
+  const [billUploadedSyncDateFrom, setBillUploadedSyncDateFrom] = useState('');
+  const [billUploadedSyncDateTo, setBillUploadedSyncDateTo] = useState('');
+  const [cuocUploadedSyncDateFrom, setCuocUploadedSyncDateFrom] = useState('');
+  const [cuocUploadedSyncDateTo, setCuocUploadedSyncDateTo] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   /** Chuẩn hóa mã đơn — modal chi tiết trùng cước */
@@ -641,12 +646,22 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
           synced_by: item.performed_by || '',
         };
       });
+      const filteredByDate = rows.filter((r) => {
+        const ymd = r?.synced_at ? String(r.synced_at).slice(0, 10) : '';
+        if (billUploadedSyncDateFrom && (!ymd || ymd < billUploadedSyncDateFrom)) return false;
+        if (billUploadedSyncDateTo && (!ymd || ymd > billUploadedSyncDateTo)) return false;
+        if ((billUploadedSyncDateFrom || billUploadedSyncDateTo) && !ymd) return false;
+        return true;
+      });
+
       if (!isHcmScope) {
-        setBillData(rows);
+        setBillData(filteredByDate);
       } else {
-        const orderCodes = [...new Set(rows.map((r) => String(r?.ma_don_hang ?? '').trim()).filter(Boolean))];
+        const orderCodes = [
+          ...new Set(filteredByDate.map((r) => String(r?.ma_don_hang ?? '').trim()).filter(Boolean)),
+        ];
         const scopedCodes = await fetchScopedOrderCodesSet(supabase, orderCodes, true, ordersTableName);
-        setBillData(rows.filter((r) => {
+        setBillData(filteredByDate.filter((r) => {
           const oc = String(r?.ma_don_hang ?? '').trim();
           return oc && scopedCodes.has(oc);
         }));
@@ -755,12 +770,22 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
           synced_by: item.performed_by || '',
         };
       });
+      const filteredByDate = rows.filter((r) => {
+        const ymd = r?.synced_at ? String(r.synced_at).slice(0, 10) : '';
+        if (cuocUploadedSyncDateFrom && (!ymd || ymd < cuocUploadedSyncDateFrom)) return false;
+        if (cuocUploadedSyncDateTo && (!ymd || ymd > cuocUploadedSyncDateTo)) return false;
+        if ((cuocUploadedSyncDateFrom || cuocUploadedSyncDateTo) && !ymd) return false;
+        return true;
+      });
+
       if (!isHcmScope) {
-        setCuocData(rows);
+        setCuocData(filteredByDate);
       } else {
-        const orderCodes = [...new Set(rows.map((r) => String(r?.ma_don_hang ?? '').trim()).filter(Boolean))];
+        const orderCodes = [
+          ...new Set(filteredByDate.map((r) => String(r?.ma_don_hang ?? '').trim()).filter(Boolean)),
+        ];
         const scopedCodes = await fetchScopedOrderCodesSet(supabase, orderCodes, true, ordersTableName);
-        setCuocData(rows.filter((r) => {
+        setCuocData(filteredByDate.filter((r) => {
           const oc = String(r?.ma_don_hang ?? '').trim();
           return oc && scopedCodes.has(oc);
         }));
@@ -834,6 +859,23 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
       loadCuocData();
     }
   }, [activeTab, exchangeRates]);
+
+  // Reload khi người dùng đổi bộ lọc ngày đồng bộ (synced_at)
+  useEffect(() => {
+    if (activeTab === 'bill_view') {
+      setCurrentPage(1);
+      loadBillUploadedHistoryData();
+    } else if (activeTab === 'cuoc_view') {
+      setCurrentPage(1);
+      loadCuocUploadedHistoryData();
+    }
+  }, [
+    activeTab,
+    billUploadedSyncDateFrom,
+    billUploadedSyncDateTo,
+    cuocUploadedSyncDateFrom,
+    cuocUploadedSyncDateTo,
+  ]);
 
   useEffect(() => {
     if (activeTab === 'bill' && lastBillSyncTime) {
@@ -3158,6 +3200,58 @@ function DoiSoatBillCuoc({ dataScope = 'default' }) {
             )}
           </div>
           
+          {(activeTab === 'bill_view' || activeTab === 'cuoc_view') && (
+            <div className="flex flex-wrap items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mt-2 max-w-4xl">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-700">Ngày đồng bộ</span>
+                <input
+                  type="date"
+                  value={
+                    activeTab === 'bill_view' ? billUploadedSyncDateFrom : cuocUploadedSyncDateFrom
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value || '';
+                    if (activeTab === 'bill_view') setBillUploadedSyncDateFrom(v);
+                    else setCuocUploadedSyncDateFrom(v);
+                  }}
+                  className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none"
+                />
+                <span className="text-xs text-gray-400">-</span>
+                <input
+                  type="date"
+                  value={
+                    activeTab === 'bill_view' ? billUploadedSyncDateTo : cuocUploadedSyncDateTo
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value || '';
+                    if (activeTab === 'bill_view') setBillUploadedSyncDateTo(v);
+                    else setCuocUploadedSyncDateTo(v);
+                  }}
+                  className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium shadow-sm outline-none"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setBillUploadedSyncDateFrom('');
+                  setBillUploadedSyncDateTo('');
+                  setCuocUploadedSyncDateFrom('');
+                  setCuocUploadedSyncDateTo('');
+                }}
+                disabled={
+                  !billUploadedSyncDateFrom &&
+                  !billUploadedSyncDateTo &&
+                  !cuocUploadedSyncDateFrom &&
+                  !cuocUploadedSyncDateTo
+                }
+                className="px-3 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 rounded-lg text-xs font-medium transition disabled:opacity-50"
+              >
+                Xóa lọc
+              </button>
+            </div>
+          )}
+
           {(activeTab === 'bill' || activeTab === 'bill_view') && (
             <p className="text-sm text-gray-600 mt-2 max-w-4xl">
               Bill: <strong>ưu tiên Mã Tracking</strong> để gán đơn và đồng bộ Tiền Việt; với{' '}

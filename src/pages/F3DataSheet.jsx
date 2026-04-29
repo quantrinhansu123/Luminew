@@ -187,6 +187,8 @@ const HIDDEN_COLUMNS = [
   'Phí Chung',
   'Phí bay',
   'Phí ship',
+  // Note: "Phí ship" bị ẩn, vì đối soát cước đang cần hiển thị theo tên "Phí cước".
+  // Mình thêm cột "Phí cước" (alias) để hiện dữ liệu mà không đụng logic ẩn hiện tại.
   'Phí xử lý đơn đóng hàng-Lưu kho(usd)',
   'Thuê TK',
   'Thời gian cutoff',
@@ -531,7 +533,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     'Đội/Team',
     'Trạng thái giao hàng',
     'Trạng thái giao hàng NB',
-    'Phí ship',
+    'Phí cước',
     'Trạng thái thu tiền',
     'Trạng thái thanh toán',
     'Tiền Việt đã đối soát',
@@ -768,6 +770,9 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Trạng thái thu tiền": item.payment_status_detail,
     "Trạng thái thanh toán": item.payment_status,
     "Lý do": item.reason,
+    // Đối soát cước trả về shipping_cost => hiển thị bằng tên "Phí cước".
+    "Phí cước": item.shipping_cost ?? item.shipping_fee,
+    // Giữ alias cũ "Phí ship" cho tương thích nếu đã bật ở localStorage trước đó.
     "Phí ship": item.shipping_cost ?? item.shipping_fee,
     "Tên Page": item.page_name, // Map Page Name
     "Ca": (() => {
@@ -3046,6 +3051,7 @@ function DanhSachDon({ dataSource = 'default' }) {
       // Danh sách các cột chứa dữ liệu số (Tiền, Số lượng) để xuất Excel dạng số
       const numericColumns = [
         'Tổng tiền VNĐ',
+        'Phí cước',
         'Phí ship',
         'Tiền Việt đã đối soát',
         'Phí Chung',
