@@ -478,6 +478,10 @@ function DanhSachDon({ dataSource = 'default' }) {
   // Không giới hạn ngày mặc định - lấy toàn bộ
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [billSyncStartDate, setBillSyncStartDate] = useState('');
+  const [billSyncEndDate, setBillSyncEndDate] = useState('');
+  const [cuocSyncStartDate, setCuocSyncStartDate] = useState('');
+  const [cuocSyncEndDate, setCuocSyncEndDate] = useState('');
 
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -554,6 +558,10 @@ function DanhSachDon({ dataSource = 'default' }) {
   useEffect(() => {
     setCurrentPage(1);
   }, [filterPageNames, filterPaymentCollectionStatus]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [billSyncStartDate, billSyncEndDate, cuocSyncStartDate, cuocSyncEndDate]);
 
   // Get all available columns from data (excluding hidden columns and technical columns)
   const allAvailableColumns = useMemo(() => {
@@ -2864,6 +2872,20 @@ function DanhSachDon({ dataSource = 'default' }) {
       data = data.filter(row => isDateInRange(row["Ngày lên đơn"], startDate, endDate));
     }
 
+    // Lọc theo ngày đồng bộ bill (ngày đối soát bill)
+    if (billSyncStartDate || billSyncEndDate) {
+      data = data.filter((row) =>
+        isDateInRange(row['Ngày đối soát bill'], billSyncStartDate, billSyncEndDate)
+      );
+    }
+
+    // Lọc theo ngày đồng bộ cước (ngày đối soát cước)
+    if (cuocSyncStartDate || cuocSyncEndDate) {
+      data = data.filter((row) =>
+        isDateInRange(row['Ngày đối soát cước'], cuocSyncStartDate, cuocSyncEndDate)
+      );
+    }
+
     // Market filter - Hỗ trợ multi-select và giá trị trống
     if (filterMarket.length > 0) {
       data = data.filter(row => {
@@ -2995,6 +3017,10 @@ function DanhSachDon({ dataSource = 'default' }) {
     debouncedSearchText,
     startDate,
     endDate,
+    billSyncStartDate,
+    billSyncEndDate,
+    cuocSyncStartDate,
+    cuocSyncEndDate,
     isAdmin,
     isHcmView,
     filterMarket,
@@ -3643,6 +3669,48 @@ function DanhSachDon({ dataSource = 'default' }) {
                 />
               </div>
             </div>
+
+            {activeTab !== 'f3_summary' && (
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Đồng bộ bill từ</label>
+                  <input
+                    type="date"
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                    value={billSyncStartDate}
+                    onChange={(e) => setBillSyncStartDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">đến</label>
+                  <input
+                    type="date"
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                    value={billSyncEndDate}
+                    onChange={(e) => setBillSyncEndDate(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Đồng bộ cước từ</label>
+                  <input
+                    type="date"
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                    value={cuocSyncStartDate}
+                    onChange={(e) => setCuocSyncStartDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">đến</label>
+                  <input
+                    type="date"
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                    value={cuocSyncEndDate}
+                    onChange={(e) => setCuocSyncEndDate(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
 
             {activeTab !== 'f3_summary' && (
               <>
