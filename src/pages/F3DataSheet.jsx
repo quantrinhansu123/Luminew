@@ -478,10 +478,7 @@ function DanhSachDon({ dataSource = 'default' }) {
   // Không giới hạn ngày mặc định - lấy toàn bộ
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [billSyncStartDate, setBillSyncStartDate] = useState('');
-  const [billSyncEndDate, setBillSyncEndDate] = useState('');
-  const [cuocSyncStartDate, setCuocSyncStartDate] = useState('');
-  const [cuocSyncEndDate, setCuocSyncEndDate] = useState('');
+  const [syncDate, setSyncDate] = useState('');
 
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -561,7 +558,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [billSyncStartDate, billSyncEndDate, cuocSyncStartDate, cuocSyncEndDate]);
+  }, [syncDate]);
 
   // Get all available columns from data (excluding hidden columns and technical columns)
   const allAvailableColumns = useMemo(() => {
@@ -2872,18 +2869,13 @@ function DanhSachDon({ dataSource = 'default' }) {
       data = data.filter(row => isDateInRange(row["Ngày lên đơn"], startDate, endDate));
     }
 
-    // Lọc theo ngày đồng bộ bill (ngày đối soát bill)
-    if (billSyncStartDate || billSyncEndDate) {
-      data = data.filter((row) =>
-        isDateInRange(row['Ngày đối soát bill'], billSyncStartDate, billSyncEndDate)
-      );
-    }
-
-    // Lọc theo ngày đồng bộ cước (ngày đối soát cước)
-    if (cuocSyncStartDate || cuocSyncEndDate) {
-      data = data.filter((row) =>
-        isDateInRange(row['Ngày đối soát cước'], cuocSyncStartDate, cuocSyncEndDate)
-      );
+    // Lọc theo đúng 1 ngày đồng bộ bill/cước
+    if (syncDate) {
+      data = data.filter((row) => {
+        const billMatched = isDateInRange(row['Ngày đối soát bill'], syncDate, syncDate);
+        const cuocMatched = isDateInRange(row['Ngày đối soát cước'], syncDate, syncDate);
+        return billMatched || cuocMatched;
+      });
     }
 
     // Market filter - Hỗ trợ multi-select và giá trị trống
@@ -3017,10 +3009,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     debouncedSearchText,
     startDate,
     endDate,
-    billSyncStartDate,
-    billSyncEndDate,
-    cuocSyncStartDate,
-    cuocSyncEndDate,
+    syncDate,
     isAdmin,
     isHcmView,
     filterMarket,
@@ -3670,62 +3659,14 @@ function DanhSachDon({ dataSource = 'default' }) {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-end gap-2 border border-orange-200 bg-orange-50/40 rounded-lg px-3 py-2">
-              <div className="w-full text-xs font-bold text-orange-700">
-                Lọc ngày đồng bộ bill/cước
-              </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Đồng bộ bill từ</label>
-                  <input
-                    type="date"
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                    value={billSyncStartDate}
-                    onChange={(e) => setBillSyncStartDate(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">đến</label>
-                  <input
-                    type="date"
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                    value={billSyncEndDate}
-                    onChange={(e) => setBillSyncEndDate(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Đồng bộ cước từ</label>
-                  <input
-                    type="date"
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                    value={cuocSyncStartDate}
-                    onChange={(e) => setCuocSyncStartDate(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">đến</label>
-                  <input
-                    type="date"
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
-                    value={cuocSyncEndDate}
-                    onChange={(e) => setCuocSyncEndDate(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Thao tác</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBillSyncStartDate('');
-                      setBillSyncEndDate('');
-                      setCuocSyncStartDate('');
-                      setCuocSyncEndDate('');
-                    }}
-                    className="px-3 py-2 rounded-lg text-sm font-semibold border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                  >
-                    Xóa lọc sync
-                  </button>
-                </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Ngày đồng bộ bill/cước</label>
+              <input
+                type="date"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021]"
+                value={syncDate}
+                onChange={(e) => setSyncDate(e.target.value)}
+              />
             </div>
 
             {activeTab !== 'f3_summary' && (
