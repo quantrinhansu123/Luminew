@@ -672,6 +672,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     "Nhân viên Sale": item.sale_staff || item.saleStaff || '',
     "Team": item.team,
     "Trạng thái giao hàng": item.delivery_status,
+    "Trạng thái giao hàng NB": item.delivery_status_nb,
     /** Cột DB `check_result` — dùng cho bộ lọc Kết quả Check (không gộp payment_status). */
     check_result: String(item.check_result ?? '').trim(),
     "Kết quả Check": item.check_result || item.payment_status, // Hiển thị lưới: ưu tiên check_result, fallback payment_status
@@ -2520,7 +2521,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     const statuses = new Set();
     let hasEmpty = false;
     allData.forEach(row => {
-      const status = row["Trạng thái giao hàng"];
+      const status = row["Trạng thái giao hàng NB"];
       if (status && String(status).trim()) {
         statuses.add(String(status).trim());
       } else {
@@ -2781,7 +2782,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     // Status filter - Hỗ trợ multi-select và giá trị trống
     if (filterStatus.length > 0) {
       data = data.filter(row => {
-        const status = row["Trạng thái giao hàng"];
+        const status = row["Trạng thái giao hàng NB"];
         const statusStr = status ? String(status).trim() : '';
 
         if (filterStatus.includes('(Trống)')) {
@@ -2896,6 +2897,13 @@ function DanhSachDon({ dataSource = 'default' }) {
     selectedPersonnelEmails,
     personnelEmailToNameMap,
   ]);
+
+  const bulkClearDeliveryStaffCandidateCount = useMemo(() => {
+    return (filteredData || []).filter((row) => {
+      const current = String(row?.['NV Vận đơn'] ?? row?.delivery_staff ?? '').trim();
+      return !!current;
+    }).length;
+  }, [filteredData]);
 
   const duplicateTripleKeysInFilter = useMemo(() => {
     const counts = new Map();
@@ -4232,17 +4240,21 @@ function DanhSachDon({ dataSource = 'default' }) {
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
-                {filterDeliveryStaff.length > 0 && (
+                {canEditOnThisOrderList && (
                   <button
                     type="button"
                     onClick={openBulkClearDeliveryStaffModal}
-                    disabled={isBulkClearingDeliveryStaff}
+                    disabled={isBulkClearingDeliveryStaff || bulkClearDeliveryStaffCandidateCount === 0}
                     className="px-2 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1"
-                    title="Xóa NV vận đơn trên các đơn đang lọc"
+                    title={
+                      bulkClearDeliveryStaffCandidateCount === 0
+                        ? 'Không có NV vận đơn để xóa trong danh sách đang lọc'
+                        : `Xóa NV vận đơn trên ${bulkClearDeliveryStaffCandidateCount} đơn đang lọc`
+                    }
                     aria-label="Xóa NV vận đơn trên các đơn đang lọc"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    Xóa
+                    Xóa ({bulkClearDeliveryStaffCandidateCount})
                   </button>
                 )}
                 {showDeliveryStaffFilter && (
