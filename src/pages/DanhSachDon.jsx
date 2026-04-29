@@ -457,6 +457,9 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [nvVanDonOptions, setNvVanDonOptions] = useState([]);
   const [loadingNvVanDonOptions, setLoadingNvVanDonOptions] = useState(false);
   const [savingNvVanDon, setSavingNvVanDon] = useState(false);
+  const [showBulkClearDeliveryStaffModal, setShowBulkClearDeliveryStaffModal] = useState(false);
+  const [bulkClearDeliveryStaffRows, setBulkClearDeliveryStaffRows] = useState([]);
+  const [isBulkClearingDeliveryStaff, setIsBulkClearingDeliveryStaff] = useState(false);
   /** Tên NV vận đơn chuẩn từ master (users/HR/danh_sach_van_don) — luôn có trong dropdown lọc chia vận đơn */
   const [vanDonStaffMasterNames, setVanDonStaffMasterNames] = useState([]);
 
@@ -2325,6 +2328,138 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
   };
 
+  const openBulkClearDeliveryStaffModal = () => {
+    if (!canEditOnThisOrderList) {
+      toast.error('Bạn không có quyền sửa dữ liệu vận đơn trên trang này.');
+      return;
+    }
+    const rows = (filteredData || [])
+      .map((r) => {
+        const orderCode = String(r?.['Mã đơn hàng'] || '').trim();
+        const rowId = r?._id ?? null;
+        const currentDeliveryStaff = String(r?.['NV Vận đơn'] ?? r?.delivery_staff ?? '').trim();
+        if (!currentDeliveryStaff) return null;
+        return {
+          orderCode,
+          rowId,
+          customerName: String(r?.['Name*'] || '').trim(),
+          customerPhone: String(r?.['Phone*'] || '').trim(),
+          currentDeliveryStaff,
+        };
+      })
+      .filter(Boolean);
+
+    if (rows.length === 0) {
+      toast.info('Không có đơn nào trong bộ lọc đang có NV vận đơn để xóa.', {
+        autoClose: 2200,
+        hideProgressBar: true,
+      });
+      return;
+    }
+
+    setBulkClearDeliveryStaffRows(rows);
+    setShowBulkClearDeliveryStaffModal(true);
+  };
+
+  const closeBulkClearDeliveryStaffModal = () => {
+    if (isBulkClearingDeliveryStaff) return;
+    setShowBulkClearDeliveryStaffModal(false);
+    setBulkClearDeliveryStaffRows([]);
+  };
+
+  const handleConfirmBulkClearDeliveryStaff = async () => {
+    if (isBulkClearingDeliveryStaff) return;
+    const rows = bulkClearDeliveryStaffRows || [];
+    if (rows.length === 0) {
+      closeBulkClearDeliveryStaffModal();
+      return;
+    }
+
+    setIsBulkClearingDeliveryStaff(true);
+    try {
+      let success = 0;
+      const failed = [];
+      const chunkSize = 10;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        const results = await Promise.all(
+          chunk.map(async (u) => {
+            try {
+              let query = supabase.from(ordersTableName).update({ delivery_staff: null });
+              if (u.orderCode && !u.orderCode.startsWith('UNK-') && !u.orderCode.startsWith('NO_CODE_')) {
+                query = query.eq('order_code', u.orderCode);
+              } else if (u.rowId != null) {
+                query = query.eq('id', u.rowId);
+              } else {
+                throw new Error('Thiếu order_code/id');
+              }
+              const { error } = await query;
+              if (error) throw error;
+              return { ok: true, item: u };
+            } catch (err) {
+              return { ok: false, item: u, error: err };
+            }
+          })
+        );
+
+        results.forEach((r) => {
+          if (r.ok) success += 1;
+          else failed.push(r);
+        });
+      }
+
+      const byCode = new Set(rows.map((u) => String(u.orderCode || '').trim()).filter(Boolean));
+      const byId = new Set(rows.map((u) => u.rowId).filter((v) => v != null));
+      setAllData((prev) =>
+        (prev || []).map((r) => {
+          const code = String(r?.['Mã đơn hàng'] || '').trim();
+          const id = r?._id ?? null;
+          if (byCode.has(code) || (id != null && byId.has(id))) {
+            return { ...r, 'NV Vận đơn': '', delivery_staff: null };
+          }
+          return r;
+        })
+      );
+
+      Promise.all(
+        rows.map((u) =>
+          logDataChange({
+            action: 'UPDATE',
+            table_name: 'orders',
+            record_id: u.orderCode || String(u.rowId),
+            field: 'delivery_staff',
+            old_value: u.currentDeliveryStaff || '',
+            new_value: '',
+            details: { note: 'Xóa NV vận đơn hàng loạt (Danh sách đơn)', orderCode: u.orderCode || null },
+          })
+        )
+      ).catch((err) => console.error('bulk clear delivery_staff logging error:', err));
+
+      setFilterDeliveryStaff([]);
+      setShowDeliveryStaffFilter(false);
+      setShowBulkClearDeliveryStaffModal(false);
+      setBulkClearDeliveryStaffRows([]);
+
+      if (failed.length > 0) {
+        toast.warning(
+          `Đã xóa NV vận đơn: ${success}/${rows.length} đơn. Có ${failed.length} đơn lỗi, kiểm tra Console để xem chi tiết.`,
+          { autoClose: 5000 }
+        );
+        console.error('Bulk clear delivery_staff failed rows:', failed);
+      } else {
+        toast.success(`Đã xóa NV vận đơn cho ${success} đơn theo bộ lọc.`, {
+          autoClose: 2800,
+          hideProgressBar: true,
+        });
+      }
+    } catch (err) {
+      console.error('bulk clear delivery_staff error:', err);
+      toast.error(`Lỗi xóa NV vận đơn hàng loạt: ${err?.message || String(err)}`);
+    } finally {
+      setIsBulkClearingDeliveryStaff(false);
+    }
+  };
+
   // Handle Delete
   const handleDelete = async (orderCode, rowId) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa đơn hàng này? Hành động này không thể hoàn tác.")) return;
@@ -3573,7 +3708,7 @@ function DanhSachDon({ dataSource = 'default' }) {
 
             {/* Status Filter - Multi-select với checkbox */}
             <div className="min-w-[200px] relative">
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái</label>
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Trạng thái giao hàng NB</label>
               <div className="relative">
                 <button
                   type="button"
@@ -4082,11 +4217,11 @@ function DanhSachDon({ dataSource = 'default' }) {
             {/* Delivery Staff Filter */}
             <div className="min-w-[200px] relative">
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Nhân viên vận đơn</label>
-              <div className="relative">
+              <div className="relative flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setShowDeliveryStaffFilter(!showDeliveryStaffFilter)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
+                  className="w-full flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] bg-white text-left flex items-center justify-between"
                 >
                   <span className="truncate">
                     {filterDeliveryStaff.length === 0
@@ -4097,6 +4232,19 @@ function DanhSachDon({ dataSource = 'default' }) {
                   </span>
                   <span className="ml-2">▼</span>
                 </button>
+                {filterDeliveryStaff.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={openBulkClearDeliveryStaffModal}
+                    disabled={isBulkClearingDeliveryStaff}
+                    className="px-2 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                    title="Xóa NV vận đơn trên các đơn đang lọc"
+                    aria-label="Xóa NV vận đơn trên các đơn đang lọc"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Xóa
+                  </button>
+                )}
                 {showDeliveryStaffFilter && (
                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2">
@@ -4697,6 +4845,100 @@ function DanhSachDon({ dataSource = 'default' }) {
                 className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium transition-colors"
               >
                 Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkClearDeliveryStaffModal && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bulk-clear-delivery-staff-title"
+          onClick={closeBulkClearDeliveryStaffModal}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[88vh] flex flex-col border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-red-50 rounded-t-xl">
+              <div>
+                <h2 id="bulk-clear-delivery-staff-title" className="text-lg font-bold text-red-800">
+                  Cảnh báo: Xóa NV vận đơn hàng loạt
+                </h2>
+                <p className="text-xs text-red-700 mt-0.5">
+                  Thao tác sẽ đặt <code className="bg-red-100 px-1 rounded">delivery_staff = NULL</code> cho các đơn
+                  đang hiển thị theo bộ lọc hiện tại.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="p-2 rounded-lg hover:bg-red-100 text-red-700 disabled:opacity-50"
+                aria-label="Đóng"
+                disabled={isBulkClearingDeliveryStaff}
+                onClick={closeBulkClearDeliveryStaffModal}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 text-sm text-gray-700">
+              Số đơn sẽ đổi: <strong>{bulkClearDeliveryStaffRows.length}</strong>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4">
+              <table className="min-w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 text-left text-xs uppercase text-gray-600">
+                    <th className="p-2 border border-gray-200">#</th>
+                    <th className="p-2 border border-gray-200">Mã đơn</th>
+                    <th className="p-2 border border-gray-200">Tên KH</th>
+                    <th className="p-2 border border-gray-200">SĐT</th>
+                    <th className="p-2 border border-gray-200">NV vận đơn hiện tại</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkClearDeliveryStaffRows.map((r, i) => (
+                    <tr key={`${r.orderCode || 'NO_CODE'}-${r.rowId ?? i}`} className="hover:bg-red-50/40">
+                      <td className="p-2 border border-gray-200 text-gray-500">{i + 1}</td>
+                      <td className="p-2 border border-gray-200 font-mono text-xs">{r.orderCode || '—'}</td>
+                      <td className="p-2 border border-gray-200">{r.customerName || '—'}</td>
+                      <td className="p-2 border border-gray-200 font-mono text-xs">{r.customerPhone || '—'}</td>
+                      <td className="p-2 border border-gray-200">{r.currentDeliveryStaff || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeBulkClearDeliveryStaffModal}
+                disabled={isBulkClearingDeliveryStaff}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300 text-gray-700 disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBulkClearDeliveryStaff}
+                disabled={isBulkClearingDeliveryStaff}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 hover:bg-red-700 text-white disabled:bg-gray-400 disabled:opacity-60 flex items-center gap-2"
+              >
+                {isBulkClearingDeliveryStaff ? (
+                  <>
+                    <span className="inline-block h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Đang xóa...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Xác nhận xóa NV vận đơn
+                  </>
+                )}
               </button>
             </div>
           </div>
