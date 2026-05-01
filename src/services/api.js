@@ -316,6 +316,35 @@ function pickVanDonShippingFromDbRow(r) {
     return parsed != null && Number.isFinite(parsed) ? parsed : 0;
 }
 
+function pickVanDonNumericDb(val) {
+    if (val === undefined || val === null || val === '') return 0;
+    const n = typeof val === 'number' ? val : Number(val);
+    return Number.isFinite(n) ? n : 0;
+}
+
+/** Có bill trên một dòng DB — khớp ý nghĩa lưới VanDon (ảnh / ngày up / payment_bill). */
+function vanDonRowHasBillEvidenceDb(r) {
+    if (!r || typeof r !== 'object') return false;
+    const img = r.payment_image;
+    if (img != null && String(img).trim() !== '') return true;
+    const up = r.ngayupbill;
+    if (up != null && String(up).trim() !== '') return true;
+    const pb = r.payment_bill;
+    if (pb != null && String(pb).trim() !== '') return true;
+    return false;
+}
+
+/**
+ * «Tiền đã thu» cho thống kê bill: ưu tiên reconciled_vnd, không có thì reconciled_amount (legacy / điền nhầm cột).
+ */
+function pickVanDonBillCollectedMoneyDb(r) {
+    if (!r || typeof r !== 'object') return 0;
+    const v = pickVanDonNumericDb(r.reconciled_vnd);
+    if (v > 0) return v;
+    const a = pickVanDonNumericDb(r.reconciled_amount);
+    return a > 0 ? a : 0;
+}
+
 function unwrapPostgrestAggregateRow(data) {
     if (data == null) return null;
     if (Array.isArray(data)) {
@@ -1689,8 +1718,10 @@ export const fetchVanDon = async (options = {}) => {
             };
 
             /**
-             * Tổng phí ship + đơn/số tiền đã thu khi có bill (reconciled_vnd > 0 và dấu hiệu bill).
-             * Phí ship: ưu tiên SUM(`shipping_cost`); `shipping_fee` có thể là text (ngày) nên SUM có thể lỗi — quét fallback giống tổng tiền.
+             * Tổng phí ship + đơn/số tiền đã thu khi có bill.
+             * Bill: ngayupbill / payment_image / payment_bill (khớp lưới).
+             * Tiền: reconciled_vnd > 0 HOẶC reconciled_amount > 0 (PostgREST: hai nhóm `.or()` AND với nhau).
+             * Nếu SQL trả 0 nhưng có đơn trong lọc — quét theo lô giống phí ship (tránh lệch cột / client khác server).
              * Cùng bộ lọc với tổng tiền — trên bảng vật lý `sumFromTable`.
              */
             const computeVanDonAuxiliaryAggregates = async () => {
@@ -1762,45 +1793,131 @@ export const fetchVanDon = async (options = {}) => {
                     }
                 }
 
-                const runBillPaid = async (orExpr) => {
-                    const [cRes, sRes] = await Promise.all([
+                const billOr =
+                    'ngayupbill.not.is.null,payment_image.not.is.null,payment_bill.not.is.null';
+
+                const runBillPaidAggregates = async (moneyOr) => {
+                    const [cRes, vRes, aRes] = await Promise.all([
                         applyVanDonFilters(
                             supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
                         )
-                            .or(orExpr)
-                            .gt('reconciled_vnd', 0),
-                        applyVanDonFilters(supabase.from(sumFromTable).select('reconciled_vnd.sum()'))
-                            .or(orExpr)
-                            .gt('reconciled_vnd', 0),
+                            .or(billOr)
+                            .or(moneyOr),
+                        applyVanDonFilters(
+                            supabase.from(sumFromTable).select('reconciled_vnd.sum()')
+                        )
+                            .or(billOr)
+                            .or(moneyOr),
+                        applyVanDonFilters(
+                            supabase.from(sumFromTable).select('reconciled_amount.sum()')
+                        )
+                            .or(billOr)
+                            .or(moneyOr),
                     ]);
-                    return { cRes, sRes };
+                    return { cRes, vRes, aRes };
                 };
 
-                const billOrAttempts = [
-                    'ngayupbill.not.is.null,and(payment_image.not.is.null,payment_image.neq.)',
-                    'ngayupbill.not.is.null,payment_image.not.is.null',
-                    'ngayupbill.not.is.null',
-                    'payment_image.not.is.null',
-                ];
-
-                let cRes;
-                let sRes;
-                for (let a = 0; a < billOrAttempts.length; a++) {
-                    const attempt = await runBillPaid(billOrAttempts[a]);
-                    cRes = attempt.cRes;
-                    sRes = attempt.sRes;
-                    if (!cRes.error && !sRes.error) break;
+                let moneyOr = 'reconciled_vnd.gt.0,reconciled_amount.gt.0';
+                let { cRes, vRes, aRes } = await runBillPaidAggregates(moneyOr);
+                if (
+                    aRes.error &&
+                    String(aRes.error.message || '')
+                        .toLowerCase()
+                        .includes('reconciled_amount')
+                ) {
+                    moneyOr = 'reconciled_vnd.gt.0';
+                    ({ cRes, vRes, aRes } = await runBillPaidAggregates(moneyOr));
                 }
 
-                const ordersPaidWithBillCount = cRes.error ? 0 : (cRes.count ?? 0);
-                const reconciledVndWithBillSum = sRes.error
-                    ? 0
-                    : (extractPostgrestAggregateNumeric(sRes.data) ?? 0);
-                if (cRes.error || sRes.error) {
+                let ordersPaidWithBillCount = cRes.error ? 0 : (cRes.count ?? 0);
+                const vndSumPart =
+                    cRes.error || vRes.error ? 0 : extractPostgrestAggregateNumeric(vRes.data) ?? 0;
+                const useAmountSum =
+                    moneyOr.includes('reconciled_amount') && !aRes.error;
+                const amtSumPart = useAmountSum
+                    ? extractPostgrestAggregateNumeric(aRes.data) ?? 0
+                    : 0;
+                /** Hai SUM riêng có thể cộng trùng một dòng nếu cả hai cột đều > 0; quét fallback xử lý chính xác. */
+                let reconciledVndWithBillSum =
+                    moneyOr === 'reconciled_vnd.gt.0' ? vndSumPart : vndSumPart + amtSumPart;
+
+                if (cRes.error || vRes.error) {
                     console.warn(
                         '[fetchVanDon] bill paid aggregates:',
-                        cRes.error?.message || sRes.error?.message
+                        cRes.error?.message || vRes.error?.message
                     );
+                } else if (aRes.error && moneyOr.includes('reconciled_amount')) {
+                    console.warn('[fetchVanDon] reconciled_amount.sum:', aRes.error.message);
+                }
+
+                const headBill = await applyVanDonFilters(
+                    supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
+                );
+                const rowCountBill = headBill.count ?? 0;
+                const sqlBillLooksEmpty =
+                    !cRes.error &&
+                    !vRes.error &&
+                    ordersPaidWithBillCount === 0 &&
+                    reconciledVndWithBillSum === 0;
+                const needBillScan =
+                    rowCountBill > 0 && (sqlBillLooksEmpty || cRes.error || vRes.error);
+
+                if (needBillScan) {
+                    const BILL_PROBE = 800;
+                    const probeRes = await applyVanDonFilters(
+                        supabase
+                            .from(sumFromTable)
+                            .select('ngayupbill,payment_image,payment_bill,reconciled_vnd,reconciled_amount')
+                    )
+                        .order('order_date', { ascending: false })
+                        .range(0, BILL_PROBE - 1);
+                    if (!probeRes.error && (probeRes.data || []).length > 0) {
+                        let probeHits = 0;
+                        for (let i = 0; i < probeRes.data.length; i++) {
+                            const r = probeRes.data[i];
+                            if (!vanDonRowHasBillEvidenceDb(r)) continue;
+                            if (pickVanDonBillCollectedMoneyDb(r) > 0) probeHits++;
+                        }
+                        if (probeHits > 0) {
+                            const BILL_BATCH = 1000;
+                            const maxBatches = Math.min(
+                                200000,
+                                Math.ceil(rowCountBill / BILL_BATCH) + 50
+                            );
+                            let scanned = 0;
+                            let fullCount = 0;
+                            let fullSum = 0;
+                            for (let b = 0; b < maxBatches && scanned < rowCountBill; b++) {
+                                const { data: chunk, error: chunkErr } = await applyVanDonFilters(
+                                    supabase
+                                        .from(sumFromTable)
+                                        .select(
+                                            'ngayupbill,payment_image,payment_bill,reconciled_vnd,reconciled_amount'
+                                        )
+                                )
+                                    .order('order_date', { ascending: false })
+                                    .range(scanned, scanned + BILL_BATCH - 1);
+                                if (chunkErr) {
+                                    console.warn('[fetchVanDon] bill scan batch:', chunkErr.message);
+                                    break;
+                                }
+                                if (!chunk?.length) break;
+                                for (let i = 0; i < chunk.length; i++) {
+                                    const r = chunk[i];
+                                    if (!vanDonRowHasBillEvidenceDb(r)) continue;
+                                    const m = pickVanDonBillCollectedMoneyDb(r);
+                                    if (m > 0) {
+                                        fullCount++;
+                                        fullSum += m;
+                                    }
+                                }
+                                scanned += chunk.length;
+                                if (scanned >= rowCountBill) break;
+                            }
+                            ordersPaidWithBillCount = fullCount;
+                            reconciledVndWithBillSum = fullSum;
+                        }
+                    }
                 }
 
                 return { totalShippingFeeSum, ordersPaidWithBillCount, reconciledVndWithBillSum };

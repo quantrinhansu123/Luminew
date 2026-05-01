@@ -257,26 +257,36 @@ function pickVanDonRowShippingVnd(row) {
   return n != null && Number.isFinite(n) ? n : 0;
 }
 
-/** Có bill: đã có ngày up bill hoặc ảnh thanh toán (payment_image) không rỗng. */
+/** Có bill: ngày up bill / ảnh thanh toán / payment_bill (khớp aggregate phía API). */
 function vanDonRowHasBillEvidence(row) {
   if (!row) return false;
   const img = row.payment_image ?? row['Payment Image'] ?? '';
   if (img != null && String(img).trim() !== '') return true;
   const up = row.ngayupbill ?? row['Ngày up bill'] ?? '';
-  return up != null && String(up).trim() !== '';
+  if (up != null && String(up).trim() !== '') return true;
+  const pb = row.payment_bill ?? row['Payment Bill'] ?? '';
+  return pb != null && String(pb).trim() !== '';
 }
 
 function pickVanDonRowReconciledVnd(row) {
   if (!row) return 0;
-  const raw =
+  const parse = (raw) => {
+    if (raw === undefined || raw === null || raw === '') return null;
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    return parseVietnameseMoneyToNumber(raw);
+  };
+  const v = parse(
     getVanDonGridCellValue(row, 'Tiền Việt đã đối soát') ??
-    row['Tiền Việt đã đối soát'] ??
-    row.reconciled_vnd ??
-    row['Tiền đã thanh toán'];
-  if (raw === undefined || raw === null || raw === '') return 0;
-  const n =
-    typeof raw === 'number' && Number.isFinite(raw) ? raw : parseVietnameseMoneyToNumber(raw);
-  return n != null && Number.isFinite(n) ? n : 0;
+      row['Tiền Việt đã đối soát'] ??
+      row.reconciled_vnd ??
+      row['Tiền đã thanh toán']
+  );
+  if (v != null && v > 0) return v;
+  const a = parse(row.reconciled_amount ?? row['Số tiền của đơn hàng đã về TK Cty']);
+  if (a != null && a > 0) return a;
+  if (v != null && Number.isFinite(v)) return v;
+  if (a != null && Number.isFinite(a)) return a;
+  return 0;
 }
 
 /**
