@@ -243,6 +243,42 @@ function pickVanDonRowMoneyVnd(row) {
   return API.resolveVanDonMoneyVndFromDbRow(row);
 }
 
+/** Phí ship trên lưới (VNĐ) — ưu tiên cột «Phí ship» / shipping_fee; fallback shipping_cost nếu có. */
+function pickVanDonRowShippingVnd(row) {
+  if (!row) return 0;
+  const raw =
+    getVanDonGridCellValue(row, 'Phí ship') ??
+    row['Phí ship'] ??
+    row.shipping_fee ??
+    row.shipping_cost;
+  if (raw === undefined || raw === null || raw === '') return 0;
+  const n =
+    typeof raw === 'number' && Number.isFinite(raw) ? raw : parseVietnameseMoneyToNumber(raw);
+  return n != null && Number.isFinite(n) ? n : 0;
+}
+
+/** Có bill: đã có ngày up bill hoặc ảnh thanh toán (payment_image) không rỗng. */
+function vanDonRowHasBillEvidence(row) {
+  if (!row) return false;
+  const img = row.payment_image ?? row['Payment Image'] ?? '';
+  if (img != null && String(img).trim() !== '') return true;
+  const up = row.ngayupbill ?? row['Ngày up bill'] ?? '';
+  return up != null && String(up).trim() !== '';
+}
+
+function pickVanDonRowReconciledVnd(row) {
+  if (!row) return 0;
+  const raw =
+    getVanDonGridCellValue(row, 'Tiền Việt đã đối soát') ??
+    row['Tiền Việt đã đối soát'] ??
+    row.reconciled_vnd ??
+    row['Tiền đã thanh toán'];
+  if (raw === undefined || raw === null || raw === '') return 0;
+  const n =
+    typeof raw === 'number' && Number.isFinite(raw) ? raw : parseVietnameseMoneyToNumber(raw);
+  return n != null && Number.isFinite(n) ? n : 0;
+}
+
 /**
  * Mã đơn chuẩn cho một dòng — luôn string đã trim.
  * PendingChanges dùng Map theo mã đơn: nếu nhiều dòng cùng `undefined`/'' hoặc number vs "123" không khớp,
@@ -1264,6 +1300,9 @@ function VanDon({ dataSource = 'default' }) {
           data: [],
           total: 0,
           totalAmountVndSum: 0,
+          totalShippingFeeSum: 0,
+          ordersPaidWithBillCount: 0,
+          reconciledVndWithBillSum: 0,
           page,
           limit,
           totalPages: 0
@@ -1282,6 +1321,9 @@ function VanDon({ dataSource = 'default' }) {
           data: [],
           total: 0,
           totalAmountVndSum: 0,
+          totalShippingFeeSum: 0,
+          ordersPaidWithBillCount: 0,
+          reconciledVndWithBillSum: 0,
           page,
           limit,
           totalPages: 0
@@ -1384,10 +1426,21 @@ function VanDon({ dataSource = 'default' }) {
   const queryResult = useMemo(() => {
     if (!vanDonRowsResult) return null;
     const moneySum = vanDonMoneyResult?.totalAmountVndSum;
+    const shipSum = vanDonMoneyResult?.totalShippingFeeSum;
+    const billCnt = vanDonMoneyResult?.ordersPaidWithBillCount;
+    const billMoney = vanDonMoneyResult?.reconciledVndWithBillSum;
     return {
       ...vanDonRowsResult,
       totalAmountVndSum:
-        moneySum !== undefined && moneySum !== null ? moneySum : vanDonRowsResult.totalAmountVndSum
+        moneySum !== undefined && moneySum !== null ? moneySum : vanDonRowsResult.totalAmountVndSum,
+      totalShippingFeeSum:
+        shipSum !== undefined && shipSum !== null ? shipSum : vanDonRowsResult.totalShippingFeeSum,
+      ordersPaidWithBillCount:
+        billCnt !== undefined && billCnt !== null ? billCnt : vanDonRowsResult.ordersPaidWithBillCount,
+      reconciledVndWithBillSum:
+        billMoney !== undefined && billMoney !== null
+          ? billMoney
+          : vanDonRowsResult.reconciledVndWithBillSum,
     };
   }, [vanDonRowsResult, vanDonMoneyResult]);
 
@@ -4734,6 +4787,30 @@ function VanDon({ dataSource = 'default' }) {
     }
     return 0;
   }, [useBackendPagination, totalAmountVndSumFromServer, getFilteredData]);
+
+  const vanDonHeaderMoneyExtras = useMemo(() => {
+    if (!useBackendPagination) {
+      let totalShip = 0;
+      let paidBillCount = 0;
+      let paidBillSum = 0;
+      for (let i = 0; i < getFilteredData.length; i++) {
+        const row = getFilteredData[i];
+        totalShip += pickVanDonRowShippingVnd(row);
+        if (vanDonRowHasBillEvidence(row)) {
+          const r = pickVanDonRowReconciledVnd(row);
+          if (r > 0) {
+            paidBillCount += 1;
+            paidBillSum += r;
+          }
+        }
+      }
+      return { totalShip, paidBillCount, paidBillSum };
+    }
+    const totalShip = Number(queryResult?.totalShippingFeeSum) || 0;
+    const paidBillCount = Number(queryResult?.ordersPaidWithBillCount) || 0;
+    const paidBillSum = Number(queryResult?.reconciledVndWithBillSum) || 0;
+    return { totalShip, paidBillCount, paidBillSum };
+  }, [useBackendPagination, getFilteredData, queryResult]);
   /**
    * Tổng khớp lọc từ máy chủ (`totalRecords`) có thể nhỏ hơn số dòng trên lưới khi có đơn ghép từ nháp
    * chưa lưu (`mergePendingRowsIntoFetchedData`) — Ctrl+C/copy theo `getFilteredData` nên đếm phải khớp lưới trong trường hợp đó.
@@ -5712,17 +5789,36 @@ function VanDon({ dataSource = 'default' }) {
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
+            <div className="flex flex-wrap items-end justify-end gap-x-4 gap-y-1 flex-shrink-0 sm:ml-auto">
               <div className="text-right flex flex-col items-end leading-tight">
                 <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Số lượng đơn</span>
                 <span className="text-xs font-black text-blue-600 tabular-nums">{totalOrdersCount.toLocaleString('vi-VN')}</span>
               </div>
               <div className="text-right flex flex-col items-end leading-tight">
                 <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Tổng tiền</span>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-xs font-black text-emerald-600">{totalMoney.toLocaleString('vi-VN')} ₫</span>
-                  <span className="text-[10px] font-semibold text-gray-500">≈ ${(totalMoney / 24000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </div>
+                <span className="text-xs font-black text-emerald-600 tabular-nums">
+                  {totalMoney.toLocaleString('vi-VN')} ₫
+                </span>
+              </div>
+              <div className="text-right flex flex-col items-end leading-tight">
+                <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Tổng phí ship</span>
+                <span className="text-xs font-black text-teal-700 tabular-nums">
+                  {vanDonHeaderMoneyExtras.totalShip.toLocaleString('vi-VN')} ₫
+                </span>
+              </div>
+              <div className="text-right flex flex-col items-end leading-tight">
+                <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider max-w-[140px]">
+                  Số đơn đã thu (có bill)
+                </span>
+                <span className="text-xs font-black text-indigo-600 tabular-nums">
+                  {vanDonHeaderMoneyExtras.paidBillCount.toLocaleString('vi-VN')}
+                </span>
+              </div>
+              <div className="text-right flex flex-col items-end leading-tight">
+                <span className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Số tiền đã thu</span>
+                <span className="text-xs font-black text-amber-700 tabular-nums">
+                  {vanDonHeaderMoneyExtras.paidBillSum.toLocaleString('vi-VN')} ₫
+                </span>
               </div>
             </div>
           </div>

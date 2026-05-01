@@ -1227,6 +1227,9 @@ export const fetchVanDon = async (options = {}) => {
             data: mockRows,
             total: 2,
             totalAmountVndSum: mockSum,
+            totalShippingFeeSum: 0,
+            ordersPaidWithBillCount: 0,
+            reconciledVndWithBillSum: 0,
             page: 1,
             limit: limit,
             totalPages: 1
@@ -1665,6 +1668,57 @@ export const fetchVanDon = async (options = {}) => {
                 return { sumError, totalAmountVndSum };
             };
 
+            /**
+             * Tổng phí ship (shipping_fee) + đơn/số tiền đã thu khi có bill (ảnh bill hoặc ngày up bill, reconciled_vnd > 0).
+             * Cùng bộ lọc với tổng tiền — SUM/COUNT trên bảng vật lý `sumFromTable`.
+             */
+            const computeVanDonAuxiliaryAggregates = async () => {
+                const shipRes = await applyVanDonFilters(
+                    supabase.from(sumFromTable).select('shipping_fee.sum()')
+                );
+                let totalShippingFeeSum = 0;
+                if (!shipRes.error) {
+                    totalShippingFeeSum = extractPostgrestAggregateNumeric(shipRes.data) ?? 0;
+                } else {
+                    console.warn('[fetchVanDon] shipping_fee.sum:', shipRes.error.message);
+                }
+
+                const runBillPaid = async (orExpr) => {
+                    const [cRes, sRes] = await Promise.all([
+                        applyVanDonFilters(
+                            supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
+                        )
+                            .or(orExpr)
+                            .gt('reconciled_vnd', 0),
+                        applyVanDonFilters(supabase.from(sumFromTable).select('reconciled_vnd.sum()'))
+                            .or(orExpr)
+                            .gt('reconciled_vnd', 0),
+                    ]);
+                    return { cRes, sRes };
+                };
+
+                let orExpr =
+                    'ngayupbill.not.is.null,and(payment_image.not.is.null,payment_image.neq.)';
+                let { cRes, sRes } = await runBillPaid(orExpr);
+                if (cRes.error || sRes.error) {
+                    orExpr = 'ngayupbill.not.is.null,payment_image.not.is.null';
+                    ({ cRes, sRes } = await runBillPaid(orExpr));
+                }
+
+                const ordersPaidWithBillCount = cRes.error ? 0 : (cRes.count ?? 0);
+                const reconciledVndWithBillSum = sRes.error
+                    ? 0
+                    : (extractPostgrestAggregateNumeric(sRes.data) ?? 0);
+                if (cRes.error || sRes.error) {
+                    console.warn(
+                        '[fetchVanDon] bill paid aggregates:',
+                        cRes.error?.message || sRes.error?.message
+                    );
+                }
+
+                return { totalShippingFeeSum, ordersPaidWithBillCount, reconciledVndWithBillSum };
+            };
+
             /** Chỉ lưới — không chạy SUM; đếm `exact` để tổng đơn trên UI khớp bộ lọc (tránh lệch do `estimated` của Postgres). */
             if (vanDonRowsOnly) {
                 const baseData = applyVanDonFilters(
@@ -1677,6 +1731,9 @@ export const fetchVanDon = async (options = {}) => {
                     count: listRes.count,
                     sumError: null,
                     totalAmountVndSum: undefined,
+                    totalShippingFeeSum: undefined,
+                    ordersPaidWithBillCount: undefined,
+                    reconciledVndWithBillSum: undefined,
                     rowsOnly: true,
                 };
             }
@@ -1686,7 +1743,11 @@ export const fetchVanDon = async (options = {}) => {
                 const headQ = applyVanDonFilters(
                     supabase.from(tableName).select('order_code', { count: 'exact', head: true })
                 );
-                const [headRes, sumCombinedRes] = await Promise.all([headQ, sumMoneyCombinedQ]);
+                const [headRes, sumCombinedRes, auxRes] = await Promise.all([
+                    headQ,
+                    sumMoneyCombinedQ,
+                    computeVanDonAuxiliaryAggregates(),
+                ]);
                 const syntheticList = { count: headRes.count ?? 0, data: [] };
                 const { sumError, totalAmountVndSum } = await computeMoneyTotals(syntheticList, sumCombinedRes);
                 return {
@@ -1695,6 +1756,9 @@ export const fetchVanDon = async (options = {}) => {
                     count: 0,
                     sumError,
                     totalAmountVndSum,
+                    totalShippingFeeSum: auxRes.totalShippingFeeSum,
+                    ordersPaidWithBillCount: auxRes.ordersPaidWithBillCount,
+                    reconciledVndWithBillSum: auxRes.reconciledVndWithBillSum,
                     rowsOnly: false,
                 };
             }
@@ -1702,9 +1766,10 @@ export const fetchVanDon = async (options = {}) => {
             const baseData = applyVanDonFilters(
                 supabase.from(tableName).select(selectCols, { count: 'exact' })
             );
-            const [listRes, sumCombinedRes] = await Promise.all([
+            const [listRes, sumCombinedRes, auxRes] = await Promise.all([
                 baseData.range(pageFrom, pageTo).order('order_date', { ascending: false }),
                 sumMoneyCombinedQ,
+                computeVanDonAuxiliaryAggregates(),
             ]);
             const { sumError, totalAmountVndSum } = await computeMoneyTotals(listRes, sumCombinedRes);
             return {
@@ -1713,6 +1778,9 @@ export const fetchVanDon = async (options = {}) => {
                 count: listRes.count,
                 sumError,
                 totalAmountVndSum,
+                totalShippingFeeSum: auxRes.totalShippingFeeSum,
+                ordersPaidWithBillCount: auxRes.ordersPaidWithBillCount,
+                reconciledVndWithBillSum: auxRes.reconciledVndWithBillSum,
                 rowsOnly: false,
             };
         };
@@ -1738,7 +1806,17 @@ export const fetchVanDon = async (options = {}) => {
             pack = await loadVanDonFromTable(sourceTable);
         }
 
-        const { data, error, count, sumError, totalAmountVndSum, rowsOnly } = pack;
+        const {
+            data,
+            error,
+            count,
+            sumError,
+            totalAmountVndSum,
+            rowsOnly,
+            totalShippingFeeSum: packShipSum = 0,
+            ordersPaidWithBillCount: packBillCount = 0,
+            reconciledVndWithBillSum: packBillSum = 0,
+        } = pack;
         if (sumError) {
             console.warn('[fetchVanDon] total_amount_vnd.sum:', sumError.message);
         }
@@ -1755,6 +1833,17 @@ export const fetchVanDon = async (options = {}) => {
             total: count || 0,
             totalAmountVndSum:
                 rowsOnly ? undefined : Number.isFinite(totalAmountVndSum) ? totalAmountVndSum : 0,
+            totalShippingFeeSum: rowsOnly ? undefined : Number.isFinite(packShipSum) ? packShipSum : 0,
+            ordersPaidWithBillCount: rowsOnly
+                ? undefined
+                : Number.isFinite(packBillCount)
+                  ? packBillCount
+                  : 0,
+            reconciledVndWithBillSum: rowsOnly
+                ? undefined
+                : Number.isFinite(packBillSum)
+                  ? packBillSum
+                  : 0,
             page: page,
             limit: limit,
             totalPages: Math.ceil((count || 0) / limit)
@@ -1766,6 +1855,9 @@ export const fetchVanDon = async (options = {}) => {
             data: [],
             total: 0,
             totalAmountVndSum: 0,
+            totalShippingFeeSum: 0,
+            ordersPaidWithBillCount: 0,
+            reconciledVndWithBillSum: 0,
             page: page,
             limit: limit,
             totalPages: 0,
