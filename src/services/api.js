@@ -296,6 +296,26 @@ function pickVanDonMoneyFromDbRow(r) {
     return resolveVanDonMoneyVndFromDbRow(r);
 }
 
+/**
+ * Phí ship trên một dòng DB — ưu tiên `shipping_cost` (numeric).
+ * `shipping_fee` có thể là text/ngày sau migration; chỉ cộng khi parse được số tiền, bỏ qua chuỗi dạng ngày.
+ */
+function pickVanDonShippingFromDbRow(r) {
+    if (!r || typeof r !== 'object') return 0;
+    const sc = r.shipping_cost;
+    if (sc !== undefined && sc !== null && sc !== '') {
+        const n = typeof sc === 'number' ? sc : Number(sc);
+        if (Number.isFinite(n)) return n;
+    }
+    const sf = r.shipping_fee;
+    if (sf === undefined || sf === null || sf === '') return 0;
+    if (typeof sf === 'number' && Number.isFinite(sf)) return sf;
+    const s = String(sf).trim();
+    if (/^\d{1,2}[./-]\d{1,2}/.test(s)) return 0;
+    const parsed = parseVietnameseMoneyToNumber(sf);
+    return parsed != null && Number.isFinite(parsed) ? parsed : 0;
+}
+
 function unwrapPostgrestAggregateRow(data) {
     if (data == null) return null;
     if (Array.isArray(data)) {
@@ -1669,18 +1689,77 @@ export const fetchVanDon = async (options = {}) => {
             };
 
             /**
-             * Tổng phí ship (shipping_fee) + đơn/số tiền đã thu khi có bill (ảnh bill hoặc ngày up bill, reconciled_vnd > 0).
-             * Cùng bộ lọc với tổng tiền — SUM/COUNT trên bảng vật lý `sumFromTable`.
+             * Tổng phí ship + đơn/số tiền đã thu khi có bill (reconciled_vnd > 0 và dấu hiệu bill).
+             * Phí ship: ưu tiên SUM(`shipping_cost`); `shipping_fee` có thể là text (ngày) nên SUM có thể lỗi — quét fallback giống tổng tiền.
+             * Cùng bộ lọc với tổng tiền — trên bảng vật lý `sumFromTable`.
              */
             const computeVanDonAuxiliaryAggregates = async () => {
-                const shipRes = await applyVanDonFilters(
-                    supabase.from(sumFromTable).select('shipping_fee.sum()')
-                );
                 let totalShippingFeeSum = 0;
-                if (!shipRes.error) {
-                    totalShippingFeeSum = extractPostgrestAggregateNumeric(shipRes.data) ?? 0;
+                const shipCostRes = await applyVanDonFilters(
+                    supabase.from(sumFromTable).select('shipping_cost.sum()')
+                );
+                if (!shipCostRes.error) {
+                    totalShippingFeeSum = extractPostgrestAggregateNumeric(shipCostRes.data) ?? 0;
                 } else {
-                    console.warn('[fetchVanDon] shipping_fee.sum:', shipRes.error.message);
+                    console.warn('[fetchVanDon] shipping_cost.sum:', shipCostRes.error.message);
+                }
+
+                if (shipCostRes.error || totalShippingFeeSum === 0) {
+                    const shipFeeRes = await applyVanDonFilters(
+                        supabase.from(sumFromTable).select('shipping_fee.sum()')
+                    );
+                    if (!shipFeeRes.error) {
+                        const feeSum = extractPostgrestAggregateNumeric(shipFeeRes.data) ?? 0;
+                        if (shipCostRes.error || feeSum > 0) {
+                            totalShippingFeeSum = feeSum;
+                        }
+                    } else if (shipCostRes.error) {
+                        console.warn('[fetchVanDon] shipping_fee.sum:', shipFeeRes.error.message);
+                    }
+                }
+
+                const headShip = await applyVanDonFilters(
+                    supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
+                );
+                const rowCountShip = headShip.count ?? 0;
+                const needShipScan = rowCountShip > 0 && totalShippingFeeSum === 0;
+                if (needShipScan) {
+                    const SHIP_PROBE = 800;
+                    const probeRes = await applyVanDonFilters(
+                        supabase.from(sumFromTable).select('shipping_cost,shipping_fee')
+                    )
+                        .order('order_date', { ascending: false })
+                        .range(0, SHIP_PROBE - 1);
+                    if (!probeRes.error && (probeRes.data || []).length > 0) {
+                        const probeSum = (probeRes.data || []).reduce(
+                            (s, r) => s + pickVanDonShippingFromDbRow(r),
+                            0
+                        );
+                        if (probeSum > 0) {
+                            const SHIP_BATCH = 1000;
+                            const maxBatches = Math.min(200000, Math.ceil(rowCountShip / SHIP_BATCH) + 50);
+                            let scanned = 0;
+                            let fallbackSum = 0;
+                            for (let b = 0; b < maxBatches && scanned < rowCountShip; b++) {
+                                const { data: chunk, error: chunkErr } = await applyVanDonFilters(
+                                    supabase.from(sumFromTable).select('shipping_cost,shipping_fee')
+                                )
+                                    .order('order_date', { ascending: false })
+                                    .range(scanned, scanned + SHIP_BATCH - 1);
+                                if (chunkErr) {
+                                    console.warn('[fetchVanDon] shipping scan batch:', chunkErr.message);
+                                    break;
+                                }
+                                if (!chunk?.length) break;
+                                for (let i = 0; i < chunk.length; i++) {
+                                    fallbackSum += pickVanDonShippingFromDbRow(chunk[i]);
+                                }
+                                scanned += chunk.length;
+                                if (scanned >= rowCountShip) break;
+                            }
+                            totalShippingFeeSum = fallbackSum;
+                        }
+                    }
                 }
 
                 const runBillPaid = async (orExpr) => {
@@ -1697,12 +1776,20 @@ export const fetchVanDon = async (options = {}) => {
                     return { cRes, sRes };
                 };
 
-                let orExpr =
-                    'ngayupbill.not.is.null,and(payment_image.not.is.null,payment_image.neq.)';
-                let { cRes, sRes } = await runBillPaid(orExpr);
-                if (cRes.error || sRes.error) {
-                    orExpr = 'ngayupbill.not.is.null,payment_image.not.is.null';
-                    ({ cRes, sRes } = await runBillPaid(orExpr));
+                const billOrAttempts = [
+                    'ngayupbill.not.is.null,and(payment_image.not.is.null,payment_image.neq.)',
+                    'ngayupbill.not.is.null,payment_image.not.is.null',
+                    'ngayupbill.not.is.null',
+                    'payment_image.not.is.null',
+                ];
+
+                let cRes;
+                let sRes;
+                for (let a = 0; a < billOrAttempts.length; a++) {
+                    const attempt = await runBillPaid(billOrAttempts[a]);
+                    cRes = attempt.cRes;
+                    sRes = attempt.sRes;
+                    if (!cRes.error && !sRes.error) break;
                 }
 
                 const ordersPaidWithBillCount = cRes.error ? 0 : (cRes.count ?? 0);
