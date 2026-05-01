@@ -39,6 +39,47 @@ const isBranchMatched = (staffBranch, selectedBranch) => {
     return normalizeBranch(staffBranch) === normalizeBranch(selectedBranch);
 };
 
+/** Chuẩn hóa chuỗi để tìm kiếm (bỏ dấu, đ→d, gộp khoảng trắng). */
+const normalizeForSearch = (value) =>
+    String(value ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/đ/g, 'd')
+        .replace(/Đ/g, 'd')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+/**
+ * Khớp dòng `users` với `ho_va_ten` trong danh_sach_van_don (tránh lệch dấu / hoa thường / khoảng trắng).
+ * Trả về `{ id, name, can_day_ffm }` hoặc null.
+ */
+const resolveUserForHoVaTen = (hoVaTen, usersList) => {
+    const raw = String(hoVaTen || '').trim();
+    if (!raw || !Array.isArray(usersList) || usersList.length === 0) return null;
+
+    const exact = usersList.find((u) => String(u?.name ?? '').trim() === raw);
+    if (exact) return exact;
+
+    const lower = raw.toLowerCase();
+    const icase = usersList.find((u) => String(u?.name ?? '').trim().toLowerCase() === lower);
+    if (icase) return icase;
+
+    const normHo = normalizeForSearch(raw);
+    const candidates = usersList.filter((u) => normalizeForSearch(u?.name) === normHo);
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length > 1) {
+        const lastToken = raw.split(/\s+/).filter(Boolean).pop() || raw;
+        const byLast = candidates.find((u) =>
+            normalizeForSearch(u?.name).includes(normalizeForSearch(lastToken))
+        );
+        return byLast || candidates[0];
+    }
+
+    return null;
+};
+
 // Khớp bộ phận Vận đơn trên `users.department` hoặc `human_resources."Bộ phận"`.
 const isBoPhanVanDon = (dept) => {
     const raw = (dept ?? '').toString().trim();
@@ -267,8 +308,21 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                 filteredRecords = filteredRecords.filter((record) => isHcmBranch(record?.chi_nhanh));
             }
 
+            let usersForFfmLookup = [];
+            try {
+                const { data: uRows, error: uErr } = await supabase
+                    .from('users')
+                    .select('id, name, can_day_ffm')
+                    .not('name', 'is', null);
+                if (uErr) throw uErr;
+                usersForFfmLookup = uRows || [];
+            } catch (e) {
+                console.warn('[DanhSachVanDon] Không load được users cho Đẩy FFM:', e);
+                usersForFfmLookup = [];
+            }
+
             // Auto-count orders for each staff member and parse nguoi_sua_ho, nguoi_day_ffm
-            // Đồng thời load can_day_ffm từ bảng users
+            // Đồng thời load can_day_ffm từ bảng users (khớp tên linh hoạt + id để cập nhật)
             const recordsWithCount = await Promise.all(
                 filteredRecords.map(async (record) => {
                     if (record.ho_va_ten) {
@@ -302,25 +356,22 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                             }
                         }
                         
-                        // Load can_day_ffm từ bảng users dựa trên ho_va_ten
-                        let canDayFFM = false;
-                        try {
-                            const { data: userData } = await supabase
-                                .from('users')
-                                .select('can_day_ffm')
-                                .eq('name', record.ho_va_ten)
-                                .maybeSingle();
-                            canDayFFM = userData?.can_day_ffm === true;
-                        } catch (err) {
-                            console.warn('Could not load can_day_ffm for', record.ho_va_ten, err);
+                        const matchedUser = resolveUserForHoVaTen(record.ho_va_ten, usersForFfmLookup);
+                        const canDayFFM = matchedUser?.can_day_ffm === true;
+                        if (!matchedUser) {
+                            console.warn(
+                                '[DanhSachVanDon] Không khớp users.name với ho_va_ten — Đẩy FFM không cập nhật được:',
+                                record.ho_va_ten
+                            );
                         }
-                        
-                        return { 
-                            ...record, 
-                            so_don: count, 
-                            nguoi_sua_ho_parsed: nguoiSuaHo, 
+
+                        return {
+                            ...record,
+                            so_don: count,
+                            nguoi_sua_ho_parsed: nguoiSuaHo,
                             nguoi_day_ffm_parsed: nguoiDayFFM,
-                            can_day_ffm: canDayFFM
+                            can_day_ffm: canDayFFM,
+                            can_day_ffm_user_id: matchedUser?.id ?? null
                         };
                     }
                     return record;
@@ -435,20 +486,21 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
             return;
         }
 
-        const searchLower = searchText.toLowerCase();
+        const qNorm = normalizeForSearch(searchText);
+        const qDigits = String(searchText || '').trim();
         const filtered = base.filter((item) => {
             const nguoiSuaHoText = Array.isArray(item.nguoi_sua_ho)
                 ? item.nguoi_sua_ho.join(' ')
                 : String(item.nguoi_sua_ho || '');
 
             return (
-            item.ho_va_ten?.toLowerCase().includes(searchLower) ||
-            item.trang_thai_chia?.toLowerCase().includes(searchLower) ||
-            item.chi_nhanh?.toLowerCase().includes(searchLower) ||
-            nguoiSuaHoText.toLowerCase().includes(searchLower) ||
-            (item.nguoi_day_ffm_parsed &&
-                item.nguoi_day_ffm_parsed.some((name) => name.toLowerCase().includes(searchLower))) ||
-            String(item.so_don || '').includes(searchText)
+                normalizeForSearch(item.ho_va_ten).includes(qNorm) ||
+                normalizeForSearch(item.trang_thai_chia).includes(qNorm) ||
+                normalizeForSearch(item.chi_nhanh).includes(qNorm) ||
+                normalizeForSearch(nguoiSuaHoText).includes(qNorm) ||
+                (item.nguoi_day_ffm_parsed &&
+                    item.nguoi_day_ffm_parsed.some((name) => normalizeForSearch(name).includes(qNorm))) ||
+                String(item.so_don || '').includes(qDigits)
             );
         });
         setFilteredData(filtered);
@@ -808,20 +860,38 @@ export default function DanhSachVanDon({ dataSource = 'default' }) {
                                                                 toast.error('Không tìm thấy tên nhân viên');
                                                                 return;
                                                             }
+                                                            const userId = item.can_day_ffm_user_id;
+                                                            if (!userId) {
+                                                                toast.error(
+                                                                    'Không khớp tài khoản trong bảng users (tên khác `ho_va_ten`). Liên hệ admin đồng bộ tên.'
+                                                                );
+                                                                e.target.checked = !newValue;
+                                                                return;
+                                                            }
                                                             try {
-                                                                const { error } = await supabase
+                                                                const { data: updatedRows, error } = await supabase
                                                                     .from('users')
                                                                     .update({ can_day_ffm: newValue })
-                                                                    .eq('name', item.ho_va_ten);
-                                                                
+                                                                    .eq('id', userId)
+                                                                    .select('id');
+
                                                                 if (error) {
                                                                     toast.error('Lỗi cập nhật quyền đẩy FFM: ' + error.message);
+                                                                    e.target.checked = !newValue;
+                                                                } else if (!updatedRows?.length) {
+                                                                    toast.error(
+                                                                        'Không cập nhật được (0 dòng). Kiểm tra quyền RLS hoặc id user.'
+                                                                    );
+                                                                    e.target.checked = !newValue;
                                                                 } else {
-                                                                    toast.success(newValue ? 'Đã cấp quyền đẩy FFM' : 'Đã thu hồi quyền đẩy FFM');
-                                                                    loadData(); // Reload để cập nhật UI
+                                                                    toast.success(
+                                                                        newValue ? 'Đã cấp quyền đẩy FFM' : 'Đã thu hồi quyền đẩy FFM'
+                                                                    );
+                                                                    loadData();
                                                                 }
                                                             } catch (err) {
                                                                 toast.error('Lỗi: ' + err.message);
+                                                                e.target.checked = !newValue;
                                                             }
                                                         }}
                                                         className="sr-only"
