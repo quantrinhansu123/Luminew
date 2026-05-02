@@ -318,6 +318,9 @@ function pickVanDonShippingFromDbRow(r) {
 
 function pickVanDonNumericDb(val) {
     if (val === undefined || val === null || val === '') return 0;
+    if (typeof val === 'number' && Number.isFinite(val)) return val;
+    const parsed = parseVietnameseMoneyToNumber(val);
+    if (parsed != null && Number.isFinite(parsed)) return parsed;
     const n = typeof val === 'number' ? val : Number(val);
     return Number.isFinite(n) ? n : 0;
 }
@@ -1793,10 +1796,13 @@ export const fetchVanDon = async (options = {}) => {
                     }
                 }
 
-                const billOr =
-                    'ngayupbill.not.is.null,payment_image.not.is.null,payment_bill.not.is.null';
+                /** `payment_bill` có thể không có trên một số bản sao `order_code_hcm` → thử bộ billOr nhỏ hơn khi lỗi cột. */
+                const billOrCandidates = [
+                    'ngayupbill.not.is.null,payment_image.not.is.null,payment_bill.not.is.null',
+                    'ngayupbill.not.is.null,payment_image.not.is.null',
+                ];
 
-                const runBillPaidAggregates = async (moneyOr) => {
+                const runBillPaidAggregates = async (billOr, moneyOr) => {
                     const [cRes, vRes, aRes] = await Promise.all([
                         applyVanDonFilters(
                             supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
@@ -1818,7 +1824,19 @@ export const fetchVanDon = async (options = {}) => {
                 };
 
                 let moneyOr = 'reconciled_vnd.gt.0,reconciled_amount.gt.0';
-                let { cRes, vRes, aRes } = await runBillPaidAggregates(moneyOr);
+                let billOr = billOrCandidates[0];
+                let { cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr);
+
+                const billNeedsFallback =
+                    (cRes.error &&
+                        String(cRes.error.message || '').toLowerCase().includes('payment_bill')) ||
+                    (vRes.error &&
+                        String(vRes.error.message || '').toLowerCase().includes('payment_bill'));
+                if (billNeedsFallback) {
+                    billOr = billOrCandidates[1];
+                    ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
+                }
+
                 if (
                     aRes.error &&
                     String(aRes.error.message || '')
@@ -1826,7 +1844,7 @@ export const fetchVanDon = async (options = {}) => {
                         .includes('reconciled_amount')
                 ) {
                     moneyOr = 'reconciled_vnd.gt.0';
-                    ({ cRes, vRes, aRes } = await runBillPaidAggregates(moneyOr));
+                    ({ cRes, vRes, aRes } = await runBillPaidAggregates(billOr, moneyOr));
                 }
 
                 let ordersPaidWithBillCount = cRes.error ? 0 : (cRes.count ?? 0);
@@ -1854,16 +1872,13 @@ export const fetchVanDon = async (options = {}) => {
                     supabase.from(sumFromTable).select('order_code', { count: 'exact', head: true })
                 );
                 const rowCountBill = headBill.count ?? 0;
-                const sqlBillLooksEmpty =
-                    !cRes.error &&
-                    !vRes.error &&
-                    ordersPaidWithBillCount === 0 &&
-                    reconciledVndWithBillSum === 0;
+                /** SUM/count SQL không đọc được tiền dạng text / định dạng VNĐ trên ô — luôn thử probe khi tổng tiền = 0 nhưng còn đơn trong lọc. */
                 const needBillScan =
-                    rowCountBill > 0 && (sqlBillLooksEmpty || cRes.error || vRes.error);
+                    rowCountBill > 0 &&
+                    (cRes.error || vRes.error || reconciledVndWithBillSum === 0);
 
                 if (needBillScan) {
-                    const BILL_PROBE = 800;
+                    const BILL_PROBE = 3000;
                     const probeRes = await applyVanDonFilters(
                         supabase
                             .from(sumFromTable)
