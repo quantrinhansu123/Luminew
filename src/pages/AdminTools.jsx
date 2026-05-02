@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X, Calendar, User, ArrowRight, GitMerge } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X, Calendar, User, ArrowRight, GitMerge, LayoutGrid } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
@@ -5322,18 +5322,16 @@ const AdminTools = () => {
                                                             key={b.key}
                                                             className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
                                                         >
-                                                            <div className={`${b.headClass} px-4 py-3`}>
-                                                                <p className="text-white text-sm font-bold flex items-center justify-between gap-2">
-                                                                    <span className="flex items-center gap-2">
-                                                                        <List className="w-5 h-5" />
-                                                                        {b.title}
-                                                                    </span>
-                                                                    <span className="text-[11px] font-semibold bg-white/15 px-2 py-1 rounded">
-                                                                        {total} vòng
-                                                                    </span>
-                                                                </p>
+                                                            <div className={`${b.headClass} px-4 py-3 flex items-center justify-between`}>
+                                                                <h3 className="text-white text-sm font-bold flex items-center gap-2">
+                                                                    <List className="w-5 h-5" />
+                                                                    Báo cáo phân bổ — {b.title}
+                                                                </h3>
+                                                                <span className="text-[11px] font-semibold bg-white/20 px-2 py-1 rounded text-white border border-white/10">
+                                                                    Tổng {total} phiên
+                                                                </span>
                                                             </div>
-                                                            <div className="p-4 space-y-4 max-h-[min(70vh,900px)] overflow-y-auto">
+                                                            <div className="p-4 space-y-8 max-h-[min(85vh,1100px)] overflow-y-auto bg-gray-50/30">
                                                                 {total > 0 ? (
                                                                     list.map((h, hIdx) => {
                                                                         const stats = h.staff_stats || {};
@@ -5341,292 +5339,214 @@ const AdminTools = () => {
                                                                             Object.entries(stats),
                                                                             chiaDonVanDonStaffOrder?.[b.key] || []
                                                                         );
-                                                                        const timeStr = new Date(
-                                                                            h.created_at
-                                                                        ).toLocaleString('vi-VN', {
-                                                                            day: '2-digit',
-                                                                            month: '2-digit',
-                                                                            year: 'numeric',
-                                                                            hour: '2-digit',
-                                                                            minute: '2-digit',
+                                                                        const dt = new Date(h.created_at);
+                                                                        const dayStr = dt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+                                                                        const timeStr = dt.toLocaleString('vi-VN', {
+                                                                            day: '2-digit', month: '2-digit', year: 'numeric',
+                                                                            hour: '2-digit', minute: '2-digit'
                                                                         });
                                                                         const sessionNo = total - hIdx;
-                                                                        const phien = parseHistoryChiaDonStoredJson(
-                                                                            h.phien_chia
-                                                                        );
-                                                                        const branchSlice =
-                                                                            b.key === 'HCM'
-                                                                                ? phien.hcm || {}
-                                                                                : phien.hanoi || {};
-                                                                        const roster = Array.isArray(
-                                                                            branchSlice.thu_tu_u1_co_dinh
-                                                                        )
-                                                                            ? branchSlice.thu_tu_u1_co_dinh.filter(Boolean)
-                                                                            : [];
-                                                                        const chiTietRoot =
-                                                                            parseHistoryChiaDonStoredJson(
-                                                                                h.chi_tiet_chia
-                                                                            );
-                                                                        const assignList = getHistoryChiTietBranchList(
-                                                                            chiTietRoot,
-                                                                            b.key
-                                                                        );
-                                                                        const nProcessedRaw = branchSlice.so_don_da_xu_ly;
-                                                                        const nProcessed =
-                                                                            nProcessedRaw != null &&
-                                                                            String(nProcessedRaw).trim() !== '' &&
-                                                                            !Number.isNaN(Number(nProcessedRaw))
-                                                                                ? Number(nProcessedRaw)
-                                                                                : (() => {
-                                                                                      const sumStats = staffEntries.reduce(
-                                                                                          (acc, [, c]) =>
-                                                                                              acc + (Number(c) || 0),
-                                                                                          0
-                                                                                      );
-                                                                                      if (sumStats > 0) return sumStats;
-                                                                                      const sl = branchSlice.so_luong;
-                                                                                      if (
-                                                                                          sl != null &&
-                                                                                          String(sl).trim() !== '' &&
-                                                                                          !Number.isNaN(Number(sl))
-                                                                                      ) {
-                                                                                          return Number(sl);
-                                                                                      }
-                                                                                      return Number(h.total_orders) || 0;
-                                                                                  })();
-                                                                        const performer = String(
-                                                                            h.performed_by || ''
-                                                                        ).trim();
+                                                                        const phien = parseHistoryChiaDonStoredJson(h.phien_chia);
+                                                                        const branchSlice = b.key === 'HCM' ? phien.hcm || {} : phien.hanoi || {};
+                                                                        const roster = Array.isArray(branchSlice.thu_tu_u1_co_dinh)
+                                                                            ? branchSlice.thu_tu_u1_co_dinh.filter(Boolean) : [];
+                                                                        const chiTietRoot = parseHistoryChiaDonStoredJson(h.chi_tiet_chia);
+                                                                        const assignList = getHistoryChiTietBranchList(chiTietRoot, b.key);
+                                                                        
+                                                                        const performer = String(h.performed_by || '').trim();
+                                                                        const totalOrders = Number(h.total_orders) || 0;
+
+                                                                        // Tạo danh sách lượt cho dữ liệu cũ nếu cần
+                                                                        const displayRows = assignList.length > 0 
+                                                                            ? assignList 
+                                                                            : Array.from({ length: totalOrders }).map((_, i) => ({ 
+                                                                                order_code: 'Dữ liệu cũ', 
+                                                                                delivery_staff: 'N/A (Cũ)',
+                                                                                is_old: true
+                                                                            }));
 
                                                                         return (
-                                                                            <div
-                                                                                key={h.id || `${h.created_at}-${hIdx}`}
-                                                                                className={`rounded-xl border ${b.cardTint} overflow-hidden shadow-sm`}
-                                                                            >
-                                                                                {/* Header Vòng */}
-                                                                                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-black/5 bg-white/40">
-                                                                                    <div>
-                                                                                        <h4 className="font-bold text-gray-800 text-base">Vòng {sessionNo}</h4>
-                                                                                        <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-3 items-center">
-                                                                                            <span className="flex items-center gap-1 font-mono">
+                                                                            <div key={h.id || `${h.created_at}-${hIdx}`} className="bg-white rounded-xl border border-gray-200 shadow-md overflow-hidden mb-6 last:mb-0">
+                                                                                {/* Header Session */}
+                                                                                <div className="bg-gray-100/80 px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-4">
+                                                                                    <div className="flex items-center gap-4">
+                                                                                        <div className="bg-gray-800 text-white px-3 py-1.5 rounded text-sm font-black shadow-sm">
+                                                                                            VÒNG {sessionNo}
+                                                                                        </div>
+                                                                                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                                                                                            <span className="flex items-center gap-1.5 font-bold text-gray-700">
                                                                                                 <Calendar className="w-3.5 h-3.5" /> {timeStr}
                                                                                             </span>
-                                                                                            {performer && (
-                                                                                                <span className="flex items-center gap-1">
-                                                                                                    <User className="w-3.5 h-3.5" /> Chạy bởi: <strong className="text-gray-700 font-medium">{performer}</strong>
-                                                                                                </span>
-                                                                                            )}
+                                                                                            <span>|</span>
+                                                                                            <span className="flex items-center gap-1.5">
+                                                                                                <User className="w-3.5 h-3.5" /> Chạy bởi: <b className="text-gray-700">{performer || 'Admin'}</b>
+                                                                                            </span>
                                                                                         </div>
                                                                                     </div>
                                                                                     <div className="text-right">
-                                                                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${b.badgeSoft}`}>
-                                                                                            <Package className="w-4 h-4" />
-                                                                                            {nProcessed} đơn
+                                                                                        <span className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-black shadow-sm">
+                                                                                            TỔNG: {totalOrders} ĐƠN
                                                                                         </span>
                                                                                     </div>
                                                                                 </div>
 
-                                                                                <div className="p-4 space-y-5">
-                                                                                    {/* Hàng đợi ban đầu */}
-                                                                                    {roster.length > 0 && (
-                                                                                        <div>
-                                                                                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Hàng đợi ban đầu (Thứ tự U1)</p>
-                                                                                            <div className="flex flex-wrap items-center gap-1.5">
-                                                                                                {roster.map((name, ri) => (
-                                                                                                    <React.Fragment key={`${h.id}-r-${ri}`}>
-                                                                                                        <span className={`text-xs px-2.5 py-1 rounded-md border ${ri === 0 ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold shadow-sm' : 'bg-white border-gray-200 text-gray-600'}`}>
-                                                                                                            {ri + 1}. {name}
-                                                                                                        </span>
-                                                                                                        {ri < roster.length - 1 && <ArrowRight className="w-3 h-3 text-gray-300" />}
-                                                                                                    </React.Fragment>
-                                                                                                ))}
-                                                                                            </div>
-                                                                                            {branchSlice.bat_dau_phien_tu && (
-                                                                                                <p className="text-[11px] text-gray-500 mt-2 italic">
-                                                                                                    (Vòng này bắt đầu chia tiếp sức từ: <strong className="text-gray-700 not-italic">{branchSlice.bat_dau_phien_tu}</strong>)
-                                                                                                </p>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    )}
-
-                                                                                    {/* Trình tự chia đơn CHI TIẾT */}
-                                                                                    {assignList.length > 0 ? (
-                                                                                        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm">
-                                                                                            <div className="bg-gray-50 px-3 py-2 border-b border-gray-100">
-                                                                                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-                                                                                                    <GitMerge className="w-3.5 h-3.5" /> Trình tự gán đơn (Theo thời gian thực)
-                                                                                                </p>
-                                                                                            </div>
-                                                                                            <div className="divide-y divide-gray-100">
-                                                                                                {assignList.map((row, ai) => {
-                                                                                                    const code = String(row.order_code || '').trim();
-                                                                                                    const nv = String(row.delivery_staff || '').trim();
-                                                                                                    const reason = String(row.reason || '').trim();
-                                                                                                    const stepQueue = Array.isArray(row.queue_before) ? row.queue_before : [];
-                                                                                                    
-                                                                                                    return (
-                                                                                                        <div key={`${h.id}-a-${ai}-${code}`} className="p-4 hover:bg-gray-50/80 transition-colors">
-                                                                                                            <div className="flex items-start gap-4">
-                                                                                                                {/* Cột số thứ tự */}
-                                                                                                                <div className="flex flex-col items-center gap-1 shrink-0">
-                                                                                                                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold shadow-sm">
-                                                                                                                        {ai + 1}
-                                                                                                                    </div>
-                                                                                                                    <div className="w-0.5 h-full bg-gray-200 min-h-[20px]"></div>
-                                                                                                                </div>
-                                                                                                                
-                                                                                                                {/* Nội dung gán đơn */}
-                                                                                                                <div className="flex-1 min-w-0 space-y-2.5">
-                                                                                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                                                                                                                        <div className="flex items-center gap-2">
-                                                                                                                            <span className="text-[10px] font-bold text-gray-400 uppercase">Đơn hàng</span>
-                                                                                                                            <span className="font-mono text-sm text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-md font-bold">
-                                                                                                                                {code || '(mã đơn)'}
-                                                                                                                            </span>
+                                                                                <div className="p-4 space-y-6">
+                                                                                    {/* I. TRÌNH TỰ CHIA (THEO CÚ PHÁP YÊU CẦU) */}
+                                                                                    <div className="space-y-2">
+                                                                                        <h5 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 mb-3">
+                                                                                            <GitMerge className="w-3.5 h-3.5 text-blue-500" /> I. CHI TIẾT TRÌNH TỰ CHIA (JSONB DISPLAY)
+                                                                                        </h5>
+                                                                                        <div className="overflow-x-auto border border-gray-200 rounded shadow-sm">
+                                                                                            <table className="w-full text-left border-collapse table-fixed">
+                                                                                                <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
+                                                                                                    <tr>
+                                                                                                        <th className="px-3 py-2 w-40 border-r">Thứ tự chia (Ngày-Vòng-Lượt)</th>
+                                                                                                        <th className="px-3 py-2 w-32 border-r">Mã Đơn</th>
+                                                                                                        <th className="px-3 py-2 w-48 border-r">Nhân sự tiếp nhận</th>
+                                                                                                        <th className="px-3 py-2">Hàng đợi xoay vòng</th>
+                                                                                                    </tr>
+                                                                                                </thead>
+                                                                                                <tbody className="text-xs divide-y divide-gray-100">
+                                                                                                    {displayRows.map((row, ai) => {
+                                                                                                        const nv = String(row.delivery_staff || '').trim();
+                                                                                                        const stepQueue = Array.isArray(row.queue_before) ? row.queue_before : [];
+                                                                                                        const maLuot = `${dayStr}-Vòng${sessionNo}-${ai + 1}`;
+                                                                                                        return (
+                                                                                                            <tr key={ai} className="hover:bg-blue-50/40 transition-colors">
+                                                                                                                <td className="px-3 py-2 border-r font-mono font-bold text-gray-500 bg-gray-50/50">{maLuot}</td>
+                                                                                                                <td className={`px-3 py-2 border-r font-mono ${row.is_old ? 'text-gray-300 italic' : 'font-bold text-blue-700'}`}>{row.order_code}</td>
+                                                                                                                <td className={`px-3 py-2 border-r font-bold ${row.is_old ? 'text-gray-400' : 'text-gray-900'}`}>{nv}</td>
+                                                                                                                <td className="px-3 py-2">
+                                                                                                                    {stepQueue.length > 0 ? (
+                                                                                                                        <div className="flex flex-wrap items-center gap-1">
+                                                                                                                            {stepQueue.map((q, qi) => {
+                                                                                                                                const active = q.toLowerCase() === nv.toLowerCase();
+                                                                                                                                return (
+                                                                                                                                    <React.Fragment key={qi}>
+                                                                                                                                        <span className={`text-[9px] px-1.5 py-0.5 rounded border leading-none ${active ? 'bg-blue-600 border-blue-600 text-white font-bold' : 'bg-gray-50 border-gray-200 text-gray-400'}`}>
+                                                                                                                                            {q}
+                                                                                                                                        </span>
+                                                                                                                                        {qi < stepQueue.length - 1 && <span className="text-gray-300 text-[10px]">›</span>}
+                                                                                                                                    </React.Fragment>
+                                                                                                                                );
+                                                                                                                            })}
                                                                                                                         </div>
-                                                                                                                        <ArrowRight className="w-4 h-4 text-gray-300" />
-                                                                                                                        <div className="flex items-center gap-2">
-                                                                                                                            <span className="text-[10px] font-bold text-gray-400 uppercase">Người nhận</span>
-                                                                                                                            <span className="font-bold text-gray-900 text-base">{nv || '—'}</span>
-                                                                                                                        </div>
-                                                                                                                    </div>
-
-                                                                                                                    {/* Hiển thị hàng đợi tại bước này */}
-                                                                                                                    {stepQueue.length > 0 && (
-                                                                                                                        <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
-                                                                                                                            <p className="text-[9px] font-bold text-gray-400 uppercase mb-1.5 flex items-center gap-1">
-                                                                                                                                <List className="w-3 h-3" /> Hàng đợi lúc này (Đầu → Cuối)
-                                                                                                                            </p>
-                                                                                                                            <div className="flex flex-wrap items-center gap-1.5">
-                                                                                                                                {stepQueue.map((qName, qi) => {
-                                                                                                                                    const isChosen = qName.toLowerCase() === nv.toLowerCase();
-                                                                                                                                    return (
-                                                                                                                                        <React.Fragment key={qi}>
-                                                                                                                                            <span className={`text-[10px] px-2 py-0.5 rounded-md border transition-all ${
-                                                                                                                                                isChosen 
-                                                                                                                                                ? 'bg-blue-600 border-blue-600 text-white font-bold shadow-sm scale-105' 
-                                                                                                                                                : 'bg-white border-gray-200 text-gray-500'
-                                                                                                                                            }`}>
-                                                                                                                                                {qName}
-                                                                                                                                            </span>
-                                                                                                                                            {qi < stepQueue.length - 1 && (
-                                                                                                                                                <span className="text-gray-300">›</span>
-                                                                                                                                            )}
-                                                                                                                                        </React.Fragment>
-                                                                                                                                    );
-                                                                                                                                })}
-                                                                                                                            </div>
-                                                                                                                        </div>
+                                                                                                                    ) : (
+                                                                                                                        <span className="text-[10px] text-gray-300 italic">{row.is_old ? 'Dữ liệu không lưu queue' : 'N/A'}</span>
                                                                                                                     )}
-                                                                                                                    
-                                                                                                                    {reason && (
-                                                                                                                        <p className="text-[11px] text-gray-500 bg-gray-100/50 px-2 py-1 rounded inline-block">
-                                                                                                                            <span className="font-semibold">Lý do:</span> {reason}
-                                                                                                                        </p>
-                                                                                                                    )}
-                                                                                                                </div>
-                                                                                                                
-                                                                                                                <div className="hidden sm:flex flex-col items-end gap-1 shrink-0 pt-1">
-                                                                                                                    <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
-                                                                                                                        Đã xử lý
-                                                                                                                    </span>
-                                                                                                                </div>
-                                                                                                            </div>
-                                                                                                        </div>
-                                                                                                    );
-                                                                                                })}
-                                                                                            </div>
+                                                                                                                </td>
+                                                                                                            </tr>
+                                                                                                        );
+                                                                                                    })}
+                                                                                                </tbody>
+                                                                                            </table>
                                                                                         </div>
-                                                                                    ) : (
-                                                                                        <div className="bg-gray-50 rounded-lg p-4 text-center border border-gray-100 border-dashed">
-                                                                                            <p className="text-xs text-gray-500 italic">
-                                                                                                Không có nhật ký từng lượt lưu sẵn (phiên cũ).
-                                                                                            </p>
-                                                                                        </div>
-                                                                                    )}
-
-                                                                                    {/* Tổng kết sản lượng & Tiếp theo */}
-                                                                                    <div className="flex flex-col sm:flex-row gap-4 pt-2 border-t border-black/5">
-                                                                                        <div className="flex-1">
-                                                                                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Sản lượng trong vòng</p>
-                                                                                            <div className="flex flex-wrap gap-2">
-                                                                                                {staffEntries.map(([name, count]) => (
-                                                                                                    <div key={name} className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 flex items-center gap-2 shadow-sm">
-                                                                                                        <span className="font-medium text-gray-700 text-xs">{name}</span>
-                                                                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${b.badgeSoft}`}>{count}</span>
-                                                                                                    </div>
-                                                                                                ))}
-                                                                                            </div>
-                                                                                        </div>
-                                                                                        
-                                                                                        {/* Trạng thái tiếp theo */}
-                                                                                        {(() => {
-                                                                                            let finalQueue = [...roster];
-                                                                                            if (assignList.length > 0) {
-                                                                                                assignList.forEach(row => {
-                                                                                                    const nv = String(row.delivery_staff || '').trim();
-                                                                                                    if (nv) {
-                                                                                                        const idx = finalQueue.findIndex(n => n.toLowerCase() === nv.toLowerCase());
-                                                                                                        if (idx !== -1) {
-                                                                                                            finalQueue.splice(idx, 1);
-                                                                                                            finalQueue.push(nv);
-                                                                                                        }
-                                                                                                    }
-                                                                                                });
-                                                                                            }
-                                                                                            return (
-                                                                                                <div className="sm:w-64 shrink-0 bg-white border border-blue-100 rounded-xl p-3 shadow-sm relative overflow-hidden">
-                                                                                                    <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                                                                                                    <div className="space-y-3">
-                                                                                                        <div>
-                                                                                                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wide flex items-center gap-1.5 mb-1.5">
-                                                                                                                <List className="w-3.5 h-3.5" /> Hàng đợi sau vòng này
-                                                                                                            </p>
-                                                                                                            {finalQueue.length > 0 ? (
-                                                                                                                <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
-                                                                                                                    {finalQueue.map((name, fqIdx) => (
-                                                                                                                        <div key={fqIdx} className={`text-xs px-2 py-1 rounded-md border flex items-center justify-between ${fqIdx === 0 ? 'bg-blue-50 border-blue-200 text-blue-800 font-bold shadow-sm' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>
-                                                                                                                            <span>{fqIdx + 1}. {name}</span>
-                                                                                                                            {fqIdx === 0 && <span className="text-[10px] uppercase">👉 Tiếp</span>}
-                                                                                                                        </div>
-                                                                                                                    ))}
-                                                                                                                </div>
-                                                                                                            ) : (
-                                                                                                                <p className="text-xs text-gray-400 italic">Không có dữ liệu hàng đợi</p>
-                                                                                                            )}
-                                                                                                        </div>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            );
-                                                                                        })()}
                                                                                     </div>
 
-                                                                                    {/* System Logs */}
-                                                                                    {Array.isArray(chiTietRoot?.stepLogs) && chiTietRoot.stepLogs.length > 0 && (
-                                                                                        <div className="pt-4 border-t border-gray-100">
-                                                                                            <details className="group">
-                                                                                                <summary className="text-xs font-semibold text-gray-500 hover:text-gray-700 cursor-pointer flex items-center gap-1 select-none">
-                                                                                                    <FileJson className="w-3.5 h-3.5" />
-                                                                                                    Xem Log Hệ Thống (Chi tiết từng bước)
-                                                                                                </summary>
-                                                                                                <div className="mt-3 bg-gray-900 rounded-lg p-3 font-mono text-[10px] text-gray-300 overflow-x-auto max-h-64 space-y-1">
-                                                                                                    {chiTietRoot.stepLogs.map((log, li) => (
-                                                                                                        <div key={li} className="whitespace-pre-wrap border-l border-gray-700 pl-2 py-0.5">
-                                                                                                            {log}
-                                                                                                        </div>
-                                                                                                    ))}
-                                                                                                </div>
-                                                                                            </details>
+                                                                                    {/* II. THỐNG KÊ TỔNG HỢP (HẢO-VÒNG-LƯỢT) */}
+                                                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                                                                        <div className="space-y-2">
+                                                                                            <h5 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                                                                                                <LayoutGrid className="w-3.5 h-3.5 text-blue-500" /> II. BẢNG THỐNG KÊ NHÂN SỰ
+                                                                                            </h5>
+                                                                                            <div className="border border-gray-200 rounded shadow-sm overflow-hidden">
+                                                                                                <table className="w-full text-left border-collapse">
+                                                                                                    <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
+                                                                                                        <tr>
+                                                                                                            <th className="px-3 py-2 w-12 border-r text-center">STT</th>
+                                                                                                            <th className="px-3 py-2 border-r">Nhân sự (Bộ lọc: Tên-Vòng-Lượt)</th>
+                                                                                                            <th className="px-3 py-2 text-right">Sản lượng</th>
+                                                                                                        </tr>
+                                                                                                    </thead>
+                                                                                                    <tbody className="text-xs divide-y divide-gray-100">
+                                                                                                        {staffEntries.map(([name, count], si) => {
+                                                                                                            // Tìm danh sách các lượt mà nhân sự này nhận
+                                                                                                            const myTurns = assignList.length > 0 
+                                                                                                                ? assignList.map((r, i) => r.delivery_staff === name ? `${dayStr}-V${sessionNo}-${i+1}` : null).filter(Boolean)
+                                                                                                                : [];
+
+                                                                                                            return (
+                                                                                                                <tr key={name} className="hover:bg-gray-50 group">
+                                                                                                                    <td className="px-3 py-2 border-r text-center text-gray-400">{si + 1}</td>
+                                                                                                                    <td className="px-3 py-2 border-r">
+                                                                                                                        <div className="font-bold text-gray-800 mb-1">{name}</div>
+                                                                                                                        {myTurns.length > 0 && (
+                                                                                                                            <div className="flex flex-wrap gap-1">
+                                                                                                                                {myTurns.map(t => (
+                                                                                                                                    <span key={t} className="text-[9px] bg-blue-50 text-blue-600 px-1 rounded border border-blue-100">{t}</span>
+                                                                                                                                ))}
+                                                                                                                            </div>
+                                                                                                                        )}
+                                                                                                                    </td>
+                                                                                                                    <td className="px-3 py-2 text-right font-black text-blue-700 bg-blue-50/20">{count} đơn</td>
+                                                                                                                </tr>
+                                                                                                            );
+                                                                                                        })}
+                                                                                                    </tbody>
+                                                                                                </table>
+                                                                                            </div>
                                                                                         </div>
-                                                                                    )}
+
+                                                                                        {/* III. HÀNG ĐỢI KẾ TIẾP */}
+                                                                                        <div className="space-y-2">
+                                                                                            <h5 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                                                                                                <RefreshCw className="w-3.5 h-3.5 text-blue-500" /> III. TRẠNG THÁI HÀNG ĐỢI TIẾP THEO
+                                                                                            </h5>
+                                                                                            {(() => {
+                                                                                                let finalQueue = [...roster];
+                                                                                                if (assignList.length > 0) {
+                                                                                                    assignList.forEach(row => {
+                                                                                                        const nv = String(row.delivery_staff || '').trim();
+                                                                                                        if (nv) {
+                                                                                                            const idx = finalQueue.findIndex(n => n.toLowerCase() === nv.toLowerCase());
+                                                                                                            if (idx !== -1) {
+                                                                                                                finalQueue.splice(idx, 1);
+                                                                                                                finalQueue.push(nv);
+                                                                                                            }
+                                                                                                        }
+                                                                                                    });
+                                                                                                }
+                                                                                                return finalQueue.length > 0 ? (
+                                                                                                    <div className="border border-blue-100 rounded bg-blue-50/10 overflow-hidden">
+                                                                                                        <table className="w-full text-left border-collapse">
+                                                                                                            <thead className="bg-blue-600 text-[10px] font-bold text-white uppercase">
+                                                                                                                <tr>
+                                                                                                                    <th className="px-3 py-2 w-12 border-r border-blue-500 text-center">TT</th>
+                                                                                                                    <th className="px-3 py-2 border-r border-blue-500">Tên nhân sự</th>
+                                                                                                                    <th className="px-3 py-2">Trạng thái</th>
+                                                                                                                </tr>
+                                                                                                            </thead>
+                                                                                                            <tbody className="text-xs divide-y divide-blue-50">
+                                                                                                                {finalQueue.map((name, fqi) => (
+                                                                                                                    <tr key={fqi} className={fqi === 0 ? 'bg-yellow-50 font-bold' : ''}>
+                                                                                                                        <td className={`px-3 py-2 border-r text-center ${fqi === 0 ? 'text-blue-700 border-blue-100' : 'text-gray-400 border-gray-100'}`}>{fqi + 1}</td>
+                                                                                                                        <td className={`px-3 py-2 border-r ${fqi === 0 ? 'text-blue-800 border-blue-100' : 'text-gray-700 border-gray-100'}`}>{name}</td>
+                                                                                                                        <td className="px-3 py-2">
+                                                                                                                            {fqi === 0 ? (
+                                                                                                                                <span className="text-blue-600 flex items-center gap-1">
+                                                                                                                                    <CheckCircle className="w-3 h-3" /> ƯU TIÊN 1
+                                                                                                                                </span>
+                                                                                                                            ) : <span className="text-gray-400 italic">Đang đợi</span>}
+                                                                                                                        </td>
+                                                                                                                    </tr>
+                                                                                                                ))}
+                                                                                                            </tbody>
+                                                                                                        </table>
+                                                                                                    </div>
+                                                                                                ) : (
+                                                                                                    <p className="text-xs text-gray-400 italic text-center py-6 bg-gray-50 border border-dashed rounded">Không có dữ liệu hàng đợi</p>
+                                                                                                );
+                                                                                            })()}
+                                                                                        </div>
+                                                                                    </div>
                                                                                 </div>
                                                                             </div>
                                                                         );
                                                                     })
                                                                 ) : (
-                                                                    <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                                                                        <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                                                                        <p className="text-gray-400 text-sm italic">Chưa có lịch sử chia đơn cho chi nhánh này</p>
+                                                                    <div className="text-center py-20 bg-white rounded border-2 border-dashed border-gray-200">
+                                                                        <Package className="w-16 h-16 text-gray-200 mx-auto mb-4" />
+                                                                        <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Không có dữ liệu lịch sử</h4>
                                                                     </div>
                                                                 )}
                                                             </div>
