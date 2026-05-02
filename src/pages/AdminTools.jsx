@@ -5335,9 +5335,13 @@ const AdminTools = () => {
                                                                 {total > 0 ? (
                                                                     list.map((h, hIdx) => {
                                                                         const stats = h.staff_stats || {};
+                                                                        const branchAllStaff = chiaDonVanDonStaffOrder?.[b.key] || [];
+                                                                        
+                                                                        // Tạo danh sách đầy đủ nhân sự (gồm cả những người 0 đơn)
+                                                                        const allStaffEntries = branchAllStaff.map(name => [name, stats[name] || 0]);
                                                                         const staffEntries = sortStatsEntriesByVanDonOrder(
-                                                                            Object.entries(stats),
-                                                                            chiaDonVanDonStaffOrder?.[b.key] || []
+                                                                            allStaffEntries,
+                                                                            branchAllStaff
                                                                         );
                                                                         const dt = new Date(h.created_at);
                                                                         const dayStr = dt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
@@ -5443,27 +5447,30 @@ const AdminTools = () => {
 
                                                                                     {/* II & III Grid */}
                                                                                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                                                                                        {/* II. Bảng thống kê */}
+                                                                                        {/* II. Bảng thống kê đầy đủ (Bịt miệng cãi cọ) */}
                                                                                         <div className="lg:col-span-7 space-y-2">
                                                                                             <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex items-center gap-2">
-                                                                                                <LayoutGrid className="w-3.5 h-3.5" /> II. THỐNG KÊ NHÂN SỰ
+                                                                                                <LayoutGrid className="w-3.5 h-3.5" /> II. ĐỐI SOÁT NHÂN SỰ TOÀN KHO
                                                                                             </h5>
                                                                                             <div className="border border-gray-200 rounded shadow-sm overflow-hidden">
                                                                                                 <table className="w-full text-left border-collapse">
                                                                                                     <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
                                                                                                         <tr>
                                                                                                             <th className="px-3 py-2 w-12 border-r text-center">STT</th>
-                                                                                                            <th className="px-3 py-2 border-r">Nhân sự (Tên-Vòng-Lượt)</th>
+                                                                                                            <th className="px-3 py-2 border-r">Nhân sự</th>
+                                                                                                            <th className="px-3 py-2 text-center w-32 border-r">Trạng thái vòng</th>
                                                                                                             <th className="px-3 py-2 text-right">Sản lượng</th>
                                                                                                         </tr>
                                                                                                     </thead>
                                                                                                     <tbody className="text-xs divide-y divide-gray-100">
                                                                                                         {staffEntries.map(([name, count], si) => {
+                                                                                                            const isParticipating = roster.some(r => r.toLowerCase() === name.toLowerCase());
                                                                                                             const myTurns = assignList.length > 0 
                                                                                                                 ? assignList.map((r, i) => r.delivery_staff === name ? `V${sessionNo}-${i+1}` : null).filter(Boolean)
                                                                                                                 : [];
+                                                                                                            
                                                                                                             return (
-                                                                                                                <tr key={name} className="hover:bg-gray-50 group">
+                                                                                                                <tr key={name} className={`hover:bg-gray-50 ${!isParticipating ? 'bg-red-50/20' : ''}`}>
                                                                                                                     <td className="px-3 py-2 border-r text-center text-gray-400">{si + 1}</td>
                                                                                                                     <td className="px-3 py-2 border-r">
                                                                                                                         <div className="font-bold text-gray-800 mb-1 text-left">{name}</div>
@@ -5475,7 +5482,16 @@ const AdminTools = () => {
                                                                                                                             </div>
                                                                                                                         )}
                                                                                                                     </td>
-                                                                                                                    <td className="px-3 py-2 text-right font-black text-blue-700 bg-blue-50/10">{count} đơn</td>
+                                                                                                                    <td className="px-3 py-2 border-r text-center">
+                                                                                                                        {isParticipating ? (
+                                                                                                                            <span className="text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded border border-green-200 text-[9px]">CÓ MẶT</span>
+                                                                                                                        ) : (
+                                                                                                                            <span className="text-red-500 font-bold bg-red-100 px-2 py-0.5 rounded border border-red-200 text-[9px]">VẮNG MẶT (OFF)</span>
+                                                                                                                        )}
+                                                                                                                    </td>
+                                                                                                                    <td className={`px-3 py-2 text-right font-black ${count > 0 ? 'text-blue-700 bg-blue-50/10' : 'text-gray-300'}`}>
+                                                                                                                        {count} đơn
+                                                                                                                    </td>
                                                                                                                 </tr>
                                                                                                             );
                                                                                                         })}
