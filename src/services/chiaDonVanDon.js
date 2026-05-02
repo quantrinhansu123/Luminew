@@ -686,11 +686,11 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             
             if (staffListWithBranch.length === 0) {
                 console.warn(`⚠️ [${branchName}] Không có nhân viên để chia đơn!`);
-                return { result: [], publicStats: [] };
+                return { result: [], publicStats: [], lastPerson: '', carryTransparency: null };
             }
             if (pendingOrders.length === 0) {
                 console.warn(`⚠️ [${branchName}] Không có đơn nào cần chia!`);
-                return { result: [], publicStats: [] };
+                return { result: [], publicStats: [], lastPerson: '', carryTransparency: null };
             }
 
             const isTeamBranchMatch = (orderTeamRaw, staffChiNhanhRaw) => {
@@ -770,6 +770,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             const result = [];
             const staffList = staffListWithBranch.map((s) => String(s.name || '').trim());
             const staffSet = new Set(staffList);
+            /** Thứ tự nhân viên U1 không đổi trong phiên — dùng giải thích lượt kế tiếp; `staffListWithBranch` sẽ bị xoay khi chia. */
+            const initialStaffFixedOrder = [...staffList];
 
             // --- Rule: Tìm người nhận đơn cuối cùng trong lịch sử để tiếp tục vòng (Carry-over) ---
             console.log(`\n🔍 [${branchName}] ========== BẮT ĐẦU PHÂN TÍCH CHIA ĐƠN (CARRY-OVER) ==========`);
@@ -827,6 +829,12 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 if (ta !== tb) return ta - tb;
                 return String(a.order_code || '').localeCompare(String(b.order_code || ''));
             });
+
+            const RULE_TRANSPARENCY_SHORT =
+                'Vòng NV U1 (khớp team/chi nhánh đơn): mỗi đơn giao cho người đứng đầu hàng trong số được phép nhận; sau đó người đó xuống cuối hàng. Không ép cân bằng tải — team đơn lệch nên có thể người nhiều người ít.';
+
+            /** Người đứng đầu hàng lúc bắt đầu phiên (trước khi splice xoay hàng). */
+            let queueHeadAtSessionStart = null;
             
             console.log(`\n🔄 [${branchName}] ========== CHUẨN BỊ CHIA ĐƠN ROUND-ROBIN ==========`);
             console.log(`👥 Danh sách nhân viên U1: [${staffList.join(', ')}]`);
@@ -836,6 +844,11 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             console.log(`${'='.repeat(60)}\n`);
 
             if (remainingOrders.length > 0) {
+                queueHeadAtSessionStart =
+                    staffListWithBranch[startIndex]?.name != null
+                        ? String(staffListWithBranch[startIndex].name).trim()
+                        : null;
+
                 // ============================================================
                 // THỐNG KÊ ELIGIBLE STAFF PER ORDER/TEAM (debug lệch do dữ liệu)
                 // - eligible=0: đơn chắc chắn không chia được (mismatch team/chi nhánh)
@@ -990,6 +1003,34 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${remainingOrders.length} đơn theo round-robin đơn giản (ai xong xuống cuối)`);
             }
 
+            const lastPerson =
+                result.length > 0
+                    ? String(result[result.length - 1].delivery_staff || '').trim()
+                    : '';
+            const ixLast =
+                lastPerson !== '' ? initialStaffFixedOrder.indexOf(lastPerson) : -1;
+            const suggestedNextOpening =
+                ixLast >= 0 && initialStaffFixedOrder.length > 0
+                    ? String(
+                          initialStaffFixedOrder[
+                              (ixLast + 1) % initialStaffFixedOrder.length
+                          ] || ''
+                      ).trim() || null
+                    : queueHeadAtSessionStart;
+
+            const carryTransparency = {
+                branchName,
+                lastAssignedBeforeSession: lastAssignedPerson,
+                queueHeadAtSessionStart,
+                fixedRosterOrder: initialStaffFixedOrder,
+                lastAssignedThisSession: lastPerson || null,
+                suggestedNextOpening:
+                    suggestedNextOpening ||
+                    queueHeadAtSessionStart ||
+                    null,
+                ruleShort: RULE_TRANSPARENCY_SHORT,
+            };
+
             // Log tổng kết chi tiết (CÔNG KHAI để nhân viên thấy)
             const finalCount = {};
             staffList.forEach(name => { finalCount[name] = 0; });
@@ -1020,10 +1061,12 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 } : 'N/A');
             }
 
-            // Người cuối được chia trong phiên này
-            const lastPerson = result.length > 0 ? result[result.length - 1].delivery_staff : '';
-            
-            return { result, publicStats, lastPerson };
+            return {
+                result,
+                publicStats,
+                lastPerson,
+                carryTransparency,
+            };
         };
 
         // Bước 5: Thực hiện chia đơn
@@ -1034,6 +1077,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         let hanoiDetailedResults = []; // Chi tiết từng đơn cho Hà Nội
         let hcmLastPerson = ''; // Người cuối được chia ở HCM
         let hanoiLastPerson = ''; // Người cuối được chia ở Hà Nội
+        let hcmCarry = null; // Minh bạch carry-over / lượt kế tiếp (HCM)
+        let hanoiCarry = null; // Minh bạch (Hà Nội)
         let successCount = 0;
         let errorCount = 0;
         const errors = [];
@@ -1068,7 +1113,17 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             }
             
             if (nhanVienHCM.length > 0 && ordersHCM.length > 0) {
-                const { result: hcmResult, publicStats: hcmStats, lastPerson: hcmLast } = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM');
+                const {
+                    result: hcmResult,
+                    publicStats: hcmStats,
+                    lastPerson: hcmLast,
+                    carryTransparency: hCmTrans,
+                } = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM');
+                hcmCarry = hCmTrans;
+                addLog(
+                    `[HCM] Minh bạch — Trước phiên (đơn gần nhất): ${hCmTrans.lastAssignedBeforeSession || '—'} | Bắt đầu từ: ${hCmTrans.queueHeadAtSessionStart || '—'} | Sau phiên: ${hCmTrans.lastAssignedThisSession || '—'} | Gợi ý lượt mở: ${hCmTrans.suggestedNextOpening || '—'}`,
+                    'info'
+                );
                 addLog(`✅ HCM - Kết quả: ${hcmResult.length} đơn được chia`, 'success');
                 console.log(`✅ [Chia đơn vận đơn] HCM - Kết quả: ${hcmResult.length} đơn được chia`);
                 if (hcmResult.length > 0) {
@@ -1108,7 +1163,17 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         }
         
         if (nhanVienHaNoi.length > 0 && ordersHaNoi.length > 0) {
-            const { result: hanoiResult, publicStats: hanoiStats, lastPerson: hanoiLast } = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội');
+            const {
+                result: hanoiResult,
+                publicStats: hanoiStats,
+                lastPerson: hanoiLast,
+                carryTransparency: hnTrans,
+            } = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội');
+            hanoiCarry = hnTrans;
+            addLog(
+                `[HN] Minh bạch — Trước phiên (đơn gần nhất): ${hnTrans.lastAssignedBeforeSession || '—'} | Bắt đầu từ: ${hnTrans.queueHeadAtSessionStart || '—'} | Sau phiên: ${hnTrans.lastAssignedThisSession || '—'} | Gợi ý lượt mở: ${hnTrans.suggestedNextOpening || '—'}`,
+                'info'
+            );
             addLog(`✅ Hà Nội - Kết quả: ${hanoiResult.length} đơn được chia`, 'success');
             console.log(`✅ [Chia đơn vận đơn] Hà Nội - Kết quả: ${hanoiResult.length} đơn được chia`);
             
@@ -1351,8 +1416,17 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             publicStatsText += `🏭 PHIÊN HCM (${nhanVienHCM.length} NV):\n`;
             publicStatsText += '   ';
             publicStatsText += nhanVienHCM.map(nv => nv.name).join(', ');
-            if (hcmLastPerson && hcmPublicStats.length > 0) {
-                publicStatsText += `\n   ➤ Người chia cuối: ${hcmLastPerson} (Người tiếp theo ưu tiên)`;
+            if (hcmCarry) {
+                publicStatsText +=
+                    `\n   ➤ Trước phiên — đơn gần nhất giao: ${hcmCarry.lastAssignedBeforeSession || '(chưa có)'}`;
+                publicStatsText += `\n   ➤ Phiên này — bắt đầu luân phiên từ: ${hcmCarry.queueHeadAtSessionStart || '—'}`;
+                if (hcmLastPerson) {
+                    publicStatsText += `\n   ➤ Cuối phiên — đơn cuối giao cho: ${hcmLastPerson}`;
+                }
+                publicStatsText +=
+                    `\n   ➤ Gợi ý mở đầu phiên kế (thứ tự U1 cố định): ${hcmCarry.suggestedNextOpening || '—'}`;
+            } else if (hcmLastPerson && hcmPublicStats.length > 0) {
+                publicStatsText += `\n   ➤ Đơn cuối phiên: ${hcmLastPerson}`;
             }
         }
         
@@ -1362,8 +1436,19 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             publicStatsText += `🏢 PHIÊN HÀ NỘI (${nhanVienHaNoi.length} NV):\n`;
             publicStatsText += '   ';
             publicStatsText += nhanVienHaNoi.map(nv => nv.name).join(', ');
-            if (hanoiLastPerson && hanoiPublicStats.length > 0) {
-                publicStatsText += `\n   ➤ Người chia cuối: ${hanoiLastPerson} (Người tiếp theo ưu tiên)`;
+            if (hanoiCarry) {
+                publicStatsText +=
+                    `\n   ➤ Trước phiên — đơn gần nhất giao: ${hanoiCarry.lastAssignedBeforeSession || '(chưa có)'}`;
+                publicStatsText +=
+                    `\n   ➤ Phiên này — bắt đầu luân phiên từ: ${hanoiCarry.queueHeadAtSessionStart || '—'}`;
+                if (hanoiLastPerson) {
+                    publicStatsText +=
+                        `\n   ➤ Cuối phiên — đơn cuối giao cho: ${hanoiLastPerson}`;
+                }
+                publicStatsText +=
+                    `\n   ➤ Gợi ý mở đầu phiên kế (thứ tự U1 cố định): ${hanoiCarry.suggestedNextOpening || '—'}`;
+            } else if (hanoiLastPerson && hanoiPublicStats.length > 0) {
+                publicStatsText += `\n   ➤ Đơn cuối phiên: ${hanoiLastPerson}`;
             }
         }
         
@@ -1455,16 +1540,28 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                     hanoi: nhanVienHaNoi.map(nv => nv.name)
                 }),
                 phien_chia: JSON.stringify({
-                    hcm: { 
-                        so_luong: ordersHCM.length, 
+                    hcm: {
+                        so_luong: ordersHCM.length,
                         so_nv: nhanVienHCM.length,
-                        nguoi_cuoi: hcmLastPerson || null
+                        nguoi_cuoi: hcmLastPerson || null,
+                        nguoi_cuoi_vong_truoc: hcmCarry?.lastAssignedBeforeSession ?? null,
+                        bat_dau_phien_tu: hcmCarry?.queueHeadAtSessionStart ?? null,
+                        nguoi_cuoi_sau_phien: hcmLastPerson || null,
+                        goi_y_nhan_luot_tiep_theo: hcmCarry?.suggestedNextOpening ?? null,
+                        thu_tu_u1_co_dinh: hcmCarry?.fixedRosterOrder ?? [],
+                        tom_tat_quy_tac_ngan: hcmCarry?.ruleShort ?? '',
                     },
-                    hanoi: { 
-                        so_luong: ordersHaNoi.length, 
+                    hanoi: {
+                        so_luong: ordersHaNoi.length,
                         so_nv: nhanVienHaNoi.length,
-                        nguoi_cuoi: hanoiLastPerson || null
-                    }
+                        nguoi_cuoi: hanoiLastPerson || null,
+                        nguoi_cuoi_vong_truoc: hanoiCarry?.lastAssignedBeforeSession ?? null,
+                        bat_dau_phien_tu: hanoiCarry?.queueHeadAtSessionStart ?? null,
+                        nguoi_cuoi_sau_phien: hanoiLastPerson || null,
+                        goi_y_nhan_luot_tiep_theo: hanoiCarry?.suggestedNextOpening ?? null,
+                        thu_tu_u1_co_dinh: hanoiCarry?.fixedRosterOrder ?? [],
+                        tom_tat_quy_tac_ngan: hanoiCarry?.ruleShort ?? '',
+                    },
                 }),
                 chi_tiet_chia: JSON.stringify({
                     hcm: hcmDetailedResults,

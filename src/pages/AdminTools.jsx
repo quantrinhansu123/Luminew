@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
 import PermissionManager from '../components/admin/PermissionManager';
@@ -70,6 +70,17 @@ const ACCOUNT_TEMPLATE_ROWS = [
         can_day_ffm: 0
     }
 ];
+
+/** `history_chia_don.phien_chia` / `chi_tiet_chia` — có thể jsonb hoặc chuỗi JSON */
+function parseHistoryChiaDonStoredJson(raw) {
+    if (raw == null || raw === '') return {};
+    if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+    try {
+        return JSON.parse(String(raw));
+    } catch {
+        return {};
+    }
+}
 
 const getSupabaseFetchHint = (err) => {
     const msg = String(err?.message || err || '');
@@ -4779,7 +4790,9 @@ const AdminTools = () => {
                                         <li>Lọc nhân viên có trạng thái "U1" từ danh sách vận đơn</li>
                                         <li>Phân loại theo chi nhánh (HCM và Hà Nội)</li>
                                         <li>
-                                            <strong>Chia tiếp sức (Carry-over):</strong> Hệ thống tìm người nhận đơn cuối cùng trong lịch sử (không phân biệt ngày) để gán đơn mới cho người kế tiếp. Đảm bảo công bằng tuyệt đối.
+                                            <strong>Carry-over + vòng trong phiên:</strong> Dò đơn đã chia gần nhất trong dữ liệu tham chiếu để xác định “cuối vòng” trước phiên; phiên mới bắt đầu từ{' '}
+                                            <strong>người đứng kế trong thứ tự U1</strong>. Mỗi đơn: NV khớp team/chi nhánh xếp hàng — chọn đầu hàng rồi người đó{' '}
+                                            <strong>xuống cuối hàng trong phiên</strong>. Không ép cân bằng tải — số đơn có thể lệch nếu team không đều; xem mục Logic phiên trong Báo cáo chia đơn.
                                         </li>
                                         <li>Lọc đơn: delivery_staff trống, loại trừ "Nhật Bản" và "CĐ Nhật Bản"</li>
                                         <li>Chỉ gán khi team đơn khớp chi nhánh của NV U1</li>
@@ -5083,7 +5096,28 @@ const AdminTools = () => {
                                     </div>
 
                                     {/* Nội dung Modal (Scrollable) */}
-                                    <div className="flex-1 overflow-y-auto p-6">
+                                    <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                                        <div className="rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-3 text-xs text-gray-800 leading-relaxed">
+                                            <p className="font-bold text-sky-900 mb-1">Giải thích logic chia đơn vận đơn (minh bạch cho nhân viên)</p>
+                                            <ul className="list-disc list-inside space-y-1 text-[11px]">
+                                                <li>
+                                                    Hệ thống tìm <strong>đơn được gán gần nhất</strong> (NV U1 của chi nhánh) để xác định “<strong>cuối vòng</strong>” trước phiên; phiên mới{' '}
+                                                    <strong>bắt đầu luân phiên từ người đứng kế tiếp</strong> trong thứ tự U1 cố định.
+                                                </li>
+                                                <li>
+                                                    Từng đơn: chỉ các NV có <strong>chi nhánh khớp team đơn</strong> được xét; chọn{' '}
+                                                    <strong>người đứng đầu hàng</strong> trong số được phép, sau đó người đó <strong>xuống cuối hàng</strong> trong phiên.
+                                                </li>
+                                                <li>
+                                                    <strong>Không ép cân bằng tải</strong>: nếu nhiều đơn cùng team hoặc ít NV khớp team, có người nhận nhiều hơn —
+                                                    không phải lỗi hệ thống. Chi tiết từng mã đơn &amp; nhóm NV khớp nằm trong log/chi tiết phiên khi chia.
+                                                </li>
+                                                <li>
+                                                    Ở từng phiên trong “Nhật ký” bên phải: <strong>Trước phiên</strong> = người nhận đơn chia gần nhất trong dữ liệu tham chiếu;{' '}
+                                                    <strong>Gợi ý lượt mở</strong> = người kế trong thứ tự U1 sau người nhận <strong>đơn cuối phiên này</strong> — mang tính tham khảo cho phiên kế tiếp (đơn thực tế vẫn phụ thuộc khớp team).
+                                                </li>
+                                            </ul>
+                                        </div>
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                                             
                                             {/* CỘT TỔNG HỢP (Layout Table như Excel) */}
@@ -5209,29 +5243,98 @@ const AdminTools = () => {
                                                                                 // Đánh số "Lần" theo từng chi nhánh riêng
                                                                                 const sessionNo = total - hIdx;
 
-                                                                                return staffEntries.map(([name, count], sIdx) => (
-                                                                                    <tr
-                                                                                        key={`${h.id}-${name}`}
-                                                                                        className={`border-b ${b.rowHover} transition-colors ${sIdx === 0 && hIdx !== 0 ? 'border-t-4 border-t-gray-50' : ''}`}
-                                                                                    >
-                                                                                        <td className="px-4 py-3">
-                                                                                            {sIdx === 0 ? (
-                                                                                                <div className="flex flex-col">
-                                                                                                    <span className="text-gray-900 font-bold">Lần {sessionNo}</span>
-                                                                                                    <span className="text-[10px] text-gray-400 font-mono">{timeStr}</span>
+                                                                                const phien = parseHistoryChiaDonStoredJson(h.phien_chia);
+                                                                                const branchSlice =
+                                                                                    b.key === 'HCM' ? phien.hcm || {} : phien.hanoi || {};
+                                                                                const roster = Array.isArray(branchSlice.thu_tu_u1_co_dinh)
+                                                                                    ? branchSlice.thu_tu_u1_co_dinh.filter(Boolean)
+                                                                                    : [];
+                                                                                const rosterLine =
+                                                                                    roster.length > 0
+                                                                                        ? roster.join(' → ')
+                                                                                        : null;
+
+                                                                                return (
+                                                                                    <Fragment key={h.id || `${h.created_at}-${hIdx}`}>
+                                                                                        <tr
+                                                                                            className={`border-b border-t border-gray-200 ${
+                                                                                                b.key === 'HCM'
+                                                                                                    ? 'bg-orange-50/95'
+                                                                                                    : 'bg-indigo-50/95'
+                                                                                            }`}
+                                                                                        >
+                                                                                            <td className="px-4 py-3 align-top" colSpan={3}>
+                                                                                                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[11px] text-gray-800">
+                                                                                                    <span className="font-bold text-gray-900">
+                                                                                                        Lần {sessionNo}{' '}
+                                                                                                        <span className="text-[10px] font-normal text-gray-400 font-mono">
+                                                                                                            {timeStr}
+                                                                                                        </span>
+                                                                                                    </span>
                                                                                                 </div>
-                                                                                            ) : (
-                                                                                                ''
-                                                                                            )}
-                                                                                        </td>
-                                                                                        <td className="px-4 py-3">
-                                                                                            <span className="font-bold text-gray-900">{name}</span>
-                                                                                        </td>
-                                                                                        <td className="px-4 py-3 text-center">
-                                                                                            <span className={`${b.badgeClass} px-3 py-1 rounded-lg font-bold text-sm`}>{count}</span>
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                ));
+                                                                                                <div className="mt-2 text-[11px] text-gray-700 leading-relaxed space-y-1">
+                                                                                                    <p>
+                                                                                                        <span className="text-gray-500">
+                                                                                                            Thứ tự U1 trong phiên (cố định):
+                                                                                                        </span>{' '}
+                                                                                                        <span className="font-semibold">{rosterLine || '—'}</span>
+                                                                                                    </p>
+                                                                                                    <p>
+                                                                                                        <span className="text-gray-500">Trước phiên — đơn gần nhất giao:</span>{' '}
+                                                                                                        <strong>{branchSlice.nguoi_cuoi_vong_truoc ?? '—'}</strong>
+                                                                                                        {' · '}
+                                                                                                        <span className="text-gray-500">
+                                                                                                            Phiên này bắt đầu từ:
+                                                                                                        </span>{' '}
+                                                                                                        <strong>{branchSlice.bat_dau_phien_tu ?? '—'}</strong>
+                                                                                                    </p>
+                                                                                                    <p>
+                                                                                                        <span className="text-gray-500">
+                                                                                                            Cuối phiên — đơn cuối giao cho:
+                                                                                                        </span>{' '}
+                                                                                                        <strong>
+                                                                                                            {branchSlice.nguoi_cuoi_sau_phien ??
+                                                                                                                branchSlice.nguoi_cuoi ??
+                                                                                                                '—'}
+                                                                                                        </strong>
+                                                                                                        {' · '}
+                                                                                                        <span className="text-gray-500">
+                                                                                                            Gợi ý mở đầu phiên kế:
+                                                                                                        </span>{' '}
+                                                                                                        <strong>{branchSlice.goi_y_nhan_luot_tiep_theo ?? '—'}</strong>
+                                                                                                    </p>
+                                                                                                    {(branchSlice.tom_tat_quy_tac_ngan ||
+                                                                                                        branchSlice.tom_tat_quy_tac) && (
+                                                                                                        <p className="text-[10px] text-gray-500 italic mt-2 border-t border-white/60 pt-2">
+                                                                                                            {branchSlice.tom_tat_quy_tac_ngan ||
+                                                                                                                branchSlice.tom_tat_quy_tac}
+                                                                                                        </p>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                        {staffEntries.map(([name, count], sIdx) => (
+                                                                                            <tr
+                                                                                                key={`${h.id}-${name}`}
+                                                                                                className={`border-b ${b.rowHover} transition-colors`}
+                                                                                            >
+                                                                                                <td className="px-4 py-2 text-[10px] text-gray-400">
+                                                                                                    {sIdx === 0 ? 'Phân bổ theo nhân sự ↴' : ''}
+                                                                                                </td>
+                                                                                                <td className="px-4 py-3">
+                                                                                                    <span className="font-bold text-gray-900">{name}</span>
+                                                                                                </td>
+                                                                                                <td className="px-4 py-3 text-center">
+                                                                                                    <span
+                                                                                                        className={`${b.badgeClass} px-3 py-1 rounded-lg font-bold text-sm`}
+                                                                                                    >
+                                                                                                        {count}
+                                                                                                    </span>
+                                                                                                </td>
+                                                                                            </tr>
+                                                                                        ))}
+                                                                                    </Fragment>
+                                                                                );
                                                                             })
                                                                         ) : (
                                                                             <tr>
