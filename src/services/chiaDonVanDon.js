@@ -49,7 +49,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 .trim();
         };
 
-        nhanVienU1.forEach(item => {
+        /** Khớp thứ tự với Danh sách vận đơn (`order ho_va_ten`), không phụ thuộc thứ tự Postgres. */
+        const nhanVienU1Sorted = [...nhanVienU1].sort((a, b) =>
+            String(a.ho_va_ten || '')
+                .trim()
+                .localeCompare(String(b.ho_va_ten || '').trim(), 'vi')
+        );
+
+        nhanVienU1Sorted.forEach((item) => {
             const name = String(item.ho_va_ten || '').trim();
             const chiNhanhRaw = item.chi_nhanh || '';
             const normalizedBranch = ultraNormalize(chiNhanhRaw);
@@ -1542,10 +1549,13 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 phien_chia: JSON.stringify({
                     hcm: {
                         so_luong: ordersHCM.length,
+                        /** Số đơn thực sự được gán NV trong phiên (khớp “vòng đó chia bao nhiêu đơn”). */
+                        so_don_da_xu_ly: (hcmDetailedResults || []).length,
                         so_nv: nhanVienHCM.length,
                         nguoi_cuoi: hcmLastPerson || null,
                         nguoi_cuoi_vong_truoc: hcmCarry?.lastAssignedBeforeSession ?? null,
                         bat_dau_phien_tu: hcmCarry?.queueHeadAtSessionStart ?? null,
+                        ket_thuc_oi: hcmLastPerson || null,
                         nguoi_cuoi_sau_phien: hcmLastPerson || null,
                         goi_y_nhan_luot_tiep_theo: hcmCarry?.suggestedNextOpening ?? null,
                         thu_tu_u1_co_dinh: hcmCarry?.fixedRosterOrder ?? [],
@@ -1553,10 +1563,12 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                     },
                     hanoi: {
                         so_luong: ordersHaNoi.length,
+                        so_don_da_xu_ly: (hanoiDetailedResults || []).length,
                         so_nv: nhanVienHaNoi.length,
                         nguoi_cuoi: hanoiLastPerson || null,
                         nguoi_cuoi_vong_truoc: hanoiCarry?.lastAssignedBeforeSession ?? null,
                         bat_dau_phien_tu: hanoiCarry?.queueHeadAtSessionStart ?? null,
+                        ket_thuc_oi: hanoiLastPerson || null,
                         nguoi_cuoi_sau_phien: hanoiLastPerson || null,
                         goi_y_nhan_luot_tiep_theo: hanoiCarry?.suggestedNextOpening ?? null,
                         thu_tu_u1_co_dinh: hanoiCarry?.fixedRosterOrder ?? [],

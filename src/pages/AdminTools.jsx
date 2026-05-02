@@ -82,6 +82,64 @@ function parseHistoryChiaDonStoredJson(raw) {
     }
 }
 
+/** Khớp logic chi nhánh trong `chiaDonVanDon.js` (U1 từ danh_sach_van_don, sort `ho_va_ten` vi). */
+function ultraNormChiaDonBranchKey(s) {
+    return String(s || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[.\-_/]/g, ' ')
+        .replace(/\s+/g, '')
+        .trim();
+}
+
+function buildVanDonU1StaffOrderFromRows(rows) {
+    const u1 = (rows || []).filter(
+        (r) => String(r.trang_thai_chia || '').trim().toUpperCase() === 'U1'
+    );
+    const sorted = [...u1].sort((a, b) =>
+        String(a.ho_va_ten || '')
+            .trim()
+            .localeCompare(String(b.ho_va_ten || '').trim(), 'vi')
+    );
+    const orderHCM = [];
+    const orderHN = [];
+    sorted.forEach((item) => {
+        const name = String(item.ho_va_ten || '').trim();
+        if (!name) return;
+        const n = ultraNormChiaDonBranchKey(item.chi_nhanh);
+        if (n === 'hcm' || n === 'tphcm' || n === 'hochiminh' || n.includes('hcm')) {
+            orderHCM.push(name);
+        } else if (n === 'hanoi' || n === 'hn' || n.includes('hanoi')) {
+            orderHN.push(name);
+        }
+    });
+    return { HCM: orderHCM, 'Hà Nội': orderHN };
+}
+
+function normalizeNameKeyForStaffSort(s) {
+    return String(s || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+}
+
+function sortStatsEntriesByVanDonOrder(entries, canonicalNames) {
+    const idx = new Map(
+        (canonicalNames || []).map((n, i) => [normalizeNameKeyForStaffSort(n), i])
+    );
+    return [...entries].sort((a, b) => {
+        const ia = idx.get(normalizeNameKeyForStaffSort(a[0]));
+        const ib = idx.get(normalizeNameKeyForStaffSort(b[0]));
+        if (ia !== undefined && ib !== undefined) return ia - ib;
+        if (ia !== undefined) return -1;
+        if (ib !== undefined) return 1;
+        return String(a[0]).trim().localeCompare(String(b[0]).trim(), 'vi');
+    });
+}
+
 const getSupabaseFetchHint = (err) => {
     const msg = String(err?.message || err || '');
     if (!/failed to fetch/i.test(msg)) return '';
@@ -269,6 +327,11 @@ const AdminTools = () => {
     const [staffStatsReportByBranch, setStaffStatsReportByBranch] = useState({ HCM: {}, 'Hà Nội': {} });
     const [successSessionCountByBranch, setSuccessSessionCountByBranch] = useState({ HCM: 0, 'Hà Nội': 0 });
     const [successTotalOrdersByBranch, setSuccessTotalOrdersByBranch] = useState({ HCM: 0, 'Hà Nội': 0 });
+    /** Thứ tự U1 theo trang danh_sach_van_don (để sort bảng tổng hợp báo cáo chia đơn). */
+    const [chiaDonVanDonStaffOrder, setChiaDonVanDonStaffOrder] = useState({
+        HCM: [],
+        'Hà Nội': [],
+    });
 
     // --- CLEAR NV VẬN ĐƠN THEO ORDER_DATE ---
     const [clearOrderDate, setClearOrderDate] = useState('');
@@ -444,6 +507,31 @@ const AdminTools = () => {
     useEffect(() => {
         localStorage.setItem('autoChiaDonEnabled', String(autoChiaDonEnabled));
     }, [autoChiaDonEnabled]);
+
+    // Thứ tự nhân sự U1 (theo danh_sach_van_don) khi mở modal báo cáo chia đơn
+    useEffect(() => {
+        if (!isStatsModalOpen) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('danh_sach_van_don')
+                    .select('ho_va_ten, chi_nhanh, trang_thai_chia')
+                    .order('ho_va_ten', { ascending: true });
+                if (cancelled) return;
+                if (error) {
+                    console.error('❌ [Báo cáo chia đơn] Không tải thứ tự U1:', error);
+                    return;
+                }
+                setChiaDonVanDonStaffOrder(buildVanDonU1StaffOrderFromRows(data || []));
+            } catch (e) {
+                if (!cancelled) console.error('❌ [Báo cáo chia đơn] Exception tải U1:', e);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isStatsModalOpen]);
 
     // --- VERIFICATION STATE ---
     const [verifyResult, setVerifyResult] = useState(null);
@@ -5098,23 +5186,19 @@ const AdminTools = () => {
                                     {/* Nội dung Modal (Scrollable) */}
                                     <div className="flex-1 overflow-y-auto p-6 space-y-5">
                                         <div className="rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-3 text-xs text-gray-800 leading-relaxed">
-                                            <p className="font-bold text-sky-900 mb-1">Giải thích logic chia đơn vận đơn (minh bạch cho nhân viên)</p>
+                                            <p className="font-bold text-sky-900 mb-1">Đọc báo cáo nhanh</p>
                                             <ul className="list-disc list-inside space-y-1 text-[11px]">
                                                 <li>
-                                                    Hệ thống tìm <strong>đơn được gán gần nhất</strong> (NV U1 của chi nhánh) để xác định “<strong>cuối vòng</strong>” trước phiên; phiên mới{' '}
-                                                    <strong>bắt đầu luân phiên từ người đứng kế tiếp</strong> trong thứ tự U1 cố định.
+                                                    <strong>Cột trái</strong>: nhân viên xếp theo thứ tự{' '}
+                                                    <strong>U1 trên Danh sách vận đơn</strong> (họ tên A→Z tiếng Việt).
                                                 </li>
                                                 <li>
-                                                    Từng đơn: chỉ các NV có <strong>chi nhánh khớp team đơn</strong> được xét; chọn{' '}
-                                                    <strong>người đứng đầu hàng</strong> trong số được phép, sau đó người đó <strong>xuống cuối hàng</strong> trong phiên.
+                                                    <strong>Mỗi phiên</strong>: số đơn đã gán, <strong>bắt đầu chia từ ai</strong>,{' '}
+                                                    <strong>kết thúc ở ai</strong> (xem ô tóm tắt ngay dưới tiêu đề lần chia).
                                                 </li>
                                                 <li>
-                                                    <strong>Không ép cân bằng tải</strong>: nếu nhiều đơn cùng team hoặc ít NV khớp team, có người nhận nhiều hơn —
-                                                    không phải lỗi hệ thống. Chi tiết từng mã đơn &amp; nhóm NV khớp nằm trong log/chi tiết phiên khi chia.
-                                                </li>
-                                                <li>
-                                                    Ở từng phiên trong “Nhật ký” bên phải: <strong>Trước phiên</strong> = người nhận đơn chia gần nhất trong dữ liệu tham chiếu;{' '}
-                                                    <strong>Gợi ý lượt mở</strong> = người kế trong thứ tự U1 sau người nhận <strong>đơn cuối phiên này</strong> — mang tính tham khảo cho phiên kế tiếp (đơn thực tế vẫn phụ thuộc khớp team).
+                                                    Chỉ NV U1 có <strong>chi nhánh khớp team đơn</strong> mới được nhận; không ép cân bằng tải —
+                                                    có thể lệch số đơn giữa người.
                                                 </li>
                                             </ul>
                                         </div>
@@ -5127,7 +5211,11 @@ const AdminTools = () => {
                                                     { key: 'Hà Nội', title: 'Hà Nội', headerClass: 'bg-indigo-600', badgeClass: 'bg-indigo-100 text-indigo-700' }
                                                 ].map((b) => {
                                                     const statsObj = staffStatsReportByBranch?.[b.key] || {};
-                                                    const rows = Object.entries(statsObj).sort((a, c) => (Number(c[1]) || 0) - (Number(a[1]) || 0));
+                                                    const canonical = chiaDonVanDonStaffOrder?.[b.key] || [];
+                                                    const rows = sortStatsEntriesByVanDonOrder(
+                                                        Object.entries(statsObj),
+                                                        canonical
+                                                    );
                                                     const sessionCount = successSessionCountByBranch?.[b.key] || 0;
                                                     const totalOrders = successTotalOrdersByBranch?.[b.key] || 0;
                                                     return (
@@ -5146,8 +5234,15 @@ const AdminTools = () => {
                                                             <table className="w-full text-left text-xs">
                                                                 <thead className="bg-gray-50 border-b">
                                                                     <tr>
-                                                                        <th className="px-4 py-3 font-bold text-gray-600">Nhân sự</th>
-                                                                        <th className="px-4 py-3 font-bold text-gray-600 text-right">Tổng đơn đã nhận</th>
+                                                                        <th className="px-4 py-3 font-bold text-gray-600">
+                                                                            <span className="block">Nhân sự</span>
+                                                                            <span className="block text-[10px] font-normal text-gray-400 mt-0.5 font-medium">
+                                                                                Theo Danh sách vận đơn (U1)
+                                                                            </span>
+                                                                        </th>
+                                                                        <th className="px-4 py-3 font-bold text-gray-600 text-right align-bottom">
+                                                                            Tổng đơn đã nhận
+                                                                        </th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody>
@@ -5156,7 +5251,7 @@ const AdminTools = () => {
                                                                             <tr key={`${b.key}-${name}`} className="hover:bg-gray-50 border-b last:border-0 transition-colors">
                                                                                 <td className="px-4 py-3">
                                                                                     <div className="flex items-center gap-3">
-                                                                                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                                                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-gray-100 text-gray-600">
                                                                                             {idx + 1}
                                                                                         </span>
                                                                                         <span className="font-semibold text-gray-800">{name}</span>
@@ -5231,7 +5326,10 @@ const AdminTools = () => {
                                                                         {total > 0 ? (
                                                                             list.map((h, hIdx) => {
                                                                                 const stats = h.staff_stats || {};
-                                                                                const staffEntries = Object.entries(stats);
+                                                                                const staffEntries = sortStatsEntriesByVanDonOrder(
+                                                                                    Object.entries(stats),
+                                                                                    chiaDonVanDonStaffOrder?.[b.key] || []
+                                                                                );
                                                                                 const timeStr = new Date(h.created_at).toLocaleString('vi-VN', {
                                                                                     day: '2-digit',
                                                                                     month: '2-digit',
@@ -5253,6 +5351,34 @@ const AdminTools = () => {
                                                                                     roster.length > 0
                                                                                         ? roster.join(' → ')
                                                                                         : null;
+                                                                                const nProcessedRaw = branchSlice.so_don_da_xu_ly;
+                                                                                const nProcessed =
+                                                                                    nProcessedRaw != null &&
+                                                                                    String(nProcessedRaw).trim() !== '' &&
+                                                                                    !Number.isNaN(Number(nProcessedRaw))
+                                                                                        ? Number(nProcessedRaw)
+                                                                                        : (() => {
+                                                                                              const sumStats = staffEntries.reduce(
+                                                                                                  (acc, [, c]) =>
+                                                                                                      acc + (Number(c) || 0),
+                                                                                                  0
+                                                                                              );
+                                                                                              if (sumStats > 0) return sumStats;
+                                                                                              const sl = branchSlice.so_luong;
+                                                                                              if (
+                                                                                                  sl != null &&
+                                                                                                  String(sl).trim() !== '' &&
+                                                                                                  !Number.isNaN(Number(sl))
+                                                                                              ) {
+                                                                                                  return Number(sl);
+                                                                                              }
+                                                                                              return Number(h.total_orders) || 0;
+                                                                                          })();
+                                                                                const ketThuc =
+                                                                                    branchSlice.ket_thuc_oi ??
+                                                                                    branchSlice.nguoi_cuoi_sau_phien ??
+                                                                                    branchSlice.nguoi_cuoi ??
+                                                                                    null;
 
                                                                                 return (
                                                                                     <Fragment key={h.id || `${h.created_at}-${hIdx}`}>
@@ -5274,38 +5400,31 @@ const AdminTools = () => {
                                                                                                 </div>
                                                                                                 <div className="mt-2 text-[11px] text-gray-700 leading-relaxed space-y-1">
                                                                                                     <p>
-                                                                                                        <span className="text-gray-500">
-                                                                                                            Thứ tự U1 trong phiên (cố định):
+                                                                                                        <span className="text-gray-600">
+                                                                                                            Trong vòng này:
                                                                                                         </span>{' '}
-                                                                                                        <span className="font-semibold">{rosterLine || '—'}</span>
+                                                                                                        <strong>{nProcessed}</strong> đơn đã gán ·{' '}
+                                                                                                        <span className="text-gray-500">Bắt đầu từ</span>{' '}
+                                                                                                        <strong>{branchSlice.bat_dau_phien_tu ?? '—'}</strong>
+                                                                                                        {' · '}
+                                                                                                        <span className="text-gray-500">Kết thúc ở</span>{' '}
+                                                                                                        <strong>{ketThuc ?? '—'}</strong>
                                                                                                     </p>
-                                                                                                    <p>
-                                                                                                        <span className="text-gray-500">Trước phiên — đơn gần nhất giao:</span>{' '}
+                                                                                                    {rosterLine && (
+                                                                                                        <p className="text-[10px] text-gray-500">
+                                                                                                            Thứ tự U1: {rosterLine}
+                                                                                                        </p>
+                                                                                                    )}
+                                                                                                    <p className="text-[10px] text-gray-500">
+                                                                                                        Trước phiên (đơn gần nhất):{' '}
                                                                                                         <strong>{branchSlice.nguoi_cuoi_vong_truoc ?? '—'}</strong>
                                                                                                         {' · '}
-                                                                                                        <span className="text-gray-500">
-                                                                                                            Phiên này bắt đầu từ:
-                                                                                                        </span>{' '}
-                                                                                                        <strong>{branchSlice.bat_dau_phien_tu ?? '—'}</strong>
-                                                                                                    </p>
-                                                                                                    <p>
-                                                                                                        <span className="text-gray-500">
-                                                                                                            Cuối phiên — đơn cuối giao cho:
-                                                                                                        </span>{' '}
-                                                                                                        <strong>
-                                                                                                            {branchSlice.nguoi_cuoi_sau_phien ??
-                                                                                                                branchSlice.nguoi_cuoi ??
-                                                                                                                '—'}
-                                                                                                        </strong>
-                                                                                                        {' · '}
-                                                                                                        <span className="text-gray-500">
-                                                                                                            Gợi ý mở đầu phiên kế:
-                                                                                                        </span>{' '}
+                                                                                                        Gợi ý mở phiên kế:{' '}
                                                                                                         <strong>{branchSlice.goi_y_nhan_luot_tiep_theo ?? '—'}</strong>
                                                                                                     </p>
                                                                                                     {(branchSlice.tom_tat_quy_tac_ngan ||
                                                                                                         branchSlice.tom_tat_quy_tac) && (
-                                                                                                        <p className="text-[10px] text-gray-500 italic mt-2 border-t border-white/60 pt-2">
+                                                                                                        <p className="text-[10px] text-gray-500 italic mt-1 border-t border-white/60 pt-2">
                                                                                                             {branchSlice.tom_tat_quy_tac_ngan ||
                                                                                                                 branchSlice.tom_tat_quy_tac}
                                                                                                         </p>
