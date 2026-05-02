@@ -5206,8 +5206,18 @@ const AdminTools = () => {
                                                 ].map((b) => {
                                                     const statsObj = staffStatsReportByBranch?.[b.key] || {};
                                                     const canonical = chiaDonVanDonStaffOrder?.[b.key] || [];
+                                                    const allEntriesMap = new Map();
+                                                    canonical.forEach(name => allEntriesMap.set(normalizeNameKeyForStaffSort(name), [name, 0]));
+                                                    Object.entries(statsObj).forEach(([name, count]) => {
+                                                        const key = normalizeNameKeyForStaffSort(name);
+                                                        if (allEntriesMap.has(key)) {
+                                                            allEntriesMap.get(key)[1] += count;
+                                                        } else {
+                                                            allEntriesMap.set(key, [name, count]);
+                                                        }
+                                                    });
                                                     const rows = sortStatsEntriesByVanDonOrder(
-                                                        Object.entries(statsObj),
+                                                        Array.from(allEntriesMap.values()),
                                                         canonical
                                                     );
                                                     const sessionCount = successSessionCountByBranch?.[b.key] || 0;
@@ -5506,19 +5516,45 @@ const AdminTools = () => {
                                                                                         </div>
                                                                                         
                                                                                         {/* Trạng thái tiếp theo */}
-                                                                                        <div className="sm:w-64 shrink-0 bg-white border border-blue-100 rounded-xl p-3 shadow-sm relative overflow-hidden">
-                                                                                            <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                                                                                            <div className="space-y-2">
-                                                                                                <div className="flex justify-between items-center text-xs">
-                                                                                                    <span className="text-gray-500">Đơn cuối giao cho:</span>
-                                                                                                    <span className="font-semibold text-gray-700">{ketThuc ?? '—'}</span>
+                                                                                        {(() => {
+                                                                                            let finalQueue = [...roster];
+                                                                                            if (assignList.length > 0) {
+                                                                                                assignList.forEach(row => {
+                                                                                                    const nv = String(row.delivery_staff || '').trim();
+                                                                                                    if (nv) {
+                                                                                                        const idx = finalQueue.findIndex(n => n.toLowerCase() === nv.toLowerCase());
+                                                                                                        if (idx !== -1) {
+                                                                                                            finalQueue.splice(idx, 1);
+                                                                                                            finalQueue.push(nv);
+                                                                                                        }
+                                                                                                    }
+                                                                                                });
+                                                                                            }
+                                                                                            return (
+                                                                                                <div className="sm:w-64 shrink-0 bg-white border border-blue-100 rounded-xl p-3 shadow-sm relative overflow-hidden">
+                                                                                                    <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                                                                                                    <div className="space-y-3">
+                                                                                                        <div>
+                                                                                                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wide flex items-center gap-1.5 mb-1.5">
+                                                                                                                <List className="w-3.5 h-3.5" /> Hàng đợi sau vòng này
+                                                                                                            </p>
+                                                                                                            {finalQueue.length > 0 ? (
+                                                                                                                <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
+                                                                                                                    {finalQueue.map((name, fqIdx) => (
+                                                                                                                        <div key={fqIdx} className={`text-xs px-2 py-1 rounded-md border flex items-center justify-between ${fqIdx === 0 ? 'bg-blue-50 border-blue-200 text-blue-800 font-bold shadow-sm' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>
+                                                                                                                            <span>{fqIdx + 1}. {name}</span>
+                                                                                                                            {fqIdx === 0 && <span className="text-[10px] uppercase">👉 Tiếp</span>}
+                                                                                                                        </div>
+                                                                                                                    ))}
+                                                                                                                </div>
+                                                                                                            ) : (
+                                                                                                                <p className="text-xs text-gray-400 italic">Không có dữ liệu hàng đợi</p>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    </div>
                                                                                                 </div>
-                                                                                                <div className="pt-2 border-t border-gray-100">
-                                                                                                    <span className="block text-[10px] font-bold text-blue-600 uppercase mb-0.5">👉 Đầu vòng sau</span>
-                                                                                                    <span className="block font-bold text-blue-900 text-sm">{String(branchSlice.goi_y_nhan_luot_tiep_theo ?? '').trim() || '—'}</span>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        </div>
+                                                                                            );
+                                                                                        })()}
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
@@ -5550,33 +5586,6 @@ const AdminTools = () => {
                                 </div>
                             </div>
                         )}
-
-                                {/* Hiển thị log từng bước */}
-                                {stepLogs.length > 0 && (
-                                    <div className="mt-4 p-4 rounded-lg border bg-blue-50 border-blue-200">
-                                        <h4 className="font-semibold mb-3 text-blue-800 flex items-center justify-between">
-                                            <span>📋 Log từng bước</span>
-                                            <span className="text-xs font-normal text-gray-600">({stepLogs.length} bước)</span>
-                                        </h4>
-                                        <div className="max-h-96 overflow-y-auto bg-white p-3 rounded border">
-                                            <div className="space-y-1">
-                                                {stepLogs.map((log, idx) => {
-                                                    const bgColor = 
-                                                        log.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
-                                                        log.type === 'warning' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
-                                                        log.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
-                                                        'bg-gray-50 border-gray-200 text-gray-700';
-                                                    return (
-                                                        <div key={idx} className={`p-2 rounded border text-xs ${bgColor}`}>
-                                                            <span className="font-mono text-xs text-gray-500 mr-2">{log.timestamp}</span>
-                                                            <span>{log.message}</span>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
 
                                 {/* Hiển thị kết quả chia đơn */}
                                 {autoAssignResult && (
