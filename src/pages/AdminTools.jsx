@@ -6,13 +6,6 @@ import * as XLSX from 'xlsx';
 import PermissionManager from '../components/admin/PermissionManager';
 import usePermissions from '../hooks/usePermissions';
 import { performEndOfShiftSnapshot } from '../services/snapshotService';
-import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTeFromOrders';
-import {
-    SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN,
-    syncBaoCaoVanDonFromOrders,
-} from '../services/baoCaoVanDonSyncFromOrders';
-import { formatBaoCaoVanDonStatusHistogram } from '../utils/baoCaoVanDonFormat';
-import { recalcSaleOrderCountFromOrders } from '../services/saleRecalcOrderCountFromOrders';
 import { supabase } from '../supabase/config';
 import { resolveTrangThaiThuTienFromOrder } from '../utils/orderTracking';
 import * as ApiService from '../services/api';
@@ -70,6 +63,435 @@ const ACCOUNT_TEMPLATE_ROWS = [
         can_day_ffm: 0
     }
 ];
+
+function parseChiTietChiaForMerge(raw) {
+    if (raw == null || raw === '') return null;
+    if (typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
+    if (typeof raw === 'string') {
+        try {
+            const p = JSON.parse(raw);
+            return p && typeof p === 'object' && !Array.isArray(p) ? { ...p } : null;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+}
+
+function inferBranchLabelFromOrderTeam(teamRaw) {
+    const t = String(teamRaw || '').toLowerCase();
+    if (!t) return null;
+    const hanoi = /\bhanoi\b|hà nội|ha noi|\bhn\b/.test(t);
+    const hcm = /\bhcm\b|hồ chí minh|ho chi minh|tp\.?\s*hcm| tphcm/.test(t);
+    if (hanoi && !hcm) return 'Hà Nội';
+    if (hcm && !hanoi) return 'HCM';
+    if (hanoi) return 'Hà Nội';
+    if (hcm) return 'HCM';
+    return null;
+}
+
+/** yyyy-MM-dd calendar day in VN (+07). */
+function yyyyMmDdVietNamFromTimestamp(isoLike) {
+    const d = new Date(isoLike);
+    if (Number.isNaN(d.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(d);
+}
+
+function inferOrderRowBranchForChiReport(row) {
+    const p = parseChiTietChiaForMerge(row?.chi_tiet_chia);
+    return inferBranchLabelFromOrderTeam(row?.team ?? p?.order_team ?? p?.branch);
+}
+
+/** Sắp xếp đơn chia: ưu tiên thu_tu_chia hợp lệ, rồi order_date, mã đơn. */
+function sortChiaDonViewOrdersList(list) {
+    return [...list].sort((a, b) => {
+        const t1 = Number(a.thu_tu_chia);
+        const t2 = Number(b.thu_tu_chia);
+        const ok1 = Number.isFinite(t1) && t1 > 0;
+        const ok2 = Number.isFinite(t2) && t2 > 0;
+        if (ok1 && ok2 && t1 !== t2) return t1 - t2;
+        if (ok1 && !ok2) return -1;
+        if (!ok1 && ok2) return 1;
+        const d1 = a.order_date ? new Date(a.order_date) : new Date(0);
+        const d2 = b.order_date ? new Date(b.order_date) : new Date(0);
+        if (d1.getTime() !== d2.getTime()) return d1 - d2;
+        return (a.order_code || '').localeCompare(b.order_code || '');
+    });
+}
+
+const CHI_TIET_CHIA_COLUMN_HINT =
+    'Thiếu cột chi_tiet_chia trên Supabase: chạy SQL migration 20260502133000_orders_chi_tiet_chia_jsonb.sql, rồi Dashboard → Settings → API → Reload schema.';
+
+function supabaseErrorLooksLikeMissingChiTietChia(err) {
+    const m = String(err?.message || '').toLowerCase();
+    return (
+        err?.code === 'PGRST204' ||
+        m.includes('chi_tiet_chia') ||
+        /column.*does not exist/i.test(m) ||
+        m.includes('could not find') && m.includes('chi_tiet')
+    );
+}
+
+function normalizeFingerprintStaffKey(name) {
+    return String(name || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function accumulateStaffFingerprints(acc, rawName, add) {
+    const k = normalizeFingerprintStaffKey(rawName);
+    if (!k) return;
+    acc[k] = (acc[k] || 0) + add;
+}
+
+function stringifyStaffFingerprint(acc) {
+    const e = Object.entries(acc).sort(([a], [b]) =>
+        String(a).localeCompare(String(b), 'vi')
+    );
+    return JSON.stringify(e);
+}
+
+/** Giống `normalizeHistoryBranchKey` trong component — dùng khi prefetch khớp phiên. */
+function normalizeHistoryBranchForChiReport(raw) {
+    const s = String(raw || '').trim().toLowerCase();
+    if (!s) return null;
+    if (s.includes('hcm') || s.includes('hồ chí minh') || s.includes('ho chi minh') || s.includes('tp.hcm')) return 'HCM';
+    if (s.includes('hà nội') || s.includes('ha noi') || s.includes('hanoi') || s === 'hn') return 'Hà Nội';
+    return null;
+}
+
+function fingerprintDeliveriesPairs(pairs) {
+    const acc = {};
+    pairs.forEach(({ row, parsed }) => {
+        const nv = parsed?.delivery_staff ?? row?.delivery_staff;
+        accumulateStaffFingerprints(acc, nv, 1);
+    });
+    return stringifyStaffFingerprint(acc);
+}
+
+function fingerprintFromHistoryStaffStats(stats) {
+    const acc = {};
+    Object.entries(stats || {}).forEach(([k, v]) => {
+        accumulateStaffFingerprints(acc, k, Number(v) || 0);
+    });
+    return stringifyStaffFingerprint(acc);
+}
+
+function mergeOrderChiRowsPreferHcmClone(rowsHcm, rowsOrders) {
+    const map = new Map();
+    for (const r of rowsOrders || []) {
+        const k = String(r.order_code ?? '').trim();
+        if (k) map.set(k, r);
+    }
+    for (const r of rowsHcm || []) {
+        const k = String(r.order_code ?? '').trim();
+        if (!k) continue;
+        map.set(k, r);
+    }
+    return [...map.values()];
+}
+
+function clusterChiTietOrderRowsMerged(rows) {
+    const groups = new Map();
+    for (const row of rows || []) {
+        const parsed = parseChiTietChiaForMerge(row.chi_tiet_chia);
+        if (!parsed) continue;
+        const brGuess = inferBranchLabelFromOrderTeam(row.team ?? parsed.order_team ?? parsed.branch);
+        if (brGuess !== 'HCM' && brGuess !== 'Hà Nội') continue;
+
+        const tv = String(parsed.ten_vong || '').trim();
+        /** Cùng một lần bấm Chia dùng chung `ten_vong`; không có hoặc STT chỉnh tay ⇒ mỗi đơn một cụm. */
+        const sharedSession =
+            tv &&
+            (/\bVòng\s*\d+/i.test(tv) ||
+                tv.includes('Phiên chia') ||
+                tv.includes('Vòng chia') ||
+                tv.includes('Đã chỉnh STT') ||
+                (tv.includes('•') && /\bVòng\b/i.test(tv)));
+        const ck = sharedSession
+            ? `${brGuess}|||${tv}`
+            : `${brGuess}|||solo|||${String(row.order_code || '').trim()}`;
+
+        if (!groups.has(ck)) groups.set(ck, { branch: brGuess, pairs: [] });
+        groups.get(ck).pairs.push({ row, parsed });
+    }
+
+    const clusters = [];
+    for (const [, bundle] of groups) {
+        let maxTs = 0;
+        bundle.pairs.forEach(({ row }) => {
+            const ts = row.updated_at ? Date.parse(row.updated_at) : 0;
+            if (Number.isFinite(ts)) maxTs = Math.max(maxTs, ts);
+        });
+        clusters.push({
+            branch: bundle.branch,
+            pairs: bundle.pairs,
+            maxUpdatedMs: maxTs,
+            length: bundle.pairs.length,
+            fingerprint: fingerprintDeliveriesPairs(bundle.pairs),
+        });
+    }
+    return clusters;
+}
+
+function assignListFromChiDetailCluster(cluster) {
+    const shaped = cluster.pairs.map(({ row, parsed }) => {
+        const p = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {};
+        return {
+            order_code: row.order_code,
+            order_date: row.order_date,
+            thu_tu_chia: p.thu_tu_chia ?? row.thu_tu_chia,
+            delivery_staff: row.delivery_staff,
+            chi_tiet_chia: p,
+        };
+    });
+    const sorted = sortChiaDonViewOrdersList(shaped);
+    return sorted.map((o) => ({
+        order_code: o.order_code,
+        delivery_staff: o.delivery_staff,
+        chi_tiet_chia: o.chi_tiet_chia,
+    }));
+}
+
+/** Danh sách I. — từ mảng đơn thô đã prefetch (không qua cụm). */
+function assignListFromOrderRowsFlat(rows) {
+    const shaped = (rows || []).map((row) => {
+        const raw = parseChiTietChiaForMerge(row.chi_tiet_chia) || {};
+        const p =
+            raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
+        return {
+            order_code: row.order_code,
+            order_date: row.order_date,
+            thu_tu_chia: p.thu_tu_chia ?? row.thu_tu_chia,
+            delivery_staff: row.delivery_staff,
+            chi_tiet_chia: p,
+        };
+    });
+    const sorted = sortChiaDonViewOrdersList(shaped);
+    return sorted.map((o) => ({
+        order_code: o.order_code,
+        delivery_staff: o.delivery_staff,
+        chi_tiet_chia: o.chi_tiet_chia,
+    }));
+}
+
+/**
+ * Chuỗi fallback cho bảng I.: (1) lookup khớp phiên (2) cùng ngày chia VN + chi nhánh
+ * (3) mọi đơn trong khoảng ngày prefetch + chi nhánh.
+ */
+function resolveAssignListForHistorySession(historyRow, branchKeyUi, lookupMap, mergedRowsAll) {
+    const hid =
+        historyRow?.id != null && historyRow.id !== ''
+            ? String(historyRow.id)
+            : '';
+    const fromMatch = hid && lookupMap ? lookupMap[hid] : null;
+    if (Array.isArray(fromMatch) && fromMatch.length > 0) {
+        return { list: fromMatch, source: 'match' };
+    }
+
+    const pool = mergedRowsAll || [];
+    const vnPhi = yyyyMmDdVietNamFromTimestamp(historyRow.created_at);
+
+    const sameDayBranch = pool.filter((row) => {
+        if (inferOrderRowBranchForChiReport(row) !== branchKeyUi) return false;
+        const ngayIso = chiNgayYyyyMmDdFromRow(row);
+        return ngayIso && vnPhi && ngayIso === vnPhi;
+    });
+
+    if (sameDayBranch.length > 0) {
+        return { list: assignListFromOrderRowsFlat(sameDayBranch), source: 'day_branch' };
+    }
+
+    const rangeBranch = pool.filter((row) => inferOrderRowBranchForChiReport(row) === branchKeyUi);
+    if (rangeBranch.length > 0) {
+        return { list: assignListFromOrderRowsFlat(rangeBranch), source: 'range_branch' };
+    }
+
+    return { list: [], source: 'none' };
+}
+
+/** Thứ tự cột ưu tiên cho bảng I. — các key còn lại của JSON được sort sau. */
+const CHI_TIET_CHIA_REPORT_KEY_ORDER = [
+    'ngay_chia_van_don',
+    'ten_vong',
+    'thu_tu_chia',
+    'reason',
+    'queue_before',
+    'staff_chi_nhanh',
+    'eligible_staff',
+];
+
+function chiTietChiaKeyLabelVi(k) {
+    const map = {
+        ngay_chia_van_don: 'Ngày chia',
+        ten_vong: 'Tên vòng',
+        thu_tu_chia: 'STT chia (JSON)',
+        reason: 'Lý do',
+        queue_before: 'Hàng đợi xoay vòng',
+        staff_chi_nhanh: 'NV chi nhánh',
+        eligible_staff: 'NV đủ điều kiện',
+    };
+    return map[k] || k;
+}
+
+function collectChiTietChiaKeysForRows(rows) {
+    const set = new Set();
+    for (const r of rows || []) {
+        const o = r?.chi_tiet_chia;
+        if (o && typeof o === 'object' && !Array.isArray(o)) {
+            Object.keys(o).forEach((k) => set.add(k));
+        }
+    }
+    const rest = [...set].filter((k) => !CHI_TIET_CHIA_REPORT_KEY_ORDER.includes(k)).sort();
+    return [...CHI_TIET_CHIA_REPORT_KEY_ORDER.filter((k) => set.has(k)), ...rest];
+}
+
+/** Giá trị ô (không gồm queue_before đặc biệt — render riêng trong JSX). */
+function formatChiTietChiaReportCell(key, val) {
+    if (val == null || val === '') return '—';
+    if (key === 'queue_before') return '—';
+    if (Array.isArray(val)) {
+        try {
+            return JSON.stringify(val);
+        } catch {
+            return String(val);
+        }
+    }
+    if (typeof val === 'object') {
+        try {
+            return JSON.stringify(val);
+        } catch {
+            return String(val);
+        }
+    }
+    return String(val);
+}
+
+function matchHistorySessionsToChiDetailClusters(historyRows, clusters) {
+    const out = new Map();
+    const pool = clusters.map((c, i) => ({ ...c, i, used: false }));
+
+    const sessions = [...historyRows].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    const tryAssign = (h, useFingerprint) => {
+        const histBranch = normalizeHistoryBranchForChiReport(h.branch);
+        if (histBranch !== 'HCM' && histBranch !== 'Hà Nội') return false;
+        const wantFp = fingerprintFromHistoryStaffStats(h.staff_stats);
+        const wantN = Number(h.total_orders) || 0;
+
+        let bestIdx = -1;
+        let bestDiff = Infinity;
+        pool.forEach((c, ci) => {
+            if (c.used || c.branch !== histBranch) return;
+            if (wantN >= 1 && c.length !== wantN) return;
+            if (useFingerprint && c.fingerprint !== wantFp) return;
+            const tH = new Date(h.created_at).getTime();
+            const diff = Math.abs((c.maxUpdatedMs || 0) - tH);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                bestIdx = ci;
+            }
+        });
+
+        if (bestIdx !== -1) {
+            pool[bestIdx].used = true;
+            const hid = h.id;
+            if (hid != null) out.set(String(hid), assignListFromChiDetailCluster(pool[bestIdx]));
+            return true;
+        }
+        return false;
+    };
+
+    for (const h of sessions) {
+        tryAssign(h, true);
+    }
+    for (const h of sessions) {
+        if (h.id != null && out.has(String(h.id))) continue;
+        tryAssign(h, false);
+    }
+
+    return out;
+}
+
+/** Ngày chia thực tế: cột đơn hoặc trong JSON chi_tiet_chia (YYYY-MM-DD). */
+function chiNgayYyyyMmDdFromRow(row) {
+    const parsed = parseChiTietChiaForMerge(row?.chi_tiet_chia);
+    return String(row?.ngay_chia_van_don ?? parsed?.ngay_chia_van_don ?? '').slice(0, 10);
+}
+
+/** Đơn có chi_tiet_chia nằm trong khoảng ngày chia (ưu tiên cột hoặc JSON). */
+function rowChiTietInNgayRange(row, start, end) {
+    const d = chiNgayYyyyMmDdFromRow(row);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= start && d <= end;
+}
+
+async function fetchOrderRowsWithChiTietForReportRange(start, end) {
+    const sel =
+        'order_code, team, chi_tiet_chia, delivery_staff, thu_tu_chia, order_date, updated_at, ngay_chia_van_don';
+    const [rOrd, rHcm, rOrdNgayNull, rHcmNgayNull] = await Promise.all([
+        supabase
+            .from('orders')
+            .select(sel)
+            .gte('ngay_chia_van_don', start)
+            .lte('ngay_chia_van_don', end)
+            .not('chi_tiet_chia', 'is', null),
+        supabase
+            .from('order_code_hcm')
+            .select(sel)
+            .gte('ngay_chia_van_don', start)
+            .lte('ngay_chia_van_don', end)
+            .not('chi_tiet_chia', 'is', null),
+        supabase.from('orders').select(sel).is('ngay_chia_van_don', null).not('chi_tiet_chia', 'is', null).limit(3000),
+        supabase.from('order_code_hcm').select(sel).is('ngay_chia_van_don', null).not('chi_tiet_chia', 'is', null).limit(3000),
+    ]);
+
+    const ordOk = !(rOrd || {}).error;
+    const hcmOk = !(rHcm || {}).error;
+    const ordNullOk = !(rOrdNgayNull || {}).error;
+    const hcmNullOk = !(rHcmNgayNull || {}).error;
+
+    if (!ordOk && (rOrd || {}).error) {
+        console.warn('[Báo cáo I.] orders chi_tiet_chia:', rOrd.error.message);
+    }
+    if (!hcmOk && (rHcm || {}).error) {
+        console.warn('[Báo cáo I.] order_code_hcm chi_tiet_chia:', rHcm.error.message);
+    }
+    if (!ordNullOk && (rOrdNgayNull || {}).error) {
+        console.warn('[Báo cáo I.] orders chi_tiet (ngày chia null):', rOrdNgayNull.error.message);
+    }
+    if (!hcmNullOk && (rHcmNgayNull || {}).error) {
+        console.warn('[Báo cáo I.] order_code_hcm chi_tiet (ngày chia null):', rHcmNgayNull.error.message);
+    }
+
+    const mergedMain = mergeOrderChiRowsPreferHcmClone(
+        hcmOk ? rHcm.data || [] : [],
+        ordOk ? rOrd.data || [] : []
+    );
+    const keysMain = new Set(
+        mergedMain.map((r) => String(r?.order_code ?? '').trim()).filter(Boolean)
+    );
+    const mergedAux = mergeOrderChiRowsPreferHcmClone(
+        hcmNullOk ? rHcmNgayNull.data || [] : [],
+        ordNullOk ? rOrdNgayNull.data || [] : []
+    ).filter((row) => rowChiTietInNgayRange(row, start, end));
+
+    for (const r of mergedAux) {
+        const k = String(r?.order_code ?? '').trim();
+        if (!k || keysMain.has(k)) continue;
+        keysMain.add(k);
+        mergedMain.push(r);
+    }
+
+    return mergedMain;
+}
 
 /** `history_chia_don.phien_chia` / `chi_tiet_chia` — có thể jsonb hoặc chuỗi JSON */
 function parseHistoryChiaDonStoredJson(raw) {
@@ -138,12 +560,6 @@ function sortStatsEntriesByVanDonOrder(entries, canonicalNames) {
         if (ib !== undefined) return 1;
         return String(a[0]).trim().localeCompare(String(b[0]).trim(), 'vi');
     });
-}
-
-function getHistoryChiTietBranchList(chiTietRoot, branchKeyUi) {
-    const key = branchKeyUi === 'HCM' ? 'hcm' : 'hanoi';
-    const raw = chiTietRoot?.[key];
-    return Array.isArray(raw) ? raw : [];
 }
 
 function compactStaffTotalsLine(sortedEntries) {
@@ -242,48 +658,6 @@ const AdminTools = () => {
     const [lastSnapshot, setLastSnapshot] = useState(null);
     const userEmail = localStorage.getItem('userEmail') || 'unknown';
 
-    // MKT recalculation
-    const [mktRecalcLoading, setMktRecalcLoading] = useState(false);
-    const [mktRecalcStartDate, setMktRecalcStartDate] = useState(() => {
-        const today = new Date();
-        const d = new Date(today);
-        d.setDate(d.getDate() - 30);
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    });
-    const [mktRecalcEndDate, setMktRecalcEndDate] = useState(() => {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    });
-    const [mktRecalcResult, setMktRecalcResult] = useState(null);
-
-    // Sale reports: order_count từ orders (sale_staff)
-    const [saleRecalcLoading, setSaleRecalcLoading] = useState(false);
-    const [saleRecalcStartDate, setSaleRecalcStartDate] = useState(() => {
-        const today = new Date();
-        const d = new Date(today);
-        d.setDate(d.getDate() - 30);
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    });
-    const [saleRecalcEndDate, setSaleRecalcEndDate] = useState(() => {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    });
-    const [saleRecalcResult, setSaleRecalcResult] = useState(null);
-    const [vanDonBaoCaoLoading, setVanDonBaoCaoLoading] = useState(false);
-    const [vanDonBaoCaoResult, setVanDonBaoCaoResult] = useState(null);
-
     // --- SETTINGS STATE ---
     const [settings, setSettings] = useState(DEFAULT_SETTINGS);
     const [productSuggestions, setProductSuggestions] = useState([]); // Suggested from DB history (loại bỏ các SP đã có trong DB)
@@ -323,13 +697,6 @@ const AdminTools = () => {
     const [isPreviewStaffLoading, setIsPreviewStaffLoading] = useState(false);
     const [showStaffPreviewModal, setShowStaffPreviewModal] = useState(false);
 
-    // --- VIEW CHIA ĐƠN VẬN ĐƠN ---
-    const [chiaDonViewDate, setChiaDonViewDate] = useState(() => {
-        const now = new Date();
-        return now.toISOString().slice(0, 10); // YYYY-MM-DD
-    });
-    const [chiaDonViewLoading, setChiaDonViewLoading] = useState(false);
-    const [chiaDonViewOrders, setChiaDonViewOrders] = useState([]);
     const [historyChiaDon, setHistoryChiaDon] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyStartDate, setHistoryStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().slice(0, 10)); // Mặc định 7 ngày trước
@@ -343,14 +710,10 @@ const AdminTools = () => {
         HCM: [],
         'Hà Nội': [],
     });
+    /** Mục I.: map history id → list khớp cụm (nếu có); luôn prefetch merged rows cho fallback “hiện hết”. */
+    const [chiTietFromOrdersLookup, setChiTietFromOrdersLookup] = useState({});
+    const [chiaReportMergedChiTietRows, setChiaReportMergedChiTietRows] = useState([]);
 
-    // --- CLEAR NV VẬN ĐƠN THEO ORDER_DATE ---
-    const [clearOrderDate, setClearOrderDate] = useState('');
-
-    // --- ORDER SEARCH STATE ---
-    const [orderSearchCode, setOrderSearchCode] = useState('');
-    const [orderSearchResult, setOrderSearchResult] = useState(null);
-    const [orderSearchLoading, setOrderSearchLoading] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState(() => {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -427,13 +790,7 @@ const AdminTools = () => {
                 'ngưỡng',
                 'threshold',
                 'chỉ số',
-                'sale',
-                'sales_reports',
-                'báo cáo sale',
-                'vận đơn',
-                'bao_cao_van_don',
-                'đếm trạng thái',
-                'tính lại'
+                'sale'
             ]
         },
         { id: 'upload_download', label: 'Upload và Tải về', icon: Download, keywords: ['upload', 'download', 'excel', 'tải về', 'nhập', 'xuất'] },
@@ -543,6 +900,38 @@ const AdminTools = () => {
             cancelled = true;
         };
     }, [isStatsModalOpen]);
+
+    // Mục I. modal báo cáo: prefetch đơn có chi_tiet_chia (ngày chia); lookup khớp phiên + merged cho fallback đầy đủ
+    useEffect(() => {
+        if (!isStatsModalOpen) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const merged = await fetchOrderRowsWithChiTietForReportRange(historyStartDate, historyEndDate);
+                if (cancelled) return;
+                setChiaReportMergedChiTietRows(Array.isArray(merged) ? merged : []);
+                if (!historyChiaDon?.length) {
+                    setChiTietFromOrdersLookup({});
+                    return;
+                }
+                const clusters = clusterChiTietOrderRowsMerged(merged || []);
+                const mapObj = {};
+                matchHistorySessionsToChiDetailClusters(historyChiaDon, clusters).forEach((list, hid) => {
+                    mapObj[String(hid)] = list;
+                });
+                if (!cancelled) setChiTietFromOrdersLookup(mapObj);
+            } catch (e) {
+                if (!cancelled) {
+                    console.warn('[Báo cáo I.]Prefetch chi_tiet_chia:', e);
+                    setChiTietFromOrdersLookup({});
+                    setChiaReportMergedChiTietRows([]);
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isStatsModalOpen, historyChiaDon, historyStartDate, historyEndDate]);
 
     // --- VERIFICATION STATE ---
     const [verifyResult, setVerifyResult] = useState(null);
@@ -1630,173 +2019,6 @@ const AdminTools = () => {
         }
     };
 
-    // --- MKT: Recalculate "Số đơn thực tế" (Số đơn TT) from orders using Key match ---
-    const handleRecalcMktSoDonTT = async () => {
-        if (mktRecalcLoading) return;
-
-        const ok = window.confirm(
-            'Tính lại cho Báo cáo MKT: Số đơn thực tế, Doanh số TT (đã trừ đơn/VND hủy), cột Số đơn hủy (tổng đơn hủy), đơn/DS hoàn hủy thực tế — Key match orders ↔ detail_reports.\n\n' +
-            'Đơn hủy (đếm + DS hủy): Kết quả Check = Hủy (check_result).\n\n' +
-            'Email/Team trên dòng đang trống sẽ tự điền từ users (theo tên+email), sau đó human_resources nếu cần.\n\n' +
-            'Thao tác sẽ cập nhật các dòng hiện có; ca trống → ghi «Hết ca»; thiếu SP/thị trường mà đơn trong khoảng chỉ có một cặp SP+TT khớp ngày+tên thì tự điền; thiếu dòng theo từng ca («Hết ca» / «Giữa ca») sẽ tạo tối đa hai dòng từ đơn (đã có cùng key+ca thì chỉ cập nhật).\n\n' +
-            'Bạn có chắc muốn chạy không?'
-        );
-        if (!ok) return;
-
-        const normStart = String(mktRecalcStartDate || '').trim();
-        const normEnd = String(mktRecalcEndDate || '').trim();
-        if (!normStart || !normEnd) {
-            alert('Vui lòng nhập đầy đủ TỪ NGÀY và ĐẾN NGÀY.');
-            return;
-        }
-
-        if (normStart > normEnd) {
-            alert('Từ ngày phải <= đến ngày.');
-            return;
-        }
-
-        try {
-            setMktRecalcLoading(true);
-            setMktRecalcResult(null);
-            toast.info('Đang tính lại Báo cáo MKT (đơn TT, đơn hủy, DS hủy)...', { autoClose: false });
-
-            const result = await recalcMktSoDonThucTeFromOrders({
-                startDate: normStart,
-                endDate: normEnd,
-                createMissingRows: true,
-            });
-
-            toast.dismiss();
-            toast.success(
-                `Hoàn tất: cập nhật ${result.updatedExisting ?? 0} dòng, tạo mới ${result.createdMissing ?? 0} (tổng ${result.upserted || 0}).`
-            );
-            setMktRecalcResult(result);
-        } catch (error) {
-            console.error('Recalc MKT error:', error);
-            const msg = error?.message || String(error);
-            const fetchHint = /failed to fetch/i.test(msg)
-                ? ' Thao tác này chỉ gọi Supabase (orders, detail_reports). Kiểm tra: mạng/VPN, .env có VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY, dự án Supabase không bị pause, thử tắt extension chặn request.'
-                : '';
-            toast.error('Lỗi tính lại Số đơn TT: ' + msg + fetchHint, { autoClose: 12000 });
-        } finally {
-            setMktRecalcLoading(false);
-        }
-    };
-
-    const handleRecalcSaleOrderCount = async () => {
-        if (saleRecalcLoading || vanDonBaoCaoLoading) return;
-
-        const ok = window.confirm(
-            'Tính lại sales_reports: order_count, revenue_actual, order_cancel_count_actual, revenue_cancel_actual (tổng VND các đơn hủy).\n\n' +
-            'Key match giữa orders (sale_staff) và sales_reports (name, date, shift, product, market).\n\n' +
-            'Không tách theo ca khi cộng số: dòng Hết ca và Giữa ca cùng dùng tổng theo key. Vẫn cập nhật dòng hiện có; khi thiếu key chỉ tự tạo dòng Hết ca.\n\n' +
-            'Báo cáo vận đơn (bao_cao_van_don) có nút riêng bên dưới.\n\n' +
-            'Bạn có chắc muốn chạy không?'
-        );
-        if (!ok) return;
-
-        const normStart = String(saleRecalcStartDate || '').trim();
-        const normEnd = String(saleRecalcEndDate || '').trim();
-        if (!normStart || !normEnd) {
-            alert('Vui lòng nhập đầy đủ TỪ NGÀY và ĐẾN NGÀY.');
-            return;
-        }
-
-        if (normStart > normEnd) {
-            alert('Từ ngày phải <= đến ngày.');
-            return;
-        }
-
-        try {
-            setSaleRecalcLoading(true);
-            setSaleRecalcResult(null);
-            toast.info('Đang tính lại sales_reports...', { autoClose: false });
-
-            const result = await recalcSaleOrderCountFromOrders({
-                startDate: normStart,
-                endDate: normEnd,
-                createMissingForHetCa: true,
-
-            });
-
-            toast.dismiss();
-            const n = result.upserted ?? result.upsertCount ?? 0;
-            const created = result.createdMissing ?? 0;
-            const updated = result.updatedExisting ?? 0;
-            toast.success(`Hoàn tất: ${n} thao tác (cập nhật ${updated} dòng, tạo mới ${created} dòng).`);
-            setSaleRecalcResult(result);
-        } catch (error) {
-            console.error('Recalc sales_reports error:', error);
-            toast.dismiss();
-            const msg = error?.message || String(error);
-            const fetchHint = /failed to fetch/i.test(msg)
-                ? ' Thao tác chỉ gọi Supabase (orders, sales_reports, human_resources). Kiểm tra: mạng/VPN, .env có VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY, dự án Supabase không bị pause, thử tắt extension chặn request.'
-                : '';
-            toast.error('Lỗi tính lại sales_reports: ' + msg + fetchHint, { autoClose: 12000 });
-        } finally {
-            setSaleRecalcLoading(false);
-        }
-    };
-
-    const handleSyncBaoCaoVanDonOnly = async () => {
-        if (vanDonBaoCaoLoading || saleRecalcLoading) return;
-
-        const ok = window.confirm(
-            'Đồng bộ bảng bao_cao_van_don từ orders (theo Từ ngày / Đến ngày phía trên).\n\n' +
-            'Key: ngay + nhan_vien + san_pham + thi_truong khớp order_date + delivery_staff + product + country.\n' +
-            'Chưa có dòng thì insert; có rồi thì update.\n' +
-            'Cột trang_thai_giao_hang, ket_qua_check, trang_thai_thanh_toan (jsonb): mỗi cột là object { "Giá trị": số đơn } trong nhóm key.\n' +
-            'Nguồn đếm: delivery_status, check_result, payment_status_detail (nếu trống thì payment_status). Gồm cả đơn order_date trống nhưng created_at trong khoảng.\n\n' +
-            'Chạy?'
-        );
-        if (!ok) return;
-
-        const normStart = String(saleRecalcStartDate || '').trim();
-        const normEnd = String(saleRecalcEndDate || '').trim();
-        if (!normStart || !normEnd) {
-            alert('Vui lòng nhập đầy đủ TỪ NGÀY và ĐẾN NGÀY.');
-            return;
-        }
-        if (normStart > normEnd) {
-            alert('Từ ngày phải <= đến ngày.');
-            return;
-        }
-
-        try {
-            setVanDonBaoCaoLoading(true);
-            setVanDonBaoCaoResult(null);
-            toast.info('Đang đồng bộ bao_cao_van_don...', { autoClose: false });
-
-            const vd = await syncBaoCaoVanDonFromOrders({
-                startDate: normStart,
-                endDate: normEnd,
-            });
-
-            toast.dismiss();
-            const vdN = vd?.upserted ?? 0;
-            const vdUp = vd?.updatedExisting ?? 0;
-            const vdCr = vd?.createdMissing ?? 0;
-            toast.success(`bao_cao_van_don: ${vdN} thao tác (cập nhật ${vdUp}, tạo mới ${vdCr}).`);
-            if (vd?.tienColumnSkippedInSync) {
-                toast.warn(
-                    `Thiếu cột tien_trang_thai_thanh_toan — chạy SQL trong Supabase: ${SQL_ADD_BAO_CAO_VAN_DON_TIEN_COLUMN}`,
-                    { autoClose: 25000 }
-                );
-            }
-            setVanDonBaoCaoResult(vd);
-        } catch (error) {
-            console.error('sync bao_cao_van_don error:', error);
-            toast.dismiss();
-            const msg = error?.message || String(error);
-            const fetchHint = /failed to fetch/i.test(msg)
-                ? ' Kiểm tra: mạng/VPN, .env Supabase, bảng bao_cao_van_don đã migration.'
-                : '';
-            toast.error('Lỗi đồng bộ bao_cao_van_don: ' + msg + fetchHint, { autoClose: 12000 });
-        } finally {
-            setVanDonBaoCaoLoading(false);
-        }
-    };
-
     const checkSystem = async () => {
         setCheckLoading(true);
         setDbStatus(null);
@@ -2362,221 +2584,16 @@ const AdminTools = () => {
         }
     };
 
-    // --- TÌM KIẾM ĐƠN HÀNG ---
-    const handleSearchOrder = async () => {
-        if (!orderSearchCode.trim()) {
-            setOrderSearchResult({ error: 'Vui lòng nhập mã đơn hàng' });
-            return;
-        }
-
-        setOrderSearchLoading(true);
-        setOrderSearchResult(null);
-
-        try {
-            const orderCode = orderSearchCode.trim();
-            console.log('🔍 [Tìm kiếm đơn hàng] Mã đơn:', orderCode);
-
-            const { data, error } = await supabase
-                .from('orders')
-                .select('order_code, order_date, team, country, delivery_staff, sale_staff, marketing_staff')
-                .eq('order_code', orderCode)
-                .single();
-
-            if (error) {
-                if (error.code === 'PGRST116') {
-                    // Không tìm thấy đơn hàng
-                    setOrderSearchResult({
-                        error: 'Không tìm thấy đơn hàng',
-                        details: `Không có đơn hàng nào với mã "${orderCode}" trong hệ thống. Vui lòng kiểm tra lại mã đơn hàng.`
-                    });
-                } else {
-                    setOrderSearchResult({
-                        error: 'Lỗi khi tìm kiếm đơn hàng',
-                        details: error.message || 'Có lỗi xảy ra khi truy vấn database. Vui lòng thử lại sau.'
-                    });
-                }
-                console.error('❌ [Tìm kiếm đơn hàng] Lỗi:', error);
-                return;
-            }
-
-            if (!data) {
-                setOrderSearchResult({
-                    error: 'Không tìm thấy đơn hàng',
-                    details: `Không có dữ liệu cho mã đơn hàng "${orderCode}".`
-                });
-                return;
-            }
-
-            // Chuẩn hóa dữ liệu
-            const normalizedData = {
-                order_code: data.order_code || 'N/A',
-                order_date: data.order_date ? new Date(data.order_date).toLocaleDateString('vi-VN') : 'N/A',
-                team: data.team || 'N/A',
-                country: data.country || 'N/A',
-                delivery_staff: data.delivery_staff || null,
-                sale_staff: data.sale_staff || 'N/A',
-                marketing_staff: data.marketing_staff || 'N/A'
-            };
-
-            console.log('✅ [Tìm kiếm đơn hàng] Tìm thấy:', normalizedData);
-            setOrderSearchResult(normalizedData);
-
-        } catch (error) {
-            console.error('❌ [Tìm kiếm đơn hàng] Exception:', error);
-            setOrderSearchResult({
-                error: 'Lỗi không xác định',
-                details: error.message || 'Có lỗi xảy ra khi tìm kiếm đơn hàng. Vui lòng thử lại sau.'
-            });
-        } finally {
-            setOrderSearchLoading(false);
-        }
-    };
-
-    // --- VIEW DANH SÁCH ĐƠN ĐÃ CHIA VẬN ĐƠN THEO NGÀY ---
-    const handleLoadChiaDonView = async () => {
-        if (!chiaDonViewDate) return;
-        setChiaDonViewLoading(true);
-        try {
-            // Lấy tất cả đơn đã được chia vận đơn trong ngày được chọn
-            const { data, error } = await supabase
-                .from('orders')
-                .select('order_code, customer_name, team, delivery_staff, ngay_chia_van_don, thu_tu_chia, order_date, country')
-                .eq('ngay_chia_van_don', chiaDonViewDate)
-                .not('delivery_staff', 'is', null);
-
-            if (error) {
-                console.error('❌ [View chia đơn vận đơn] Lỗi load dữ liệu:', error);
-                toast.error('Lỗi tải danh sách đơn đã chia vận đơn');
-                setChiaDonViewOrders([]);
-                return;
-            }
-
-            const list = data || [];
-
-            // STT chia = thu_tu_chia (thứ tự ghi khi chạy chia đơn trong ngày); sắp xếp theo STT để khớp lượt vòng
-            const sorted = [...list].sort((a, b) => {
-                const t1 = Number(a.thu_tu_chia);
-                const t2 = Number(b.thu_tu_chia);
-                const ok1 = Number.isFinite(t1) && t1 > 0;
-                const ok2 = Number.isFinite(t2) && t2 > 0;
-                if (ok1 && ok2 && t1 !== t2) return t1 - t2;
-                if (ok1 && !ok2) return -1;
-                if (!ok1 && ok2) return 1;
-                const d1 = a.order_date ? new Date(a.order_date) : new Date(0);
-                const d2 = b.order_date ? new Date(b.order_date) : new Date(0);
-                if (d1.getTime() !== d2.getTime()) return d1 - d2;
-                return (a.order_code || '').localeCompare(b.order_code || '');
-            });
-
-            setChiaDonViewOrders(sorted);
-        } catch (err) {
-            console.error('❌ [View chia đơn vận đơn] Exception:', err);
-            toast.error('Có lỗi xảy ra khi tải danh sách đơn đã chia vận đơn');
-            setChiaDonViewOrders([]);
-        } finally {
-            setChiaDonViewLoading(false);
-        }
-    };
-
-    // --- CLEAR NV VẬN ĐƠN THEO NGÀY CHIA ---
-    const handleClearDeliveryStaffByDate = async () => {
-        if (!chiaDonViewDate) {
-            toast.warning('Vui lòng chọn ngày chia vận đơn trước khi xóa!');
-            return;
-        }
-
-        const confirmMsg =
-            `Bạn có chắc muốn XÓA cột NV vận đơn cho tất cả đơn có ngay_chia_van_don = ${chiaDonViewDate}?\n\n` +
-            `- Cột sẽ bị xóa: delivery_staff, ngay_chia_van_don\n` +
-            `- Hành động này không thể hoàn tác trực tiếp trên giao diện.`;
-
-        if (!window.confirm(confirmMsg)) return;
-
-        try {
-            toast.info(`Đang xóa NV vận đơn theo ngày ${chiaDonViewDate}...`);
-
-            const { data, error } = await supabase
-                .from('orders')
-                .update({
-                    delivery_staff: null,
-                    ngay_chia_van_don: null,
-                })
-                .eq('ngay_chia_van_don', chiaDonViewDate)
-                .not('delivery_staff', 'is', null)
-                .select('order_code');
-
-            if (error) {
-                console.error('❌ [Clear NV vận đơn] Lỗi xóa:', error);
-                toast.error('Lỗi khi xóa NV vận đơn theo ngày đã chọn');
-                return;
-            }
-
-            const affected = data?.length || 0;
-            toast.success(`Đã xóa NV vận đơn cho ${affected} đơn có ngay_chia_van_don = ${chiaDonViewDate}`);
-
-            // Reload lại view danh sách đã chia
-            await handleLoadChiaDonView();
-        } catch (err) {
-            console.error('❌ [Clear NV vận đơn] Exception:', err);
-            toast.error('Có lỗi xảy ra khi xóa NV vận đơn theo ngày đã chọn');
-        }
-    };
-
-    // --- CLEAR NV VẬN ĐƠN THEO ORDER_DATE ---
-    const handleClearDeliveryStaffByOrderDate = async () => {
-        if (!clearOrderDate) {
-            toast.warning('Vui lòng chọn Ngày lên đơn (order_date) trước khi xóa!');
-            return;
-        }
-
-        const confirmMsg =
-            `Bạn có chắc muốn XÓA NV vận đơn cho tất cả đơn có order_date = ${clearOrderDate}?\n\n` +
-            `- Cột sẽ bị xóa: delivery_staff, ngay_chia_van_don\n` +
-            `- Hành động này không thể hoàn tác trực tiếp trên giao diện.`;
-
-        if (!window.confirm(confirmMsg)) return;
-
-        try {
-            toast.info(`Đang xóa NV vận đơn theo order_date = ${clearOrderDate}...`);
-
-            const { data, error } = await supabase
-                .from('orders')
-                .update({
-                    delivery_staff: null,
-                    ngay_chia_van_don: null,
-                })
-                .eq('order_date', clearOrderDate)
-                .not('delivery_staff', 'is', null)
-                .select('order_code');
-
-            if (error) {
-                console.error('❌ [Clear NV vận đơn theo order_date] Lỗi xóa:', error);
-                toast.error('Lỗi khi xóa NV vận đơn theo order_date đã chọn');
-                return;
-            }
-
-            const affected = data?.length || 0;
-            toast.success(`Đã xóa NV vận đơn cho ${affected} đơn có order_date = ${clearOrderDate}`);
-
-            // Nếu đang xem view theo ngày chia, reload lại để cập nhật (optional)
-            if (chiaDonViewDate) {
-                await handleLoadChiaDonView();
-            }
-        } catch (err) {
-            console.error('❌ [Clear NV vận đơn theo order_date] Exception:', err);
-            toast.error('Có lỗi xảy ra khi xóa NV vận đơn theo order_date đã chọn');
-        }
-    };
-
     // --- LOAD LỊCH SỬ CHIA ĐƠN TỪ BẢNG history_chia_don ---
     const handleLoadHistoryChiaDon = async () => {
         setHistoryLoading(true);
         try {
+            /** Bộ lọc theo ngày chia thực tế (VN +07), khớp `ngay_chia_van_don` trên đơn / phiên chạy trong ngày VN. */
             const { data, error } = await supabase
                 .from('history_chia_don')
                 .select('*')
-                .gte('created_at', `${historyStartDate}T00:00:00Z`)
-                .lte('created_at', `${historyEndDate}T23:59:59Z`)
+                .gte('created_at', `${historyStartDate}T00:00:00+07:00`)
+                .lte('created_at', `${historyEndDate}T23:59:59.999+07:00`)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -3639,333 +3656,6 @@ const AdminTools = () => {
                     </div>
 
                     <div className="p-6 space-y-8">
-                        {/* MKT RECALC */}
-                        <div className="border border-gray-200 rounded-lg p-5 bg-white">
-                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-2">
-                                <RefreshCw className="w-5 h-5 text-blue-600" />
-                                Cập nhật Số đơn TT cho Báo cáo MKT
-                            </h3>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (MKT) + Sản phẩm + Thị trường</span> khớp <span className="font-medium">orders</span> (marketing_staff, country), tách theo ca <span className="font-medium">Hết ca</span> / <span className="font-medium">Giữa ca</span>.
-                                <span className="font-medium"> Số đơn thực tế</span> và <span className="font-medium">Doanh số TT</span>: mọi đơn khớp key, <span className="font-medium">đã trừ</span> số đơn và VND có Kết quả Check Hủy (ghi <span className="font-medium">Số đơn hoàn hủy</span> = tổng đơn hủy, và <span className="font-medium">Số đơn hoàn hủy thực tế</span> / <span className="font-medium">Doanh số hoàn hủy thực tế</span>). Hủy: theo <span className="font-medium">check_result</span>; VND: total_amount_vnd → total_vnd → reconciled_vnd → goods_amount → sale_price. Khi bấm <span className="font-medium">Tính lại</span>: nếu chưa có dòng cho key có đơn thì <span className="font-medium">tạo mới</span> trong <span className="font-medium">detail_reports</span> (tên MKT ưu tiên trùng chính tả với dòng đã có, không thì theo <span className="font-medium">marketing_staff</span> trên đơn).
-                                {' '}
-                                <span className="font-medium text-gray-800">Tự điền khi trống:</span> cột <span className="font-medium">Email</span> và <span className="font-medium">Team</span> — lấy từ bảng <span className="font-medium">users</span> (khớp tên và email khi có đủ hai), không có thì từ <span className="font-medium">human_resources</span>.
-                            </p>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                                <label className="block">
-                                    <span className="text-sm font-medium text-gray-700">Từ ngày</span>
-                                    <input
-                                        type="date"
-                                        value={mktRecalcStartDate}
-                                        onChange={(e) => setMktRecalcStartDate(e.target.value)}
-                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </label>
-                                <label className="block">
-                                    <span className="text-sm font-medium text-gray-700">Đến ngày</span>
-                                    <input
-                                        type="date"
-                                        value={mktRecalcEndDate}
-                                        onChange={(e) => setMktRecalcEndDate(e.target.value)}
-                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </label>
-                            </div>
-
-                            <button
-                                onClick={handleRecalcMktSoDonTT}
-                                disabled={mktRecalcLoading || loading}
-                                className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
-                            >
-                                {mktRecalcLoading ? (
-                                    <>
-                                        <span className="animate-spin">⏳</span> Đang cập nhật...
-                                    </>
-                                ) : (
-                                    <>
-                                        <RefreshCw size={18} /> Tính lại
-                                    </>
-                                )}
-                            </button>
-
-                            {mktRecalcResult && (
-                                <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
-                                    <div className="text-sm font-semibold text-gray-800 mb-3">Kết quả tính toán</div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm border border-gray-200 rounded-lg">
-                                            <tbody>
-                                                {Object.entries(mktRecalcResult).map(([k, v]) => {
-                                                    if (k === 'previewRows') return null;
-                                                    return (
-                                                        <tr key={k} className="border-t border-gray-200">
-                                                            <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{k}</td>
-                                                            <td className="px-3 py-2 text-gray-900">
-                                                                {typeof v === 'number' ? v : (v == null ? '-' : String(v))}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    {Array.isArray(mktRecalcResult.previewRows) && mktRecalcResult.previewRows.length > 0 && (
-                                        <div className="mt-4 overflow-x-auto">
-                                            <div className="text-sm font-semibold text-gray-800 mb-2">Preview các dòng đã update/create</div>
-                                            <table className="w-full text-sm border border-gray-200 rounded-lg">
-                                                <thead className="bg-white">
-                                                    <tr className="border-b border-gray-200">
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">#</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">ca</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Ngày</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Tên</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Sản_phẩm</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Thị_trường</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Số đơn thực tế</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Doanh số TT (VND)</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">Số đơn hoàn hủy TT</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">DS hoàn hủy TT (VND)</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {mktRecalcResult.previewRows.map((r, idx) => (
-                                                        <tr key={`${r.action}-${idx}`} className="border-t border-gray-200">
-                                                            <td className="px-3 py-2 text-gray-700">{idx + 1}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.ca || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r['Ngày'] || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r['Tên'] || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r['Sản_phẩm'] || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r['Thị_trường'] || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-900">{r['Số đơn thực tế'] ?? 0}</td>
-                                                            <td className="px-3 py-2 text-gray-900">{Number(r['Doanh số TT'] ?? 0).toLocaleString('vi-VN')}</td>
-                                                            <td className="px-3 py-2 text-gray-900">{r['Số đơn hoàn hủy thực tế'] ?? 0}</td>
-                                                            <td className="px-3 py-2 text-gray-900">{Number(r['Doanh số hoàn hủy thực tế'] ?? 0).toLocaleString('vi-VN')}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* SALES_REPORTS + bao_cao_van_don: hai nút xanh lá / xanh dương */}
-                        <div
-                            id="admin-sale-reports-vandon-sync"
-                            className="border border-gray-200 rounded-lg p-5 bg-white scroll-mt-24"
-                        >
-                            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2 mb-2">
-                                <RefreshCw className="w-5 h-5 text-emerald-600" />
-                                Cập nhật Báo cáo Sale (sales_reports)
-                            </h3>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Tính lại theo Key: <span className="font-medium">Ngày + Tên (NV Sale) + Sản phẩm + Thị trường</span>, nguồn đơn: <span className="font-medium">orders.sale_staff</span>, <span className="font-medium">country</span>. <span className="font-medium">Không tách theo ca khi cộng số</span>: dòng báo cáo <span className="font-medium">Hết ca</span> và <span className="font-medium">Giữa ca</span> cùng dùng tổng mọi đơn khớp key.
-                                Ghi <span className="font-medium">order_count</span> (mọi đơn khớp key), <span className="font-medium">revenue_actual</span> (tổng VND mọi đơn khớp), <span className="font-medium">order_cancel_count_actual</span> và <span className="font-medium">revenue_cancel_actual</span> (số đơn hủy + tổng VND chỉ các đơn đó; Kết quả Check Hủy/Huỷ theo <span className="font-medium">check_result</span>). Tiền VND: total_amount_vnd → total_vnd → goods_amount → sale_price. Có thể tạo dòng mới nếu thiếu key.
-                            </p>
-                            <p className="text-sm text-gray-600 mb-4 flex items-start gap-2">
-                                <Package className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
-                                <span>
-                                    <span className="font-medium text-gray-800">Báo cáo vận đơn (bao_cao_van_don)</span> — nút riêng bên dưới: đồng bộ theo cùng khoảng ngày, key{' '}
-                                    <span className="font-medium">ngay + nhan_vien + san_pham + thi_truong</span> từ{' '}
-                                    <span className="font-medium">order_date + delivery_staff + product + country</span>. Ba cột{' '}
-                                    <span className="font-medium">trang_thai_giao_hang / ket_qua_check / trang_thai_thanh_toan</span> là{' '}
-                                    <span className="font-medium">jsonb</span> dạng{' '}
-                                    <code className="text-xs bg-gray-100 px-1 rounded">{'{ "Trạng thái": số_lượng }'}</code> theo từng giá trị trong nhóm đơn (giá trị trống gộp vào <span className="font-medium">(Trống)</span>).
-                                </span>
-                            </p>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                                <label className="block">
-                                    <span className="text-sm font-medium text-gray-700">Từ ngày</span>
-                                    <input
-                                        type="date"
-                                        value={saleRecalcStartDate}
-                                        onChange={(e) => setSaleRecalcStartDate(e.target.value)}
-                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                    />
-                                </label>
-                                <label className="block">
-                                    <span className="text-sm font-medium text-gray-700">Đến ngày</span>
-                                    <input
-                                        type="date"
-                                        value={saleRecalcEndDate}
-                                        onChange={(e) => setSaleRecalcEndDate(e.target.value)}
-                                        className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                    />
-                                </label>
-                            </div>
-
-                            <button
-                                onClick={handleRecalcSaleOrderCount}
-                                disabled={saleRecalcLoading || vanDonBaoCaoLoading || loading}
-                                className="w-full py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
-                            >
-                                {saleRecalcLoading ? (
-                                    <>
-                                        <span className="animate-spin">⏳</span> Đang cập nhật...
-                                    </>
-                                ) : (
-                                    <>
-                                        <RefreshCw size={18} /> Tính lại báo cáo Sale (sales_reports)
-                                    </>
-                                )}
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={handleSyncBaoCaoVanDonOnly}
-                                disabled={vanDonBaoCaoLoading || saleRecalcLoading || loading}
-                                className="w-full mt-3 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium transition-colors shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-400"
-                                title="Gom đơn theo ngày (order_date hoặc ngày created_at) + NV vận đơn + SP + thị trường; đếm từng giá trị trạng thái giao / check / thanh toán → jsonb { giá trị: số đơn }"
-                            >
-                                {vanDonBaoCaoLoading ? (
-                                    <>
-                                        <span className="animate-spin">⏳</span> Đang đếm & đồng bộ...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Package size={18} /> Đếm trạng thái & cập nhật báo cáo vận đơn
-                                    </>
-                                )}
-                            </button>
-
-                            {saleRecalcResult && (
-                                <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
-                                    <div className="text-sm font-semibold text-gray-800 mb-3">Kết quả tính toán</div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm border border-gray-200 rounded-lg">
-                                            <tbody>
-                                                {Object.entries(saleRecalcResult).map(([k, v]) => {
-                                                    if (k === 'previewRows' || k === 'vanDonReport') return null;
-                                                    return (
-                                                        <tr key={k} className="border-t border-gray-200">
-                                                            <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{k}</td>
-                                                            <td className="px-3 py-2 text-gray-900">
-                                                                {typeof v === 'number' ? v : (v == null ? '-' : String(v))}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    {Array.isArray(saleRecalcResult.previewRows) && saleRecalcResult.previewRows.length > 0 && (
-                                        <div className="mt-4 overflow-x-auto">
-                                            <div className="text-sm font-semibold text-gray-800 mb-2">Preview các dòng đã update/create</div>
-                                            <table className="w-full text-sm border border-gray-200 rounded-lg">
-                                                <thead className="bg-white">
-                                                    <tr className="border-b border-gray-200">
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">#</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">shift (ca)</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">date</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">name</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">product</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">market</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">order_count</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">revenue_actual (VND)</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">order_cancel_count_actual</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">revenue_cancel_actual (VND)</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {saleRecalcResult.previewRows.map((r, idx) => (
-                                                        <tr key={`${r.action}-${idx}`} className="border-t border-gray-200">
-                                                            <td className="px-3 py-2 text-gray-700">{idx + 1}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.ca || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.Ngày || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.Tên || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.Sản_phẩm || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.Thị_trường || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-900">{r.order_count ?? 0}</td>
-                                                            <td className="px-3 py-2 text-gray-900">{Number(r.revenue_actual ?? 0).toLocaleString('vi-VN')}</td>
-                                                            <td className="px-3 py-2 text-gray-900">{r.order_cancel_count_actual ?? 0}</td>
-                                                            <td className="px-3 py-2 text-gray-900">{Number(r.revenue_cancel_actual ?? 0).toLocaleString('vi-VN')}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {vanDonBaoCaoResult && (
-                                <div className="mt-4 bg-sky-50 border border-sky-200 rounded-lg p-4">
-                                    <div className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                                        <Package className="w-4 h-4 text-sky-600" />
-                                        Kết quả báo cáo vận đơn (bao_cao_van_don)
-                                    </div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm border border-sky-200 rounded-lg bg-white">
-                                            <tbody>
-                                                {Object.entries(vanDonBaoCaoResult).map(([k, v]) => {
-                                                    if (k === 'previewRows') return null;
-                                                    return (
-                                                        <tr key={k} className="border-t border-sky-100">
-                                                            <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{k}</td>
-                                                            <td className="px-3 py-2 text-gray-900">
-                                                                {typeof v === 'number' ? v : (v == null ? '-' : String(v))}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    {Array.isArray(vanDonBaoCaoResult.previewRows) && vanDonBaoCaoResult.previewRows.length > 0 && (
-                                        <div className="mt-3 overflow-x-auto">
-                                            <div className="text-sm font-semibold text-gray-800 mb-2">
-                                                Preview bao_cao_van_don (tối đa 50 dòng)
-                                            </div>
-                                            <table className="w-full text-sm border border-sky-200 rounded-lg bg-white">
-                                                <thead className="bg-white">
-                                                    <tr className="border-b border-sky-200">
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">#</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">ngay</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">nhan_vien</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">san_pham</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">thi_truong</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">trang_thai_giao_hang</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">ket_qua_check</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">trang_thai_thanh_toan</th>
-                                                        <th className="px-3 py-2 text-left whitespace-nowrap">action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {vanDonBaoCaoResult.previewRows.map((r, idx) => (
-                                                        <tr key={`vd-${r.action}-${idx}`} className="border-t border-sky-100">
-                                                            <td className="px-3 py-2 text-gray-700">{idx + 1}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.ngay || '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.nhan_vien ?? '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.san_pham ?? '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.thi_truong ?? '-'}</td>
-                                                            <td className="px-3 py-2 text-gray-700 whitespace-pre-line text-xs align-top max-w-[220px]">
-                                                                {formatBaoCaoVanDonStatusHistogram(r.trang_thai_giao_hang)}
-                                                            </td>
-                                                            <td className="px-3 py-2 text-gray-700 whitespace-pre-line text-xs align-top max-w-[220px]">
-                                                                {formatBaoCaoVanDonStatusHistogram(r.ket_qua_check)}
-                                                            </td>
-                                                            <td className="px-3 py-2 text-gray-700 whitespace-pre-line text-xs align-top max-w-[220px]">
-                                                                {formatBaoCaoVanDonStatusHistogram(r.trang_thai_thanh_toan)}
-                                                            </td>
-                                                            <td className="px-3 py-2 text-gray-700">{r.action || '-'}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
                         {/* 1. Thresholds */}
                         {isSectionVisible('Ngưỡng cảnh báo chỉ số', ['threshold', 'chỉ số', 'cảnh báo', 'kpi', 'tồn kho', 'hoàn', 'ads']) && (
                             <div className="space-y-4">
@@ -4626,37 +4316,6 @@ const AdminTools = () => {
                                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                                     />
                                 </div>
-                                <div className="text-xs text-gray-600 space-y-1">
-                                    <p><strong>Điều kiện phân bổ (theo từng nút):</strong></p>
-                                    <ul className="list-disc list-inside space-y-1 ml-2">
-                                        <li>
-                                            <strong className="text-gray-800">Hà Nội — bảng orders:</strong> Chi nhánh = &quot;Hà Nội&quot; · Trạng thái thu
-                                            tiền = &quot;Có bill&quot; (cột payment_status_detail hoặc payment_status) · Tháng Ngày lên đơn ={' '}
-                                            {selectedMonth} · Cột CSKH trống
-                                        </li>
-                                        <li>
-                                            <strong className="text-gray-800">HCM — bảng order_code_hcm:</strong> Chi nhánh = &quot;HCM&quot; ·
-                                            Trạng thái thu tiền = &quot;Có bill&quot; (payment_status_detail / payment_status) · Tháng Ngày lên đơn ={' '}
-                                            {selectedMonth} · Cột CSKH trống
-                                        </li>
-                                    </ul>
-                                    <div className="mt-3 pt-3 border-t border-gray-200">
-                                        <p><strong className="text-gray-800">Danh sách CSKH:</strong> Lấy từ bảng <code className="bg-gray-100 px-1 rounded">users</code> —{' '}
-                                            <strong>bộ phận</strong> có chứa &quot;CSKH&quot; (cột <code className="bg-gray-100 px-1 rounded">department</code>) và{' '}
-                                            <strong>chi nhánh</strong> khớp lần phân bổ: Hà Nội dùng <code className="bg-gray-100 px-1 rounded">branch</code> hoặc{' '}
-                                            <code className="bg-gray-100 px-1 rounded">team</code> (HN / Hà Nội…); HCM dùng HCM / TP.HCM / Hồ Chí Minh…</p>
-                                        <p className="mt-2"><strong className="text-gray-800">Logic chia đơn CSKH:</strong></p>
-                                        <ol className="list-decimal list-inside space-y-1 ml-2 mt-1 text-xs">
-                                            <li><strong>Đếm số đơn hiện tại</strong> của mỗi nhân viên CSKH <strong>theo từng tháng</strong> (dựa trên tháng của "Ngày lên đơn")</li>
-                                            <li><strong>Đơn Sale tự chăm:</strong> Nếu nhân viên Sale cũng là CSKH → tự động gán cho họ</li>
-                                            <li><strong>Chia đều:</strong> Với mỗi đơn còn lại, lấy tháng của "Ngày lên đơn", chọn nhân viên CSKH có <strong>ít đơn nhất trong tháng đó</strong></li>
-                                        </ol>
-                                        <p className="mt-2 text-blue-700 text-xs">
-                                            💡 Ví dụ: Nhân viên A có 5 đơn tháng 1, 3 đơn tháng 2. Nhân viên B có 2 đơn tháng 1, 4 đơn tháng 2.
-                                            Đơn mới tháng 1 → chia cho B (B có ít đơn tháng 1 hơn). Đơn mới tháng 2 → chia cho A (A có ít đơn tháng 2 hơn).
-                                        </p>
-                                    </div>
-                                </div>
                             </div>
                         </div>
 
@@ -4742,100 +4401,6 @@ const AdminTools = () => {
                                             )}
                                         </button>
                                     </div>
-                                </div>
-
-                                {/* Tìm kiếm đơn hàng */}
-                                <h3 className="font-semibold text-gray-700 mt-4">Tìm kiếm đơn hàng</h3>
-                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                    <div className="flex gap-2">
-                                        <div className="flex-1">
-                                            <input
-                                                type="text"
-                                                placeholder="Nhập mã đơn hàng..."
-                                                value={orderSearchCode}
-                                                onChange={(e) => setOrderSearchCode(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter' && orderSearchCode.trim()) {
-                                                        handleSearchOrder();
-                                                    }
-                                                }}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            />
-                                        </div>
-                                        <button
-                                            onClick={handleSearchOrder}
-                                            disabled={orderSearchLoading || !orderSearchCode.trim()}
-                                            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                                        >
-                                            {orderSearchLoading ? (
-                                                <RefreshCw className="w-4 h-4 animate-spin" />
-                                            ) : (
-                                                <Search className="w-4 h-4" />
-                                            )}
-                                            Tìm kiếm
-                                        </button>
-                                    </div>
-
-                                    {/* Kết quả tìm kiếm */}
-                                    {orderSearchResult && (
-                                        <div className={`mt-4 p-4 rounded-lg border ${orderSearchResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-                                            {orderSearchResult.error ? (
-                                                <div>
-                                                    <h4 className="font-semibold text-red-800 mb-2">❌ Lỗi tìm kiếm</h4>
-                                                    <p className="text-sm text-red-700">{orderSearchResult.error}</p>
-                                                    {orderSearchResult.details && (
-                                                        <div className="mt-2 text-xs text-red-600 bg-red-100 p-2 rounded">
-                                                            <strong>Chi tiết:</strong> {orderSearchResult.details}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <div>
-                                                    <h4 className="font-semibold text-green-800 mb-3">✅ Thông tin đơn hàng</h4>
-                                                    <div className="grid grid-cols-2 gap-3 text-sm">
-                                                        <div>
-                                                            <span className="font-medium text-gray-700">Mã đơn hàng:</span>
-                                                            <span className="ml-2 font-mono text-blue-600">{orderSearchResult.order_code || 'N/A'}</span>
-                                                        </div>
-                                                        <div>
-                                                            <span className="font-medium text-gray-700">Ngày lên đơn:</span>
-                                                            <span className="ml-2">{orderSearchResult.order_date || 'N/A'}</span>
-                                                        </div>
-                                                        <div>
-                                                            <span className="font-medium text-gray-700">Team:</span>
-                                                            <span className="ml-2">{orderSearchResult.team || 'N/A'}</span>
-                                                        </div>
-                                                        <div>
-                                                            <span className="font-medium text-gray-700">Country:</span>
-                                                            <span className="ml-2">{orderSearchResult.country || 'N/A'}</span>
-                                                        </div>
-                                                        <div className="col-span-2">
-                                                            <span className="font-medium text-gray-700">NV Vận đơn:</span>
-                                                            <span className={`ml-2 font-semibold ${orderSearchResult.delivery_staff ? 'text-green-600' : 'text-red-600'}`}>
-                                                                {orderSearchResult.delivery_staff || 'Chưa được gán'}
-                                                            </span>
-                                                        </div>
-                                                        {orderSearchResult.delivery_staff && (
-                                                            <div className="col-span-2 text-xs text-green-700 bg-green-100 p-2 rounded">
-                                                                ✅ Đơn hàng đã được gán cho: <strong>{orderSearchResult.delivery_staff}</strong>
-                                                            </div>
-                                                        )}
-                                                        {!orderSearchResult.delivery_staff && (
-                                                            <div className="col-span-2 text-xs text-orange-700 bg-orange-100 p-2 rounded">
-                                                                ⚠️ Đơn hàng chưa được gán NV vận đơn. Có thể do:
-                                                                <ul className="list-disc list-inside mt-1 space-y-1">
-                                                                    {!orderSearchResult.team && <li>Không có Team (cần Team = HCM hoặc Hà Nội)</li>}
-                                                                    {orderSearchResult.country && (orderSearchResult.country.toLowerCase().includes('nhật') || orderSearchResult.country.toLowerCase().includes('nhat')) && <li>Country = Nhật Bản (bị loại trừ)</li>}
-                                                                    {orderSearchResult.team && !['hcm', 'hà nội', 'ha noi', 'hanoi'].includes(orderSearchResult.team.toLowerCase().trim()) && <li>Team không phải HCM/Hà Nội: "{orderSearchResult.team}"</li>}
-                                                                    {orderSearchResult.team && ['hcm', 'hà nội', 'ha noi', 'hanoi'].includes(orderSearchResult.team.toLowerCase().trim()) && !orderSearchResult.country?.toLowerCase().includes('nhật') && <li>Đơn này đủ điều kiện để chia, có thể chạy lại "Chia đơn vận đơn"</li>}
-                                                                </ul>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
                                 </div>
                             </div>
 
@@ -4942,177 +4507,6 @@ const AdminTools = () => {
                                             Kiểm tra danh sách U1 đang đi làm
                                         </button>
                                     </div>
-
-                                    {/* View danh sách đơn đã chia vận đơn theo ngày */}
-                                    <div className="mt-4 p-4 rounded-lg border bg-white border-orange-200">
-                                        <h4 className="font-semibold text-gray-800 mb-3">Xem danh sách đơn đã chia vận đơn</h4>
-                                        <div className="flex flex-col md:flex-row md:items-end gap-3 mb-3">
-                                            <div className="flex-1">
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                    Ngày chia vận đơn
-                                                </label>
-                                                <input
-                                                    type="date"
-                                                    value={chiaDonViewDate}
-                                                    onChange={(e) => setChiaDonViewDate(e.target.value)}
-                                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 focus:outline-none"
-                                                />
-                                            </div>
-                                            <button
-                                                onClick={handleLoadChiaDonView}
-                                                disabled={chiaDonViewLoading || !chiaDonViewDate}
-                                                className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                            >
-                                                {chiaDonViewLoading ? (
-                                                    <>
-                                                        <RefreshCw className="w-4 h-4 animate-spin" />
-                                                        Đang tải...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Search className="w-4 h-4" />
-                                                        Xem danh sách đã chia
-                                                    </>
-                                                )}
-                                            </button>
-                                        </div>
-
-                                        <div className="flex flex-col md:flex-row md:items-center gap-3 mb-2">
-                                            <button
-                                                onClick={handleClearDeliveryStaffByDate}
-                                                disabled={!chiaDonViewDate}
-                                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                                Xóa NV vận đơn theo ngày đã chọn
-                                            </button>
-                                            <p className="text-[11px] text-gray-600">
-                                                Hành động này sẽ đặt <strong>delivery_staff</strong> và <strong>ngay_chia_van_don</strong> về rỗng
-                                                cho tất cả đơn có <strong>ngay_chia_van_don = {chiaDonViewDate || '...'}</strong>.
-                                            </p>
-                                        </div>
-
-                                        {/* Xóa NV vận đơn theo Ngày lên đơn (order_date) */}
-                                        <div className="flex flex-col md:flex-row md:items-center gap-3 mb-2">
-                                            <div className="flex-1">
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                    Ngày lên đơn (order_date) cần xóa NV vận đơn
-                                                </label>
-                                                <input
-                                                    type="date"
-                                                    value={clearOrderDate}
-                                                    onChange={(e) => setClearOrderDate(e.target.value)}
-                                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
-                                                />
-                                            </div>
-                                            <button
-                                                onClick={handleClearDeliveryStaffByOrderDate}
-                                                disabled={!clearOrderDate}
-                                                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                                Xóa NV vận đơn theo order_date
-                                            </button>
-                                        </div>
-
-                                        {chiaDonViewOrders.length > 0 ? (
-                                            <div className="mt-2 max-h-80 overflow-y-auto border border-gray-200 rounded-lg">
-                                                <table className="min-w-full text-xs">
-                                                    <thead className="bg-gray-50">
-                                                        <tr>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700 whitespace-nowrap">
-                                                                STT chia
-                                                            </th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Mã đơn</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Khách hàng</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Chi nhánh</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">NV Vận đơn</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Ngày lên đơn</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Ngày chia vận đơn</th>
-                                                            <th className="px-2 py-2 border-b text-left font-semibold text-gray-700">Country</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {chiaDonViewOrders.map((o) => {
-                                                            let orderDateDisplay = '';
-                                                            if (o.order_date) {
-                                                                try {
-                                                                    const d = new Date(o.order_date);
-                                                                    if (!isNaN(d.getTime())) {
-                                                                        orderDateDisplay = d.toLocaleDateString('vi-VN', {
-                                                                            year: 'numeric',
-                                                                            month: '2-digit',
-                                                                            day: '2-digit',
-                                                                        });
-                                                                    } else {
-                                                                        orderDateDisplay = String(o.order_date);
-                                                                    }
-                                                                } catch {
-                                                                    orderDateDisplay = String(o.order_date);
-                                                                }
-                                                            }
-
-                                                            let ngayChiaDisplay = '';
-                                                            if (o.ngay_chia_van_don) {
-                                                                try {
-                                                                    const d2 = new Date(o.ngay_chia_van_don);
-                                                                    if (!isNaN(d2.getTime())) {
-                                                                        ngayChiaDisplay = d2.toLocaleDateString('vi-VN', {
-                                                                            year: 'numeric',
-                                                                            month: '2-digit',
-                                                                            day: '2-digit',
-                                                                        });
-                                                                    } else {
-                                                                        ngayChiaDisplay = String(o.ngay_chia_van_don);
-                                                                    }
-                                                                } catch {
-                                                                    ngayChiaDisplay = String(o.ngay_chia_van_don);
-                                                                }
-                                                            }
-
-                                                            return (
-                                                                <tr key={o.order_code} className="hover:bg-gray-50">
-                                                                    <td className="px-2 py-1 border-b text-gray-700 font-mono text-center whitespace-nowrap">
-                                                                        {o.thu_tu_chia != null && o.thu_tu_chia !== ''
-                                                                            ? o.thu_tu_chia
-                                                                            : '—'}
-                                                                    </td>
-                                                                    <td className="px-2 py-1 border-b text-blue-700 font-mono">
-                                                                        {o.order_code || 'N/A'}
-                                                                    </td>
-                                                                    <td className="px-2 py-1 border-b text-gray-700">
-                                                                        {o.customer_name || 'N/A'}
-                                                                    </td>
-                                                                    <td className="px-2 py-1 border-b text-gray-700">
-                                                                        {o.team || 'N/A'}
-                                                                    </td>
-                                                                    <td className="px-2 py-1 border-b text-gray-700">
-                                                                        {o.delivery_staff || 'N/A'}
-                                                                    </td>
-                                                                    <td className="px-2 py-1 border-b text-gray-700 whitespace-nowrap">
-                                                                        {orderDateDisplay || 'N/A'}
-                                                                    </td>
-                                                                    <td className="px-2 py-1 border-b text-gray-700 whitespace-nowrap">
-                                                                        {ngayChiaDisplay || 'N/A'}
-                                                                    </td>
-                                                                    <td className="px-2 py-1 border-b text-gray-700">
-                                                                        {o.country || 'N/A'}
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        ) : (
-                                            !chiaDonViewLoading &&
-                                            chiaDonViewDate && (
-                                                <p className="mt-2 text-xs text-gray-600">
-                                                    Không tìm thấy đơn nào đã được chia vận đơn trong ngày {chiaDonViewDate}.
-                                                </p>
-                                            )
-                                        )}
-                                    </div>
                                 </div>
 
                                 {/* --- NÂNG CẤP: NÚT MỞ MODAL BÁO CÁO --- */}
@@ -5135,12 +4529,12 @@ const AdminTools = () => {
                                     </button>
                                 </div>
 
-                        {/* --- MODAL BÁO CÁO CHI TIẾT (FULL SCREEN WIDTH) --- */}
+                        {/* --- MODAL BÁO CÁO CHI TIẾT (toàn màn hình) --- */}
                         {isStatsModalOpen && (
-                            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                                <div className="bg-gray-50 w-full max-w-7xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300">
+                            <div className="fixed inset-0 z-[9999] flex h-[100dvh] w-screen min-h-0 flex-col bg-gray-50">
+                                <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-gray-50 animate-in fade-in duration-200">
                                     {/* Header Modal */}
-                                    <div className="bg-white border-b px-6 py-4 flex items-center justify-between">
+                                    <div className="flex shrink-0 items-center justify-between border-b bg-white px-6 py-4">
                                         <div className="flex items-center gap-3">
                                             <div className="p-2 bg-blue-100 rounded-lg">
                                                 <BarChart3 className="w-6 h-6 text-blue-600" />
@@ -5159,25 +4553,35 @@ const AdminTools = () => {
                                     </div>
 
                                     {/* Bộ lọc trong Modal */}
-                                    <div className="bg-white border-b px-6 py-4">
+                                    <div className="shrink-0 border-b bg-white px-6 py-4">
                                         <div className="flex flex-wrap items-end gap-4">
-                                            <div className="w-44">
-                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Từ ngày</label>
+                                            <div className="w-52">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">
+                                                    Từ ngày chia
+                                                </label>
                                                 <input 
                                                     type="date" 
                                                     value={historyStartDate}
                                                     onChange={(e) => setHistoryStartDate(e.target.value)}
                                                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                                                 />
+                                                <p className="text-[9px] text-gray-400 mt-0.5 leading-tight">
+                                                    Lịch VN (+07); lệnh chia + đơn dùng cùng ngày chia
+                                                </p>
                                             </div>
-                                            <div className="w-44">
-                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Đến ngày</label>
+                                            <div className="w-52">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">
+                                                    Đến ngày chia
+                                                </label>
                                                 <input 
                                                     type="date" 
                                                     value={historyEndDate}
                                                     onChange={(e) => setHistoryEndDate(e.target.value)}
                                                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                                                 />
+                                                <p className="text-[9px] text-gray-400 mt-0.5 leading-tight">
+                                                    Phiên trong khoảng; đơn lọc theo ngày chia vận đơn
+                                                </p>
                                             </div>
                                             <button 
                                                 onClick={handleLoadHistoryChiaDon}
@@ -5194,102 +4598,165 @@ const AdminTools = () => {
                                         </div>
                                     </div>
 
-                                    {/* Nội dung Modal (Scrollable) */}
-                                    <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                                    {/* Nội dung Modal (cuộn, chiếm hết chỗ còn lại) */}
+                                    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                                             
-                                            {/* CỘT TỔNG HỢP (Layout Table như Excel) */}
-                                            <div className="lg:col-span-4 space-y-4">
-                                                {[
-                                                    { key: 'HCM', title: 'HCM', headerClass: 'bg-orange-600', badgeClass: 'bg-orange-100 text-orange-700' },
-                                                    { key: 'Hà Nội', title: 'Hà Nội', headerClass: 'bg-indigo-600', badgeClass: 'bg-indigo-100 text-indigo-700' }
-                                                ].map((b) => {
-                                                    const statsObj = staffStatsReportByBranch?.[b.key] || {};
-                                                    const canonical = chiaDonVanDonStaffOrder?.[b.key] || [];
-                                                    const allEntriesMap = new Map();
-                                                    canonical.forEach(name => allEntriesMap.set(normalizeNameKeyForStaffSort(name), [name, 0]));
-                                                    Object.entries(statsObj).forEach(([name, count]) => {
-                                                        const key = normalizeNameKeyForStaffSort(name);
-                                                        if (allEntriesMap.has(key)) {
-                                                            allEntriesMap.get(key)[1] += count;
-                                                        } else {
-                                                            allEntriesMap.set(key, [name, count]);
-                                                        }
-                                                    });
-                                                    const rows = sortStatsEntriesByVanDonOrder(
-                                                        Array.from(allEntriesMap.values()),
-                                                        canonical
-                                                    );
-                                                    const sessionCount = successSessionCountByBranch?.[b.key] || 0;
-                                                    const totalOrders = successTotalOrdersByBranch?.[b.key] || 0;
+                                            {/* CỘT TỔNG HỢP — một bảng chung HCM + Hà Nội */}
+                                            <div className="space-y-3 lg:col-span-3">
+                                                {(() => {
+                                                    const branchDefs = [
+                                                        {
+                                                            key: 'HCM',
+                                                            headerShort: 'HCM',
+                                                            badgeChip:
+                                                                'bg-orange-100 text-orange-800 border-orange-200/80 ring-1 ring-orange-500/15',
+                                                            countBg: 'bg-orange-50 text-orange-800',
+                                                        },
+                                                        {
+                                                            key: 'Hà Nội',
+                                                            headerShort: 'Hà Nội',
+                                                            badgeChip:
+                                                                'bg-indigo-100 text-indigo-900 border-indigo-200/80 ring-1 ring-indigo-500/15',
+                                                            countBg: 'bg-indigo-50 text-indigo-900',
+                                                        },
+                                                    ];
+                                                    const sessHCM = Number(successSessionCountByBranch?.HCM) || 0;
+                                                    const sessHN = Number(successSessionCountByBranch?.['Hà Nội']) || 0;
+                                                    const ordHCM = Number(successTotalOrdersByBranch?.HCM) || 0;
+                                                    const ordHN = Number(successTotalOrdersByBranch?.['Hà Nội']) || 0;
+
+                                                    const flatRows = [];
+                                                    for (const bd of branchDefs) {
+                                                        const statsObj = staffStatsReportByBranch?.[bd.key] || {};
+                                                        const canonical = chiaDonVanDonStaffOrder?.[bd.key] || [];
+                                                        const allEntriesMap = new Map();
+                                                        canonical.forEach((name) =>
+                                                            allEntriesMap.set(normalizeNameKeyForStaffSort(name), [
+                                                                name,
+                                                                0,
+                                                            ])
+                                                        );
+                                                        Object.entries(statsObj).forEach(([name, count]) => {
+                                                            const nk = normalizeNameKeyForStaffSort(name);
+                                                            if (allEntriesMap.has(nk)) {
+                                                                allEntriesMap.get(nk)[1] += Number(count) || 0;
+                                                            } else {
+                                                                allEntriesMap.set(nk, [name, Number(count) || 0]);
+                                                            }
+                                                        });
+                                                        const rowsSorted = sortStatsEntriesByVanDonOrder(
+                                                            Array.from(allEntriesMap.values()),
+                                                            canonical
+                                                        );
+                                                        rowsSorted.forEach(([name, count], idx) => {
+                                                            flatRows.push({
+                                                                branchKey: bd.key,
+                                                                branchBadge: bd.headerShort,
+                                                                badgeChip: bd.badgeChip,
+                                                                countBg: bd.countBg,
+                                                                stt: idx + 1,
+                                                                name,
+                                                                count: Number(count) || 0,
+                                                            });
+                                                        });
+                                                    }
+
                                                     return (
-                                                        <div key={b.key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                                                            <div className={`${b.headerClass} px-4 py-3`}>
-                                                                <p className="text-white text-sm font-bold flex items-center justify-between gap-2">
-                                                                    <span className="flex items-center gap-2">
-                                                                        <UserCheck className="w-5 h-5" />
-                                                                        TỔNG HỢP SẢN LƯỢNG — {b.title}
+                                                        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                                                            <div className="bg-gradient-to-r from-orange-700 to-indigo-700 px-3 py-2">
+                                                                <p className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-white">
+                                                                    <span className="flex min-w-0 items-center gap-1.5">
+                                                                        <UserCheck className="h-4 w-4 shrink-0 opacity-95" />
+                                                                        <span>Tổng hợp sản lượng</span>
                                                                     </span>
-                                                                    <span className="text-[11px] font-semibold bg-white/15 px-2 py-1 rounded">
-                                                                        {sessionCount} lần · {totalOrders} đơn
+                                                                    <span className="shrink-0 text-[10px] font-semibold leading-tight opacity-95">
+                                                                        HCM: {sessHCM} phiên · {ordHCM} đơn
+                                                                        <span className="mx-1.5 opacity-60">·</span>
+                                                                        Hà Nội: {sessHN} phiên · {ordHN} đơn
                                                                     </span>
                                                                 </p>
                                                             </div>
-                                                            <table className="w-full text-left text-xs">
-                                                                <thead className="bg-gray-50 border-b">
-                                                                    <tr>
-                                                                        <th className="px-4 py-3 font-bold text-gray-600">
-                                                                            <span className="block">Nhân sự</span>
-                                                                            <span className="block text-[10px] font-normal text-gray-400 mt-0.5 font-medium">
-                                                                                Theo Danh sách vận đơn (U1)
-                                                                            </span>
-                                                                        </th>
-                                                                        <th className="px-4 py-3 font-bold text-gray-600 text-right align-bottom">
-                                                                            Tổng đơn đã nhận
-                                                                        </th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    {rows.length > 0 ? (
-                                                                        rows.map(([name, count], idx) => (
-                                                                            <tr key={`${b.key}-${name}`} className="hover:bg-gray-50 border-b last:border-0 transition-colors">
-                                                                                <td className="px-4 py-3">
-                                                                                    <div className="flex items-center gap-3">
-                                                                                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-gray-100 text-gray-600">
-                                                                                            {idx + 1}
+                                                            <div className="max-h-[min(360px,40vh)] overflow-y-auto overscroll-contain border-t border-gray-100">
+                                                                <table className="w-full table-fixed text-left text-[11px]">
+                                                                    <thead className="sticky top-0 z-[1] border-b bg-gray-50 shadow-sm">
+                                                                        <tr>
+                                                                            <th className="w-[4.75rem] px-2 py-1.5 font-bold text-gray-600">
+                                                                                Chi nhánh
+                                                                            </th>
+                                                                            <th className="w-9 px-1 py-1.5 text-center font-bold text-gray-600">
+                                                                                #
+                                                                            </th>
+                                                                            <th className="px-2 py-1.5 font-bold text-gray-600">
+                                                                                <span className="block truncate">Nhân sự</span>
+                                                                                <span className="mt-px block truncate text-[9px] font-normal text-gray-400">
+                                                                                    DS vận đơn U1
+                                                                                </span>
+                                                                            </th>
+                                                                            <th className="w-[4.25rem] px-2 py-1.5 text-right align-bottom font-bold text-gray-600">
+                                                                                Tổng
+                                                                            </th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {flatRows.length > 0 ? (
+                                                                            flatRows.map((r) => (
+                                                                                <tr
+                                                                                    key={`${r.branchKey}-${r.name}`}
+                                                                                    className="border-b border-gray-100 transition-colors last:border-0 hover:bg-gray-50"
+                                                                                >
+                                                                                    <td className="px-2 py-1 align-middle">
+                                                                                        <span
+                                                                                            className={`inline-block max-w-[4.5rem] truncate rounded border px-1.5 py-0.5 text-center text-[9px] font-bold ${r.badgeChip}`}
+                                                                                        >
+                                                                                            {r.branchBadge}
                                                                                         </span>
-                                                                                        <span className="font-semibold text-gray-800">{name}</span>
-                                                                                    </div>
-                                                                                </td>
-                                                                                <td className="px-4 py-3 text-right">
-                                                                                    <span className={`${b.badgeClass} px-3 py-1 rounded-lg font-bold text-sm`}>
-                                                                                        {count}
-                                                                                    </span>
+                                                                                    </td>
+                                                                                    <td className="px-1 py-1 text-center align-middle font-mono text-[10px] text-gray-500">
+                                                                                        {r.stt}
+                                                                                    </td>
+                                                                                    <td className="px-2 py-1 align-middle">
+                                                                                        <span className="block truncate font-medium text-gray-800">
+                                                                                            {r.name}
+                                                                                        </span>
+                                                                                    </td>
+                                                                                    <td className="px-2 py-1 text-right align-middle">
+                                                                                        <span
+                                                                                            className={`inline-block min-w-[1.75rem] rounded px-1.5 py-0.5 text-center text-xs font-bold ${r.countBg}`}
+                                                                                        >
+                                                                                            {r.count}
+                                                                                        </span>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            ))
+                                                                        ) : (
+                                                                            <tr>
+                                                                                <td
+                                                                                    colSpan={4}
+                                                                                    className="p-3 text-center text-[10px] italic text-gray-400"
+                                                                                >
+                                                                                    Chưa có dữ liệu (phiên{' '}
+                                                                                    <strong>thành công</strong>)
                                                                                 </td>
                                                                             </tr>
-                                                                        ))
-                                                                    ) : (
-                                                                        <tr>
-                                                                            <td colSpan="2" className="p-6 text-center text-gray-400 italic">
-                                                                                Chưa có dữ liệu (chỉ tính các phiên <strong>thành công</strong>)
-                                                                            </td>
-                                                                        </tr>
-                                                                    )}
-                                                                </tbody>
-                                                            </table>
+                                                                        )}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
                                                         </div>
                                                     );
-                                                })}
-                                                
-                                                <div className="p-4 bg-orange-50 rounded-xl border border-orange-100">
-                                                    <p className="text-xs text-orange-800 leading-relaxed">
-                                                        <strong>* Lưu ý:</strong> “Số lần” và tổng sản lượng bên trái chỉ tính các phiên chia đơn <strong>thành công</strong> và được tách riêng theo <strong>HCM</strong> / <strong>Hà Nội</strong>.
+                                                })()}
+
+                                                <div className="rounded-lg border border-orange-100 bg-orange-50 p-2.5">
+                                                    <p className="text-[10px] leading-snug text-orange-800">
+                                                        <strong>* Lưu ý:</strong> Bảng tổng hợp gộp <strong>HCM</strong> + <strong>Hà Nội</strong>; chỉ tính các phiên{' '}
+                                                        <strong>thành công</strong>. Lịch sử chi tiết: mỗi chi nhánh <strong>một bảng I + một bảng II</strong> gộp mọi phiên trong kết quả lọc (cột Phiên · thời điểm · người chạy).
                                                     </p>
                                                 </div>
                                             </div>
 
                                             {/* Lịch sử từng vòng chia: tóm tắt + thứ tự U1 + lượt gán đơn */}
-                                            <div className="lg:col-span-8 space-y-4">
+                                            <div className="space-y-4 lg:col-span-9">
                                                 {[
                                                     {
                                                         key: 'HCM',
@@ -5317,6 +4784,66 @@ const AdminTools = () => {
                                                             return totalOrders > 0 && hasStats;
                                                         });
                                                     const total = list.length;
+
+                                                    const sessions = [...list].sort(
+                                                        (a, b) =>
+                                                            new Date(a.created_at).getTime() -
+                                                            new Date(b.created_at).getTime()
+                                                    );
+
+                                                    const flatDetailRows = [];
+                                                    let sessionOrdinal = 0;
+                                                    for (const h of sessions) {
+                                                        sessionOrdinal += 1;
+                                                        const dt = new Date(h.created_at);
+                                                        const timeStr = dt.toLocaleString('vi-VN', {
+                                                            day: '2-digit',
+                                                            month: '2-digit',
+                                                            year: 'numeric',
+                                                            hour: '2-digit',
+                                                            minute: '2-digit',
+                                                        });
+                                                        const performer = String(h.performed_by || '').trim();
+                                                        const { list: assignList } = resolveAssignListForHistorySession(
+                                                            h,
+                                                            b.key,
+                                                            chiTietFromOrdersLookup,
+                                                            chiaReportMergedChiTietRows
+                                                        );
+                                                        for (let oi = 0; oi < assignList.length; oi++) {
+                                                            flatDetailRows.push({
+                                                                sessionOrdinal,
+                                                                timeStr,
+                                                                performer,
+                                                                orderIndexInSession: oi + 1,
+                                                                row: assignList[oi],
+                                                            });
+                                                        }
+                                                    }
+
+                                                    const chiTietColKeys = collectChiTietChiaKeysForRows(
+                                                        flatDetailRows.map((x) => x.row)
+                                                    );
+                                                    const chiaTietTableColSpan = Math.max(6, 6 + chiTietColKeys.length);
+
+                                                    /** Khớp với chính bảng I: đếm đơn theo NV qua các dòng gán trong assignList/chi_tiet_chia — không lấy cộng dồn JSON staff_stats các phiên (dễ lệch phiên/ghi NH). */
+                                                    const staffCountByNk = new Map();
+                                                    const staffLabelByNk = new Map();
+                                                    for (const fr of flatDetailRows) {
+                                                        const ds = String(fr.row?.delivery_staff || '').trim();
+                                                        if (!ds) continue;
+                                                        const nk = normalizeNameKeyForStaffSort(ds);
+                                                        staffCountByNk.set(nk, (staffCountByNk.get(nk) || 0) + 1);
+                                                        if (!staffLabelByNk.has(nk)) staffLabelByNk.set(nk, ds);
+                                                    }
+                                                    const staffEntries = sortStatsEntriesByVanDonOrder(
+                                                        Array.from(staffCountByNk.entries()).map(([nk, c]) => [
+                                                            staffLabelByNk.get(nk) || nk,
+                                                            c,
+                                                        ]),
+                                                        chiaDonVanDonStaffOrder?.[b.key] || []
+                                                    );
+
                                                     return (
                                                         <div
                                                             key={b.key}
@@ -5328,218 +4855,226 @@ const AdminTools = () => {
                                                                     Báo cáo phân bổ — {b.title}
                                                                 </h3>
                                                                 <span className="text-[11px] font-semibold bg-white/20 px-2 py-1 rounded text-white border border-white/10">
-                                                                    Tổng {total} phiên
+                                                                    Tổng {total} phiên · 1 bảng chi tiết + 1 bảng NV
                                                                 </span>
                                                             </div>
-                                                            <div className="p-4 space-y-8 max-h-[min(85vh,1100px)] overflow-y-auto bg-gray-50/30">
+                                                            <div className="max-h-[min(calc(100dvh-12rem),1400px)] space-y-5 overflow-y-auto bg-gray-50/30 p-4">
                                                                 {total > 0 ? (
-                                                                    list.map((h, hIdx) => {
-                                                                        const stats = h.staff_stats || {};
-                                                                        const staffEntries = sortStatsEntriesByVanDonOrder(
-                                                                            Object.entries(stats),
-                                                                            chiaDonVanDonStaffOrder?.[b.key] || []
-                                                                        );
-                                                                        const dt = new Date(h.created_at);
-                                                                        const dayStr = dt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
-                                                                        const timeStr = dt.toLocaleString('vi-VN', {
-                                                                            day: '2-digit', month: '2-digit', year: 'numeric',
-                                                                            hour: '2-digit', minute: '2-digit'
-                                                                        });
-                                                                        const sessionNo = total - hIdx;
-                                                                        const phien = parseHistoryChiaDonStoredJson(h.phien_chia);
-                                                                        const branchSlice = b.key === 'HCM' ? phien.hcm || {} : phien.hanoi || {};
-                                                                        const roster = Array.isArray(branchSlice.thu_tu_u1_co_dinh)
-                                                                            ? branchSlice.thu_tu_u1_co_dinh.filter(Boolean) : [];
-                                                                        const chiTietRoot = parseHistoryChiaDonStoredJson(h.chi_tiet_chia);
-                                                                        const assignList = getHistoryChiTietBranchList(chiTietRoot, b.key);
-                                                                        
-                                                                        const performer = String(h.performed_by || '').trim();
-                                                                        const totalOrders = Number(h.total_orders) || 0;
-
-                                                                        // Tạo danh sách lượt cho dữ liệu cũ nếu cần
-                                                                        const displayRows = assignList.length > 0 
-                                                                            ? assignList 
-                                                                            : Array.from({ length: totalOrders }).map((_, i) => ({ 
-                                                                                order_code: 'Dữ liệu cũ', 
-                                                                                delivery_staff: 'N/A (Cũ)',
-                                                                                is_old: true
-                                                                            }));
-
-                                                                        return (
-                                                                            <div key={h.id || `${h.created_at}-${hIdx}`} className="bg-white rounded-xl border border-gray-200 shadow-md overflow-hidden mb-6 last:mb-0">
-                                                                                {/* Header Session */}
-                                                                                <div className="bg-gray-100/80 px-4 py-2.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-4">
-                                                                                    <div className="flex items-center gap-3">
-                                                                                        <div className="bg-gray-800 text-white px-2 py-1 rounded text-[11px] font-black shadow-sm">
-                                                                                            VÒNG {sessionNo}
-                                                                                        </div>
-                                                                                        <div className="flex items-center gap-3 text-xs text-gray-500">
-                                                                                            <span className="flex items-center gap-1 font-bold text-gray-700">
-                                                                                                <Calendar className="w-3.5 h-3.5" /> {timeStr}
-                                                                                            </span>
-                                                                                            <span className="text-gray-300">|</span>
-                                                                                            <span className="flex items-center gap-1">
-                                                                                                <User className="w-3.5 h-3.5" /> Chạy bởi: <b className="text-gray-700">{performer || 'Admin'}</b>
-                                                                                            </span>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                    <div className="bg-blue-600 text-white px-3 py-1 rounded text-[11px] font-black shadow-sm">
-                                                                                        TỔNG: {totalOrders} ĐƠN
+                                                                    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                                                                        <div className="p-4">
+                                                                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:gap-8 items-start">
+                                                                                <div className="space-y-2 min-w-0">
+                                                                                    <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex flex-wrap items-center gap-2 mb-2">
+                                                                                        <span className="flex items-center gap-2">
+                                                                                            <GitMerge className="w-3.5 h-3.5" /> I.
+                                                                                            CHI TIẾT TRÌNH TỰ CHIA (gộp phiên)
+                                                                                        </span>
+                                                                                        <span className="text-[10px] font-semibold uppercase text-emerald-700 normal-case px-2 py-0.5 rounded border border-emerald-200 bg-emerald-50">
+                                                                                            chi_tiet_chia · mỗi dòng: Phiên · thời điểm · người
+                                                                                            chạy
+                                                                                        </span>
+                                                                                    </h5>
+                                                                                    <div className="overflow-x-auto border border-gray-200 rounded shadow-sm xl:max-h-[min(70vh,900px)] xl:overflow-y-auto">
+                                                                                        <table className="w-full text-left border-collapse">
+                                                                                            <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
+                                                                                                <tr>
+                                                                                                    <th className="px-2 py-2 w-11 border-r text-center whitespace-nowrap">
+                                                                                                        Phiên
+                                                                                                    </th>
+                                                                                                    <th className="px-2 py-2 min-w-[130px] border-r whitespace-normal">
+                                                                                                        Thời điểm
+                                                                                                    </th>
+                                                                                                    <th className="px-2 py-2 min-w-[96px] border-r whitespace-normal">
+                                                                                                        Chạy bởi
+                                                                                                    </th>
+                                                                                                    <th className="px-2 py-2 w-9 border-r text-center">#</th>
+                                                                                                    <th className="px-3 py-2 min-w-[120px] border-r">Mã đơn</th>
+                                                                                                    <th className="px-3 py-2 min-w-[140px] border-r">NV vận đơn</th>
+                                                                                                    {chiTietColKeys.map((ck) => (
+                                                                                                        <th
+                                                                                                            key={ck}
+                                                                                                            className="px-3 py-2 border-r whitespace-nowrap min-w-[96px] last:border-r-0"
+                                                                                                        >
+                                                                                                            {chiTietChiaKeyLabelVi(ck)}
+                                                                                                            <span className="block font-normal text-[9px] text-gray-400 font-mono tracking-tight mt-0.5 normal-case">
+                                                                                                                {ck}
+                                                                                                            </span>
+                                                                                                        </th>
+                                                                                                    ))}
+                                                                                                </tr>
+                                                                                            </thead>
+                                                                                            <tbody className="text-xs divide-y divide-gray-100">
+                                                                                                {flatDetailRows.length === 0 ? (
+                                                                                                    <tr>
+                                                                                                        <td
+                                                                                                            colSpan={chiaTietTableColSpan}
+                                                                                                            className="px-3 py-4 text-center text-[11px] text-gray-500 italic bg-gray-50/40 leading-relaxed"
+                                                                                                        >
+                                                                                                            Không có đơn có cột{' '}
+                                                                                                            <strong>chi_tiet_chia</strong> trong phạm vi
+                                                                                                            lọc (&quot;Từ / Đến ngày chia&quot;) — mở rộng khoảng
+                                                                                                            ngày và bấm Cập nhật dữ liệu hoặc chạy chia đơn /
+                                                                                                            Điền STT.
+                                                                                                        </td>
+                                                                                                    </tr>
+                                                                                                ) : (
+                                                                                                    flatDetailRows.map((fr, gi) => {
+                                                                                                        const nv = String(fr.row.delivery_staff || '').trim();
+                                                                                                        return (
+                                                                                                            <tr
+                                                                                                                key={`${fr.sessionOrdinal}-${fr.orderIndexInSession}-${fr.row.order_code}-${gi}`}
+                                                                                                                className="hover:bg-blue-50/40 transition-colors"
+                                                                                                            >
+                                                                                                                <td className="px-2 py-1.5 border-r text-center font-mono font-bold text-gray-700 bg-gray-50/50">
+                                                                                                                    {fr.sessionOrdinal}
+                                                                                                                </td>
+                                                                                                                <td className="px-2 py-1.5 border-r text-[10px] text-gray-800 whitespace-nowrap">
+                                                                                                                    {fr.timeStr}
+                                                                                                                </td>
+                                                                                                                <td className="px-2 py-1.5 border-r text-[10px] font-medium text-gray-800">
+                                                                                                                    {fr.performer || 'Admin'}
+                                                                                                                </td>
+                                                                                                                <td className="px-2 py-1.5 border-r text-center font-mono text-gray-500 bg-gray-50/30">
+                                                                                                                    {gi + 1}
+                                                                                                                </td>
+                                                                                                                <td className="px-3 py-1.5 border-r font-mono font-bold text-blue-700">
+                                                                                                                    {fr.row.order_code}
+                                                                                                                </td>
+                                                                                                                <td className="px-3 py-1.5 border-r font-bold text-gray-900">
+                                                                                                                    {nv || '—'}
+                                                                                                                </td>
+                                                                                                                {chiTietColKeys.map((ck) => {
+                                                                                                                    const cell = fr.row.chi_tiet_chia?.[ck];
+                                                                                                                    const stepQueue =
+                                                                                                                        ck === 'queue_before' &&
+                                                                                                                        Array.isArray(cell)
+                                                                                                                            ? cell
+                                                                                                                            : null;
+                                                                                                                    return (
+                                                                                                                        <td
+                                                                                                                            key={ck}
+                                                                                                                            className="px-3 py-1.5 border-r align-top last:border-r-0"
+                                                                                                                        >
+                                                                                                                            {stepQueue ? (
+                                                                                                                                <div className="flex flex-wrap items-center gap-1">
+                                                                                                                                    {stepQueue.map((q, qi) => {
+                                                                                                                                        const active =
+                                                                                                                                            String(
+                                                                                                                                                q || ''
+                                                                                                                                            )
+                                                                                                                                                .trim()
+                                                                                                                                                .toLowerCase() ===
+                                                                                                                                            nv.toLowerCase();
+                                                                                                                                        return (
+                                                                                                                                            <React.Fragment key={qi}>
+                                                                                                                                                <span
+                                                                                                                                                    className={`text-[9px] px-1.5 py-0.5 rounded border leading-none ${active ? 'bg-blue-600 border-blue-600 text-white font-bold' : 'bg-gray-50 border-gray-200 text-gray-500'}`}
+                                                                                                                                                >
+                                                                                                                                                    {q}
+                                                                                                                                                </span>
+                                                                                                                                                {qi <
+                                                                                                                                                    stepQueue.length -
+                                                                                                                                                        1 && (
+                                                                                                                                                    <span className="text-gray-300 text-[10px]">
+                                                                                                                                                        ›
+                                                                                                                                                    </span>
+                                                                                                                                                )}
+                                                                                                                                            </React.Fragment>
+                                                                                                                                        );
+                                                                                                                                    })}
+                                                                                                                                </div>
+                                                                                                                            ) : (
+                                                                                                                                <span className="text-gray-800 break-words">
+                                                                                                                                    {formatChiTietChiaReportCell(
+                                                                                                                                        ck,
+                                                                                                                                        cell
+                                                                                                                                    )}
+                                                                                                                                </span>
+                                                                                                                            )}
+                                                                                                                        </td>
+                                                                                                                    );
+                                                                                                                })}
+                                                                                                            </tr>
+                                                                                                        );
+                                                                                                    })
+                                                                                                )}
+                                                                                            </tbody>
+                                                                                        </table>
                                                                                     </div>
                                                                                 </div>
 
-                                                                                <div className="p-4 space-y-6">
-                                                                                    {/* I. CHI TIẾT TRÌNH TỰ CHIA */}
-                                                                                    <div className="space-y-2">
-                                                                                        <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex items-center gap-2 mb-2">
-                                                                                            <GitMerge className="w-3.5 h-3.5" /> I. CHI TIẾT TRÌNH TỰ CHIA (JSONB)
-                                                                                        </h5>
-                                                                                        <div className="overflow-x-auto border border-gray-200 rounded shadow-sm">
-                                                                                            <table className="w-full text-left border-collapse">
-                                                                                                <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
-                                                                                                    <tr>
-                                                                                                        <th className="px-3 py-2 w-[160px] border-r">Mã Lượt (Ngày-V-L)</th>
-                                                                                                        <th className="px-3 py-2 w-[130px] border-r">Mã Đơn</th>
-                                                                                                        <th className="px-3 py-2 w-[180px] border-r">Nhân sự nhận</th>
-                                                                                                        <th className="px-3 py-2">Hàng đợi xoay vòng</th>
-                                                                                                    </tr>
-                                                                                                </thead>
-                                                                                                <tbody className="text-xs divide-y divide-gray-100">
-                                                                                                    {displayRows.map((row, ai) => {
-                                                                                                        const nv = String(row.delivery_staff || '').trim();
-                                                                                                        const stepQueue = Array.isArray(row.queue_before) ? row.queue_before : [];
-                                                                                                        const maLuot = `${dayStr}-V${sessionNo}-${ai + 1}`;
-                                                                                                        return (
-                                                                                                            <tr key={ai} className="hover:bg-blue-50/40 transition-colors">
-                                                                                                                <td className="px-3 py-1.5 border-r font-mono font-bold text-gray-400 bg-gray-50/30 whitespace-nowrap">{maLuot}</td>
-                                                                                                                <td className={`px-3 py-1.5 border-r font-mono ${row.is_old ? 'text-gray-300 italic' : 'font-bold text-blue-700'}`}>{row.order_code}</td>
-                                                                                                                <td className={`px-3 py-1.5 border-r font-bold ${row.is_old ? 'text-gray-400' : 'text-gray-900'}`}>{nv}</td>
-                                                                                                                <td className="px-3 py-1.5">
-                                                                                                                    {stepQueue.length > 0 ? (
-                                                                                                                        <div className="flex flex-wrap items-center gap-1">
-                                                                                                                            {stepQueue.map((q, qi) => {
-                                                                                                                                const active = q.toLowerCase() === nv.toLowerCase();
-                                                                                                                                return (
-                                                                                                                                    <React.Fragment key={qi}>
-                                                                                                                                        <span className={`text-[9px] px-1.5 py-0.5 rounded border leading-none ${active ? 'bg-blue-600 border-blue-600 text-white font-bold' : 'bg-gray-50 border-gray-200 text-gray-400'}`}>
-                                                                                                                                            {q}
-                                                                                                                                        </span>
-                                                                                                                                        {qi < stepQueue.length - 1 && <span className="text-gray-300 text-[10px]">›</span>}
-                                                                                                                                    </React.Fragment>
-                                                                                                                                );
-                                                                                                                            })}
-                                                                                                                        </div>
-                                                                                                                    ) : (
-                                                                                                                        <span className="text-[10px] text-gray-200 italic">{row.is_old ? 'Không lưu queue' : 'N/A'}</span>
-                                                                                                                    )}
-                                                                                                                </td>
-                                                                                                            </tr>
-                                                                                                        );
-                                                                                                    })}
-                                                                                                </tbody>
-                                                                                            </table>
-                                                                                        </div>
-                                                                                    </div>
-
-                                                                                    {/* II & III Grid */}
-                                                                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                                                                                        {/* II. Bảng thống kê */}
-                                                                                        <div className="lg:col-span-7 space-y-2">
-                                                                                            <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex items-center gap-2">
-                                                                                                <LayoutGrid className="w-3.5 h-3.5" /> II. THỐNG KÊ NHÂN SỰ
-                                                                                            </h5>
-                                                                                            <div className="border border-gray-200 rounded shadow-sm overflow-hidden">
-                                                                                                <table className="w-full text-left border-collapse">
-                                                                                                    <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
-                                                                                                        <tr>
-                                                                                                            <th className="px-3 py-2 w-12 border-r text-center">STT</th>
-                                                                                                            <th className="px-3 py-2 border-r">Nhân sự (Tên-Vòng-Lượt)</th>
-                                                                                                            <th className="px-3 py-2 text-right">Sản lượng</th>
+                                                                                <div className="space-y-2 min-w-0">
+                                                                                    <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
+                                                                                        <span className="flex items-center gap-2">
+                                                                                            <LayoutGrid className="w-3.5 h-3.5" /> II.
+                                                                                            THỐNG KÊ NHÂN SỰ
+                                                                                        </span>
+                                                                                        <span className="text-[9px] font-normal normal-case text-slate-500">
+                                                                                            (sản lượng = số dòng NV trên bảng I · lượt Vn-m cùng nguồn)
+                                                                                        </span>
+                                                                                    </h5>
+                                                                                    <div className="border border-gray-200 rounded shadow-sm overflow-hidden xl:max-h-[min(70vh,900px)] xl:overflow-y-auto">
+                                                                                        <table className="w-full text-left border-collapse">
+                                                                                            <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
+                                                                                                <tr>
+                                                                                                    <th className="px-3 py-2 w-12 border-r text-center">STT</th>
+                                                                                                    <th className="px-3 py-2 border-r">Nhân sự (Tên-Vòng-Lượt)</th>
+                                                                                                    <th className="px-3 py-2 text-right">Sản lượng</th>
+                                                                                                </tr>
+                                                                                            </thead>
+                                                                                            <tbody className="text-xs divide-y divide-gray-100">
+                                                                                                {staffEntries.map(([name, count], si) => {
+                                                                                                    const nkTarget = normalizeNameKeyForStaffSort(name);
+                                                                                                    const myTurns =
+                                                                                                        flatDetailRows.length > 0
+                                                                                                            ? flatDetailRows
+                                                                                                                  .filter(
+                                                                                                                      (r) =>
+                                                                                                                          normalizeNameKeyForStaffSort(
+                                                                                                                              r.row
+                                                                                                                                  ?.delivery_staff
+                                                                                                                          ) === nkTarget
+                                                                                                                  )
+                                                                                                                  .map(
+                                                                                                                      (r) =>
+                                                                                                                          `V${r.sessionOrdinal}-${r.orderIndexInSession}`
+                                                                                                                  )
+                                                                                                            : [];
+                                                                                                    return (
+                                                                                                        <tr key={name} className="hover:bg-gray-50 group">
+                                                                                                            <td className="px-3 py-2 border-r text-center text-gray-400">
+                                                                                                                {si + 1}
+                                                                                                            </td>
+                                                                                                            <td className="px-3 py-2 border-r">
+                                                                                                                <div className="font-bold text-gray-800 mb-1 text-left">
+                                                                                                                    {name}
+                                                                                                                </div>
+                                                                                                                {myTurns.length > 0 && (
+                                                                                                                    <div className="flex flex-wrap gap-1">
+                                                                                                                        {myTurns.map((t, ti) => (
+                                                                                                                            <span
+                                                                                                                                key={`${si}-${ti}-${t}`}
+                                                                                                                                className="text-[8px] bg-blue-50 text-blue-500 px-1 rounded border border-blue-100 leading-tight"
+                                                                                                                            >
+                                                                                                                                {t}
+                                                                                                                            </span>
+                                                                                                                        ))}
+                                                                                                                    </div>
+                                                                                                                )}
+                                                                                                            </td>
+                                                                                                            <td className="px-3 py-2 text-right font-black text-blue-700 bg-blue-50/10">
+                                                                                                                {count} đơn
+                                                                                                            </td>
                                                                                                         </tr>
-                                                                                                    </thead>
-                                                                                                    <tbody className="text-xs divide-y divide-gray-100">
-                                                                                                        {staffEntries.map(([name, count], si) => {
-                                                                                                            const myTurns = assignList.length > 0 
-                                                                                                                ? assignList.map((r, i) => r.delivery_staff === name ? `V${sessionNo}-${i+1}` : null).filter(Boolean)
-                                                                                                                : [];
-                                                                                                            return (
-                                                                                                                <tr key={name} className="hover:bg-gray-50 group">
-                                                                                                                    <td className="px-3 py-2 border-r text-center text-gray-400">{si + 1}</td>
-                                                                                                                    <td className="px-3 py-2 border-r">
-                                                                                                                        <div className="font-bold text-gray-800 mb-1 text-left">{name}</div>
-                                                                                                                        {myTurns.length > 0 && (
-                                                                                                                            <div className="flex flex-wrap gap-1">
-                                                                                                                                {myTurns.map(t => (
-                                                                                                                                    <span key={t} className="text-[8px] bg-blue-50 text-blue-500 px-1 rounded border border-blue-100 leading-tight">{t}</span>
-                                                                                                                                ))}
-                                                                                                                            </div>
-                                                                                                                        )}
-                                                                                                                    </td>
-                                                                                                                    <td className="px-3 py-2 text-right font-black text-blue-700 bg-blue-50/10">{count} đơn</td>
-                                                                                                                </tr>
-                                                                                                            );
-                                                                                                        })}
-                                                                                                    </tbody>
-                                                                                                </table>
-                                                                                            </div>
-                                                                                        </div>
-
-                                                                                        {/* III. Hàng đợi kế tiếp */}
-                                                                                        <div className="lg:col-span-5 space-y-2">
-                                                                                            <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex items-center gap-2">
-                                                                                                <RefreshCw className="w-3.5 h-3.5" /> III. HÀNG ĐỢI TIẾP THEO
-                                                                                            </h5>
-                                                                                            {(() => {
-                                                                                                let finalQueue = [...roster];
-                                                                                                if (assignList.length > 0) {
-                                                                                                    assignList.forEach(row => {
-                                                                                                        const nv = String(row.delivery_staff || '').trim();
-                                                                                                        if (nv) {
-                                                                                                            const idx = finalQueue.findIndex(n => n.toLowerCase() === nv.toLowerCase());
-                                                                                                            if (idx !== -1) {
-                                                                                                                finalQueue.splice(idx, 1);
-                                                                                                                finalQueue.push(nv);
-                                                                                                            }
-                                                                                                        }
-                                                                                                    });
-                                                                                                }
-                                                                                                return finalQueue.length > 0 ? (
-                                                                                                    <div className="border border-blue-100 rounded bg-white overflow-hidden shadow-sm">
-                                                                                                        <table className="w-full text-left border-collapse">
-                                                                                                            <thead className="bg-blue-600 text-[10px] font-bold text-white uppercase">
-                                                                                                                <tr>
-                                                                                                                    <th className="px-3 py-2 w-10 border-r border-blue-500 text-center">#</th>
-                                                                                                                    <th className="px-3 py-2 border-r border-blue-500">Nhân sự đang chờ</th>
-                                                                                                                    <th className="px-3 py-2">Trạng thái</th>
-                                                                                                                </tr>
-                                                                                                            </thead>
-                                                                                                            <tbody className="text-xs divide-y divide-blue-50">
-                                                                                                                {finalQueue.map((name, fqi) => (
-                                                                                                                    <tr key={fqi} className={fqi === 0 ? 'bg-yellow-50 font-bold' : ''}>
-                                                                                                                        <td className={`px-3 py-1.5 border-r text-center ${fqi === 0 ? 'text-blue-700 border-blue-100' : 'text-gray-400 border-gray-100'}`}>{fqi + 1}</td>
-                                                                                                                        <td className={`px-3 py-1.5 border-r ${fqi === 0 ? 'text-blue-800 border-blue-100' : 'text-gray-700 border-gray-100'}`}>{name}</td>
-                                                                                                                        <td className="px-3 py-1.5">
-                                                                                                                            {fqi === 0 ? (
-                                                                                                                                <span className="text-blue-600 flex items-center gap-1 text-[10px]">
-                                                                                                                                    <CheckCircle className="w-3 h-3" /> TIẾP THEO
-                                                                                                                                </span>
-                                                                                                                            ) : <span className="text-gray-400 italic text-[10px]">Đang đợi</span>}
-                                                                                                                        </td>
-                                                                                                                    </tr>
-                                                                                                                ))}
-                                                                                                            </tbody>
-                                                                                                        </table>
-                                                                                                    </div>
-                                                                                                ) : (
-                                                                                                    <p className="text-xs text-gray-400 italic text-center py-6 bg-gray-50 border border-dashed rounded">Không có dữ liệu hàng đợi</p>
-                                                                                                );
-                                                                                            })()}
-                                                                                        </div>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </tbody>
+                                                                                        </table>
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
-                                                                        );
-                                                                    })
+                                                                        </div>
+                                                                    </div>
                                                                 ) : (
                                                                     <div className="text-center py-20 bg-white rounded border-2 border-dashed border-gray-200">
                                                                         <Package className="w-16 h-16 text-gray-200 mx-auto mb-4" />
@@ -5556,7 +5091,7 @@ const AdminTools = () => {
                                     </div>
                                     
                                     {/* Footer Modal */}
-                                    <div className="bg-white border-t px-6 py-4 flex justify-between items-center text-xs text-gray-500">
+                                    <div className="flex shrink-0 items-center justify-between border-t bg-white px-6 py-4 text-xs text-gray-500">
                                         <p>Hệ thống tự động cập nhật mỗi khi có phiên chia đơn mới.</p>
                                         <button 
                                             onClick={() => setIsStatsModalOpen(false)}
