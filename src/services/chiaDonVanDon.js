@@ -1020,7 +1020,10 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 } : 'N/A');
             }
 
-            return { result, publicStats };
+            // Người cuối được chia trong phiên này
+            const lastPerson = result.length > 0 ? result[result.length - 1].delivery_staff : '';
+            
+            return { result, publicStats, lastPerson };
         };
 
         // Bước 5: Thực hiện chia đơn
@@ -1029,6 +1032,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         let hanoiPublicStats = [];
         let hcmDetailedResults = []; // Chi tiết từng đơn cho HCM
         let hanoiDetailedResults = []; // Chi tiết từng đơn cho Hà Nội
+        let hcmLastPerson = ''; // Người cuối được chia ở HCM
+        let hanoiLastPerson = ''; // Người cuối được chia ở Hà Nội
         let successCount = 0;
         let errorCount = 0;
         const errors = [];
@@ -1063,7 +1068,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             }
             
             if (nhanVienHCM.length > 0 && ordersHCM.length > 0) {
-                const { result: hcmResult, publicStats: hcmStats } = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM');
+                const { result: hcmResult, publicStats: hcmStats, lastPerson: hcmLast } = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM');
                 addLog(`✅ HCM - Kết quả: ${hcmResult.length} đơn được chia`, 'success');
                 console.log(`✅ [Chia đơn vận đơn] HCM - Kết quả: ${hcmResult.length} đơn được chia`);
                 if (hcmResult.length > 0) {
@@ -1077,6 +1082,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 updates.push(...hcmUpdates);
                 hcmPublicStats = hcmStats;
                 hcmDetailedResults = hcmResult;
+                hcmLastPerson = hcmLast;
             } else {
                 addLog(`⚠️ HCM - Không chia được: nhân viên=${nhanVienHCM.length}, đơn=${ordersHCM.length}`, 'warning');
                 console.warn(`⚠️ [Chia đơn vận đơn] HCM - Không chia được: nhân viên=${nhanVienHCM.length}, đơn=${ordersHCM.length}`);
@@ -1102,7 +1108,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         }
         
         if (nhanVienHaNoi.length > 0 && ordersHaNoi.length > 0) {
-            const { result: hanoiResult, publicStats: hanoiStats } = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội');
+            const { result: hanoiResult, publicStats: hanoiStats, lastPerson: hanoiLast } = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội');
             addLog(`✅ Hà Nội - Kết quả: ${hanoiResult.length} đơn được chia`, 'success');
             console.log(`✅ [Chia đơn vận đơn] Hà Nội - Kết quả: ${hanoiResult.length} đơn được chia`);
             
@@ -1117,6 +1123,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             updates.push(...hanoiUpdates);
             hanoiPublicStats = hanoiStats;
             hanoiDetailedResults = hanoiResult;
+            hanoiLastPerson = hanoiLast;
         } else {
             addLog(`⚠️ Hà Nội - Không chia được: nhân viên=${nhanVienHaNoi.length}, đơn=${ordersHaNoi.length}`, 'warning');
             console.warn(`⚠️ [Chia đơn vận đơn] Hà Nội - Không chia được: nhân viên=${nhanVienHaNoi.length}, đơn=${ordersHaNoi.length}`);
@@ -1328,7 +1335,41 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         addLog(`✅ Hoàn tất quá trình chia đơn vận đơn!`, 'success');
         
         // Tạo thông tin công khai cho nhân viên
-        let publicStatsText = '\n📋 KẾT QUẢ PHÂN BỔ (CÔNG KHAI):\n';
+        let publicStatsText = '';
+        
+        // Header Báo cáo Phân bổ Đơn hàng
+        publicStatsText += '\n╔═══════════════════════════════════════════════════╗\n';
+        publicStatsText += '║       📊 BÁO CÁO PHÂN BỔ ĐƠN HÀNG              ║\n';
+        publicStatsText += '╠═══════════════════════════════════════════════════╣\n';
+        
+        // Danh sách U1 được chia theo từng phiên
+        publicStatsText += '\n📌 DANH SÁCH NHÂN VIÊN U1 ĐƯỢC CHIA:\n';
+        
+        // Phiên HCM
+        if (nhanVienHCM.length > 0) {
+            publicStatsText += '────────────────────────────────────────────\n';
+            publicStatsText += `🏭 PHIÊN HCM (${nhanVienHCM.length} NV):\n`;
+            publicStatsText += '   ';
+            publicStatsText += nhanVienHCM.map(nv => nv.name).join(', ');
+            if (hcmLastPerson && hcmPublicStats.length > 0) {
+                publicStatsText += `\n   ➤ Người chia cuối: ${hcmLastPerson} (Người tiếp theo ưu tiên)`;
+            }
+        }
+        
+        // Phiên Hà Nội  
+        if (nhanVienHaNoi.length > 0) {
+            publicStatsText += '\n────────────────────────────────────────────\n';
+            publicStatsText += `🏢 PHIÊN HÀ NỘI (${nhanVienHaNoi.length} NV):\n`;
+            publicStatsText += '   ';
+            publicStatsText += nhanVienHaNoi.map(nv => nv.name).join(', ');
+            if (hanoiLastPerson && hanoiPublicStats.length > 0) {
+                publicStatsText += `\n   ➤ Người chia cuối: ${hanoiLastPerson} (Người tiếp theo ưu tiên)`;
+            }
+        }
+        
+        // Kết quả phân bổ
+        publicStatsText += '\n────────────────────────────────────────────\n';
+        publicStatsText += '📋 KẾT QUẢ PHÂN BỔ:\n';
         
         if (hcmPublicStats.length > 0) {
             publicStatsText += '\n🏭 HCM:\n';
@@ -1343,6 +1384,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 publicStatsText += `   - ${s.name}: ${s.count} đơn\n`;
             });
         }
+        
+        publicStatsText += '╚═══════════════════════════════════════════════════╝';
         
         let message = `✅ Chia đơn vận đơn ${updates.length > 0 ? 'đã hoàn tất' : 'không có đơn để chia'}!\n\n` +
             `- Nhân viên HCM (U1): ${nhanVienHCM.length} người\n` +
@@ -1397,14 +1440,39 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 staffStats[u.delivery_staff] = (staffStats[u.delivery_staff] || 0) + 1;
             });
             const performer = localStorage.getItem('user_name') || 'Admin';
-            await supabase.from('history_chia_don').insert([{
+            
+            // Tạo object lưu chi tiết hơn cho bảng lịch sử
+            const historyRecord = {
                 performed_by: performer,
                 branch: branchFilter || 'Tất cả',
                 total_orders: updates.length,
                 staff_stats: staffStats,
                 status: isSuccess ? 'success' : (errorCount > 0 ? 'warning' : 'success'),
-                logs: `Chia thành công ${successCount}/${updates.length} đơn. Bị bỏ qua (loại trừ/không team): ${allNotDividedOrders.length} đơn.`
-            }]);
+                logs: `Chia thành công ${successCount}/${updates.length} đơn. Bị bỏ qua (loại trừ/không team): ${allNotDividedOrders.length} đơn.`,
+                // Thông tin bổ sung cho báo cáo
+                danh_sach_u1: JSON.stringify({
+                    hcm: nhanVienHCM.map(nv => nv.name),
+                    hanoi: nhanVienHaNoi.map(nv => nv.name)
+                }),
+                phien_chia: JSON.stringify({
+                    hcm: { 
+                        so_luong: ordersHCM.length, 
+                        so_nv: nhanVienHCM.length,
+                        nguoi_cuoi: hcmLastPerson || null
+                    },
+                    hanoi: { 
+                        so_luong: ordersHaNoi.length, 
+                        so_nv: nhanVienHaNoi.length,
+                        nguoi_cuoi: hanoiLastPerson || null
+                    }
+                }),
+                chi_tiet_chia: JSON.stringify({
+                    hcm: hcmDetailedResults,
+                    hanoi: hanoiDetailedResults
+                })
+            };
+            
+            await supabase.from('history_chia_don').insert([historyRecord]);
             console.log('✅ Đã lưu lịch sử chia đơn vào database');
         } catch (hErr) {
             console.error('❌ Lỗi khi thực hiện lưu lịch sử:', hErr);
