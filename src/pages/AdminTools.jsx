@@ -5368,41 +5368,39 @@ const AdminTools = () => {
                                                                         return (
                                                                             <div key={h.id || `${h.created_at}-${hIdx}`} className="bg-white rounded-xl border border-gray-200 shadow-md overflow-hidden mb-6 last:mb-0">
                                                                                 {/* Header Session */}
-                                                                                <div className="bg-gray-100/80 px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-4">
-                                                                                    <div className="flex items-center gap-4">
-                                                                                        <div className="bg-gray-800 text-white px-3 py-1.5 rounded text-sm font-black shadow-sm">
+                                                                                <div className="bg-gray-100/80 px-4 py-2.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-4">
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        <div className="bg-gray-800 text-white px-2 py-1 rounded text-[11px] font-black shadow-sm">
                                                                                             VÒNG {sessionNo}
                                                                                         </div>
-                                                                                        <div className="flex items-center gap-4 text-xs text-gray-500">
-                                                                                            <span className="flex items-center gap-1.5 font-bold text-gray-700">
+                                                                                        <div className="flex items-center gap-3 text-xs text-gray-500">
+                                                                                            <span className="flex items-center gap-1 font-bold text-gray-700">
                                                                                                 <Calendar className="w-3.5 h-3.5" /> {timeStr}
                                                                                             </span>
-                                                                                            <span>|</span>
-                                                                                            <span className="flex items-center gap-1.5">
+                                                                                            <span className="text-gray-300">|</span>
+                                                                                            <span className="flex items-center gap-1">
                                                                                                 <User className="w-3.5 h-3.5" /> Chạy bởi: <b className="text-gray-700">{performer || 'Admin'}</b>
                                                                                             </span>
                                                                                         </div>
                                                                                     </div>
-                                                                                    <div className="text-right">
-                                                                                        <span className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-black shadow-sm">
-                                                                                            TỔNG: {totalOrders} ĐƠN
-                                                                                        </span>
+                                                                                    <div className="bg-blue-600 text-white px-3 py-1 rounded text-[11px] font-black shadow-sm">
+                                                                                        TỔNG: {totalOrders} ĐƠN
                                                                                     </div>
                                                                                 </div>
 
                                                                                 <div className="p-4 space-y-6">
-                                                                                    {/* I. TRÌNH TỰ CHIA (THEO CÚ PHÁP YÊU CẦU) */}
+                                                                                    {/* I. CHI TIẾT TRÌNH TỰ CHIA */}
                                                                                     <div className="space-y-2">
-                                                                                        <h5 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 mb-3">
-                                                                                            <GitMerge className="w-3.5 h-3.5 text-blue-500" /> I. CHI TIẾT TRÌNH TỰ CHIA (JSONB DISPLAY)
+                                                                                        <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex items-center gap-2 mb-2">
+                                                                                            <GitMerge className="w-3.5 h-3.5" /> I. CHI TIẾT TRÌNH TỰ CHIA (JSONB)
                                                                                         </h5>
                                                                                         <div className="overflow-x-auto border border-gray-200 rounded shadow-sm">
-                                                                                            <table className="w-full text-left border-collapse table-fixed">
+                                                                                            <table className="w-full text-left border-collapse">
                                                                                                 <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
                                                                                                     <tr>
-                                                                                                        <th className="px-3 py-2 w-40 border-r">Thứ tự chia (Ngày-Vòng-Lượt)</th>
-                                                                                                        <th className="px-3 py-2 w-32 border-r">Mã Đơn</th>
-                                                                                                        <th className="px-3 py-2 w-48 border-r">Nhân sự tiếp nhận</th>
+                                                                                                        <th className="px-3 py-2 w-[160px] border-r">Mã Lượt (Ngày-V-L)</th>
+                                                                                                        <th className="px-3 py-2 w-[130px] border-r">Mã Đơn</th>
+                                                                                                        <th className="px-3 py-2 w-[180px] border-r">Nhân sự nhận</th>
                                                                                                         <th className="px-3 py-2">Hàng đợi xoay vòng</th>
                                                                                                     </tr>
                                                                                                 </thead>
@@ -5410,13 +5408,13 @@ const AdminTools = () => {
                                                                                                     {displayRows.map((row, ai) => {
                                                                                                         const nv = String(row.delivery_staff || '').trim();
                                                                                                         const stepQueue = Array.isArray(row.queue_before) ? row.queue_before : [];
-                                                                                                        const maLuot = `${dayStr}-Vòng${sessionNo}-${ai + 1}`;
+                                                                                                        const maLuot = `${dayStr}-V${sessionNo}-${ai + 1}`;
                                                                                                         return (
                                                                                                             <tr key={ai} className="hover:bg-blue-50/40 transition-colors">
-                                                                                                                <td className="px-3 py-2 border-r font-mono font-bold text-gray-500 bg-gray-50/50">{maLuot}</td>
-                                                                                                                <td className={`px-3 py-2 border-r font-mono ${row.is_old ? 'text-gray-300 italic' : 'font-bold text-blue-700'}`}>{row.order_code}</td>
-                                                                                                                <td className={`px-3 py-2 border-r font-bold ${row.is_old ? 'text-gray-400' : 'text-gray-900'}`}>{nv}</td>
-                                                                                                                <td className="px-3 py-2">
+                                                                                                                <td className="px-3 py-1.5 border-r font-mono font-bold text-gray-400 bg-gray-50/30 whitespace-nowrap">{maLuot}</td>
+                                                                                                                <td className={`px-3 py-1.5 border-r font-mono ${row.is_old ? 'text-gray-300 italic' : 'font-bold text-blue-700'}`}>{row.order_code}</td>
+                                                                                                                <td className={`px-3 py-1.5 border-r font-bold ${row.is_old ? 'text-gray-400' : 'text-gray-900'}`}>{nv}</td>
+                                                                                                                <td className="px-3 py-1.5">
                                                                                                                     {stepQueue.length > 0 ? (
                                                                                                                         <div className="flex flex-wrap items-center gap-1">
                                                                                                                             {stepQueue.map((q, qi) => {
@@ -5432,7 +5430,7 @@ const AdminTools = () => {
                                                                                                                             })}
                                                                                                                         </div>
                                                                                                                     ) : (
-                                                                                                                        <span className="text-[10px] text-gray-300 italic">{row.is_old ? 'Dữ liệu không lưu queue' : 'N/A'}</span>
+                                                                                                                        <span className="text-[10px] text-gray-200 italic">{row.is_old ? 'Không lưu queue' : 'N/A'}</span>
                                                                                                                     )}
                                                                                                                 </td>
                                                                                                             </tr>
@@ -5443,42 +5441,41 @@ const AdminTools = () => {
                                                                                         </div>
                                                                                     </div>
 
-                                                                                    {/* II. THỐNG KÊ TỔNG HỢP (HẢO-VÒNG-LƯỢT) */}
-                                                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                                                                        <div className="space-y-2">
-                                                                                            <h5 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                                                                                                <LayoutGrid className="w-3.5 h-3.5 text-blue-500" /> II. BẢNG THỐNG KÊ NHÂN SỰ
+                                                                                    {/* II & III Grid */}
+                                                                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                                                                                        {/* II. Bảng thống kê */}
+                                                                                        <div className="lg:col-span-7 space-y-2">
+                                                                                            <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex items-center gap-2">
+                                                                                                <LayoutGrid className="w-3.5 h-3.5" /> II. THỐNG KÊ NHÂN SỰ
                                                                                             </h5>
                                                                                             <div className="border border-gray-200 rounded shadow-sm overflow-hidden">
                                                                                                 <table className="w-full text-left border-collapse">
                                                                                                     <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase">
                                                                                                         <tr>
                                                                                                             <th className="px-3 py-2 w-12 border-r text-center">STT</th>
-                                                                                                            <th className="px-3 py-2 border-r">Nhân sự (Bộ lọc: Tên-Vòng-Lượt)</th>
+                                                                                                            <th className="px-3 py-2 border-r">Nhân sự (Tên-Vòng-Lượt)</th>
                                                                                                             <th className="px-3 py-2 text-right">Sản lượng</th>
                                                                                                         </tr>
                                                                                                     </thead>
                                                                                                     <tbody className="text-xs divide-y divide-gray-100">
                                                                                                         {staffEntries.map(([name, count], si) => {
-                                                                                                            // Tìm danh sách các lượt mà nhân sự này nhận
                                                                                                             const myTurns = assignList.length > 0 
-                                                                                                                ? assignList.map((r, i) => r.delivery_staff === name ? `${dayStr}-V${sessionNo}-${i+1}` : null).filter(Boolean)
+                                                                                                                ? assignList.map((r, i) => r.delivery_staff === name ? `V${sessionNo}-${i+1}` : null).filter(Boolean)
                                                                                                                 : [];
-
                                                                                                             return (
                                                                                                                 <tr key={name} className="hover:bg-gray-50 group">
                                                                                                                     <td className="px-3 py-2 border-r text-center text-gray-400">{si + 1}</td>
                                                                                                                     <td className="px-3 py-2 border-r">
-                                                                                                                        <div className="font-bold text-gray-800 mb-1">{name}</div>
+                                                                                                                        <div className="font-bold text-gray-800 mb-1 text-left">{name}</div>
                                                                                                                         {myTurns.length > 0 && (
                                                                                                                             <div className="flex flex-wrap gap-1">
                                                                                                                                 {myTurns.map(t => (
-                                                                                                                                    <span key={t} className="text-[9px] bg-blue-50 text-blue-600 px-1 rounded border border-blue-100">{t}</span>
+                                                                                                                                    <span key={t} className="text-[8px] bg-blue-50 text-blue-500 px-1 rounded border border-blue-100 leading-tight">{t}</span>
                                                                                                                                 ))}
                                                                                                                             </div>
                                                                                                                         )}
                                                                                                                     </td>
-                                                                                                                    <td className="px-3 py-2 text-right font-black text-blue-700 bg-blue-50/20">{count} đơn</td>
+                                                                                                                    <td className="px-3 py-2 text-right font-black text-blue-700 bg-blue-50/10">{count} đơn</td>
                                                                                                                 </tr>
                                                                                                             );
                                                                                                         })}
@@ -5487,10 +5484,10 @@ const AdminTools = () => {
                                                                                             </div>
                                                                                         </div>
 
-                                                                                        {/* III. HÀNG ĐỢI KẾ TIẾP */}
-                                                                                        <div className="space-y-2">
-                                                                                            <h5 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                                                                                                <RefreshCw className="w-3.5 h-3.5 text-blue-500" /> III. TRẠNG THÁI HÀNG ĐỢI TIẾP THEO
+                                                                                        {/* III. Hàng đợi kế tiếp */}
+                                                                                        <div className="lg:col-span-5 space-y-2">
+                                                                                            <h5 className="text-[11px] font-bold text-blue-600 uppercase tracking-wider flex items-center gap-2">
+                                                                                                <RefreshCw className="w-3.5 h-3.5" /> III. HÀNG ĐỢI TIẾP THEO
                                                                                             </h5>
                                                                                             {(() => {
                                                                                                 let finalQueue = [...roster];
@@ -5507,26 +5504,26 @@ const AdminTools = () => {
                                                                                                     });
                                                                                                 }
                                                                                                 return finalQueue.length > 0 ? (
-                                                                                                    <div className="border border-blue-100 rounded bg-blue-50/10 overflow-hidden">
+                                                                                                    <div className="border border-blue-100 rounded bg-white overflow-hidden shadow-sm">
                                                                                                         <table className="w-full text-left border-collapse">
                                                                                                             <thead className="bg-blue-600 text-[10px] font-bold text-white uppercase">
                                                                                                                 <tr>
-                                                                                                                    <th className="px-3 py-2 w-12 border-r border-blue-500 text-center">TT</th>
-                                                                                                                    <th className="px-3 py-2 border-r border-blue-500">Tên nhân sự</th>
+                                                                                                                    <th className="px-3 py-2 w-10 border-r border-blue-500 text-center">#</th>
+                                                                                                                    <th className="px-3 py-2 border-r border-blue-500">Nhân sự đang chờ</th>
                                                                                                                     <th className="px-3 py-2">Trạng thái</th>
                                                                                                                 </tr>
                                                                                                             </thead>
                                                                                                             <tbody className="text-xs divide-y divide-blue-50">
                                                                                                                 {finalQueue.map((name, fqi) => (
                                                                                                                     <tr key={fqi} className={fqi === 0 ? 'bg-yellow-50 font-bold' : ''}>
-                                                                                                                        <td className={`px-3 py-2 border-r text-center ${fqi === 0 ? 'text-blue-700 border-blue-100' : 'text-gray-400 border-gray-100'}`}>{fqi + 1}</td>
-                                                                                                                        <td className={`px-3 py-2 border-r ${fqi === 0 ? 'text-blue-800 border-blue-100' : 'text-gray-700 border-gray-100'}`}>{name}</td>
-                                                                                                                        <td className="px-3 py-2">
+                                                                                                                        <td className={`px-3 py-1.5 border-r text-center ${fqi === 0 ? 'text-blue-700 border-blue-100' : 'text-gray-400 border-gray-100'}`}>{fqi + 1}</td>
+                                                                                                                        <td className={`px-3 py-1.5 border-r ${fqi === 0 ? 'text-blue-800 border-blue-100' : 'text-gray-700 border-gray-100'}`}>{name}</td>
+                                                                                                                        <td className="px-3 py-1.5">
                                                                                                                             {fqi === 0 ? (
-                                                                                                                                <span className="text-blue-600 flex items-center gap-1">
-                                                                                                                                    <CheckCircle className="w-3 h-3" /> ƯU TIÊN 1
+                                                                                                                                <span className="text-blue-600 flex items-center gap-1 text-[10px]">
+                                                                                                                                    <CheckCircle className="w-3 h-3" /> TIẾP THEO
                                                                                                                                 </span>
-                                                                                                                            ) : <span className="text-gray-400 italic">Đang đợi</span>}
+                                                                                                                            ) : <span className="text-gray-400 italic text-[10px]">Đang đợi</span>}
                                                                                                                         </td>
                                                                                                                     </tr>
                                                                                                                 ))}
