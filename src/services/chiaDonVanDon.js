@@ -686,11 +686,11 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             
             if (staffListWithBranch.length === 0) {
                 console.warn(`⚠️ [${branchName}] Không có nhân viên để chia đơn!`);
-                return [];
+                return { result: [], publicStats: [] };
             }
             if (pendingOrders.length === 0) {
                 console.warn(`⚠️ [${branchName}] Không có đơn nào cần chia!`);
-                return [];
+                return { result: [], publicStats: [] };
             }
 
             const isTeamBranchMatch = (orderTeamRaw, staffChiNhanhRaw) => {
@@ -924,16 +924,13 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 }
                 console.log(`${'='.repeat(60)}\n`);
 
-                // nextIndex dùng làm tie-break theo vòng để vẫn "công bằng theo thời gian"
+                // ============================================================
+                // ROUND-ROBIN ĐƠN GIẢN: Ai xong xuống cuối hàng, không cân bằng tải
+                // ============================================================
                 let nextIndex = startIndex;
-                // Đếm số đơn được gán trong lần chạy này (để cân bằng tổng trong ngày)
-                const assignedThisRunByStaff = {};
-                staffList.forEach((name) => {
-                    assignedThisRunByStaff[name] = 0;
-                });
 
                 console.log(
-                    `⚖️ [${branchName}] Bắt đầu chia theo cân bằng tải (${remainingOrders.length} đơn) từ index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
+                    `🔄 [${branchName}] Bắt đầu chia theo round-robin đơn giản (ai xong xuống cuối) từ index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
                 );
 
                 remainingOrders.forEach((order, orderIdx) => {
@@ -951,74 +948,67 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                     }
 
                     if (eligible.length === 0) {
-                        const orderTeam = order.team?.toString().trim() || '';
                         console.warn(
                             `⚠️ [${branchName}] Bỏ qua đơn ${order.order_code}: không có NV U1 khớp team="${orderTeam}"`
                         );
                         return;
                     }
 
-                    // Chọn nhân viên có "tổng đơn trong ngày" thấp nhất: today + assignedThisRun
-                    let best = null;
-                    let bestScore = Infinity;
-                    eligible.forEach(({ idx, staff }) => {
-                        const name = String(staff.name || '').trim();
-                        const today = Number(todayOrderCountByStaff[name]) || 0;
-                        const added = Number(assignedThisRunByStaff[name]) || 0;
-                        const score = today + added;
-                        if (score < bestScore) {
-                            bestScore = score;
-                            best = { idx, staff, score, today, added };
-                        }
-                    });
-
-                    // Tie-break: nếu nhiều người cùng score, ưu tiên theo vòng (eligible đang được duyệt từ nextIndex)
-                    const bestCandidates = eligible.filter(({ staff }) => {
-                        const name = String(staff.name || '').trim();
-                        const today = Number(todayOrderCountByStaff[name]) || 0;
-                        const added = Number(assignedThisRunByStaff[name]) || 0;
-                        return today + added === bestScore;
-                    });
-                    const chosen = bestCandidates[0] || best;
+                    // CHỌN NGƯỜI ĐẦU TIÊN trong danh sách eligible (theo thứ tự vòng)
+                    // KHÔNG cân bằng tải - ai đến lượt thì nhận
+                    const chosen = eligible[0];
                     const chosenName = String(chosen.staff.name || '').trim();
+                    const chosenChiNhanh = chosen.staff.chi_nhanh || '';
 
+                    // Lưu chi tiết để hiển thị công khai
+                    const eligibleNames = eligible.map(e => e.staff.name).join(', ');
+                    
                     result.push({
                         order_code: order.order_code,
                         delivery_staff: chosenName,
+                        // Thông tin để giải thích tại sao chia như vậy
+                        order_team: orderTeam,
+                        staff_chi_nhanh: chosenChiNhanh,
+                        eligible_staff: eligibleNames,
+                        reason: `NV đầu tiên khớp chi nhánh (${eligible.length} NV khớp: ${eligibleNames})`
                     });
-                    assignedThisRunByStaff[chosenName] = (assignedThisRunByStaff[chosenName] || 0) + 1;
 
-                    // Log chi tiết cho 5 đơn đầu
-                    if (orderIdx < 5) {
-                        const today = Number(todayOrderCountByStaff[chosenName]) || 0;
-                        const added = Number(assignedThisRunByStaff[chosenName]) || 0;
-                        console.log(
-                            `  [Đơn ${orderIdx + 1}/${remainingOrders.length}] ${order.order_code}: ` +
-                            `team="${orderTeam}" -> ✅ ${chosenName} (tổng hôm nay: ${today} + mới gán: ${added} = ${today + added})`
-                        );
-                    }
+                    // Log cho debugging
+                    console.log(
+                        `  [Đơn ${orderIdx + 1}/${remainingOrders.length}] ${order.order_code}: ` +
+                        `team="${orderTeam}" -> ✅ ${chosenName} (${eligible.length} NV khớp: ${eligibleNames})`
+                    );
 
-                    // Cập nhật nextIndex: bắt đầu tie-break từ người sau người vừa được chọn
-                    nextIndex = (chosen.idx + 1) % staffListWithBranch.length;
+                    // Sau khi nhận đơn, xuống cuối hàng (xoay vòng)
+                    // Di chuyển người vừa chọn xuống cuối danh sách
+                    const staffItem = staffListWithBranch.splice(chosen.idx, 1)[0];
+                    staffListWithBranch.push(staffItem);
+                    
+                    // Cập nhật nextIndex để tiếp tục từ vị trí tiếp theo
+                    nextIndex = chosen.idx % staffListWithBranch.length;
                 });
-                console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${remainingOrders.length} đơn theo cân bằng tải (ưu tiên người ít đơn trong ngày)`);
+                console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${remainingOrders.length} đơn theo round-robin đơn giản (ai xong xuống cuối)`);
             }
 
-            // Log tổng kết chi tiết
+            // Log tổng kết chi tiết (CÔNG KHAI để nhân viên thấy)
             const finalCount = {};
             staffList.forEach(name => { finalCount[name] = 0; });
             result.forEach(u => { finalCount[u.delivery_staff]++; });
             
-            console.log(`\n📊 [${branchName}] ========== KẾT QUẢ CHIA ĐƠN ==========`);
+            console.log(`\n📊 [${branchName}] ========== KẾT QUẢ CHIA ĐƠN (CÔNG KHAI) ==========`);
             console.log(`✅ Tổng số đơn đã chia: ${result.length}/${pendingOrders.length}`);
-            console.log(`📋 Phân bổ đơn cho từng nhân viên (trong lần chia này):`);
+            console.log(`📋 PHÂN BỔ CHO TỪNG NHÂN VIÊN (trong lần chia này):`);
             staffList.forEach((name, idx) => {
                 const count = finalCount[name] || 0;
-                const todayTotal = todayOrderCountByStaff[name] || 0;
-                const newTotal = todayTotal + count;
-                console.log(`  ${idx + 1}. ${name}: +${count} đơn (tổng trong ngày: ${todayTotal} → ${newTotal})`);
+                console.log(`  ${idx + 1}. ${name}: +${count} đơn`);
             });
             console.log(`${'='.repeat(60)}\n`);
+            
+            // Trả về thêm thông tin để hiển thị công khai
+            const publicStats = staffList.map(name => ({
+                name,
+                count: finalCount[name] || 0
+            }));
             
             if (result.length === 0 && pendingOrders.length > 0) {
                 console.warn(`⚠️ [${branchName}] CẢNH BÁO: Có ${pendingOrders.length} đơn cần chia nhưng không chia được!`);
@@ -1030,11 +1020,15 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 } : 'N/A');
             }
 
-            return result;
+            return { result, publicStats };
         };
 
         // Bước 5: Thực hiện chia đơn
         const updates = [];
+        let hcmPublicStats = [];
+        let hanoiPublicStats = [];
+        let hcmDetailedResults = []; // Chi tiết từng đơn cho HCM
+        let hanoiDetailedResults = []; // Chi tiết từng đơn cho Hà Nội
         let successCount = 0;
         let errorCount = 0;
         const errors = [];
@@ -1053,7 +1047,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         });
 
         // Chia đơn HCM
-        addLog('📋 Bước 7: Chia đơn theo cân bằng tải (U1) — ưu tiên người ít đơn trong ngày', 'info');
+        addLog('📋 Bước 7: Chia đơn round-robin đơn giản (ai xong xuống cuối, không cân bằng tải)', 'info');
         if (!branchFilter || branchFilter === 'HCM') {
             addLog(`📋 Chia đơn HCM - Nhân viên: ${nhanVienHCM.length} người, Đơn cần chia: ${ordersHCM.length} đơn`, 'info');
             console.log(`\n📋 [Chia đơn vận đơn] ========== BẮT ĐẦU CHIA ĐƠN HCM ==========`);
@@ -1069,16 +1063,20 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             }
             
             if (nhanVienHCM.length > 0 && ordersHCM.length > 0) {
-                const hcmUpdates = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM');
-                addLog(`✅ HCM - Kết quả: ${hcmUpdates.length} đơn được chia`, 'success');
-                console.log(`✅ [Chia đơn vận đơn] HCM - Kết quả: ${hcmUpdates.length} đơn được chia`);
-                if (hcmUpdates.length > 0) {
+                const { result: hcmResult, publicStats: hcmStats } = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM');
+                addLog(`✅ HCM - Kết quả: ${hcmResult.length} đơn được chia`, 'success');
+                console.log(`✅ [Chia đơn vận đơn] HCM - Kết quả: ${hcmResult.length} đơn được chia`);
+                if (hcmResult.length > 0) {
                     console.log(`📋 [Chia đơn vận đơn] HCM - Chi tiết đơn được chia:`);
-                    hcmUpdates.forEach((u, idx) => {
-                        console.log(`  ${idx + 1}. ${u.order_code} -> ${u.delivery_staff}`);
+                    hcmResult.forEach((u, idx) => {
+                        console.log(`  ${idx + 1}. ${u.order_code} -> ${u.delivery_staff} (Lý do: ${u.reason})`);
                     });
                 }
+                // Lọc chỉ lấy order_code và delivery_staff để update
+                const hcmUpdates = hcmResult.map(u => ({ order_code: u.order_code, delivery_staff: u.delivery_staff }));
                 updates.push(...hcmUpdates);
+                hcmPublicStats = hcmStats;
+                hcmDetailedResults = hcmResult;
             } else {
                 addLog(`⚠️ HCM - Không chia được: nhân viên=${nhanVienHCM.length}, đơn=${ordersHCM.length}`, 'warning');
                 console.warn(`⚠️ [Chia đơn vận đơn] HCM - Không chia được: nhân viên=${nhanVienHCM.length}, đơn=${ordersHCM.length}`);
@@ -1104,17 +1102,21 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         }
         
         if (nhanVienHaNoi.length > 0 && ordersHaNoi.length > 0) {
-            const hanoiUpdates = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội');
-            addLog(`✅ Hà Nội - Kết quả: ${hanoiUpdates.length} đơn được chia`, 'success');
-            console.log(`✅ [Chia đơn vận đơn] Hà Nội - Kết quả: ${hanoiUpdates.length} đơn được chia`);
+            const { result: hanoiResult, publicStats: hanoiStats } = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội');
+            addLog(`✅ Hà Nội - Kết quả: ${hanoiResult.length} đơn được chia`, 'success');
+            console.log(`✅ [Chia đơn vận đơn] Hà Nội - Kết quả: ${hanoiResult.length} đơn được chia`);
             
-            if (hanoiUpdates.length > 0) {
+            if (hanoiResult.length > 0) {
                 console.log(`📋 [Chia đơn vận đơn] Hà Nội - Chi tiết đơn được chia:`);
-                hanoiUpdates.forEach((u, idx) => {
-                    console.log(`  ${idx + 1}. ${u.order_code} -> ${u.delivery_staff}`);
+                hanoiResult.forEach((u, idx) => {
+                    console.log(`  ${idx + 1}. ${u.order_code} -> ${u.delivery_staff} (Lý do: ${u.reason})`);
                 });
             }
+            // Lọc chỉ lấy order_code và delivery_staff để update
+            const hanoiUpdates = hanoiResult.map(u => ({ order_code: u.order_code, delivery_staff: u.delivery_staff }));
             updates.push(...hanoiUpdates);
+            hanoiPublicStats = hanoiStats;
+            hanoiDetailedResults = hanoiResult;
         } else {
             addLog(`⚠️ Hà Nội - Không chia được: nhân viên=${nhanVienHaNoi.length}, đơn=${ordersHaNoi.length}`, 'warning');
             console.warn(`⚠️ [Chia đơn vận đơn] Hà Nội - Không chia được: nhân viên=${nhanVienHaNoi.length}, đơn=${ordersHaNoi.length}`);
@@ -1324,6 +1326,24 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
         }
 
         addLog(`✅ Hoàn tất quá trình chia đơn vận đơn!`, 'success');
+        
+        // Tạo thông tin công khai cho nhân viên
+        let publicStatsText = '\n📋 KẾT QUẢ PHÂN BỔ (CÔNG KHAI):\n';
+        
+        if (hcmPublicStats.length > 0) {
+            publicStatsText += '\n🏭 HCM:\n';
+            hcmPublicStats.forEach(s => {
+                publicStatsText += `   - ${s.name}: ${s.count} đơn\n`;
+            });
+        }
+        
+        if (hanoiPublicStats.length > 0) {
+            publicStatsText += '\n🏢 Hà Nội:\n';
+            hanoiPublicStats.forEach(s => {
+                publicStatsText += `   - ${s.name}: ${s.count} đơn\n`;
+            });
+        }
+        
         let message = `✅ Chia đơn vận đơn ${updates.length > 0 ? 'đã hoàn tất' : 'không có đơn để chia'}!\n\n` +
             `- Nhân viên HCM (U1): ${nhanVienHCM.length} người\n` +
             `- Nhân viên Hà Nội (U1): ${nhanVienHaNoi.length} người\n` +
@@ -1332,14 +1352,41 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
             `- Tổng đơn cần chia: ${updates.length} đơn\n` +
             (updates.length > 0 ? `- Đơn đã cập nhật thành công: ${successCount || updates.length}\n` : '') +
             (errorCount > 0 ? `- Đơn bị lỗi khi cập nhật: ${errorCount}\n` : '') +
+            publicStatsText +
             `\n📊 Thống kê chi tiết:\n` +
             `- Tổng đơn có delivery_staff trống/null: ${ordersWithEmptyDeliveryStaff}\n` +
             `- Đơn bị loại trừ do Nhật Bản: ${ordersExcluded.filter(o => o.reason?.includes('Nhật Bản')).length}\n` +
             `- Đơn không có team/team khác: ${ordersWithoutTeam.length}\n`;
         
+        // Thêm chi tiết từng đơn được chia để hiển thị công khai (SHOW LOGIC)
+        let detailedResultsText = '';
+        
+        // Chi tiết HCM
+        if (hcmDetailedResults.length > 0) {
+            detailedResultsText += '\n🏭 CHI TIẾT CHIA ĐƠN HCM:\n';
+            detailedResultsText += '────────────────────────────────────────────\n';
+            hcmDetailedResults.forEach((item, idx) => {
+                detailedResultsText += `${idx + 1}. ${item.order_code}\n`;
+                detailedResultsText += `   → Giao cho: ${item.delivery_staff}\n`;
+                detailedResultsText += `   → Lý do: ${item.reason}\n`;
+            });
+        }
+        
+        // Chi tiết Hà Nội
+        if (hanoiDetailedResults.length > 0) {
+            detailedResultsText += '\n🏢 CHI TIẾT CHIA ĐƠN HÀ NỘI:\n';
+            detailedResultsText += '────────────────────────────────────────────\n';
+            hanoiDetailedResults.forEach((item, idx) => {
+                detailedResultsText += `${idx + 1}. ${item.order_code}\n`;
+                detailedResultsText += `   → Giao cho: ${item.delivery_staff}\n`;
+                detailedResultsText += `   → Lý do: ${item.reason}\n`;
+            });
+        }
+        
         message += (ordersNotDivided > 0 ? `\n⚠️ CẢNH BÁO: Có ${ordersNotDivided} đơn có delivery_staff trống nhưng không được chia!\n` +
                 `   (Có thể do: không có team, team khác HCM/Hà Nội, hoặc country = Nhật Bản)\n` : '') +
-            (errorCount > 0 ? `\n⚠️ LỖI: Có ${errorCount} đơn không thể cập nhật. Vui lòng kiểm tra Console để xem chi tiết.\n` : '');
+            (errorCount > 0 ? `\n⚠️ LỖI: Có ${errorCount} đơn không thể cập nhật. Vui lòng kiểm tra Console để xem chi tiết.\n` : '') +
+            detailedResultsText;
 
         const isSuccess = updates.length > 0 && errorCount === 0;
 
