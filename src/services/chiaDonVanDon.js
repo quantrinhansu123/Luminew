@@ -979,6 +979,9 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                         return;
                     }
 
+                    // Chụp lại trạng thái hàng đợi hiện tại trước khi chia đơn này
+                    const queueBefore = staffListWithBranch.map(s => String(s.name || '').trim());
+
                     // CHỌN NGƯỜI ĐẦU TIÊN trong danh sách eligible (theo thứ tự vòng)
                     // KHÔNG cân bằng tải - ai đến lượt thì nhận
                     const chosen = eligible[0];
@@ -995,6 +998,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                         order_team: orderTeam,
                         staff_chi_nhanh: chosenChiNhanh,
                         eligible_staff: eligibleNames,
+                        queue_before: queueBefore, // Thêm trạng thái hàng đợi vào lịch sử
                         reason: `NV đầu tiên khớp chi nhánh (${eligible.length} NV khớp: ${eligibleNames})`
                     });
 
