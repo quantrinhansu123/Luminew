@@ -5079,7 +5079,7 @@ const AdminTools = () => {
                                                                                         </h5>
                                                                                         {(() => {
                                                                                             const fullTeam = (chiaDonVanDonStaffOrder?.[b.key] || []).filter(Boolean);
-                                                                                            const participating = roster.map(n => n.toLowerCase());
+                                                                                            const participating = staffEntries.map(([name]) => name.toLowerCase());
                                                                                             const absent = fullTeam.filter(name => !participating.includes(name.toLowerCase()));
                                                                                             
                                                                                             return absent.length > 0 ? (
