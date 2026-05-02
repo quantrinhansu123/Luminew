@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
 import PermissionManager from '../components/admin/PermissionManager';
@@ -138,6 +138,17 @@ function sortStatsEntriesByVanDonOrder(entries, canonicalNames) {
         if (ib !== undefined) return 1;
         return String(a[0]).trim().localeCompare(String(b[0]).trim(), 'vi');
     });
+}
+
+function getHistoryChiTietBranchList(chiTietRoot, branchKeyUi) {
+    const key = branchKeyUi === 'HCM' ? 'hcm' : 'hanoi';
+    const raw = chiTietRoot?.[key];
+    return Array.isArray(raw) ? raw : [];
+}
+
+function compactStaffTotalsLine(sortedEntries) {
+    if (!sortedEntries.length) return null;
+    return sortedEntries.map(([name, c]) => `${name}: ${Number(c) || 0}`).join(' · ');
 }
 
 const getSupabaseFetchHint = (err) => {
@@ -5185,23 +5196,6 @@ const AdminTools = () => {
 
                                     {/* Nội dung Modal (Scrollable) */}
                                     <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                                        <div className="rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-3 text-xs text-gray-800 leading-relaxed">
-                                            <p className="font-bold text-sky-900 mb-1">Đọc báo cáo nhanh</p>
-                                            <ul className="list-disc list-inside space-y-1 text-[11px]">
-                                                <li>
-                                                    <strong>Cột trái</strong>: nhân viên xếp theo thứ tự{' '}
-                                                    <strong>U1 trên Danh sách vận đơn</strong> (họ tên A→Z tiếng Việt).
-                                                </li>
-                                                <li>
-                                                    <strong>Mỗi phiên</strong>: số đơn đã gán, <strong>bắt đầu chia từ ai</strong>,{' '}
-                                                    <strong>kết thúc ở ai</strong> (xem ô tóm tắt ngay dưới tiêu đề lần chia).
-                                                </li>
-                                                <li>
-                                                    Chỉ NV U1 có <strong>chi nhánh khớp team đơn</strong> mới được nhận; không ép cân bằng tải —
-                                                    có thể lệch số đơn giữa người.
-                                                </li>
-                                            </ul>
-                                        </div>
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                                             
                                             {/* CỘT TỔNG HỢP (Layout Table như Excel) */}
@@ -5284,15 +5278,28 @@ const AdminTools = () => {
                                                 </div>
                                             </div>
 
-                                            {/* CỘT CHI TIẾT (Layout Table như Excel) */}
+                                            {/* Lịch sử từng vòng chia: tóm tắt + thứ tự U1 + lượt gán đơn */}
                                             <div className="lg:col-span-8 space-y-4">
                                                 {[
-                                                    { key: 'HCM', title: 'NHẬT KÝ — HCM', headClass: 'bg-orange-700', rowHover: 'hover:bg-orange-50/50', badgeClass: 'bg-orange-100 text-orange-700' },
-                                                    { key: 'Hà Nội', title: 'NHẬT KÝ — HÀ NỘI', headClass: 'bg-indigo-700', rowHover: 'hover:bg-indigo-50/50', badgeClass: 'bg-indigo-100 text-indigo-700' }
+                                                    {
+                                                        key: 'HCM',
+                                                        title: 'Lịch sử chia — HCM',
+                                                        headClass: 'bg-orange-700',
+                                                        cardTint: 'border-orange-100 bg-orange-50/50',
+                                                        badgeSoft: 'bg-orange-100 text-orange-900',
+                                                        listMarker: 'text-orange-700',
+                                                    },
+                                                    {
+                                                        key: 'Hà Nội',
+                                                        title: 'Lịch sử chia — Hà Nội',
+                                                        headClass: 'bg-indigo-700',
+                                                        cardTint: 'border-indigo-100 bg-indigo-50/50',
+                                                        badgeSoft: 'bg-indigo-100 text-indigo-900',
+                                                        listMarker: 'text-indigo-700',
+                                                    },
                                                 ].map((b) => {
                                                     const list = (historyChiaDon || [])
                                                         .filter((h) => normalizeHistoryBranchKey(h.branch) === b.key)
-                                                        // Ẩn các phiên không có đơn để chia / không có staff_stats
                                                         .filter((h) => {
                                                             const totalOrders = Number(h?.total_orders) || 0;
                                                             const stats = h?.staff_stats || {};
@@ -5301,7 +5308,10 @@ const AdminTools = () => {
                                                         });
                                                     const total = list.length;
                                                     return (
-                                                        <div key={b.key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                                        <div
+                                                            key={b.key}
+                                                            className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
+                                                        >
                                                             <div className={`${b.headClass} px-4 py-3`}>
                                                                 <p className="text-white text-sm font-bold flex items-center justify-between gap-2">
                                                                     <span className="flex items-center gap-2">
@@ -5309,161 +5319,217 @@ const AdminTools = () => {
                                                                         {b.title}
                                                                     </span>
                                                                     <span className="text-[11px] font-semibold bg-white/15 px-2 py-1 rounded">
-                                                                        {total} phiên
+                                                                        {total} vòng
                                                                     </span>
                                                                 </p>
                                                             </div>
-                                                            <div className="overflow-x-auto">
-                                                                <table className="w-full text-left text-xs border-collapse">
-                                                                    <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
-                                                                        <tr>
-                                                                            <th className="px-4 py-3 border-b font-bold text-gray-600">Lần chia / Thời gian</th>
-                                                                            <th className="px-4 py-3 border-b font-bold text-gray-600">Nhân sự thực hiện</th>
-                                                                            <th className="px-4 py-3 border-b font-bold text-gray-600 text-center">Số đơn gán</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {total > 0 ? (
-                                                                            list.map((h, hIdx) => {
-                                                                                const stats = h.staff_stats || {};
-                                                                                const staffEntries = sortStatsEntriesByVanDonOrder(
-                                                                                    Object.entries(stats),
-                                                                                    chiaDonVanDonStaffOrder?.[b.key] || []
-                                                                                );
-                                                                                const timeStr = new Date(h.created_at).toLocaleString('vi-VN', {
-                                                                                    day: '2-digit',
-                                                                                    month: '2-digit',
-                                                                                    year: 'numeric',
-                                                                                    hour: '2-digit',
-                                                                                    minute: '2-digit',
-                                                                                });
+                                                            <div className="p-4 space-y-4 max-h-[min(70vh,900px)] overflow-y-auto">
+                                                                {total > 0 ? (
+                                                                    list.map((h, hIdx) => {
+                                                                        const stats = h.staff_stats || {};
+                                                                        const staffEntries = sortStatsEntriesByVanDonOrder(
+                                                                            Object.entries(stats),
+                                                                            chiaDonVanDonStaffOrder?.[b.key] || []
+                                                                        );
+                                                                        const timeStr = new Date(
+                                                                            h.created_at
+                                                                        ).toLocaleString('vi-VN', {
+                                                                            day: '2-digit',
+                                                                            month: '2-digit',
+                                                                            year: 'numeric',
+                                                                            hour: '2-digit',
+                                                                            minute: '2-digit',
+                                                                        });
+                                                                        const sessionNo = total - hIdx;
+                                                                        const phien = parseHistoryChiaDonStoredJson(
+                                                                            h.phien_chia
+                                                                        );
+                                                                        const branchSlice =
+                                                                            b.key === 'HCM'
+                                                                                ? phien.hcm || {}
+                                                                                : phien.hanoi || {};
+                                                                        const roster = Array.isArray(
+                                                                            branchSlice.thu_tu_u1_co_dinh
+                                                                        )
+                                                                            ? branchSlice.thu_tu_u1_co_dinh.filter(Boolean)
+                                                                            : [];
+                                                                        const chiTietRoot =
+                                                                            parseHistoryChiaDonStoredJson(
+                                                                                h.chi_tiet_chia
+                                                                            );
+                                                                        const assignList = getHistoryChiTietBranchList(
+                                                                            chiTietRoot,
+                                                                            b.key
+                                                                        );
+                                                                        const nProcessedRaw = branchSlice.so_don_da_xu_ly;
+                                                                        const nProcessed =
+                                                                            nProcessedRaw != null &&
+                                                                            String(nProcessedRaw).trim() !== '' &&
+                                                                            !Number.isNaN(Number(nProcessedRaw))
+                                                                                ? Number(nProcessedRaw)
+                                                                                : (() => {
+                                                                                      const sumStats = staffEntries.reduce(
+                                                                                          (acc, [, c]) =>
+                                                                                              acc + (Number(c) || 0),
+                                                                                          0
+                                                                                      );
+                                                                                      if (sumStats > 0) return sumStats;
+                                                                                      const sl = branchSlice.so_luong;
+                                                                                      if (
+                                                                                          sl != null &&
+                                                                                          String(sl).trim() !== '' &&
+                                                                                          !Number.isNaN(Number(sl))
+                                                                                      ) {
+                                                                                          return Number(sl);
+                                                                                      }
+                                                                                      return Number(h.total_orders) || 0;
+                                                                                  })();
+                                                                        const ketThuc =
+                                                                            branchSlice.ket_thuc_oi ??
+                                                                            branchSlice.nguoi_cuoi_sau_phien ??
+                                                                            branchSlice.nguoi_cuoi ??
+                                                                            null;
+                                                                        const totalsLine =
+                                                                            compactStaffTotalsLine(staffEntries);
+                                                                        const performer = String(
+                                                                            h.performed_by || ''
+                                                                        ).trim();
 
-                                                                                // Đánh số "Lần" theo từng chi nhánh riêng
-                                                                                const sessionNo = total - hIdx;
+                                                                        return (
+                                                                            <div
+                                                                                key={h.id || `${h.created_at}-${hIdx}`}
+                                                                                className={`rounded-lg border ${b.cardTint} p-4`}
+                                                                            >
+                                                                                <div className="flex flex-wrap items-start justify-between gap-2 gap-y-1">
+                                                                                    <div>
+                                                                                        <p className="text-sm font-bold text-gray-900">
+                                                                                            Vòng {sessionNo}
+                                                                                            <span className="ml-2 text-xs font-normal text-gray-500 font-mono">
+                                                                                                {timeStr}
+                                                                                            </span>
+                                                                                        </p>
+                                                                                        {performer ? (
+                                                                                            <p className="text-[10px] text-gray-500 mt-0.5">
+                                                                                                Chạy chia:{' '}
+                                                                                                <span className="font-medium text-gray-700">
+                                                                                                    {performer}
+                                                                                                </span>
+                                                                                            </p>
+                                                                                        ) : null}
+                                                                                    </div>
+                                                                                    <span
+                                                                                        className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg ${b.badgeSoft}`}
+                                                                                    >
+                                                                                        {nProcessed} đơn
+                                                                                    </span>
+                                                                                </div>
 
-                                                                                const phien = parseHistoryChiaDonStoredJson(h.phien_chia);
-                                                                                const branchSlice =
-                                                                                    b.key === 'HCM' ? phien.hcm || {} : phien.hanoi || {};
-                                                                                const roster = Array.isArray(branchSlice.thu_tu_u1_co_dinh)
-                                                                                    ? branchSlice.thu_tu_u1_co_dinh.filter(Boolean)
-                                                                                    : [];
-                                                                                const rosterLine =
-                                                                                    roster.length > 0
-                                                                                        ? roster.join(' → ')
-                                                                                        : null;
-                                                                                const nProcessedRaw = branchSlice.so_don_da_xu_ly;
-                                                                                const nProcessed =
-                                                                                    nProcessedRaw != null &&
-                                                                                    String(nProcessedRaw).trim() !== '' &&
-                                                                                    !Number.isNaN(Number(nProcessedRaw))
-                                                                                        ? Number(nProcessedRaw)
-                                                                                        : (() => {
-                                                                                              const sumStats = staffEntries.reduce(
-                                                                                                  (acc, [, c]) =>
-                                                                                                      acc + (Number(c) || 0),
-                                                                                                  0
-                                                                                              );
-                                                                                              if (sumStats > 0) return sumStats;
-                                                                                              const sl = branchSlice.so_luong;
-                                                                                              if (
-                                                                                                  sl != null &&
-                                                                                                  String(sl).trim() !== '' &&
-                                                                                                  !Number.isNaN(Number(sl))
-                                                                                              ) {
-                                                                                                  return Number(sl);
-                                                                                              }
-                                                                                              return Number(h.total_orders) || 0;
-                                                                                          })();
-                                                                                const ketThuc =
-                                                                                    branchSlice.ket_thuc_oi ??
-                                                                                    branchSlice.nguoi_cuoi_sau_phien ??
-                                                                                    branchSlice.nguoi_cuoi ??
-                                                                                    null;
+                                                                                <p className="text-xs text-gray-800 mt-3 leading-relaxed">
+                                                                                    Trong vòng này có{' '}
+                                                                                    <strong>{nProcessed}</strong> đơn được gán. Bắt đầu chia từ{' '}
+                                                                                    <strong>{branchSlice.bat_dau_phien_tu ?? '—'}</strong>, đơn
+                                                                                    cuối giao cho <strong>{ketThuc ?? '—'}</strong>.
+                                                                                </p>
 
-                                                                                return (
-                                                                                    <Fragment key={h.id || `${h.created_at}-${hIdx}`}>
-                                                                                        <tr
-                                                                                            className={`border-b border-t border-gray-200 ${
-                                                                                                b.key === 'HCM'
-                                                                                                    ? 'bg-orange-50/95'
-                                                                                                    : 'bg-indigo-50/95'
-                                                                                            }`}
-                                                                                        >
-                                                                                            <td className="px-4 py-3 align-top" colSpan={3}>
-                                                                                                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[11px] text-gray-800">
-                                                                                                    <span className="font-bold text-gray-900">
-                                                                                                        Lần {sessionNo}{' '}
-                                                                                                        <span className="text-[10px] font-normal text-gray-400 font-mono">
-                                                                                                            {timeStr}
-                                                                                                        </span>
-                                                                                                    </span>
-                                                                                                </div>
-                                                                                                <div className="mt-2 text-[11px] text-gray-700 leading-relaxed space-y-1">
-                                                                                                    <p>
-                                                                                                        <span className="text-gray-600">
-                                                                                                            Trong vòng này:
-                                                                                                        </span>{' '}
-                                                                                                        <strong>{nProcessed}</strong> đơn đã gán ·{' '}
-                                                                                                        <span className="text-gray-500">Bắt đầu từ</span>{' '}
-                                                                                                        <strong>{branchSlice.bat_dau_phien_tu ?? '—'}</strong>
-                                                                                                        {' · '}
-                                                                                                        <span className="text-gray-500">Kết thúc ở</span>{' '}
-                                                                                                        <strong>{ketThuc ?? '—'}</strong>
-                                                                                                    </p>
-                                                                                                    {rosterLine && (
-                                                                                                        <p className="text-[10px] text-gray-500">
-                                                                                                            Thứ tự U1: {rosterLine}
-                                                                                                        </p>
-                                                                                                    )}
-                                                                                                    <p className="text-[10px] text-gray-500">
-                                                                                                        Trước phiên (đơn gần nhất):{' '}
-                                                                                                        <strong>{branchSlice.nguoi_cuoi_vong_truoc ?? '—'}</strong>
-                                                                                                        {' · '}
-                                                                                                        Gợi ý mở phiên kế:{' '}
-                                                                                                        <strong>{branchSlice.goi_y_nhan_luot_tiep_theo ?? '—'}</strong>
-                                                                                                    </p>
-                                                                                                    {(branchSlice.tom_tat_quy_tac_ngan ||
-                                                                                                        branchSlice.tom_tat_quy_tac) && (
-                                                                                                        <p className="text-[10px] text-gray-500 italic mt-1 border-t border-white/60 pt-2">
-                                                                                                            {branchSlice.tom_tat_quy_tac_ngan ||
-                                                                                                                branchSlice.tom_tat_quy_tac}
-                                                                                                        </p>
-                                                                                                    )}
-                                                                                                </div>
-                                                                                            </td>
-                                                                                        </tr>
-                                                                                        {staffEntries.map(([name, count], sIdx) => (
-                                                                                            <tr
-                                                                                                key={`${h.id}-${name}`}
-                                                                                                className={`border-b ${b.rowHover} transition-colors`}
-                                                                                            >
-                                                                                                <td className="px-4 py-2 text-[10px] text-gray-400">
-                                                                                                    {sIdx === 0 ? 'Phân bổ theo nhân sự ↴' : ''}
-                                                                                                </td>
-                                                                                                <td className="px-4 py-3">
-                                                                                                    <span className="font-bold text-gray-900">{name}</span>
-                                                                                                </td>
-                                                                                                <td className="px-4 py-3 text-center">
-                                                                                                    <span
-                                                                                                        className={`${b.badgeClass} px-3 py-1 rounded-lg font-bold text-sm`}
+                                                                                {roster.length > 0 ? (
+                                                                                    <div className="mt-3">
+                                                                                        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                                                                                            Danh sách U1 trong vòng (thứ tự cố định trước khi luân phiên)
+                                                                                        </p>
+                                                                                        <ol className={`mt-1.5 ml-4 list-decimal space-y-0.5 text-sm ${b.listMarker}`}>
+                                                                                            {roster.map((name, ri) => (
+                                                                                                <li
+                                                                                                    key={`${h.id}-r-${ri}`}
+                                                                                                    className="text-gray-800 pl-0.5 marker:font-semibold"
+                                                                                                >
+                                                                                                    {name}
+                                                                                                </li>
+                                                                                            ))}
+                                                                                        </ol>
+                                                                                    </div>
+                                                                                ) : null}
+
+                                                                                <div className="mt-3">
+                                                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                                                                                        {assignList.length > 0
+                                                                                            ? `Từng lượt chia (${assignList.length} đơn)`
+                                                                                            : 'Từng lượt chia'}
+                                                                                    </p>
+                                                                                    {assignList.length > 0 ? (
+                                                                                        <ol className={`mt-1.5 ml-4 list-decimal space-y-1 text-sm ${b.listMarker}`}>
+                                                                                            {assignList.map((row, ai) => {
+                                                                                                const code = String(
+                                                                                                    row.order_code || ''
+                                                                                                ).trim();
+                                                                                                const nv = String(
+                                                                                                    row.delivery_staff ||
+                                                                                                        ''
+                                                                                                ).trim();
+                                                                                                const reason = String(
+                                                                                                    row.reason || ''
+                                                                                                ).trim();
+                                                                                                return (
+                                                                                                    <li
+                                                                                                        key={`${h.id}-a-${ai}-${code}`}
+                                                                                                        className="text-gray-800 marker:font-semibold pl-0.5"
                                                                                                     >
-                                                                                                        {count}
+                                                                                                        <span className="font-mono text-[11px]">
+                                                                                                            {code || '(mã đơn)'}
+                                                                                                        </span>
+                                                                                                        {' → '}
+                                                                                                        <strong>{nv || '—'}</strong>
+                                                                                                        {reason ? (
+                                                                                                            <span className="block text-[10px] text-gray-500 mt-0.5 pl-0 leading-snug">
+                                                                                                                {reason}
+                                                                                                            </span>
+                                                                                                        ) : null}
+                                                                                                    </li>
+                                                                                                );
+                                                                                            })}
+                                                                                        </ol>
+                                                                                    ) : (
+                                                                                        <p className="mt-2 text-xs text-gray-500 italic leading-relaxed">
+                                                                                            Không có log từng lượt lưu sẵn (thường là phiên cũ trước khi có{' '}
+                                                                                            <span className="font-mono">chi_tiet_chia</span>).
+                                                                                            {totalsLine ? (
+                                                                                                <>
+                                                                                                    <br />
+                                                                                                    <span className="not-italic text-gray-600">
+                                                                                                        Gộp trong vòng:{' '}
+                                                                                                        {staffEntries.map(
+                                                                                                            ([name, count]) => (
+                                                                                                                <span
+                                                                                                                    key={name}
+                                                                                                                    className="inline-flex items-center gap-1 mr-3"
+                                                                                                                >
+                                                                                                                    <strong>{name}</strong>
+                                                                                                                    <span className={`text-[11px] px-1.5 py-0.5 rounded ${b.badgeSoft}`}>
+                                                                                                                        {count}
+                                                                                                                    </span>
+                                                                                                                </span>
+                                                                                                            )
+                                                                                                        )}
                                                                                                     </span>
-                                                                                                </td>
-                                                                                            </tr>
-                                                                                        ))}
-                                                                                    </Fragment>
-                                                                                );
-                                                                            })
-                                                                        ) : (
-                                                                            <tr>
-                                                                                <td colSpan="3" className="p-10 text-center text-gray-400 italic">
-                                                                                    Không có phiên nào (có phát sinh đơn) cho {b.key} trong khoảng thời gian đã chọn.
-                                                                                </td>
-                                                                            </tr>
-                                                                        )}
-                                                                    </tbody>
-                                                                </table>
+                                                                                                </>
+                                                                                            ) : null}
+                                                                                        </p>
+                                                                                    )}
+                                                                                </div>
+
+                                                                                {assignList.length > 0 &&
+                                                                                totalsLine ? (
+                                                                                    <p className="mt-3 text-[11px] text-gray-600 border-t border-black/10 pt-2">
+                                                                                        Gộp theo nhân viên (trong vòng): {totalsLine}
+                                                                                    </p>
+                                                                                ) : null}
+                                                                            </div>
+                                                                        );
+                                                                    })
+                                                                ) : (
+                                                                    <p className="text-sm text-gray-400 italic text-center py-12">
+                                                                        Không có vòng chia nào phát sinh đơn cho {b.key} trong khoảng thời gian đã chọn.
+                                                                    </p>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     );
