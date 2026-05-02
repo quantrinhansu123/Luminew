@@ -1,5 +1,95 @@
 import { toast } from 'react-toastify';
 
+/** yyyy-MM-dd — lịch Việt Nam (khớp “vòng trong ngày”). */
+export function yyyyMmDdVietNam(d = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(d);
+}
+
+/** Khớp cột branch phiên chia với chi nhánh HCM / Hà Nội. */
+function normalizeHistoryBranchForVong(raw) {
+    const s = String(raw || '').trim().toLowerCase();
+    if (!s) return null;
+    if (s.includes('hcm') || s.includes('hồ chí minh') || s.includes('ho chi minh') || s.includes('tp.hcm')) return 'HCM';
+    if (s.includes('hà nội') || s.includes('ha noi') || s.includes('hanoi') || s === 'hn') return 'Hà Nội';
+    return null;
+}
+
+function historyChiaBranchMatchesKey(hbranch, keyUi) {
+    const k = keyUi === 'HCM' ? 'HCM' : keyUi === 'Hà Nội' ? 'Hà Nội' : null;
+    if (!k) return false;
+    return normalizeHistoryBranchForVong(hbranch) === k;
+}
+
+/**
+ * Đếm số phiên chia đơn trong ngày (YYYY-MM-DD) đã được ghi vào history_chia_don — theo VN (+07).
+ * Nếu không truy vấn được → 0 (UI không hiểu nhầm vòng sai).
+ */
+export async function countHistoryChiaSessionsByBranchNgay(supabase, branchKeyUi, yyyyMmDd) {
+    const ymd = String(yyyyMmDd || '').trim();
+    if (!/^(\d{4})-(\d{2})-(\d{2})$/.test(ymd)) return 0;
+
+    const startIso = `${ymd}T00:00:00+07:00`;
+    const endIso = `${ymd}T23:59:59.999+07:00`;
+    const { data, error } = await supabase
+        .from('history_chia_don')
+        .select('branch')
+        .gte('created_at', startIso)
+        .lte('created_at', endIso);
+
+    if (error) {
+        console.warn('⚠️ [Chia đơn vận đơn] Không đếm được history trong ngày:', error.message);
+        return 0;
+    }
+
+    let n = 0;
+    for (const row of data || []) {
+        if (historyChiaBranchMatchesKey(row?.branch, branchKeyUi)) n += 1;
+    }
+    return n;
+}
+
+/**
+ * Phiên `history_chia_don` trong ngày (VN +07) theo chi nhánh — `created_at` tăng dần (= thứ tự Vòng 1, 2, …).
+ */
+export async function fetchHistorySessionsByBranchNgaySorted(supabase, branchKeyUi, yyyyMmDd) {
+    const ymd = String(yyyyMmDd || '').trim();
+    if (!/^(\d{4})-(\d{2})-(\d{2})$/.test(ymd)) return [];
+
+    const startIso = `${ymd}T00:00:00+07:00`;
+    const endIso = `${ymd}T23:59:59.999+07:00`;
+    const { data, error } = await supabase
+        .from('history_chia_don')
+        .select('id, branch, created_at, staff_stats, total_orders')
+        .gte('created_at', startIso)
+        .lte('created_at', endIso)
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        console.warn('⚠️ [fetchHistorySessionsByBranchNgaySorted]', error.message);
+        return [];
+    }
+
+    return (data || []).filter((row) => historyChiaBranchMatchesKey(row?.branch, branchKeyUi));
+}
+
+/** Phiên chia kế tiếp trong ngày (1-based). */
+async function getNextVongChiaThuTrongNgay(supabase, branchKeyUi, yyyyMmDd) {
+    const counted = await countHistoryChiaSessionsByBranchNgay(supabase, branchKeyUi, yyyyMmDd);
+    return counted + 1;
+}
+
+/** dd/mm/yyyy từ YYYY-MM-DD (chuỗi ngày VN nhập qua yyyyMmDdVietNam). */
+function yyyyMmDdToDdMmYy(yyyymmdd) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(yyyymmdd || '').trim());
+    if (!m) return String(yyyymmdd || '').trim();
+    return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 export async function runChiaDonVanDon({ supabase, branchFilter, addLog: originalAddLog, setNotDividedOrders, setAutoAssignResult }) {
     const capturedStepLogs = [];
     const addLog = (msg, type) => {
@@ -1300,8 +1390,43 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
 
         // Bước 8: Cập nhật database
         if (updates.length > 0) {
-            // Chuẩn hóa ngày hôm nay để dùng chung cho ngay_chia_van_don và tính thứ tự chia
-            const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+            const chiTietByOrderCode = new Map();
+            for (const r of hcmDetailedResults || []) {
+                const code = String(r?.order_code ?? '').trim();
+                if (code) chiTietByOrderCode.set(code, { ...r, branch: 'HCM' });
+            }
+            for (const r of hanoiDetailedResults || []) {
+                const code = String(r?.order_code ?? '').trim();
+                if (code) chiTietByOrderCode.set(code, { ...r, branch: 'Hà Nội' });
+            }
+
+            // Ngày chia (VN) — dùng chung ngay_chia_van_don, thu_tu_chia trong ngày, và số vòng trong ngày.
+            const todayStr = yyyyMmDdVietNam();
+
+            const dateViDdMm = yyyyMmDdToDdMmYy(todayStr);
+            const [vNextHcm, vNextHanoi] = await Promise.all([
+                getNextVongChiaThuTrongNgay(supabase, 'HCM', todayStr),
+                getNextVongChiaThuTrongNgay(supabase, 'Hà Nội', todayStr),
+            ]);
+
+            const makeTenVong = (branchLabel) => {
+                const b =
+                    branchLabel ||
+                    (branchFilter === 'HCM' ? 'HCM' : branchFilter === 'Hà Nội' ? 'Hà Nội' : null);
+                let vDay =
+                    b === 'HCM'
+                        ? vNextHcm
+                        : b === 'Hà Nội'
+                          ? vNextHanoi
+                          : Math.max(vNextHcm || 1, vNextHanoi || 1);
+                if (!Number.isFinite(vDay) || vDay < 1) vDay = 1;
+                return `Vòng ${vDay}`;
+            };
+
+            addLog(
+                `📌 Vòng trong ngày ${dateViDdMm}: HCM=Vòng ${vNextHcm} · Hà Nội=Vòng ${vNextHanoi} · Phiên chia này: ${branchFilter || '(mặc định)'}`,
+                'info'
+            );
 
             // Biến lưu "thứ tự chia" lớn nhất trong NGÀY HÔM NAY (toàn cục, không theo nhân viên)
             let globalOrderIndex = 0;
@@ -1348,6 +1473,29 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                         globalOrderIndex += 1;
                         const nextOrderIndex = globalOrderIndex;
 
+                        const detail = chiTietByOrderCode.get(String(update.order_code || '').trim());
+                        const chi_tiet_chia = detail
+                            ? {
+                                  ten_vong: makeTenVong(detail.branch),
+                                  thu_tu_chia: nextOrderIndex,
+                                  ngay_chia_van_don: todayStr,
+                                  staff_chi_nhanh: detail.staff_chi_nhanh,
+                                  eligible_staff: detail.eligible_staff,
+                                  queue_before: detail.queue_before,
+                                  reason: detail.reason,
+                              }
+                            : (() => {
+                                  const bf =
+                                      branchFilter === 'HCM' || branchFilter === 'Hà Nội'
+                                          ? branchFilter
+                                          : null;
+                                  return {
+                                      ten_vong: makeTenVong(bf),
+                                      thu_tu_chia: nextOrderIndex,
+                                      ngay_chia_van_don: todayStr,
+                                  };
+                              })();
+
                         const { data, error } = await supabase
                             .from(ordersTable)
                             .update({
@@ -1356,6 +1504,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                                 ngay_chia_van_don: todayStr, // format: YYYY-MM-DD
                                 // Ghi lại thứ tự chia trong ngày (toàn cục, không trùng)
                                 thu_tu_chia: nextOrderIndex,
+                                chi_tiet_chia,
                             })
                             .eq('order_code', update.order_code)
                             .select();
