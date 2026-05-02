@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
-import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, AlertCircle, AlertTriangle, ArrowLeft, BarChart3, CheckCircle, Clock, CloudUpload, Database, Download, FileJson, Globe, Key, List, Lock, Package, RefreshCw, Save, Search, Settings, Shield, Table, Tag, Trash2, Upload, UserCheck, Users, X, Calendar, User, ArrowRight, GitMerge } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
 import PermissionManager from '../components/admin/PermissionManager';
@@ -5398,146 +5398,129 @@ const AdminTools = () => {
                                                                         return (
                                                                             <div
                                                                                 key={h.id || `${h.created_at}-${hIdx}`}
-                                                                                className={`rounded-lg border ${b.cardTint} p-4`}
+                                                                                className={`rounded-xl border ${b.cardTint} overflow-hidden shadow-sm`}
                                                                             >
-                                                                                <div className="flex flex-wrap items-start justify-between gap-2 gap-y-1">
+                                                                                {/* Header Vòng */}
+                                                                                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-black/5 bg-white/40">
                                                                                     <div>
-                                                                                        <p className="text-sm font-bold text-gray-900">
-                                                                                            Vòng {sessionNo}
-                                                                                            <span className="ml-2 text-xs font-normal text-gray-500 font-mono">
-                                                                                                {timeStr}
+                                                                                        <h4 className="font-bold text-gray-800 text-base">Vòng {sessionNo}</h4>
+                                                                                        <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-3 items-center">
+                                                                                            <span className="flex items-center gap-1 font-mono">
+                                                                                                <Calendar className="w-3.5 h-3.5" /> {timeStr}
                                                                                             </span>
-                                                                                        </p>
-                                                                                        {performer ? (
-                                                                                            <p className="text-[10px] text-gray-500 mt-0.5">
-                                                                                                Chạy chia:{' '}
-                                                                                                <span className="font-medium text-gray-700">
-                                                                                                    {performer}
+                                                                                            {performer && (
+                                                                                                <span className="flex items-center gap-1">
+                                                                                                    <User className="w-3.5 h-3.5" /> Chạy bởi: <strong className="text-gray-700 font-medium">{performer}</strong>
                                                                                                 </span>
-                                                                                            </p>
-                                                                                        ) : null}
+                                                                                            )}
+                                                                                        </div>
                                                                                     </div>
-                                                                                    <span
-                                                                                        className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg ${b.badgeSoft}`}
-                                                                                    >
-                                                                                        {nProcessed} đơn
-                                                                                    </span>
+                                                                                    <div className="text-right">
+                                                                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${b.badgeSoft}`}>
+                                                                                            <Package className="w-4 h-4" />
+                                                                                            {nProcessed} đơn
+                                                                                        </span>
+                                                                                    </div>
                                                                                 </div>
 
-                                                                                <p className="text-xs text-gray-800 mt-3 leading-relaxed">
-                                                                                    Trong vòng này có{' '}
-                                                                                    <strong>{nProcessed}</strong> đơn được gán. Bắt đầu chia từ{' '}
-                                                                                    <strong>{branchSlice.bat_dau_phien_tu ?? '—'}</strong>, đơn
-                                                                                    cuối giao cho <strong>{ketThuc ?? '—'}</strong>.
-                                                                                </p>
-                                                                                <p className="text-xs text-gray-800 mt-2 leading-relaxed">
-                                                                                    <span className="text-gray-600">
-                                                                                        Người được chia tiếp theo (gợi ý đầu vòng sau, theo thứ tự U1)
-                                                                                    </span>
-                                                                                    :{' '}
-                                                                                    <strong>
-                                                                                        {String(
-                                                                                            branchSlice.goi_y_nhan_luot_tiep_theo ??
-                                                                                                ''
-                                                                                        ).trim() || '—'}
-                                                                                    </strong>
-                                                                                    <span className="block text-[10px] text-gray-500 mt-1">
-                                                                                        Giá trị đã lưu kèm phiên; đơn thực tế vẫn chỉ giao khi NV khớp
-                                                                                        team đơn.
-                                                                                    </span>
-                                                                                </p>
-
-                                                                                {roster.length > 0 ? (
-                                                                                    <div className="mt-3">
-                                                                                        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
-                                                                                            Danh sách U1 trong vòng (thứ tự cố định trước khi luân phiên)
-                                                                                        </p>
-                                                                                        <ol className={`mt-1.5 ml-4 list-decimal space-y-0.5 text-sm ${b.listMarker}`}>
-                                                                                            {roster.map((name, ri) => (
-                                                                                                <li
-                                                                                                    key={`${h.id}-r-${ri}`}
-                                                                                                    className="text-gray-800 pl-0.5 marker:font-semibold"
-                                                                                                >
-                                                                                                    {name}
-                                                                                                </li>
-                                                                                            ))}
-                                                                                        </ol>
-                                                                                    </div>
-                                                                                ) : null}
-
-                                                                                <div className="mt-3">
-                                                                                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">
-                                                                                        {assignList.length > 0
-                                                                                            ? `Từng lượt chia (${assignList.length} đơn)`
-                                                                                            : 'Từng lượt chia'}
-                                                                                    </p>
-                                                                                    {assignList.length > 0 ? (
-                                                                                        <ol className={`mt-1.5 ml-4 list-decimal space-y-1 text-sm ${b.listMarker}`}>
-                                                                                            {assignList.map((row, ai) => {
-                                                                                                const code = String(
-                                                                                                    row.order_code || ''
-                                                                                                ).trim();
-                                                                                                const nv = String(
-                                                                                                    row.delivery_staff ||
-                                                                                                        ''
-                                                                                                ).trim();
-                                                                                                const reason = String(
-                                                                                                    row.reason || ''
-                                                                                                ).trim();
-                                                                                                return (
-                                                                                                    <li
-                                                                                                        key={`${h.id}-a-${ai}-${code}`}
-                                                                                                        className="text-gray-800 marker:font-semibold pl-0.5"
-                                                                                                    >
-                                                                                                        <span className="font-mono text-[11px]">
-                                                                                                            {code || '(mã đơn)'}
+                                                                                <div className="p-4 space-y-5">
+                                                                                    {/* Hàng đợi ban đầu */}
+                                                                                    {roster.length > 0 && (
+                                                                                        <div>
+                                                                                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Hàng đợi ban đầu (Thứ tự U1)</p>
+                                                                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                                                                {roster.map((name, ri) => (
+                                                                                                    <React.Fragment key={`${h.id}-r-${ri}`}>
+                                                                                                        <span className={`text-xs px-2.5 py-1 rounded-md border ${ri === 0 ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold shadow-sm' : 'bg-white border-gray-200 text-gray-600'}`}>
+                                                                                                            {ri + 1}. {name}
                                                                                                         </span>
-                                                                                                        {' → '}
-                                                                                                        <strong>{nv || '—'}</strong>
-                                                                                                        {reason ? (
-                                                                                                            <span className="block text-[10px] text-gray-500 mt-0.5 pl-0 leading-snug">
-                                                                                                                {reason}
-                                                                                                            </span>
-                                                                                                        ) : null}
-                                                                                                    </li>
-                                                                                                );
-                                                                                            })}
-                                                                                        </ol>
-                                                                                    ) : (
-                                                                                        <p className="mt-2 text-xs text-gray-500 italic leading-relaxed">
-                                                                                            Không có log từng lượt lưu sẵn (thường là phiên cũ trước khi có{' '}
-                                                                                            <span className="font-mono">chi_tiet_chia</span>).
-                                                                                            {totalsLine ? (
-                                                                                                <>
-                                                                                                    <br />
-                                                                                                    <span className="not-italic text-gray-600">
-                                                                                                        Gộp trong vòng:{' '}
-                                                                                                        {staffEntries.map(
-                                                                                                            ([name, count]) => (
-                                                                                                                <span
-                                                                                                                    key={name}
-                                                                                                                    className="inline-flex items-center gap-1 mr-3"
-                                                                                                                >
-                                                                                                                    <strong>{name}</strong>
-                                                                                                                    <span className={`text-[11px] px-1.5 py-0.5 rounded ${b.badgeSoft}`}>
-                                                                                                                        {count}
-                                                                                                                    </span>
-                                                                                                                </span>
-                                                                                                            )
-                                                                                                        )}
-                                                                                                    </span>
-                                                                                                </>
-                                                                                            ) : null}
-                                                                                        </p>
+                                                                                                        {ri < roster.length - 1 && <ArrowRight className="w-3 h-3 text-gray-300" />}
+                                                                                                    </React.Fragment>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                            {branchSlice.bat_dau_phien_tu && (
+                                                                                                <p className="text-[11px] text-gray-500 mt-2 italic">
+                                                                                                    (Vòng này bắt đầu chia tiếp sức từ: <strong className="text-gray-700 not-italic">{branchSlice.bat_dau_phien_tu}</strong>)
+                                                                                                </p>
+                                                                                            )}
+                                                                                        </div>
                                                                                     )}
-                                                                                </div>
 
-                                                                                {assignList.length > 0 &&
-                                                                                totalsLine ? (
-                                                                                    <p className="mt-3 text-[11px] text-gray-600 border-t border-black/10 pt-2">
-                                                                                        Gộp theo nhân viên (trong vòng): {totalsLine}
-                                                                                    </p>
-                                                                                ) : null}
+                                                                                    {/* Trình tự chia đơn */}
+                                                                                    {assignList.length > 0 ? (
+                                                                                        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm">
+                                                                                            <div className="bg-gray-50 px-3 py-2 border-b border-gray-100">
+                                                                                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                                                                                                    <GitMerge className="w-3.5 h-3.5" /> Trình tự gán đơn (Lần lượt xuống cuối hàng)
+                                                                                                </p>
+                                                                                            </div>
+                                                                                            <div className="divide-y divide-gray-50">
+                                                                                                {assignList.map((row, ai) => {
+                                                                                                    const code = String(row.order_code || '').trim();
+                                                                                                    const nv = String(row.delivery_staff || '').trim();
+                                                                                                    const reason = String(row.reason || '').trim();
+                                                                                                    return (
+                                                                                                        <div key={`${h.id}-a-${ai}-${code}`} className="flex items-center gap-3 p-3 hover:bg-gray-50 transition-colors">
+                                                                                                            <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-bold shrink-0">
+                                                                                                                {ai + 1}
+                                                                                                            </div>
+                                                                                                            <div className="flex-1 min-w-0">
+                                                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                                                    <span className="font-mono text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{code || '(mã đơn)'}</span>
+                                                                                                                    <ArrowRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                                                                                                                    <span className="font-bold text-gray-800 text-sm">{nv || '—'}</span>
+                                                                                                                </div>
+                                                                                                                {reason && <p className="text-[10px] text-gray-500 mt-1 truncate max-w-full" title={reason}>{reason}</p>}
+                                                                                                            </div>
+                                                                                                            <div className="hidden sm:block text-[10px] text-gray-400 shrink-0 italic">
+                                                                                                                ↳ Xếp xuống cuối
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <div className="bg-gray-50 rounded-lg p-4 text-center border border-gray-100 border-dashed">
+                                                                                            <p className="text-xs text-gray-500 italic">
+                                                                                                Không có nhật ký từng lượt lưu sẵn (phiên cũ).
+                                                                                                {totalsLine && (
+                                                                                                    <span className="block mt-2 font-medium text-gray-600">Gộp trong vòng: {totalsLine}</span>
+                                                                                                )}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    {/* Tổng kết sản lượng */}
+                                                                                    <div className="flex flex-col sm:flex-row gap-4 pt-2 border-t border-black/5">
+                                                                                        <div className="flex-1">
+                                                                                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Sản lượng gặt hái</p>
+                                                                                            <div className="flex flex-wrap gap-2">
+                                                                                                {staffEntries.map(([name, count]) => (
+                                                                                                    <div key={name} className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 flex items-center gap-2 shadow-sm">
+                                                                                                        <span className="font-medium text-gray-700 text-xs">{name}</span>
+                                                                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${b.badgeSoft}`}>{count}</span>
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        
+                                                                                        {/* Trạng thái tiếp theo */}
+                                                                                        <div className="sm:w-64 shrink-0 bg-white border border-blue-100 rounded-xl p-3 shadow-sm relative overflow-hidden">
+                                                                                            <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                                                                                            <div className="space-y-2">
+                                                                                                <div className="flex justify-between items-center text-xs">
+                                                                                                    <span className="text-gray-500">Đơn cuối giao cho:</span>
+                                                                                                    <span className="font-semibold text-gray-700">{ketThuc ?? '—'}</span>
+                                                                                                </div>
+                                                                                                <div className="pt-2 border-t border-gray-100">
+                                                                                                    <span className="block text-[10px] font-bold text-blue-600 uppercase mb-0.5">👉 Đầu vòng sau</span>
+                                                                                                    <span className="block font-bold text-blue-900 text-sm">{String(branchSlice.goi_y_nhan_luot_tiep_theo ?? '').trim() || '—'}</span>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
                                                                             </div>
                                                                         );
                                                                     })
