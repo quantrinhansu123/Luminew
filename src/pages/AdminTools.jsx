@@ -5536,6 +5536,38 @@ const AdminTools = () => {
                                                                                             })()}
                                                                                         </div>
                                                                                     </div>
+
+                                                                                    {/* IV. ĐỐI SOÁT NHÂN SỰ VẮNG MẶT (Bịt miệng cãi cọ) */}
+                                                                                    <div className="pt-4 border-t border-dashed border-gray-200">
+                                                                                        <h5 className="text-[11px] font-bold text-red-500 uppercase tracking-wider flex items-center gap-2 mb-3">
+                                                                                            <AlertCircle className="w-3.5 h-3.5" /> IV. ĐỐI SOÁT NHÂN SỰ VẮNG MẶT (KHÔNG THAM GIA VÒNG NÀY)
+                                                                                        </h5>
+                                                                                        {(() => {
+                                                                                            const fullTeam = (chiaDonVanDonStaffOrder?.[b.key] || []).filter(Boolean);
+                                                                                            const participating = roster.map(n => n.toLowerCase());
+                                                                                            const absent = fullTeam.filter(name => !participating.includes(name.toLowerCase()));
+                                                                                            
+                                                                                            return absent.length > 0 ? (
+                                                                                                <div className="bg-red-50/50 border border-red-100 rounded p-3">
+                                                                                                    <div className="flex flex-wrap gap-2">
+                                                                                                        {absent.map(name => (
+                                                                                                            <div key={name} className="flex items-center gap-2 bg-white border border-red-200 px-3 py-1 rounded shadow-sm">
+                                                                                                                <span className="text-xs font-bold text-gray-700">{name}</span>
+                                                                                                                <span className="text-[10px] bg-red-100 text-red-600 px-1.5 rounded-full font-black uppercase">VẮNG</span>
+                                                                                                            </div>
+                                                                                                        ))}
+                                                                                                    </div>
+                                                                                                    <p className="text-[10px] text-red-400 mt-2 italic">
+                                                                                                        * Những nhân sự trên không có tên trong danh sách trực/xoay vòng tại thời điểm này, do đó không được hệ thống gán đơn.
+                                                                                                    </p>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <div className="bg-green-50/50 border border-green-100 rounded p-2 text-center">
+                                                                                                    <p className="text-[10px] text-green-600 font-bold uppercase tracking-widest">Toàn bộ nhân sự đều tham gia trực (Đầy đủ 100%)</p>
+                                                                                                </div>
+                                                                                            );
+                                                                                        })()}
+                                                                                    </div>
                                                                                 </div>
                                                                             </div>
                                                                         );
