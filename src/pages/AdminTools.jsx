@@ -5430,6 +5430,22 @@ const AdminTools = () => {
                                                                                     <strong>{branchSlice.bat_dau_phien_tu ?? '—'}</strong>, đơn
                                                                                     cuối giao cho <strong>{ketThuc ?? '—'}</strong>.
                                                                                 </p>
+                                                                                <p className="text-xs text-gray-800 mt-2 leading-relaxed">
+                                                                                    <span className="text-gray-600">
+                                                                                        Người được chia tiếp theo (gợi ý đầu vòng sau, theo thứ tự U1)
+                                                                                    </span>
+                                                                                    :{' '}
+                                                                                    <strong>
+                                                                                        {String(
+                                                                                            branchSlice.goi_y_nhan_luot_tiep_theo ??
+                                                                                                ''
+                                                                                        ).trim() || '—'}
+                                                                                    </strong>
+                                                                                    <span className="block text-[10px] text-gray-500 mt-1">
+                                                                                        Giá trị đã lưu kèm phiên; đơn thực tế vẫn chỉ giao khi NV khớp
+                                                                                        team đơn.
+                                                                                    </span>
+                                                                                </p>
 
                                                                                 {roster.length > 0 ? (
                                                                                     <div className="mt-3">
