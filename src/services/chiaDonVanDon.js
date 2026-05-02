@@ -1,6 +1,11 @@
 import { toast } from 'react-toastify';
 
-export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotDividedOrders, setAutoAssignResult }) {
+export async function runChiaDonVanDon({ supabase, branchFilter, addLog: originalAddLog, setNotDividedOrders, setAutoAssignResult }) {
+    const capturedStepLogs = [];
+    const addLog = (msg, type) => {
+        capturedStepLogs.push({ timestamp: new Date().toLocaleTimeString('vi-VN'), message: msg, type: type || 'info' });
+        if (originalAddLog) originalAddLog(msg, type);
+    };
     const ordersTable = branchFilter === 'HCM' ? 'order_code_hcm' : 'orders';
 
         addLog(`🚀 Bắt đầu quá trình chia đơn vận đơn${branchFilter ? ' cho ' + branchFilter : ''}...`, 'info');
@@ -1577,7 +1582,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog, setNotD
                 }),
                 chi_tiet_chia: JSON.stringify({
                     hcm: hcmDetailedResults,
-                    hanoi: hanoiDetailedResults
+                    hanoi: hanoiDetailedResults,
+                    stepLogs: capturedStepLogs
                 })
             };
             

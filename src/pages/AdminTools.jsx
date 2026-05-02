@@ -5557,6 +5557,33 @@ const AdminTools = () => {
                                                                                         })()}
                                                                                     </div>
                                                                                 </div>
+                                                                                
+                                                                                {/* System Logs */}
+                                                                                {Array.isArray(chiTietRoot?.stepLogs) && chiTietRoot.stepLogs.length > 0 && (
+                                                                                    <div className="pt-4 border-t border-gray-100">
+                                                                                        <details className="group">
+                                                                                            <summary className="text-xs font-semibold text-gray-500 hover:text-gray-700 cursor-pointer flex items-center gap-1 select-none">
+                                                                                                <FileJson className="w-3.5 h-3.5" />
+                                                                                                Xem Log Hệ Thống (Chi tiết từng bước)
+                                                                                            </summary>
+                                                                                            <div className="mt-3 max-h-60 overflow-y-auto bg-gray-50 rounded border border-gray-200 p-2 space-y-1">
+                                                                                                {chiTietRoot.stepLogs.map((log, idx) => {
+                                                                                                    const bgColor = 
+                                                                                                        log.type === 'error' ? 'bg-red-50 text-red-800' :
+                                                                                                        log.type === 'warning' ? 'bg-yellow-50 text-yellow-800' :
+                                                                                                        log.type === 'success' ? 'bg-green-50 text-green-800' :
+                                                                                                        'bg-white text-gray-700';
+                                                                                                    return (
+                                                                                                        <div key={idx} className={`p-1.5 rounded text-[10px] border border-gray-100 ${bgColor}`}>
+                                                                                                            <span className="font-mono text-gray-400 mr-2">{log.timestamp}</span>
+                                                                                                            <span>{log.message}</span>
+                                                                                                        </div>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </div>
+                                                                                        </details>
+                                                                                    </div>
+                                                                                )}
                                                                             </div>
                                                                         );
                                                                     })
