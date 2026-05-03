@@ -233,23 +233,34 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             return allResults;
         };
 
-        // BƯỚC 1: Lấy TẤT CẢ đơn từ database (với pagination)
-        addLog('📋 Bước 3: Query TẤT CẢ đơn từ database (với pagination)...', 'info');
-        console.log(`🔍 [Chia đơn vận đơn] Đang query TẤT CẢ đơn từ Supabase với pagination...`);
+        // BƯỚC 1: Lấy các đơn cần thiết từ database (có lọc để tối ưu)
+        addLog('📋 Bước 3: Query đơn hàng (tối ưu: chỉ lấy đơn trong ngày hoặc chưa chia)...', 'info');
+        console.log(`🔍 [Chia đơn vận đơn] Đang query đơn hàng từ Supabase (tối ưu)...`);
         
+        const todayStr = yyyyMmDdVietNam();
         let allOrdersArray = [];
         try {
-            const allOrdersQuery = supabase.from(ordersTable).select('*');
-            allOrdersArray = await queryAllOrders(allOrdersQuery);
-            addLog(`✅ Đã lấy ${allOrdersArray.length} đơn từ database (tất cả)`, 'success');
-            console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (bảng ${ordersTable})`);
+            // Chỉ lấy các cột cần thiết để giảm tải
+            // Lọc: 
+            // 1. Những đơn chưa có delivery_staff (để chia)
+            // 2. HOẶC những đơn đã chia trong ngày hôm nay (để tính thu_tu_chia và carry-over)
+            const { data: filteredOrders, error: fetchError } = await supabase
+                .from(ordersTable)
+                .select('order_code, team, delivery_staff, sale_staff, country, thu_tu_chia, ngay_chia_van_don')
+                .or(`delivery_staff.is.null,delivery_staff.eq.,delivery_staff.ilike.null,delivery_staff.ilike.none,delivery_staff.ilike.empty,ngay_chia_van_don.eq.${todayStr}`);
+
+            if (fetchError) throw fetchError;
+            allOrdersArray = filteredOrders || [];
+            
+            addLog(`✅ Đã lấy ${allOrdersArray.length} đơn cần thiết từ database`, 'success');
+            console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (đã lọc)`);
         } catch (allOrdersError) {
-            addLog(`❌ Lỗi query tất cả đơn: ${allOrdersError.message}`, 'error');
-            console.error('❌ [Chia đơn vận đơn] Lỗi query tất cả đơn:', allOrdersError);
+            addLog(`❌ Lỗi query đơn hàng: ${allOrdersError.message}`, 'error');
+            console.error('❌ [Chia đơn vận đơn] Lỗi query đơn hàng:', allOrdersError);
             throw allOrdersError;
         }
 
-        // BƯỚC 2: Loại trừ đơn Nhật Bản TRƯỚC
+        // BƯỚC 2: Loại trừ đơn Nhật Bản
         addLog('📋 Bước 4: Loại trừ đơn Nhật Bản...', 'info');
         const japanKeywords = ['nhật bản', 'nhat ban', 'japan', 'jp'];
         const ordersExcludedJapan = [];
@@ -271,111 +282,31 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
         });
         
         addLog(`✅ Đã loại trừ ${ordersExcludedJapan.length} đơn Nhật Bản, còn lại ${ordersAfterJapanFilter.length} đơn`, 'info');
-        console.log(`✅ [Chia đơn vận đơn] Đã loại trừ ${ordersExcludedJapan.length} đơn Nhật Bản, còn lại ${ordersAfterJapanFilter.length} đơn`);
 
-        // BƯỚC 3: Lọc đơn có delivery_staff trống/null/empty
-        addLog('📋 Bước 5: Lọc đơn có delivery_staff trống/null/empty...', 'info');
-        console.log(`🔍 [Chia đơn vận đơn] Đang lọc đơn có delivery_staff trống/null/empty từ ${ordersAfterJapanFilter.length} đơn...`);
-        
+        // BƯỚC 3: Lọc đơn thực sự cần chia (delivery_staff trống)
+        addLog('📋 Bước 5: Xác định danh sách đơn cần chia...', 'info');
         let ordersArray = [];
-        const deliveryStaffStats = {
-            null: 0,
-            empty: 0,
-            nullStr: 0,
-            emptyStr: 0,
-            noneStr: 0,
-            other: 0
-        };
+        const deliveryStaffStats = { null: 0, empty: 0, special: 0, assigned: 0 };
         
         ordersAfterJapanFilter.forEach(order => {
             const ds = order.delivery_staff;
-            let shouldAdd = false;
+            const dsStr = String(ds || '').trim().toUpperCase();
             
-            // Kiểm tra null/undefined
-            if (ds == null || ds === undefined) {
-                shouldAdd = true;
-                deliveryStaffStats.null++;
-            } else {
-                // Kiểm tra empty string hoặc chỉ có whitespace
-                const dsStr = String(ds).trim();
-                if (dsStr === '') {
-                    shouldAdd = true;
-                    deliveryStaffStats.empty++;
-                } else {
-                    // Kiểm tra các giá trị đặc biệt (case insensitive)
-                    const dsUpper = dsStr.toUpperCase();
-                    if (dsUpper === 'NULL') {
-                        shouldAdd = true;
-                        deliveryStaffStats.nullStr++;
-                    } else if (dsUpper === 'EMPTY') {
-                        shouldAdd = true;
-                        deliveryStaffStats.emptyStr++;
-                    } else if (dsUpper === 'NONE') {
-                        shouldAdd = true;
-                        deliveryStaffStats.noneStr++;
-                    } else {
-                        deliveryStaffStats.other++;
-                    }
-                }
-            }
-            
-            if (shouldAdd) {
+            if (!ds || dsStr === '' || dsStr === 'NULL' || dsStr === 'EMPTY' || dsStr === 'NONE') {
                 ordersArray.push(order);
+                if (!ds) deliveryStaffStats.null++;
+                else if (dsStr === '') deliveryStaffStats.empty++;
+                else deliveryStaffStats.special++;
+            } else {
+                deliveryStaffStats.assigned++;
             }
         });
         
-        addLog('✅ Query kết quả:', 'info');
-        addLog(`  - Đơn delivery_staff NULL: ${deliveryStaffStats.null}`, 'info');
-        addLog(`  - Đơn delivery_staff empty string: ${deliveryStaffStats.empty}`, 'info');
-        addLog(`  - Đơn delivery_staff = "NULL": ${deliveryStaffStats.nullStr}`, 'info');
-        addLog(`  - Đơn delivery_staff = "EMPTY": ${deliveryStaffStats.emptyStr}`, 'info');
-        addLog(`  - Đơn delivery_staff = "NONE": ${deliveryStaffStats.noneStr}`, 'info');
-        addLog(`  - Tổng đơn có delivery_staff trống/null/empty: ${ordersArray.length}`, 'info');
-        addLog(`  - Đơn bị loại trừ (Nhật Bản): ${ordersExcludedJapan.length}`, 'info');
-        addLog(`  - Tổng tất cả đơn: ${allOrdersArray.length}`, 'info');
-        console.log(`✅ [Chia đơn vận đơn] Query kết quả:`);
-        console.log(`  - Đơn delivery_staff NULL: ${deliveryStaffStats.null}`);
-        console.log(`  - Đơn delivery_staff empty string: ${deliveryStaffStats.empty}`);
-        console.log(`  - Đơn delivery_staff = "NULL": ${deliveryStaffStats.nullStr}`);
-        console.log(`  - Đơn delivery_staff = "EMPTY": ${deliveryStaffStats.emptyStr}`);
-        console.log(`  - Đơn delivery_staff = "NONE": ${deliveryStaffStats.noneStr}`);
-        console.log(`  - Tổng đơn có delivery_staff trống/null/empty: ${ordersArray.length}`);
-        console.log(`  - Đơn bị loại trừ (Nhật Bản): ${ordersExcludedJapan.length}`);
-        console.log(`  - Tổng tất cả đơn: ${allOrdersArray.length}`);
-        console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (bảng ${ordersTable})`);
-
-        // Thống kê delivery_staff để debug (tất cả đơn)
-        const deliveryStaffStatsAll = {};
-        allOrdersArray.forEach(order => {
-            const ds = order.delivery_staff;
-            let key = 'NULL';
-            if (ds === null) key = 'NULL';
-            else if (ds === undefined) key = 'UNDEFINED';
-            else if (ds === '') key = 'EMPTY_STRING';
-            else {
-                const dsStr = String(ds).trim().toUpperCase();
-                key = dsStr || 'EMPTY_AFTER_TRIM';
-            }
-            deliveryStaffStatsAll[key] = (deliveryStaffStatsAll[key] || 0) + 1;
-        });
-        console.log(`📊 [Chia đơn vận đơn] Thống kê delivery_staff (tất cả đơn):`, deliveryStaffStatsAll);
-        
-        // Log một vài đơn để kiểm tra
-        if (ordersArray.length > 0) {
-            console.log(`📋 [Chia đơn vận đơn] Sample đơn cần chia (5 đơn đầu):`);
-            ordersArray.slice(0, 5).forEach((o, idx) => {
-                console.log(`  ${idx + 1}. ${o.order_code}: delivery_staff="${o.delivery_staff}" (type: ${typeof o.delivery_staff}), team="${o.team || '(null)'}", country="${o.country || '(null)'}"`);
-            });
-        }
-
-        if (ordersArray.length === 0) {
-            addLog('⚠️ Không tìm thấy đơn nào có delivery_staff trống/null/empty', 'warning');
-            console.warn('⚠️ [Chia đơn vận đơn] Không tìm thấy đơn nào có delivery_staff trống/null/empty');
-        }
+        addLog(`📊 Đơn cần chia: ${ordersArray.length} (Trống/Null: ${deliveryStaffStats.null + deliveryStaffStats.empty}, Đặc biệt: ${deliveryStaffStats.special})`, 'info');
+        addLog(`📊 Đơn đã có chủ trong ngày (phục vụ carry-over): ${deliveryStaffStats.assigned}`, 'info');
 
         // --- Bước bổ sung: Điền team cho đơn hàng trống ---
-        addLog('📋 Bước 5: Điền team cho đơn hàng chưa có team', 'info');
-        // Lấy giá trị cột branch từ bảng users dựa trên sale_staff của đơn, điền vào cột team của order
+        addLog('📋 Bước 5.1: Điền team tự động cho đơn hàng chưa có team', 'info');
         const ordersNeedTeam = ordersArray.filter(o => {
             const team = o.team?.toString().trim().toLowerCase() || '';
             const hcmVariants = ['hcm', 'hồ chí minh', 'ho chi minh', 'tp.hcm', 'tp hcm'];
@@ -384,214 +315,76 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
         });
 
         if (ordersNeedTeam.length > 0) {
-            console.log(`🔍 [Chia đơn vận đơn] Có ${ordersNeedTeam.length} đơn chưa có team hoặc team không phải HCM/Hà Nội, đang điền lại...`);
+            console.log(`🔍 [Chia đơn vận đơn] Có ${ordersNeedTeam.length} đơn cần điền team. Đang tối ưu logic tra cứu...`);
 
-            // Lấy danh sách users để tra cứu branch theo sale_staff
-            const { data: allUsers, error: usersError } = await supabase
-                .from('users')
-                .select('name, branch');
+            // 1. Lấy danh sách users để tra cứu branch (Map O(1))
+            const { data: allUsers } = await supabase.from('users').select('name, branch');
+            const nameToBranchMap = new Map();
+            (allUsers || []).forEach(u => {
+                if (u.name && u.branch) nameToBranchMap.set(u.name.trim(), u.branch.trim());
+            });
 
-            if (usersError) {
-                console.warn('⚠️ [Chia đơn vận đơn] Lỗi query users để lấy branch:', usersError);
-            } else {
-                const nameToBranch = {};
-                (allUsers || []).forEach(u => {
-                    if (u.name && u.branch) {
-                        nameToBranch[u.name.trim()] = u.branch.trim();
-                    }
-                });
+            // 2. Tạo Map tra cứu team từ sale_staff và country dựa trên dữ liệu hiện có (Map O(1))
+            // Thay vì dùng .filter() bên trong vòng lặp (O(N*M)), ta tạo Map trước (O(N))
+            const saleStaffToTeamMap = new Map();
+            const countryToTeamMap = new Map();
 
-                console.log(`📋 [Chia đơn vận đơn] Đã load ${Object.keys(nameToBranch).length} mapping name->branch từ bảng users`);
-                if (Object.keys(nameToBranch).length > 0) {
-                    console.log(`📋 [Chia đơn vận đơn] Sample mappings:`, Object.entries(nameToBranch).slice(0, 5));
+            allOrdersArray.forEach(o => {
+                const team = o.team?.toString().trim();
+                const ss = o.sale_staff?.toString().trim();
+                const ct = o.country?.toString().trim();
+                
+                if (team && (team === 'HCM' || team === 'Hà Nội')) {
+                    if (ss && !saleStaffToTeamMap.has(ss)) saleStaffToTeamMap.set(ss, team);
+                    if (ct && !countryToTeamMap.has(ct)) countryToTeamMap.set(ct, team);
+                }
+            });
+
+            const teamUpdates = [];
+            let foundCount = 0;
+            
+            ordersNeedTeam.forEach(order => {
+                let foundTeam = null;
+                const saleStaffName = order.sale_staff?.toString().trim();
+                const countryName = order.country?.toString().trim();
+                
+                // Ưu tiên 1: Tra từ bảng users
+                if (saleStaffName && nameToBranchMap.has(saleStaffName)) {
+                    foundTeam = nameToBranchMap.get(saleStaffName);
+                } 
+                // Ưu tiên 2: Tra từ sale_staff trong các đơn khác (dùng Map)
+                else if (saleStaffName && saleStaffToTeamMap.has(saleStaffName)) {
+                    foundTeam = saleStaffToTeamMap.get(saleStaffName);
+                }
+                // Ưu tiên 3: Tra từ country (dùng Map)
+                else if (countryName && countryToTeamMap.has(countryName)) {
+                    foundTeam = countryToTeamMap.get(countryName);
                 }
 
-                const teamUpdates = [];
-                let foundCount = 0;
-                let notFoundCount = 0;
-                
-                ordersNeedTeam.forEach(order => {
-                    // Tìm từ sale_staff
-                    let foundBranch = null;
-                    let foundName = null;
-                    const saleStaffName = order.sale_staff?.toString().trim();
-                    
-                    if (saleStaffName && nameToBranch[saleStaffName]) {
-                        foundBranch = nameToBranch[saleStaffName];
-                        foundName = saleStaffName;
-                    } else {
-                        // Thử tìm team từ các đơn khác có cùng sale_staff
-                        if (saleStaffName) {
-                            const otherOrdersWithSameSaleStaff = allOrdersArray.filter(o => {
-                                const otherSaleStaff = o.sale_staff?.toString().trim();
-                                return otherSaleStaff === saleStaffName && o.team && o.team.toString().trim() !== '';
-                            });
-                            
-                            if (otherOrdersWithSameSaleStaff.length > 0) {
-                                // Lấy team phổ biến nhất từ các đơn khác
-                                const teamCounts = {};
-                                otherOrdersWithSameSaleStaff.forEach(o => {
-                                    const team = o.team?.toString().trim() || '';
-                                    if (team) {
-                                        teamCounts[team] = (teamCounts[team] || 0) + 1;
-                                    }
-                                });
-                                
-                                const mostCommonTeam = Object.keys(teamCounts).reduce((a, b) => 
-                                    teamCounts[a] > teamCounts[b] ? a : b
-                                );
-                                
-                                const teamLower = mostCommonTeam.toLowerCase();
-                                if (teamLower.includes('hcm') || teamLower.includes('hồ chí minh') || teamLower.includes('ho chi minh')) {
-                                    foundBranch = 'HCM';
-                                    foundName = saleStaffName;
-                                } else if (teamLower.includes('hà nội') || teamLower.includes('hanoi') || teamLower.includes('ha noi')) {
-                                    foundBranch = 'Hà Nội';
-                                    foundName = saleStaffName;
-                                } else {
-                                    // Team không hợp lệ
-                                }
-                            } else {
-                                // Không tìm thấy đơn khác
-                            }
-                        }
-                        
-                        // Nếu vẫn chưa tìm thấy, thử tìm từ các đơn có cùng country
-                        if (!foundBranch && order.country) {
-                            const country = order.country.toString().trim();
-                            const otherOrdersWithSameCountry = allOrdersArray.filter(o => {
-                                const otherCountry = o.country?.toString().trim();
-                                return otherCountry === country && 
-                                       o.team && 
-                                       o.team.toString().trim() !== '' &&
-                                       o.order_code !== order.order_code; // Loại trừ chính đơn này
-                            });
-                            
-                            if (otherOrdersWithSameCountry.length > 0) {
-                                // Lấy team phổ biến nhất từ các đơn có cùng country
-                                const teamCounts = {};
-                                otherOrdersWithSameCountry.forEach(o => {
-                                    const team = o.team?.toString().trim() || '';
-                                    if (team) {
-                                        const teamLower = team.toLowerCase();
-                                        // Chỉ tính các team hợp lệ (HCM hoặc Hà Nội)
-                                        if (teamLower.includes('hcm') || teamLower.includes('hồ chí minh') || teamLower.includes('ho chi minh')) {
-                                            teamCounts['HCM'] = (teamCounts['HCM'] || 0) + 1;
-                                        } else if (teamLower.includes('hà nội') || teamLower.includes('hanoi') || teamLower.includes('ha noi')) {
-                                            teamCounts['Hà Nội'] = (teamCounts['Hà Nội'] || 0) + 1;
-                                        }
-                                    }
-                                });
-                                
-                                if (Object.keys(teamCounts).length > 0) {
-                                    const mostCommonTeam = Object.keys(teamCounts).reduce((a, b) => 
-                                        teamCounts[a] > teamCounts[b] ? a : b
-                                    );
-                                    
-                                    foundBranch = mostCommonTeam;
-                                } else {
-                                    // Không có team hợp lệ
-                                }
-                            } else {
-                                // Không tìm thấy đơn khác có cùng country
-                            }
-                        }
-                        
-                        if (!foundBranch) {
-                            // Không tìm thấy branch
-                        }
-                    }
-                    
-                    if (foundBranch) {
-                        // Map branch sang format chuẩn (HCM hoặc Hà Nội)
-                        // foundBranch có thể là 'HCM' hoặc 'Hà Nội' (nếu lấy từ đơn khác) hoặc branch từ users
-                        let teamValue = foundBranch;
-                        const branchLower = foundBranch.toLowerCase();
-                        if (branchLower === 'hcm' || branchLower === 'hồ chí minh' || branchLower === 'ho chi minh' || branchLower.includes('hcm')) {
-                            teamValue = 'HCM';
-                        } else if (branchLower === 'hà nội' || branchLower === 'ha noi' || branchLower === 'hanoi' || branchLower.includes('hà nội')) {
-                            teamValue = 'Hà Nội';
-                        } else {
-                            // Nếu branch không phải HCM/Hà Nội, bỏ qua
-                            notFoundCount++;
-                            if (notFoundCount <= 5) {
-                                console.log(`  ⚠ Đơn ${order.order_code}: branch "${foundBranch}" không phải HCM/Hà Nội`);
-                            }
-                            return;
-                        }
+                if (foundTeam) {
+                    let teamValue = foundTeam;
+                    const bLower = foundTeam.toLowerCase();
+                    if (bLower.includes('hcm') || bLower.includes('hồ chí minh')) teamValue = 'HCM';
+                    else if (bLower.includes('hà nội') || bLower.includes('hanoi')) teamValue = 'Hà Nội';
+                    else return; // Không hợp lệ
 
-                        teamUpdates.push({
-                            order_code: order.order_code,
-                            team: teamValue
-                        });
-                        // Cập nhật luôn trong array ordersArray để logic phía sau dùng đúng
-                        order.team = teamValue;
-                        foundCount++;
-                        if (foundCount <= 10) {
-                            console.log(`  ✓ [${foundCount}] Điền team "${teamValue}" cho đơn ${order.order_code} (sale_staff: ${foundName}, branch: ${foundBranch})`);
-                        }
-                    } else {
-                        notFoundCount++;
-                        if (notFoundCount <= 10) {
-                            console.log(`  ✗ Không tìm thấy branch cho đơn ${order.order_code} (sale_staff: "${saleStaffName || '(null)'}")`);
-                        }
-                    }
-                });
-                
-                addLog(`📊 Kết quả điền team: ${foundCount} đơn tìm thấy, ${notFoundCount} đơn không tìm thấy`, 'info');
-                console.log(`📊 [Chia đơn vận đơn] Kết quả điền team: ${foundCount} đơn tìm thấy, ${notFoundCount} đơn không tìm thấy`);
-
-                if (teamUpdates.length > 0) {
-                    addLog(`📝 Đang cập nhật team cho ${teamUpdates.length} đơn...`, 'info');
-                    console.log(`📝 [Chia đơn vận đơn] Đang cập nhật team cho ${teamUpdates.length} đơn...`);
-                    const CHUNK_SIZE = 50;
-                    for (let i = 0; i < teamUpdates.length; i += CHUNK_SIZE) {
-                        const chunk = teamUpdates.slice(i, i + CHUNK_SIZE);
-                        const updatePromises = chunk.map(u =>
-                            supabase
-                                .from(ordersTable)
-                                .update({ team: u.team })
-                                .eq('order_code', u.order_code)
-                        );
-                        await Promise.all(updatePromises);
-                    }
-                    addLog(`✅ Đã điền team cho ${teamUpdates.length} đơn`, 'success');
-                    console.log(`✅ [Chia đơn vận đơn] Đã điền team cho ${teamUpdates.length} đơn`);
-                    toast.info(`Đã điền team cho ${teamUpdates.length} đơn trước khi chia`);
-                    
-                    // Sau khi điền team, reload lại ordersArray từ database để có dữ liệu mới nhất
-                    console.log(`🔄 [Chia đơn vận đơn] Reload lại đơn hàng sau khi điền team...`);
-                    const { data: reloadedOrders, error: reloadError } = await supabase
-                        .from(ordersTable)
-                        .select('*')
-                        .in('order_code', teamUpdates.map(u => u.order_code));
-                    
-                    if (!reloadError && reloadedOrders) {
-                        // Cập nhật team trong ordersArray với dữ liệu mới từ DB
-                        const orderCodeMap = {};
-                        reloadedOrders.forEach(o => {
-                            orderCodeMap[o.order_code] = o;
-                        });
-                        
-                        ordersArray.forEach(order => {
-                            if (orderCodeMap[order.order_code]) {
-                                const updatedOrder = orderCodeMap[order.order_code];
-                                const oldTeam = order.team;
-                                order.team = updatedOrder.team;
-                                // Cập nhật toàn bộ thông tin từ DB để đảm bảo đồng bộ
-                                Object.assign(order, updatedOrder);
-                            }
-                        });
-                        console.log(`✅ [Chia đơn vận đơn] Đã reload ${reloadedOrders.length} đơn với team mới`);
-                        
-                        // Log một vài đơn để kiểm tra
-                        reloadedOrders.slice(0, 5).forEach(o => {
-                            console.log(`  ✓ Đơn ${o.order_code}: team="${o.team || '(null)'}"`);
-                        });
-                    }
-                } else {
-                    console.log(`⚠️ [Chia đơn vận đơn] Không tìm được branch cho ${ordersNeedTeam.length} đơn (sale_staff không có trong bảng users hoặc không có branch)`);
+                    teamUpdates.push({ order_code: order.order_code, team: teamValue });
+                    order.team = teamValue;
+                    foundCount++;
                 }
+            });
+            
+            addLog(`📊 Tự động tìm được team cho ${foundCount}/${ordersNeedTeam.length} đơn`, 'info');
+
+            if (teamUpdates.length > 0) {
+                const CHUNK_SIZE = 50;
+                for (let i = 0; i < teamUpdates.length; i += CHUNK_SIZE) {
+                    const chunk = teamUpdates.slice(i, i + CHUNK_SIZE);
+                    await Promise.all(chunk.map(u =>
+                        supabase.from(ordersTable).update({ team: u.team }).eq('order_code', u.order_code)
+                    ));
+                }
+                addLog(`✅ Đã cập nhật team cho ${teamUpdates.length} đơn thành công`, 'success');
             }
         }
 
@@ -1428,126 +1221,73 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 'info'
             );
 
-            // Biến lưu "thứ tự chia" lớn nhất trong NGÀY HÔM NAY (toàn cục, không theo nhân viên)
+            // TÌM THỨ TỰ CHIA LỚN NHẤT TRONG NGÀY TỪ DỮ LIỆU ĐÃ CÓ (Tối ưu: không query lại)
             let globalOrderIndex = 0;
-
-            try {
-                // Lấy các đơn đã được chia trong ngày hôm nay để biết thu_tu_chia hiện tại
-                const { data: todayAssignedOrders, error: todayAssignedError } = await supabase
-                    .from(ordersTable)
-                    .select('delivery_staff, thu_tu_chia, ngay_chia_van_don')
-                    .eq('ngay_chia_van_don', todayStr)
-                    .not('delivery_staff', 'is', null);
-
-                if (todayAssignedError) {
-                    console.warn('⚠️ [Chia đơn vận đơn] Không lấy được thu_tu_chia hiện tại, sẽ bắt đầu từ 0 cho tất cả:', todayAssignedError);
-                } else if (todayAssignedOrders && todayAssignedOrders.length > 0) {
-                    todayAssignedOrders.forEach((row) => {
-                        const idx = Number(row.thu_tu_chia) || 0;
-                        if (idx > globalOrderIndex) {
-                            globalOrderIndex = idx;
-                        }
-                    });
+            allOrdersArray.forEach((row) => {
+                if (row.ngay_chia_van_don === todayStr) {
+                    const idx = Number(row.thu_tu_chia) || 0;
+                    if (idx > globalOrderIndex) globalOrderIndex = idx;
                 }
-            } catch (e) {
-                console.warn('⚠️ [Chia đơn vận đơn] Lỗi khi khởi tạo thu_tu_chia, sẽ bắt đầu từ 0:', e);
-            }
+            });
+
             addLog(`📋 Bước 8: Cập nhật database cho ${updates.length} đơn hàng`, 'info');
-            addLog(`🔄 Bắt đầu cập nhật ${updates.length} đơn hàng...`, 'info');
-            console.log(`🔄 [Chia đơn vận đơn] Bắt đầu cập nhật ${updates.length} đơn hàng...`);
+            addLog(`🔄 Bắt đầu cập nhật ${updates.length} đơn hàng (Vòng ${vNextHcm}/${vNextHanoi})...`, 'info');
+            
             const CHUNK_SIZE = 50;
             successCount = 0;
             errorCount = 0;
-            errors.length = 0; // Clear array
+            errors.length = 0;
 
             for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
                 const chunk = updates.slice(i, i + CHUNK_SIZE);
                 const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
                 const totalChunks = Math.ceil(updates.length / CHUNK_SIZE);
-                addLog(`📦 Đang xử lý chunk ${chunkNum}/${totalChunks} (${chunk.length} đơn)`, 'info');
-                console.log(`📦 [Chia đơn vận đơn] Đang xử lý chunk ${chunkNum}/${totalChunks} (${chunk.length} đơn)`);
-
+                
+                // Chuẩn bị dữ liệu cập nhật cho cả chunk
                 const updatePromises = chunk.map(async (update) => {
                     try {
-                        // Thứ tự chia toàn cục trong ngày (1,2,3...) – không phụ thuộc nhân viên
                         globalOrderIndex += 1;
                         const nextOrderIndex = globalOrderIndex;
-
                         const detail = chiTietByOrderCode.get(String(update.order_code || '').trim());
-                        const chi_tiet_chia = detail
-                            ? {
-                                  ten_vong: makeTenVong(detail.branch),
-                                  thu_tu_chia: nextOrderIndex,
-                                  ngay_chia_van_don: todayStr,
-                                  staff_chi_nhanh: detail.staff_chi_nhanh,
-                                  eligible_staff: detail.eligible_staff,
-                                  queue_before: detail.queue_before,
-                                  reason: detail.reason,
-                              }
-                            : (() => {
-                                  const bf =
-                                      branchFilter === 'HCM' || branchFilter === 'Hà Nội'
-                                          ? branchFilter
-                                          : null;
-                                  return {
-                                      ten_vong: makeTenVong(bf),
-                                      thu_tu_chia: nextOrderIndex,
-                                      ngay_chia_van_don: todayStr,
-                                  };
-                              })();
+                        
+                        const chi_tiet_chia = {
+                            ten_vong: makeTenVong(detail?.branch || (branchFilter === 'HCM' || branchFilter === 'Hà Nội' ? branchFilter : null)),
+                            thu_tu_chia: nextOrderIndex,
+                            ngay_chia_van_don: todayStr,
+                            staff_chi_nhanh: detail?.staff_chi_nhanh,
+                            eligible_staff: detail?.eligible_staff,
+                            queue_before: detail?.queue_before,
+                            reason: detail?.reason,
+                        };
 
-                        const { data, error } = await supabase
+                        // Tối ưu: KHÔNG dùng .select() để tăng tốc độ ghi
+                        const { error } = await supabase
                             .from(ordersTable)
                             .update({
                                 delivery_staff: update.delivery_staff,
-                                // Ghi lại ngày chia vận đơn là ngày hiện tại
-                                ngay_chia_van_don: todayStr, // format: YYYY-MM-DD
-                                // Ghi lại thứ tự chia trong ngày (toàn cục, không trùng)
+                                ngay_chia_van_don: todayStr,
                                 thu_tu_chia: nextOrderIndex,
                                 chi_tiet_chia,
                             })
-                            .eq('order_code', update.order_code)
-                            .select();
+                            .eq('order_code', update.order_code);
 
                         if (error) {
-                            console.error(`❌ [Chia đơn vận đơn] Lỗi update đơn ${update.order_code}:`, error);
+                            console.error(`❌ Lỗi update đơn ${update.order_code}:`, error);
                             errors.push({ order_code: update.order_code, error: error.message });
                             errorCount++;
-                            return { success: false, error };
+                            return { success: false };
                         }
 
-                        // Kiểm tra xem update có thành công không
-                        if (data && data.length > 0) {
-                            const updatedOrder = data[0];
-                            if (updatedOrder.delivery_staff === update.delivery_staff) {
-                                successCount++;
-                                if (successCount <= 5) {
-                                    console.log(`✅ [Chia đơn vận đơn] Đã cập nhật đơn ${update.order_code} -> ${update.delivery_staff}`);
-                                }
-                                return { success: true, data };
-                            } else {
-                                console.warn(`⚠️ [Chia đơn vận đơn] Đơn ${update.order_code} được update nhưng delivery_staff không khớp: expected="${update.delivery_staff}", actual="${updatedOrder.delivery_staff}"`);
-                                successCount++; // Vẫn tính là thành công vì đã update được
-                                return { success: true, data };
-                            }
-                        } else {
-                            console.warn(`⚠️ [Chia đơn vận đơn] Đơn ${update.order_code} update không trả về data (có thể đơn không tồn tại)`);
-                            errorCount++;
-                            errors.push({ order_code: update.order_code, error: 'No data returned from update' });
-                            return { success: false, error: new Error('No data returned') };
-                        }
+                        successCount++;
+                        return { success: true };
                     } catch (err) {
-                        console.error(`❌ [Chia đơn vận đơn] Exception khi update đơn ${update.order_code}:`, err);
-                        errors.push({ order_code: update.order_code, error: err.message });
                         errorCount++;
-                        return { success: false, error: err };
+                        return { success: false };
                     }
                 });
 
-                const results = await Promise.all(updatePromises);
-                const chunkSuccess = results.filter(r => r.success).length;
-                addLog(`✅ Chunk ${chunkNum} hoàn tất: ${chunkSuccess}/${chunk.length} thành công`, 'success');
-                console.log(`✅ [Chia đơn vận đơn] Chunk ${chunkNum} hoàn tất: ${chunkSuccess}/${chunk.length} thành công`);
+                await Promise.all(updatePromises);
+                addLog(`📦 Chunk ${chunkNum}/${totalChunks} hoàn tất`, 'info');
             }
 
             addLog(`📊 Kết quả cập nhật: ${successCount} thành công, ${errorCount} lỗi`, successCount > 0 ? 'success' : 'warning');
