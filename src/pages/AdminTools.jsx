@@ -2688,6 +2688,8 @@ const AdminTools = () => {
             toast.error('Lỗi chia đơn vận đơn: ' + error.message);
         } finally {
             setAutoAssignLoading(false);
+            // Refresh lịch sử chia đơn sau khi chia xong
+            handleLoadHistoryChiaDon();
         }
     };
 
