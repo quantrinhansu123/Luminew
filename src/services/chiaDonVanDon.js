@@ -847,14 +847,20 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
 
                     // Lọc nhân viên phù hợp chi nhánh/team
                     const eligible = [];
+                    const eligibleDebug = [];
                     for (let attempt = 0; attempt < staffListWithBranch.length; attempt++) {
                         const idx = (nextIndex + attempt) % staffListWithBranch.length;
                         const staff = staffListWithBranch[idx];
                         const isMatch = isTeamBranchMatch(orderTeam, staff.chi_nhanh?.toString().trim() || '');
+                        eligibleDebug.push({ idx, name: staff.name, isMatch });
                         if (isMatch) {
                             eligible.push({ idx, staff });
                         }
                     }
+                    
+                    // Debug: log danh sách eligible
+                    console.log(`  🔍 [${branchName}] Đơn ${orderIdx + 1}: eligibleDebug=`, eligibleDebug.map(e => `${e.name}:${e.isMatch}`).join(', '));
+                    console.log(`  🔍 [${branchName}] Đơn ${orderIdx + 1}: eligible=`, eligible.map(e => e.staff.name).join(', '));
 
                     if (eligible.length === 0) {
                         console.warn(
@@ -905,7 +911,13 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                     staffListWithBranch.push(staffItem);
                     
                     // Cập nhật nextIndex để tiếp tục từ vị trí tiếp theo
+                    // Nếu chosen.idx >= staffListWithBranch.length (sau khi splice), 
+                    // thì bắt đầu từ đầu danh sách
                     nextIndex = chosen.idx % staffListWithBranch.length;
+                    
+                    // Debug: log trạng thái hàng đợi sau khi xoay
+                    console.log(`  🔄 [${branchName}] Sau khi xoay: ${staffListWithBranch.map(s => s.name).join(' → ')}`);
+                    console.log(`  🔄 [${branchName}] nextIndex mới: ${nextIndex} (${staffListWithBranch[nextIndex]?.name})`);
                 });
                 console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${remainingOrders.length} đơn theo round-robin đơn giản (ai xong xuống cuối)`);
             }
@@ -1490,10 +1502,51 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 })
             };
             
-            await supabase.from('history_chia_don').insert([historyRecord]);
-            console.log('✅ Đã lưu lịch sử chia đơn vào database');
+            console.log('🔄 Đang lưu lịch sử vào history_chia_don...');
+            console.log('📝 History record to insert:', JSON.stringify(historyRecord, null, 2));
+            
+            // Thử 1: Insert với tất cả cột (bao gồm cột mới)
+            const { data: insertData, error: insertError } = await supabase
+                .from('history_chia_don')
+                .insert([historyRecord])
+                .select();
+                
+            if (insertError) {
+                console.error('❌ LỖI INSERT vào history_chia_don (với tất cả cột):', insertError.message);
+                console.error('❌ Có thể do thiếu cột trong schema');
+                
+                // Thử 2: Insert chỉ với cột cơ bản (có trong schema)
+                const basicRecord = {
+                    performed_by: historyRecord.performed_by,
+                    branch: historyRecord.branch,
+                    total_orders: historyRecord.total_orders,
+                    staff_stats: historyRecord.staff_stats,
+                    status: historyRecord.status,
+                    logs: historyRecord.logs
+                    // Bỏ qua: danh_sach_u1, phien_chia, chi_tiet_chia
+                };
+                
+                console.log('🔄 Thử insert với chỉ cột cơ bản:', basicRecord);
+                
+                const { data: basicData, error: basicError } = await supabase
+                    .from('history_chia_don')
+                    .insert([basicRecord])
+                    .select();
+                    
+                if (basicError) {
+                    console.error('❌ LỖI ngay cả với record cơ bản:', basicError.message);
+                    console.error('❌ Kiểm tra: 1) Schema bảng, 2) Quyền INSERT, 3) RLS policies');
+                } else {
+                    console.log('✅ Đã lưu lịch sử (chỉ cột cơ bản) vào database');
+                    console.log('✅ Inserted basic record:', basicData);
+                }
+            } else {
+                console.log('✅ Đã lưu lịch sử (với tất cả cột) vào database');
+                console.log('✅ Inserted full record:', insertData);
+            }
         } catch (hErr) {
             console.error('❌ Lỗi khi thực hiện lưu lịch sử:', hErr);
+            console.error('❌ History record (try-catch):', JSON.stringify(historyRecord, null, 2));
         }
         
         setAutoAssignResult({ success: isSuccess, message });

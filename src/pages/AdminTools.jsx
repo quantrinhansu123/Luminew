@@ -2589,14 +2589,30 @@ const AdminTools = () => {
         setHistoryLoading(true);
         try {
             /** Bộ lọc theo ngày chia thực tế (VN +07), khớp `ngay_chia_van_don` trên đơn / phiên chạy trong ngày VN. */
+            // Sửa: Không thêm timezone +07:00 vì Supabase lưu created_at ở UTC
+            // Thay vào đó, chuyển đổi ngày VN sang UTC để query
+            const startDate = new Date(`${historyStartDate}T00:00:00+07:00`); // VN time
+            const endDate = new Date(`${historyEndDate}T23:59:59.999+07:00`); // VN time
+            
             const { data, error } = await supabase
                 .from('history_chia_don')
                 .select('*')
-                .gte('created_at', `${historyStartDate}T00:00:00+07:00`)
-                .lte('created_at', `${historyEndDate}T23:59:59.999+07:00`)
+                .gte('created_at', startDate.toISOString()) // Chuyển sang UTC
+                .lte('created_at', endDate.toISOString())   // Chuyển sang UTC
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
+
+            console.log(`📊 [handleLoadHistoryChiaDon] Query: ${historyStartDate} to ${historyEndDate}`);
+            console.log(`📊 [handleLoadHistoryChiaDon] Found ${data?.length || 0} records`);
+            if (data && data.length > 0) {
+                console.log(`📊 [handleLoadHistoryChiaDon] Sample record:`, {
+                    id: data[0].id,
+                    created_at: data[0].created_at,
+                    branch: data[0].branch,
+                    total_orders: data[0].total_orders
+                });
+            }
 
             setHistoryChiaDon(data || []);
             
