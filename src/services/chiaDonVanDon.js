@@ -572,7 +572,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
         // pendingOrders: đơn cần chia (đã được lọc theo team)
         // allDBOrders: tất cả đơn trong DB (để đếm đơn hiện tại)
         // branchName: tên chi nhánh (HCM hoặc Hà Nội)
-        const smartDistribute = (staffListWithBranch, pendingOrders, allDBOrders, branchName) => {
+        // notDividedOrdersRef: tham chiếu đến mảng đơn không chia được
+        const smartDistribute = (staffListWithBranch, pendingOrders, allDBOrders, branchName, notDividedOrdersRef) => {
             console.log(`\n🔍 [${branchName}] smartDistribute được gọi với:`);
             console.log(`  - Số nhân viên: ${staffListWithBranch.length}`);
             console.log(`  - Số đơn cần chia: ${pendingOrders.length}`);
@@ -587,69 +588,59 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 return { result: [], publicStats: [], lastPerson: '', carryTransparency: null };
             }
 
+            // Sử dụng cùng logic ultraNormalize như khi phân loại nhân viên
+            const ultraNormalize = (s) => {
+                return String(s || '')
+                    .trim()
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '') // Xóa dấu
+                    .replace(/[.\-_/]/g, ' ')       // Thay ký tự đặc biệt bằng dấu cách
+                    .replace(/\s+/g, '')            // Xóa mọi khoảng trắng
+                    .trim();
+            };
+
             const isTeamBranchMatch = (orderTeamRaw, staffChiNhanhRaw) => {
                 const orderTeam = orderTeamRaw?.toString().trim() || '';
                 const staffChiNhanh = staffChiNhanhRaw?.toString().trim() || '';
-                const orderTeamLower = orderTeam.toLowerCase();
-                const staffChiNhanhLower = staffChiNhanh.toLowerCase();
                 
-                // Loại bỏ các ký tự đặc biệt và khoảng trắng thừa để so sánh
-                const orderTeamClean = orderTeamLower.replace(/[^\w\sàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi, '').replace(/\s+/g, ' ').trim();
-                const staffChiNhanhClean = staffChiNhanhLower.replace(/[^\w\sàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi, '').replace(/\s+/g, ' ').trim();
-
-                // Kiểm tra HCM - nhận diện nhiều biến thể
-                const orderIsHCM = orderTeam === 'HCM' ||
-                                   orderTeamLower === 'hcm' ||
-                                   orderTeamClean === 'hcm' ||
-                                   orderTeamLower === 'hồ chí minh' ||
-                                   orderTeamLower === 'ho chi minh' ||
-                                   orderTeamClean === 'hochiminh' ||
-                                   orderTeamLower.includes('hcm') ||
-                                   orderTeamLower.includes('hồ chí minh') ||
-                                   orderTeamLower.includes('ho chi minh') ||
-                                   orderTeamClean.includes('hcm') ||
-                                   orderTeamClean.includes('hochiminh');
+                const normalizedOrderTeam = ultraNormalize(orderTeam);
+                const normalizedStaffChiNhanh = ultraNormalize(staffChiNhanh);
                 
-                const staffIsHCM = staffChiNhanh === 'HCM' ||
-                                  staffChiNhanhLower === 'hcm' ||
-                                  staffChiNhanhClean === 'hcm' ||
-                                  staffChiNhanhLower === 'hồ chí minh' ||
-                                  staffChiNhanhLower === 'ho chi minh' ||
-                                  staffChiNhanhClean === 'hochiminh' ||
-                                  staffChiNhanhLower.includes('hcm') ||
-                                  staffChiNhanhLower.includes('hồ chí minh') ||
-                                  staffChiNhanhLower.includes('ho chi minh') ||
-                                  staffChiNhanhClean.includes('hcm') ||
-                                  staffChiNhanhClean.includes('hochiminh');
+                // Debug: log để kiểm tra
+                if (orderTeam && staffChiNhanh) {
+                    console.log(`  🔍 [isTeamBranchMatch] orderTeam="${orderTeam}" -> ${normalizedOrderTeam}, staffChiNhanh="${staffChiNhanh}" -> ${normalizedStaffChiNhanh}`);
+                }
+                
+                // Kiểm tra HCM
+                const orderIsHCM = normalizedOrderTeam === 'hcm' || 
+                                 normalizedOrderTeam === 'tphcm' || 
+                                 normalizedOrderTeam === 'hochiminh' || 
+                                 normalizedOrderTeam.includes('hcm');
+                
+                const staffIsHCM = normalizedStaffChiNhanh === 'hcm' || 
+                                 normalizedStaffChiNhanh === 'tphcm' || 
+                                 normalizedStaffChiNhanh === 'hochiminh' || 
+                                 normalizedStaffChiNhanh.includes('hcm');
                 
                 const isHCM = orderIsHCM && staffIsHCM;
 
-                // Kiểm tra Hà Nội - nhận diện nhiều biến thể
-                const orderIsHanoi = orderTeam === 'Hà Nội' ||
-                                    orderTeamLower === 'hà nội' ||
-                                    orderTeamClean === 'hanoi' ||
-                                    orderTeamClean === 'ha noi' ||
-                                    orderTeamLower === 'ha noi' ||
-                                    orderTeamLower === 'hanoi' ||
-                                    orderTeamLower.includes('hà nội') ||
-                                    orderTeamLower.includes('hanoi') ||
-                                    orderTeamLower.includes('ha noi') ||
-                                    orderTeamClean.includes('hanoi');
+                // Kiểm tra Hà Nội
+                const orderIsHanoi = normalizedOrderTeam === 'hanoi' || 
+                                   normalizedOrderTeam === 'hn' ||
+                                   normalizedOrderTeam.includes('hanoi');
                 
-                const staffIsHanoi = staffChiNhanh === 'Hà Nội' ||
-                                    staffChiNhanhLower === 'hà nội' ||
-                                    staffChiNhanhClean === 'hanoi' ||
-                                    staffChiNhanhClean === 'ha noi' ||
-                                    staffChiNhanhLower === 'ha noi' ||
-                                    staffChiNhanhLower === 'hanoi' ||
-                                    staffChiNhanhLower.includes('hà nội') ||
-                                    staffChiNhanhLower.includes('hanoi') ||
-                                    staffChiNhanhLower.includes('ha noi') ||
-                                    staffChiNhanhClean.includes('hanoi');
+                const staffIsHanoi = normalizedStaffChiNhanh === 'hanoi' || 
+                                   normalizedStaffChiNhanh === 'hn' ||
+                                   normalizedStaffChiNhanh.includes('hanoi');
                 
                 const isHanoi = orderIsHanoi && staffIsHanoi;
 
-                return isHCM || isHanoi;
+                const result = isHCM || isHanoi;
+                if (orderTeam && staffChiNhanh) {
+                    console.log(`  🔍 [isTeamBranchMatch] result=${result} (isHCM=${isHCM}, isHanoi=${isHanoi})`);
+                }
+                return result;
             };
 
             // Kiểm tra đơn đặc biệt
@@ -841,7 +832,18 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 );
 
                 remainingOrders.forEach((order, orderIdx) => {
-                    const orderTeam = order.team?.toString().trim() || '';
+                    let orderTeam = order.team?.toString().trim() || '';
+                    
+                    // Nếu đơn không có team, thử gán team mặc định dựa trên branchName
+                    if (!orderTeam) {
+                        if (branchName === 'HCM') {
+                            orderTeam = 'HCM';
+                            console.log(`  🔍 [${branchName}] Đơn ${order.order_code} không có team, gán mặc định team="HCM"`);
+                        } else if (branchName === 'Hà Nội') {
+                            orderTeam = 'Hà Nội';
+                            console.log(`  🔍 [${branchName}] Đơn ${order.order_code} không có team, gán mặc định team="Hà Nội"`);
+                        }
+                    }
 
                     // Lọc nhân viên phù hợp chi nhánh/team
                     const eligible = [];
@@ -858,6 +860,13 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                         console.warn(
                             `⚠️ [${branchName}] Bỏ qua đơn ${order.order_code}: không có NV U1 khớp team="${orderTeam}"`
                         );
+                        // Thêm vào danh sách đơn không chia được
+                        if (notDividedOrdersRef) {
+                            notDividedOrdersRef.push({
+                                ...order,
+                                reason: `Không có NV U1 khớp team="${orderTeam}"`
+                            });
+                        }
                         return;
                     }
 
@@ -1016,7 +1025,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                     publicStats: hcmStats,
                     lastPerson: hcmLast,
                     carryTransparency: hCmTrans,
-                } = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM');
+                } = smartDistribute(nhanVienHCM, ordersHCM, allDBOrdersHCM, 'HCM', allNotDividedOrders);
                 hcmCarry = hCmTrans;
                 addLog(
                     `[HCM] Minh bạch — Trước phiên (đơn gần nhất): ${hCmTrans.lastAssignedBeforeSession || '—'} | Bắt đầu từ: ${hCmTrans.queueHeadAtSessionStart || '—'} | Sau phiên: ${hCmTrans.lastAssignedThisSession || '—'} | Gợi ý lượt mở: ${hCmTrans.suggestedNextOpening || '—'}`,
@@ -1066,7 +1075,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 publicStats: hanoiStats,
                 lastPerson: hanoiLast,
                 carryTransparency: hnTrans,
-            } = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội');
+            } = smartDistribute(nhanVienHaNoi, ordersHaNoi, allDBOrdersHaNoi, 'Hà Nội', allNotDividedOrders);
             hanoiCarry = hnTrans;
             addLog(
                 `[HN] Minh bạch — Trước phiên (đơn gần nhất): ${hnTrans.lastAssignedBeforeSession || '—'} | Bắt đầu từ: ${hnTrans.queueHeadAtSessionStart || '—'} | Sau phiên: ${hnTrans.lastAssignedThisSession || '—'} | Gợi ý lượt mở: ${hnTrans.suggestedNextOpening || '—'}`,

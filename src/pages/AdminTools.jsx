@@ -2653,7 +2653,6 @@ const AdminTools = () => {
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
         setNotDividedOrders([]);
-        setOrderSearchResult(null);
         setStepLogs([]); // Reset log
 
         // Helper function để thêm log vào state và console
