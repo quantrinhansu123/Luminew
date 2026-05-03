@@ -2646,6 +2646,10 @@ const AdminTools = () => {
     // --- CHIA ĐƠN VẬN ĐƠN ---
     // branchFilter: 'HCM' | 'Hà Nội' | undefined (undefined = cả hai)
     const handleChiaDonVanDon = async (branchFilter) => {
+        if (autoAssignLoading) {
+            toast.info('Hệ thống đang chia đơn, vui lòng đợi...');
+            return;
+        }
         setAutoAssignLoading(true);
         setAutoAssignResult(null);
         setNotDividedOrders([]);

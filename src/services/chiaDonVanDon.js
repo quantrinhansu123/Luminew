@@ -244,16 +244,15 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             // Lọc: 
             // 1. Những đơn chưa có delivery_staff (để chia)
             // 2. HOẶC những đơn đã chia trong ngày hôm nay (để tính thu_tu_chia và carry-over)
-            const { data: filteredOrders, error: fetchError } = await supabase
+            const queryBuilder = supabase
                 .from(ordersTable)
                 .select('order_code, team, delivery_staff, sale_staff, country, thu_tu_chia, ngay_chia_van_don')
                 .or(`delivery_staff.is.null,delivery_staff.eq.,delivery_staff.ilike.null,delivery_staff.ilike.none,delivery_staff.ilike.empty,ngay_chia_van_don.eq.${todayStr}`);
 
-            if (fetchError) throw fetchError;
-            allOrdersArray = filteredOrders || [];
+            allOrdersArray = await queryAllOrders(queryBuilder);
             
             addLog(`✅ Đã lấy ${allOrdersArray.length} đơn cần thiết từ database`, 'success');
-            console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (đã lọc)`);
+            console.log(`✅ [Chia đơn vận đơn] Đã lấy ${allOrdersArray.length} đơn từ Supabase (đã lọc bằng pagination)`);
         } catch (allOrdersError) {
             addLog(`❌ Lỗi query đơn hàng: ${allOrdersError.message}`, 'error');
             console.error('❌ [Chia đơn vận đơn] Lỗi query đơn hàng:', allOrdersError);
@@ -1233,7 +1232,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             addLog(`📋 Bước 8: Cập nhật database cho ${updates.length} đơn hàng`, 'info');
             addLog(`🔄 Bắt đầu cập nhật ${updates.length} đơn hàng (Vòng ${vNextHcm}/${vNextHanoi})...`, 'info');
             
-            const CHUNK_SIZE = 50;
+            const CHUNK_SIZE = 20; // Giảm xuống 20 để an toàn hơn cho network
             successCount = 0;
             errorCount = 0;
             errors.length = 0;
@@ -1281,12 +1280,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                         successCount++;
                         return { success: true };
                     } catch (err) {
+                        console.error(`❌ Exception update đơn ${update.order_code}:`, err);
                         errorCount++;
                         return { success: false };
                     }
                 });
 
-                await Promise.all(updatePromises);
+                // Sử dụng allSettled để đảm bảo không bị kẹt nếu 1 request treo
+                await Promise.allSettled(updatePromises);
                 addLog(`📦 Chunk ${chunkNum}/${totalChunks} hoàn tất`, 'info');
             }
 
