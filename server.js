@@ -23,7 +23,7 @@ const PORT = Number(process.env.SERVER_PORT || process.env.PORT || 3002);
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Set default headers to avoid 406 errors
 app.use((req, res, next) => {
@@ -529,6 +529,55 @@ app.get('/api/baocaoVandonNvData', async (req, res) => {
     const msg = e && e.message ? String(e.message) : 'Server error';
     console.error('[baocaoVandonNvData]', kind, msg);
     res.status(500).json({ error: msg, kind });
+  }
+});
+
+// Endpoint upload Cloudinary an toàn
+app.post('/api/upload-cloudinary', async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ success: false, error: 'Thiếu dữ liệu ảnh' });
+    }
+
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      console.error('Thiếu cấu hình biến môi trường Cloudinary');
+      return res.status(500).json({ success: false, error: 'Chưa cấu hình Cloudinary trên server' });
+    }
+
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    
+    // Tạo signature theo chuẩn Cloudinary (không bao gồm api_key và file trong chuỗi ký)
+    const { createHash } = await import('crypto');
+    const signatureString = `timestamp=${timestamp}${apiSecret}`;
+    const signature = createHash('sha1').update(signatureString).digest('hex');
+
+    const formData = new FormData();
+    formData.append('file', image);
+    formData.append('api_key', apiKey);
+    formData.append('timestamp', timestamp);
+    formData.append('signature', signature);
+
+    const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error('Lỗi từ Cloudinary:', result);
+      throw new Error(result.error?.message || 'Upload thất bại');
+    }
+
+    res.json({ success: true, secure_url: result.secure_url });
+  } catch (error) {
+    console.error('Lỗi upload Cloudinary:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

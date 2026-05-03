@@ -4,6 +4,7 @@ import {
   Award,
   BarChart3,
   CalendarCheck,
+  Camera,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -603,6 +604,19 @@ function Home() {
       icon: <Users className="w-5 h-5" />,
       path: "#",
       subItems: [
+        {
+          id: "hr-checkin",
+          label: "Điểm danh (Chấm công)",
+          icon: <Camera className="w-4 h-4" />,
+          path: "/cham-cong",
+        },
+        {
+          id: "hr-attendance-admin",
+          label: "Quản lý chấm công",
+          icon: <ListTodo className="w-4 h-4" />,
+          path: "/quan-ly-cham-cong",
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
+        },
         {
           id: "hr-management",
           label: "Bảng tin nội bộ",
@@ -1439,6 +1453,21 @@ function Home() {
     {
       title: "QUẢN LÝ NHÂN SỰ",
       items: [
+        {
+          title: "Điểm danh (Chấm công)",
+          icon: <Camera className="w-8 h-8" />,
+          color: "bg-green-500",
+          path: "/cham-cong",
+          status: "Mở ứng dụng",
+        },
+        {
+          title: "Quản lý chấm công",
+          icon: <ListTodo className="w-8 h-8" />,
+          color: "bg-emerald-600",
+          path: "/quan-ly-cham-cong",
+          status: "Dành cho HR/Admin",
+          permissionAny: ['HR_ACCESS', 'HR_DASHBOARD', 'HR_LIST'],
+        },
         {
           title: "Bảng tin nội bộ",
           icon: <Users className="w-8 h-8" />,

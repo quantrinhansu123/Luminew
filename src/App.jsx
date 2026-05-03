@@ -11,6 +11,8 @@ import BaoCaoHieuSuatKPI from './pages/BaoCaoHieuSuatKPI';
 import BaoCaoMarketing from './pages/BaoCaoMarketing';
 import BaoCaoSale from './pages/BaoCaoSale';
 import NhanSuSaleLumiMoiView from './pages/NhanSuSaleLumiMoiView';
+import ChamCong from './pages/ChamCong';
+import QuanLyChamCong from './pages/QuanLyChamCong';
 import BaoCaoVanDon from './pages/BaoCaoVanDon';
 import BaoCaoVanHanhHtml from './pages/BaoCaoVanHanhHtml';
 import BaoCaoVanHanhHcm from './pages/BaoCaoVanHanhHcm';
@@ -167,6 +169,8 @@ function AppShell() {
             <Route path="/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
             <Route path="/embed/bao-cao-hieu-suat-kpi" element={<ProtectedRoute><BaoCaoHieuSuatKPI /></ProtectedRoute>} />
             <Route path="/nhan-su" element={<ProtectedRoute><NhanSu /></ProtectedRoute>} />
+            <Route path="/cham-cong" element={<ProtectedRoute><ChamCong /></ProtectedRoute>} />
+            <Route path="/quan-ly-cham-cong" element={<ProtectedRoute><QuanLyChamCong /></ProtectedRoute>} />
             <Route path="/hr-dashboard" element={<ProtectedRoute><HRDashboard /></ProtectedRoute>} />
             <Route path="/finance-dashboard" element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} />
 
