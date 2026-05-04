@@ -117,25 +117,33 @@ export default function ChamCong() {
   }, []);
 
   const uploadPhotoToCloudinary = async (base64Image) => {
-    // API backend mà chúng ta vừa tạo trong server.js
-    const PORT = import.meta.env.VITE_API_PORT || 3002;
-    // Sử dụng đường dẫn tương đối (hoặc cấu hình url linh hoạt theo môi trường)
-    // Nếu app chạy Vercel thì gọi API thông qua proxy hoặc server URL tương ứng
-    // Ở đây ta gọi thẳng vào backend nodejs
-    const apiUrl = import.meta.env.DEV 
-      ? `http://localhost:${PORT}/api/upload-cloudinary` 
-      : `/api/upload-cloudinary`;
+    // Upload trực tiếp từ frontend lên Cloudinary (unsigned upload)
+    // Hoạt động trên cả local và Vercel
+    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: base64Image }),
-    });
+    if (!cloudName || !uploadPreset) {
+      throw new Error("Chưa cấu hình Cloudinary. Vui lòng kiểm tra file .env");
+    }
+
+    const formData = new FormData();
+    formData.append('file', base64Image);
+    formData.append('upload_preset', uploadPreset);
+
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
 
     const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || "Upload thất bại");
+    
+    if (!response.ok || result.error) {
+      throw new Error(result.error?.message || "Upload thất bại");
     }
+    
     return result.secure_url;
   };
 
