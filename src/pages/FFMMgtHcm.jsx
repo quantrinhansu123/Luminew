@@ -210,17 +210,44 @@ function extractDateFromDateTime(dateTimeString) {
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const dayPart = str.split(/\s|T/)[0];
   if (dayPart.includes('/')) {
-    const parts = dayPart.split('/');
-    if (parts.length === 3) {
-      const d = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      const y = parseInt(parts[2], 10);
-      if (y >= 1000 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-        return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      }
-    }
+    const ymd = parseSlashDateToYmd(dayPart);
+    if (ymd) return ymd;
   }
   return str;
+}
+
+/**
+ * Parse chuỗi dạng a/b/yyyy về YYYY-MM-DD.
+ * - Ưu tiên chuẩn VN DD/MM/YYYY khi mơ hồ (cả a và b đều <= 12).
+ * - Nếu một trong hai phần > 12 thì suy ra phần còn lại là month.
+ * - Không dùng `new Date("a/b/yyyy")` vì JS parse theo locale (MM/DD) → lẫn format.
+ */
+function parseSlashDateToYmd(s) {
+  const parts = String(s || '').trim().split('/');
+  if (parts.length !== 3) return '';
+  const a = parseInt(parts[0], 10);
+  const b = parseInt(parts[1], 10);
+  const y = parseInt(parts[2], 10);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(y)) return '';
+  if (y < 1000) return '';
+
+  let d;
+  let m;
+  if (a > 12 && b >= 1 && b <= 12) {
+    d = a;
+    m = b;
+  } else if (b > 12 && a >= 1 && a <= 12) {
+    d = b;
+    m = a;
+  } else {
+    d = a;
+    m = b;
+  }
+
+  if (m < 1 || m > 12 || d < 1 || d > 31) return '';
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return '';
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
 /** Chuẩn về YYYY-MM-DD để so sánh chuỗi (tránh lệch timezone của new Date('YYYY-MM-DD')). */
@@ -232,15 +259,7 @@ function normalizeToYmdForCompare(val) {
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const dayPart = str.split(/\s|T/)[0];
   if (dayPart.includes('/')) {
-    const parts = dayPart.split('/');
-    if (parts.length === 3) {
-      const d = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      const y = parseInt(parts[2], 10);
-      if (y >= 1000 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-        return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      }
-    }
+    return parseSlashDateToYmd(dayPart);
   }
   const dt = new Date(str);
   if (Number.isNaN(dt.getTime())) return '';
@@ -697,14 +716,12 @@ function FFMMgtHcm() {
 
       // Xử lý định dạng dd/mm/yyyy hoặc d/m/yyyy
       if (str.includes('/')) {
-        const parts = str.split('/');
-        if (parts.length === 3) {
-          const day = parseInt(parts[0], 10);
-          const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
-          const year = parseInt(parts[2], 10);
-          date = new Date(year, month, day);
+        const ymd = parseSlashDateToYmd(str.split(/\s|T/)[0]);
+        if (ymd) {
+          const [y, m, d] = ymd.split('-').map((n) => parseInt(n, 10));
+          date = new Date(y, m - 1, d);
         } else {
-          date = new Date(str);
+          return str;
         }
       }
       // Xử lý định dạng yyyy-mm-dd
