@@ -21,6 +21,7 @@ import {
   normalizePhoneDigits,
 } from '../utils/customerDuplicateCanhBao';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
+import { fetchVanDonStaffNameList, isHanoiBranchTeamLabel } from '../utils/vanDonStaffNameList';
 
 /**
  * PostgREST thường bị giới hạn ~1000 dòng / request.
@@ -122,61 +123,6 @@ function inferCaShiftFromDateTime(dateTimeString) {
   }
 }
 
-/** Khớp bộ phận Vận đơn trên users.department hoặc human_resources."Bộ phận". */
-function isBoPhanVanDon(dept) {
-  const raw = (dept ?? '').toString().trim();
-  if (!raw) return false;
-  const compact = raw.toLowerCase().replace(/\s+/g, ' ');
-  if (compact.includes('vận đơn') || compact.includes('van đơn')) return true;
-  const ascii = raw.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ');
-  if (ascii.includes('van don')) return true;
-  if (ascii === 'logistics' || ascii.startsWith('logistics ')) return true;
-  return false;
-}
-
-/**
- * Danh sách tên NV vận đơn cho bộ lọc / modal (không phụ thuộc đơn đang có delivery_staff).
- * Nguồn: users (bộ phận), human_resources, danh_sach_van_don.ho_va_ten.
- */
-async function fetchVanDonStaffNameList(supabaseClient) {
-  const names = new Set();
-  const [usersRes, hrRes, dsvdRes] = await Promise.all([
-    supabaseClient
-      .from('users')
-      .select('name, department')
-      .not('name', 'is', null)
-      .order('name', { ascending: true }),
-    supabaseClient.from('human_resources').select('"Họ Và Tên", "Bộ phận"'),
-    supabaseClient.from('danh_sach_van_don').select('ho_va_ten').not('ho_va_ten', 'is', null),
-  ]);
-  if (usersRes.error) throw usersRes.error;
-  (usersRes.data || []).forEach((u) => {
-    if (isBoPhanVanDon(u.department)) {
-      const n = String(u.name || '').trim();
-      if (n) names.add(n);
-    }
-  });
-  if (hrRes.error) {
-    console.warn('human_resources (bộ phận Vận đơn):', hrRes.error);
-  } else {
-    (hrRes.data || []).forEach((row) => {
-      if (isBoPhanVanDon(row['Bộ phận'])) {
-        const n = String(row['Họ Và Tên'] || '').trim();
-        if (n) names.add(n);
-      }
-    });
-  }
-  if (dsvdRes.error) {
-    console.warn('danh_sach_van_don (ho_va_ten NV vận đơn):', dsvdRes.error);
-  } else {
-    (dsvdRes.data || []).forEach((r) => {
-      const n = String(r.ho_va_ten || '').trim();
-      if (n) names.add(n);
-    });
-  }
-  return [...names].sort((a, b) => a.localeCompare(b, 'vi'));
-}
-
 // Các cột tự động ẩn mặc định trong bảng danh sách đơn hàng
 const HIDDEN_COLUMNS = [
   'Phí Chung',
@@ -212,8 +158,13 @@ async function fetchDanhSachDonMergedRawOrders({
   const applyTeamAndPersonnel = (q) => {
     let query = q;
     if (!skipImplicitFilters && ordersTableName === 'orders') {
-      // View mặc định /danh-sach-don: không hiển thị Team=HCM
-      query = query.or('team.is.null,team.neq.HCM');
+      // View mặc định /danh-sach-don: loại mọi team chứa HCM; lọc HN cụ thể ở client (isHanoiBranchTeamLabel).
+      // ?team=RD: giữ phạm vi rộng (trừ team đúng bằng HCM / null như cũ).
+      if (teamFilter === 'RD') {
+        query = query.or('team.is.null,team.neq.HCM');
+      } else {
+        query = query.not('team', 'ilike', '%HCM%');
+      }
     }
     if (!isAdmin) {
       if (selectedPersonnelNames.length > 0) {
@@ -455,6 +406,8 @@ function DanhSachDon({ dataSource = 'default' }) {
   const [editNvVanDonRow, setEditNvVanDonRow] = useState(null);
   const [editNvVanDonValue, setEditNvVanDonValue] = useState('');
   const [nvVanDonOptions, setNvVanDonOptions] = useState([]);
+  /** Ô tìm nhanh tên trong modal «Sửa NV vận đơn». */
+  const [nvVanDonOptionsSearch, setNvVanDonOptionsSearch] = useState('');
   const [loadingNvVanDonOptions, setLoadingNvVanDonOptions] = useState(false);
   const [savingNvVanDon, setSavingNvVanDon] = useState(false);
   const [showBulkClearDeliveryStaffModal, setShowBulkClearDeliveryStaffModal] = useState(false);
@@ -626,12 +579,14 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
   }, [visibleColumns]);
 
+  const nvVanDonListBranch = isHcmView ? 'hcm' : teamFilter === 'RD' ? 'all' : 'hanoi';
+
   // Master NV vận đơn cho dropdown lọc "chia vận đơn" (không phụ thuộc đơn đã gán delivery_staff)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const list = await fetchVanDonStaffNameList(supabase);
+        const list = await fetchVanDonStaffNameList(supabase, { vanDonBranch: nvVanDonListBranch });
         if (!cancelled) setVanDonStaffMasterNames(list);
       } catch (e) {
         console.warn('DanhSachDon: tải master NV vận đơn cho bộ lọc:', e);
@@ -640,7 +595,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [nvVanDonListBranch]);
 
   // Helper: Map Supabase DB row to UI format
   const mapSupabaseToUI = (item) => ({
@@ -1886,8 +1841,11 @@ function DanhSachDon({ dataSource = 'default' }) {
       const applyTeamAndPersonnel = (q) => {
         let query = q;
         if (ordersTableName === 'orders') {
-          // View mặc định /danh-sach-don: không hiển thị Team=HCM
-          query = query.or('team.is.null,team.neq.HCM');
+          if (teamFilter === 'RD') {
+            query = query.or('team.is.null,team.neq.HCM');
+          } else {
+            query = query.not('team', 'ilike', '%HCM%');
+          }
         }
         if (!isAdmin) {
           if (selectedPersonnelNames.length > 0) {
@@ -2245,11 +2203,12 @@ function DanhSachDon({ dataSource = 'default' }) {
     }
     setEditNvVanDonRow(row);
     setEditNvVanDonValue(String(row['NV Vận đơn'] ?? row.delivery_staff ?? '').trim());
+    setNvVanDonOptionsSearch('');
     setShowEditNvVanDonModal(true);
     setLoadingNvVanDonOptions(true);
     setNvVanDonOptions([]);
     try {
-      const sorted = await fetchVanDonStaffNameList(supabase);
+      const sorted = await fetchVanDonStaffNameList(supabase, { vanDonBranch: nvVanDonListBranch });
       setNvVanDonOptions(sorted);
       if (sorted.length === 0) {
         toast.warning(
@@ -2271,6 +2230,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     setEditNvVanDonRow(null);
     setEditNvVanDonValue('');
     setNvVanDonOptions([]);
+    setNvVanDonOptionsSearch('');
   };
 
   const saveEditNvVanDon = async () => {
@@ -2655,16 +2615,18 @@ function DanhSachDon({ dataSource = 'default' }) {
     return [...set].sort((a, b) => a.localeCompare(b, 'vi'));
   }, [nvVanDonOptions, editNvVanDonValue]);
 
+  const nvVanDonSelectOptionsFiltered = useMemo(() => {
+    const kw = String(nvVanDonOptionsSearch || '').trim().toLowerCase();
+    if (!kw) return nvVanDonSelectOptions;
+    return nvVanDonSelectOptions.filter((n) => String(n || '').toLowerCase().includes(kw));
+  }, [nvVanDonOptionsSearch, nvVanDonSelectOptions]);
+
   // Filter and sort data
   const filteredData = useMemo(() => {
     let data = [...allData];
 
-    if (!isHcmView) {
-      // View mặc định chỉ hiển thị dữ liệu chi nhánh Hà Nội.
-      data = data.filter((row) => {
-        const raw = String(row["Team"] ?? row["Chi nhánh"] ?? '').trim().toLowerCase();
-        return raw === 'hà nội' || raw === 'ha noi' || raw === 'hanoi';
-      });
+    if (!isHcmView && teamFilter !== 'RD') {
+      data = data.filter((row) => isHanoiBranchTeamLabel(row['Team'] ?? row.team ?? ''));
     }
 
     // Filter by selected personnel (nếu có)
@@ -2896,6 +2858,7 @@ function DanhSachDon({ dataSource = 'default' }) {
     selectedPersonnelNames,
     selectedPersonnelEmails,
     personnelEmailToNameMap,
+    teamFilter,
   ]);
 
   const bulkClearDeliveryStaffCandidateCount = useMemo(() => {
@@ -4620,6 +4583,29 @@ function DanhSachDon({ dataSource = 'default' }) {
                   <span className="font-medium">human_resources &quot;Bộ phận&quot;</span>,{' '}
                   <span className="font-medium">danh_sach_van_don.ho_va_ten</span> (Vận đơn / Logistics).
                 </p>
+                {nvVanDonListBranch === 'hanoi' && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mb-2">
+                    Chỉ hiển thị nhân sự bộ phận Vận đơn thuộc <strong>chi nhánh Hà Nội</strong> (theo team/branch trên{' '}
+                    <span className="font-medium">users</span>, «chi nhánh» trên{' '}
+                    <span className="font-medium">human_resources</span>, <span className="font-medium">chi_nhanh</span>{' '}
+                    trên <span className="font-medium">danh_sach_van_don</span>).
+                  </p>
+                )}
+                {nvVanDonListBranch === 'hcm' && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mb-2">
+                    Chỉ hiển thị nhân sự bộ phận Vận đơn thuộc <strong>chi nhánh HCM</strong>.
+                  </p>
+                )}
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">Tìm tên nhanh</label>
+                <input
+                  type="search"
+                  value={nvVanDonOptionsSearch}
+                  onChange={(e) => setNvVanDonOptionsSearch(e.target.value)}
+                  placeholder="Gõ để lọc danh sách tên…"
+                  disabled={savingNvVanDon || loadingNvVanDonOptions}
+                  className="w-full px-3 py-2 mb-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] disabled:bg-gray-100"
+                  autoComplete="off"
+                />
                 <select
                   value={editNvVanDonValue}
                   onChange={(e) => setEditNvVanDonValue(e.target.value)}
@@ -4627,18 +4613,24 @@ function DanhSachDon({ dataSource = 'default' }) {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#F37021] disabled:bg-gray-100 bg-white"
                 >
                   <option value="">— Để trống (xóa NV vận đơn) —</option>
-                  {nvVanDonSelectOptions.map((name) => (
+                  {nvVanDonSelectOptionsFiltered.map((name) => (
                     <option key={name} value={name}>
                       {name}
                     </option>
                   ))}
                 </select>
+                {nvVanDonOptionsSearch.trim() && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Hiển thị {nvVanDonSelectOptionsFiltered.length}/{nvVanDonSelectOptions.length} tên
+                  </p>
+                )}
                 {loadingNvVanDonOptions && (
                   <p className="text-xs text-gray-500 mt-1.5">Đang tải danh sách nhân sự…</p>
                 )}
               </div>
               <p className="text-xs text-gray-500">
-                Giá trị đang có trên đơn nhưng không thuộc danh sách bộ phận vẫn hiện trong sổ xuống để giữ đúng dữ liệu cũ.
+                Giá trị đang có trên đơn nhưng không thuộc danh sách (bộ phận / chi nhánh) vẫn hiện trong sổ xuống để
+                giữ đúng dữ liệu cũ.
               </p>
             </div>
             <div className="flex items-center justify-end gap-2 p-5 border-t border-gray-200">

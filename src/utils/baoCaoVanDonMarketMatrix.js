@@ -85,6 +85,11 @@ function marketKeyOfRow(row) {
     return v || 'Không xác định';
 }
 
+/** Tổng tiền VNĐ hiển thị trên virtual row (khớp Tab1 / `_tong_tien_vnd`). */
+function rowTongTienVnd(r) {
+    return Number(r._tong_tien_vnd ?? 0) || 0;
+}
+
 function emptyMetrics() {
     return {
         tongLenDon: 0,
@@ -101,7 +106,18 @@ function emptyMetrics() {
         mgt: 0,
         dayVH: 0,
         donCoBill: 0,
-        donCoBillAmount: 0
+        donCoBillAmount: 0,
+        tongLenDonAmount: 0,
+        okAmount: 0,
+        treoAmount: 0,
+        doiHangAmount: 0,
+        huyCheckAmount: 0,
+        sauHuyAmount: 0,
+        donDayVanHanhAmount: 0,
+        giaoTCAmount: 0,
+        mgtAmount: 0,
+        coMaAmount: 0,
+        dayVHAmount: 0
     };
 }
 
@@ -109,27 +125,56 @@ function emptyMetrics() {
 export function aggregateVanHanhSlice(slice) {
     const m = emptyMetrics();
     for (const r of slice) {
-        m.tongLenDon += sumBaoCaoVanDonHistogramValues(r._ket_qua_check);
-        m.ok += sumHistogramKeyMatch(r._ket_qua_check, (k) => String(k).trim().toLowerCase() === 'ok');
-        m.treo += sumHistogramKeyMatch(r._ket_qua_check, (k) => /treo/i.test(String(k)));
-        m.doiHang += sumHistogramKeyMatch(
+        const amt = rowTongTienVnd(r);
+        const totChk = sumBaoCaoVanDonHistogramValues(r._ket_qua_check);
+        const okRow = sumHistogramKeyMatch(r._ket_qua_check, (k) => String(k).trim().toLowerCase() === 'ok');
+        const treoRow = sumHistogramKeyMatch(r._ket_qua_check, (k) => /treo/i.test(String(k)));
+        const doiRow = sumHistogramKeyMatch(
             r._ket_qua_check,
             (k) => /đợi|doi/i.test(String(k)) && /hàng|hang/i.test(String(k))
         );
-        m.huyCheck += sumHistogramKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k)));
+        const huyRow = sumHistogramKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k)));
+
+        m.tongLenDon += totChk;
+        m.ok += okRow;
+        m.treo += treoRow;
+        m.doiHang += doiRow;
+        m.huyCheck += huyRow;
+
+        if (totChk > 0) m.tongLenDonAmount += amt;
+        if (okRow > 0) m.okAmount += amt;
+        if (treoRow > 0) m.treoAmount += amt;
+        if (doiRow > 0) m.doiHangAmount += amt;
+        if (huyRow > 0) m.huyCheckAmount += amt;
+        if (totChk - huyRow > 0) m.sauHuyAmount += amt;
+
         if (r._source === 'orders') {
             if ((Number(r._len_vh_don_vi) || 0) > 0) {
-                m.donDayVanHanh += sumBaoCaoVanDonHistogramValues(r._ket_qua_check);
+                m.donDayVanHanh += totChk;
+                if (totChk > 0) m.donDayVanHanhAmount += amt;
             }
         } else {
-            m.donDayVanHanh += sumLenVanHanhHistogram(r._trang_thai_giao_hang);
+            const lenVhRow = sumLenVanHanhHistogram(r._trang_thai_giao_hang);
+            m.donDayVanHanh += lenVhRow;
+            if (lenVhRow > 0) m.donDayVanHanhAmount += amt;
         }
-        m.coMa += sumMaTracking(r._trang_thai_giao_hang);
-        m.mgt += sumHistogramKeyMatch(r._trang_thai_giao_hang, (k) => /mgt/i.test(String(k)));
+
+        const maTr = sumMaTracking(r._trang_thai_giao_hang);
+        m.coMa += maTr;
+        if (maTr > 0) m.coMaAmount += amt;
+
+        const mgtRow = sumHistogramKeyMatch(r._trang_thai_giao_hang, (k) => /mgt/i.test(String(k)));
+        m.mgt += mgtRow;
+        if (mgtRow > 0) m.mgtAmount += amt;
+
         m.donCoBill += sumDonCoBillFullCount(r._trang_thai_thanh_toan);
         m.donCoBillAmount += sumDonCoBillFullAmount(r._tien_trang_thai_thanh_toan);
-        m.giaoTC += sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công');
-        m.dangGiao += sumDeliveryBucket(r._trang_thai_giao_hang, 'Đang Giao');
+        const gtcRow = sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công');
+        const dangRow = sumDeliveryBucket(r._trang_thai_giao_hang, 'Đang Giao');
+        m.giaoTC += gtcRow;
+        m.dangGiao += dangRow;
+        if (gtcRow > 0) m.giaoTCAmount += amt;
+        if (maTr > 0 || dangRow > 0) m.dayVHAmount += amt;
     }
     m.sauHuy = m.tongLenDon - m.huyCheck;
     m.dayVH = m.coMa + m.dangGiao;

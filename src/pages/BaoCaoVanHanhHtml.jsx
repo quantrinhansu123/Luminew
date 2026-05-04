@@ -6,12 +6,7 @@ import MultiSelect from '../components/MultiSelect';
 import * as rbacService from '../services/rbacService';
 import { supabase } from '../supabase/config';
 import { formatBaoCaoVanDonStatusHistogram, isGiaoHangHistogramSyntheticKey } from '../utils/baoCaoVanDonFormat';
-import {
-    buildBaoCaoVanHanhMatrix,
-    formatPct,
-    formatSlVi,
-    NO_AMOUNT
-} from '../utils/baoCaoVanDonMarketMatrix';
+import { buildBaoCaoVanHanhMatrix, formatPct, formatSlVi } from '../utils/baoCaoVanDonMarketMatrix';
 import {
     buildPushDonByDayMatrix,
     buildPushDonByDayMatrixFromFfmLogs,
@@ -1385,13 +1380,14 @@ export default function BaoCaoVanHanhHtml() {
         setSearchParams(p, { replace: true });
     };
 
-    const renderMetricPair = (m) => (
+    /** Tab3 matrix: SL + Thành tiền (tổng `_tong_tien_vnd` các dòng thỏa cùng điều kiện với SL). */
+    const renderMetricPair = (sl, tienVnd) => (
         <>
             <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
-                {formatSlVi(m)}
+                {formatSlVi(sl)}
             </td>
-            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums text-gray-500">
-                {NO_AMOUNT}
+            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
+                {formatNumVi(tienVnd ?? 0)}
             </td>
         </>
     );
@@ -2613,45 +2609,55 @@ export default function BaoCaoVanHanhHtml() {
                             <td className="border border-black px-2 py-1">Tổng lên đơn</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`tl-${mk}`}>
-                                    {renderMetricPair(byMarket[mk].tongLenDon)}
+                                    {renderMetricPair(byMarket[mk].tongLenDon, byMarket[mk].tongLenDonAmount)}
                                 </React.Fragment>
                             ))}
-                            {renderMetricPair(total.tongLenDon)}
+                            {renderMetricPair(total.tongLenDon, total.tongLenDonAmount)}
                         </tr>
                         <tr>
                             <td className="border border-black px-2 py-1 font-bold">OK</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`ok-${mk}`}>{renderMetricPair(byMarket[mk].ok)}</React.Fragment>
+                                <React.Fragment key={`ok-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].ok, byMarket[mk].okAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.ok)}
+                            {renderMetricPair(total.ok, total.okAmount)}
                         </tr>
                         <tr>
                             <td className="border border-black px-2 py-1">Treo</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`tr-${mk}`}>{renderMetricPair(byMarket[mk].treo)}</React.Fragment>
+                                <React.Fragment key={`tr-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].treo, byMarket[mk].treoAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.treo)}
+                            {renderMetricPair(total.treo, total.treoAmount)}
                         </tr>
                         <tr>
                             <td className="border border-black px-2 py-1">Đợi hàng</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`dh-${mk}`}>{renderMetricPair(byMarket[mk].doiHang)}</React.Fragment>
+                                <React.Fragment key={`dh-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].doiHang, byMarket[mk].doiHangAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.doiHang)}
+                            {renderMetricPair(total.doiHang, total.doiHangAmount)}
                         </tr>
                         <tr className="text-red-600">
                             <td className="border border-black px-2 py-1">Tổng hủy (kq check)</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`hc-${mk}`}>{renderMetricPair(byMarket[mk].huyCheck)}</React.Fragment>
+                                <React.Fragment key={`hc-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].huyCheck, byMarket[mk].huyCheckAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.huyCheck)}
+                            {renderMetricPair(total.huyCheck, total.huyCheckAmount)}
                         </tr>
                         <tr className="font-bold text-red-600">
                             <td className="border border-black px-2 py-1">Tổng đơn sau hủy</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`sh-${mk}`}>{renderMetricPair(byMarket[mk].sauHuy)}</React.Fragment>
+                                <React.Fragment key={`sh-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].sauHuy, byMarket[mk].sauHuyAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.sauHuy)}
+                            {renderMetricPair(total.sauHuy, total.sauHuyAmount)}
                         </tr>
                         <tr className="italic text-red-600">
                             <td className="border border-black px-2 py-1 not-italic">Tỷ lệ hủy (%)</td>
@@ -2671,10 +2677,10 @@ export default function BaoCaoVanHanhHtml() {
                             </td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`ddvh-${mk}`}>
-                                    {renderMetricPair(byMarket[mk].donDayVanHanh)}
+                                    {renderMetricPair(byMarket[mk].donDayVanHanh, byMarket[mk].donDayVanHanhAmount)}
                                 </React.Fragment>
                             ))}
-                            {renderMetricPair(total.donDayVanHanh)}
+                            {renderMetricPair(total.donDayVanHanh, total.donDayVanHanhAmount)}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
                             <td className="border border-black px-2 py-1">Tỷ lệ đẩy / Tổng đơn (%)</td>
@@ -2690,30 +2696,38 @@ export default function BaoCaoVanHanhHtml() {
                         <tr>
                             <td className="border border-black px-2 py-1">Giao Thành Công</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`gtc-${mk}`}>{renderMetricPair(byMarket[mk].giaoTC)}</React.Fragment>
+                                <React.Fragment key={`gtc-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].giaoTC, byMarket[mk].giaoTCAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.giaoTC)}
+                            {renderMetricPair(total.giaoTC, total.giaoTCAmount)}
                         </tr>
                         <tr className="bg-[#F8CBAD] font-bold">
                             <td className="border border-black px-2 py-1">MGT (theo key histogram)</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`mgt-${mk}`}>{renderMetricPair(byMarket[mk].mgt)}</React.Fragment>
+                                <React.Fragment key={`mgt-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].mgt, byMarket[mk].mgtAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.mgt)}
+                            {renderMetricPair(total.mgt, total.mgtAmount)}
                         </tr>
                         <tr className="bg-cyan-200 font-bold">
                             <td className="border border-black px-2 py-1">Đơn có mã (Mã tracking)</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`cm-${mk}`}>{renderMetricPair(byMarket[mk].coMa)}</React.Fragment>
+                                <React.Fragment key={`cm-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].coMa, byMarket[mk].coMaAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.coMa)}
+                            {renderMetricPair(total.coMa, total.coMaAmount)}
                         </tr>
                         <tr className="bg-cyan-200 font-bold">
                             <td className="border border-black px-2 py-1">Tổng đơn đẩy VH (mã + đang giao)</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`vh-${mk}`}>{renderMetricPair(byMarket[mk].dayVH)}</React.Fragment>
+                                <React.Fragment key={`vh-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].dayVH, byMarket[mk].dayVHAmount)}
+                                </React.Fragment>
                             ))}
-                            {renderMetricPair(total.dayVH)}
+                            {renderMetricPair(total.dayVH, total.dayVHAmount)}
                         </tr>
                         <tr className="bg-cyan-200 font-bold">
                             <td className="border border-black px-2 py-1">Đơn có bill (có bill, trừ 1 phần)</td>

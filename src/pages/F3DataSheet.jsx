@@ -21,6 +21,7 @@ import {
   normalizePhoneDigits,
 } from '../utils/customerDuplicateCanhBao';
 import { getCheckResult } from '../utils/orderCheckAndVnd';
+import { fetchVanDonStaffNameList } from '../utils/vanDonStaffNameList';
 import { F3SummaryTab } from '../components/tabs/F3SummaryTab';
 import { F3_STATIC_DATA } from '../data/f3_static_data';
 
@@ -125,61 +126,6 @@ function inferCaShiftFromDateTime(dateTimeString) {
   } catch {
     return '';
   }
-}
-
-/** Khớp bộ phận Vận đơn trên users.department hoặc human_resources."Bộ phận". */
-function isBoPhanVanDon(dept) {
-  const raw = (dept ?? '').toString().trim();
-  if (!raw) return false;
-  const compact = raw.toLowerCase().replace(/\s+/g, ' ');
-  if (compact.includes('vận đơn') || compact.includes('van đơn')) return true;
-  const ascii = raw.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ');
-  if (ascii.includes('van don')) return true;
-  if (ascii === 'logistics' || ascii.startsWith('logistics ')) return true;
-  return false;
-}
-
-/**
- * Danh sách tên NV vận đơn cho bộ lọc / modal (không phụ thuộc đơn đang có delivery_staff).
- * Nguồn: users (bộ phận), human_resources, danh_sach_van_don.ho_va_ten.
- */
-async function fetchVanDonStaffNameList(supabaseClient) {
-  const names = new Set();
-  const [usersRes, hrRes, dsvdRes] = await Promise.all([
-    supabaseClient
-      .from('users')
-      .select('name, department')
-      .not('name', 'is', null)
-      .order('name', { ascending: true }),
-    supabaseClient.from('human_resources').select('"Họ Và Tên", "Bộ phận"'),
-    supabaseClient.from('danh_sach_van_don').select('ho_va_ten').not('ho_va_ten', 'is', null),
-  ]);
-  if (usersRes.error) throw usersRes.error;
-  (usersRes.data || []).forEach((u) => {
-    if (isBoPhanVanDon(u.department)) {
-      const n = String(u.name || '').trim();
-      if (n) names.add(n);
-    }
-  });
-  if (hrRes.error) {
-    console.warn('human_resources (bộ phận Vận đơn):', hrRes.error);
-  } else {
-    (hrRes.data || []).forEach((row) => {
-      if (isBoPhanVanDon(row['Bộ phận'])) {
-        const n = String(row['Họ Và Tên'] || '').trim();
-        if (n) names.add(n);
-      }
-    });
-  }
-  if (dsvdRes.error) {
-    console.warn('danh_sach_van_don (ho_va_ten NV vận đơn):', dsvdRes.error);
-  } else {
-    (dsvdRes.data || []).forEach((r) => {
-      const n = String(r.ho_va_ten || '').trim();
-      if (n) names.add(n);
-    });
-  }
-  return [...names].sort((a, b) => a.localeCompare(b, 'vi'));
 }
 
 // Các cột tự động ẩn mặc định trong bảng danh sách đơn hàng
