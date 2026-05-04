@@ -1,6 +1,6 @@
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { AlertCircle, Check, ChevronDown, RefreshCcw, Save, Search, XCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import usePermissions from '../hooks/usePermissions';
@@ -524,24 +524,6 @@ export default function NhapDonMoi({ isEdit = false }) {
 
     const [productSearch, setProductSearch] = useState("");
     const [isProductOpen, setIsProductOpen] = useState(false);
-    const productDropdownRef = useRef(null);
-
-    // Click outside to close product dropdown
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (productDropdownRef.current && !productDropdownRef.current.contains(event.target)) {
-                setIsProductOpen(false);
-            }
-        };
-
-        if (isProductOpen) {
-            document.addEventListener('mousedown', handleClickOutside);
-        }
-
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, [isProductOpen]);
 
     // --- DATA LISTS ---
     const AREA_LIST = ["US", "Nhật Bản", "Hàn Quốc", "Canada", "Úc", "Anh", "CĐ Nhật Bản"];
@@ -1238,6 +1220,25 @@ export default function NhapDonMoi({ isEdit = false }) {
         if (!productSearch) return visibleProducts;
         return visibleProducts.filter(p => p.toLowerCase().includes(productSearch.toLowerCase()));
     }, [visibleProducts, productSearch]);
+
+    /** Mở/đóng picker mặt hàng chính — khi đóng: nếu gõ trùng 1 tên trong danh sách thì gán luôn. */
+    const applyProductPickerOpen = useCallback(
+        (open) => {
+            if (open) {
+                setProductSearch(formData.productMain || "");
+                setIsProductOpen(true);
+                return;
+            }
+            const q = productSearch.trim();
+            const exact = visibleProducts.find((p) => p.toLowerCase() === q.toLowerCase());
+            if (exact) {
+                setFormData((prev) => ({ ...prev, productMain: exact }));
+            }
+            setProductSearch("");
+            setIsProductOpen(false);
+        },
+        [formData.productMain, productSearch, visibleProducts]
+    );
 
     // -------------------------------------------------------------------------
     // 2.5 FILTER LOGIC (Missing previously => Fixed)
@@ -2598,30 +2599,30 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <Label htmlFor="productMain">Mặt hàng (Chính)</Label>
-                                                        <Popover
-                                                            open={isProductOpen}
-                                                            onOpenChange={(open) => {
-                                                                setIsProductOpen(open);
-                                                                // Mở lại luôn hiển thị đủ gợi ý (không giữ bộ lọc theo mặt hàng đã chọn).
-                                                                if (open) setProductSearch("");
-                                                            }}
-                                                        >
+                                                        <Popover open={isProductOpen} onOpenChange={applyProductPickerOpen}>
                                                             <div className="relative" ref={productRef}>
                                                                 <PopoverAnchor asChild>
                                                                     <div className="relative">
                                                                         <Input
-                                                                            placeholder="Chọn mặt hàng..."
-                                                                            value={formData.productMain || ""}
-                                                                            readOnly
-                                                                            onFocus={() => {
-                                                                                if (productRef.current) setProductPopoverWidth(productRef.current.offsetWidth);
-                                                                            }}
-                                                                            onClick={() => {
-                                                                                if (productRef.current) setProductPopoverWidth(productRef.current.offsetWidth);
-                                                                                setProductSearch("");
+                                                                            id="productMain"
+                                                                            autoComplete="off"
+                                                                            placeholder="Gõ để tìm hoặc chọn mặt hàng..."
+                                                                            value={isProductOpen ? productSearch : formData.productMain || ""}
+                                                                            onChange={(e) => {
+                                                                                const v = e.target.value;
+                                                                                setProductSearch(v);
                                                                                 setIsProductOpen(true);
+                                                                                if (productRef.current) {
+                                                                                    setProductPopoverWidth(productRef.current.offsetWidth);
+                                                                                }
                                                                             }}
-                                                                            className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] bg-white cursor-pointer"
+                                                                            onFocus={() => {
+                                                                                if (productRef.current) {
+                                                                                    setProductPopoverWidth(productRef.current.offsetWidth);
+                                                                                }
+                                                                                applyProductPickerOpen(true);
+                                                                            }}
+                                                                            className="pr-8 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d7c2d] bg-white"
                                                                         />
                                                                         <ChevronDown
                                                                             className="absolute right-3 top-3 h-4 w-4 opacity-50 cursor-pointer"
@@ -2629,9 +2630,10 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                             onClick={(e) => {
                                                                                 e.preventDefault();
                                                                                 e.stopPropagation();
-                                                                                if (productRef.current) setProductPopoverWidth(productRef.current.offsetWidth);
-                                                                                setProductSearch("");
-                                                                                setIsProductOpen((v) => !v);
+                                                                                if (productRef.current) {
+                                                                                    setProductPopoverWidth(productRef.current.offsetWidth);
+                                                                                }
+                                                                                applyProductPickerOpen(!isProductOpen);
                                                                             }}
                                                                         />
                                                                     </div>
@@ -2643,6 +2645,9 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                         style={{ width: productPopoverWidth }}
                                                                         onOpenAutoFocus={(e) => e.preventDefault()}
                                                                     >
+                                                                        <div className="border-b px-2 py-1.5 text-[11px] text-gray-500">
+                                                                            Gõ ở ô trên để lọc — chọn một dòng để xác nhận.
+                                                                        </div>
                                                                         <div className="max-h-[300px] overflow-y-auto p-1">
                                                                             {filteredProducts.length > 0 ? (
                                                                                 filteredProducts.map((p, idx) => (
@@ -2650,17 +2655,25 @@ export default function NhapDonMoi({ isEdit = false }) {
                                                                                         key={idx}
                                                                                         className="flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-gray-100"
                                                                                         onClick={() => {
-                                                                                            setFormData(prev => ({ ...prev, productMain: p }));
+                                                                                            setFormData((prev) => ({ ...prev, productMain: p }));
+                                                                                            setProductSearch("");
                                                                                             setIsProductOpen(false);
                                                                                         }}
                                                                                     >
-                                                                                        <Check className={cn("mr-2 h-4 w-4", formData.productMain === p ? "opacity-100" : "opacity-0")} />
+                                                                                        <Check
+                                                                                            className={cn(
+                                                                                                "mr-2 h-4 w-4",
+                                                                                                formData.productMain === p ? "opacity-100" : "opacity-0"
+                                                                                            )}
+                                                                                        />
                                                                                         <span className="truncate">{p}</span>
                                                                                     </div>
                                                                                 ))
                                                                             ) : (
                                                                                 <div className="p-2 text-sm text-gray-500">
-                                                                                    Không có sản phẩm nào.
+                                                                                    {productSearch.trim()
+                                                                                        ? "Không có mặt hàng khớp — thử từ khác hoặc chọn đúng tên trong danh sách."
+                                                                                        : "Không có sản phẩm nào."}
                                                                                 </div>
                                                                             )}
                                                                         </div>
