@@ -144,6 +144,24 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 .trim();
         };
 
+        /**
+         * Chuẩn hoá mọi biến thể chi nhánh/team về 1 key thống nhất.
+         * Trả về: 'HCM' | 'Hà Nội' | null
+         *
+         * Lý do cần hàm chung:
+         * - Code hiện có nhiều đoạn normalize khác nhau (staff vs order.team vs matcher)
+         * - Dễ sinh mismatch → eligible=0/1 tăng → chia lệch
+         */
+        const normalizeBranchKey = (raw) => {
+            const n = ultraNormalize(raw || '');
+            if (!n) return null;
+            // HCM
+            if (n === 'hcm' || n === 'tphcm' || n === 'hochiminh' || n.includes('hcm')) return 'HCM';
+            // Hà Nội
+            if (n === 'hanoi' || n === 'hn' || n.includes('hanoi')) return 'Hà Nội';
+            return null;
+        };
+
         /** Khớp thứ tự với Danh sách vận đơn (`order ho_va_ten`), không phụ thuộc thứ tự Postgres. */
         const nhanVienU1Sorted = [...nhanVienU1].sort((a, b) =>
             String(a.ho_va_ten || '')
@@ -154,23 +172,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
         nhanVienU1Sorted.forEach((item) => {
             const name = String(item.ho_va_ten || '').trim();
             const chiNhanhRaw = item.chi_nhanh || '';
-            const normalizedBranch = ultraNormalize(chiNhanhRaw);
+            const key = normalizeBranchKey(chiNhanhRaw);
             
             // Log chi tiết để debug nếu cần
-            console.log(`Checking staff: ${name} | Branch: ${chiNhanhRaw} | Normalized: ${normalizedBranch}`);
-
-            const isHCM = normalizedBranch === 'hcm' || 
-                         normalizedBranch === 'tphcm' || 
-                         normalizedBranch === 'hochiminh' || 
-                         normalizedBranch.includes('hcm');
-
-            const isHanoi = normalizedBranch === 'hanoi' || 
-                           normalizedBranch === 'hn' ||
-                           normalizedBranch.includes('hanoi');
+            console.log(`Checking staff: ${name} | Branch: ${chiNhanhRaw} | Key: ${key || '(null)'}`);
             
-            if (isHCM) {
+            if (key === 'HCM') {
                 nhanVienHCM.push({ name, chi_nhanh: 'HCM' });
-            } else if (isHanoi || normalizedBranch === 'hanoi') {
+            } else if (key === 'Hà Nội') {
                 nhanVienHaNoi.push({ name, chi_nhanh: 'Hà Nội' });
             } else {
                 nhanVienSkipped.push({ 
@@ -306,12 +315,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
 
         // --- Bước bổ sung: Điền team cho đơn hàng trống ---
         addLog('📋 Bước 5.1: Điền team tự động cho đơn hàng chưa có team', 'info');
-        const ordersNeedTeam = ordersArray.filter(o => {
-            const team = o.team?.toString().trim().toLowerCase() || '';
-            const hcmVariants = ['hcm', 'hồ chí minh', 'ho chi minh', 'tp.hcm', 'tp hcm'];
-            const hanoiVariants = ['hà nội', 'ha noi', 'hanoi', 'hn'];
-            return !team || (!hcmVariants.includes(team) && !hanoiVariants.includes(team));
-        });
+        const ordersNeedTeam = ordersArray.filter((o) => normalizeBranchKey(o.team) == null);
 
         if (ordersNeedTeam.length > 0) {
             console.log(`🔍 [Chia đơn vận đơn] Có ${ordersNeedTeam.length} đơn cần điền team. Đang tối ưu logic tra cứu...`);
@@ -328,14 +332,14 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             const saleStaffToTeamMap = new Map();
             const countryToTeamMap = new Map();
 
-            allOrdersArray.forEach(o => {
-                const team = o.team?.toString().trim();
+            allOrdersArray.forEach((o) => {
+                const teamKey = normalizeBranchKey(o.team);
                 const ss = o.sale_staff?.toString().trim();
                 const ct = o.country?.toString().trim();
-                
-                if (team && (team === 'HCM' || team === 'Hà Nội')) {
-                    if (ss && !saleStaffToTeamMap.has(ss)) saleStaffToTeamMap.set(ss, team);
-                    if (ct && !countryToTeamMap.has(ct)) countryToTeamMap.set(ct, team);
+
+                if (teamKey) {
+                    if (ss && !saleStaffToTeamMap.has(ss)) saleStaffToTeamMap.set(ss, teamKey);
+                    if (ct && !countryToTeamMap.has(ct)) countryToTeamMap.set(ct, teamKey);
                 }
             });
 
@@ -361,11 +365,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 }
 
                 if (foundTeam) {
-                    let teamValue = foundTeam;
-                    const bLower = foundTeam.toLowerCase();
-                    if (bLower.includes('hcm') || bLower.includes('hồ chí minh')) teamValue = 'HCM';
-                    else if (bLower.includes('hà nội') || bLower.includes('hanoi')) teamValue = 'Hà Nội';
-                    else return; // Không hợp lệ
+                    const teamValue = normalizeBranchKey(foundTeam);
+                    if (!teamValue) return; // Không hợp lệ
 
                     teamUpdates.push({ order_code: order.order_code, team: teamValue });
                     order.team = teamValue;
@@ -436,48 +437,18 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
 
             // KHÔNG cần kiểm tra Nhật Bản nữa vì đã loại trừ ở bước trước
 
-            // Kiểm tra team - normalize và so sánh (mở rộng để nhận diện nhiều biến thể hơn)
-            const teamNormalized = (teamRaw || '').toString().trim();
-            const teamLower = teamNormalized.toLowerCase();
-            
-            // Loại bỏ các ký tự đặc biệt và khoảng trắng thừa để so sánh
-            const teamClean = teamLower.replace(/[^\w\sàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi, '').replace(/\s+/g, ' ').trim();
-            
-            // Kiểm tra HCM - nhận diện nhiều biến thể
-            const isHCM = teamNormalized === 'HCM' ||
-                         teamLower === 'hcm' ||
-                         teamClean === 'hcm' ||
-                         teamLower === 'hồ chí minh' ||
-                         teamLower === 'ho chi minh' ||
-                         teamClean === 'hochiminh' ||
-                         teamClean === 'ho chi minh' ||
-                         teamLower.includes('hcm') ||
-                         teamLower.includes('hồ chí minh') ||
-                         teamLower.includes('ho chi minh') ||
-                         teamClean.includes('hcm') ||
-                         teamClean.includes('hochiminh');
-            
-            // Kiểm tra Hà Nội - nhận diện nhiều biến thể
-            const isHanoi = teamNormalized === 'Hà Nội' ||
-                           teamLower === 'hà nội' ||
-                           teamClean === 'hanoi' ||
-                           teamClean === 'ha noi' ||
-                           teamLower === 'ha noi' ||
-                           teamLower === 'hanoi' ||
-                           teamLower.includes('hà nội') ||
-                           teamLower.includes('hanoi') ||
-                           teamLower.includes('ha noi') ||
-                           teamClean.includes('hanoi') ||
-                           teamClean.includes('hanoi');
+            const teamKey = normalizeBranchKey(teamRaw);
             
             // Debug log để kiểm tra
             if (index < 5) {
-                console.log(`  🔍 [Đơn ${index + 1}] order_code=${order.order_code}, team="${teamRaw}" -> normalized="${teamNormalized}" -> lower="${teamLower}" -> clean="${teamClean}" -> isHCM=${isHCM}, isHanoi=${isHanoi}`);
+                console.log(
+                    `  🔍 [Đơn ${index + 1}] order_code=${order.order_code}, team="${teamRaw}" (normalized="${team}") -> key=${teamKey || '(null)'}`
+                );
             }
 
-            if (isHCM) {
+            if (teamKey === 'HCM') {
                 ordersHCM.push(order);
-            } else if (isHanoi) {
+            } else if (teamKey === 'Hà Nội') {
                 ordersHaNoi.push(order);
             } else {
                 ordersWithoutTeam.push({
@@ -588,59 +559,16 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 return { result: [], publicStats: [], lastPerson: '', carryTransparency: null };
             }
 
-            // Sử dụng cùng logic ultraNormalize như khi phân loại nhân viên
-            const ultraNormalize = (s) => {
-                return String(s || '')
-                    .trim()
-                    .toLowerCase()
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '') // Xóa dấu
-                    .replace(/[.\-_/]/g, ' ')       // Thay ký tự đặc biệt bằng dấu cách
-                    .replace(/\s+/g, '')            // Xóa mọi khoảng trắng
-                    .trim();
-            };
-
+            // Dùng chung normalizeBranchKey ở scope ngoài để tránh mismatch staff/team.
             const isTeamBranchMatch = (orderTeamRaw, staffChiNhanhRaw) => {
-                const orderTeam = orderTeamRaw?.toString().trim() || '';
-                const staffChiNhanh = staffChiNhanhRaw?.toString().trim() || '';
-                
-                const normalizedOrderTeam = ultraNormalize(orderTeam);
-                const normalizedStaffChiNhanh = ultraNormalize(staffChiNhanh);
-                
-                // Debug: log để kiểm tra
-                if (orderTeam && staffChiNhanh) {
-                    console.log(`  🔍 [isTeamBranchMatch] orderTeam="${orderTeam}" -> ${normalizedOrderTeam}, staffChiNhanh="${staffChiNhanh}" -> ${normalizedStaffChiNhanh}`);
+                const ok = normalizeBranchKey(orderTeamRaw) === normalizeBranchKey(staffChiNhanhRaw);
+                if (orderTeamRaw && staffChiNhanhRaw) {
+                    console.log(
+                        `  🔍 [isTeamBranchMatch] orderTeam="${orderTeamRaw}" -> ${normalizeBranchKey(orderTeamRaw) || '(null)'}; ` +
+                            `staff="${staffChiNhanhRaw}" -> ${normalizeBranchKey(staffChiNhanhRaw) || '(null)'}; result=${ok}`
+                    );
                 }
-                
-                // Kiểm tra HCM
-                const orderIsHCM = normalizedOrderTeam === 'hcm' || 
-                                 normalizedOrderTeam === 'tphcm' || 
-                                 normalizedOrderTeam === 'hochiminh' || 
-                                 normalizedOrderTeam.includes('hcm');
-                
-                const staffIsHCM = normalizedStaffChiNhanh === 'hcm' || 
-                                 normalizedStaffChiNhanh === 'tphcm' || 
-                                 normalizedStaffChiNhanh === 'hochiminh' || 
-                                 normalizedStaffChiNhanh.includes('hcm');
-                
-                const isHCM = orderIsHCM && staffIsHCM;
-
-                // Kiểm tra Hà Nội
-                const orderIsHanoi = normalizedOrderTeam === 'hanoi' || 
-                                   normalizedOrderTeam === 'hn' ||
-                                   normalizedOrderTeam.includes('hanoi');
-                
-                const staffIsHanoi = normalizedStaffChiNhanh === 'hanoi' || 
-                                   normalizedStaffChiNhanh === 'hn' ||
-                                   normalizedStaffChiNhanh.includes('hanoi');
-                
-                const isHanoi = orderIsHanoi && staffIsHanoi;
-
-                const result = isHCM || isHanoi;
-                if (orderTeam && staffChiNhanh) {
-                    console.log(`  🔍 [isTeamBranchMatch] result=${result} (isHCM=${isHCM}, isHanoi=${isHanoi})`);
-                }
-                return result;
+                return ok;
             };
 
             // Kiểm tra đơn đặc biệt
@@ -691,19 +619,21 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 console.log(`🔍 [${branchName}] Chưa có lịch sử chia đơn trước đó. Sẽ bắt đầu từ người đầu tiên.`);
             }
 
-            // Đếm số đơn đã chia trong ngày hôm nay (chỉ để hiển thị báo cáo cho người dùng)
-            const todayStrForReport = new Date().toISOString().slice(0, 10);
+            // Đếm số đơn đã chia trong ngày hôm nay (giờ VN) để minh bạch báo cáo (không dùng để phân bổ quota)
+            const todayStrVn = yyyyMmDdVietNam();
             const todayOrderCountByStaff = {};
-            staffList.forEach(name => { todayOrderCountByStaff[name] = 0; });
-            
-            allDBOrders.forEach(o => {
+            staffList.forEach((name) => {
+                todayOrderCountByStaff[name] = 0;
+            });
+
+            allDBOrders.forEach((o) => {
                 const ds = o.delivery_staff?.toString().trim();
                 const ngay = o.ngay_chia_van_don?.toString().slice(0, 10);
-                if (ds && staffSet.has(ds) && ngay === todayStrForReport) {
-                    todayOrderCountByStaff[ds]++;
+                if (ds && staffSet.has(ds) && ngay === todayStrVn) {
+                    todayOrderCountByStaff[ds] += 1;
                 }
             });
-            console.log(`📊 [${branchName}] Thống kê đơn đã nhận trong ngày hôm nay:`, todayOrderCountByStaff);
+            console.log(`📊 [${branchName}] Tải nền (đơn đã nhận trong ngày VN ${todayStrVn}):`, todayOrderCountByStaff);
 
             const lastAssignedIndex = lastAssignedPerson ? staffList.indexOf(lastAssignedPerson) : -1;
             const startIndex = lastAssignedIndex >= 0 ? (lastAssignedIndex + 1) % staffListWithBranch.length : 0;
@@ -716,7 +646,7 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
             });
 
             const RULE_TRANSPARENCY_SHORT =
-                'Vòng NV U1 (khớp team/chi nhánh đơn): mỗi đơn giao cho người đứng đầu hàng trong số được phép nhận; sau đó người đó xuống cuối hàng. Không ép cân bằng tải — team đơn lệch nên có thể người nhiều người ít.';
+                'Quota theo phiên (trong chi nhánh): mỗi NV U1 nhận q hoặc q+1 đơn (chênh tối đa 1) nếu đủ điều kiện eligible. Nếu có đơn chỉ có ít người nhận được (eligible lệch), hệ thống sẽ phá quota tối thiểu và log cảnh báo.';
 
             /** Người đứng đầu hàng lúc bắt đầu phiên (trước khi splice xoay hàng). */
             let queueHeadAtSessionStart = null;
@@ -823,15 +753,79 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                 console.log(`${'='.repeat(60)}\n`);
 
                 // ============================================================
-                // ROUND-ROBIN ĐƠN GIẢN: Ai xong xuống cuối hàng, không cân bằng tải
+                // QUOTA THEO PHIÊN + VÒNG (TRONG CHI NHÁNH):
+                // - N đơn, M NV ⇒ q=floor(N/M), r=N%M
+                // - r người đầu tiên theo thứ tự vòng (startIndex) được cap=q+1, còn lại cap=q
+                // - Với mỗi đơn: chọn người eligible còn cap; nếu không khả thi thì phá quota tối thiểu
                 // ============================================================
                 let nextIndex = startIndex;
 
                 console.log(
-                    `🔄 [${branchName}] Bắt đầu chia theo round-robin đơn giản (ai xong xuống cuối) từ index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
+                    `🔄 [${branchName}] Bắt đầu chia theo "quota theo phiên + vòng" từ index ${startIndex} ("${staffListWithBranch[startIndex]?.name}")`
                 );
 
-                remainingOrders.forEach((order, orderIdx) => {
+                // Quota phải tính theo số đơn "có thể chia" (eligible>0).
+                // Nếu tính theo tổng remainingOrders (bao gồm eligible=0) thì cap sẽ lệch và có thể tạo diff > 1 dù bài toán feasible.
+                const effectiveOrders = [];
+                let preNotDivided = 0;
+                remainingOrders.forEach((order) => {
+                    let orderTeam = order.team?.toString().trim() || '';
+                    if (!orderTeam) {
+                        if (branchName === 'HCM') orderTeam = 'HCM';
+                        else if (branchName === 'Hà Nội') orderTeam = 'Hà Nội';
+                    }
+                    let eligibleCount = 0;
+                    for (const staff of staffListWithBranch) {
+                        if (isTeamBranchMatch(orderTeam, staff.chi_nhanh?.toString().trim() || '')) eligibleCount += 1;
+                    }
+                    if (eligibleCount > 0) {
+                        effectiveOrders.push(order);
+                    } else {
+                        preNotDivided += 1;
+                        if (notDividedOrdersRef) {
+                            notDividedOrdersRef.push({
+                                ...order,
+                                reason: `Không có NV U1 khớp team="${orderTeam || '(trống)'}"`,
+                            });
+                        }
+                    }
+                });
+
+                if (preNotDivided > 0) {
+                    console.warn(
+                        `⚠️ [${branchName}] Có ${preNotDivided} đơn eligible=0 → loại khỏi quota (không chia được).`
+                    );
+                }
+
+                const N = effectiveOrders.length;
+                const M = staffListWithBranch.length;
+                const q = M > 0 ? Math.floor(N / M) : 0;
+                const r = M > 0 ? N % M : 0;
+
+                // Thứ tự vòng tại đầu phiên (để phân r suất q+1)
+                const rosterAtStart = staffListWithBranch.map((s) => String(s?.name || '').trim());
+                const rotatedRoster = [];
+                for (let i = 0; i < rosterAtStart.length; i++) {
+                    rotatedRoster.push(rosterAtStart[(startIndex + i) % rosterAtStart.length]);
+                }
+
+                const capByStaff = {};
+                rotatedRoster.forEach((name, idx) => {
+                    capByStaff[name] = q + (idx < r ? 1 : 0);
+                });
+
+                // Đếm trong phiên để thống kê và phá quota tối thiểu khi không khả thi
+                const sessionAssignedByStaff = {};
+                staffList.forEach((name) => {
+                    sessionAssignedByStaff[name] = 0;
+                });
+                const overflowByStaff = {};
+                staffList.forEach((name) => {
+                    overflowByStaff[name] = 0;
+                });
+                let quotaBrokenCount = 0;
+
+                effectiveOrders.forEach((order, orderIdx) => {
                     let orderTeam = order.team?.toString().trim() || '';
                     
                     // Nếu đơn không có team, thử gán team mặc định dựa trên branchName
@@ -862,26 +856,33 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                     console.log(`  🔍 [${branchName}] Đơn ${orderIdx + 1}: eligibleDebug=`, eligibleDebug.map(e => `${e.name}:${e.isMatch}`).join(', '));
                     console.log(`  🔍 [${branchName}] Đơn ${orderIdx + 1}: eligible=`, eligible.map(e => e.staff.name).join(', '));
 
-                    if (eligible.length === 0) {
-                        console.warn(
-                            `⚠️ [${branchName}] Bỏ qua đơn ${order.order_code}: không có NV U1 khớp team="${orderTeam}"`
-                        );
-                        // Thêm vào danh sách đơn không chia được
-                        if (notDividedOrdersRef) {
-                            notDividedOrdersRef.push({
-                                ...order,
-                                reason: `Không có NV U1 khớp team="${orderTeam}"`
-                            });
-                        }
-                        return;
-                    }
+                    // eligible=0 đã được loại khỏi effectiveOrders ở bước pre-pass
 
                     // Chụp lại trạng thái hàng đợi hiện tại trước khi chia đơn này
                     const queueBefore = staffListWithBranch.map(s => String(s.name || '').trim());
 
-                    // CHỌN NGƯỜI ĐẦU TIÊN trong danh sách eligible (theo thứ tự vòng)
-                    // KHÔNG cân bằng tải - ai đến lượt thì nhận
-                    const chosen = eligible[0];
+                    // Ưu tiên chọn người eligible còn quota (cap>0), theo đúng thứ tự vòng (eligible đã theo nextIndex)
+                    let chosen = eligible.find((cand) => {
+                        const name = String(cand.staff?.name || '').trim();
+                        return (capByStaff[name] || 0) > 0;
+                    });
+
+                    // Nếu không còn ai eligible có cap ⇒ quota không khả thi cho đơn này (do eligibility lệch)
+                    if (!chosen) {
+                        quotaBrokenCount += 1;
+                        // Phá quota tối thiểu: chọn người có overflow nhỏ nhất; hoà thì theo thứ tự vòng
+                        let best = null;
+                        let bestOv = Infinity;
+                        eligible.forEach((cand) => {
+                            const name = String(cand.staff?.name || '').trim();
+                            const ov = overflowByStaff[name] || 0;
+                            if (ov < bestOv) {
+                                bestOv = ov;
+                                best = cand;
+                            }
+                        });
+                        chosen = best || eligible[0];
+                    }
                     const chosenName = String(chosen.staff.name || '').trim();
                     const chosenChiNhanh = chosen.staff.chi_nhanh || '';
 
@@ -896,14 +897,21 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                         staff_chi_nhanh: chosenChiNhanh,
                         eligible_staff: eligibleNames,
                         queue_before: queueBefore, // Thêm trạng thái hàng đợi vào lịch sử
-                        reason: `NV đầu tiên khớp chi nhánh (${eligible.length} NV khớp: ${eligibleNames})`
+                        reason:
+                            (capByStaff[chosenName] || 0) > 0
+                                ? `Quota phiên: còn suất (cap) → chọn theo vòng (eligible=${eligible.length}: ${eligibleNames})`
+                                : `Quota KHÔNG khả thi (eligible lệch) → phá quota tối thiểu (eligible=${eligible.length}: ${eligibleNames})`,
                     });
 
                     // Log cho debugging
                     console.log(
                         `  [Đơn ${orderIdx + 1}/${remainingOrders.length}] ${order.order_code}: ` +
-                        `team="${orderTeam}" -> ✅ ${chosenName} (${eligible.length} NV khớp: ${eligibleNames})`
+                        `team="${orderTeam}" -> ✅ ${chosenName} (cap=${capByStaff[chosenName] || 0}; assigned=${sessionAssignedByStaff[chosenName] || 0}; eligible=${eligible.length}: ${eligibleNames})`
                     );
+
+                    if ((capByStaff[chosenName] || 0) > 0) capByStaff[chosenName] -= 1;
+                    else overflowByStaff[chosenName] = (overflowByStaff[chosenName] || 0) + 1;
+                    sessionAssignedByStaff[chosenName] = (sessionAssignedByStaff[chosenName] || 0) + 1;
 
                     // Sau khi nhận đơn, xuống cuối hàng (xoay vòng)
                     // Di chuyển người vừa chọn xuống cuối danh sách
@@ -919,7 +927,12 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
                     console.log(`  🔄 [${branchName}] Sau khi xoay: ${staffListWithBranch.map(s => s.name).join(' → ')}`);
                     console.log(`  🔄 [${branchName}] nextIndex mới: ${nextIndex} (${staffListWithBranch[nextIndex]?.name})`);
                 });
-                console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${remainingOrders.length} đơn theo round-robin đơn giản (ai xong xuống cuối)`);
+                if (quotaBrokenCount > 0) {
+                    console.warn(
+                        `⚠️ [${branchName}] Quota bị phá ở ${quotaBrokenCount} đơn do eligibility lệch (eligible=0/1 hoặc mismatch team/chi_nhanh).`
+                    );
+                }
+                console.log(`\n✅ [${branchName}] Đã chia ${result.length}/${N} đơn theo quota phiên + vòng`);
             }
 
             const lastPerson =
@@ -1003,17 +1016,8 @@ export async function runChiaDonVanDon({ supabase, branchFilter, addLog: origina
         const errors = [];
 
         // Lọc allDBOrders theo team cho mỗi chi nhánh (dùng để đếm đơn hiện tại)
-        const hcmVariantsCheck = ['hcm', 'hồ chí minh', 'ho chi minh', 'tp.hcm', 'tp hcm'];
-        const hanoiVariantsCheck = ['hà nội', 'ha noi', 'hanoi', 'hn'];
-
-        const allDBOrdersHCM = allOrdersArray.filter(o => {
-            const t = o.team?.toString().trim().toLowerCase() || '';
-            return hcmVariantsCheck.includes(t);
-        });
-        const allDBOrdersHaNoi = allOrdersArray.filter(o => {
-            const t = o.team?.toString().trim().toLowerCase() || '';
-            return hanoiVariantsCheck.includes(t);
-        });
+        const allDBOrdersHCM = allOrdersArray.filter((o) => normalizeBranchKey(o.team) === 'HCM');
+        const allDBOrdersHaNoi = allOrdersArray.filter((o) => normalizeBranchKey(o.team) === 'Hà Nội');
 
         // Chia đơn HCM
         addLog('📋 Bước 7: Chia đơn round-robin đơn giản (ai xong xuống cuối, không cân bằng tải)', 'info');
