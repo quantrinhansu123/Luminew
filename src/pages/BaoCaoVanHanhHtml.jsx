@@ -2663,22 +2663,29 @@ export default function BaoCaoVanHanhHtml() {
                             {renderPctPair(formatPct(total.huyCheck, total.tongLenDon))}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1">Tỷ lệ đẩy / tổng đơn sau hủy (%)</td>
+                            <td className="border border-black px-2 py-1 leading-tight">
+                                Đơn đẩy vận hành
+                                <span className="block text-xs font-normal">
+                                    (đơn có cột Đơn vị vận chuyển không trống)
+                                </span>
+                            </td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`td-${mk}`}>
-                                    {renderPctPair(formatPct(byMarket[mk].coMa, byMarket[mk].sauHuy))}
+                                <React.Fragment key={`ddvh-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].donDayVanHanh)}
                                 </React.Fragment>
                             ))}
-                            {renderPctPair(formatPct(total.coMa, total.sauHuy))}
+                            {renderMetricPair(total.donDayVanHanh)}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1">Tỷ lệ đẩy / đơn OK (%)</td>
+                            <td className="border border-black px-2 py-1">Tỷ lệ đẩy / Tổng đơn (%)</td>
                             {markets.map((mk) => (
-                                <React.Fragment key={`tok-${mk}`}>
-                                    {renderPctPair(formatPct(byMarket[mk].coMa, byMarket[mk].ok))}
+                                <React.Fragment key={`tdt-${mk}`}>
+                                    {renderPctPair(
+                                        formatPct(byMarket[mk].donDayVanHanh, byMarket[mk].tongLenDon)
+                                    )}
                                 </React.Fragment>
                             ))}
-                            {renderPctPair(formatPct(total.coMa, total.ok))}
+                            {renderPctPair(formatPct(total.donDayVanHanh, total.tongLenDon))}
                         </tr>
                         <tr>
                             <td className="border border-black px-2 py-1">Giao Thành Công</td>

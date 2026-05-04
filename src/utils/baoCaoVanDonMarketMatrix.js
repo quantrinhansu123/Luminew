@@ -36,6 +36,16 @@ const normalizeHistogramKeyLabel = (key) =>
 
 const isMaTrackingHistogramKey = (key) => normalizeHistogramKeyLabel(key) === 'mã tracking';
 
+/** Số đơn ghi trong bucket «Lên vận hành» (đơn có ĐVVC / đẩy VH trong dòng bao_cao_van_don). */
+function sumLenVanHanhHistogram(delH) {
+    const o = parseBaoCaoVanDonHistogram(delH);
+    let s = 0;
+    for (const [key, raw] of Object.entries(o)) {
+        if (normalizeHistogramKeyLabel(key) === 'lên vận hành') s += Number(raw) || 0;
+    }
+    return s;
+}
+
 /** Đếm phần histogram khớp predicate (dùng chung tab 5 — đồng bộ SL/DS). */
 export function sumHistogramKeyMatch(histogram, pred) {
     const o = parseBaoCaoVanDonHistogram(histogram);
@@ -83,6 +93,8 @@ function emptyMetrics() {
         doiHang: 0,
         huyCheck: 0,
         sauHuy: 0,
+        /** Đơn có ĐVVC (orders: shipping_unit; bao_cao: histogram «Lên vận hành»). */
+        donDayVanHanh: 0,
         giaoTC: 0,
         dangGiao: 0,
         coMa: 0,
@@ -105,6 +117,13 @@ export function aggregateVanHanhSlice(slice) {
             (k) => /đợi|doi/i.test(String(k)) && /hàng|hang/i.test(String(k))
         );
         m.huyCheck += sumHistogramKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k)));
+        if (r._source === 'orders') {
+            if ((Number(r._len_vh_don_vi) || 0) > 0) {
+                m.donDayVanHanh += sumBaoCaoVanDonHistogramValues(r._ket_qua_check);
+            }
+        } else {
+            m.donDayVanHanh += sumLenVanHanhHistogram(r._trang_thai_giao_hang);
+        }
         m.coMa += sumMaTracking(r._trang_thai_giao_hang);
         m.mgt += sumHistogramKeyMatch(r._trang_thai_giao_hang, (k) => /mgt/i.test(String(k)));
         m.donCoBill += sumDonCoBillFullCount(r._trang_thai_thanh_toan);

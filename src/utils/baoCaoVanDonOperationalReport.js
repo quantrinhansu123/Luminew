@@ -117,6 +117,15 @@ function rowKetQuaCheckIsOk(r) {
     return sumKeyMatch(r._ket_qua_check, (k) => normalizeCheckLabel(k) === 'ok') > 0;
 }
 
+/**
+ * Điều kiện «đã lên VH» cho cột chưa mã: chỉ áp dụng orders (shipping_unit / `_len_vh_don_vi`).
+ * Dòng `bao_cao_van_don` không yêu cầu bucket «Lên vận hành» trong histogram giao hàng.
+ */
+function rowPassesChuaCoMaLenVhGate(r) {
+    if (r?._source === 'orders') return (Number(r._len_vh_don_vi) || 0) > 0;
+    return true;
+}
+
 /** Cột trạng thái thu tiền (mẫu báo cáo vận hành) — gán key histogram vào đúng cột (ưu tiên thứ tự). */
 export const BC_VH_PAYMENT_COLUMNS = [
     { id: 'bom', label: 'Bom_bùng_chặn', test: (k) => /bom|bùng|chặn/i.test(String(k)) },
@@ -186,10 +195,10 @@ export function aggregateOperationalReportSlice(slice) {
     let hoan = 0;
     let huyVH = 0;
     let choCheck = 0;
-    /** «Tổng đơn chưa mã» / «Doanh số đơn chưa mã»: đã lên VH, trống mã tracking, và Kết quả check = OK. */
+    /** «Tổng đơn chưa mã» / «Doanh số đơn chưa mã»: trống mã + check OK; orders thêm điều kiện đã có ĐVVC. */
     let chuaCoMa = 0;
     let daCkChuaDay = 0;
-    /** Doanh số (chỉ tong_tien_vnd qua _ds_tong_tien_vnd) trên cùng tập đơn `chuaCoMa`. */
+    /** Doanh số: tổng tiền VNĐ hiển thị (`_tong_tien_vnd`, coalesce như cột «Đơn có mã») trên cùng tập đơn `chuaCoMa`. */
     let doanhSoDonChuaMa = 0;
     /** Tổng VNĐ theo jsonb tien_trang_thai_thanh_toan (reconciled_vnd theo trạng thái TT) — cột BC VH "Tổng thanh toán giao hàng NB". */
     let tongThanhToanGiaoHangNb = 0;
@@ -236,9 +245,9 @@ export function aggregateOperationalReportSlice(slice) {
             coMa += 1;
             coMaAmount += Number(r._tong_tien_vnd ?? 0) || 0;
         }
-        if (lenVhDonVi > 0 && !hasMaTracking && rowKetQuaCheckIsOk(r)) {
+        if (rowPassesChuaCoMaLenVhGate(r) && !hasMaTracking && rowKetQuaCheckIsOk(r)) {
             chuaCoMa += 1;
-            doanhSoDonChuaMa += Number(r._ds_tong_tien_vnd ?? 0) || 0;
+            doanhSoDonChuaMa += Number(r._tong_tien_vnd ?? 0) || 0;
         }
         giaoTC += sumDeliveryBucket(r._trang_thai_giao_hang, 'Giao Thành Công');
         dangGiao += sumDeliveryBucket(r._trang_thai_giao_hang, 'Đang Giao');
@@ -490,7 +499,7 @@ export const BCVH_DRILL_METRIC_LABELS = {
     donCoBillAmount: 'Đã thanh toán (có bill) — Thành tiền',
     tongNoiBo: 'TỔNG ĐƠN SALE LÊN FILE NỘI BỘ',
     tongDonLenVanHanh: 'TỔNG ĐƠN LÊN VẬN HÀNH',
-    chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (đã lên VH, trống mã, Kết quả check OK)',
+    chuaCoMa: 'TỔNG ĐƠN CHƯA CÓ MÃ (trống mã, check OK; orders: đã có ĐVVC)',
     giaoTC: 'Giao thành công',
     dangGiao: 'Đang giao',
     chuaGiao: 'Chưa giao',
@@ -531,7 +540,7 @@ export function filterSliceByBcvhDrillMetric(slice, metricId) {
         case 'chuaCoMa':
             return slice.filter(
                 (r) =>
-                    rowLenVhDonViForDrill(r) > 0 &&
+                    rowPassesChuaCoMaLenVhGate(r) &&
                     !rowHasMaTrackingForDrill(r) &&
                     rowKetQuaCheckIsOk(r)
             );
