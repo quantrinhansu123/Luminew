@@ -366,11 +366,12 @@ export default function XemBaoCaoRnD() {
 
         const calculateMarketMetrics = (d) => {
             const costPercent = d.dsSauHoanHuyThucTe > 0 ? (d.cpqc / d.dsSauHoanHuyThucTe) * 100 : 0;
-            const cps = d.soDonThucTe ? d.cpqc / d.soDonThucTe : 0;
-            const avgOrderValue = d.soDonThucTe ? d.dsChotThucTe / d.soDonThucTe : 0;
+            const cps = d.soDon ? d.cpqc / d.soDon : 0;
+            const avgOrderValue = d.soDon ? d.dsSauHoanHuyThucTe / d.soDon : 0;
+            const closingRate = d.soMessCmt ? (d.soDon / d.soMessCmt) * 100 : 0;
             const closingRateThucTe = d.soMessCmt ? (d.soDonThucTe / d.soMessCmt) * 100 : 0;
 
-            return { ...d, costPercent, cps, avgOrderValue, closingRateThucTe };
+            return { ...d, costPercent, cps, avgOrderValue, closingRate, closingRateThucTe };
         };
 
         const asiaList = [];
@@ -442,8 +443,9 @@ export default function XemBaoCaoRnD() {
 
         const totalMetrics = {
             costPercent: total.dsSauHoanHuyThucTe > 0 ? (total.cpqc / total.dsSauHoanHuyThucTe) * 100 : 0,
-            cps: total.soDonThucTe ? total.cpqc / total.soDonThucTe : 0,
-            avgOrderValue: total.soDonThucTe ? total.dsChotThucTe / total.soDonThucTe : 0,
+            cps: total.soDon ? total.cpqc / total.soDon : 0,
+            avgOrderValue: total.soDon ? total.dsSauHoanHuyThucTe / total.soDon : 0,
+            closingRate: total.soMessCmt ? (total.soDon / total.soMessCmt) * 100 : 0,
             closingRateThucTe: total.soMessCmt ? (total.soDonThucTe / total.soMessCmt) * 100 : 0
         };
 
@@ -456,14 +458,17 @@ export default function XemBaoCaoRnD() {
                             <th className="pink-header text-left">Sản phẩm</th>
                             <th className="pink-header text-left">Thị trường</th>
                             <th className="pink-header">CPQC</th>
+                            <th className="pink-header">Số Đơn</th>
                             <th className="pink-header">Số Đơn (TT)</th>
                             <th className="pink-header">Số Mess</th>
+                            <th className="pink-header">DS Chốt</th>
                             <th className="pink-header">DS Chốt (TT)</th>
                             <th className="pink-header">DS Hoàn Hủy (TT)</th>
                             <th className="pink-header">DS Sau HH (TT)</th>
                             <th className="yellow-header">%CP/DS</th>
                             <th className="yellow-header">CPS</th>
                             <th className="yellow-header">Giá TB Đơn</th>
+                            <th className="yellow-header">Tỉ lệ chốt</th>
                             <th className="yellow-header">TL Chốt (TT)</th>
                         </tr>
                     </thead>
@@ -471,14 +476,17 @@ export default function XemBaoCaoRnD() {
                         <tr className="total-row">
                             <td colSpan={2} className="text-center">TỔNG CỘNG</td>
                             <td>{fmtCurrency(total.cpqc)}</td>
+                            <td>{fmtNum(total.soDon)}</td>
                             <td>{fmtNum(total.soDonThucTe)}</td>
                             <td>{fmtNum(total.soMessCmt)}</td>
+                            <td>{fmtCurrency(total.dsChot)}</td>
                             <td>{fmtCurrency(total.dsChotThucTe)}</td>
                             <td>{fmtCurrency(total.dsHoanHuyThucTe)}</td>
                             <td>{fmtCurrency(total.dsSauHoanHuyThucTe)}</td>
                             <td className="text-center">{fmtPct(totalMetrics.costPercent)}</td>
                             <td>{fmtCurrency(totalMetrics.cps)}</td>
                             <td>{fmtCurrency(totalMetrics.avgOrderValue)}</td>
+                            <td className="text-center">{fmtPct(totalMetrics.closingRate)}</td>
                             <td className="text-center">{fmtPct(totalMetrics.closingRateThucTe)}</td>
                         </tr>
                         {rows.map((r, i) => (
@@ -486,14 +494,17 @@ export default function XemBaoCaoRnD() {
                                 <td className="text-left">{r.isHeader ? 'Tổng ' + r.product : r.product}</td>
                                 <td className="text-left">{r.market === '_TOTAL_' ? '' : r.market}</td>
                                 <td>{fmtCurrency(r.cpqc)}</td>
+                                <td>{fmtNum(r.soDon)}</td>
                                 <td>{fmtNum(r.soDonThucTe)}</td>
                                 <td>{fmtNum(r.soMessCmt)}</td>
+                                <td>{fmtCurrency(r.dsChot)}</td>
                                 <td>{fmtCurrency(r.dsChotThucTe)}</td>
                                 <td>{fmtCurrency(r.dsHoanHuyThucTe)}</td>
                                 <td>{fmtCurrency(r.dsSauHoanHuyThucTe)}</td>
                                 <td className="text-center">{fmtPct(r.costPercent)}</td>
                                 <td>{fmtCurrency(r.cps)}</td>
                                 <td>{fmtCurrency(r.avgOrderValue)}</td>
+                                <td className={`text-center ${getRateClass(r.closingRate)}`}>{fmtPct(r.closingRate)}</td>
                                 <td className={`text-center ${getRateClass(r.closingRateThucTe)}`}>{fmtPct(r.closingRateThucTe)}</td>
                             </tr>
                         ))}
