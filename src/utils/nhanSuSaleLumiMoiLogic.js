@@ -6,7 +6,11 @@ import { REPORT_CA_COMBINED } from '../constants/reportShifts';
 import { supabase } from '../supabase/config';
 import { convertDateToAPIFormat } from '../services/ordersApiService';
 
-/** Chỉ cột cần cho view — giảm payload so với select('*') */
+/**
+ * Chỉ cột cần cho view — giảm payload so với select('*').
+ * Không gồm revenue_mess: một số DB chưa chạy migration (ADD COLUMN revenue_mess) → PostgREST lỗi PGRST204.
+ * mapSupabaseSalesReportRow vẫn đọc row.revenue_mess nếu có (vd. select * fallback hoặc sau khi thêm cột).
+ */
 const SALES_REPORTS_SELECT = [
   'name',
   'email',
@@ -20,7 +24,6 @@ const SALES_REPORTS_SELECT = [
   'mess_count',
   'response_count',
   'order_count',
-  'revenue_mess',
   'revenue_actual',
   'revenue_go_actual',
   'order_cancel_count',
@@ -517,7 +520,7 @@ export function mapSupabaseSalesReportRow(row) {
   const team = teamRaw || branchRaw || 'Không xác định';
   if (!ten) return null;
   const oc = Number(row.order_count) || 0;
-  const rm = Number(row.revenue_mess) || 0;
+  const rm = Number(row.revenue_mess ?? 0) || 0;
   const ra = Number(row.revenue_actual) || 0;
   const rca = Number(row.revenue_cancel_actual) || 0;
   return {
