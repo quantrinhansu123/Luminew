@@ -6,6 +6,7 @@ import { supabase } from '../supabase/config';
 import QuickAddModal from '../components/QuickAddModal';
 import '../styles/selection.css';
 import {
+  buildKetQuaCheckSelectOptionsWithCurrent,
   COLUMN_MAPPING,
   DROPDOWN_OPTIONS,
   EDITABLE_COLS,
@@ -1279,7 +1280,11 @@ function FFMMgtHcm() {
         let cellValue = row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '';
         cellValue = String(cellValue).trim();
 
-        if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)) {
+        if (
+          DROPDOWN_OPTIONS[dataKey] ||
+          DROPDOWN_OPTIONS[key] ||
+          ['Trạng thái giao hàng', 'Kết quả Check', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)
+        ) {
           const selected = val;
           if (selected.length === 0) return true;
           if (cellValue === '' && selected.includes('__EMPTY__')) return true;
@@ -1486,6 +1491,8 @@ function FFMMgtHcm() {
           'Trạng thái giao hàng',
           'Payment Bill',
           'Trạng thái cskh',
+          'Kết quả Check',
+          'Kết quả check',
           'GHI CHÚ'
         ].includes(col);
       next[col] = multi ? [] : '';
@@ -2838,7 +2845,11 @@ function FFMMgtHcm() {
           const { dataKey, raw: currentUiVal } = getFfmRowColRaw(rowData, colName, pendingChanges);
           const sourceCol = dataCols === 1 ? 0 : pasteCol % dataCols;
           let pasteValue = String(rows[sourceRow]?.[sourceCol] ?? '');
-          if (DROPDOWN_OPTIONS[colName]) {
+          if (
+            DROPDOWN_OPTIONS[colName] ||
+            colName === 'Kết quả Check' ||
+            colName === 'Kết quả check'
+          ) {
             pasteValue = pasteValue.trim();
           }
 
@@ -3376,7 +3387,11 @@ function FFMMgtHcm() {
         </div>
       );
     }
-    if (DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ'].includes(col)) {
+    if (
+      DROPDOWN_OPTIONS[col] ||
+      DROPDOWN_OPTIONS[key] ||
+      ['Trạng thái giao hàng', 'Kết quả Check', 'Kết quả check', 'GHI CHÚ'].includes(col)
+    ) {
       return (
         <MultiSelect
           label="Lọc..."
@@ -3470,6 +3485,18 @@ function FFMMgtHcm() {
           >
             {historyLoadingOrderId === orderId ? 'Đang tải...' : 'Xem'}
           </button>
+        ) : cellEditable && (col === 'Kết quả Check' || col === 'Kết quả check') ? (
+          <select
+            className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"
+            value={String(val)}
+            onChange={(e) => handleCellChange(orderId, key, e.target.value)}
+          >
+            {buildKetQuaCheckSelectOptionsWithCurrent(val).map((o) => (
+              <option key={o === '' ? '__empty__' : String(o)} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
         ) : cellEditable && DROPDOWN_OPTIONS[col] ? (
           <select
             className="w-full bg-transparent border-none outline-none text-sm p-0 m-0 cursor-pointer"

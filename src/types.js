@@ -73,13 +73,28 @@ export const DELIVERY_STATUS_PRESETS = Object.freeze([
 
 // Specific dropdown options for columns defined in the HTML
 export const DROPDOWN_OPTIONS = {
-    "Kết quả Check": ["", "OK", "Huỷ", "Treo", "Vận đơn XL", "Đợi hàng", "Khách hẹn", "Chờ check lại", "Sai SĐT", "Sai địa chỉ", "Khác"],
     "Trạng thái giao hàng NB": DELIVERY_STATUS_PRESETS,
     "Trạng thái thu tiền": ["", "Có bill", "Có bill 1 phần", "Bom_bùng_chặn", "Hẹn Thanh Toán", "Hoàn Hàng", "Khó Đòi", "Không nhận được hàng", "Không PH dưới 3N", "Thanh toán phí hoàn", "KPH nhiều ngày"],
     "Trạng thái giao hàng": DELIVERY_STATUS_PRESETS,
     "Payment Bill": ["", "Có bill", "Bill một phần"],
     "Trạng thái cskh": ["", "Chặn", "Đã có người xử lý", "Đã lênđơn mới", "Đã xử lý", "Khách chặn", "Không thấy mess", "Nhận hàng chưa tt"]
 };
+
+/**
+ * Giá trị chọn khi sửa ô «Kết quả Check» trên lưới (FFM / FFM HCM / Vận đơn).
+ * Bộ lọc cột vẫn lấy theo distinct trên dữ liệu (không dùng danh sách này).
+ */
+export const KET_QUA_CHECK_GRID_SELECT_OPTIONS = ['OK', 'Treo', 'Đợi hàng', 'Huỷ', 'Vận đơn XL', 'Trống'];
+
+/** `''` đầu danh sách = để trống ô; thêm giá trị hiện có nếu không nằm trong preset (dữ liệu cũ). */
+export function buildKetQuaCheckSelectOptionsWithCurrent(currentVal) {
+    const base = ['', ...KET_QUA_CHECK_GRID_SELECT_OPTIONS];
+    const raw = String(currentVal ?? '').trim();
+    if (raw !== '' && !base.some((o) => String(o) === raw)) {
+        return [...base, raw];
+    }
+    return base;
+}
 
 // Columns that are editable directly
 export const EDITABLE_COLS = [
