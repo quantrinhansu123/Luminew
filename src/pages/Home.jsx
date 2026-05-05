@@ -470,21 +470,6 @@ function Home() {
           permission: 'MKT_INPUT_HCM',
         },
         {
-          id: "mkt-ketoan-lanh-dao",
-          label: "Báo cáo MKT (Kế toán & LĐ)",
-          icon: <LayoutGrid className="w-4 h-4" />,
-          path: "/bao-cao-mkt-ke-toan-lanh-dao",
-          permissionAny: [
-            'MKT_VIEW',
-            'MKT_VIEW_HCM',
-            'MKT_INPUT',
-            'MKT_INPUT_HCM',
-            'FINANCE_DASHBOARD',
-            'DASHBOARD_QUAN_TRI',
-          ],
-          allowDirectorDept: true,
-        },
-        {
           id: "mkt-view",
           label: "Xem báo cáo MKT",
           icon: <BarChart3 className="w-4 h-4" />,
@@ -1217,22 +1202,6 @@ function Home() {
       title: "QUẢN LÝ MARKETING",
       items: [
         {
-          title: "Báo cáo MKT — Kế toán & LĐ",
-          icon: <LayoutGrid className="w-8 h-8" />,
-          color: "bg-amber-600",
-          path: "/bao-cao-mkt-ke-toan-lanh-dao",
-          status: "Hub báo cáo",
-          permissionAny: [
-            'MKT_VIEW',
-            'MKT_VIEW_HCM',
-            'MKT_INPUT',
-            'MKT_INPUT_HCM',
-            'FINANCE_DASHBOARD',
-            'DASHBOARD_QUAN_TRI',
-          ],
-          allowDirectorDept: true,
-        },
-        {
           title: "Nhập báo cáo",
           icon: <TrendingUp className="w-8 h-8" />,
           color: "bg-green-500",
@@ -1715,16 +1684,12 @@ function Home() {
 
     // 3b. Một trong nhiều quyền (tùy chọn trên từng menu item)
     if (item.permissionAny && Array.isArray(item.permissionAny) && item.permissionAny.length > 0) {
-      if (item.permissionAny.some((code) => canView(code))) return true;
-      if (item.allowDirectorDept && executiveDashboardAccess) return true;
-      return false;
+      return item.permissionAny.some((code) => canView(code));
     }
 
     // 4. Check explicit permission if present for leaf node
     if (item.permission) {
-      if (canView(item.permission)) return true;
-      if (item.allowDirectorDept && executiveDashboardAccess) return true;
-      return false;
+      return canView(item.permission);
     }
 
     // 5. If it has sub-items, check if AT LEAST ONE sub-item is visible

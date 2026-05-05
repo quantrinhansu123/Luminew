@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import usePermissions from '../hooks/usePermissions';
 import { supabase } from '../supabase/config';
 import { buildEmailByNameLookup, emailFromName, findEmployeeByName } from '../utils/emailFromName';
@@ -1929,19 +1929,6 @@ export default function BaoCaoMarketing({
               </p>
             )}
           </div>
-        </div>
-
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <span className="font-semibold">Báo cáo riêng cho Kế toán &amp; Lãnh đạo:</span>{' '}
-          <Link
-            to={isHcmReport ? '/bao-cao-mkt-ke-toan-lanh-dao?chi_nhanh=hcm' : '/bao-cao-mkt-ke-toan-lanh-dao'}
-            className="font-medium text-amber-800 underline decoration-amber-600/60 underline-offset-2 hover:text-amber-950"
-          >
-            Mở trang tổng hợp liên kết báo cáo MKT →
-          </Link>
-          <span className="mt-1 block text-xs font-normal text-amber-900/90">
-            (Xem / chi tiết đơn / báo cáo tay / hiệu quả / KPI / vận đơn / tài chính — theo chi nhánh nếu chọn HCM.)
-          </span>
         </div>
 
         {/* Status */}
