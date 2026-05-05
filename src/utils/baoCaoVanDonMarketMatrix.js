@@ -97,6 +97,8 @@ function emptyMetrics() {
         treo: 0,
         doiHang: 0,
         huyCheck: 0,
+        /** Có ĐVVC (đẩy VH) và histogram kết quả check có Huỷ — khớp định nghĩa «Huỷ vận hành». */
+        huyVanHanh: 0,
         sauHuy: 0,
         /** Đơn có ĐVVC (orders: shipping_unit; bao_cao: histogram «Lên vận hành»). */
         donDayVanHanh: 0,
@@ -112,6 +114,7 @@ function emptyMetrics() {
         treoAmount: 0,
         doiHangAmount: 0,
         huyCheckAmount: 0,
+        huyVanHanhAmount: 0,
         sauHuyAmount: 0,
         donDayVanHanhAmount: 0,
         giaoTCAmount: 0,
@@ -134,6 +137,10 @@ export function aggregateVanHanhSlice(slice) {
             (k) => /đợi|doi/i.test(String(k)) && /hàng|hang/i.test(String(k))
         );
         const huyRow = sumHistogramKeyMatch(r._ket_qua_check, (k) => /huỷ|hủy|cancel/i.test(String(k)));
+        const hasCarrier =
+            r._source === 'orders'
+                ? (Number(r._len_vh_don_vi) || 0) > 0
+                : sumLenVanHanhHistogram(r._trang_thai_giao_hang) > 0;
 
         m.tongLenDon += totChk;
         m.ok += okRow;
@@ -146,6 +153,10 @@ export function aggregateVanHanhSlice(slice) {
         if (treoRow > 0) m.treoAmount += amt;
         if (doiRow > 0) m.doiHangAmount += amt;
         if (huyRow > 0) m.huyCheckAmount += amt;
+        if (hasCarrier && huyRow > 0) {
+            m.huyVanHanh += huyRow;
+            m.huyVanHanhAmount += amt;
+        }
         if (totChk - huyRow > 0) m.sauHuyAmount += amt;
 
         if (r._source === 'orders') {

@@ -9,6 +9,7 @@ import BaoCaoChiTiet from './pages/BaoCaoChiTiet';
 import BaoCaoChiTietHcm from './pages/BaoCaoChiTietHcm';
 import BaoCaoHieuSuatKPI from './pages/BaoCaoHieuSuatKPI';
 import BaoCaoMarketing from './pages/BaoCaoMarketing';
+import BaoCaoMktKeToanLanhDao from './pages/BaoCaoMktKeToanLanhDao';
 import BaoCaoSale from './pages/BaoCaoSale';
 import NhanSuSaleLumiMoiView from './pages/NhanSuSaleLumiMoiView';
 import ChamCong from './pages/ChamCong';
@@ -114,6 +115,14 @@ function AppShell() {
                     ordersTableName="order_code_hcm"
                     pageTitle="Báo cáo MKT (HCM)"
                   />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/bao-cao-mkt-ke-toan-lanh-dao"
+              element={
+                <ProtectedRoute>
+                  <BaoCaoMktKeToanLanhDao />
                 </ProtectedRoute>
               }
             />
