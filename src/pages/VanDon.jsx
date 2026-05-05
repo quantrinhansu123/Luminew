@@ -22,9 +22,7 @@ import { recalcMktSoDonThucTeFromOrders } from '../services/mktRecalcSoDonThucTe
 
 
 import {
-  BILL_LADING_COLUMNS,
-  buildKetQuaCheckSelectOptionsWithCurrent,
-  COLUMN_MAPPING,
+  BILL_LADING_COLUMNS, COLUMN_MAPPING,
   DEFAULT_BILL_LADING_COLUMNS,
   DROPDOWN_OPTIONS,
   EDITABLE_COLS,
@@ -2147,11 +2145,7 @@ function VanDon({ dataSource = 'default' }) {
                 else cellValue = strNorm(row[dataKey] ?? row[key] ?? row[key.replace(/ /g, '_')] ?? row[dataKey.replace(/ /g, '_')] ?? '');
               }
 
-              if (
-                DROPDOWN_OPTIONS[dataKey] ||
-                DROPDOWN_OPTIONS[key] ||
-                ['Trạng thái giao hàng', 'Kết quả Check', 'Kết quả check', 'GHI CHÚ'].includes(dataKey)
-              ) {
+              if (DROPDOWN_OPTIONS[dataKey] || DROPDOWN_OPTIONS[key] || ["Trạng thái giao hàng", "Kết quả check", "GHI CHÚ"].includes(dataKey)) {
                 if (!Array.isArray(val)) return true;
                 const selected = val;
                 if (selected.length === 0) return true;
@@ -3833,10 +3827,7 @@ function VanDon({ dataSource = 'default' }) {
   );
 
   /** Ô chỉnh sửa: cột NB / «Trạng thái giao hàng» gộp preset + distinct toàn DB (giống bộ lọc) + unique trang hiện tại. */
-  const getCellEditSelectOptions = (col, currentRawVal) => {
-    if (normalizeColHeader(col) === normalizeColHeader('Kết quả Check')) {
-      return buildKetQuaCheckSelectOptionsWithCurrent(currentRawVal);
-    }
+  const getCellEditSelectOptions = (col) => {
     const key = COLUMN_MAPPING[col] || col;
     const preset = DROPDOWN_OPTIONS[key] || DROPDOWN_OPTIONS[col];
     const fromData = getUniqueValues(col);
@@ -5073,17 +5064,8 @@ function VanDon({ dataSource = 'default' }) {
             <option value="khong_trung">Không trùng</option>
           </select>
         ) : DROPDOWN_OPTIONS[col] || DROPDOWN_OPTIONS[key] || [
-          'Trạng thái giao hàng',
-          'Kết quả Check',
-          'Kết quả check',
-          'GHI CHÚ',
-          'Đơn vị vận chuyển',
-          'Nhân viên Sale',
-          'Nhân viên MKT',
-          'Page',
-          'NV Vận đơn',
-          'Mặt hàng',
-          'Khu vực'
+          'Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển',
+          'Nhân viên Sale', 'Nhân viên MKT', 'Page', 'NV Vận đơn', 'Mặt hàng', 'Khu vực'
         ].includes(col) ? (
           <div className="relative w-full" style={{ zIndex: 1002, marginTop: '-0.125rem' }}>
             <MultiSelect
@@ -5148,7 +5130,7 @@ function VanDon({ dataSource = 'default' }) {
       normalizeColHeader(col) === normalizeColHeader('Trạng thái giao hàng NB');
     let selectControlValue = val === '' || val == null ? '' : String(val);
     if (usePresetSelectMatch) {
-      selectControlValue = matchVanDonSelectToOptionList(selectControlValue, getCellEditSelectOptions(col, val));
+      selectControlValue = matchVanDonSelectToOptionList(selectControlValue, getCellEditSelectOptions(col));
     }
 
     const colLower = String(col || '').trim().toLowerCase();
@@ -5223,7 +5205,7 @@ function VanDon({ dataSource = 'default' }) {
             value={selectControlValue === '' || selectControlValue == null ? '' : String(selectControlValue)}
             onChange={(e) => handleCellChange(orderId, key, e.target.value)}
           >
-            {getCellEditSelectOptions(col, val)
+            {getCellEditSelectOptions(col)
               .filter((o) => o === '' || !isVanDonSemanticEmpty(o))
               .map((o) => (
                 <option key={o} value={o}>
