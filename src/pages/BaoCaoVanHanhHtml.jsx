@@ -2623,6 +2623,15 @@ export default function BaoCaoVanHanhHtml() {
                             ))}
                             {renderMetricPair(total.ok, total.okAmount)}
                         </tr>
+                        <tr className="bg-yellow-300 font-bold">
+                            <td className="border border-black px-2 py-1">Tỷ lệ OK / Tổng đơn (%)</td>
+                            {markets.map((mk) => (
+                                <React.Fragment key={`tok-${mk}`}>
+                                    {renderPctPair(formatPct(byMarket[mk].ok, byMarket[mk].tongLenDon))}
+                                </React.Fragment>
+                            ))}
+                            {renderPctPair(formatPct(total.ok, total.tongLenDon))}
+                        </tr>
                         <tr>
                             <td className="border border-black px-2 py-1">Treo</td>
                             {markets.map((mk) => (
@@ -2649,6 +2658,20 @@ export default function BaoCaoVanHanhHtml() {
                                 </React.Fragment>
                             ))}
                             {renderMetricPair(total.huyCheck, total.huyCheckAmount)}
+                        </tr>
+                        <tr className="text-red-700 font-semibold">
+                            <td className="border border-black px-2 py-1 leading-tight">
+                                Huỷ vận hành
+                                <span className="block text-xs font-normal font-sans">
+                                    (có Đơn vị vận chuyển + kết quả check Huỷ)
+                                </span>
+                            </td>
+                            {markets.map((mk) => (
+                                <React.Fragment key={`hvh-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].huyVanHanh, byMarket[mk].huyVanHanhAmount)}
+                                </React.Fragment>
+                            ))}
+                            {renderMetricPair(total.huyVanHanh, total.huyVanHanhAmount)}
                         </tr>
                         <tr className="font-bold text-red-600">
                             <td className="border border-black px-2 py-1">Tổng đơn sau hủy</td>
@@ -2719,15 +2742,6 @@ export default function BaoCaoVanHanhHtml() {
                                 </React.Fragment>
                             ))}
                             {renderMetricPair(total.coMa, total.coMaAmount)}
-                        </tr>
-                        <tr className="bg-cyan-200 font-bold">
-                            <td className="border border-black px-2 py-1">Tổng đơn đẩy VH (mã + đang giao)</td>
-                            {markets.map((mk) => (
-                                <React.Fragment key={`vh-${mk}`}>
-                                    {renderMetricPair(byMarket[mk].dayVH, byMarket[mk].dayVHAmount)}
-                                </React.Fragment>
-                            ))}
-                            {renderMetricPair(total.dayVH, total.dayVHAmount)}
                         </tr>
                         <tr className="bg-cyan-200 font-bold">
                             <td className="border border-black px-2 py-1">Đơn có bill (có bill, trừ 1 phần)</td>
