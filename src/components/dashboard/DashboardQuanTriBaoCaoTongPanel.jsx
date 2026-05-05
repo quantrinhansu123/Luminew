@@ -77,7 +77,8 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
         const { data, error: qErr } = await supabase
           .from('bao_cao_van_don')
           .select(
-            'id, ngay, thi_truong, ket_qua_check, trang_thai_giao_hang, trang_thai_thanh_toan, tien_trang_thai_thanh_toan, tong_tien_vnd'
+            // Không select tong_tien_vnd: bảng bao_cao_van_don (migrations repo) không có cột này — PostgREST lỗi → cả tab trống.
+            'id, ngay, thi_truong, ket_qua_check, trang_thai_giao_hang, trang_thai_thanh_toan, tien_trang_thai_thanh_toan'
           )
           .gte('ngay', globalFrom)
           .lte('ngay', globalTo)
@@ -125,7 +126,7 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
     granularity === 'day' ? 'Theo ngày' : granularity === 'week' ? 'Theo tuần (Thứ Hai)' : 'Theo tháng';
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-slate-50/80 p-3 text-slate-900">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-auto bg-slate-50/80 p-3 text-slate-900">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-bold text-slate-800 sm:text-base">Báo cáo tổng (vận đơn / bao_cao_van_don)</h2>
