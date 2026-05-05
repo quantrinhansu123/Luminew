@@ -711,17 +711,14 @@
               <th>Sản phẩm</th>
               <th>Thị trường</th>
               <th class="text-right">CPQC</th>
-              <th class="text-center">Số đơn</th>
               <th class="text-center">Số đơn (TT)</th>
               <th class="text-center">Số mess</th>
-              <th class="text-right">DS Chốt</th>
               <th class="text-right">DS Chốt (TT)</th>
               <th class="text-right">DS Hoàn Hủy</th>
               <th class="text-right">DS Sau HH (TT)</th>
               <th class="text-center">%CP/DS (Sau HH)</th>
               <th class="text-right">CPS</th>
               <th class="text-right">Giá đơn TB</th>
-              <th class="text-center">Tỉ lệ chốt</th>
               <th class="text-center">Tỉ lệ chốt (TT)</th>
             </tr>
           </thead>
@@ -738,17 +735,14 @@
               <th>Sản phẩm</th>
               <th>Thị trường</th>
               <th class="text-right">CPQC</th>
-              <th class="text-center">Số đơn</th>
               <th class="text-center">Số đơn (TT)</th>
               <th class="text-center">Số mess</th>
-              <th class="text-right">DS Chốt</th>
               <th class="text-right">DS Chốt (TT)</th>
               <th class="text-right">DS Hoàn Hủy</th>
               <th class="text-right">DS Sau HH (TT)</th>
               <th class="text-center">%CP/DS (Sau HH)</th>
               <th class="text-right">CPS</th>
               <th class="text-right">Giá đơn TB</th>
-              <th class="text-center">Tỉ lệ chốt</th>
               <th class="text-center">Tỉ lệ chốt (TT)</th>
             </tr>
           </thead>
@@ -765,17 +759,14 @@
               <th>Sản phẩm</th>
               <th></th>
               <th class="text-right">CPQC</th>
-              <th class="text-center">Số đơn</th>
               <th class="text-center">Số đơn (TT)</th>
               <th class="text-center">Số mess</th>
-              <th class="text-right">DS Chốt</th>
               <th class="text-right">DS Chốt (TT)</th>
               <th class="text-right">DS Hoàn Hủy</th>
               <th class="text-right">DS Sau HH (TT)</th>
               <th class="text-center">%CP/DS (Sau HH)</th>
               <th class="text-right">CPS</th>
               <th class="text-right">Giá đơn TB</th>
-              <th class="text-center">Tỉ lệ chốt</th>
               <th class="text-center">Tỉ lệ chốt (TT)</th>
             </tr>
           </thead>
@@ -1823,7 +1814,7 @@
       if (!container || !tableBody) return;
       container.style.display = data.length > 0 ? 'block' : 'none';
       if (data.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="15" class="text-center">Không có dữ liệu.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="12" class="text-center">Không có dữ liệu.</td></tr>`;
         if (prefix === 'summary') document.getElementById('summary-mkt').style.display = 'block';
         return;
       }
@@ -1867,12 +1858,10 @@
     function createMktRow(productName, marketName, data, showMarket, className = '') {
       const dsSauHoanHuyThucTe = data.dsChotThucTe - data.dsHoanHuyThucTe;
       const costPercent = dsSauHoanHuyThucTe > 0 ? data.cpqc / dsSauHoanHuyThucTe : 0;
-      const cps = data.soDon ? data.cpqc / data.soDon : 0;
-      const avgOrderValue = data.soDon ? dsSauHoanHuyThucTe / data.soDon : 0;
-      const closingRate = data.soMessCmt ? data.soDon / data.soMessCmt : 0;
+      const cps = data.soDonThucTe ? data.cpqc / data.soDonThucTe : 0;
+      const avgOrderValue = data.soDonThucTe ? data.dsChotThucTe / data.soDonThucTe : 0;
       const closingRateThucTe = data.soMessCmt ? data.soDonThucTe / data.soMessCmt : 0;
 
-      const rateClass = closingRate > 0.1 ? 'bg-green' : (closingRate > 0.05 ? 'bg-yellow' : '');
       const rateThucTeClass = closingRateThucTe > 0.1 ? 'bg-green' : (closingRateThucTe > 0.05 ? 'bg-yellow' : '');
       const isTotalRow = className.includes('total-row');
       const productCell = isTotalRow ? `<td class="total-label" colspan="2">${productName}</td>` : `<td class="text-left">${productName}</td>`;
@@ -1881,17 +1870,14 @@
       return `<tr class="${className}">
             ${productCell} ${marketCell}
             <td>${formatCurrency(data.cpqc)}</td>
-            <td class="text-center">${formatNumber(data.soDon)}</td>
             <td class="text-center">${formatNumber(data.soDonThucTe)}</td>
             <td class="text-center">${formatNumber(data.soMessCmt)}</td>
-            <td>${formatCurrency(data.dsChot)}</td>
             <td>${formatCurrency(data.dsChotThucTe)}</td>
             <td>${formatCurrency(data.dsHoanHuyThucTe)}</td>
             <td>${formatCurrency(dsSauHoanHuyThucTe)}</td>
             <td class="text-center">${formatPercent(costPercent)}</td>
             <td>${formatCurrency(cps)}</td>
             <td>${formatCurrency(avgOrderValue)}</td>
-            <td class="text-center ${rateClass}">${formatPercent(closingRate)}</td>
             <td class="text-center ${rateThucTeClass}">${formatPercent(closingRateThucTe)}</td>
         </tr>`;
     }
@@ -2184,7 +2170,7 @@
       charts.mktProductDsChotChart = createBarChart('mktProductDsChotChart', 'Doanh số Chốt (TT) theo SP');
       charts.mktProductCpqcChart = createBarChart('mktProductCpqcChart', 'Chi phí Quảng cáo theo SP');
       charts.mktProductCpsChart = createBarChart('mktProductCpsChart', 'Chi phí trên đơn (CPS) theo SP');
-      charts.mktProductClosingRateChart = createPieChart('mktProductClosingRateChart', 'Tỉ lệ chốt (%) theo SP');
+      charts.mktProductClosingRateChart = createPieChart('mktProductClosingRateChart', 'Tỉ lệ chốt (TT) (%) theo SP');
     }
 
     function renderMktCharts(data) {
@@ -2195,14 +2181,14 @@
         if (!productMetrics[p]) {
           productMetrics[p] = {
             cpqc: 0,
-            soDon: 0,
+            soDonThucTe: 0,
             soMessCmt: 0,
             dsChotThucTe: 0,
             dsHoanHuyThucTe: 0
           };
         }
         productMetrics[p].cpqc += r.cpqc;
-        productMetrics[p].soDon += r.soDon;
+        productMetrics[p].soDonThucTe += r.soDonThucTe;
         productMetrics[p].soMessCmt += r.soMessCmt;
         productMetrics[p].dsChotThucTe += r.dsChotThucTe;
         productMetrics[p].dsHoanHuyThucTe += r.dsHoanHuyThucTe;
@@ -2226,8 +2212,8 @@
       updateMktChartData(charts.mktProductSalesChart, sortedProducts.map(([, p]) => p.dsSauHhTt));
       updateMktChartData(charts.mktProductDsChotChart, sortedProducts.map(([, p]) => p.dsChotThucTe));
       updateMktChartData(charts.mktProductCpqcChart, sortedProducts.map(([, p]) => p.cpqc));
-      updateMktChartData(charts.mktProductCpsChart, sortedProducts.map(([, p]) => (p.soDon > 0 ? p.cpqc / p.soDon : 0)));
-      updateMktChartData(charts.mktProductClosingRateChart, sortedProducts.map(([, p]) => (p.soMessCmt > 0 ? p.soDon / p.soMessCmt : 0)));
+      updateMktChartData(charts.mktProductCpsChart, sortedProducts.map(([, p]) => (p.soDonThucTe > 0 ? p.cpqc / p.soDonThucTe : 0)));
+      updateMktChartData(charts.mktProductClosingRateChart, sortedProducts.map(([, p]) => (p.soMessCmt > 0 ? p.soDonThucTe / p.soMessCmt : 0)));
     }
 
     function createBarChart(canvasId, chartTitle) {
