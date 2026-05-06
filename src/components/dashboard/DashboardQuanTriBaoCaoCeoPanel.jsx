@@ -8,6 +8,7 @@ import { dedupeMktDetailReportRows } from '../../services/mktRecalcSoDonThucTeFr
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 80;
 const CEO_DEFAULT_SHIFT = 'Hết ca';
+// Bộ lọc Ca đang ẩn; mặc định tính theo tất cả ca để khớp báo cáo MKT.
 
 // CEO MKT: đọc trực tiếp bảng MKT (HN + HCM). Các cột tiếng Việt cần quote đúng key.
 const MKT_DATE_COL = '"Ngày"';
@@ -229,17 +230,15 @@ function mapMktReportRowToVirtual(row, source) {
   );
   const dsTT = parseNumberLoose(
     getFirstDefined(row, [
+      // Ưu tiên DS chốt TT (đã trừ huỷ) đúng nghĩa
+      'Doanh số TT',
       'Doanh thu chốt thực tế',
       'Doanh thu chot thuc te',
       'Doanh số thực tế',
-      'Doanh số đi thực tế',
-      'Doanh số đi',
-      'Doanh so di',
-      'Doanh số TT',
+      // Fallback legacy label
       'DS chốt',
       'DS chot',
       'Doanh so thuc te',
-      'Doanh so di thuc te',
     ]) ?? NaN
   );
   const soDonHuyTT = parseNumberLoose(
@@ -530,8 +529,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
       return;
     }
     setFilters({
-      // CEO: ẩn bộ lọc ca, mặc định chỉ xem "Hết ca"
-      shifts: filterOptions.shifts.includes(CEO_DEFAULT_SHIFT) ? [CEO_DEFAULT_SHIFT] : [],
+      shifts: filterOptions.shifts.includes(CEO_DEFAULT_SHIFT) ? [CEO_DEFAULT_SHIFT] : [...filterOptions.shifts],
       teams: [...filterOptions.teams],
       products: [...filterOptions.products],
       markets: [...filterOptions.markets],
@@ -544,12 +542,8 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
     if (!didInitFiltersRef[0]) return;
     setFilters((prev) => {
       const next = {
-        // CEO: luôn giữ logic mặc định "Hết ca" (không auto-add ca mới)
-        shifts: filterOptions.shifts.includes(CEO_DEFAULT_SHIFT)
-          ? prev.shifts?.includes(CEO_DEFAULT_SHIFT)
-            ? [CEO_DEFAULT_SHIFT]
-            : [CEO_DEFAULT_SHIFT]
-          : [],
+        // CEO: ẩn UI ca nhưng vẫn giữ "tất cả ca" (auto-add ca mới nếu phát sinh)
+        shifts: mergeKeepAndAddNew(prev.shifts, filterOptions.shifts),
         teams: mergeKeepAndAddNew(prev.teams, filterOptions.teams),
         products: mergeKeepAndAddNew(prev.products, filterOptions.products),
         markets: mergeKeepAndAddNew(prev.markets, filterOptions.markets),
@@ -580,8 +574,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   const mappedFiltered = useMemo(() => {
     const productAll = allSelected.products;
     const marketAll = allSelected.markets;
-    // CEO: luôn lọc "Hết ca" và ẩn filter ca khỏi UI
-    const caAll = false;
+    const caAll = allSelected.shifts;
     const teamAll = allSelected.teams;
     let base = filterRawData({
       rawData: mappedAll,
@@ -596,7 +589,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
       productAll,
       selectedProducts: productAll ? null : filters.products,
       caAll,
-      selectedShifts: [CEO_DEFAULT_SHIFT],
+      selectedShifts: caAll ? null : filters.shifts,
       teamAll,
       selectedTeams: teamAll ? null : filters.teams,
       marketAll,
@@ -764,6 +757,16 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
             onToggleAll={(checked) => setFilters((prev) => ({ ...prev, markets: checked ? [...filterOptions.markets] : [] }))}
             onToggle={(v) => setFilters((prev) => ({ ...prev, markets: toggleInList(prev.markets, v) }))}
             emptyLabel="Chưa có giá trị Thị trường trong dữ liệu đã tải"
+          />
+
+          <FilterHeader title="Ca" />
+          <CheckboxList
+            values={filterOptions.shifts}
+            selected={filters.shifts}
+            allChecked={allSelected.shifts}
+            onToggleAll={(checked) => setFilters((prev) => ({ ...prev, shifts: checked ? [...filterOptions.shifts] : [] }))}
+            onToggle={(v) => setFilters((prev) => ({ ...prev, shifts: toggleInList(prev.shifts, v) }))}
+            emptyLabel="Chưa có giá trị Ca trong dữ liệu đã tải"
           />
 
           <FilterHeader title="Team" />
