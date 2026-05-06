@@ -95,6 +95,7 @@ function emptyMetrics() {
         tongLenDon: 0,
         ok: 0,
         treo: 0,
+        khachHen: 0,
         doiHang: 0,
         huyCheck: 0,
         /** Có ĐVVC (đẩy VH) và histogram kết quả check có Huỷ — khớp định nghĩa «Huỷ vận hành». */
@@ -112,6 +113,7 @@ function emptyMetrics() {
         tongLenDonAmount: 0,
         okAmount: 0,
         treoAmount: 0,
+        khachHenAmount: 0,
         doiHangAmount: 0,
         huyCheckAmount: 0,
         huyVanHanhAmount: 0,
@@ -132,6 +134,14 @@ export function aggregateVanHanhSlice(slice) {
         const totChk = sumBaoCaoVanDonHistogramValues(r._ket_qua_check);
         const okRow = sumHistogramKeyMatch(r._ket_qua_check, (k) => String(k).trim().toLowerCase() === 'ok');
         const treoRow = sumHistogramKeyMatch(r._ket_qua_check, (k) => /treo/i.test(String(k)));
+        const khachHenRow = sumHistogramKeyMatch(r._ket_qua_check, (k) => {
+            const s = String(k ?? '')
+                .trim()
+                .normalize('NFC')
+                .toLowerCase()
+                .replace(/\s+/g, ' ');
+            return s.includes('khách hẹn') || s.includes('khach hen');
+        });
         const doiRow = sumHistogramKeyMatch(
             r._ket_qua_check,
             (k) => /đợi|doi/i.test(String(k)) && /hàng|hang/i.test(String(k))
@@ -145,12 +155,14 @@ export function aggregateVanHanhSlice(slice) {
         m.tongLenDon += totChk;
         m.ok += okRow;
         m.treo += treoRow;
+        m.khachHen += khachHenRow;
         m.doiHang += doiRow;
         m.huyCheck += huyRow;
 
         if (totChk > 0) m.tongLenDonAmount += amt;
         if (okRow > 0) m.okAmount += amt;
         if (treoRow > 0) m.treoAmount += amt;
+        if (khachHenRow > 0) m.khachHenAmount += amt;
         if (doiRow > 0) m.doiHangAmount += amt;
         if (huyRow > 0) m.huyCheckAmount += amt;
         if (hasCarrier && huyRow > 0) {

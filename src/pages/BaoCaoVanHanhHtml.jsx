@@ -2650,6 +2650,15 @@ export default function BaoCaoVanHanhHtml() {
                             ))}
                             {renderMetricPair(total.doiHang, total.doiHangAmount)}
                         </tr>
+                        <tr>
+                            <td className="border border-black px-3 py-2">Khách hẹn (kết quả check)</td>
+                            {markets.map((mk) => (
+                                <React.Fragment key={`kh-${mk}`}>
+                                    {renderMetricPair(byMarket[mk].khachHen, byMarket[mk].khachHenAmount)}
+                                </React.Fragment>
+                            ))}
+                            {renderMetricPair(total.khachHen, total.khachHenAmount)}
+                        </tr>
                         <tr className="text-red-600">
                             <td className="border border-black px-3 py-2">Tổng hủy (kq check)</td>
                             {markets.map((mk) => (
