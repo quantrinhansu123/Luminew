@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../supabase/config';
 import { aggregateVanHanhSlice, formatPct, formatSlVi } from '../../utils/baoCaoVanDonMarketMatrix';
+import { isGiaoHangHistogramSyntheticKey } from '../../utils/baoCaoVanDonFormat';
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 80;
@@ -55,11 +56,96 @@ function mapBaoCaoVanDonRowToVirtual(row) {
   };
 }
 
+const normalizeYmd = (value) => {
+  if (!value) return '';
+  const s = String(value).trim();
+  if (!s) return '';
+  if (s.includes('T')) return s.slice(0, 10);
+  return s.slice(0, 10);
+};
+
+const meaningfulTrim = (value) =>
+  String(value ?? '')
+    .replace(/\u00a0/g, ' ')
+    .trim();
+
+function sqlCoalesceNumbers(...vals) {
+  for (const v of vals) {
+    if (v == null || v === '') continue;
+    const n = Number(v);
+    if (!Number.isNaN(n)) return n;
+  }
+  return 0;
+}
+
+function resolveVanDonDisplayTotalVnd(row) {
+  if (row?.van_don_line_total_vnd != null && row.van_don_line_total_vnd !== '') {
+    const v = Number(row.van_don_line_total_vnd);
+    if (!Number.isNaN(v)) return v;
+  }
+  const rawTong = row?.tong_tien_vnd ?? row?.tong_tien_VND;
+  if (rawTong != null && rawTong !== '' && !Number.isNaN(Number(rawTong))) {
+    const tn = Number(rawTong);
+    if (tn !== 0) return tn;
+  }
+  return sqlCoalesceNumbers(row?.total_amount_vnd, row?.sale_price, row?.goods_amount, 0);
+}
+
+const paymentLabelForOrder = (order) => {
+  const d = String(order?.payment_status_detail ?? '').trim();
+  if (d) return d;
+  return String(order?.payment_status ?? '').trim();
+};
+
+const paymentLabelIsCoBillOnly = (label) => {
+  const s = String(label ?? '').trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes('1 phần') && s.includes('bill')) return false;
+  return s.includes('có bill');
+};
+
+function mapOrderRowToVirtual(row) {
+  const deliveryLabelRaw = String(row?.delivery_status_nb ?? row?.delivery_status ?? '').trim();
+  const deliveryLabel = deliveryLabelRaw || '(Trống)';
+  const safeDeliveryLabel = isGiaoHangHistogramSyntheticKey(deliveryLabel) ? '(Trống)' : deliveryLabel;
+  const paymentLabelRaw = paymentLabelForOrder(row);
+  const paymentLabel = paymentLabelRaw || '(Trống)';
+  const tongTienVnd = Number(row?.total_amount_vnd) || 0;
+  const tongTienCoMaRaw = row?.tong_tien_vnd ?? row?.tong_tien_VND;
+  const tongTienCoMa = resolveVanDonDisplayTotalVnd(row);
+  const dsTongTienVnd =
+    tongTienCoMaRaw != null && tongTienCoMaRaw !== '' && !Number.isNaN(Number(tongTienCoMaRaw))
+      ? Number(tongTienCoMaRaw)
+      : 0;
+  const trackingCount = meaningfulTrim(row?.tracking_code) !== '' ? 1 : 0;
+  const shippingUnitNorm = meaningfulTrim(row?.shipping_unit);
+  const lenVhCount = shippingUnitNorm !== '' ? 1 : 0;
+  const ngay = normalizeYmd(row?.order_date) || normalizeYmd(row?.created_at);
+  const checkResult = String(row?.check_result ?? '').trim() || '(Trống)';
+  return {
+    _source: 'orders',
+    id: row?.id || row?.order_code || `${ngay}-${Math.random().toString(36).slice(2, 8)}`,
+    _ket_qua_check: { [checkResult]: 1 },
+    _trang_thai_giao_hang: {
+      [safeDeliveryLabel]: 1,
+      'Mã Tracking': trackingCount,
+      'Lên vận hành': lenVhCount,
+    },
+    _trang_thai_thanh_toan: { [paymentLabel]: 1 },
+    _tien_trang_thai_thanh_toan: { [paymentLabel]: paymentLabelIsCoBillOnly(paymentLabel) ? tongTienVnd : 0 },
+    _tong_tien_vnd: tongTienCoMa,
+    _ds_tong_tien_vnd: dsTongTienVnd,
+    'khu vực': String(row?.country ?? '').trim() || 'Không xác định',
+    'Ngày lên đơn': ngay,
+  };
+}
+
 export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }) {
   const [granularity, setGranularity] = useState('day');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [diag, setDiag] = useState({ checked: false, totalCount: null, maxNgay: null });
 
   const load = useCallback(async () => {
     if (!globalFrom || !globalTo) return;
@@ -69,30 +155,50 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
     }
     setLoading(true);
     setError(null);
+    setDiag({ checked: false, totalCount: null, maxNgay: null });
     try {
       const all = [];
       for (let page = 0; page < MAX_PAGES; page += 1) {
         const from = page * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
         const { data, error: qErr } = await supabase
-          .from('bao_cao_van_don')
+          .from('orders')
           .select(
-            // Không select tong_tien_vnd: bảng bao_cao_van_don (migrations repo) không có cột này — PostgREST lỗi → cả tab trống.
-            'id, ngay, thi_truong, ket_qua_check, trang_thai_giao_hang, trang_thai_thanh_toan, tien_trang_thai_thanh_toan'
+            'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, tong_tien_VND, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit'
           )
-          .gte('ngay', globalFrom)
-          .lte('ngay', globalTo)
-          .order('ngay', { ascending: true })
+          .gte('order_date', globalFrom)
+          .lte('order_date', globalTo)
+          .order('order_date', { ascending: true })
           .range(from, to);
         if (qErr) throw qErr;
         const batch = data || [];
         all.push(...batch);
         if (batch.length < PAGE_SIZE) break;
       }
-      setRows(all);
+      setRows(all.map(mapOrderRowToVirtual));
+
+      // Nếu không có lỗi nhưng 0 dòng: tự chẩn đoán xem bảng có data (trong RLS scope) không.
+      if (all.length === 0) {
+        try {
+          const [{ count }, maxRes] = await Promise.all([
+            supabase.from('orders').select('id', { count: 'exact', head: true }),
+            supabase.from('orders').select('order_date').order('order_date', { ascending: false }).limit(1),
+          ]);
+          const maxNgay =
+            (Array.isArray(maxRes?.data) ? maxRes.data[0]?.order_date : maxRes?.data?.order_date) || null;
+          setDiag({
+            checked: true,
+            totalCount: typeof count === 'number' ? count : null,
+            maxNgay: maxNgay ? String(maxNgay).slice(0, 10) : null,
+          });
+        } catch (e2) {
+          setDiag({ checked: true, totalCount: null, maxNgay: null });
+          console.warn('[DashboardQuanTriBaoCaoTongPanel] diag failed:', e2);
+        }
+      }
     } catch (e) {
       console.error(e);
-      setError(e?.message || 'Không tải được bao_cao_van_don');
+      setError(e?.message || 'Không tải được orders');
       setRows([]);
     } finally {
       setLoading(false);
@@ -103,13 +209,11 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
     load();
   }, [load]);
 
-  const virtualRows = useMemo(() => rows.map(mapBaoCaoVanDonRowToVirtual), [rows]);
-
-  const grand = useMemo(() => aggregateVanHanhSlice(virtualRows), [virtualRows]);
+  const grand = useMemo(() => aggregateVanHanhSlice(rows), [rows]);
 
   const bucketRows = useMemo(() => {
     const map = new Map();
-    for (const v of virtualRows) {
+    for (const v of rows) {
       const rawNgay = v['Ngày lên đơn'];
       const bk = bucketKeyForRow(rawNgay, granularity);
       if (!map.has(bk)) map.set(bk, []);
@@ -120,7 +224,7 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
       key: k,
       m: aggregateVanHanhSlice(map.get(k) || []),
     }));
-  }, [virtualRows, granularity]);
+  }, [rows, granularity]);
 
   const granLabel =
     granularity === 'day' ? 'Theo ngày' : granularity === 'week' ? 'Theo tuần (Thứ Hai)' : 'Theo tháng';
@@ -129,7 +233,7 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-auto bg-slate-50/80 p-3 text-slate-900">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-bold text-slate-800 sm:text-base">Báo cáo tổng (vận đơn / bao_cao_van_don)</h2>
+          <h2 className="text-sm font-bold text-slate-800 sm:text-base">Báo cáo tổng (vận đơn / orders)</h2>
           <p className="text-[11px] text-slate-600 sm:text-xs">
             Gom theo kết quả histogram trên dòng báo cáo — đồng bộ logic với tab «Thống kê đơn» Báo cáo vận hành. Tỷ lệ
             thu = đơn có bill đủ / Giao thành công.
@@ -201,7 +305,17 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
               {bucketRows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-3 py-6 text-center text-slate-500">
-                    Không có dòng bao_cao_van_don trong khoảng ngày đã chọn.
+                    <div className="font-medium">Không có đơn trong khoảng ngày đã chọn.</div>
+                    {diag.checked && (
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        {diag.totalCount === 0
+                          ? 'Trong phạm vi quyền hiện tại, bảng orders đang trống (hoặc RLS chặn toàn bộ).'
+                          : `Trong phạm vi quyền hiện tại: tổng dòng ≈ ${diag.totalCount ?? '—'}; ngày mới nhất = ${diag.maxNgay ?? '—'}.`}
+                        <div className="mt-0.5">
+                          Gợi ý: thử chỉnh “Khoảng ngày” ở Dashboard cho khớp ngày mới nhất của vận đơn.
+                        </div>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -238,8 +352,8 @@ export default function DashboardQuanTriBaoCaoTongPanel({ globalFrom, globalTo }
       )}
 
       <p className="mt-2 text-[10px] text-slate-500">
-        Nguồn: Supabase <code className="rounded bg-slate-200 px-0.5">bao_cao_van_don</code> · Tối đa {MAX_PAGES * PAGE_SIZE} dòng
-        / lần tải.
+        Nguồn: Supabase <code className="rounded bg-slate-200 px-0.5">orders</code> · Tối đa {MAX_PAGES * PAGE_SIZE} dòng
+        / lần tải · Đã tải: <span className="font-semibold">{rows.length}</span> dòng.
       </p>
     </div>
   );

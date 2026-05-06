@@ -7,6 +7,7 @@ const PAGE_SIZE = 1000;
 const MAX_PAGES = 80;
 
 // CEO MKT: đọc trực tiếp bảng MKT (HN + HCM). Các cột tiếng Việt cần quote đúng key.
+const MKT_DATE_COL = '"Ngày"';
 const MKT_REPORTS_SELECT_BASE = [
   'id',
   '"Ngày"',
@@ -23,11 +24,62 @@ const MKT_REPORTS_SELECT_BASE = [
 // Một số DB dùng tên khác nhau cho “doanh số TT” (vd. “Doanh số đi thực tế”).
 // Không được select cột không tồn tại — PostgREST sẽ 400. Vì vậy ta thử nhiều candidates.
 const MKT_REPORTS_SELECT_CANDIDATES = [
+  '*',
+  `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số TT","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+  `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh thu chốt thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+  `${MKT_REPORTS_SELECT_BASE},"Số đơn TT","Doanh số TT","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
   `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
   `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số đi thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
   `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
   MKT_REPORTS_SELECT_BASE,
 ];
+
+function selectCandidatesForTable(tableName) {
+  const t = String(tableName || '').trim();
+  if (t === 'detail_reports') {
+    return [
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số đi thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      MKT_REPORTS_SELECT_BASE,
+    ];
+  }
+  if (t === 'marketing_report_hcm') {
+    // Bảng HCM hay lệch schema: fallback cực "defensive" để tránh 400.
+    const baseNoDims = ['id', '"Ngày"', 'ca', '"Team"', '"Số đơn"', '"Doanh số"'].join(',');
+    const baseBare = ['id', '"Ngày"', 'ca', '"Team"'].join(',');
+    return [
+      '*',
+      // try full KPI first
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số TT","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh thu chốt thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn TT","Doanh số TT","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số đi thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      // drop dim columns that are most likely to differ
+      `${baseNoDims},"Số đơn thực tế","Doanh số TT","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${baseNoDims},"Số đơn thực tế","Doanh thu chốt thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${baseNoDims},"Số đơn TT","Doanh số TT","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${baseNoDims},"Số đơn thực tế","Doanh số thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${baseNoDims},"Số đơn thực tế","Doanh số đi thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      `${baseNoDims},"Số đơn thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+      // minimal safe
+      baseNoDims,
+      baseBare,
+    ];
+  }
+  return MKT_REPORTS_SELECT_CANDIDATES;
+}
+
+function arraysEqual(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
 
 function getFirstDefined(row, keys) {
   for (const k of keys) {
@@ -35,6 +87,18 @@ function getFirstDefined(row, keys) {
     if (v !== undefined && v !== null && String(v).trim() !== '') return v;
   }
   return null;
+}
+
+function parseNumberLoose(value) {
+  if (value == null || value === '') return 0;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const raw = String(value).trim();
+  if (!raw) return 0;
+  const negative = raw.startsWith('-');
+  const digits = raw.replace(/[^0-9]/g, '');
+  if (!digits) return 0;
+  const n = Number((negative ? '-' : '') + digits);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function mapMktReportRowToVirtual(row, source) {
@@ -45,19 +109,41 @@ function mapMktReportRowToVirtual(row, source) {
   const team = String(getFirstDefined(row, ['Team']) ?? '').trim();
   const sanPham = String(getFirstDefined(row, ['Sản_phẩm']) ?? '').trim();
   const thiTruong = String(getFirstDefined(row, ['Thị_trường']) ?? '').trim();
-  const soMessCmt = Number(getFirstDefined(row, ['Số_Mess_Cmt']) ?? 0) || 0;
-  const cpqc = Number(getFirstDefined(row, ['CPQC']) ?? 0) || 0;
-  const soDonTay = Number(getFirstDefined(row, ['Số đơn']) ?? 0) || 0;
-  const doanhSoTay = Number(getFirstDefined(row, ['Doanh số']) ?? 0) || 0;
+  const soMessCmt = parseNumberLoose(getFirstDefined(row, ['Số_Mess_Cmt', 'Số Mess', 'So_Mess_Cmt']) ?? 0);
+  const cpqc = parseNumberLoose(getFirstDefined(row, ['CPQC', 'Cpqc', 'cpqc']) ?? 0);
+  const soDonTay = parseNumberLoose(getFirstDefined(row, ['Số đơn', 'Số_đơn', 'So don', 'So_don']) ?? 0);
+  const doanhSoTay = parseNumberLoose(
+    getFirstDefined(row, ['Doanh số', 'Doanh_số', 'Doanh so', 'Doanh_so']) ?? 0
+  );
 
   // TT: ưu tiên cột TT nếu có; không có thì fallback theo “tay”.
-  const soDonTT = Number(getFirstDefined(row, ['Số đơn thực tế']) ?? NaN);
-  const dsTT = Number(getFirstDefined(row, ['Doanh số thực tế', 'Doanh số đi thực tế']) ?? NaN);
-  const soDonHuyTT = Number(getFirstDefined(row, ['Số đơn hoàn hủy']) ?? 0) || 0;
-  const dsHuyTT = Number(getFirstDefined(row, ['Doanh số hoàn hủy thực tế']) ?? 0) || 0;
+  const soDonTT = parseNumberLoose(
+    getFirstDefined(row, ['Số đơn thực tế', 'Số đơn TT', 'So don thuc te', 'So don tt', 'So don TT']) ?? NaN
+  );
+  const dsTT = parseNumberLoose(
+    getFirstDefined(row, [
+      'Doanh thu chốt thực tế',
+      'Doanh thu chot thuc te',
+      'Doanh số thực tế',
+      'Doanh số đi thực tế',
+      'Doanh số đi',
+      'Doanh so di',
+      'Doanh số TT',
+      'DS chốt',
+      'DS chot',
+      'Doanh so thuc te',
+      'Doanh so di thuc te',
+    ]) ?? NaN
+  );
+  const soDonHuyTT = parseNumberLoose(
+    getFirstDefined(row, ['Số đơn hoàn hủy', 'Số đơn hủy', 'So don huy']) ?? 0
+  );
+  const dsHuyTT = parseNumberLoose(
+    getFirstDefined(row, ['Doanh số hoàn hủy thực tế', 'Doanh số hủy TT', 'Doanh so huy thuc te']) ?? 0
+  );
 
-  const soDonThucTe = Number.isFinite(soDonTT) ? soDonTT : soDonTay;
-  const doanhThuChotThucTe = Number.isFinite(dsTT) ? dsTT : doanhSoTay;
+  const soDonThucTe = Number.isFinite(soDonTT) && soDonTT !== 0 ? soDonTT : soDonTay;
+  const doanhThuChotThucTe = Number.isFinite(dsTT) && dsTT !== 0 ? dsTT : doanhSoTay;
 
   return {
     __ceo_source: source, // 'hn' | 'hcm'
@@ -186,6 +272,9 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
       const isMissingColumnErr = (err) => {
         const code = String(err?.code || '');
         const msg = String(err?.message || '').toLowerCase();
+        const status = Number(err?.status || err?.statusCode || 0);
+        // PostgREST hay trả 400 cho lỗi select sai cột; supabase-js đôi khi không set code/message rõ ràng.
+        if (status === 400) return true;
         return code === '42703' || msg.includes('does not exist') || msg.includes('could not find');
       };
 
@@ -194,7 +283,8 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
         let lastErr = null;
 
         // Retry với select ngắn hơn nếu thiếu cột
-        for (const selectStr of MKT_REPORTS_SELECT_CANDIDATES) {
+        const candidates = selectCandidatesForTable(tableName);
+        for (const selectStr of candidates) {
           try {
             all.length = 0;
             for (let page = 0; page < MAX_PAGES; page += 1) {
@@ -203,9 +293,10 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
               const { data, error: qErr } = await supabase
                 .from(tableName)
                 .select(selectStr)
-                .gte('Ngày', globalFrom)
-                .lte('Ngày', globalTo)
-                .order('Ngày', { ascending: true })
+                // PostgREST: cột tiếng Việt / chữ hoa cần quote trong filter key, nếu không sẽ 400.
+                .gte(MKT_DATE_COL, globalFrom)
+                .lte(MKT_DATE_COL, globalTo)
+                .order(MKT_DATE_COL, { ascending: true })
                 .range(from, to);
               if (qErr) throw qErr;
               const batch = data || [];
@@ -296,12 +387,23 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
   // Khi options thay đổi sau khi đã init: giữ các value còn tồn tại, và auto-add value mới (để vẫn "tất cả").
   useEffect(() => {
     if (!didInitFiltersRef[0]) return;
-    setFilters((prev) => ({
-      shifts: mergeKeepAndAddNew(prev.shifts, filterOptions.shifts),
-      teams: mergeKeepAndAddNew(prev.teams, filterOptions.teams),
-      products: mergeKeepAndAddNew(prev.products, filterOptions.products),
-      markets: mergeKeepAndAddNew(prev.markets, filterOptions.markets),
-    }));
+    setFilters((prev) => {
+      const next = {
+        shifts: mergeKeepAndAddNew(prev.shifts, filterOptions.shifts),
+        teams: mergeKeepAndAddNew(prev.teams, filterOptions.teams),
+        products: mergeKeepAndAddNew(prev.products, filterOptions.products),
+        markets: mergeKeepAndAddNew(prev.markets, filterOptions.markets),
+      };
+      if (
+        arraysEqual(prev.shifts, next.shifts) &&
+        arraysEqual(prev.teams, next.teams) &&
+        arraysEqual(prev.products, next.products) &&
+        arraysEqual(prev.markets, next.markets)
+      ) {
+        return prev;
+      }
+      return next;
+    });
   }, [filterOptions.products, filterOptions.markets, filterOptions.shifts, filterOptions.teams, didInitFiltersRef]);
 
   const allSelected = useMemo(() => {
@@ -381,44 +483,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
     return [finalize(total), finalize(hcm), finalize(hn)];
   }, [mappedFiltered, bucketFromRow]);
 
-  const dailyBreakdown = useMemo(() => {
-    const byDay = new Map();
-    for (const r of mappedFiltered) {
-      const day = String(r.ngay || '').slice(0, 10);
-      if (!day) continue;
-      if (!byDay.has(day)) byDay.set(day, []);
-      byDay.get(day).push(r);
-    }
-
-    const days = Array.from(byDay.keys()).sort((a, b) => b.localeCompare(a, 'vi'));
-    const blocks = days.map((day) => {
-      const rows = byDay.get(day) || [];
-      const hcm = emptyAgg('HCM');
-      const hn = emptyAgg('HN');
-      for (const r of rows) {
-        const b = bucketFromRow(r);
-        if (b === 'hcm') addRow(hcm, r);
-        else if (b === 'hn') addRow(hn, r);
-      }
-      const total = emptyAgg('Tổng');
-      addAgg(total, hcm);
-      addAgg(total, hn);
-      const finalize = (a) => {
-        return {
-          ...a,
-          tiLeChot: moneyDiv(a.soDonTay, a.mess),
-          tiLeChotTT: moneyDiv(a.soDonTT, a.mess),
-          giaMess: moneyDiv(a.cpqc, a.mess),
-          cps: moneyDiv(a.cpqc, a.soDonTT),
-          cpDs: moneyDiv(a.cpqc, a.doanhSoTT),
-          giaTbDon: moneyDiv(a.doanhSoTT, a.soDonTT),
-        };
-      };
-      return { day, rows: [finalize(total), finalize(hcm), finalize(hn)] };
-    });
-
-    return blocks;
-  }, [mappedFiltered, bucketFromRow]);
+  // Đã bỏ phần bảng theo ngày theo yêu cầu.
 
   return (
     <div className="h-full min-h-0 overflow-auto">
@@ -537,7 +602,6 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
                   <th className="text-left">Khu vực</th>
                   <th>Số Mess</th>
                   <th>CPQC</th>
-                  <th>DS Chốt</th>
                   <th>DS Chốt (TT)</th>
                   <th>Tỉ lệ chốt</th>
                   <th>Tỉ lệ chốt (TT)</th>
@@ -553,7 +617,6 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
                     <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
                     <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
                     <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTay)}</td>
                     <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
                     <td style={warnStyle(chotKind(a.soDonTay, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
                       {pct(a.soDonTay, a.mess)}
@@ -573,61 +636,6 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
             </table>
           </div>
 
-
-          <div className="daily-breakdown">
-            <h3>Chia theo ngày</h3>
-            {dailyBreakdown.length === 0 ? (
-              <div style={{ fontSize: '12px', color: '#777' }}>Không có dữ liệu theo khoảng ngày đã chọn.</div>
-            ) : (
-              dailyBreakdown.map((block) => (
-                <div key={block.day} className="table-responsive-container" style={{ marginBottom: '18px' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#2E4617', marginBottom: '8px' }}>
-                    Ngày {block.day}
-                  </div>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th className="text-left">Khu vực</th>
-                        <th>Số Mess</th>
-                        <th>CPQC</th>
-                        <th>DS Chốt</th>
-                        <th>DS Chốt (TT)</th>
-                        <th>Tỉ lệ chốt</th>
-                        <th>Tỉ lệ chốt (TT)</th>
-                        <th>Giá Mess</th>
-                        <th>CPS</th>
-                        <th>%CP/DS</th>
-                        <th>Giá TB Đơn</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {block.rows.map((a) => (
-                        <tr key={`${block.day}-${a.label}`} className={a.label === 'Tổng' ? 'total-row' : ''}>
-                          <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTay)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
-                          <td style={warnStyle(chotKind(a.soDonTay, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                            {pct(a.soDonTay, a.mess)}
-                          </td>
-                          <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                            {pct(a.soDonTT, a.mess)}
-                          </td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaMess)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cps)}</td>
-                          <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoTT))} className={a.label === 'Tổng' ? 'total-value' : ''}>
-                            {pct(a.cpqc, a.doanhSoTT)}
-                          </td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaTbDon)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))
-            )}
-          </div>
         </div>
       </div>
     </div>
