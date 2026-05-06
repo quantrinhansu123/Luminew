@@ -146,16 +146,38 @@ function paymentLabelIsCoBillOnly(label) {
   return s.includes('có bill');
 }
 
-function mapOrderRowToVanDonVirtual(row) {
+function orderHasBillEvidence(row) {
+  if (!row || typeof row !== 'object') return false;
+  const up = String(row.ngayupbill ?? row['Ngày up bill'] ?? '').trim();
+  const img = String(row.payment_image ?? row['Payment Image'] ?? '').trim();
+  const pb = String(row.payment_bill ?? row['Payment Bill'] ?? '').trim();
+  return Boolean(up || img || pb);
+}
+
+function resolveReconciledVnd(row) {
+  const v1 = row?.reconciled_vnd;
+  if (v1 != null && v1 !== '' && Number.isFinite(Number(v1))) return Number(v1);
+  const v2 = row?.reconciled_amount;
+  if (v2 != null && v2 !== '' && Number.isFinite(Number(v2))) return Number(v2);
+  const v3 = row?.total_amount_vnd;
+  if (v3 != null && v3 !== '' && Number.isFinite(Number(v3))) return Number(v3);
+  return 0;
+}
+
+function mapOrderRowToVanDonVirtual(row, branchLabel) {
   if (!row || typeof row !== 'object') return null;
   const ngay = normalizeYmd(row?.order_date) || normalizeYmd(row?.created_at);
+  const __ceo_branch = String(branchLabel || '').toUpperCase() === 'HCM' ? 'HCM' : 'HN';
   const checkResult = String(row?.check_result ?? '').trim() || '(Trống)';
   const deliveryStatus = String(row?.delivery_status_nb ?? row?.delivery_status ?? '').trim() || '(Trống)';
-  const paymentLabel = paymentLabelForOrder(row) || '(Trống)';
+  const paymentLabelRaw = paymentLabelForOrder(row) || '(Trống)';
+  const hasBill = orderHasBillEvidence(row) || paymentLabelIsCoBillOnly(paymentLabelRaw);
+  const paymentLabel = hasBill ? 'Có bill' : paymentLabelRaw;
   const tracking = String(row?.tracking_code ?? '').trim();
   const shippingUnit = String(row?.shipping_unit ?? '').trim();
   const lenVh = shippingUnit ? 1 : 0;
   const amt = resolveOrderDisplayTotalVnd(row);
+  const recVnd = resolveReconciledVnd(row);
 
   const giaoHang = {
     [deliveryStatus]: 1,
@@ -169,10 +191,11 @@ function mapOrderRowToVanDonVirtual(row) {
   return {
     _source: 'orders',
     id: row?.id || row?.order_code || `${ngay}-${Math.random().toString(36).slice(2, 8)}`,
+    __ceo_branch,
     _ket_qua_check: { [checkResult]: 1 },
     _trang_thai_giao_hang: giaoHang,
     _trang_thai_thanh_toan: { [paymentLabel]: 1 },
-    _tien_trang_thai_thanh_toan: { [paymentLabel]: paymentLabelIsCoBillOnly(paymentLabel) ? Number(row?.total_amount_vnd) || 0 : 0 },
+    _tien_trang_thai_thanh_toan: { [paymentLabel]: hasBill ? recVnd : 0 },
     _tong_tien_vnd: amt,
     _len_vh_don_vi: lenVh,
     'khu vực': String(row?.country ?? '').trim() || 'Không xác định',
@@ -310,7 +333,8 @@ function chotKind(soDon, mess) {
 export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, onChangeFrom, onChangeTo }) {
   const [rowsHn, setRowsHn] = useState([]);
   const [rowsHcm, setRowsHcm] = useState([]);
-  const [rowsOrders, setRowsOrders] = useState([]);
+  const [rowsOrdersHn, setRowsOrdersHn] = useState([]);
+  const [rowsOrdersHcm, setRowsOrdersHcm] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -395,15 +419,15 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
         return all;
       };
 
-      const loadOrders = async () => {
+      const loadOrdersTable = async (tableName) => {
         const all = [];
         for (let page = 0; page < MAX_PAGES; page += 1) {
           const from = page * PAGE_SIZE;
           const to = from + PAGE_SIZE - 1;
           const { data, error: qErr } = await supabase
-            .from('orders')
+            .from(tableName)
             .select(
-              'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, tong_tien_VND, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit'
+              'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit, reconciled_vnd, reconciled_amount, payment_bill, payment_image, ngayupbill'
             )
             .gte('order_date', globalFrom)
             .lte('order_date', globalTo)
@@ -417,20 +441,23 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
         return all;
       };
 
-      const [hn, hcm, orders] = await Promise.all([
+      const [hn, hcm, ordersHn, ordersHcm] = await Promise.all([
         loadTable('detail_reports'),
         loadTable('marketing_report_hcm'),
-        loadOrders(),
+        loadOrdersTable('orders'),
+        loadOrdersTable('order_code_hcm'),
       ]);
       setRowsHn(hn);
       setRowsHcm(hcm);
-      setRowsOrders(orders);
+      setRowsOrdersHn(ordersHn);
+      setRowsOrdersHcm(ordersHcm);
     } catch (e) {
       console.error(e);
       setError(e?.message || 'Không tải được detail_reports / marketing_report_hcm');
       setRowsHn([]);
       setRowsHcm([]);
-      setRowsOrders([]);
+      setRowsOrdersHn([]);
+      setRowsOrdersHcm([]);
     } finally {
       setLoading(false);
     }
@@ -595,10 +622,32 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
     return [finalize(total), finalize(hcm), finalize(hn)];
   }, [mappedFiltered, bucketFromRow]);
 
-  const vanDonGrand = useMemo(() => {
-    const mapped = (rowsOrders || []).map(mapOrderRowToVanDonVirtual).filter(Boolean);
-    return aggregateVanHanhSlice(mapped);
-  }, [rowsOrders]);
+  const vanDonOrdersMapped = useMemo(() => {
+    const out = [];
+    for (const r of rowsOrdersHn || []) {
+      const m = mapOrderRowToVanDonVirtual(r, 'HN');
+      if (m) out.push(m);
+    }
+    for (const r of rowsOrdersHcm || []) {
+      const m = mapOrderRowToVanDonVirtual(r, 'HCM');
+      if (m) out.push(m);
+    }
+    return out;
+  }, [rowsOrdersHn, rowsOrdersHcm]);
+
+  const vanDonByBranch = useMemo(() => {
+    const by = { HCM: [], HN: [] };
+    for (const r of vanDonOrdersMapped) {
+      const b = String(r?.__ceo_branch || 'HN').toUpperCase() === 'HCM' ? 'HCM' : 'HN';
+      by[b].push(r);
+    }
+    const rows = [
+      { label: 'HCM', m: aggregateVanHanhSlice(by.HCM) },
+      { label: 'HN', m: aggregateVanHanhSlice(by.HN) },
+    ];
+    const total = aggregateVanHanhSlice(vanDonOrdersMapped);
+    return { rows, total };
+  }, [vanDonOrdersMapped]);
 
   // Đã bỏ phần bảng theo ngày theo yêu cầu.
 
@@ -758,42 +807,63 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
           <div style={{ marginTop: 18 }}>
             <h3 style={{ marginTop: 0, marginBottom: 8 }}>Vận đơn (orders)</h3>
             <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-              Đã tải: <strong>{rowsOrders.length}</strong> đơn (theo <code>order_date</code>, {globalFrom} → {globalTo})
+              Đã tải: <strong>{rowsOrdersHn.length}</strong> (HN: <code>orders</code>) +{' '}
+              <strong>{rowsOrdersHcm.length}</strong> (HCM: <code>order_code_hcm</code>) — theo <code>order_date</code>,{' '}
+              {globalFrom} → {globalTo}
             </div>
 
             <div className="table-responsive-container">
               <table>
                 <thead>
                   <tr>
-                    <th className="text-left">Chỉ số</th>
-                    <th>Giá trị</th>
+                    <th className="text-left">Khu vực</th>
+                    <th>Tổng đơn</th>
+                    <th>OK</th>
+                    <th>Huỷ</th>
+                    <th>Sau huỷ</th>
+                    <th>Lên VH</th>
+                    <th>Có mã</th>
+                    <th>Đang giao</th>
+                    <th>Giao TC</th>
+                    <th>Có bill</th>
+                    <th>%Thu/TC</th>
+                    <th>Tổng tiền (VND)</th>
+                    <th>Tiền đã thu (bill)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td className="text-left">Tổng đơn</td>
-                    <td>{formatSlVi(vanDonGrand.tongLenDon)}</td>
+                  <tr className="total-row">
+                    <td className="total-label text-left">Tổng</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.tongLenDon)}</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.ok)}</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.huyCheck)}</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.sauHuy)}</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.donDayVanHanh)}</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.coMa)}</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.dangGiao)}</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.giaoTC)}</td>
+                    <td className="total-value">{formatSlVi(vanDonByBranch.total.donCoBill)}</td>
+                    <td className="total-value">{formatPct(vanDonByBranch.total.donCoBill, vanDonByBranch.total.giaoTC)}</td>
+                    <td className="total-value">{formatCurrency(vanDonByBranch.total.tongLenDonAmount)}</td>
+                    <td className="total-value">{formatCurrency(vanDonByBranch.total.donCoBillAmount)}</td>
                   </tr>
-                  <tr>
-                    <td className="text-left">OK</td>
-                    <td>{formatSlVi(vanDonGrand.ok)}</td>
-                  </tr>
-                  <tr>
-                    <td className="text-left">Huỷ (kq check)</td>
-                    <td>{formatSlVi(vanDonGrand.huyCheck)}</td>
-                  </tr>
-                  <tr>
-                    <td className="text-left">Giao thành công</td>
-                    <td>{formatSlVi(vanDonGrand.giaoTC)}</td>
-                  </tr>
-                  <tr>
-                    <td className="text-left">Có bill</td>
-                    <td>{formatSlVi(vanDonGrand.donCoBill)}</td>
-                  </tr>
-                  <tr>
-                    <td className="text-left">% Thu / Giao TC</td>
-                    <td>{formatPct(vanDonGrand.donCoBill, vanDonGrand.giaoTC)}</td>
-                  </tr>
+                  {vanDonByBranch.rows.map(({ label, m }) => (
+                    <tr key={label}>
+                      <td className="text-left">{label}</td>
+                      <td>{formatSlVi(m.tongLenDon)}</td>
+                      <td>{formatSlVi(m.ok)}</td>
+                      <td>{formatSlVi(m.huyCheck)}</td>
+                      <td>{formatSlVi(m.sauHuy)}</td>
+                      <td>{formatSlVi(m.donDayVanHanh)}</td>
+                      <td>{formatSlVi(m.coMa)}</td>
+                      <td>{formatSlVi(m.dangGiao)}</td>
+                      <td>{formatSlVi(m.giaoTC)}</td>
+                      <td>{formatSlVi(m.donCoBill)}</td>
+                      <td>{formatPct(m.donCoBill, m.giaoTC)}</td>
+                      <td>{formatCurrency(m.tongLenDonAmount)}</td>
+                      <td>{formatCurrency(m.donCoBillAmount)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

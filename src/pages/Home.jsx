@@ -140,6 +140,14 @@ function Home() {
           adminOnly: true,
           allowDirectorDept: true,
         },
+        {
+          id: "bao-cao-ceo",
+          label: "Báo cáo CEO",
+          icon: <BarChart3 className="w-4 h-4" />,
+          path: "/bao-cao-ceo",
+          adminOnly: true,
+          allowDirectorDept: true,
+        },
       ],
     },
     {
@@ -397,14 +405,6 @@ function Home() {
           icon: <VanHanhHcmIcon className="w-4 h-4" />,
           path: "/bao-cao-van-hanh-hcm",
           permissionAny: ['ORDERS_REPORT_OPERATION_HCM', 'ORDERS_LIST_HCM'],
-        },
-        {
-          id: "delivery-bc-ceo",
-          label: "Báo cáo CEO",
-          icon: <BarChart3 className="w-4 h-4" />,
-          path: "/bao-cao-ceo",
-          adminOnly: true,
-          allowDirectorDept: true,
         },
         {
           id: "delivery-daily-report",
@@ -882,6 +882,15 @@ function Home() {
           adminOnly: true,
           allowDirectorDept: true,
         },
+        {
+          title: "Báo cáo CEO",
+          icon: <BarChart3 className="w-8 h-8" />,
+          color: "bg-slate-900",
+          path: "/bao-cao-ceo",
+          status: "Tổng hợp CEO",
+          adminOnly: true,
+          allowDirectorDept: true,
+        },
       ],
     },
     {
@@ -1162,15 +1171,6 @@ function Home() {
           path: "/bao-cao-van-hanh-hcm",
           status: "Chi nhánh HCM",
           permissionAny: ['ORDERS_REPORT_OPERATION_HCM', 'ORDERS_LIST_HCM'],
-        },
-        {
-          title: "Báo cáo CEO",
-          icon: <BarChart3 className="w-8 h-8" />,
-          color: "bg-slate-900",
-          path: "/bao-cao-ceo",
-          status: "Tổng hợp CEO",
-          adminOnly: true,
-          allowDirectorDept: true,
         },
         {
           title: "Dữ liệu báo cáo hàng ngày",
