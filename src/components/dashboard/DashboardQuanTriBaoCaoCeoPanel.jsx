@@ -22,6 +22,11 @@ function normalizeShiftLabel(value) {
   const s = normalizePickValue(value);
   const l = s.toLowerCase();
   if (!l) return '';
+  // Ca gộp legacy: coi như "Hết ca" để tránh cộng trùng khi lọc theo ca.
+  // (Khớp quy ước recalc MKT: ca trống/gộp ưu tiên gom về Hết ca.)
+  const hasHet = l.includes('het ca') || l.includes('hết ca');
+  const hasGiua = l.includes('giua ca') || l.includes('giữa ca');
+  if (hasHet && hasGiua) return 'Hết ca';
   if (l === 'het ca' || l === 'hết ca') return 'Hết ca';
   if (l === 'giua ca' || l === 'giữa ca') return 'Giữa ca';
   // fallback: giữ nguyên nhưng chuẩn hoá kiểu Title-case đơn giản cho bớt lệch
