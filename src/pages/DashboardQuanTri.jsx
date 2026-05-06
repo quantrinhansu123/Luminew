@@ -83,10 +83,21 @@ export default function DashboardQuanTri() {
         ]);
         if (cancelled) return;
 
-        const saleYmd = (Array.isArray(saleMax?.data) ? saleMax.data[0]?.date : saleMax?.data?.date) || null;
-        const vdYmd = (Array.isArray(vanDonMax?.data) ? vanDonMax.data[0]?.ngay : vanDonMax?.data?.ngay) || null;
+        const saleYmdRaw = (Array.isArray(saleMax?.data) ? saleMax.data[0]?.date : saleMax?.data?.date) || null;
+        const vdYmdRaw = (Array.isArray(vanDonMax?.data) ? vanDonMax.data[0]?.ngay : vanDonMax?.data?.ngay) || null;
 
-        const toYmd = String(saleYmd || vdYmd || '').slice(0, 10);
+        const saleYmd = String(saleYmdRaw || '').slice(0, 10);
+        const vdYmd = String(vdYmdRaw || '').slice(0, 10);
+
+        // Chọn ngày kết thúc theo "giao" dữ liệu để tab nào cũng có data:
+        // nếu sales_reports mới hơn bao_cao_van_don (hoặc ngược lại) mà dùng MAX, một tab sẽ trống.
+        // YYYY-MM-DD so sánh lexicographic được.
+        const toYmd =
+          saleYmd && vdYmd
+            ? saleYmd <= vdYmd
+              ? saleYmd
+              : vdYmd
+            : saleYmd || vdYmd || '';
         if (!toYmd || toYmd.length < 10) return;
 
         const d = new Date(Number(toYmd.slice(0, 4)), Number(toYmd.slice(5, 7)) - 1, Number(toYmd.slice(8, 10)));

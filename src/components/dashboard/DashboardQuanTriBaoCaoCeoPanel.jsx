@@ -1,71 +1,145 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../supabase/config';
-import {
-  canonicalBranchKey,
-  formatCurrency,
-  formatNumber,
-  mapSupabaseSalesReportRow,
-  filterRawData,
-  rowCanonicalBranchKey,
-} from '../../utils/nhanSuSaleLumiMoiLogic';
+import { formatCurrency, formatNumber, filterRawData } from '../../utils/nhanSuSaleLumiMoiLogic';
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 80;
 
-// Tránh select revenue_mess: một số DB chưa có column này (PGRST204).
-const SALES_REPORTS_SELECT = [
-  'name',
-  'email',
-  'team',
-  'branch',
-  'position',
-  'date',
-  'shift',
-  'product',
-  'market',
-  'mess_count',
-  'response_count',
-  'order_count',
-  'revenue_actual',
-  'revenue_go_actual',
-  'order_cancel_count_actual',
-  'revenue_cancel_actual',
+// CEO MKT: đọc trực tiếp bảng MKT (HN + HCM). Các cột tiếng Việt cần quote đúng key.
+const MKT_REPORTS_SELECT_BASE = [
+  'id',
+  '"Ngày"',
+  'ca',
+  '"Team"',
+  '"Sản_phẩm"',
+  '"Thị_trường"',
+  '"Số_Mess_Cmt"',
+  '"CPQC"',
+  '"Số đơn"',
+  '"Doanh số"',
 ].join(',');
+
+// Một số DB dùng tên khác nhau cho “doanh số TT” (vd. “Doanh số đi thực tế”).
+// Không được select cột không tồn tại — PostgREST sẽ 400. Vì vậy ta thử nhiều candidates.
+const MKT_REPORTS_SELECT_CANDIDATES = [
+  `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+  `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Doanh số đi thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+  `${MKT_REPORTS_SELECT_BASE},"Số đơn thực tế","Số đơn hoàn hủy","Doanh số hoàn hủy thực tế"`,
+  MKT_REPORTS_SELECT_BASE,
+];
+
+function getFirstDefined(row, keys) {
+  for (const k of keys) {
+    const v = row?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return null;
+}
+
+function mapMktReportRowToVirtual(row, source) {
+  if (!row || typeof row !== 'object') return null;
+  // PostgREST trả key theo đúng tên cột (không có dấu quote trong key).
+  const ngay = String(getFirstDefined(row, ['Ngày']) ?? '').slice(0, 10);
+  const ca = String(getFirstDefined(row, ['ca']) ?? '').trim();
+  const team = String(getFirstDefined(row, ['Team']) ?? '').trim();
+  const sanPham = String(getFirstDefined(row, ['Sản_phẩm']) ?? '').trim();
+  const thiTruong = String(getFirstDefined(row, ['Thị_trường']) ?? '').trim();
+  const soMessCmt = Number(getFirstDefined(row, ['Số_Mess_Cmt']) ?? 0) || 0;
+  const cpqc = Number(getFirstDefined(row, ['CPQC']) ?? 0) || 0;
+  const soDonTay = Number(getFirstDefined(row, ['Số đơn']) ?? 0) || 0;
+  const doanhSoTay = Number(getFirstDefined(row, ['Doanh số']) ?? 0) || 0;
+
+  // TT: ưu tiên cột TT nếu có; không có thì fallback theo “tay”.
+  const soDonTT = Number(getFirstDefined(row, ['Số đơn thực tế']) ?? NaN);
+  const dsTT = Number(getFirstDefined(row, ['Doanh số thực tế', 'Doanh số đi thực tế']) ?? NaN);
+  const soDonHuyTT = Number(getFirstDefined(row, ['Số đơn hoàn hủy']) ?? 0) || 0;
+  const dsHuyTT = Number(getFirstDefined(row, ['Doanh số hoàn hủy thực tế']) ?? 0) || 0;
+
+  const soDonThucTe = Number.isFinite(soDonTT) ? soDonTT : soDonTay;
+  const doanhThuChotThucTe = Number.isFinite(dsTT) ? dsTT : doanhSoTay;
+
+  return {
+    __ceo_source: source, // 'hn' | 'hcm'
+    ngay,
+    ca,
+    team,
+    sanPham,
+    thiTruong,
+    soMessCmt,
+    cpqc,
+    soDonTay,
+    doanhSoTay,
+    soDonThucTe,
+    doanhThuChotThucTe,
+    soDonHoanHuyThucTe: soDonHuyTT,
+    doanhSoHoanHuyThucTe: dsHuyTT,
+  };
+}
 
 function emptyAgg(label) {
   return {
     label,
     mess: 0,
-    phanHoi: 0,
-    soDon: 0,
-    doanhThuTT: 0,
-    soDonHuyTT: 0,
-    doanhSoHuyTT: 0,
+    cpqc: 0,
+    soDonTay: 0,
+    doanhSoTay: 0,
+    soDonTT: 0,
+    doanhSoTT: 0,
   };
 }
 
 function addRow(agg, r) {
   agg.mess += Number(r.soMessCmt || 0);
-  agg.phanHoi += Number(r.phanHoi || 0);
-  agg.soDon += Number(r.soDonThucTe || 0);
-  agg.doanhThuTT += Number(r.doanhThuChotThucTe || 0);
-  agg.soDonHuyTT += Number(r.soDonHoanHuyThucTe || 0);
-  agg.doanhSoHuyTT += Number(r.doanhSoHoanHuyThucTe || 0);
+  agg.cpqc += Number(r.cpqc || 0);
+  agg.soDonTay += Number(r.soDonTay || 0);
+  agg.doanhSoTay += Number(r.doanhSoTay || 0);
+  agg.soDonTT += Number(r.soDonThucTe || 0);
+  agg.doanhSoTT += Number(r.doanhThuChotThucTe || 0);
 }
 
 function addAgg(dst, src) {
   dst.mess += Number(src.mess || 0);
-  dst.phanHoi += Number(src.phanHoi || 0);
-  dst.soDon += Number(src.soDon || 0);
-  dst.doanhThuTT += Number(src.doanhThuTT || 0);
-  dst.soDonHuyTT += Number(src.soDonHuyTT || 0);
-  dst.doanhSoHuyTT += Number(src.doanhSoHuyTT || 0);
+  dst.cpqc += Number(src.cpqc || 0);
+  dst.soDonTay += Number(src.soDonTay || 0);
+  dst.doanhSoTay += Number(src.doanhSoTay || 0);
+  dst.soDonTT += Number(src.soDonTT || 0);
+  dst.doanhSoTT += Number(src.doanhSoTT || 0);
 }
 
 function pct(n, d) {
   if (!d) return '0.00%';
   return `${((Number(n || 0) / Number(d || 0)) * 100).toFixed(2)}%`;
+}
+
+function moneyDiv(n, d) {
+  const nn = Number(n || 0);
+  const dd = Number(d || 0);
+  if (!dd) return 0;
+  return nn / dd;
+}
+
+function warnStyle(kind) {
+  if (kind === 'bad') return { background: '#fde2e2', color: '#991b1b', fontWeight: 700 };
+  if (kind === 'warn') return { background: '#fef3c7', color: '#92400e', fontWeight: 700 };
+  if (kind === 'good') return { background: '#dcfce7', color: '#166534', fontWeight: 700 };
+  return null;
+}
+
+function cpOverDsKind(cp, ds) {
+  if (!Number(ds || 0)) return null;
+  const r = moneyDiv(cp, ds);
+  if (r >= 0.35) return 'bad';
+  if (r >= 0.25) return 'warn';
+  return 'good';
+}
+
+function chotKind(soDon, mess) {
+  if (!Number(mess || 0)) return null;
+  const r = moneyDiv(soDon, mess);
+  if (r < 0.02) return 'bad';
+  if (r < 0.03) return 'warn';
+  return 'good';
 }
 
 export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo }) {
@@ -109,35 +183,56 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
     setLoading(true);
     setError(null);
     try {
+      const isMissingColumnErr = (err) => {
+        const code = String(err?.code || '');
+        const msg = String(err?.message || '').toLowerCase();
+        return code === '42703' || msg.includes('does not exist') || msg.includes('could not find');
+      };
+
       const loadTable = async (tableName) => {
         const all = [];
-        for (let page = 0; page < MAX_PAGES; page += 1) {
-          const from = page * PAGE_SIZE;
-          const to = from + PAGE_SIZE - 1;
-          const { data, error: qErr } = await supabase
-            .from(tableName)
-            .select(SALES_REPORTS_SELECT)
-            .gte('date', globalFrom)
-            .lte('date', globalTo)
-            .order('date', { ascending: true })
-            .range(from, to);
-          if (qErr) throw qErr;
-          const batch = data || [];
-          all.push(...batch);
-          if (batch.length < PAGE_SIZE) break;
+        let lastErr = null;
+
+        // Retry với select ngắn hơn nếu thiếu cột
+        for (const selectStr of MKT_REPORTS_SELECT_CANDIDATES) {
+          try {
+            all.length = 0;
+            for (let page = 0; page < MAX_PAGES; page += 1) {
+              const from = page * PAGE_SIZE;
+              const to = from + PAGE_SIZE - 1;
+              const { data, error: qErr } = await supabase
+                .from(tableName)
+                .select(selectStr)
+                .gte('Ngày', globalFrom)
+                .lte('Ngày', globalTo)
+                .order('Ngày', { ascending: true })
+                .range(from, to);
+              if (qErr) throw qErr;
+              const batch = data || [];
+              all.push(...batch);
+              if (batch.length < PAGE_SIZE) break;
+            }
+            lastErr = null;
+            break;
+          } catch (e) {
+            lastErr = e;
+            if (!isMissingColumnErr(e)) break;
+          }
         }
+
+        if (lastErr) throw lastErr;
         return all;
       };
 
       const [hn, hcm] = await Promise.all([
-        loadTable('sales_reports'),
-        loadTable('sale_report_hcm'),
+        loadTable('detail_reports'),
+        loadTable('marketing_report_hcm'),
       ]);
       setRowsHn(hn);
       setRowsHcm(hcm);
     } catch (e) {
       console.error(e);
-      setError(e?.message || 'Không tải được sales_reports / sale_report_hcm');
+      setError(e?.message || 'Không tải được detail_reports / marketing_report_hcm');
       setRowsHn([]);
       setRowsHcm([]);
     } finally {
@@ -152,12 +247,12 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
   const mappedAll = useMemo(() => {
     const out = [];
     for (const r of rowsHn) {
-      const m = mapSupabaseSalesReportRow(r);
-      if (m) out.push({ ...m, __ceo_source: 'hn' });
+      const m = mapMktReportRowToVirtual(r, 'hn');
+      if (m) out.push(m);
     }
     for (const r of rowsHcm) {
-      const m = mapSupabaseSalesReportRow(r);
-      if (m) out.push({ ...m, __ceo_source: 'hcm' });
+      const m = mapMktReportRowToVirtual(r, 'hcm');
+      if (m) out.push(m);
     }
     return out;
   }, [rowsHn, rowsHcm]);
@@ -166,10 +261,6 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
     const src = String(r?.__ceo_source || '').toLowerCase();
     if (src === 'hcm') return 'hcm';
     if (src === 'hn') return 'hn';
-    // Fallback (cũ) nếu thiếu source
-    const k = rowCanonicalBranchKey(r) || canonicalBranchKey(r?.team) || '';
-    if (k === 'BR_HCM') return 'hcm';
-    if (k === 'BR_HN') return 'hn';
     return 'other';
   }, []);
 
@@ -276,15 +367,14 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
     addAgg(total, hn);
 
     const finalize = (a) => {
-      const soDonSauHuy = a.soDon - a.soDonHuyTT;
-      const dsSauHuy = a.doanhThuTT - a.doanhSoHuyTT;
       return {
         ...a,
-        soDonSauHuy,
-        dsSauHuy,
-        rateChot: a.mess ? a.soDon / a.mess : 0,
-        rateSauHuy: a.mess ? soDonSauHuy / a.mess : 0,
-        tiLeHuy: a.soDon ? a.soDonHuyTT / a.soDon : 0,
+        tiLeChot: moneyDiv(a.soDonTay, a.mess),
+        tiLeChotTT: moneyDiv(a.soDonTT, a.mess),
+        giaMess: moneyDiv(a.cpqc, a.mess),
+        cps: moneyDiv(a.cpqc, a.soDonTT),
+        cpDs: moneyDiv(a.cpqc, a.doanhSoTT),
+        giaTbDon: moneyDiv(a.doanhSoTT, a.soDonTT),
       };
     };
 
@@ -314,15 +404,14 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
       addAgg(total, hcm);
       addAgg(total, hn);
       const finalize = (a) => {
-        const soDonSauHuy = a.soDon - a.soDonHuyTT;
-        const dsSauHuy = a.doanhThuTT - a.doanhSoHuyTT;
         return {
           ...a,
-          soDonSauHuy,
-          dsSauHuy,
-          rateChot: a.mess ? a.soDon / a.mess : 0,
-          rateSauHuy: a.mess ? soDonSauHuy / a.mess : 0,
-          tiLeHuy: a.soDon ? a.soDonHuyTT / a.soDon : 0,
+          tiLeChot: moneyDiv(a.soDonTay, a.mess),
+          tiLeChotTT: moneyDiv(a.soDonTT, a.mess),
+          giaMess: moneyDiv(a.cpqc, a.mess),
+          cps: moneyDiv(a.cpqc, a.soDonTT),
+          cpDs: moneyDiv(a.cpqc, a.doanhSoTT),
+          giaTbDon: moneyDiv(a.doanhSoTT, a.soDonTT),
         };
       };
       return { day, rows: [finalize(total), finalize(hcm), finalize(hn)] };
@@ -446,16 +535,16 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
               <thead>
                 <tr>
                   <th className="text-left">Khu vực</th>
-                  <th>Mess</th>
-                  <th>Phản hồi</th>
-                  <th>Số đơn (TT)</th>
-                  <th>% Chốt (Đơn/Mess)</th>
-                  <th>Doanh thu (TT)</th>
-                  <th>Đơn huỷ (TT)</th>
-                  <th>% Huỷ (Huỷ/Đơn)</th>
-                  <th>Đơn sau huỷ</th>
-                  <th>% Sau huỷ (Sau huỷ/Mess)</th>
-                  <th>DS sau huỷ</th>
+                  <th>Số Mess</th>
+                  <th>CPQC</th>
+                  <th>DS Chốt</th>
+                  <th>DS Chốt (TT)</th>
+                  <th>Tỉ lệ chốt</th>
+                  <th>Tỉ lệ chốt (TT)</th>
+                  <th>Giá Mess</th>
+                  <th>CPS</th>
+                  <th>%CP/DS</th>
+                  <th>Giá TB Đơn</th>
                 </tr>
               </thead>
               <tbody>
@@ -463,15 +552,21 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
                   <tr key={a.label} className={a.label === 'Tổng' ? 'total-row' : ''}>
                     <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
                     <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.phanHoi)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.soDon)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{pct(a.soDon, a.mess)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhThuTT)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.soDonHuyTT)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{pct(a.soDonHuyTT, a.soDon)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.soDonSauHuy)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{pct(a.soDonSauHuy, a.mess)}</td>
-                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.dsSauHuy)}</td>
+                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
+                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTay)}</td>
+                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
+                    <td style={warnStyle(chotKind(a.soDonTay, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                      {pct(a.soDonTay, a.mess)}
+                    </td>
+                    <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                      {pct(a.soDonTT, a.mess)}
+                    </td>
+                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaMess)}</td>
+                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cps)}</td>
+                    <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoTT))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                      {pct(a.cpqc, a.doanhSoTT)}
+                    </td>
+                    <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaTbDon)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -493,16 +588,16 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
                     <thead>
                       <tr>
                         <th className="text-left">Khu vực</th>
-                        <th>Mess</th>
-                        <th>Phản hồi</th>
-                        <th>Số đơn (TT)</th>
-                        <th>% Chốt</th>
-                        <th>Doanh thu (TT)</th>
-                        <th>Đơn huỷ (TT)</th>
-                        <th>% Huỷ</th>
-                        <th>Đơn sau huỷ</th>
-                        <th>% Sau huỷ</th>
-                        <th>DS sau huỷ</th>
+                        <th>Số Mess</th>
+                        <th>CPQC</th>
+                        <th>DS Chốt</th>
+                        <th>DS Chốt (TT)</th>
+                        <th>Tỉ lệ chốt</th>
+                        <th>Tỉ lệ chốt (TT)</th>
+                        <th>Giá Mess</th>
+                        <th>CPS</th>
+                        <th>%CP/DS</th>
+                        <th>Giá TB Đơn</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -510,15 +605,21 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo })
                         <tr key={`${block.day}-${a.label}`} className={a.label === 'Tổng' ? 'total-row' : ''}>
                           <td className={a.label === 'Tổng' ? 'total-label' : 'text-left'}>{a.label}</td>
                           <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.mess)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.phanHoi)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.soDon)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{pct(a.soDon, a.mess)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhThuTT)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.soDonHuyTT)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{pct(a.soDonHuyTT, a.soDon)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatNumber(a.soDonSauHuy)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{pct(a.soDonSauHuy, a.mess)}</td>
-                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.dsSauHuy)}</td>
+                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cpqc)}</td>
+                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTay)}</td>
+                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.doanhSoTT)}</td>
+                          <td style={warnStyle(chotKind(a.soDonTay, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                            {pct(a.soDonTay, a.mess)}
+                          </td>
+                          <td style={warnStyle(chotKind(a.soDonTT, a.mess))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                            {pct(a.soDonTT, a.mess)}
+                          </td>
+                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaMess)}</td>
+                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.cps)}</td>
+                          <td style={warnStyle(cpOverDsKind(a.cpqc, a.doanhSoTT))} className={a.label === 'Tổng' ? 'total-value' : ''}>
+                            {pct(a.cpqc, a.doanhSoTT)}
+                          </td>
+                          <td className={a.label === 'Tổng' ? 'total-value' : ''}>{formatCurrency(a.giaTbDon)}</td>
                         </tr>
                       ))}
                     </tbody>
