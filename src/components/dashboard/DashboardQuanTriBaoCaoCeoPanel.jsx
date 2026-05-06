@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../supabase/config';
 import { formatCurrency, formatNumber, filterRawData } from '../../utils/nhanSuSaleLumiMoiLogic';
 import { aggregateVanHanhSlice, formatPct, formatSlVi } from '../../utils/baoCaoVanDonMarketMatrix';
+import { dedupeMktDetailReportRows } from '../../services/mktRecalcSoDonThucTeFromOrders';
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 80;
@@ -10,10 +11,14 @@ const CEO_DEFAULT_SHIFT = 'Hết ca';
 
 // CEO MKT: đọc trực tiếp bảng MKT (HN + HCM). Các cột tiếng Việt cần quote đúng key.
 const MKT_DATE_COL = '"Ngày"';
+// HN (`detail_reports`): scope giống trang Báo cáo MKT (không áp dụng cho HCM).
+const MKT_DETAIL_REPORTS_SCOPE_OR =
+  'department.is.null,department.eq.MKT,department.neq.RD,Team.ilike.test';
 const MKT_REPORTS_SELECT_BASE = [
   'id',
   '"Ngày"',
   'ca',
+  '"Tên"',
   '"Team"',
   '"Sản_phẩm"',
   '"Thị_trường"',
@@ -394,12 +399,19 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
             for (let page = 0; page < MAX_PAGES; page += 1) {
               const from = page * PAGE_SIZE;
               const to = from + PAGE_SIZE - 1;
-              const { data, error: qErr } = await supabase
+              let q = supabase
                 .from(tableName)
                 .select(selectStr)
                 // PostgREST: cột tiếng Việt / chữ hoa cần quote trong filter key, nếu không sẽ 400.
                 .gte(MKT_DATE_COL, globalFrom)
-                .lte(MKT_DATE_COL, globalTo)
+                .lte(MKT_DATE_COL, globalTo);
+
+              // Đồng bộ scope giống trang Báo cáo MKT HN (detail_reports).
+              if (String(tableName || '').trim() === 'detail_reports') {
+                q = q.or(MKT_DETAIL_REPORTS_SCOPE_OR);
+              }
+
+              const { data, error: qErr } = await q
                 .order(MKT_DATE_COL, { ascending: true })
                 .range(from, to);
               if (qErr) throw qErr;
@@ -476,11 +488,14 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
 
   const mappedAll = useMemo(() => {
     const out = [];
-    for (const r of rowsHn) {
+    // Khử trùng giống trang Báo cáo MKT để tránh cộng trùng số liệu (trùng key/ngày+tên+sp+tt+ca).
+    const hnDeduped = dedupeMktDetailReportRows(rowsHn || []);
+    const hcmDeduped = dedupeMktDetailReportRows(rowsHcm || []);
+    for (const r of hnDeduped) {
       const m = mapMktReportRowToVirtual(r, 'hn');
       if (m) out.push(m);
     }
-    for (const r of rowsHcm) {
+    for (const r of hcmDeduped) {
       const m = mapMktReportRowToVirtual(r, 'hcm');
       if (m) out.push(m);
     }
