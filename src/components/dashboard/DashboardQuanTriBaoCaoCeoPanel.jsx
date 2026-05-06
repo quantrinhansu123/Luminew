@@ -18,6 +18,16 @@ function normalizePickValue(value) {
     .replace(/\s+/g, ' ');
 }
 
+function normalizeShiftLabel(value) {
+  const s = normalizePickValue(value);
+  const l = s.toLowerCase();
+  if (!l) return '';
+  if (l === 'het ca' || l === 'hết ca') return 'Hết ca';
+  if (l === 'giua ca' || l === 'giữa ca') return 'Giữa ca';
+  // fallback: giữ nguyên nhưng chuẩn hoá kiểu Title-case đơn giản cho bớt lệch
+  return s;
+}
+
 // CEO MKT: đọc trực tiếp bảng MKT (HN + HCM). Các cột tiếng Việt cần quote đúng key.
 const MKT_DATE_COL = '"Ngày"';
 // HN (`detail_reports`): scope giống trang Báo cáo MKT (không áp dụng cho HCM).
@@ -221,7 +231,7 @@ function mapMktReportRowToVirtual(row, source) {
   if (!row || typeof row !== 'object') return null;
   // PostgREST trả key theo đúng tên cột (không có dấu quote trong key).
   const ngay = String(getFirstDefined(row, ['Ngày']) ?? '').slice(0, 10);
-  const ca = normalizePickValue(getFirstDefined(row, ['ca']) ?? '');
+  const ca = normalizeShiftLabel(getFirstDefined(row, ['ca']) ?? '');
   const team = normalizePickValue(getFirstDefined(row, ['Team']) ?? '');
   const sanPham = normalizePickValue(getFirstDefined(row, ['Sản_phẩm']) ?? '');
   const thiTruong = normalizePickValue(getFirstDefined(row, ['Thị_trường']) ?? '');
@@ -358,6 +368,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   });
   const [branchPick, setBranchPick] = useState('all'); // all | hcm | hn
   const didInitFiltersRef = useState(false);
+  const lastAllOptionsRef = useState(() => ({ shifts: [], teams: [], products: [], markets: [] }));
 
   const toggleInList = (list, value) => {
     const v = normalizePickValue(value);
@@ -548,13 +559,24 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   // Khi options thay đổi sau khi đã init: giữ các value còn tồn tại, và auto-add value mới (để vẫn "tất cả").
   useEffect(() => {
     if (!didInitFiltersRef[0]) return;
+    const prevAll = lastAllOptionsRef[0] || { shifts: [], teams: [], products: [], markets: [] };
     setFilters((prev) => {
+      const reconcile = (prevSelected, allOptions, prevAllOptions) => {
+        const allNorm = (allOptions || []).map((x) => normalizePickValue(x)).filter(Boolean);
+        const allSet = new Set(allNorm);
+        const prevSelNorm = (prevSelected || []).map((x) => normalizePickValue(x)).filter(Boolean);
+        const kept = prevSelNorm.filter((x) => allSet.has(x));
+        const wasAll = (prevAllOptions || []).length > 0 && prevSelNorm.length === (prevAllOptions || []).length;
+        if (!wasAll) return kept;
+        const keptSet = new Set(kept);
+        const added = allNorm.filter((x) => !keptSet.has(x));
+        return [...kept, ...added];
+      };
       const next = {
-        // CEO: ẩn UI ca nhưng vẫn giữ "tất cả ca" (auto-add ca mới nếu phát sinh)
-        shifts: mergeKeepAndAddNew(prev.shifts, filterOptions.shifts),
-        teams: mergeKeepAndAddNew(prev.teams, filterOptions.teams),
-        products: mergeKeepAndAddNew(prev.products, filterOptions.products),
-        markets: mergeKeepAndAddNew(prev.markets, filterOptions.markets),
+        shifts: reconcile(prev.shifts, filterOptions.shifts, prevAll.shifts),
+        teams: reconcile(prev.teams, filterOptions.teams, prevAll.teams),
+        products: reconcile(prev.products, filterOptions.products, prevAll.products),
+        markets: reconcile(prev.markets, filterOptions.markets, prevAll.markets),
       };
       if (
         arraysEqual(prev.shifts, next.shifts) &&
@@ -565,6 +587,12 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
         return prev;
       }
       return next;
+    });
+    lastAllOptionsRef[1]({
+      shifts: (filterOptions.shifts || []).map((x) => normalizePickValue(x)).filter(Boolean),
+      teams: (filterOptions.teams || []).map((x) => normalizePickValue(x)).filter(Boolean),
+      products: (filterOptions.products || []).map((x) => normalizePickValue(x)).filter(Boolean),
+      markets: (filterOptions.markets || []).map((x) => normalizePickValue(x)).filter(Boolean),
     });
   }, [filterOptions.products, filterOptions.markets, filterOptions.shifts, filterOptions.teams, didInitFiltersRef]);
 
