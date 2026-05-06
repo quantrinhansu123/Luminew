@@ -1383,10 +1383,10 @@ export default function BaoCaoVanHanhHtml() {
     /** Tab3 matrix: SL + Thành tiền (tổng `_tong_tien_vnd` các dòng thỏa cùng điều kiện với SL). */
     const renderMetricPair = (sl, tienVnd) => (
         <>
-            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
+            <td className="border border-black px-3 py-2 text-right font-extrabold tabular-nums">
                 {formatSlVi(sl)}
             </td>
-            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
+            <td className="border border-black px-3 py-2 text-right font-extrabold tabular-nums">
                 {formatNumVi(tienVnd ?? 0)}
             </td>
         </>
@@ -1394,10 +1394,10 @@ export default function BaoCaoVanHanhHtml() {
 
     const renderCoBillPair = (count, amountVnd) => (
         <>
-            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
+            <td className="border border-black px-3 py-2 text-right font-extrabold tabular-nums">
                 {formatSlVi(count)}
             </td>
-            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">
+            <td className="border border-black px-3 py-2 text-right font-extrabold tabular-nums">
                 {formatNumVi(amountVnd)}
             </td>
         </>
@@ -1405,8 +1405,8 @@ export default function BaoCaoVanHanhHtml() {
 
     const renderPctPair = (pctStr) => (
         <>
-            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums">{pctStr}</td>
-            <td className="border border-black px-2 py-1 text-right font-extrabold tabular-nums text-gray-500">
+            <td className="border border-black px-3 py-2 text-right font-extrabold tabular-nums">{pctStr}</td>
+            <td className="border border-black px-3 py-2 text-right font-extrabold tabular-nums text-gray-500">
                 {pctStr}
             </td>
         </>
@@ -2563,7 +2563,7 @@ export default function BaoCaoVanHanhHtml() {
             {/* Tab 3 — Thống Kê Đơn (matrix) */}
             {activeTab === 'tab3' && (
             <div className={`overflow-x-auto rounded-b-md rounded-tr-md bg-white shadow-lg ${c ? 'p-2' : 'p-4'}`}>
-                <table className="min-w-max w-full border-collapse text-xs text-black">
+                <table className="min-w-max w-full border-collapse text-[13px] text-black">
                     <thead>
                         <tr>
                             <th
@@ -2576,7 +2576,7 @@ export default function BaoCaoVanHanhHtml() {
                         <tr>
                             <th
                                 rowSpan={2}
-                                className="w-48 border border-black bg-[#A9D08E] px-2 py-1 font-bold"
+                                className="w-48 border border-black bg-[#A9D08E] px-3 py-2 font-bold"
                             >
                                 Thị trường / Tiêu chí
                             </th>
@@ -2584,29 +2584,29 @@ export default function BaoCaoVanHanhHtml() {
                                 <th
                                     key={mk}
                                     colSpan={2}
-                                    className="border border-black bg-[#A9D08E] px-2 py-1 font-bold"
+                                    className="border border-black bg-[#A9D08E] px-3 py-2 font-bold"
                                 >
                                     {mk}
                                 </th>
                             ))}
-                            <th colSpan={2} className="border border-black bg-[#FFFF00] px-2 py-1 font-bold">
+                            <th colSpan={2} className="border border-black bg-[#FFFF00] px-3 py-2 font-bold">
                                 TỔNG
                             </th>
                         </tr>
                         <tr>
                             {markets.map((mk) => (
                                 <React.Fragment key={`${mk}-sub`}>
-                                    <th className="border border-black bg-[#A9D08E] px-2 py-1 font-bold">SL đơn</th>
-                                    <th className="border border-black bg-[#A9D08E] px-2 py-1 font-bold">Thành tiền</th>
+                                    <th className="border border-black bg-[#A9D08E] px-3 py-2 font-bold">SL đơn</th>
+                                    <th className="border border-black bg-[#A9D08E] px-3 py-2 font-bold">Thành tiền</th>
                                 </React.Fragment>
                             ))}
-                            <th className="border border-black bg-[#FFFF00] px-2 py-1 font-bold">SL đơn</th>
-                            <th className="border border-black bg-[#FFFF00] px-2 py-1 font-bold">Thành tiền</th>
+                            <th className="border border-black bg-[#FFFF00] px-3 py-2 font-bold">SL đơn</th>
+                            <th className="border border-black bg-[#FFFF00] px-3 py-2 font-bold">Thành tiền</th>
                         </tr>
                     </thead>
                     <tbody className="bg-[#FDE9D9]">
                         <tr className="bg-lime-400 font-bold">
-                            <td className="border border-black px-2 py-1">Tổng lên đơn</td>
+                            <td className="border border-black px-3 py-2">Tổng lên đơn</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`tl-${mk}`}>
                                     {renderMetricPair(byMarket[mk].tongLenDon, byMarket[mk].tongLenDonAmount)}
@@ -2615,7 +2615,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.tongLenDon, total.tongLenDonAmount)}
                         </tr>
                         <tr>
-                            <td className="border border-black px-2 py-1 font-bold">OK</td>
+                            <td className="border border-black px-3 py-2 font-bold">OK</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`ok-${mk}`}>
                                     {renderMetricPair(byMarket[mk].ok, byMarket[mk].okAmount)}
@@ -2624,7 +2624,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.ok, total.okAmount)}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1">Tỷ lệ OK / Tổng đơn (%)</td>
+                            <td className="border border-black px-3 py-2">Tỷ lệ OK / Tổng đơn (%)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`tok-${mk}`}>
                                     {renderPctPair(formatPct(byMarket[mk].ok, byMarket[mk].tongLenDon))}
@@ -2633,7 +2633,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderPctPair(formatPct(total.ok, total.tongLenDon))}
                         </tr>
                         <tr>
-                            <td className="border border-black px-2 py-1">Treo</td>
+                            <td className="border border-black px-3 py-2">Treo</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`tr-${mk}`}>
                                     {renderMetricPair(byMarket[mk].treo, byMarket[mk].treoAmount)}
@@ -2642,7 +2642,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.treo, total.treoAmount)}
                         </tr>
                         <tr>
-                            <td className="border border-black px-2 py-1">Đợi hàng</td>
+                            <td className="border border-black px-3 py-2">Đợi hàng</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`dh-${mk}`}>
                                     {renderMetricPair(byMarket[mk].doiHang, byMarket[mk].doiHangAmount)}
@@ -2651,7 +2651,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.doiHang, total.doiHangAmount)}
                         </tr>
                         <tr className="text-red-600">
-                            <td className="border border-black px-2 py-1">Tổng hủy (kq check)</td>
+                            <td className="border border-black px-3 py-2">Tổng hủy (kq check)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`hc-${mk}`}>
                                     {renderMetricPair(byMarket[mk].huyCheck, byMarket[mk].huyCheckAmount)}
@@ -2660,7 +2660,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.huyCheck, total.huyCheckAmount)}
                         </tr>
                         <tr className="text-red-700 font-semibold">
-                            <td className="border border-black px-2 py-1 leading-tight">
+                            <td className="border border-black px-3 py-2 leading-tight">
                                 Huỷ vận hành
                                 <span className="block text-xs font-normal font-sans">
                                     (có Đơn vị vận chuyển + kết quả check Huỷ)
@@ -2674,7 +2674,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.huyVanHanh, total.huyVanHanhAmount)}
                         </tr>
                         <tr className="font-bold text-red-600">
-                            <td className="border border-black px-2 py-1">Tổng đơn sau hủy</td>
+                            <td className="border border-black px-3 py-2">Tổng đơn sau hủy</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`sh-${mk}`}>
                                     {renderMetricPair(byMarket[mk].sauHuy, byMarket[mk].sauHuyAmount)}
@@ -2683,7 +2683,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.sauHuy, total.sauHuyAmount)}
                         </tr>
                         <tr className="italic text-red-600">
-                            <td className="border border-black px-2 py-1 not-italic">Tỷ lệ hủy (%)</td>
+                            <td className="border border-black px-3 py-2 not-italic">Tỷ lệ hủy (%)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`th-${mk}`}>
                                     {renderPctPair(formatPct(byMarket[mk].huyCheck, byMarket[mk].tongLenDon))}
@@ -2692,7 +2692,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderPctPair(formatPct(total.huyCheck, total.tongLenDon))}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1 leading-tight">
+                            <td className="border border-black px-3 py-2 leading-tight">
                                 Đơn đẩy vận hành
                                 <span className="block text-xs font-normal">
                                     (đơn có cột Đơn vị vận chuyển không trống)
@@ -2706,7 +2706,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.donDayVanHanh, total.donDayVanHanhAmount)}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1">Tỷ lệ đẩy / Tổng đơn (%)</td>
+                            <td className="border border-black px-3 py-2">Tỷ lệ đẩy / Tổng đơn (%)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`tdt-${mk}`}>
                                     {renderPctPair(
@@ -2717,7 +2717,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderPctPair(formatPct(total.donDayVanHanh, total.tongLenDon))}
                         </tr>
                         <tr>
-                            <td className="border border-black px-2 py-1">Giao Thành Công</td>
+                            <td className="border border-black px-3 py-2">Giao Thành Công</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`gtc-${mk}`}>
                                     {renderMetricPair(byMarket[mk].giaoTC, byMarket[mk].giaoTCAmount)}
@@ -2727,7 +2727,7 @@ export default function BaoCaoVanHanhHtml() {
                         </tr>
                         {/* Bỏ dòng MGT (theo key histogram) theo yêu cầu */}
                         <tr className="bg-cyan-200 font-bold">
-                            <td className="border border-black px-2 py-1">Đơn có mã (Mã tracking)</td>
+                            <td className="border border-black px-3 py-2">Đơn có mã (Mã tracking)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`cm-${mk}`}>
                                     {renderMetricPair(byMarket[mk].coMa, byMarket[mk].coMaAmount)}
@@ -2736,7 +2736,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderMetricPair(total.coMa, total.coMaAmount)}
                         </tr>
                         <tr className="bg-cyan-200 font-bold">
-                            <td className="border border-black px-2 py-1">Đơn có bill (có bill, trừ 1 phần)</td>
+                            <td className="border border-black px-3 py-2">Đơn có bill (có bill, trừ 1 phần)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`bl-${mk}`}>
                                     {renderCoBillPair(byMarket[mk].donCoBill, byMarket[mk].donCoBillAmount)}
@@ -2745,16 +2745,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderCoBillPair(total.donCoBill, total.donCoBillAmount)}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1">Tỷ lệ thu tiền / đơn TC (%)</td>
-                            {markets.map((mk) => (
-                                <React.Fragment key={`ttc-${mk}`}>
-                                    {renderPctPair(formatPct(byMarket[mk].donCoBill, byMarket[mk].giaoTC))}
-                                </React.Fragment>
-                            ))}
-                            {renderPctPair(formatPct(total.donCoBill, total.giaoTC))}
-                        </tr>
-                        <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1">Tỷ lệ thu tiền / đơn thành công (%)</td>
+                            <td className="border border-black px-3 py-2">Tỷ lệ thu tiền / đơn thành công (%)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`tcm-${mk}`}>
                                     {renderPctPair(formatPct(byMarket[mk].donCoBill, byMarket[mk].giaoTC))}
@@ -2763,7 +2754,7 @@ export default function BaoCaoVanHanhHtml() {
                             {renderPctPair(formatPct(total.donCoBill, total.giaoTC))}
                         </tr>
                         <tr className="bg-yellow-300 font-bold">
-                            <td className="border border-black px-2 py-1">Tỷ lệ vận hành (Giao TC / Tổng lên đơn)</td>
+                            <td className="border border-black px-3 py-2">Tỷ lệ vận hành (Giao TC / Tổng lên đơn)</td>
                             {markets.map((mk) => (
                                 <React.Fragment key={`tvh-${mk}`}>
                                     {renderPctPair(formatPct(byMarket[mk].giaoTC, byMarket[mk].tongLenDon))}

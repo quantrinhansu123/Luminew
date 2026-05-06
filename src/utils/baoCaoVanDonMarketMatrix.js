@@ -217,5 +217,5 @@ export function formatPct(numerator, denominator) {
     const d = Number(denominator) || 0;
     if (d <= 0) return '—';
     const p = (100 * Number(numerator || 0)) / d;
-    return `${p.toFixed(2).replace('.', ',')}%`;
+    return `${p.toFixed(1).replace('.', ',')}%`;
 }
