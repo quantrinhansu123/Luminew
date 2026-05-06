@@ -1170,11 +1170,20 @@ const VAN_DON_MULTISELECT_FILTER_DB_COLS = new Set([
 
 function isVanDonDropdownColumnFilter(uiKey) {
     const dataKey = COLUMN_MAPPING[uiKey] || uiKey;
+    const normalizeKey = (value) => String(value || '').trim().toLowerCase();
+    const keyNorm = normalizeKey(dataKey);
+    const uiNorm = normalizeKey(uiKey);
+    const dropdownKeys = new Set(
+        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển', 'Trạng thái thu tiền']
+            .map((k) => normalizeKey(k))
+            .filter(Boolean)
+    );
+
     if (
         DROPDOWN_OPTIONS[dataKey] ||
         DROPDOWN_OPTIONS[uiKey] ||
-        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Trạng thái thu tiền'].includes(dataKey) ||
-        ['Trạng thái giao hàng', 'Kết quả check', 'GHI CHÚ', 'Đơn vị vận chuyển', 'Trạng thái thu tiền'].includes(uiKey)
+        dropdownKeys.has(keyNorm) ||
+        dropdownKeys.has(uiNorm)
     ) {
         return true;
     }
