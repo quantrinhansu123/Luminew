@@ -424,13 +424,20 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
         for (let page = 0; page < MAX_PAGES; page += 1) {
           const from = page * PAGE_SIZE;
           const to = from + PAGE_SIZE - 1;
-          const { data, error: qErr } = await supabase
+          let q = supabase
             .from(tableName)
             .select(
               'id, order_code, order_date, created_at, country, delivery_status_nb, delivery_status, check_result, payment_status, payment_status_detail, total_amount_vnd, tong_tien_vnd, van_don_line_total_vnd, sale_price, goods_amount, tracking_code, shipping_unit, reconciled_vnd, reconciled_amount, payment_bill, payment_image, ngayupbill'
             )
             .gte('order_date', globalFrom)
-            .lte('order_date', globalTo)
+            .lte('order_date', globalTo);
+
+          // Đồng bộ logic trang Vận đơn Hà Nội: loại riêng chi nhánh HCM khỏi bảng `orders`.
+          if (String(tableName || '').trim() === 'orders') {
+            q = q.or('team.is.null,team.neq.HCM');
+          }
+
+          const { data, error: qErr } = await q
             .order('order_date', { ascending: true })
             .range(from, to);
           if (qErr) throw qErr;
