@@ -10,6 +10,14 @@ const MAX_PAGES = 80;
 const CEO_DEFAULT_SHIFT = 'Hết ca';
 // Bộ lọc Ca đang ẩn; mặc định tính theo tất cả ca để khớp báo cáo MKT.
 
+function normalizePickValue(value) {
+  return String(value ?? '')
+    .replace(/\u00a0/g, ' ')
+    .normalize('NFC')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
 // CEO MKT: đọc trực tiếp bảng MKT (HN + HCM). Các cột tiếng Việt cần quote đúng key.
 const MKT_DATE_COL = '"Ngày"';
 // HN (`detail_reports`): scope giống trang Báo cáo MKT (không áp dụng cho HCM).
@@ -213,7 +221,7 @@ function mapMktReportRowToVirtual(row, source) {
   if (!row || typeof row !== 'object') return null;
   // PostgREST trả key theo đúng tên cột (không có dấu quote trong key).
   const ngay = String(getFirstDefined(row, ['Ngày']) ?? '').slice(0, 10);
-  const ca = String(getFirstDefined(row, ['ca']) ?? '').trim();
+  const ca = normalizePickValue(getFirstDefined(row, ['ca']) ?? '');
   const team = String(getFirstDefined(row, ['Team']) ?? '').trim();
   const sanPham = String(getFirstDefined(row, ['Sản_phẩm']) ?? '').trim();
   const thiTruong = String(getFirstDefined(row, ['Thị_trường']) ?? '').trim();
@@ -352,8 +360,8 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   const didInitFiltersRef = useState(false);
 
   const toggleInList = (list, value) => {
-    const v = String(value || '').trim();
-    const next = new Set((list || []).map((x) => String(x)));
+    const v = normalizePickValue(value);
+    const next = new Set((list || []).map((x) => normalizePickValue(x)).filter(Boolean));
     if (next.has(v)) next.delete(v);
     else next.add(v);
     return Array.from(next.values());
@@ -362,7 +370,7 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
   const uniqueSorted = (arr, pick) => {
     const s = new Set();
     (arr || []).forEach((x) => {
-      const v = String(pick(x) || '').trim();
+      const v = normalizePickValue(pick(x));
       if (v) s.add(v);
     });
     return Array.from(s.values()).sort((a, b) => a.localeCompare(b, 'vi'));
@@ -902,10 +910,11 @@ export default function DashboardQuanTriBaoCaoCeoPanel({ globalFrom, globalTo, o
 }
 
 function mergeKeepAndAddNew(prevSelected, allOptions) {
-  const allSet = new Set((allOptions || []).map((x) => String(x)));
-  const kept = (prevSelected || []).map((x) => String(x)).filter((x) => allSet.has(x));
+  const normAll = (allOptions || []).map((x) => normalizePickValue(x)).filter(Boolean);
+  const allSet = new Set(normAll);
+  const kept = (prevSelected || []).map((x) => normalizePickValue(x)).filter((x) => allSet.has(x));
   const keptSet = new Set(kept);
-  const added = (allOptions || []).map((x) => String(x)).filter((x) => !keptSet.has(x));
+  const added = normAll.filter((x) => !keptSet.has(x));
   return [...kept, ...added];
 }
 
